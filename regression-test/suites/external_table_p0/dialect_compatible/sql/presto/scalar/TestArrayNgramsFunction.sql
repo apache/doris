@@ -1,0 +1,42 @@
+set sql_dialect='presto';
+set enable_fallback_to_original_planner=false;
+set debug_skip_fold_constant=false;
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 1); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 1);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 2);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 3); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 3);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 4); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 4);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 5); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 5);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 6); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 6);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 100000000); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 100000000);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['a', 'bb', 'ccc', 'dddd'], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['a', 'bb', 'ccc', 'dddd'], 2);	                       ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['foo', NULL, 'bar'], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['foo', NULL, 'bar'], 2);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY [NULL, NULL, NULL], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY [NULL, NULL, NULL], 2);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY [NULL, 3, NULL], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY [NULL, 3, NULL], 2);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY[1, 2, 3], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY[1, 2, 3], 2);	                     ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY[1.1E0, 2.1E0, 3.1E0], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY[1.1E0, 2.1E0, 3.1E0], 2);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY[true, false, true], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY[true, false, true], 2);	                        ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY[ARRAY['A1', 'A2'], ARRAY['B1'], ARRAY['C1', 'C2']], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	...CT ngrams(ARRAY[ARRAY['A1', 'A2'], ARRAY['B1'], ARRAY[...	                             ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['\u4FE1\u5FF5\u7231', '\u5E0C\u671B', '\u671B'], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	...ARRAY['\u4FE1\u5FF5\u7231', '\u5E0C\u671B', '\u671B'],...	                             ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY[], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY[], 2);	                    ^	Encountered: ]	Expected: IDENTIFIER	
+-- SELECT ngrams(ARRAY[''], 2); # error: errCode = 2, detailMessage = Unknown column 'ARRAY' in 'table list' in PROJECT clause
+-- SELECT ngrams(ARRAY['', ''], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['', ''], 2);	                      ^	Encountered: COMMA	Expected: ||	
+set debug_skip_fold_constant=true;
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 1); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 1);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 2);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 3); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 3);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 4); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 4);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 5); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 5);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 6); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 6);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 100000000); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['bar', 'foo', 'baz', 'foo'], 100000000);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['a', 'bb', 'ccc', 'dddd'], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['a', 'bb', 'ccc', 'dddd'], 2);	                       ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['foo', NULL, 'bar'], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['foo', NULL, 'bar'], 2);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY [NULL, NULL, NULL], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY [NULL, NULL, NULL], 2);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY [NULL, 3, NULL], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY [NULL, 3, NULL], 2);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY[1, 2, 3], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY[1, 2, 3], 2);	                     ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY[1.1E0, 2.1E0, 3.1E0], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY[1.1E0, 2.1E0, 3.1E0], 2);	                         ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY[true, false, true], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY[true, false, true], 2);	                        ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY[ARRAY['A1', 'A2'], ARRAY['B1'], ARRAY['C1', 'C2']], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	...CT ngrams(ARRAY[ARRAY['A1', 'A2'], ARRAY['B1'], ARRAY[...	                             ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY['\u4FE1\u5FF5\u7231', '\u5E0C\u671B', '\u671B'], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	...ARRAY['\u4FE1\u5FF5\u7231', '\u5E0C\u671B', '\u671B'],...	                             ^	Encountered: COMMA	Expected: ||	
+-- SELECT ngrams(ARRAY[], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY[], 2);	                    ^	Encountered: ]	Expected: IDENTIFIER	
+-- SELECT ngrams(ARRAY[''], 2); # error: errCode = 2, detailMessage = Unknown column 'ARRAY' in 'table list' in PROJECT clause
+-- SELECT ngrams(ARRAY['', ''], 2); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT ngrams(ARRAY['', ''], 2);	                      ^	Encountered: COMMA	Expected: ||	

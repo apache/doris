@@ -1,0 +1,385 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+#include "core/data_type_serde/data_type_serde.h"
+
+#include <vector>
+
+#include "common/check.h"
+#include "common/exception.h"
+#include "common/status.h"
+#include "core/assert_cast.h"
+#include "core/column/column.h"
+#include "core/column/column_nullable.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/storage_field_type.h"
+#include "core/data_type_serde/data_type_array_serde.h"
+#include "core/data_type_serde/data_type_decimal_serde.h"
+#include "core/data_type_serde/data_type_jsonb_serde.h"
+#include "core/data_type_serde/data_type_number_serde.h"
+#include "core/data_type_serde/data_type_string_serde.h"
+#include "core/data_type_serde/parquet_decode_source.h"
+#include "core/field.h"
+#include "exprs/function/cast/cast_base.h"
+#include "runtime/descriptors.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
+namespace doris {
+DataTypeSerDe::~DataTypeSerDe() = default;
+
+bool decoded_column_view_can_null_on_conversion_failure(const DecodedColumnView& view) {
+    return !view.enable_strict_mode && view.conversion_failure_null_map != nullptr;
+}
+
+void decoded_column_view_insert_null_on_conversion_failure(IColumn& column,
+                                                           const DecodedColumnView& view,
+                                                           int64_t row) {
+    DORIS_CHECK(decoded_column_view_can_null_on_conversion_failure(view));
+    DORIS_CHECK(row >= 0);
+    DORIS_CHECK(row < view.row_count);
+    DORIS_CHECK(view.conversion_failure_null_map_offset >= 0);
+    const auto null_map_row = view.conversion_failure_null_map_offset + row;
+    DORIS_CHECK(null_map_row >= 0);
+    DORIS_CHECK(static_cast<size_t>(null_map_row) < view.conversion_failure_null_map->size());
+    column.insert_default();
+    (*view.conversion_failure_null_map)[null_map_row] = 1;
+}
+
+Status decoded_column_view_handle_conversion_failure(IColumn& column, const DecodedColumnView& view,
+                                                     const Status& status) {
+    if (!decoded_column_view_can_null_on_conversion_failure(view)) {
+        return status;
+    }
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+    }
+    return Status::OK();
+}
+
+Status DataTypeSerDe::read_column_from_decoded_values(IColumn& column,
+                                                      const DecodedColumnView& view) const {
+    return decoded_column_view_handle_conversion_failure(
+            column, view,
+            Status::NotSupported("read_column_from_decoded_values is not supported for {}",
+                                 get_name()));
+}
+
+Status DataTypeSerDe::read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                               const ParquetDecodeContext& context,
+                                               size_t num_values,
+                                               ParquetMaterializationState& state) const {
+    return Status::NotSupported("read_column_from_parquet is not supported for {}", get_name());
+}
+
+bool DataTypeSerDe::supports_parquet_raw_predicate(const ParquetDecodeContext& context) const {
+    return false;
+}
+
+Status DataTypeSerDe::read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                                 const ParquetDecodeContext& context,
+                                                 size_t num_values, bool enable_strict_mode,
+                                                 ParquetLogicalValueConsumer& consumer) const {
+    return Status::NotSupported("read_parquet_raw_predicate is not supported for {}", get_name());
+}
+
+Status DataTypeSerDe::read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                              const ParquetDecodeContext& context) const {
+    return Status::NotSupported("read_parquet_dictionary is not supported for {}", get_name());
+}
+
+Status DataTypeSerDe::read_column_from_orc(IColumn& column,
+                                           const OrcDecodedColumnView& view) const {
+    return Status::NotSupported("read_column_from_orc is not supported for {}", get_name());
+}
+
+Status DataTypeSerDe::read_field_from_decoded_value(const IDataType& data_type, Field* field,
+                                                    const DecodedColumnView& view) const {
+    DORIS_CHECK(field != nullptr);
+    DORIS_CHECK(view.row_count == 1);
+    auto column = data_type.create_column();
+    RETURN_IF_ERROR(read_column_from_decoded_values(*column, view));
+    DORIS_CHECK(column->size() == 1);
+    column->get(0, *field);
+    return Status::OK();
+}
+
+DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
+    DataTypeSerDeSPtrs serdes;
+    serdes.reserve(types.size());
+    for (const DataTypePtr& type : types) {
+        serdes.push_back(type->get_serde());
+    }
+    return serdes;
+}
+
+DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& slots) {
+    DataTypeSerDeSPtrs serdes;
+    serdes.reserve(slots.size());
+    for (const SlotDescriptor* slot : slots) {
+        serdes.push_back(slot->get_data_type_ptr()->get_serde());
+    }
+    return serdes;
+}
+
+Status DataTypeSerDe::default_from_string(StringRef& str, IColumn& column) const {
+    auto slice = str.to_slice();
+    DataTypeSerDe::FormatOptions options;
+    options.converted_from_string = true;
+    ///TODO: Think again, when do we need to consider escape characters?
+    // options.escape_char = '\\';
+    // Deserialize the string into the column
+    return deserialize_one_cell_from_json(column, slice, options);
+}
+
+Status DataTypeSerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                       ColumnString& to_column) const {
+    const auto size = from_column.size();
+    JsonbWriter writer;
+    for (int i = 0; i < size; i++) {
+        writer.reset();
+        RETURN_IF_ERROR(serialize_column_to_jsonb(from_column, i, writer));
+        to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+    }
+    return Status::OK();
+}
+
+Status DataTypeSerDe::parse_column_from_jsonb_string(IColumn& column, const JsonbValue* jsonb_value,
+                                                     CastParameters& castParms) const {
+    DCHECK(jsonb_value->isString());
+    const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+
+    Slice slice(blob->getBlob(), blob->getBlobLen());
+
+    DataTypeSerDe::FormatOptions format_options;
+    format_options.converted_from_string = true;
+    format_options.escape_char = '\\';
+
+    return deserialize_one_cell_from_json(column, slice, format_options);
+}
+
+Status DataTypeSerDe::deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
+                                                           const ColumnString& col_from_json,
+                                                           CastParameters& castParms) const {
+    const size_t size = col_from_json.size();
+    const bool is_strict = castParms.is_strict;
+    for (size_t i = 0; i < size; ++i) {
+        const auto& val = col_from_json.get_data_at(i);
+        const auto* value = handle_jsonb_value(val);
+        if (!value) {
+            column_to.insert_default();
+            continue;
+        }
+        Status from_st =
+                deserialize_column_from_jsonb(column_to.get_nested_column(), value, castParms);
+
+        if (from_st.ok()) {
+            // fill not null if success
+            column_to.get_null_map_data().push_back(0);
+        } else {
+            if (is_strict) {
+                return from_st;
+            } else {
+                // fill null if fail
+                column_to.insert_default();
+            }
+        }
+    }
+    return Status::OK();
+}
+
+void DataTypeSerDe::to_string_batch(const IColumn& column, ColumnString& column_to,
+                                    const FormatOptions& options) const {
+    const auto size = column.size();
+    column_to.reserve(size);
+    VectorBufferWriter write_buffer(column_to);
+    for (size_t i = 0; i < size; ++i) {
+        to_string(column, i, write_buffer, options);
+        write_buffer.commit();
+    }
+}
+
+void DataTypeSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
+                              const FormatOptions& options) const {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Data type {} to_string_batch not implement.", get_name());
+}
+
+std::string DataTypeSerDe::to_olap_string(const Field& value) const {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Data type {} to_olap_string not implement.", get_name());
+    return "";
+}
+
+bool DataTypeSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
+                                               int64_t row_idx,
+                                               const FormatOptions& options) const {
+    to_string(column, row_idx, bw, options);
+    return true;
+}
+
+bool DataTypeSerDe::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
+                                                int64_t row_idx,
+                                                const FormatOptions& options) const {
+    to_string(column, row_idx, bw, options);
+    return true;
+}
+
+bool DataTypeSerDe::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
+                                              int64_t row_idx, const FormatOptions& options) const {
+    to_string(column, row_idx, bw, options);
+    return true;
+}
+
+const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";
+const std::string DataTypeSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
+
+const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, IColumn& column) {
+    auto& nullable_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+    const FieldType type = static_cast<FieldType>(*data++);
+    const uint8_t* end = data;
+    switch (type) {
+#define HANDLE_SIMPLE_SERDE(FT, SERDE)                                                        \
+    case FieldType::FT: {                                                                     \
+        end = SERDE::deserialize_binary_to_column(data, nullable_column.get_nested_column()); \
+        nullable_column.push_false_to_nullmap(1);                                             \
+        break;                                                                                \
+    }
+
+#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                   \
+    case FieldType::FT: {                                                \
+        end = DataTypeNumberSerDe<TYPEID>::deserialize_binary_to_column( \
+                data, nullable_column.get_nested_column());              \
+        nullable_column.push_false_to_nullmap(1);                        \
+        break;                                                           \
+    }
+
+#define HANDLE_T_DEC_SERDE(FT, TYPEID)                                    \
+    case FieldType::FT: {                                                 \
+        end = DataTypeDecimalSerDe<TYPEID>::deserialize_binary_to_column( \
+                data, nullable_column.get_nested_column());               \
+        nullable_column.push_false_to_nullmap(1);                         \
+        break;                                                            \
+    }
+
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_STRING, DataTypeStringSerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_INT, TYPE_INT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_JSONB, DataTypeJsonbSerDe)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_UUID, TYPE_UUID)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATE, TYPE_DATE)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TIMESTAMP_NS, TYPE_TIMESTAMP_NS)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TIMESTAMPTZ, TYPE_TIMESTAMPTZ)
+
+    case FieldType::OLAP_FIELD_TYPE_NONE: {
+        end = data;
+        nullable_column.insert_default();
+        break;
+    }
+    default:
+        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                               "Type ({}) for deserialize_binary_to_column is invalid", type);
+    }
+
+#undef HANDLE_T_DEC_SERDE
+#undef HANDLE_T_NUM_SERDE
+#undef HANDLE_SIMPLE_SERDE
+
+    return end;
+}
+
+const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                          FieldInfo& info) {
+    const FieldType type = static_cast<FieldType>(*data++);
+    info.scalar_type_id = storage_field_type_to_primitive_type(type);
+    const uint8_t* end = data;
+    switch (type) {
+#define HANDLE_SIMPLE_SERDE(FT, SERDE)                               \
+    case FieldType::FT: {                                            \
+        end = SERDE::deserialize_binary_to_field(data, field, info); \
+        break;                                                       \
+    }
+
+#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                                     \
+    case FieldType::FT: {                                                                  \
+        end = DataTypeNumberSerDe<TYPEID>::deserialize_binary_to_field(data, field, info); \
+        break;                                                                             \
+    }
+
+#define HANDLE_T_DEC_SERDE(FT, TYPEID)                                                      \
+    case FieldType::FT: {                                                                   \
+        end = DataTypeDecimalSerDe<TYPEID>::deserialize_binary_to_field(data, field, info); \
+        break;                                                                              \
+    }
+
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_STRING, DataTypeStringSerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_INT, TYPE_INT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_JSONB, DataTypeJsonbSerDe)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_UUID, TYPE_UUID)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATE, TYPE_DATE)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TIMESTAMP_NS, TYPE_TIMESTAMP_NS)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TIMESTAMPTZ, TYPE_TIMESTAMPTZ)
+
+    case FieldType::OLAP_FIELD_TYPE_NONE: {
+        end = data;
+        break;
+    }
+    default:
+        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                               "Type ({}) for deserialize_binary_to_field is invalid", type);
+    }
+
+#undef HANDLE_T_DEC_SERDE
+#undef HANDLE_T_NUM_SERDE
+#undef HANDLE_SIMPLE_SERDE
+    return end;
+}
+
+} // namespace doris

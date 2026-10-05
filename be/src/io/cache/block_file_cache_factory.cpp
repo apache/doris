@@ -1,0 +1,579 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileCacheFactory.cpp
+// and modified by Doris
+
+#include "io/cache/block_file_cache_factory.h"
+
+#include <glog/logging.h>
+
+#include <string>
+#include <vector>
+#if defined(__APPLE__)
+#include <sys/mount.h>
+#else
+#include <sys/statfs.h>
+#endif
+
+#include <algorithm>
+#include <atomic>
+#include <execution>
+#include <functional>
+#include <ostream>
+#include <thread>
+#include <unordered_set>
+#include <utility>
+
+#include "common/config.h"
+#include "core/block/block.h"
+#include "information_schema/schema_scanner_helper.h"
+#include "io/cache/async_cache_write_manager.h"
+#include "io/cache/file_cache_common.h"
+#include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
+#include "service/backend_options.h"
+#include "util/mem_info.h"
+#include "util/slice.h"
+
+namespace doris {
+class TUniqueId;
+
+namespace io {
+
+namespace {
+
+struct BuiltFileCache {
+    std::string cache_base_path;
+    FileCacheSettings settings;
+    std::unique_ptr<BlockFileCache> cache;
+};
+
+Status build_file_cache(const std::string& cache_base_path, FileCacheSettings file_cache_settings,
+                        BuiltFileCache* built_cache) {
+    if (file_cache_settings.storage == "memory") {
+        if (cache_base_path != "memory") {
+            LOG(WARNING) << "memory storage must use memory path";
+            return Status::InvalidArgument("memory storage must use memory path");
+        }
+    } else {
+        const auto& fs = global_local_filesystem();
+        bool exists = false;
+        RETURN_IF_ERROR(fs->exists(cache_base_path, &exists));
+        if (!exists) {
+            auto st = fs->create_directory(cache_base_path);
+            LOG(INFO) << "path " << cache_base_path << " does not exist, create " << st.msg();
+            RETURN_IF_ERROR(st);
+        } else if (config::clear_file_cache) {
+            RETURN_IF_ERROR(fs->delete_directory(cache_base_path));
+            RETURN_IF_ERROR(fs->create_directory(cache_base_path));
+        }
+
+        struct statfs stat;
+        if (statfs(cache_base_path.c_str(), &stat) < 0) {
+            LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
+            return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
+        }
+#if defined(__APPLE__)
+        const auto block_size = stat.f_bsize;
+#else
+        const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
+#endif
+        size_t disk_capacity = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(block_size);
+        if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
+            LOG_INFO(
+                    "The cache {} config size {} is larger than disk size {} or zero, recalc "
+                    "it.",
+                    cache_base_path, file_cache_settings.capacity, disk_capacity);
+            file_cache_settings = get_file_cache_settings(disk_capacity,
+                                                          file_cache_settings.max_query_cache_size);
+        }
+        LOG(INFO) << "[FileCache] path: " << cache_base_path
+                  << " total_size: " << file_cache_settings.capacity
+                  << " disk_total_size: " << disk_capacity;
+    }
+
+    auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
+    RETURN_IF_ERROR(cache->initialize());
+    built_cache->cache_base_path = cache_base_path;
+    built_cache->settings = file_cache_settings;
+    built_cache->cache = std::move(cache);
+    return Status::OK();
+}
+
+} // namespace
+
+FileCacheFactory* FileCacheFactory::instance() {
+    return ExecEnv::GetInstance()->file_cache_factory();
+}
+
+size_t FileCacheFactory::try_release() {
+    int elements = 0;
+    for (auto& cache : _caches) {
+        elements += cache->try_release();
+    }
+    return elements;
+}
+
+size_t FileCacheFactory::try_release(const std::string& base_path) {
+    auto iter = _path_to_cache.find(base_path);
+    if (iter != _path_to_cache.end()) {
+        return iter->second->try_release();
+    }
+    return 0;
+}
+
+Status FileCacheFactory::refresh_async_write_options() {
+    std::lock_guard lock(_mtx);
+    return _refresh_async_write_options_locked();
+}
+
+Status FileCacheFactory::_refresh_async_write_options_locked() {
+    if (_caches.empty()) {
+        return Status::OK();
+    }
+
+    size_t total_max_pending_bytes = 0;
+    RETURN_IF_ERROR(resolve_async_file_cache_write_max_pending_bytes(
+            config::async_file_cache_write_max_pending_bytes, MemInfo::mem_limit(),
+            &total_max_pending_bytes));
+    const size_t max_pending_bytes_per_instance = total_max_pending_bytes / _caches.size();
+    if (max_pending_bytes_per_instance == 0) {
+        return Status::InvalidArgument(
+                "async file cache write pending byte limit {} is smaller than {} cache instances",
+                total_max_pending_bytes, _caches.size());
+    }
+    AsyncCacheWriteManagerOptions options {
+            .worker_count = static_cast<size_t>(config::async_file_cache_write_workers_per_disk),
+            .max_pending_bytes = max_pending_bytes_per_instance,
+    };
+    for (const auto& cache : _caches) {
+        RETURN_IF_ERROR(cache->async_write_manager()->update_options(options));
+    }
+    return Status::OK();
+}
+
+Status FileCacheFactory::start_async_write_managers() {
+    std::lock_guard lock(_mtx);
+    for (const auto& cache : _caches) {
+        RETURN_IF_ERROR(cache->async_write_manager()->start());
+    }
+    return Status::OK();
+}
+
+Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
+                                           FileCacheSettings file_cache_settings) {
+    BuiltFileCache built_cache;
+    RETURN_IF_ERROR(build_file_cache(cache_base_path, file_cache_settings, &built_cache));
+    {
+        std::lock_guard lock(_mtx);
+        _path_to_cache[built_cache.cache_base_path] = built_cache.cache.get();
+        _capacity += built_cache.settings.capacity;
+        _caches.push_back(std::move(built_cache.cache));
+        RETURN_IF_ERROR(_refresh_async_write_options_locked());
+    }
+
+    return Status::OK();
+}
+
+Status FileCacheFactory::create_file_caches(
+        const std::vector<CachePath>& cache_paths,
+        const std::function<bool(const std::string&, const Status&)>& should_ignore_error) {
+    struct BuildResult {
+        std::string cache_base_path;
+        FileCacheSettings settings;
+        BuiltFileCache built_cache;
+        Status status;
+        bool skip = false;
+    };
+
+    std::vector<BuildResult> results;
+    results.reserve(cache_paths.size());
+    std::unordered_set<std::string> cache_path_set;
+    for (const auto& cache_path : cache_paths) {
+        if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
+            LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
+            continue;
+        }
+
+        cache_path_set.emplace(cache_path.path);
+        auto& result = results.emplace_back();
+        result.cache_base_path = cache_path.path;
+        result.settings = cache_path.init_settings();
+    }
+
+    std::vector<std::thread> workers;
+    workers.reserve(results.size());
+    for (auto& result : results) {
+        auto* result_ptr = &result;
+        workers.emplace_back([result_ptr]() {
+            SCOPED_INIT_THREAD_CONTEXT();
+            result_ptr->status = build_file_cache(result_ptr->cache_base_path, result_ptr->settings,
+                                                  &result_ptr->built_cache);
+        });
+    }
+
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    for (auto& result : results) {
+        if (!result.status.ok()) {
+            if (should_ignore_error && should_ignore_error(result.cache_base_path, result.status)) {
+                result.skip = true;
+                continue;
+            }
+            return result.status;
+        }
+    }
+
+    {
+        std::lock_guard lock(_mtx);
+        for (auto& result : results) {
+            if (result.skip) {
+                continue;
+            }
+            _path_to_cache[result.built_cache.cache_base_path] = result.built_cache.cache.get();
+            _capacity += result.built_cache.settings.capacity;
+            _caches.push_back(std::move(result.built_cache.cache));
+        }
+        RETURN_IF_ERROR(_refresh_async_write_options_locked());
+    }
+
+    return Status::OK();
+}
+
+Status FileCacheFactory::reload_file_cache(const std::vector<CachePath>& cache_base_paths) {
+    {
+        std::unique_lock lock(_mtx);
+        for (const auto& cache_path : cache_base_paths) {
+            if (_path_to_cache.find(cache_path.path) == _path_to_cache.end()) {
+                return Status::InternalError(
+                        "Current file cache not support file cache num changes");
+            }
+        }
+
+        for (const auto& cache_path : cache_base_paths) {
+            auto cache_map_iter = _path_to_cache.find(cache_path.path);
+            auto cache_iter = std::find_if(_caches.begin(), _caches.end(),
+                                           [cache_map_iter](const auto& cache_uptr) {
+                                               return cache_uptr.get() == cache_map_iter->second;
+                                           });
+
+            if (cache_iter == _caches.end()) {
+                return Status::InternalError("Target relaod cache in path {} may has been released",
+                                             cache_path.path);
+            }
+
+            // deconstruct target reload first
+            *cache_iter = std::unique_ptr<BlockFileCache>();
+            // after deconstruct the BlockFileCache, construct the BlockFileCache again
+            *cache_iter =
+                    std::make_unique<BlockFileCache>(cache_path.path, cache_path.init_settings());
+            cache_map_iter->second = cache_iter->get();
+
+            RETURN_IF_ERROR(cache_iter->get()->initialize());
+        }
+        RETURN_IF_ERROR(_refresh_async_write_options_locked());
+    }
+
+    return Status::OK();
+}
+
+std::vector<doris::CacheBlockPB> FileCacheFactory::get_cache_data_by_path(const std::string& path) {
+    auto cache_hash = BlockFileCache::hash(path);
+    return get_cache_data_by_path(cache_hash);
+}
+
+std::vector<doris::CacheBlockPB> FileCacheFactory::get_cache_data_by_path(
+        const UInt128Wrapper& hash) {
+    std::vector<doris::CacheBlockPB> ret;
+    BlockFileCache* cache = FileCacheFactory::instance()->get_by_path(hash);
+    if (cache == nullptr) {
+        return ret;
+    }
+    auto blocks = cache->get_blocks_by_key(hash);
+    for (auto& [offset, fb] : blocks) {
+        doris::CacheBlockPB cb;
+        cb.set_block_offset(static_cast<int64_t>(offset));
+        cb.set_block_size(static_cast<int64_t>(fb->range().size()));
+        // try to read data into bytes
+        std::string data;
+        data.resize(fb->range().size());
+        Slice slice(data.data(), data.size());
+        // read from beginning of this block
+        Status st = fb->read(slice, /*read_offset=*/0);
+        if (st.ok()) {
+            cb.set_data(data);
+        } else {
+            // On read failure, skip setting data but still report meta
+            VLOG_DEBUG << "read cache block failed: " << st;
+        }
+        ret.emplace_back(std::move(cb));
+    }
+    return ret;
+}
+
+std::vector<std::string> FileCacheFactory::get_cache_file_by_path(const UInt128Wrapper& hash) {
+    io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+    auto blocks = cache->get_blocks_by_key(hash);
+    std::vector<std::string> ret;
+    if (blocks.empty()) {
+        return ret;
+    } else {
+        for (auto& [_, fb] : blocks) {
+            ret.emplace_back(fb->get_cache_file());
+        }
+    }
+    return ret;
+}
+
+int64_t FileCacheFactory::get_cache_file_size_by_path(const UInt128Wrapper& hash) {
+    io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+    auto blocks = cache->get_blocks_by_key(hash);
+    if (blocks.empty()) {
+        return 0;
+    }
+    int64_t cache_size = 0;
+    for (auto& [_, fb] : blocks) {
+        cache_size += fb->range().size();
+    }
+    return cache_size;
+}
+
+BlockFileCache* FileCacheFactory::get_by_path(const UInt128Wrapper& key) {
+    // dont need lock mutex because _caches is immutable after create_file_cache
+    return _caches[KeyHash()(key) % _caches.size()].get();
+}
+
+BlockFileCache* FileCacheFactory::get_by_path(const std::string& cache_base_path) {
+    auto iter = _path_to_cache.find(cache_base_path);
+    if (iter == _path_to_cache.end()) {
+        return nullptr;
+    } else {
+        return iter->second;
+    }
+}
+
+std::vector<BlockFileCache::QueryFileCacheContextHolderPtr>
+FileCacheFactory::get_query_context_holders(const TUniqueId& query_id,
+                                            int file_cache_query_limit_percent) {
+    std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> holders;
+    for (const auto& cache : _caches) {
+        holders.push_back(
+                cache->get_query_context_holder(query_id, file_cache_query_limit_percent));
+    }
+    return holders;
+}
+
+Status FileCacheFactory::clear_file_caches(bool sync, std::string* ret) {
+    DCHECK(ret != nullptr);
+
+    // Sync clear is an operational action and can synchronously remove many files. Keep a single
+    // process-wide sync clear in flight, so a second HTTP request fails fast instead of piling onto
+    // the same cache instances. Async clear keeps the previous behavior and is not gated here.
+    static std::atomic_bool sync_clear_running {false};
+    struct SyncClearRunningGuard {
+        std::atomic_bool* running = nullptr;
+        ~SyncClearRunningGuard() {
+            if (running != nullptr) {
+                running->store(false, std::memory_order_release);
+            }
+        }
+    } sync_clear_guard;
+    if (sync) {
+        bool expected = false;
+        if (!sync_clear_running.compare_exchange_strong(expected, true, std::memory_order_acq_rel,
+                                                        std::memory_order_acquire)) {
+            return Status::InvalidArgument("sync clear_file_caches is already running");
+        }
+        sync_clear_guard.running = &sync_clear_running;
+    }
+
+    std::vector<std::string> results(_caches.size());
+#ifndef USE_LIBCPP
+    std::for_each(std::execution::par, _caches.begin(), _caches.end(), [&](const auto& cache) {
+        size_t index = &cache - &_caches[0];
+        results[index] = sync ? cache->clear_file_cache_sync() : cache->clear_file_cache_async();
+    });
+#else
+    // libcpp do not support std::execution::par
+    std::for_each(_caches.begin(), _caches.end(), [&](const auto& cache) {
+        size_t index = &cache - &_caches[0];
+        results[index] = sync ? cache->clear_file_cache_sync() : cache->clear_file_cache_async();
+    });
+#endif
+    std::stringstream ss;
+    for (const auto& cache_result : results) {
+        ss << cache_result << "\n";
+    }
+    *ret = ss.str();
+    return Status::OK();
+}
+
+std::string FileCacheFactory::clear_file_caches(bool sync) {
+    std::string result;
+    auto st = clear_file_caches(sync, &result);
+    return st.ok() ? result : st.to_string();
+}
+
+void FileCacheFactory::dump_all_caches() {
+    for (const auto& cache : _caches) {
+        cache->dump_lru_queues(true);
+    }
+}
+
+std::vector<std::string> FileCacheFactory::get_base_paths() {
+    std::vector<std::string> paths;
+    for (const auto& pair : _path_to_cache) {
+        paths.push_back(pair.first);
+    }
+    return paths;
+}
+
+std::string validate_capacity(const std::string& path, int64_t new_capacity,
+                              int64_t& valid_capacity) {
+    struct statfs stat;
+    if (statfs(path.c_str(), &stat) < 0) {
+        auto ret = fmt::format("reset capacity {} statfs error {}. ", path, strerror(errno));
+        LOG_ERROR(ret);
+        valid_capacity = 0; // caller will handle the error
+        return ret;
+    }
+#if defined(__APPLE__)
+    const auto block_size = stat.f_bsize;
+#else
+    const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
+#endif
+    size_t disk_capacity = static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(block_size);
+    if (new_capacity == 0 || disk_capacity < new_capacity) {
+        auto ret = fmt::format(
+                "The cache {} config size {} is larger than disk size {} or zero, recalc "
+                "it to disk size. ",
+                path, new_capacity, disk_capacity);
+        valid_capacity = disk_capacity;
+        LOG_WARNING(ret);
+        return ret;
+    }
+    valid_capacity = new_capacity;
+    return "";
+}
+
+std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t new_capacity) {
+    std::stringstream ss;
+    size_t total_capacity = 0;
+    if (path.empty()) {
+        for (auto& [p, cache] : _path_to_cache) {
+            int64_t valid_capacity = 0;
+            ss << validate_capacity(p, new_capacity, valid_capacity);
+            if (valid_capacity <= 0) {
+                return ss.str();
+            }
+            ss << cache->reset_capacity(valid_capacity);
+            total_capacity += cache->capacity();
+        }
+        _capacity = total_capacity;
+        return ss.str();
+    } else {
+        if (auto iter = _path_to_cache.find(path); iter != _path_to_cache.end()) {
+            int64_t valid_capacity = 0;
+            ss << validate_capacity(path, new_capacity, valid_capacity);
+            if (valid_capacity <= 0) {
+                return ss.str();
+            }
+            ss << iter->second->reset_capacity(valid_capacity);
+
+            for (auto& [p, cache] : _path_to_cache) {
+                total_capacity += cache->capacity();
+            }
+            _capacity = total_capacity;
+            return ss.str();
+        }
+    }
+    return "Unknown the cache path " + path;
+}
+
+void FileCacheFactory::get_cache_stats_block(Block* block) {
+    // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+    TBackend be = BackendOptions::get_local_backend();
+    int64_t be_id = be.id;
+    std::string be_ip = be.host;
+    for (auto& cache : _caches) {
+        std::map<std::string, double> stats = cache->get_stats();
+        for (auto& [k, v] : stats) {
+            SchemaScannerHelper::insert_int64_value(0, be_id, block);  // be id
+            SchemaScannerHelper::insert_string_value(1, be_ip, block); // be ip
+            SchemaScannerHelper::insert_string_value(2, cache->get_base_path(),
+                                                     block);                       // cache path
+            SchemaScannerHelper::insert_string_value(3, k, block);                 // metric name
+            SchemaScannerHelper::insert_string_value(4, std::to_string(v), block); // metric value
+        }
+    }
+}
+
+} // namespace io
+} // namespace doris
+
+namespace doris::config {
+
+namespace {
+
+/// Forward one changed config field through the explicit factory/manager update interface.
+/// @param config_name Name used only to identify failures in the log.
+/// @param old_value Previous config value; equal values require no manager update.
+/// @param new_value Newly accepted config value.
+template <typename T>
+void update_async_write_options(const char* config_name, T old_value, T new_value) {
+    if (old_value == new_value) {
+        return;
+    }
+    auto* factory = ExecEnv::GetInstance()->file_cache_factory();
+    if (factory == nullptr) {
+        return;
+    }
+    Status status = factory->refresh_async_write_options();
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to apply async file cache write option " << config_name << " from "
+                     << old_value << " to " << new_value << ": " << status.to_string();
+    }
+}
+
+} // namespace
+
+DEFINE_ON_UPDATE(enable_async_file_cache_write, [](bool old_value, bool new_value) {
+    if (old_value == new_value || !new_value) {
+        return;
+    }
+    auto* factory = io::FileCacheFactory::instance();
+    if (factory == nullptr) {
+        return;
+    }
+    Status status = factory->start_async_write_managers();
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to start async file cache write managers: " << status.to_string();
+    }
+});
+
+DEFINE_ON_UPDATE(async_file_cache_write_workers_per_disk, [](int32_t old_value, int32_t new_value) {
+    update_async_write_options("async_file_cache_write_workers_per_disk", old_value, new_value);
+});
+DEFINE_ON_UPDATE(async_file_cache_write_max_pending_bytes, [](int64_t old_value,
+                                                              int64_t new_value) {
+    update_async_write_options("async_file_cache_write_max_pending_bytes", old_value, new_value);
+});
+} // namespace doris::config

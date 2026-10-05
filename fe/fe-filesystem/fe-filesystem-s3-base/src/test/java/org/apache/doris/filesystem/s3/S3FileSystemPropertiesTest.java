@@ -1,0 +1,404 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.filesystem.s3;
+
+import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.HadoopStorageProperties;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
+
+import java.util.HashMap;
+import java.util.Map;
+
+class S3FileSystemPropertiesTest {
+
+    @Test
+    void toString_masksSecretsButShowsAccessKey() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("region", "us-west-2");
+        raw.put("s3.access_key", "s3-ak-plain");
+        raw.put("s3.secret_key", "s3-sk-plain");
+        raw.put("s3.session_token", "s3-token-plain");
+
+        String rendered = S3FileSystemProperties.of(raw).toString();
+
+        Assertions.assertFalse(rendered.contains("s3-sk-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("s3-token-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
+        Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=s3-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("https://minio.local"), rendered);
+    }
+
+    @Test
+    void glueAliases_carryTheSessionTokenAlongsideAccessAndSecretKey() {
+        // A glue catalog's credentials reach this store only through the glue aliases, and temporary STS
+        // credentials are rejected by AWS unless all three travel together. The token alias used to be missing
+        // while access/secret key had theirs, so a glue catalog on temporary credentials silently degraded to
+        // token-less basic credentials. MUTATION: drop "aws.glue.session-token" from the alias list -> red.
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        raw.put("region", "us-east-1");
+        raw.put("aws.glue.access-key", "GAK");
+        raw.put("aws.glue.secret-key", "GSK");
+        raw.put("aws.glue.session-token", "GST");
+
+        S3FileSystemProperties props = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("GAK", props.getAccessKey());
+        Assertions.assertEquals("GSK", props.getSecretKey());
+        Assertions.assertEquals("GST", props.getSessionToken(),
+                "the glue session token must reach the store, not just the access/secret key");
+    }
+
+    @Test
+    void of_bindsAliasesAndExposesEffectiveViews() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("region", "us-west-2");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        raw.put("s3.session-token", "token");
+        raw.put("AWS_BUCKET", "bucket");
+        raw.put("s3.root.path", "root");
+        raw.put("s3.connection.maximum", "64");
+        raw.put("use_path_style", "true");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("https://minio.local", properties.getEndpoint());
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+        Assertions.assertEquals("ak", properties.getAccessKey());
+        Assertions.assertEquals("sk", properties.getSecretKey());
+        Assertions.assertEquals("token", properties.getSessionToken());
+        Assertions.assertEquals("bucket", properties.getBucket());
+        Assertions.assertEquals("root", properties.getRootPath());
+
+        Assertions.assertEquals("https://minio.local", properties.matchedProperties().get("s3.endpoint"));
+        Assertions.assertEquals("us-west-2", properties.matchedProperties().get("region"));
+        Assertions.assertEquals("ak", properties.matchedProperties().get("s3.access_key"));
+
+        Map<String, String> fsKv = properties.toFileSystemKv();
+        Assertions.assertEquals("https://minio.local", fsKv.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("us-west-2", fsKv.get("AWS_REGION"));
+        Assertions.assertEquals("ak", fsKv.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("sk", fsKv.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("token", fsKv.get("AWS_TOKEN"));
+        Assertions.assertEquals("bucket", fsKv.get("AWS_BUCKET"));
+        Assertions.assertEquals("root", fsKv.get("AWS_ROOT_PATH"));
+        Assertions.assertEquals("64", fsKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("true", fsKv.get("use_path_style"));
+    }
+
+    @Test
+    void of_bindsLegacyS3AliasesToCanonicalFileSystemKv() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("access_key", "ak-bare");
+        raw.put("secret_key", "sk-bare");
+        raw.put("ENDPOINT", "https://endpoint.bare");
+        raw.put("REGION", "ap-southeast-1");
+        raw.put("session_token", "token");
+
+        Map<String, String> fsKv = S3FileSystemProperties.of(raw).toFileSystemKv();
+
+        Assertions.assertEquals("ak-bare", fsKv.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("sk-bare", fsKv.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("https://endpoint.bare", fsKv.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("ap-southeast-1", fsKv.get("AWS_REGION"));
+        Assertions.assertEquals("token", fsKv.get("AWS_TOKEN"));
+    }
+
+    @Test
+    void of_rejectsPartialStaticCredentialsWithParamRulesMessage() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.access_key", "ak");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> S3FileSystemProperties.of(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
+        Assertions.assertTrue(exception.getMessage().contains("s3.access_key and s3.secret_key"));
+    }
+
+    @Test
+    void of_rejectsExternalIdWithoutRoleArnWithParamRulesMessage() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.external_id", "external");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> S3FileSystemProperties.of(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
+        Assertions.assertTrue(exception.getMessage().contains("s3.external_id must be used together with s3.role_arn"));
+    }
+
+    @Test
+    void of_rejectsMissingLocationWithRegionMessage() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> S3FileSystemProperties.of(raw));
+
+        // Align fe-core (ledger 2.4-4): the region check fires first, with fe-core's message.
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"));
+    }
+
+    @Test
+    void of_rejectsEndpointOnlyConfigurationWithoutDerivableRegion() {
+        // Align fe-core (ledger 2.4-4): non-standard endpoints no longer fall back to
+        // us-east-1 — fe-core AbstractS3CompatibleProperties throws IllegalArgumentException.
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> S3FileSystemProperties.of(raw));
+
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"));
+    }
+
+    @Test
+    void of_acceptsRegionOnlyS3Configuration() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.region", "us-west-2");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", properties.getEndpoint());
+    }
+
+    @Test
+    void of_derivesRegionFromAwsEndpoint() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+        Assertions.assertEquals("us-west-2", properties.toFileSystemKv().get("AWS_REGION"));
+    }
+
+    @Test
+    void toBackendProperties_returnsLegacyAwsBackendMapForAdapters() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.region", "us-west-2");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        raw.put("s3.bucket", "bucket");
+        raw.put("s3.root.path", "root");
+        raw.put("use_path_style", "true");
+
+        BackendStorageProperties backend = S3FileSystemProperties.of(raw)
+                .toBackendProperties()
+                .orElseThrow();
+
+        Assertions.assertEquals(BackendStorageKind.S3_COMPATIBLE, backend.backendKind());
+        Assertions.assertEquals("https://minio.local", backend.toMap().get("AWS_ENDPOINT"));
+        Assertions.assertEquals("us-west-2", backend.toMap().get("AWS_REGION"));
+        Assertions.assertEquals("ak", backend.toMap().get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("sk", backend.toMap().get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("bucket", backend.toMap().get("AWS_BUCKET"));
+        Assertions.assertEquals("root", backend.toMap().get("AWS_ROOT_PATH"));
+        Assertions.assertEquals("true", backend.toMap().get("use_path_style"));
+    }
+
+    @Test
+    void toHadoopProperties_returnsS3AConfigurationMap() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.region", "us-west-2");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        raw.put("s3.session_token", "token");
+        raw.put("use_path_style", "true");
+
+        HadoopStorageProperties hadoop = S3FileSystemProperties.of(raw)
+                .toHadoopProperties()
+                .orElseThrow();
+
+        Map<String, String> hadoopMap = hadoop.toHadoopConfigurationMap();
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", hadoopMap.get("fs.s3a.impl"));
+        Assertions.assertEquals("https://minio.local", hadoopMap.get("fs.s3a.endpoint"));
+        Assertions.assertEquals("us-west-2", hadoopMap.get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("ak", hadoopMap.get("fs.s3a.access.key"));
+        Assertions.assertEquals("sk", hadoopMap.get("fs.s3a.secret.key"));
+        Assertions.assertEquals("token", hadoopMap.get("fs.s3a.session.token"));
+        Assertions.assertEquals("true", hadoopMap.get("fs.s3a.path.style.access"));
+    }
+
+    @Test
+    void of_bindsAndNormalizesCredentialsProviderType() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        raw.put("s3.credentials_provider_type", "environment");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals(S3CredentialsProviderType.ENV, properties.getCredentialsProviderType());
+        Assertions.assertEquals("ENV", properties.toFileSystemKv().get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+        Assertions.assertEquals(EnvironmentVariableCredentialsProvider.class.getName(),
+                properties.toHadoopConfigurationMap().get("fs.s3a.aws.credentials.provider"));
+    }
+
+    @Test
+    void toMaps_emitS3TuningDefaultsWhenNotConfigured() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        // Parity with fe-core S3Properties.Env defaults (50 / 3000 / 1000). Literal expected values
+        // (not DEFAULT_* constants) so that mutating a default in the main class fails this guard.
+        Map<String, String> beKv = properties.toFileSystemKv();
+        Assertions.assertEquals("50", beKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("3000", beKv.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("1000", beKv.get("AWS_CONNECTION_TIMEOUT_MS"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("50", hadoopKv.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("3000", hadoopKv.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("1000", hadoopKv.get("fs.s3a.connection.timeout"));
+    }
+
+    @Test
+    void of_rejectsUnsupportedCredentialsProviderType() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        raw.put("s3.credentials_provider_type", "bad-provider");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> S3FileSystemProperties.of(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported s3.credentials_provider_type"));
+    }
+
+    // ------------------------------------------------------------------
+    // uri-derived endpoint/region (legacy AbstractS3CompatibleProperties
+    // setEndpointIfPossible leg 2). Expected values are hardcoded from the
+    // legacy fe-core S3URI algorithm — do not "fix" them to look nicer.
+    // ------------------------------------------------------------------
+
+    private static Map<String, String> uriProps(String uri) {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("uri", uri);
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        return raw;
+    }
+
+    @Test
+    void uriOnly_virtualHostedStyle_derivesEndpointAndRegion() {
+        S3FileSystemProperties properties =
+                S3FileSystemProperties.of(uriProps("https://mybucket.s3.us-west-2.amazonaws.com/data/file.csv"));
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+    }
+
+    @Test
+    void uriOnly_pathStyle_derivesEndpointAndRegion() {
+        Map<String, String> raw = uriProps("https://s3.us-west-2.amazonaws.com/mybucket/data/file.csv");
+        raw.put("use_path_style", "true");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+    }
+
+    @Test
+    void uriKeyIsMatchedCaseInsensitively() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("URI", "https://mybucket.s3.us-west-2.amazonaws.com/data/file.csv");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+    }
+
+    @Test
+    void uriOnly_pathStyleUriParsedVirtualHosted_throwsRegionNotSetLikeLegacy() {
+        // Without use_path_style=true legacy parses this virtual-hosted: the first host label
+        // ("s3") is taken as the bucket, the derived endpoint is "us-east-1.amazonaws.com" and
+        // no region can be extracted from it — legacy throws "Region is not set".
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3FileSystemProperties.of(uriProps("https://s3.us-east-1.amazonaws.com/bucket/x.csv")));
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"), exception.getMessage());
+    }
+
+    @Test
+    void uriPlusExplicitEndpoint_explicitEndpointWins() {
+        Map<String, String> raw = uriProps("https://mybucket.s3.us-west-2.amazonaws.com/data/file.csv");
+        raw.put("s3.endpoint", "https://s3.eu-west-1.amazonaws.com");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        Assertions.assertEquals("https://s3.eu-west-1.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("eu-west-1", properties.getRegion());
+    }
+
+    @Test
+    void uriPlusRegion_regionDerivedEndpointWinsOverUri() {
+        // Legacy setEndpointIfPossible tries getEndpointFromRegion() BEFORE the uri leg.
+        Map<String, String> raw = uriProps("https://mybucket.s3.us-west-2.amazonaws.com/data/file.csv");
+        raw.put("s3.region", "eu-central-1");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        Assertions.assertEquals("https://s3.eu-central-1.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("eu-central-1", properties.getRegion());
+    }
+
+    @Test
+    void uriWithNonStandardHost_throwsRegionNotSetLikeLegacy() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3FileSystemProperties.of(uriProps("https://minio.example.com/bucket/file.csv")));
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"), exception.getMessage());
+    }
+
+    @Test
+    void awsCliStyleUri_carriesNoEndpoint_throwsRegionNotSetLikeLegacy() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3FileSystemProperties.of(uriProps("s3://mybucket/data/file.csv")));
+        Assertions.assertTrue(exception.getMessage().startsWith("Region is not set"), exception.getMessage());
+    }
+
+    @Test
+    void forceParsingByStandardUri_parsesS3SchemeAsStandardUrl() {
+        // Path AWS-CLI mixed style: s3://<endpoint>/<bucket>/<key> with
+        // use_path_style=true + force_parsing_by_standard_uri=true (legacy S3URI contract).
+        Map<String, String> raw = uriProps("s3://s3.us-west-2.amazonaws.com/mybucket/data/file.csv");
+        raw.put("use_path_style", "true");
+        raw.put("force_parsing_by_standard_uri", "true");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", properties.getEndpoint());
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+    }
+}

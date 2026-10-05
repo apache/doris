@@ -1,0 +1,72 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// The cases is copied from https://github.com/trinodb/trino/tree/master
+// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/tpcds
+// and modified by Doris.
+
+import static java.util.concurrent.TimeUnit.SECONDS
+import org.awaitility.Awaitility
+
+suite("flink_connector") {
+
+    def tableName = "flink_connector"
+    sql """DROP TABLE IF EXISTS ${tableName}"""
+    sql new File("""${context.file.parent}/ddl/create.sql""").text
+    def jarName = "flink-doris-regression-case-flink-connector.jar"
+
+    logger.info("start download flink doris case ...")
+    logger.info("getS3Url ==== ${getS3Url()}")
+    def download_flink_jar = "wget --quiet --tries=3 --output-document=${jarName} ${getS3Url()}/regression/flink-doris-regression-case.jar".execute().getText()
+    def file = new File(jarName)
+    if (file.exists()) {
+        def fileSize = file.length()
+        assertTrue(fileSize > 0)
+        logger.info("finish download flink doris case ...")
+    } else {
+        logger.info("flink-doris-regression-case.jar does not exist, skip this case")
+        return
+    }
+
+    def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
+    logger.info("System java path: ${systemJavaPath}")
+
+    def runtimeJavaHome = System.getProperty("java.home")
+    logger.info("Runtime java home: ${runtimeJavaHome}")
+    def javaPath = "${runtimeJavaHome}/bin/java"
+
+    def javaVersion = System.getProperty("java.version")
+    logger.info("Runtime java version: ${javaVersion}")
+
+    def run_cmd = [javaPath, "-cp", jarName, "org.apache.doris.DorisFlinkDfSinkDemo",
+            "--doris-fe-address", context.config.feHttpAddress,
+            "--doris-table-identifier", "regression_test_flink_connector_p0.${tableName}",
+            "--doris-user", context.config.feHttpUser,
+            "--doris-password", context.config.feHttpPassword]
+    run_cmd.addAll(getDorisConnectorTlsArgs())
+    logger.info("run_cmd : ${run_cmd.join(' ')}")
+    def run_flink_jar = run_cmd.execute().getText()
+    logger.info("result: $run_flink_jar")
+    // The publish in the commit phase is asynchronous
+    Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).await().until(
+            {
+                def result = sql """ select count(1) from $tableName"""
+                logger.info("retry count: $result")
+                result.size() >= 1
+            })
+    qt_select """ select * from $tableName order by order_id"""
+}

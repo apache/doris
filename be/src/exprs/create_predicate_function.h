@@ -1,0 +1,179 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include "common/exception.h"
+#include "common/status.h"
+#include "core/data_type/define_primitive_type.h"
+#include "exprs/hybrid_set.h"
+#include "exprs/minmax_predicate.h"
+#include "storage/predicate/bloom_filter_predicate.h"
+#include "storage/predicate/column_predicate.h"
+#include "storage/predicate/in_list_predicate.h"
+
+namespace doris {
+
+class MinmaxFunctionTraits {
+public:
+    using BasePtr = MinMaxFuncBase*;
+    template <PrimitiveType type, size_t N>
+    static BasePtr get_function(bool null_aware) {
+        using CppType = typename PrimitiveTypeTraits<type>::CppType;
+        return new MinMaxNumFunc<
+                std::conditional_t<std::is_same_v<CppType, StringRef>, std::string, CppType>>(
+                null_aware);
+    }
+};
+
+class HybridSetTraits {
+public:
+    using BasePtr = HybridSetBase*;
+    template <PrimitiveType type, size_t N>
+    static BasePtr get_function(bool null_aware) {
+        if constexpr (is_string_type(type)) {
+            return new StringSet<>(null_aware);
+        } else if constexpr (type == TYPE_TINYINT || type == TYPE_SMALLINT) {
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, BitSetContainer<CppType>>(null_aware);
+        } else if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, FixedContainer<CppType, N>>(null_aware);
+        } else {
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, DynamicContainer<CppType>>(null_aware);
+        }
+    }
+};
+
+class BloomFilterTraits {
+public:
+    using BasePtr = BloomFilterFuncBase*;
+    template <PrimitiveType type, size_t N>
+    static BasePtr get_function(bool null_aware) {
+        return new BloomFilterFunc<type>(null_aware);
+    }
+};
+
+template <class Traits>
+class PredicateFunctionCreator {
+public:
+    template <PrimitiveType type, size_t N = 0>
+    static typename Traits::BasePtr create(bool null_aware) {
+        return Traits::template get_function<type, N>(null_aware);
+    }
+};
+
+#define APPLY_FOR_PRIMTYPE(M) \
+    M(TYPE_TINYINT)           \
+    M(TYPE_SMALLINT)          \
+    M(TYPE_INT)               \
+    M(TYPE_BIGINT)            \
+    M(TYPE_LARGEINT)          \
+    M(TYPE_FLOAT)             \
+    M(TYPE_DOUBLE)            \
+    M(TYPE_DATE)              \
+    M(TYPE_DATETIME)          \
+    M(TYPE_DATEV2)            \
+    M(TYPE_DATETIMEV2)        \
+    M(TYPE_TIMESTAMP_NS)      \
+    M(TYPE_TIMESTAMPTZ)       \
+    M(TYPE_TIMEV2)            \
+    M(TYPE_CHAR)              \
+    M(TYPE_VARCHAR)           \
+    M(TYPE_STRING)            \
+    M(TYPE_DECIMAL32)         \
+    M(TYPE_DECIMAL64)         \
+    M(TYPE_DECIMAL128I)       \
+    M(TYPE_DECIMAL256)        \
+    M(TYPE_IPV4)              \
+    M(TYPE_IPV6)              \
+    M(TYPE_UUID)
+
+template <class Traits, size_t N = 0>
+typename Traits::BasePtr create_predicate_function(PrimitiveType type, bool null_aware) {
+    using Creator = PredicateFunctionCreator<Traits>;
+
+    switch (type) {
+    case TYPE_VARBINARY:
+        // Binary read/write support does not provide storage or runtime predicate kernels.
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "VARBINARY predicates are not supported");
+    case TYPE_BOOLEAN: {
+        return Creator::template create<TYPE_BOOLEAN, N>(null_aware);
+    }
+    case TYPE_DECIMALV2: {
+        return Creator::template create<TYPE_DECIMALV2, N>(null_aware);
+    }
+#define M(NAME)                                               \
+    case NAME: {                                              \
+        return Creator::template create<NAME, N>(null_aware); \
+    }
+        APPLY_FOR_PRIMTYPE(M)
+#undef M
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "predicate with type " + type_to_string(type));
+    }
+
+    return nullptr;
+}
+
+inline auto create_minmax_filter(PrimitiveType type, bool null_aware) {
+    return create_predicate_function<MinmaxFunctionTraits>(type, null_aware);
+}
+
+template <size_t N = 0>
+inline auto create_set(PrimitiveType type, bool null_aware) {
+    return create_predicate_function<HybridSetTraits, N>(type, null_aware);
+}
+
+inline auto create_set(PrimitiveType type, size_t size, bool null_aware) {
+    if (size == 0) {
+        return create_set<0>(type, null_aware);
+    } else if (size == 1) {
+        return create_set<1>(type, null_aware);
+    } else if (size == 2) {
+        return create_set<2>(type, null_aware);
+    } else if (size == 3) {
+        return create_set<3>(type, null_aware);
+    } else if (size == 4) {
+        return create_set<4>(type, null_aware);
+    } else if (size == 5) {
+        return create_set<5>(type, null_aware);
+    } else if (size == 6) {
+        return create_set<6>(type, null_aware);
+    } else if (size == 7) {
+        return create_set<7>(type, null_aware);
+    } else if (size == FIXED_CONTAINER_MAX_SIZE) {
+        return create_set<FIXED_CONTAINER_MAX_SIZE>(type, null_aware);
+    } else {
+        return create_set(type, null_aware);
+    }
+}
+
+inline HybridSetBase* create_string_value_set(bool null_aware) {
+    return new StringValueSet(null_aware);
+}
+
+inline HybridSetBase* create_string_value_set(size_t size, bool null_aware) {
+    return create_string_value_set(null_aware);
+}
+
+inline auto create_bloom_filter(PrimitiveType type, bool null_aware) {
+    return create_predicate_function<BloomFilterTraits>(type, null_aware);
+}
+
+} // namespace doris

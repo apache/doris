@@ -1,0 +1,87 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "util/uid_util.h"
+
+#include <fmt/compile.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+
+#include <cstdlib>
+
+#include "common/cast_set.h"
+#include "util/hash_util.hpp"
+
+namespace doris {
+size_t UniqueId::hash(size_t seed) const {
+    return doris::HashUtil::hash(this, sizeof(*this), cast_set<uint32_t>(seed));
+}
+
+std::size_t hash_value(const doris::TUniqueId& id) {
+    std::size_t seed = 0;
+    HashUtil::hash_combine(seed, id.lo);
+    HashUtil::hash_combine(seed, id.hi);
+    return seed;
+}
+
+std::ostream& operator<<(std::ostream& os, const UniqueId& uid) {
+    os << uid.to_string();
+    return os;
+}
+
+std::string print_id(const UniqueId& id) {
+    return id.to_string();
+}
+
+std::string print_id(const TUniqueId& id) {
+    return fmt::format(FMT_COMPILE("{:x}-{:x}"), static_cast<uint64_t>(id.hi),
+                       static_cast<uint64_t>(id.lo));
+}
+
+std::string print_id(const PUniqueId& id) {
+    return fmt::format(FMT_COMPILE("{:x}-{:x}"), static_cast<uint64_t>(id.hi()),
+                       static_cast<uint64_t>(id.lo()));
+}
+
+bool TUniqueId::operator<(const TUniqueId& rhs) const {
+    if (hi < rhs.hi) {
+        return true;
+    }
+    if (hi > rhs.hi) {
+        return false;
+    }
+    return lo < rhs.lo;
+}
+
+} // namespace doris
+
+size_t std::hash<doris::TUniqueId>::operator()(const doris::TUniqueId& id) const {
+    uint32_t seed = 0;
+    seed = doris::HashUtil::hash(&id.lo, sizeof(id.lo), seed);
+    seed = doris::HashUtil::hash(&id.hi, sizeof(id.hi), seed);
+    return seed;
+}
+
+size_t std::hash<std::pair<doris::TUniqueId, int64_t>>::operator()(
+        const std::pair<doris::TUniqueId, int64_t>& pair) const {
+    uint32_t seed = 0;
+    seed = doris::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
+    seed = doris::HashUtil::hash(&pair.first.hi, sizeof(pair.first.hi), seed);
+    seed = doris::HashUtil::hash(&pair.second, sizeof(pair.second), seed);
+    return seed;
+}

@@ -1,0 +1,1609 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.expressions.functions.executable;
+
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.expressions.ExecFunction;
+import org.apache.doris.nereids.trees.expressions.ExecFunctionList;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.ArrayType;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
+import java.io.ByteArrayOutputStream;
+import java.io.UnsupportedEncodingException;
+import java.math.BigInteger;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.regex.Pattern;
+
+/**
+ * executable functions:
+ * concat
+ */
+public class StringArithmetic {
+    private static final long MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS = 16L * 1024L * 1024L;
+
+    private static Literal castStringLikeLiteral(StringLikeLiteral first, String value) {
+        if (first instanceof StringLiteral) {
+            return new StringLiteral(value);
+        } else if (first instanceof VarcharLiteral) {
+            return new VarcharLiteral(value);
+        }
+        throw new AnalysisException("Unsupported string literal type: " + first.getClass().getSimpleName());
+    }
+
+    /**
+     * Executable arithmetic functions concat
+     */
+    @ExecFunction(name = "concat")
+    public static Expression concatVarchar(StringLikeLiteral... values) {
+        final StringBuilder sb = new StringBuilder();
+        for (StringLikeLiteral value : values) {
+            sb.append(value.getValue());
+        }
+        return castStringLikeLiteral(values[0], sb.toString());
+    }
+
+    private static String substringImpl(String first, int second, int third) {
+        int stringLength = first.codePointCount(0, first.length());
+        if (stringLength == 0) {
+            return "";
+        }
+        long leftIndex = 0;
+        if (second < (- stringLength)) {
+            return "";
+        } else if (second < 0) {
+            leftIndex = stringLength + second;
+        } else if (second <= stringLength) {
+            leftIndex = second - 1;
+        } else {
+            return "";
+        }
+        long rightIndex = 0;
+        if (third <= 0) {
+            return "";
+        } else if ((third + leftIndex) > stringLength) {
+            rightIndex = stringLength;
+        } else {
+            rightIndex = third + leftIndex;
+        }
+        // at here leftIndex and rightIndex can not be exceeding boundary
+        int finalLeftIndex = first.offsetByCodePoints(0, (int) leftIndex);
+        int finalRightIndex = first.offsetByCodePoints(0, (int) rightIndex);
+        // left index and right index are in integer range because of definition, so we can safely cast it to int
+        return first.substring(finalLeftIndex, finalRightIndex);
+    }
+
+    /**
+     * Executable arithmetic functions substring
+     */
+    @ExecFunction(name = "substring")
+    public static Expression substringVarcharIntInt(StringLikeLiteral first,
+                                                        IntegerLiteral second, IntegerLiteral third) {
+        return castStringLikeLiteral(first, substringImpl(first.getValue(), second.getValue(), third.getValue()));
+    }
+
+    /**
+     * Executable arithmetic functions length
+     */
+    @ExecFunction(name = "length")
+    public static Expression lengthVarchar(StringLikeLiteral first) {
+        return new IntegerLiteral(first.getValue().getBytes(StandardCharsets.UTF_8).length);
+    }
+
+    /**
+     * Executable arithmetic functions Lower
+     */
+    @ExecFunction(name = "lower")
+    public static Expression lowerVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, first.getValue().toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Executable arithmetic functions Upper
+     */
+    @ExecFunction(name = "upper")
+    public static Expression upperVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, first.getValue().toUpperCase(Locale.ROOT));
+    }
+
+    private static String trimImpl(String first, String second, boolean left, boolean right) {
+        String result = first;
+        String afterReplace = first;
+        if (left) {
+            do {
+                result = afterReplace;
+                if (result.startsWith(second)) {
+                    afterReplace = result.substring(second.length());
+                }
+            } while (!afterReplace.equals(result));
+        }
+        if (right) {
+            do {
+                result = afterReplace;
+                if (result.endsWith(second)) {
+                    afterReplace = result.substring(0, result.length() - second.length());
+                }
+            } while (!afterReplace.equals(result));
+        }
+        return result;
+    }
+
+    private static String trimInImpl(String first, String second, boolean left, boolean right) {
+        StringBuilder result = new StringBuilder(first);
+
+        if (left) {
+            int start = 0;
+            while (start < result.length() && second.indexOf(result.charAt(start)) != -1) {
+                start++;
+            }
+            result.delete(0, start);
+        }
+        if (right) {
+            int end = result.length();
+            while (end > 0 && second.indexOf(result.charAt(end - 1)) != -1) {
+                end--;
+            }
+            result.delete(end, result.length());
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Executable arithmetic functions Trim
+     */
+    @ExecFunction(name = "trim")
+    public static Expression trimVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, trimImpl(first.getValue(), " ", true, true));
+    }
+
+    /**
+     * Executable arithmetic functions Trim
+     */
+    @ExecFunction(name = "trim")
+    public static Expression trimVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
+        return castStringLikeLiteral(first, trimImpl(first.getValue(), second.getValue(), true, true));
+    }
+
+    /**
+     * Executable arithmetic functions ltrim
+     */
+    @ExecFunction(name = "ltrim")
+    public static Expression ltrimVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, trimImpl(first.getValue(), " ", true, false));
+    }
+
+    /**
+     * Executable arithmetic functions ltrim
+     */
+    @ExecFunction(name = "ltrim")
+    public static Expression ltrimVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
+        return castStringLikeLiteral(first, trimImpl(first.getValue(), second.getValue(), true, false));
+    }
+
+    /**
+     * Executable arithmetic functions rtrim
+     */
+    @ExecFunction(name = "rtrim")
+    public static Expression rtrimVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, trimImpl(first.getValue(), " ", false, true));
+    }
+
+    /**
+     * Executable arithmetic functions rtrim
+     */
+    @ExecFunction(name = "rtrim")
+    public static Expression rtrimVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
+        return castStringLikeLiteral(first, trimImpl(first.getValue(), second.getValue(), false, true));
+    }
+
+    /**
+     * Executable arithmetic functions Trim_In
+     */
+    @ExecFunction(name = "trim_in")
+    public static Expression trimInVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), " ", true, true));
+    }
+
+    /**
+     * Executable arithmetic functions Trim_In
+     */
+    @ExecFunction(name = "trim_in")
+    public static Expression trimInVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), second.getValue(), true, true));
+    }
+
+    /**
+     * Executable arithmetic functions ltrim_in
+     */
+    @ExecFunction(name = "ltrim_in")
+    public static Expression ltrimInVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), " ", true, false));
+    }
+
+    /**
+     * Executable arithmetic functions ltrim_in
+     */
+    @ExecFunction(name = "ltrim_in")
+    public static Expression ltrimInVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), second.getValue(), true, false));
+    }
+
+    /**
+     * Executable arithmetic functions rtrim_in
+     */
+    @ExecFunction(name = "rtrim_in")
+    public static Expression rtrimInVarchar(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), " ", false, true));
+    }
+
+    /**
+     * Executable arithmetic functions rtrim_in
+     */
+    @ExecFunction(name = "rtrim_in")
+    public static Expression rtrimInVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
+        return castStringLikeLiteral(first, trimInImpl(first.getValue(), second.getValue(), false, true));
+    }
+
+    /**
+     * Executable arithmetic functions Replace
+     */
+    @ExecFunction(name = "replace")
+    public static Expression replace(StringLikeLiteral first, StringLikeLiteral second, StringLikeLiteral third) {
+        if (second.getValue().length() == 0) {
+            return castStringLikeLiteral(first, first.getValue());
+        }
+        return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
+    }
+
+    /**
+     * Executable arithmetic functions Left
+     */
+    @ExecFunction(name = "left")
+    public static Expression left(StringLikeLiteral first, IntegerLiteral second) {
+        int inputLength = first.getValue().codePointCount(0, first.getValue().length());
+        if (second.getValue() <= 0) {
+            return castStringLikeLiteral(first, "");
+        } else if (second.getValue() >= inputLength) {
+            return first;
+        } else {
+            // at here leftIndex and rightIndex can not be exceeding boundary
+            int index = first.getValue().offsetByCodePoints(0, second.getValue());
+            return castStringLikeLiteral(first, first.getValue().substring(0, index));
+        }
+    }
+
+    /**
+     * Executable arithmetic functions Right
+     */
+    @ExecFunction(name = "right")
+    public static Expression right(StringLikeLiteral first, IntegerLiteral second) {
+        String input = first.getValue();
+        int inputLength = input.codePointCount(0, input.length());
+        if (second.getValue() < (- inputLength) || Math.abs(second.getValue()) == 0) {
+            return castStringLikeLiteral(first, "");
+        } else if (second.getValue() >= inputLength) {
+            return first;
+        } else {
+            // at here second can not be exceeding boundary
+            if (second.getValue() >= 0) {
+                int index = input.offsetByCodePoints(0, inputLength - second.getValue());
+                return castStringLikeLiteral(first, input.substring(index));
+            } else {
+                int index = input.offsetByCodePoints(0, Math.abs(second.getValue()) - 1);
+                return castStringLikeLiteral(first, input.substring(index));
+            }
+        }
+    }
+
+    /**
+     * Executable arithmetic functions Locate
+     */
+    @ExecFunction(name = "locate")
+    public static Expression locate(StringLikeLiteral first, StringLikeLiteral second) {
+        return locate(first, second, new IntegerLiteral(1));
+    }
+
+    /**
+     * Executable arithmetic functions Locate
+     */
+    @ExecFunction(name = "locate")
+    public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
+        String substr = first.getValue();
+        String str = second.getValue();
+        int startPos = third.getValue();
+
+        // Handle empty substring case
+        if (substr.isEmpty() && str.isEmpty() && startPos == 1) {
+            return new IntegerLiteral(1);
+        }
+
+        // Check if start position is invalid
+        int strLength = str.codePointCount(0, str.length());
+        if (startPos <= 0 || startPos > strLength) {
+            return new IntegerLiteral(0);
+        }
+
+        // Handle empty substring case
+        if (substr.isEmpty()) {
+            return new IntegerLiteral(startPos);
+        }
+
+        // Adjust the string based on start position (startPos is 1-indexed)
+        int offset = str.offsetByCodePoints(0, startPos - 1);
+        String adjustedStr = str.substring(offset);
+
+        // Find the match position
+        int matchPos = adjustedStr.indexOf(substr);
+        if (matchPos >= 0) {
+            // Calculate character position (not byte position)
+            int charPos = adjustedStr.codePointCount(0, matchPos);
+            // Return position in the original string (1-indexed)
+            return new IntegerLiteral(startPos + charPos);
+        } else {
+            return new IntegerLiteral(0);
+        }
+    }
+
+    /**
+     * Executable arithmetic functions Instr
+     */
+    @ExecFunction(name = "instr")
+    public static Expression instr(StringLikeLiteral first, StringLikeLiteral second) {
+        int index = first.getValue().indexOf(second.getValue());
+        if (index < 0) {
+            return new IntegerLiteral(0);
+        }
+        return new IntegerLiteral(first.getValue().codePointCount(0, index) + 1);
+    }
+
+    /**
+     * Executable arithmetic functions Ascii
+     */
+    @ExecFunction(name = "ascii")
+    public static Expression ascii(StringLikeLiteral first) throws UnsupportedEncodingException {
+        if (first.getValue().length() == 0) {
+            return new IntegerLiteral(0);
+        }
+        String character = first.getValue();
+        byte[] utf8Bytes = character.getBytes("UTF-8");
+        int firstByteAscii = utf8Bytes[0] & 0xFF;
+        return new IntegerLiteral(firstByteAscii);
+    }
+
+    /**
+     * Executable arithmetic functions Bin
+     */
+    @ExecFunction(name = "bin")
+    public static Expression bin(BigIntLiteral first) {
+        return new VarcharLiteral(Long.toBinaryString(first.getValue()));
+    }
+
+    /**
+     * Executable arithmetic functions ConcatWs
+     */
+    @ExecFunction(name = "concat_ws")
+    public static Expression concatWsVarcharArray(StringLikeLiteral first, ArrayLiteral second) {
+        StringBuilder sb = new StringBuilder();
+        boolean hasValue = false;
+        for (Literal value : second.getValue()) {
+            if (!(value instanceof NullLiteral)) {
+                if (hasValue) {
+                    sb.append(first.getValue());
+                }
+                sb.append(value.getValue());
+                hasValue = true;
+            }
+        }
+        return castStringLikeLiteral(first, sb.toString());
+    }
+
+    /**
+     * Executable arithmetic functions ConcatWs
+     */
+    @ExecFunction(name = "concat_ws")
+    public static Expression concatWsVarcharVarchar(StringLikeLiteral first, StringLikeLiteral... second) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < second.length; i++) {
+            if (i > 0) {
+                sb.append(first.getValue());
+            }
+            sb.append(second[i].getValue());
+        }
+        return castStringLikeLiteral(first, sb.toString());
+    }
+
+    /**
+     * Executable arithmetic functions CharacterLength
+     */
+    @ExecFunction(name = "character_length")
+    public static Expression characterLength(StringLikeLiteral first) {
+        return new IntegerLiteral(first.getValue().codePointCount(0, first.getValue().length()));
+    }
+
+    /**
+     * Executable arithmetic functions initCap
+     */
+    @ExecFunction(name = "initcap")
+    public static Expression initCap(StringLikeLiteral first) {
+        String lower = first.getValue().toLowerCase(Locale.ROOT);
+        StringBuilder result = new StringBuilder(lower.length());
+        boolean capitalizeNext = true;
+
+        for (int i = 0; i < lower.length();) {
+            int codePoint = lower.codePointAt(i);
+            if (!Character.isLetterOrDigit(codePoint)) {
+                result.appendCodePoint(codePoint);
+                capitalizeNext = true;  // Next character should be capitalized
+            } else if (capitalizeNext) {
+                result.appendCodePoint(Character.toUpperCase(codePoint));
+                capitalizeNext = false;
+            } else {
+                result.appendCodePoint(codePoint);
+            }
+            i += Character.charCount(codePoint);
+        }
+        return castStringLikeLiteral(first, result.toString());
+    }
+
+    /**
+     * Executable arithmetic functions md5
+     */
+    @ExecFunction(name = "md5")
+    public static Expression md5(StringLikeLiteral first) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            // Update the digest with the input bytes
+            md.update(first.getValue().getBytes(StandardCharsets.UTF_8));
+            return castStringLikeLiteral(first, bytesToHex(md.digest()));
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Executable arithmetic functions md5
+     */
+    @ExecFunction(name = "md5sum")
+    public static Expression md5Sum(StringLikeLiteral... first) {
+        try {
+            // Step 1: Create a MessageDigest instance for MD5
+            MessageDigest md = MessageDigest.getInstance("MD5");
+
+            // Step 2: Concatenate all strings in the list into one string
+            StringBuilder combinedInput = new StringBuilder();
+            for (StringLikeLiteral input : first) {
+                combinedInput.append(input.getValue());
+            }
+
+            // Step 3: Convert the combined string to a byte array and pass it to the digest() method
+            byte[] messageDigest = md.digest(combinedInput.toString().getBytes(StandardCharsets.UTF_8));
+
+            // Step 4: Convert the byte array into a hexadecimal string
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : messageDigest) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) {
+                    hexString.append('0'); // Add leading zero if needed
+                }
+                hexString.append(hex);
+            }
+
+            // Step 5: Return the hexadecimal string
+            return castStringLikeLiteral(first[0], hexString.toString());
+
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // Helper method to convert a byte array to a hexadecimal string
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    private static int compareLiteral(Literal first, Literal... second) {
+        for (int i = 0; i < second.length; i++) {
+            if (second[i].getValue().equals(first.getValue())) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
+    private static int compareTimeStampNsLiteral(TimeStampNsLiteral first, TimeStampNsLiteral... second) {
+        for (int i = 0; i < second.length; i++) {
+            if (second[i].equals(first)) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
+    private static int compareFloatLiteral(FloatLiteral first, FloatLiteral... second) {
+        float firstValue = first.getValue();
+        for (int i = 0; i < second.length; i++) {
+            float secondValue = second[i].getValue();
+            if (secondValue == firstValue || Float.isNaN(secondValue) && Float.isNaN(firstValue)) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
+    private static int compareDoubleLiteral(DoubleLiteral first, DoubleLiteral... second) {
+        double firstValue = first.getValue();
+        for (int i = 0; i < second.length; i++) {
+            double secondValue = second[i].getValue();
+            if (secondValue == firstValue || Double.isNaN(secondValue) && Double.isNaN(firstValue)) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldInt(IntegerLiteral first, IntegerLiteral... second) {
+        return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldTinyInt(TinyIntLiteral first, TinyIntLiteral... second) {
+        return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldSmallInt(SmallIntLiteral first, SmallIntLiteral... second) {
+        return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldBigInt(BigIntLiteral first, BigIntLiteral... second) {
+        return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldLargeInt(LargeIntLiteral first, LargeIntLiteral... second) {
+        return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldFloat(FloatLiteral first, FloatLiteral... second) {
+        return new IntegerLiteral(compareFloatLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldDouble(DoubleLiteral first, DoubleLiteral... second) {
+        return new IntegerLiteral(compareDoubleLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldDecimalV2(DecimalLiteral first, DecimalLiteral... second) {
+        return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldDecimalV3(DecimalV3Literal first, DecimalV3Literal... second) {
+        return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldDateTime(DateTimeLiteral first, DateTimeLiteral... second) {
+        return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldDateTimeV2(DateTimeV2Literal first, DateTimeV2Literal... second) {
+        return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    @ExecFunction(name = "field")
+    public static Expression fieldTimeStampNs(TimeStampNsLiteral first, TimeStampNsLiteral... second) {
+        return new IntegerLiteral(compareTimeStampNsLiteral(first, second));
+    }
+
+    /**
+     * Executable arithmetic functions field
+     */
+    @ExecFunction(name = "field")
+    public static Expression fieldVarchar(StringLikeLiteral first, StringLikeLiteral... second) {
+        return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    private static int findStringInSet(String target, String input) {
+        if (target.indexOf(',') >= 0) {
+            return 0;
+        }
+
+        int tokenIndex = 1;
+        int start = 0;
+        do {
+            int end = start;
+            while (end < input.length() && input.charAt(end) != ',') {
+                ++end;
+            }
+            if (input.substring(start, end).equals(target)) {
+                return tokenIndex;
+            }
+            start = end + 1;
+            ++tokenIndex;
+        } while (start < input.length());
+        return 0;
+    }
+
+    /**
+     * Executable arithmetic functions find_in_set
+     */
+    @ExecFunction(name = "find_in_set")
+    public static Expression findInSetVarchar(StringLikeLiteral first, StringLikeLiteral second) {
+        return new IntegerLiteral(findStringInSet(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * Executable arithmetic functions repeat
+     */
+    @ExecFunction(name = "repeat")
+    public static Expression repeat(StringLikeLiteral first, IntegerLiteral second) {
+        // when it is too large for fe to make result string, do not folding on fe, limit 1 MB
+        if ((first.getValue().length() * second.getValue()) > 1000000) {
+            throw new AnalysisException("repeat too large to fold const by fe");
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < second.getValue(); i++) {
+            sb.append(first.getValue());
+        }
+        return castStringLikeLiteral(first, sb.toString());
+    }
+
+    /**
+     * Executable arithmetic functions reverse
+     */
+    @ExecFunction(name = "reverse")
+    public static Expression reverseVarchar(StringLikeLiteral first) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(first.getValue());
+        return castStringLikeLiteral(first, sb.reverse().toString());
+    }
+
+    /**
+     * Executable arithmetic functions space
+     */
+    @ExecFunction(name = "space")
+    public static Expression space(IntegerLiteral first) {
+        // when it is too large for fe to make result string, do not folding on fe, limit 1 MB
+        if (first.getValue() > 1000000) {
+            throw new AnalysisException("space too large to fold const by fe");
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < first.getValue(); i++) {
+            sb.append(' ');
+        }
+        return new VarcharLiteral(sb.toString());
+    }
+
+    /**
+     * split by char by empty string considering emoji
+     * @param str input string to be split
+     * @return ArrayLiteral
+     */
+    public static List<String> splitByGrapheme(StringLikeLiteral str) {
+        List<String> result = Lists.newArrayListWithExpectedSize(str.getValue().length());
+        int length = str.getValue().length();
+        for (int i = 0; i < length; ) {
+            int codePoint = str.getValue().codePointAt(i);
+            int charCount = Character.charCount(codePoint);
+            result.add(new String(new int[]{codePoint}, 0, 1));
+            i += charCount;
+        }
+        return result;
+    }
+
+    /**
+     * Executable arithmetic functions split_by_string
+     */
+    @ExecFunction(name = "split_by_string")
+    public static Expression splitByString(StringLikeLiteral first, StringLikeLiteral second) {
+        if (first.getValue().isEmpty()) {
+            return new ArrayLiteral(ImmutableList.of(), ArrayType.of(first.getDataType()));
+        }
+        if (second.getValue().isEmpty()) {
+            List<Literal> result = Lists.newArrayListWithExpectedSize(first.getValue().length());
+            for (String resultStr : splitByGrapheme(first)) {
+                result.add(castStringLikeLiteral(first, resultStr));
+            }
+            return new ArrayLiteral(result);
+        }
+        String[] result = first.getValue().split(Pattern.quote(second.getValue()), -1);
+        List<Literal> items = new ArrayList<>();
+        for (String s : result) {
+            items.add(castStringLikeLiteral(first, s));
+        }
+        return new ArrayLiteral(items);
+    }
+
+    /**
+     * Executable arithmetic functions split_part
+     */
+    @ExecFunction(name = "split_part")
+    public static Expression splitPart(StringLikeLiteral first, StringLikeLiteral chr, IntegerLiteral number) {
+        if (number.getValue() == 0) {
+            return new NullLiteral(first.getDataType());
+        }
+        if (chr.getValue().isEmpty()) {
+            return castStringLikeLiteral(first, "");
+        }
+        if (first.getValue().isEmpty()) {
+            return new NullLiteral(first.getDataType());
+        }
+        if (first.getValue().equals(chr.getValue())) {
+            if (Math.abs(number.getValue()) == 1 || Math.abs(number.getValue()) == 2) {
+                return castStringLikeLiteral(first, "");
+            } else {
+                return new NullLiteral(first.getDataType());
+            }
+        }
+        if (!first.getValue().contains(chr.getValue())) {
+            return new NullLiteral(first.getDataType());
+        }
+        String separator = chr.getValue();
+        String[] parts;
+        if (number.getValue() < 0) {
+            StringBuilder sb = new StringBuilder(first.getValue());
+            StringBuilder separatorBuilder = new StringBuilder(separator);
+            separator = separatorBuilder.reverse().toString();
+            parts = sb.reverse().toString().split(Pattern.quote(separator), -1);
+        } else {
+            parts = first.getValue().split(Pattern.quote(separator), -1);
+        }
+
+        if (parts.length < Math.abs(number.getValue())) {
+            return new NullLiteral(first.getDataType());
+        } else if (number.getValue() < 0) {
+            StringBuilder result = new StringBuilder(parts[Math.abs(number.getValue()) - 1]);
+            return castStringLikeLiteral(first, result.reverse().toString());
+        } else {
+            return castStringLikeLiteral(first, parts[number.getValue() - 1]);
+        }
+    }
+
+    /**
+     * Executable arithmetic functions substring_index
+     */
+    @ExecFunction(name = "substring_index")
+    public static Expression substringIndex(StringLikeLiteral first, StringLikeLiteral chr, IntegerLiteral number) {
+        if (chr.getValue().isEmpty()) {
+            return chr;
+        }
+        String[] parts = first.getValue().split(Pattern.quote(chr.getValue()), -1);
+        if (Math.abs(number.getValue()) >= parts.length) {
+            return first;
+        }
+        int leftIndex;
+        int rightIndex;
+        if (parts.length < number.getValue() || number.getValue() < (- parts.length) || number.getValue() == 0) {
+            return castStringLikeLiteral(first, "");
+        } else if (number.getValue() < 0) {
+            leftIndex = parts.length + number.getValue();
+            rightIndex = parts.length;
+        } else {
+            leftIndex = 0;
+            rightIndex = number.getValue();
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = leftIndex; i < rightIndex - 1; i++) {
+            sb.append(parts[i]);
+            sb.append(chr.getValue());
+        }
+        sb.append(parts[rightIndex - 1]);
+        return castStringLikeLiteral(first, sb.toString());
+    }
+
+    /**
+     * Executable arithmetic functions strcmp
+     */
+    @ExecFunction(name = "strcmp")
+    public static Expression strcmp(StringLikeLiteral first, StringLikeLiteral second) {
+        int result = compareUtf8Bytes(first.getValue(), second.getValue());
+        if (result == 0) {
+            return new TinyIntLiteral((byte) 0);
+        } else if (result < 0) {
+            return new TinyIntLiteral((byte) -1);
+        } else {
+            return new TinyIntLiteral((byte) 1);
+        }
+    }
+
+    private static int compareUtf8Bytes(String left, String right) {
+        byte[] leftBytes = left.getBytes(StandardCharsets.UTF_8);
+        byte[] rightBytes = right.getBytes(StandardCharsets.UTF_8);
+        int minLength = Math.min(leftBytes.length, rightBytes.length);
+        for (int i = 0; i < minLength; i++) {
+            int diff = Byte.toUnsignedInt(leftBytes[i]) - Byte.toUnsignedInt(rightBytes[i]);
+            if (diff != 0) {
+                return diff;
+            }
+        }
+        return leftBytes.length - rightBytes.length;
+    }
+
+    /**
+     * Executable arithmetic functions overlay
+     */
+    @ExecFunction(name = "overlay")
+    public static Expression overlay(StringLikeLiteral originStr,
+            IntegerLiteral pos, IntegerLiteral len, StringLikeLiteral insertStr) {
+        StringBuilder sb = new StringBuilder();
+        int totalLength = originStr.getValue().codePointCount(0, originStr.getValue().length());
+        if (pos.getValue() <= 0 || pos.getValue() > totalLength) {
+            return originStr;
+        } else {
+            if (len.getValue() < 0 || len.getValue() > (totalLength - pos.getValue())) {
+                sb.append(substringImpl(originStr.getValue(), 1, pos.getValue() - 1));
+                sb.append(insertStr.getValue());
+                return castStringLikeLiteral(originStr, sb.toString());
+            } else {
+                sb.append(substringImpl(originStr.getValue(), 1, pos.getValue() - 1));
+                sb.append(insertStr.getValue());
+                sb.append(substringImpl(originStr.getValue(), pos.getValue() + len.getValue(), totalLength));
+                return castStringLikeLiteral(originStr, sb.toString());
+            }
+        }
+    }
+
+    /**
+     * Executable arithmetic functions parseurl
+     */
+    @ExecFunction(name = "parse_url")
+    public static Expression parseurl(StringLikeLiteral first, StringLikeLiteral second) {
+        String value = parseUrlRaw(first.getValue(), second.getValue());
+        if (value == null) {
+            return new NullLiteral(first.getDataType());
+        }
+        return castStringLikeLiteral(first, value);
+    }
+
+    private static String parseUrlRaw(String url, String part) {
+        String trimmedUrl = url.trim();
+        int protocolPos = trimmedUrl.indexOf("://");
+        if (protocolPos < 0) {
+            return null;
+        }
+        String protocolEnd = trimmedUrl.substring(protocolPos + "://".length());
+        switch (part.toUpperCase(Locale.ROOT)) {
+            case "PROTOCOL":
+                return trimmedUrl.substring(0, protocolPos);
+            case "HOST":
+                return parseUrlHost(protocolEnd);
+            case "PATH":
+                return parseUrlPath(protocolEnd);
+            case "REF":
+                return parseUrlRef(protocolEnd);
+            case "AUTHORITY":
+                return parseUrlAuthority(protocolEnd);
+            case "FILE":
+                return parseUrlFile(protocolEnd);
+            case "QUERY":
+                return parseUrlQuery(protocolEnd);
+            case "PORT":
+                return parseUrlPort(protocolEnd);
+            case "USERINFO":
+                return parseUrlUserInfo(protocolEnd);
+            default:
+                throw new RuntimeException("Valid URL parts are 'PROTOCOL', 'HOST', "
+                        + "'PATH', 'REF', 'AUTHORITY', 'FILE', 'USERINFO', 'PORT' and 'QUERY'");
+        }
+    }
+
+    private static int firstIndexOf(String value, char first, char second) {
+        int firstIndex = value.indexOf(first);
+        int secondIndex = value.indexOf(second);
+        if (firstIndex < 0) {
+            return secondIndex;
+        }
+        if (secondIndex < 0) {
+            return firstIndex;
+        }
+        return Math.min(firstIndex, secondIndex);
+    }
+
+    private static String substringEnd(String value, int end) {
+        return end < 0 ? value : value.substring(0, end);
+    }
+
+    private static String parseUrlAuthority(String protocolEnd) {
+        // The authority component runs from the end of "://" up to the first '/', '?' or '#',
+        // whichever comes first.
+        int endPos = firstIndexOf(protocolEnd, '?', '#');
+        int slashPos = protocolEnd.indexOf('/');
+        if (slashPos >= 0 && (endPos < 0 || slashPos < endPos)) {
+            endPos = slashPos;
+        }
+        return substringEnd(protocolEnd, endPos);
+    }
+
+    private static String parseUrlPath(String protocolEnd) {
+        int startPos = protocolEnd.indexOf('/');
+        if (startPos < 0) {
+            return "";
+        }
+        String pathStart = protocolEnd.substring(startPos);
+        return substringEnd(pathStart, firstIndexOf(pathStart, '?', '#'));
+    }
+
+    private static String parseUrlFile(String protocolEnd) {
+        int startPos = protocolEnd.indexOf('/');
+        if (startPos < 0) {
+            return "";
+        }
+        String pathStart = protocolEnd.substring(startPos);
+        return substringEnd(pathStart, pathStart.indexOf('#'));
+    }
+
+    private static String parseUrlHost(String protocolEnd) {
+        String authority = parseUrlAuthority(protocolEnd);
+        int startPos = authority.indexOf('@');
+        startPos = startPos < 0 ? 0 : startPos + 1;
+        String hostStart = authority.substring(startPos);
+        return substringEnd(hostStart, hostStart.indexOf(':'));
+    }
+
+    private static String parseUrlQuery(String protocolEnd) {
+        int startPos = protocolEnd.indexOf('?');
+        if (startPos < 0) {
+            return null;
+        }
+        int fragmentPos = protocolEnd.indexOf('#');
+        if (fragmentPos >= 0 && fragmentPos < startPos) {
+            // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+            // fragment and the url has no query component.
+            return null;
+        }
+        return protocolEnd.substring(startPos + 1,
+                fragmentPos >= 0 ? fragmentPos : protocolEnd.length());
+    }
+
+    private static String parseUrlRef(String protocolEnd) {
+        int startPos = protocolEnd.indexOf('#');
+        if (startPos < 0) {
+            return null;
+        }
+        return protocolEnd.substring(startPos + 1);
+    }
+
+    private static String parseUrlUserInfo(String protocolEnd) {
+        String authority = parseUrlAuthority(protocolEnd);
+        int endPos = authority.indexOf('@');
+        if (endPos < 0) {
+            return null;
+        }
+        return authority.substring(0, endPos);
+    }
+
+    private static String parseUrlPort(String protocolEnd) {
+        String authority = parseUrlAuthority(protocolEnd);
+        int startPos = authority.indexOf('@');
+        startPos = startPos < 0 ? 0 : startPos + 1;
+        String hostStart = authority.substring(startPos);
+        int endPos = hostStart.indexOf(':');
+        if (endPos < 0) {
+            return null;
+        }
+        return hostStart.substring(endPos + 1);
+    }
+
+    /**
+     * Executable arithmetic functions urldecode
+     */
+    @ExecFunction(name = "url_decode")
+    public static Expression urlDecode(StringLikeLiteral first) {
+        if (!isValidUtf8AfterUrlDecode(first.getValue())) {
+            // String literals cannot preserve an invalid UTF-8 byte sequence. Let BE evaluate it
+            // instead of folding the replacement characters produced by java.net.URLDecoder.
+            throw new IllegalArgumentException("URL-decoded value is not valid UTF-8");
+        }
+        try {
+            return castStringLikeLiteral(first, URLDecoder.decode(first.getValue(), StandardCharsets.UTF_8.name()));
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static boolean isValidUtf8AfterUrlDecode(String value) {
+        ByteArrayOutputStream decodedBytes = new ByteArrayOutputStream(value.length());
+        int index = 0;
+        while (index < value.length()) {
+            char current = value.charAt(index);
+            if (current == '%') {
+                if (index + 2 >= value.length()) {
+                    // Preserve URLDecoder's existing malformed-escape handling.
+                    return true;
+                }
+                int high = Character.digit(value.charAt(index + 1), 16);
+                int low = Character.digit(value.charAt(index + 2), 16);
+                if (high < 0 || low < 0) {
+                    // Preserve URLDecoder's existing malformed-escape handling.
+                    return true;
+                }
+                decodedBytes.write((high << 4) + low);
+                index += 3;
+            } else if (current == '+') {
+                decodedBytes.write(' ');
+                index++;
+            } else {
+                int start = index;
+                while (index < value.length() && value.charAt(index) != '%' && value.charAt(index) != '+') {
+                    index++;
+                }
+                byte[] originalBytes = value.substring(start, index).getBytes(StandardCharsets.UTF_8);
+                decodedBytes.write(originalBytes, 0, originalBytes.length);
+            }
+        }
+
+        try {
+            StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(decodedBytes.toByteArray()));
+            return true;
+        } catch (CharacterCodingException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Executable arithmetic functions urlencode
+     */
+    @ExecFunction(name = "url_encode")
+    public static Expression urlEncode(StringLikeLiteral first) {
+        try {
+            return castStringLikeLiteral(first, URLEncoder.encode(first.getValue(), StandardCharsets.UTF_8.name()));
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Executable arithmetic functions append_trailing_char_if_absent
+     */
+    @ExecFunction(name = "append_trailing_char_if_absent")
+    public static Expression appendTrailingCharIfAbsent(StringLikeLiteral first, StringLikeLiteral second) {
+        if (second.getValue().codePointCount(0, second.getValue().length()) != 1) {
+            return new NullLiteral(first.getDataType());
+        }
+        if (first.getValue().endsWith(second.getValue())) {
+            return first;
+        } else {
+            return castStringLikeLiteral(first, first.getValue() + second.getValue());
+        }
+    }
+
+    /**
+     * Executable arithmetic functions endsWith
+     */
+    @ExecFunction(name = "ends_with")
+    public static Expression endsWith(StringLikeLiteral first, StringLikeLiteral second) {
+        if (first.getValue().endsWith(second.getValue())) {
+            return BooleanLiteral.TRUE;
+        } else {
+            return BooleanLiteral.FALSE;
+        }
+    }
+
+    /**
+     * Executable arithmetic functions extractUrlParameter
+     */
+    @ExecFunction(name = "extract_url_parameter")
+    public static Expression extractUrlParameter(StringLikeLiteral first, StringLikeLiteral second) {
+        if (second.getValue().isEmpty()) {
+            return castStringLikeLiteral(first, "");
+        }
+        String trimmedUrl = first.getValue().trim();
+        int questionPos = trimmedUrl.indexOf('?');
+        if (questionPos < 0) {
+            return castStringLikeLiteral(first, "");
+        }
+        int hashPos = trimmedUrl.indexOf('#');
+        if (hashPos >= 0 && hashPos < questionPos) {
+            // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+            // fragment and the url has no query parameters.
+            return castStringLikeLiteral(first, "");
+        }
+        String subUrl = hashPos < 0
+                ? trimmedUrl.substring(questionPos + 1)
+                : trimmedUrl.substring(questionPos + 1, hashPos);
+        String[] pairs = subUrl.split("&", -1);
+        for (String pair : pairs) {
+            int eqPos = pair.indexOf('=');
+            if (eqPos < 0) {
+                continue;
+            }
+            if (second.getValue().equals(pair.substring(0, eqPos))) {
+                return castStringLikeLiteral(first, pair.substring(eqPos + 1));
+            }
+        }
+        return castStringLikeLiteral(first, "");
+    }
+
+    /**
+     * Executable arithmetic functions quote
+     */
+    @ExecFunction(name = "quote")
+    public static Expression quote(StringLikeLiteral first) {
+        return castStringLikeLiteral(first, "\'" + first.getValue() + "\'");
+    }
+
+    /**
+     * Executable arithmetic functions replaceEmpty
+     */
+    @ExecFunction(name = "replace_empty")
+    public static Expression replaceEmpty(StringLikeLiteral first, StringLikeLiteral second, StringLikeLiteral third) {
+        if (second.getValue().isEmpty()) {
+            if (first.getValue().isEmpty()) {
+                return castStringLikeLiteral(first, third.getValue());
+            }
+            List<String> inputs = splitByGrapheme(first);
+            StringBuilder sb = new StringBuilder();
+            sb.append(third.getValue());
+            for (String input : inputs) {
+                sb.append(input);
+                sb.append(third.getValue());
+            }
+            return castStringLikeLiteral(first, sb.toString());
+        }
+        return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
+    }
+
+    /**
+     * Executable arithmetic functions soundex
+     */
+    @ExecFunction(name = "soundex")
+    public static Expression soundex(StringLikeLiteral first) {
+        char[] soundexTable = {
+            'V', '1', '2', '3', 'V', '1', '2', 'N', 'V',
+            '2', '2', '4', '5', '5', 'V', '1', '2', '6',
+            '2', '3', 'V', '1', 'N', '2', 'V', '2'
+        };
+
+        String result = "";
+        if (!first.getValue().isEmpty()) {
+            char preCode = '\0';
+
+            for (int i = 0; i < first.getValue().length(); i++) {
+                char c = first.getValue().charAt(i);
+
+                if (c > 0x7f) {
+                    throw new NotSupportedException("soundex only supports ASCII, but got: " + c);
+                }
+
+                if (!Character.isLetter(c)) {
+                    continue;
+                }
+
+                c = Character.toUpperCase(c);
+                if (result.isEmpty()) {
+                    result += c;
+                    preCode = (soundexTable[c - 'A'] == 'N') ? '\0' : soundexTable[c - 'A'];
+                } else {
+                    char code = soundexTable[c - 'A'];
+                    if (code != 'N') {
+                        if (code != 'V' && code != preCode) {
+                            result += code;
+                            if (result.length() == 4) {
+                                break;
+                            }
+                        }
+                        preCode = code;
+                    }
+                }
+            }
+
+            if (result.length() > 0) {
+                while (result.length() < 4) {
+                    result += '0';
+                }
+            }
+        }
+
+        return castStringLikeLiteral(first, result);
+    }
+
+    /**
+     * Executable arithmetic functions levenshtein
+     */
+    @ExecFunctionList({
+            @ExecFunction(name = "levenshtein"),
+            @ExecFunction(name = "levenshtein_distance"),
+            @ExecFunction(name = "edit_distance")
+    })
+    public static Expression levenshtein(StringLikeLiteral first, StringLikeLiteral second) {
+        int[] left = first.getValue().codePoints().toArray();
+        int[] right = second.getValue().codePoints().toArray();
+
+        if (right.length > left.length) {
+            int[] tmp = left;
+            left = right;
+            right = tmp;
+        }
+
+        int m = left.length;
+        int n = right.length;
+        if (n == 0) {
+            return new IntegerLiteral(m);
+        }
+        if (m == 0) {
+            return new IntegerLiteral(n);
+        }
+
+        int[] prev = new int[n + 1];
+        int[] curr = new int[n + 1];
+        for (int j = 0; j <= n; j++) {
+            prev[j] = j;
+        }
+
+        for (int i = 1; i <= m; i++) {
+            curr[0] = i;
+            int leftChar = left[i - 1];
+            for (int j = 1; j <= n; j++) {
+                int cost = leftChar == right[j - 1] ? 0 : 1;
+                int insertCost = curr[j - 1] + 1;
+                int deleteCost = prev[j] + 1;
+                int replaceCost = prev[j - 1] + cost;
+                curr[j] = Math.min(insertCost, Math.min(deleteCost, replaceCost));
+            }
+            int[] tmp = prev;
+            prev = curr;
+            curr = tmp;
+        }
+
+        return new IntegerLiteral(prev[n]);
+    }
+
+    /**
+     * Executable arithmetic functions damerau_levenshtein_distance
+     */
+    @ExecFunction(name = "damerau_levenshtein_distance")
+    public static Expression damerauLevenshteinDistance(StringLikeLiteral first,
+            StringLikeLiteral second) {
+        int[] left = first.getValue().codePoints().toArray();
+        int[] right = second.getValue().codePoints().toArray();
+        return new IntegerLiteral(damerauLevenshteinDistance(left, right));
+    }
+
+    private static int damerauLevenshteinDistance(int[] left, int[] right) {
+        int m = left.length;
+        int n = right.length;
+        if (m == 0) {
+            return n;
+        }
+        if (n == 0) {
+            return m;
+        }
+
+        long matrixCells = ((long) m + 2L) * ((long) n + 2L);
+        if (matrixCells > MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS) {
+            throw new AnalysisException("damerau_levenshtein_distance distance matrix is too large: "
+                    + matrixCells + " cells exceeds limit " + MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS);
+        }
+
+        int maxDistance = m + n;
+        int cols = n + 2;
+        int[] distance = new int[(int) matrixCells];
+        Map<Integer, Integer> lastRow = new HashMap<>();
+
+        distance[0] = maxDistance;
+        for (int i = 0; i <= m; i++) {
+            distance[(i + 1) * cols] = maxDistance;
+            distance[(i + 1) * cols + 1] = i;
+        }
+        for (int j = 0; j <= n; j++) {
+            distance[j + 1] = maxDistance;
+            distance[cols + j + 1] = j;
+        }
+
+        for (int i = 1; i <= m; i++) {
+            int lastMatchCol = 0;
+            for (int j = 1; j <= n; j++) {
+                int lastMatchRow = lastRow.getOrDefault(right[j - 1], 0);
+                int transpositionCol = lastMatchCol;
+                int cost = 1;
+                if (left[i - 1] == right[j - 1]) {
+                    cost = 0;
+                    lastMatchCol = j;
+                }
+
+                int replaceCost = distance[i * cols + j] + cost;
+                int insertCost = distance[(i + 1) * cols + j] + 1;
+                int deleteCost = distance[i * cols + j + 1] + 1;
+                int transposeCost = distance[lastMatchRow * cols + transpositionCol]
+                        + i - lastMatchRow - 1 + 1 + j - transpositionCol - 1;
+                distance[(i + 1) * cols + j + 1] = Math.min(Math.min(replaceCost, insertCost),
+                        Math.min(deleteCost, transposeCost));
+            }
+            lastRow.put(left[i - 1], i);
+        }
+
+        return distance[(m + 1) * cols + n + 1];
+    }
+
+    /**
+     * Executable arithmetic functions hamming_distance
+     */
+    @ExecFunction(name = "hamming_distance")
+    public static Expression hammingDistance(StringLikeLiteral first, StringLikeLiteral second) {
+        int[] left = first.getValue().codePoints().toArray();
+        int[] right = second.getValue().codePoints().toArray();
+
+        if (left.length != right.length) {
+            throw new AnalysisException("hamming_distance requires strings of the same length");
+        }
+
+        long distance = 0;
+        for (int i = 0; i < left.length; i++) {
+            if (left[i] != right[i]) {
+                distance++;
+            }
+        }
+        return new BigIntLiteral(distance);
+    }
+
+    /**
+     * Executable arithmetic functions make_set
+     */
+    @ExecFunction(name = "make_set")
+    public static Expression make_set(BigIntLiteral bitLiteral, StringLikeLiteral... args) {
+        long bit = bitLiteral.getValue();
+        final StringBuilder sb = new StringBuilder();
+        int pos = Long.numberOfTrailingZeros(bit);
+        while (pos != 64 && pos < args.length && bit != 0) {
+            sb.append(args[pos].getValue());
+            sb.append(',');
+            bit &= ~(1L << pos);
+            pos = Long.numberOfTrailingZeros(bit);
+        }
+        if (sb.length() != 0) {
+            sb.deleteCharAt(sb.length() - 1);
+        }
+        return castStringLikeLiteral(args[0], sb.toString());
+    }
+
+    /**
+     * Executable arithmetic functions export_set in 3 args
+     */
+    @ExecFunction(name = "export_set")
+    public static Expression export_set(LargeIntLiteral bitLiteral, StringLikeLiteral on, StringLikeLiteral off) {
+        BigInteger ullongMax = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
+        BigInteger llongMin = BigInteger.valueOf(Long.MIN_VALUE);
+        BigInteger bitValue = bitLiteral.getValue();
+
+        long finalBitValue;
+        if (bitValue.compareTo(ullongMax) > 0) {
+            finalBitValue = Long.MAX_VALUE;
+        } else if (bitValue.compareTo(llongMin) < 0) {
+            finalBitValue = Long.MIN_VALUE;
+        } else {
+            finalBitValue = bitValue.longValue();
+        }
+
+        return exportSetImpl(finalBitValue, on.getValue(), off.getValue(), ",", 64);
+    }
+
+    /**
+     * Executable arithmetic functions export_set in 4 args
+     */
+    @ExecFunction(name = "export_set")
+    public static Expression export_set(LargeIntLiteral bitLiteral, StringLikeLiteral on, StringLikeLiteral off,
+                                      StringLikeLiteral separator) {
+        BigInteger ullongMax = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
+        BigInteger llongMin = BigInteger.valueOf(Long.MIN_VALUE);
+        BigInteger bitValue = bitLiteral.getValue();
+
+        long finalBitValue;
+        if (bitValue.compareTo(ullongMax) > 0) {
+            finalBitValue = Long.MAX_VALUE;
+        } else if (bitValue.compareTo(llongMin) < 0) {
+            finalBitValue = Long.MIN_VALUE;
+        } else {
+            finalBitValue = bitValue.longValue();
+        }
+
+        return exportSetImpl(finalBitValue, on.getValue(), off.getValue(), separator.getValue(), 64);
+    }
+
+    /**
+     * Executable arithmetic functions export_set in 5 args
+     */
+    @ExecFunction(name = "export_set")
+    public static Expression export_set(LargeIntLiteral bitLiteral, StringLikeLiteral on, StringLikeLiteral off,
+                                      StringLikeLiteral separator, IntegerLiteral numBits) {
+        BigInteger ullongMax = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
+        BigInteger llongMin = BigInteger.valueOf(Long.MIN_VALUE);
+        BigInteger bitValue = bitLiteral.getValue();
+
+        long finalBitValue;
+        if (bitValue.compareTo(ullongMax) > 0) {
+            finalBitValue = Long.MAX_VALUE;
+        } else if (bitValue.compareTo(llongMin) < 0) {
+            finalBitValue = Long.MIN_VALUE;
+        } else {
+            finalBitValue = bitValue.longValue();
+        }
+
+        int bits = numBits.getValue();
+        if (bits < 0 || bits > 64) {
+            bits = 64;
+        }
+        return exportSetImpl(finalBitValue, on.getValue(), off.getValue(), separator.getValue(), bits);
+    }
+
+    private static Expression exportSetImpl(long bit, String on, String off, String separator, int numBits) {
+        StringBuilder result = new StringBuilder();
+        boolean first = true;
+
+        while (bit != 0 && numBits > 0) {
+            if (!first) {
+                result.append(separator);
+            }
+            first = false;
+
+            if ((bit & 1) == 1) {
+                result.append(on);
+            } else {
+                result.append(off);
+            }
+            bit >>>= 1;
+            numBits--;
+        }
+
+        while (numBits > 0) {
+            if (!first) {
+                result.append(separator);
+            }
+            first = false;
+            result.append(off);
+            numBits--;
+        }
+
+        return new VarcharLiteral(result.toString());
+    }
+
+    /**
+     * Executable arithmetic functions is_uuid
+     */
+    @ExecFunction(name = "is_uuid")
+    public static Expression isUuid(StringLikeLiteral first) {
+        String uuid = first.getValue();
+        return isUuidImpl(uuid);
+    }
+
+    private static boolean isHexChar(char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    }
+
+    private static Expression isUuidImpl(String uuid) {
+        final int uuid_without_dash_length = 32;
+        final int uuid_with_dash_length = 36;
+        final int uuid_with_braces_and_dash_length = 38;
+        int len = uuid.length();
+        int start = 0;
+        int end = len - 1;
+        switch (len) {
+            case uuid_without_dash_length:
+                for (int i = 0; i < len; i++) {
+                    if (!isHexChar(uuid.charAt(i))) {
+                        return BooleanLiteral.of(false);
+                    }
+                }
+                break;
+            case uuid_with_braces_and_dash_length:
+                if (uuid.charAt(0) != '{' || uuid.charAt(end) != '}') {
+                    return BooleanLiteral.of(false);
+                }
+                start++;
+                end--;
+                // fall through
+            case uuid_with_dash_length:
+                for (int i = start; i <= end; i++) {
+                    char c = uuid.charAt(i);
+                    if (i == start + 8 || i == start + 13 || i == start + 18 || i == start + 23) {
+                        if (c != '-') {
+                            return BooleanLiteral.of(false);
+                        }
+                    } else {
+                        if (!isHexChar(c)) {
+                            return BooleanLiteral.of(false);
+                        }
+                    }
+                }
+                break;
+            default:
+                return BooleanLiteral.of(false);
+        }
+        return BooleanLiteral.of(true);
+    }
+}

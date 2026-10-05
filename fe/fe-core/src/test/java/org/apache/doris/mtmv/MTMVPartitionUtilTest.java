@@ -1,0 +1,422 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.mtmv;
+
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
+
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+public class MTMVPartitionUtilTest {
+    private MTMV mtmv = Mockito.mock(MTMV.class);
+    private Partition p1 = Mockito.mock(Partition.class);
+    private MTMVRelation relation = Mockito.mock(MTMVRelation.class);
+    private BaseTableInfo baseTableInfo = Mockito.mock(BaseTableInfo.class);
+    private MTMVPartitionInfo mtmvPartitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+    private OlapTable baseOlapTable = Mockito.mock(OlapTable.class);
+    private DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
+    private CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
+    private MTMVSnapshotIf baseSnapshotIf = Mockito.mock(MTMVSnapshotIf.class);
+    private MTMVRefreshSnapshot refreshSnapshot = Mockito.mock(MTMVRefreshSnapshot.class);
+    private MockedStatic<MTMVUtil> mtmvUtilStatic;
+    private MockedStatic<MTMVRefreshContext> refreshContextStatic;
+    private MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+    private PreparedPartitionSnapshots partitionSnapshots = Mockito.mock(PreparedPartitionSnapshots.class);
+    private MTMVBaseVersions versions = Mockito.mock(MTMVBaseVersions.class);
+
+    private Set<BaseTableInfo> baseTables = Sets.newHashSet();
+
+    @BeforeEach
+    public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
+        baseTables.add(baseTableInfo);
+
+        mtmvUtilStatic = Mockito.mockStatic(MTMVUtil.class);
+        refreshContextStatic = Mockito.mockStatic(MTMVRefreshContext.class);
+        refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(Mockito.any(MTMV.class), Mockito.anyMap()))
+                .thenReturn(context);
+
+        Mockito.when(mtmv.getRelation()).thenReturn(relation);
+
+        Mockito.when(context.getMtmv()).thenReturn(mtmv);
+
+        Mockito.when(context.getPartitionMappings()).thenReturn(Maps.newHashMap());
+
+        Mockito.when(context.getBaseVersions()).thenReturn(versions);
+
+        Mockito.when(context.getBaseTableSnapshotCache()).thenReturn(Maps.newHashMap());
+        Mockito.when(context.prepareComparablePartitionSnapshots(Mockito.anySet())).thenReturn(partitionSnapshots);
+
+        Mockito.when(mtmv.getPartitions()).thenReturn(Lists.newArrayList(p1));
+
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet("name1"));
+
+        Mockito.when(p1.getName()).thenReturn("name1");
+
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mtmvPartitionInfo);
+
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.SELF_MANAGE);
+
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class)))
+                .thenReturn(baseOlapTable);
+
+        Mockito.when(baseOlapTable.needAutoRefresh()).thenReturn(true);
+
+        Mockito.when(baseOlapTable.getTableSnapshot(Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
+                .thenReturn(baseSnapshotIf);
+
+        Mockito.when(mtmv.getRefreshSnapshot()).thenReturn(refreshSnapshot);
+
+        Mockito.when(refreshSnapshot.equalsWithBaseTable(Mockito.anyString(), Mockito.any(BaseTableInfo.class), Mockito.any(MTMVSnapshotIf.class)))
+                .thenReturn(true);
+
+        Mockito.when(relation.getBaseTablesOneLevelAndFromView()).thenReturn(baseTables);
+
+        Mockito.when(baseOlapTable.getPartitionSnapshot(Mockito.anyString(), Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
+                .thenReturn(baseSnapshotIf);
+
+        Mockito.when(partitionSnapshots.get(baseOlapTable, "name2"))
+                .thenReturn(baseSnapshotIf);
+
+        Mockito.when(refreshSnapshot.equalsWithPct(Mockito.anyString(), Mockito.anyString(), Mockito.any(MTMVSnapshotIf.class),
+                Mockito.any(BaseTableInfo.class)))
+                .thenReturn(true);
+
+        Mockito.when(refreshSnapshot.getPctSnapshots(Mockito.anyString(), Mockito.any(BaseTableInfo.class)))
+                .thenReturn(Sets.newHashSet("name2"));
+
+        Mockito.when(baseOlapTable.getName()).thenReturn("t1");
+
+        Mockito.when(baseOlapTable.getDatabase()).thenReturn(databaseIf);
+
+        Mockito.when(databaseIf.getFullName()).thenReturn("db1");
+
+        Mockito.when(databaseIf.getCatalog()).thenReturn(catalogIf);
+
+        Mockito.when(catalogIf.getName()).thenReturn("ctl1");
+    }
+
+    @AfterEach
+    public void tearDown() {
+        mtmvUtilStatic.close();
+        refreshContextStatic.close();
+    }
+
+    @Test
+    public void testIsMTMVSyncNormal() {
+        boolean mtmvSync = MTMVPartitionUtil.isMTMVSync(mtmv);
+        Assertions.assertTrue(mtmvSync);
+    }
+
+    @Test
+    public void testIsMTMVSyncNotSync() {
+        Mockito.when(refreshSnapshot.equalsWithBaseTable(Mockito.anyString(), Mockito.any(BaseTableInfo.class), Mockito.any(MTMVSnapshotIf.class)))
+                .thenReturn(false);
+        boolean mtmvSync = MTMVPartitionUtil.isMTMVSync(mtmv);
+        Assertions.assertFalse(mtmvSync);
+    }
+
+    @Test
+    public void testIsMTMVSyncReturnsFalseWhenCatalogIsDroppedConcurrently() throws AnalysisException {
+        Mockito.when(baseOlapTable.getTableSnapshot(
+                        Mockito.any(MTMVRefreshContext.class), Mockito.any(Optional.class)))
+                .thenThrow(new IllegalStateException("Scoped meta cache 'hive-table' is closed"));
+
+        Assertions.assertFalse(MTMVPartitionUtil.isMTMVSync(mtmv));
+    }
+
+    @Test
+    public void testIsSyncWithPartition() throws AnalysisException {
+        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartitions(
+                context, partitionSnapshots, "name1", Sets.newHashSet("name2"), baseOlapTable);
+        Assertions.assertTrue(isSyncWithPartition);
+    }
+
+    @Test
+    public void testIsSyncWithPartitionNotEqual() throws AnalysisException {
+        Mockito.when(refreshSnapshot.getPctSnapshots(Mockito.anyString(), Mockito.any(BaseTableInfo.class)))
+                .thenReturn(Sets.newHashSet("name2", "name3"));
+        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartitions(
+                context, partitionSnapshots, "name1", Sets.newHashSet("name2"), baseOlapTable);
+        Assertions.assertFalse(isSyncWithPartition);
+    }
+
+    @Test
+    public void testIsSyncWithPartitionNotSync() throws AnalysisException {
+        Mockito.when(refreshSnapshot.equalsWithPct(Mockito.anyString(), Mockito.anyString(), Mockito.any(MTMVSnapshotIf.class),
+                Mockito.any(BaseTableInfo.class)))
+                .thenReturn(false);
+        boolean isSyncWithPartition = MTMVPartitionUtil.isSyncWithPartitions(
+                context, partitionSnapshots, "name1", Sets.newHashSet("name2"), baseOlapTable);
+        Assertions.assertFalse(isSyncWithPartition);
+    }
+
+    @Test
+    public void testIsMTMVPartitionSyncWithImmutableExcludedTriggerTables() throws AnalysisException {
+        Map<MTMVRelatedTableIf, Set<String>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put(baseOlapTable, Sets.newHashSet("name2"));
+        Mockito.when(context.getByPartitionName("name1")).thenReturn(partitionMappings);
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        Mockito.when(mtmvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(baseOlapTable));
+
+        Set<TableNameInfo> excludedTriggerTables = ImmutableSet.of();
+        boolean isMTMVPartitionSync = MTMVPartitionUtil.isMTMVPartitionSync(
+                context, partitionSnapshots, "name1", baseTables, excludedTriggerTables);
+
+        Assertions.assertTrue(isMTMVPartitionSync);
+        Assertions.assertTrue(excludedTriggerTables.isEmpty());
+    }
+
+    @Test
+    public void testGeneratePartitionName() {
+        List<List<PartitionValue>> inValues = Lists.newArrayList();
+        inValues.add(Lists.newArrayList(new PartitionValue("20201010 01:01:01"), new PartitionValue("value12")));
+        inValues.add(Lists.newArrayList(new PartitionValue("value21"), new PartitionValue("value22")));
+        PartitionKeyDesc inDesc = PartitionKeyDesc.createIn(inValues);
+        String inName = MTMVPartitionUtil.generatePartitionName(inDesc);
+        Assertions.assertEquals("p_20201010010101_value12_value21_value22", inName);
+
+        PartitionKeyDesc rangeDesc = PartitionKeyDesc.createFixed(
+                Lists.newArrayList(new PartitionValue(1L)),
+                Lists.newArrayList(new PartitionValue(2L))
+        );
+        String rangeName = MTMVPartitionUtil.generatePartitionName(rangeDesc);
+        Assertions.assertEquals("p_1_2", rangeName);
+    }
+
+    @Test
+    public void testGeneratePartitionNameFromDateTimeV2Range() throws AnalysisException {
+        List<Column> columns = Lists.newArrayList(
+                new Column("ts", ScalarType.createDatetimeV2Type(6)));
+        PartitionKey lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00")), columns);
+        PartitionKey upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00")), columns);
+        PartitionKeyDesc rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
+
+        Assertions.assertEquals(0, ((ScalarType) lower.getKeys().get(0).getType()).getScalarScale());
+        Assertions.assertEquals(PartitionKeyDesc.createFixed(
+                        Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00")),
+                        Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00"))),
+                rangeDesc);
+        Assertions.assertEquals("p_20241026000000_20241027000000",
+                MTMVPartitionUtil.generatePartitionName(rangeDesc));
+
+        lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00.123000")), columns);
+        upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00.654000")), columns);
+        rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
+
+        Assertions.assertEquals(3, ((ScalarType) lower.getKeys().get(0).getType()).getScalarScale());
+        Assertions.assertEquals("p_20241026000000123_20241027000000654",
+                MTMVPartitionUtil.generatePartitionName(rangeDesc));
+
+        columns = Lists.newArrayList(new Column("ts", ScalarType.createTimeStampNsType()));
+        lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-26 00:00:00.000000000")), columns);
+        upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue("2024-10-27 00:00:00.000000000")), columns);
+        rangeDesc = new RangePartitionItem(Range.closedOpen(lower, upper)).toPartitionKeyDesc();
+
+        Assertions.assertEquals("p_20241026000000000000000_20241027000000000000000",
+                MTMVPartitionUtil.generatePartitionName(rangeDesc));
+    }
+
+    @Test
+    public void testIsTableExcluded() {
+        Set<TableNameInfo> excludedTriggerTables = Sets.newHashSet(new TableNameInfo("table1"));
+        Assertions.assertTrue(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table1")));
+        Assertions.assertTrue(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db2", "table1")));
+        Assertions.assertTrue(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl2", "db1", "table1")));
+        Assertions.assertFalse(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table2")));
+
+        excludedTriggerTables = Sets.newHashSet(new TableNameInfo("db1.table1"));
+        Assertions.assertTrue(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table1")));
+        Assertions.assertFalse(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db2", "table1")));
+        Assertions.assertTrue(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl2", "db1", "table1")));
+        Assertions.assertFalse(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table2")));
+
+        excludedTriggerTables = Sets.newHashSet(new TableNameInfo("ctl1.db1.table1"));
+        Assertions.assertTrue(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table1")));
+        Assertions.assertFalse(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db2", "table1")));
+        Assertions.assertFalse(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl2", "db1", "table1")));
+        Assertions.assertFalse(
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table2")));
+    }
+
+    @Test
+    public void testIsTableNamelike() {
+        TableNameInfo tableNameToCheck = new TableNameInfo("ctl1", "db1", "table1");
+        Assertions.assertTrue(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("table1"), tableNameToCheck));
+        Assertions.assertTrue(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("db1.table1"), tableNameToCheck));
+        Assertions.assertTrue(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl1.db1.table1"), tableNameToCheck));
+        Assertions.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl1.table1"), tableNameToCheck));
+        Assertions.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl1.db2.table1"), tableNameToCheck));
+        Assertions.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl1.db1.table2"), tableNameToCheck));
+        Assertions.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl2.db1.table1"), tableNameToCheck));
+        Assertions.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("db1"), tableNameToCheck));
+        Assertions.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl1"), tableNameToCheck));
+    }
+
+    @Test
+    public void testGenerateRelatedBasePartitionIdsWithoutSyncLimit() throws AnalysisException {
+        // Without partition_sync_limit the MV mirrors every base partition, so the incremental
+        // delta has nothing to restrict and must be left alone.
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        Mockito.when(mtmv.getMvProperties()).thenReturn(Maps.newHashMap());
+        Assertions.assertFalse(MTMVPartitionUtil.generateRelatedBasePartitionIds(mtmv).isPresent());
+    }
+
+    @Test
+    public void testGenerateRelatedBasePartitionIdsOnSelfManageMv() throws AnalysisException {
+        // setUp leaves the mocked MV on SELF_MANAGE: it decides its own partitions, so there is no
+        // base partition mapping to restrict the delta to.
+        Assertions.assertFalse(MTMVPartitionUtil.generateRelatedBasePartitionIds(mtmv).isPresent());
+    }
+
+    @Test
+    public void testGenerateRelatedBasePartitionIdsWithoutMvPartitionInfo() throws AnalysisException {
+        MTMV mvWithoutPartitionInfo = Mockito.mock(MTMV.class);
+        Assertions.assertFalse(
+                MTMVPartitionUtil.generateRelatedBasePartitionIds(mvWithoutPartitionInfo).isPresent());
+    }
+
+    @Test
+    public void testGetBaseVersionsUsesMappedPartitions() throws AnalysisException {
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put("mv1", pctMapping("p1"));
+
+        assertFetchedPartitionNames(partitionMappings, Sets.newHashSet("p1", "p2", "p3"),
+                Sets.newHashSet("p1"));
+    }
+
+    @Test
+    public void testGetBaseVersionsDeduplicatesMappedPartitions() throws AnalysisException {
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put("mv1", pctMapping("p1", "p2"));
+        partitionMappings.put("mv2", pctMapping("p2", "p3"));
+
+        assertFetchedPartitionNames(partitionMappings, Sets.newHashSet("p1", "p2", "p3", "p4"),
+                Sets.newHashSet("p1", "p2", "p3"));
+    }
+
+    @Test
+    public void testGetBaseVersionsUsesAllFullyMappedPartitions() throws AnalysisException {
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put("mv1", pctMapping("p1", "p2", "p3"));
+
+        assertFetchedPartitionNames(partitionMappings, Sets.newHashSet("p1", "p2", "p3"),
+                Sets.newHashSet("p1", "p2", "p3"));
+    }
+
+    @Test
+    public void testGetTableSnapshotFromContext() throws AnalysisException {
+        Map<BaseTableInfo, MTMVSnapshotIf> cache = Maps.newHashMap();
+        Mockito.when(context.getBaseTableSnapshotCache()).thenReturn(cache);
+        Assertions.assertTrue(cache.isEmpty());
+        MTMVPartitionUtil.getTableSnapshotFromContext(baseOlapTable, context);
+        Assertions.assertEquals(1, cache.size());
+        Assertions.assertEquals(baseSnapshotIf, cache.values().iterator().next());
+    }
+
+    private Map<MTMVRelatedTableIf, Set<String>> pctMapping(String... partitionNames) {
+        Map<MTMVRelatedTableIf, Set<String>> mapping = Maps.newHashMap();
+        mapping.put(baseOlapTable, Sets.newHashSet(partitionNames));
+        return mapping;
+    }
+
+    private void assertFetchedPartitionNames(
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings,
+            Set<String> allPartitionNames, Set<String> expectedPartitionNames) throws AnalysisException {
+        Mockito.when(mtmv.getRelation()).thenReturn(null);
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        Mockito.when(mtmvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(baseOlapTable));
+
+        Map<String, Partition> partitions = Maps.newHashMap();
+        long visibleVersion = 1;
+        for (String partitionName : allPartitionNames) {
+            Partition partition = Mockito.mock(Partition.class);
+            Mockito.when(partition.getName()).thenReturn(partitionName);
+            Mockito.when(partition.getVisibleVersion()).thenReturn(visibleVersion++);
+            Mockito.when(baseOlapTable.getPartitionOrAnalysisException(partitionName)).thenReturn(partition);
+            partitions.put(partitionName, partition);
+        }
+        Mockito.when(baseOlapTable.getPartitions()).thenReturn(partitions.values());
+
+        List<Set<String>> versionRequests = Lists.newArrayList();
+        try (MockedStatic<Partition> partitionStatic = Mockito.mockStatic(Partition.class, Mockito.CALLS_REAL_METHODS)) {
+            partitionStatic.when(() -> Partition.getVisibleVersions(Mockito.anyList())).thenAnswer(invocation -> {
+                List<? extends Partition> requestedPartitions = invocation.getArgument(0);
+                Set<String> requestedPartitionNames = Sets.newHashSet();
+                List<Long> visibleVersions = Lists.newArrayList();
+                for (Partition partition : requestedPartitions) {
+                    requestedPartitionNames.add(partition.getName());
+                    visibleVersions.add(partition.getVisibleVersion());
+                }
+                versionRequests.add(requestedPartitionNames);
+                return visibleVersions;
+            });
+
+            Assertions.assertEquals(expectedPartitionNames,
+                    MTMVPartitionUtil.getBaseVersions(mtmv, partitionMappings)
+                            .getPartitionVersions(baseOlapTable).keySet());
+        }
+        Assertions.assertEquals(1, versionRequests.size());
+        Assertions.assertEquals(expectedPartitionNames, versionRequests.get(0));
+        Mockito.verify(baseOlapTable, Mockito.never()).getPartitions();
+    }
+}

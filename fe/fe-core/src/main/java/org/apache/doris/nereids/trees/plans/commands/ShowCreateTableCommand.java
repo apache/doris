@@ -1,0 +1,235 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
+import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.datasource.systable.SysTableResolver;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.qe.StmtExecutor;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Represents the command for SHOW CREATE TABLE.
+ */
+public class ShowCreateTableCommand extends ShowCommand {
+    private static final ShowResultSetMetaData META_DATA =
+            ShowResultSetMetaData.builder()
+            .addColumn(new Column("Table", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Create Table", ScalarType.createVarchar(30)))
+            .build();
+
+    private static final ShowResultSetMetaData VIEW_META_DATA =
+            ShowResultSetMetaData.builder()
+            .addColumn(new Column("View", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Create View", ScalarType.createVarchar(30)))
+            .addColumn(new Column("character_set_client", ScalarType.createVarchar(30)))
+            .addColumn(new Column("collation_connection", ScalarType.createVarchar(30)))
+            .build();
+
+    private static final ShowResultSetMetaData MATERIALIZED_VIEW_META_DATA =
+            ShowResultSetMetaData.builder()
+            .addColumn(new Column("Materialized View", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Create Materialized View", ScalarType.createVarchar(30)))
+            .build();
+
+    private static final ShowResultSetMetaData STREAM_META_DATA =
+            ShowResultSetMetaData.builder()
+            .addColumn(new Column("Stream", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Create Stream", ScalarType.createVarchar(30)))
+            .build();
+
+    private final TableNameInfo tblNameInfo;
+    private final boolean isBrief;
+
+    public ShowCreateTableCommand(TableNameInfo tableNameInfo, boolean isBrief) {
+        super(PlanType.SHOW_CREATE_TABLE_COMMAND);
+        this.tblNameInfo = tableNameInfo;
+        this.isBrief = isBrief;
+    }
+
+    private void validate(ConnectContext ctx) throws AnalysisException {
+        tblNameInfo.analyze(ctx.getNameSpaceContext());
+
+        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(tblNameInfo.getCtl())
+                .getDbOrAnalysisException(tblNameInfo.getDb());
+        TableIf tableIf = resolveShowCreateTarget(db);
+
+        if (tableIf instanceof MTMV) {
+            ErrorReport.reportAnalysisException("not support async materialized view, "
+                    + "please use `show create materialized view`");
+        }
+
+        PrivPredicate wanted;
+        if (tableIf instanceof View) {
+            wanted = PrivPredicate.SHOW_VIEW;
+        } else {
+            wanted = PrivPredicate.SHOW;
+        }
+
+        String authTableName;
+        if (tableIf instanceof PluginDrivenSysExternalTable) {
+            // P6.5-T06: after the SPI cutover a sys table ($snapshots/...) is a PluginDrivenSysExternalTable;
+            // authorize SHOW CREATE against its source table (mirrors the IcebergSysExternalTable branch above
+            // and UserAuthentication), so a user holding SHOW on db.tbl can SHOW CREATE db.tbl$snapshots.
+            authTableName = ((PluginDrivenSysExternalTable) tableIf).getSourceTable().getName();
+        } else {
+            authTableName = tableIf.getName();
+        }
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                tblNameInfo.getCtl(), tblNameInfo.getDb(), authTableName, wanted)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                tblNameInfo.getDb() + ": " + authTableName);
+        }
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitShowCreateTableCommand(this, context);
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return ShowResultSetMetaData.builder().build();
+    }
+
+    @Override
+    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        validate(ctx);
+
+        // Fetch the catalog, database, and table metadata
+        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblNameInfo.getCtl())
+                            .getDbOrMetaException(tblNameInfo.getDb());
+        TableIf table = redirectSysTableToSource(resolveShowCreateTarget(db));
+
+        List<List<String>> rows = Lists.newArrayList();
+
+        table.readLock();
+        try {
+            if (table instanceof PluginDrivenExternalTable && ((PluginDrivenExternalTable) table).isView()) {
+                // Flipped iceberg view: reproduce the legacy ICEBERG_EXTERNAL_TABLE view arm above on the
+                // neutral plugin path (only iceberg declares SUPPORTS_VIEW). Render the same bytes as
+                // IcebergUtils.showCreateView ("CREATE VIEW `name` AS " + view body) and return the same
+                // 2-column META_DATA result set, so SHOW CREATE on a flipped view stays byte-faithful.
+                rows.add(Arrays.asList(table.getName(),
+                        String.format("CREATE VIEW `%s` AS ", table.getName())
+                                + ((PluginDrivenExternalTable) table).getViewText()));
+                return new ShowResultSet(META_DATA, rows);
+            }
+            if (table instanceof PluginDrivenExternalTable) {
+                // Native connector-rendered SHOW CREATE (hive: ROW FORMAT SERDE / STORED AS ..., fetched fresh),
+                // reached only for a non-view plugin table (the view arm above returns first). The guard is the
+                // method returning a value — NOT the source name — so iceberg/paimon/es/jdbc (empty SPI default)
+                // fall through to Env.getDdlStmt below and render exactly as today; only a connector that natively
+                // renders its DDL short-circuits here. Delegated iceberg/hudi-on-HMS tables also return empty.
+                Optional<String> nativeDdl = ((PluginDrivenExternalTable) table).getShowCreateTableDdl();
+                if (nativeDdl.isPresent()) {
+                    rows.add(Arrays.asList(table.getName(), nativeDdl.get()));
+                    return new ShowResultSet(META_DATA, rows);
+                }
+            }
+            List<String> createTableStmt = Lists.newArrayList();
+            Env.getDdlStmt(null, null, table, createTableStmt, null, null, false,
+                    true /* hide password */, false, -1L, isBrief, false);
+            if (createTableStmt.isEmpty()) {
+                return new ShowResultSet(META_DATA, rows);
+            }
+
+            if (table instanceof View) {
+                rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8mb4", "utf8mb4_0900_bin"));
+                return new ShowResultSet(VIEW_META_DATA, rows);
+            } else if (table instanceof BaseTableStream) {
+                rows.add(Lists.newArrayList(Util.getTempTableDisplayName(table.getName()), createTableStmt.get(0)));
+                return new ShowResultSet(STREAM_META_DATA, rows);
+            } else {
+                rows.add(Lists.newArrayList(Util.getTempTableDisplayName(table.getName()), createTableStmt.get(0)));
+                return (table.getType() != Table.TableType.MATERIALIZED_VIEW
+                        ? new ShowResultSet(META_DATA, rows)
+                        : new ShowResultSet(MATERIALIZED_VIEW_META_DATA, rows));
+            }
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    /**
+     * Redirects a system table ($snapshots/...) to its source base table so SHOW CREATE renders the base
+     * table's DDL (name / data columns / PARTITION BY) rather than the sys-table shell. Post-cutover a sys
+     * table is a {@link PluginDrivenSysExternalTable} (a neutral sys-table type, not {@code Iceberg*}), so
+     * this stays iron-rule clean. Non-sys tables pass through unchanged.
+     */
+    static TableIf redirectSysTableToSource(TableIf table) {
+        if (table instanceof PluginDrivenSysExternalTable) {
+            return ((PluginDrivenSysExternalTable) table).getSourceTable();
+        }
+        return table;
+    }
+
+    private TableIf resolveShowCreateTarget(DatabaseIf db) throws AnalysisException {
+        TableIf table = db.getTableNullable(tblNameInfo.getTbl());
+        if (table != null) {
+            return table;
+        }
+        Pair<String, String> tableNameWithSysTableName = SysTable.getTableNameWithSysTableName(tblNameInfo.getTbl());
+        if (Strings.isNullOrEmpty(tableNameWithSysTableName.second)) {
+            return db.getTableOrAnalysisException(tblNameInfo.getTbl());
+        }
+        TableIf sourceTable = db.getTableOrAnalysisException(tableNameWithSysTableName.first);
+        Optional<SysTableResolver.SysTableDescribe> sysTableDescribeOpt = SysTableResolver.resolveForDescribe(
+                sourceTable, tblNameInfo.getCtl(), tblNameInfo.getDb(), tblNameInfo.getTbl());
+        if (!sysTableDescribeOpt.isPresent()) {
+            throw new AnalysisException("sys table not found: " + tableNameWithSysTableName.second);
+        }
+        SysTableResolver.SysTableDescribe sysTableDescribe = sysTableDescribeOpt.get();
+        if (sysTableDescribe.isNative()) {
+            return sysTableDescribe.getSysExternalTable();
+        }
+        return sourceTable;
+    }
+
+}

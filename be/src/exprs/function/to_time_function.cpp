@@ -1,0 +1,166 @@
+
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_date_time.h"
+#include "core/data_type/data_type_number.h"
+#include "core/types.h"
+#include "exprs/function/date_time_transforms.h"
+#include "exprs/function/function_date_or_datetime_to_something.h"
+#include "exprs/function/simple_function_factory.h"
+
+namespace doris {
+
+using FunctionYearV2 = FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearImpl<TYPE_DATEV2>>;
+using FunctionYearOfWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearOfWeekImpl<TYPE_DATEV2>>;
+using FunctionQuarterV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToQuarterImpl<TYPE_DATEV2>>;
+using FunctionMonthV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMonthImpl<TYPE_DATEV2>>;
+using FunctionDayV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToDayImpl<TYPE_DATEV2>>;
+using FunctionWeekV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToWeekOneArgImpl<TYPE_DATEV2>>;
+using FunctionHourV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToHourImpl<TYPE_DATEV2>>;
+using FunctionMinuteV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMinuteImpl<TYPE_DATEV2>>;
+using FunctionSecondV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<TYPE_DATEV2>>;
+using FunctionNanoSecondV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToNanoSecondImpl<TYPE_DATEV2>>;
+using FunctionToDaysV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<TYPE_DATEV2>>;
+using FunctionToDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<TYPE_DATEV2>>;
+using FunctionDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<TYPE_DATEV2>>;
+using FunctionToSeconds =
+        FunctionDateOrDateTimeToSomething<DataTypeInt64, ToSecondsImpl<TYPE_DATETIMEV2>>;
+
+using FunctionDateTimeV2Year =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2Quarter =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToQuarterImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2Month =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMonthImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2Day =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToDayImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2Week =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToWeekOneArgImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2Hour =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToHourImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2Minute =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMinuteImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2Second =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2MicroSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMicroSecondImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2NanoSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToNanoSecondImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2ToDate =
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2Date =
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<TYPE_DATETIMEV2>>;
+using FunctionTimeStampV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeDateTimeV2, TimeStampImpl<TYPE_DATETIMEV2>>;
+using FunctionCenturyV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATEV2>>;
+using FunctionDateTimeV2Century =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_DATETIMEV2>>;
+
+using FunctionTimestampNsYear =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsYearOfWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearOfWeekImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsQuarter =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToQuarterImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsMonth =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMonthImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsDay =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToDayImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToWeekOneArgImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsHour =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToHourImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsMinute =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMinuteImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsToDays =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsMicroSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMicroSecondImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsNanoSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToNanoSecondImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsToDate =
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsDate =
+        FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsTimestamp =
+        FunctionDateOrDateTimeToSomething<DataTypeTimeStampNs, TimeStampImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsCentury =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToCenturyImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsToSeconds =
+        FunctionDateOrDateTimeToSomething<DataTypeInt64, ToSecondsImpl<TYPE_TIMESTAMP_NS>>;
+
+void register_function_to_time_function(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionTimeStampV2>();
+    factory.register_function<FunctionSecondV2>();
+    factory.register_function<FunctionNanoSecondV2>();
+    factory.register_function<FunctionMinuteV2>();
+    factory.register_function<FunctionHourV2>();
+    factory.register_function<FunctionDayV2>();
+    factory.register_function<FunctionWeekV2>();
+    factory.register_function<FunctionMonthV2>();
+    factory.register_function<FunctionYearV2>();
+    factory.register_function<FunctionYearOfWeek>();
+    factory.register_function<FunctionQuarterV2>();
+    factory.register_function<FunctionToDaysV2>();
+    factory.register_function<FunctionToDateV2>();
+    factory.register_function<FunctionDateV2>();
+    factory.register_function<FunctionDateTimeV2MicroSecond>();
+    factory.register_function<FunctionDateTimeV2NanoSecond>();
+    factory.register_function<FunctionDateTimeV2Second>();
+    factory.register_function<FunctionDateTimeV2Minute>();
+    factory.register_function<FunctionDateTimeV2Hour>();
+    factory.register_function<FunctionDateTimeV2Day>();
+    factory.register_function<FunctionDateTimeV2Week>();
+    factory.register_function<FunctionDateTimeV2Month>();
+    factory.register_function<FunctionDateTimeV2Year>();
+    factory.register_function<FunctionDateTimeV2Quarter>();
+    factory.register_function<FunctionDateTimeV2ToDate>();
+    factory.register_function<FunctionDateTimeV2Date>();
+    factory.register_function<FunctionCenturyV2>();
+    factory.register_function<FunctionDateTimeV2Century>();
+    factory.register_function<FunctionToSeconds>();
+    factory.register_function<FunctionTimestampNsTimestamp>();
+    factory.register_function<FunctionTimestampNsMicroSecond>();
+    factory.register_function<FunctionTimestampNsNanoSecond>();
+    factory.register_function<FunctionTimestampNsSecond>();
+    factory.register_function<FunctionTimestampNsToDays>();
+    factory.register_function<FunctionTimestampNsMinute>();
+    factory.register_function<FunctionTimestampNsHour>();
+    factory.register_function<FunctionTimestampNsDay>();
+    factory.register_function<FunctionTimestampNsWeek>();
+    factory.register_function<FunctionTimestampNsMonth>();
+    factory.register_function<FunctionTimestampNsYear>();
+    factory.register_function<FunctionTimestampNsYearOfWeek>();
+    factory.register_function<FunctionTimestampNsQuarter>();
+    factory.register_function<FunctionTimestampNsToDate>();
+    factory.register_function<FunctionTimestampNsDate>();
+    factory.register_function<FunctionTimestampNsCentury>();
+    factory.register_function<FunctionTimestampNsToSeconds>();
+    factory.register_alias("date", "datev2");
+    factory.register_alias("to_date", "to_datev2");
+}
+
+} // namespace doris

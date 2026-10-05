@@ -1,0 +1,361 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "storage/rowset/segment_creator.h"
+
+// IWYU pragma: no_include <bthread/errno.h>
+#include <cerrno> // IWYU pragma: keep
+#include <chrono>
+#include <filesystem>
+#include <memory>
+#include <sstream>
+#include <thread>
+#include <utility>
+
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/exception.h"
+#include "common/logging.h"
+#include "common/status.h"
+#include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/block/columns_with_type_and_name.h"
+#include "core/column/column.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type.h"
+#include "core/types.h"
+#include "cpp/sync_point.h"
+#include "io/fs/file_writer.h"
+#include "storage/olap_define.h"
+#include "storage/rowset/beta_rowset_writer.h" // SegmentStatistics
+#include "storage/segment/segment_index_file_cache_loader.h"
+#include "storage/segment/vertical_segment_writer.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/transform/block_transform.h"
+#include "storage/utils.h"
+#include "util/debug_points.h"
+#include "util/pretty_printer.h"
+#include "util/stopwatch.hpp"
+
+namespace doris {
+using namespace ErrorCode;
+
+namespace {
+
+segment_v2::TransformExecContext make_transform_exec_context(RowsetWriterContext& context,
+                                                             int32_t segment_id) {
+    return {.tablet_schema = context.tablet_schema,
+            .write_type = context.write_type,
+            .tablet = context.tablet,
+            .mow_context = context.mow_context,
+            .partial_update_info = context.partial_update_info,
+            .rowset_ctx = &context,
+            .rowset_id = context.rowset_id,
+            .segment_id = segment_id,
+            .derived_column = {},
+            .partial_update_stats = {}};
+}
+
+} // namespace
+
+SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
+                               InvertedIndexFileCollection& idx_files)
+        : _context(context), _seg_files(seg_files), _idx_files(idx_files) {}
+
+SegmentFlusher::~SegmentFlusher() = default;
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id,
+                                          int64_t* flush_size) {
+    if (block->rows() == 0) {
+        return Status::OK();
+    }
+    Block flush_block(*block);
+    const size_t input_rows = flush_block.rows();
+    bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
+    segment_v2::DerivedColumn derived_column;
+    RETURN_IF_ERROR(transform_block(&flush_block, segment_id, &derived_column));
+    std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
+    RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
+    // write_block pumps the derived column from its generator in small batches
+    writer->set_derived_column(std::move(derived_column));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(writer->write_block(&flush_block, 0, flush_block.rows()));
+    [[maybe_unused]] uint32_t flushed_segment_id = writer->segment_id();
+    TEST_SYNC_POINT_CALLBACK("SegmentFlusher::write_block_path", &flushed_segment_id);
+    RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
+    // The caller's row accounting checks against what it fed in, so count the
+    // input rows, not what survived the chain.
+    _num_rows_written += input_rows;
+    return Status::OK();
+}
+
+Status SegmentFlusher::transform_block(Block* block, int32_t segment_id,
+                                       segment_v2::DerivedColumn* derived_column) {
+    auto transform_ctx = make_transform_exec_context(_context, segment_id);
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+            segment_v2::build_transform_chain(_context).apply(transform_ctx, block));
+    // fold the fill stages' probe counters into the flusher totals; the segment
+    // writers no longer see partial-update rows
+    _num_rows_updated += transform_ctx.partial_update_stats.num_rows_updated;
+    _num_rows_deleted += transform_ctx.partial_update_stats.num_rows_deleted;
+    _num_rows_new_added += transform_ctx.partial_update_stats.num_rows_new_added;
+    _num_rows_filtered += transform_ctx.partial_update_stats.num_rows_filtered;
+    *derived_column = std::move(transform_ctx.derived_column);
+    return Status::OK();
+}
+
+Status SegmentFlusher::close() {
+    RETURN_IF_ERROR(_seg_files.close());
+    RETURN_IF_ERROR(_preload_segment_indexes_to_file_cache());
+    RETURN_IF_ERROR(_idx_files.finish_close());
+    return Status::OK();
+}
+
+void SegmentFlusher::_record_segment_index_file_cache_preload(
+        uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info) {
+    std::lock_guard lock(_segment_index_file_cache_preloads_lock);
+    _segment_index_file_cache_preloads.push_back({segment_id, info});
+}
+
+Status SegmentFlusher::_preload_segment_indexes_to_file_cache() {
+    std::vector<segment_v2::SegmentIndexFileCachePreloadTask> tasks;
+    {
+        std::lock_guard lock(_segment_index_file_cache_preloads_lock);
+        tasks.swap(_segment_index_file_cache_preloads);
+    }
+    return segment_v2::SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache(_context,
+                                                                                          tasks);
+}
+
+Status SegmentFlusher::_create_segment_writer(
+        std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, int32_t segment_id,
+        bool no_compression) {
+    io::FileWriterPtr segment_file_writer;
+    RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
+
+    IndexFileWriterPtr index_file_writer;
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
+        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &index_file_writer));
+    }
+
+    segment_v2::VerticalSegmentWriterOptions writer_options;
+    writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
+    writer_options.rowset_ctx = &_context;
+    writer_options.write_type = _context.write_type;
+    writer_options.max_rows_per_segment = _context.max_rows_per_segment;
+    if (no_compression) {
+        writer_options.compression_type = NO_COMPRESSION;
+    }
+
+    writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
+            segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+            _context.data_dir, writer_options, index_file_writer.get());
+    RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
+        RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
+    }
+
+    VLOG_DEBUG << "create new segment writer, tablet_id:" << _context.tablet_id
+               << " segment id: " << segment_id << " filename: " << writer->data_dir_path()
+               << " rowset_id:" << _context.rowset_id;
+    return Status::OK();
+}
+
+Status SegmentFlusher::_flush_segment_writer(
+        std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, int64_t* flush_size) {
+    MonotonicStopWatch total_timer;
+    total_timer.start();
+
+    uint32_t row_num = writer->num_rows_written();
+
+    if (row_num == 0) {
+        return Status::OK();
+    }
+
+    MonotonicStopWatch finalize_timer;
+    finalize_timer.start();
+    uint64_t segment_file_size;
+    uint64_t common_index_size;
+    segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
+    RETURN_IF_ERROR(writer->finalize_columns(&common_index_size));
+    RETURN_IF_ERROR(writer->finalize_footer(&segment_file_size, &index_file_cache_info));
+    finalize_timer.stop();
+
+    if (finalize_timer.elapsed_time() > 5000000000L) {
+        LOG(INFO) << "segment flush consumes a lot time_ns " << finalize_timer.elapsed_time()
+                  << ", segmemt_size " << segment_file_size;
+    }
+
+    DBUG_EXECUTE_IF("SegmentFlusher._flush_segment_writer.after_finalize.sleep",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(1000)); });
+
+    MonotonicStopWatch inverted_index_timer;
+    inverted_index_timer.start();
+    int64_t inverted_index_file_size = 0;
+    RETURN_IF_ERROR(writer->close_inverted_index(&inverted_index_file_size));
+    inverted_index_timer.stop();
+
+    VLOG_DEBUG << "tablet_id:" << _context.tablet_id
+               << " flushing rowset_dir: " << _context.tablet_path
+               << " rowset_id:" << _context.rowset_id;
+
+    KeyBoundsPB key_bounds;
+    Slice min_key = writer->min_encoded_key();
+    Slice max_key = writer->max_encoded_key();
+    DCHECK_LE(min_key.compare(max_key), 0);
+    key_bounds.set_min_key(min_key.to_string());
+    key_bounds.set_max_key(max_key.to_string());
+
+    uint32_t segment_id = writer->segment_id();
+    SegmentStatistics segstat;
+    segstat.row_num = row_num;
+    segstat.data_size = segment_file_size;
+    segstat.index_size = inverted_index_file_size;
+    segstat.key_bounds = key_bounds;
+
+    writer.reset();
+    _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
+
+    MonotonicStopWatch collector_timer;
+    collector_timer.start();
+    RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat));
+    collector_timer.stop();
+
+    total_timer.stop();
+
+    LOG(INFO) << "tablet_id:" << _context.tablet_id
+              << ", flushing rowset_dir: " << _context.tablet_path
+              << ", rowset_id:" << _context.rowset_id
+              << ", data size:" << PrettyPrinter::print_bytes(segstat.data_size)
+              << ", index size:" << PrettyPrinter::print_bytes(segstat.index_size)
+              << ", timing breakdown: total=" << total_timer.elapsed_time_milliseconds() << "ms"
+              << ", finalize=" << finalize_timer.elapsed_time_milliseconds() << "ms"
+              << ", inverted_index=" << inverted_index_timer.elapsed_time_milliseconds() << "ms"
+              << ", collector=" << collector_timer.elapsed_time_milliseconds() << "ms";
+
+    if (flush_size) {
+        *flush_size = segment_file_size;
+    }
+    return Status::OK();
+}
+
+Status SegmentFlusher::create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer,
+                                     uint32_t segment_id) {
+    std::unique_ptr<segment_v2::VerticalSegmentWriter> segment_writer;
+    RETURN_IF_ERROR(_create_segment_writer(segment_writer, segment_id));
+    DCHECK(segment_writer != nullptr);
+    RETURN_IF_ERROR(segment_writer->init());
+    writer.reset(new SegmentFlusher::Writer(this, segment_writer));
+    return Status::OK();
+}
+
+SegmentFlusher::Writer::Writer(SegmentFlusher* flusher,
+                               std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer)
+        : _flusher(flusher), _writer(std::move(segment_writer)) {};
+
+SegmentFlusher::Writer::~Writer() = default;
+
+Status SegmentFlusher::Writer::add_rows(const Block* block, size_t row_offset,
+                                        size_t input_row_num) {
+    RETURN_IF_ERROR(_writer->append_block(block, row_offset, input_row_num));
+    _flusher->_num_rows_written += input_row_num;
+    return Status::OK();
+}
+
+Status SegmentFlusher::Writer::flush() {
+    return _flusher->_flush_segment_writer(_writer);
+}
+
+int64_t SegmentFlusher::Writer::max_row_to_add(size_t row_avg_size_in_bytes) {
+    return _writer->max_row_to_add(row_avg_size_in_bytes);
+}
+
+SegmentCreator::SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files,
+                               InvertedIndexFileCollection& idx_files)
+        : _segment_flusher(context, seg_files, idx_files) {}
+
+Status SegmentCreator::add_block(const Block* block) {
+    if (block->rows() == 0) {
+        return Status::OK();
+    }
+
+    size_t block_size_in_bytes = block->bytes();
+    size_t block_row_num = block->rows();
+    size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
+    size_t row_offset = 0;
+    // This seam feeds append_block, which reads the derived column from the
+    // block, so materialize it up front. write_block pumps it from the generator.
+    Block* shared_block = const_cast<Block*>(block);
+    auto transform_block = [&]() -> Status {
+        segment_v2::DerivedColumn derived_column;
+        RETURN_IF_ERROR(
+                _segment_flusher.transform_block(shared_block, /*segment_id=*/-1, &derived_column));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                segment_v2::materialize_derived_columns(derived_column, shared_block));
+        return Status::OK();
+    };
+
+    if (_flush_writer == nullptr) {
+        auto segment_id = DORIS_TRY(allocate_segment_id());
+        RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, segment_id));
+    }
+
+    do {
+        auto max_row_add = _flush_writer->max_row_to_add(row_avg_size_in_bytes);
+        if (UNLIKELY(max_row_add < 1)) {
+            // no space for another single row, need flush now
+            RETURN_IF_ERROR(flush());
+            auto segment_id = DORIS_TRY(allocate_segment_id());
+            RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, segment_id));
+            max_row_add = _flush_writer->max_row_to_add(row_avg_size_in_bytes);
+            DCHECK(max_row_add > 0);
+        }
+        size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
+        RETURN_IF_ERROR(transform_block());
+        RETURN_IF_ERROR(_flush_writer->add_rows(block, row_offset, input_row_num));
+        row_offset += input_row_num;
+    } while (row_offset < block_row_num);
+
+    return Status::OK();
+}
+
+Status SegmentCreator::flush() {
+    if (_flush_writer == nullptr) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_flush_writer->flush());
+    _flush_writer.reset();
+    return Status::OK();
+}
+
+Status SegmentCreator::flush_single_block(const Block* block, int32_t segment_id,
+                                          int64_t* flush_size) {
+    if (block->rows() == 0) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_segment_flusher.flush_single_block(block, segment_id, flush_size));
+    return Status::OK();
+}
+
+Status SegmentCreator::close() {
+    RETURN_IF_ERROR(flush());
+    RETURN_IF_ERROR(_segment_flusher.close());
+    return Status::OK();
+}
+
+} // namespace doris

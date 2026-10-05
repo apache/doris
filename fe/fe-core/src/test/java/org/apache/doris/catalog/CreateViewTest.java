@@ -1,0 +1,278 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.catalog;
+
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.utframe.TestWithFeService;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+public class CreateViewTest extends TestWithFeService {
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        createDatabase("test");
+        createTable("create table test.tbl1(k1 int, k2 int, v1 int, v2 int) duplicate key(k1)"
+                + " distributed by hash(k2) buckets 1 properties('replication_num' = '1');");
+        // create table with array type
+        createTable("create table test.tbl2(id int, c_array array<int(11)>) duplicate key(id)"
+                + " distributed by hash(id) buckets 1 properties('replication_num' = '1');");
+    }
+
+    private void alterView(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        AlterViewCommand command = (AlterViewCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
+    }
+
+    @Test
+    public void testNormal() throws DdlException {
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view1(t1, t2, t3, t4) as select 'a', 'b', 1, 1.2;"));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view2 as select k1, k2, v1, v2 from test.tbl1;"));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view3 as select \"hello ' world\" as a1;"));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view4 as select abs(-1) as s1;"));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view5 as select * from test.tbl1 where hour(now()) > 3"
+                        + " and curdate() > '2021-06-26';"));
+
+        // test union all
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view6 as "
+                        + "(select * from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10) "
+                        + "union all "
+                        + "(select * from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50);"));
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view7 (k1, k2) as "
+                        + "(select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k1 limit 10) "
+                        + "union all "
+                        + "(select k1, k2 from test.tbl1 where curdate() > '2021-06-26' order by k2 limit 10, 50);"));
+
+        // test array type
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view8 as select * from test.tbl2;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+
+        View view1 = (View) db.getTableOrDdlException("view1");
+        Assertions.assertEquals(4, view1.getFullSchema().size());
+        Assertions.assertNotNull(view1.getColumn("t1"));
+        Assertions.assertNotNull(view1.getColumn("t2"));
+        Assertions.assertNotNull(view1.getColumn("t3"));
+        Assertions.assertNotNull(view1.getColumn("t4"));
+
+        View view2 = (View) db.getTableOrDdlException("view2");
+        Assertions.assertEquals(4, view1.getFullSchema().size());
+        Assertions.assertNotNull(view2.getColumn("k1"));
+        Assertions.assertNotNull(view2.getColumn("k2"));
+        Assertions.assertNotNull(view2.getColumn("v1"));
+        Assertions.assertNotNull(view2.getColumn("v2"));
+
+        View view3 = (View) db.getTableOrDdlException("view3");
+        Assertions.assertEquals(1, view3.getFullSchema().size());
+        Assertions.assertNotNull(view3.getColumn("a1"));
+
+        View view4 = (View) db.getTableOrDdlException("view4");
+        Assertions.assertEquals(1, view4.getFullSchema().size());
+        Assertions.assertNotNull(view4.getColumn("s1"));
+
+        View view6 = (View) db.getTableOrDdlException("view6");
+        Assertions.assertEquals(4, view6.getFullSchema().size());
+        Assertions.assertNotNull(view6.getColumn("k1"));
+        Assertions.assertNotNull(view6.getColumn("k2"));
+        Assertions.assertNotNull(view6.getColumn("v1"));
+        Assertions.assertNotNull(view6.getColumn("v2"));
+
+        View view7 = (View) db.getTableOrDdlException("view7");
+        Assertions.assertEquals(2, view7.getFullSchema().size());
+        Assertions.assertNotNull(view7.getColumn("k1"));
+        Assertions.assertNotNull(view7.getColumn("k2"));
+
+        View view8 = (View) db.getTableOrDdlException("view8");
+        Assertions.assertEquals(2, view8.getFullSchema().size());
+        Assertions.assertNotNull(view8.getColumn("id"));
+        Assertions.assertNotNull(view8.getColumn("c_array"));
+    }
+
+    @Test
+    public void testViewCommentDdlRoundTrip() throws Exception {
+        createView("create view test.view_comment_round_trip comment \"O'Reilly\" as select 1 as c");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View originalView = (View) db.getTableOrDdlException("view_comment_round_trip");
+        List<String> createViewStmts = new ArrayList<>();
+        Env.getDdlStmt(originalView, createViewStmts, null, null, false, true, -1L);
+
+        String exportedDdl = createViewStmts.get(0);
+        Assertions.assertTrue(exportedDdl.contains(" COMMENT \"O'Reilly\""));
+        String copiedDdl = exportedDdl.replace("CREATE VIEW `view_comment_round_trip`",
+                "CREATE VIEW test.`view_comment_round_trip_copy`");
+        createView(copiedDdl);
+
+        View copiedView = (View) db.getTableOrDdlException("view_comment_round_trip_copy");
+        Assertions.assertEquals(originalView.getComment(), copiedView.getComment());
+    }
+
+    @Test
+    public void testNestedViews() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.nv1 as select * from test.tbl1;"));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.nv2 as select * from test.nv1;"));
+
+        String sql = "select * from test.nv2";
+        String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assertions.assertTrue(explainString.contains("OlapScanNode"));
+    }
+
+    @Test
+    public void testAlterView() throws Exception {
+        String originStmt = "select k1 as kc1, sum(k2) as kc2 from test.tbl1 group by kc1";
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.alter1 as " + originStmt));
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View alter1 = (View) db.getTableOrDdlException("alter1");
+        Assertions.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1` as `kc1`, sum(`internal`.`test`.`tbl1`.`k2`) as `kc2` from `internal`.`test`.`tbl1` group by kc1",
+                alter1.getInlineViewDef());
+
+        String alterStmt
+                = "alter view test.alter1 as with test1_cte (w1, w2) as (select k1, k2 from test.tbl1) "
+                + "select w1 as c1, sum(w2) as c2 from test1_cte where w1 > 10 group by w1 order by w1";
+        alterView(alterStmt);
+
+        alter1 = (View) db.getTableOrDdlException("alter1");
+        Assertions.assertEquals(
+                "with `test1_cte` (`w1`, `w2`) as "
+                        + "(select `internal`.`test`.`tbl1`.`k1`, `internal`.`test`.`tbl1`.`k2` "
+                        + "from `internal`.`test`.`tbl1`) select w1 as `c1`, sum(`test1_cte`.`w2`) as `c2` "
+                        + "from test1_cte where `test1_cte`.`w1` > 10 group by `test1_cte`.`w1` order by w1",
+                alter1.getInlineViewDef());
+    }
+
+    @Test
+    public void testCreateViewWithAliasStarOverAggregateSubquery() throws Exception {
+        String createViewSql = "create view test.alias_star_agg_view as "
+                + "with sale2 as (select 1 as pack_factory, 2 as area, 3 as purchase_month, "
+                + "4 as label_model, 50000 as mile_range), "
+                + "sale3 as ("
+                + "select c.*, s.id, s.id * 10000 as mile_range "
+                + "from (select pack_factory, area, purchase_month, label_model, "
+                + "max(mile_range) / 10000 as max_range "
+                + "from sale2 group by pack_factory, area, purchase_month, label_model) c "
+                + "join (select 1 as id) s where s.id <= max_range) "
+                + "select * from sale3";
+        ExceptionChecker.expectThrowsNoException(() -> createView(createViewSql));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("alias_star_agg_view");
+        Assertions.assertFalse(view.getInlineViewDef().contains("group by c."));
+        Assertions.assertFalse(view.getInlineViewDef().contains("select c.pack_factory"));
+
+        String explainString = getSQLPlanOrErrorMsg("EXPLAIN select * from test.alias_star_agg_view");
+        Assertions.assertFalse(explainString.contains("Unknown column"));
+    }
+
+    @Test
+    public void testCreateViewWithoutDefinedColumnsDoesNotInjectAliases() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.no_alias_view as select k1, k2 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("no_alias_view");
+        Assertions.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1`, `internal`.`test`.`tbl1`.`k2` "
+                        + "from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
+    }
+
+    @Test
+    public void testCreateViewWithDefinedColumnsRewritesAliases() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.with_alias_view(c1, c2) as select k1, k2 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("with_alias_view");
+        Assertions.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1` AS `c1`, `internal`.`test`.`tbl1`.`k2` AS `c2` "
+                        + "from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
+    }
+
+    @Test
+    public void testViewRejectVarbinary() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(
+                org.apache.doris.common.AnalysisException.class,
+                "View does not support VARBINARY type: vb",
+                () -> createView("create view test.vb_view as select X'AB' as vb;"));
+    }
+
+    @Test
+    public void testResetViewDefForRestore() {
+        View view = new View();
+        view.setInlineViewDefWithSessionVariables("SELECT `internal`.`test`.`test`.`k2` AS `k1`, "
+                + "FROM `internal`.`test`.`test`;", new HashMap<>());
+        view.resetViewDefForRestore("test", "test1");
+        Assertions.assertEquals("SELECT `internal`.`test1`.`test`.`k2` AS `k1`, "
+                + "FROM `internal`.`test1`.`test`;", view.getInlineViewDef());
+    }
+
+    @Test
+    public void testResetViewDefForRestoreWithCrossDbReference() {
+        // Test that cross-database references are preserved
+        View view = new View();
+        // View in db_b references tables from both db_a and db_b
+        view.setInlineViewDefWithSessionVariables(
+                "SELECT t1.k1, t2.k2 "
+                + "FROM `internal`.`db_a`.`table1` t1 "
+                + "JOIN `internal`.`db_b`.`table2` t2 "
+                + "ON t1.id = t2.id;",
+                new HashMap<>());
+
+        // Restore db_b to db_b_new
+        view.resetViewDefForRestore("db_b", "db_b_new");
+
+        // db_a reference should be preserved, only db_b should be changed to db_b_new
+        Assertions.assertEquals(
+                "SELECT t1.k1, t2.k2 "
+                + "FROM `internal`.`db_a`.`table1` t1 "
+                + "JOIN `internal`.`db_b_new`.`table2` t2 "
+                + "ON t1.id = t2.id;",
+                view.getInlineViewDef());
+    }
+}

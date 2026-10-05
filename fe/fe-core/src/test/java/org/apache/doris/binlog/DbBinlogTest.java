@@ -1,0 +1,423 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.binlog;
+
+import org.apache.doris.thrift.TBinlog;
+import org.apache.doris.thrift.TBinlogType;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
+
+public class DbBinlogTest {
+    private long dbId = 10000L;
+    private long baseTableId = 20000L;
+    private int tableNum = 5;
+    private int gcTableNum = 2;
+    private List<Long> tableIds;
+    private MockedStatic<BinlogUtils> mockedBinlogUtils;
+
+    private int totalBinlogNum = 10;
+    private int expiredBinlogNum = 3;
+    private long baseNum = 30000L;
+
+    @BeforeEach
+    public void setUp() {
+        // check args valid
+        Assertions.assertTrue(totalBinlogNum > 0);
+        Assertions.assertTrue(gcTableNum <= tableNum);
+        Assertions.assertTrue(expiredBinlogNum <= totalBinlogNum);
+
+        // gen tableIds
+        tableIds = Lists.newArrayList();
+        for (int i = 0; i < tableNum; ++i) {
+            tableIds.add(baseTableId + i);
+        }
+
+        mockedBinlogUtils = Mockito.mockStatic(BinlogUtils.class, Mockito.CALLS_REAL_METHODS);
+        mockedBinlogUtils.when(() -> BinlogUtils.getExpiredMs(Mockito.anyLong()))
+                .thenAnswer(invocation -> (long) invocation.getArgument(0));
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (mockedBinlogUtils != null) {
+            mockedBinlogUtils.close();
+        }
+    }
+
+    @Test
+    public void testTableTtlGcCommonCase() {
+        // init base data
+        long expiredTime = baseNum + expiredBinlogNum;
+        Map<String, Long> ttlMap = Maps.newHashMap();
+        for (int i = 0; i < tableNum; ++i) {
+            String key = String.format("%d_%d", dbId, baseTableId + i);
+            if (i <= gcTableNum) {
+                ttlMap.put(key, expiredTime);
+            } else {
+                ttlMap.put(key, 0L);
+            }
+        }
+        MockBinlogConfigCache binlogConfigCache = BinlogTestUtils.newMockBinlogConfigCache(ttlMap);
+        binlogConfigCache.addDbBinlogConfig(dbId, false, 0L);
+
+        // init & add binlogs
+        List<TBinlog> testBinlogs = Lists.newArrayList();
+        Long[] tableLastCommitInfo = new Long[tableNum];
+        long maxGcTableId = baseTableId + gcTableNum;
+        long expiredCommitSeq = -1;
+        for (int i = 0; i < totalBinlogNum; ++i) {
+            long tableId = baseTableId + (i / tableNum);
+            long commitSeq = baseNum + i;
+            if (tableId <= maxGcTableId) {
+                expiredCommitSeq = commitSeq;
+            }
+            tableLastCommitInfo[i / tableNum] = commitSeq;
+            TBinlog binlog = BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, baseNum);
+            testBinlogs.add(binlog);
+        }
+
+        // init DbBinlog
+        DBBinlog dbBinlog = null;
+
+        // insert binlogs
+        for (int i = 0; i < totalBinlogNum; ++i) {
+            if (dbBinlog == null) {
+                dbBinlog = new DBBinlog(binlogConfigCache, testBinlogs.get(i));
+            }
+            dbBinlog.addBinlog(testBinlogs.get(i), null);
+        }
+
+        // trigger gc
+        BinlogTombstone tombstone = dbBinlog.gc();
+
+        // check binlog status
+        for (TBinlog binlog : testBinlogs) {
+            if (binlog.getTableIds().get(0) <= baseTableId + gcTableNum) {
+                Assertions.assertEquals(0, binlog.getTableRef());
+            } else {
+                Assertions.assertEquals(1, binlog.getTableRef());
+            }
+        }
+
+        // check dummy binlog
+        List<TBinlog> allBinlogs = Lists.newArrayList();
+        dbBinlog.getAllBinlogs(allBinlogs);
+        for (TBinlog binlog : allBinlogs) {
+            if (binlog.getType() != TBinlogType.DUMMY) {
+                break;
+            }
+            long belong = binlog.getBelong();
+            if (belong < 0) {
+                Assertions.assertEquals(expiredCommitSeq, binlog.getCommitSeq());
+            } else if (belong <= maxGcTableId) {
+                int offset = (int) (belong - baseTableId);
+                Assertions.assertEquals((long) tableLastCommitInfo[offset], binlog.getCommitSeq());
+            } else {
+                Assertions.assertEquals(-1, binlog.getCommitSeq());
+            }
+        }
+
+        // check tombstone
+        Assertions.assertFalse(tombstone.isDbBinlogTomstone());
+        Assertions.assertEquals(expiredCommitSeq, tombstone.getCommitSeq());
+    }
+
+    @Test
+    public void testTableTtlGcBinlogMultiRefCase() {
+        // init base data
+        long expiredTime = baseNum + expiredBinlogNum;
+        Map<String, Long> ttlMap = Maps.newHashMap();
+        for (int i = 0; i < tableNum; ++i) {
+            String key = String.format("%d_%d", dbId, baseTableId + i);
+            if (i < tableNum - 1) {
+                ttlMap.put(key, expiredTime);
+            } else {
+                ttlMap.put(key, 0L);
+            }
+        }
+        MockBinlogConfigCache binlogConfigCache = BinlogTestUtils.newMockBinlogConfigCache(ttlMap);
+        binlogConfigCache.addDbBinlogConfig(dbId, false, 0L);
+
+        // init & add binlogs
+        List<TBinlog> testBinlogs = Lists.newArrayList();
+        for (int i = 0; i < totalBinlogNum; ++i) {
+            // generate tableIds
+            long tableId = baseTableId + (i / (tableNum - 1));
+            long additionalTableId = (long) (Math.random() * tableNum) + baseTableId;
+            while (tableId == additionalTableId) {
+                additionalTableId = (long) (Math.random() * tableNum) + baseTableId;
+            }
+            List<Long> tableIds = Lists.newArrayList(tableId, additionalTableId);
+            // init commitSeq
+            long commitSeq = baseNum + i;
+
+            TBinlog binlog = BinlogTestUtils.newBinlog(dbId, tableIds, commitSeq, baseNum);
+            testBinlogs.add(binlog);
+        }
+
+        // init dbBinlog
+        DBBinlog dbBinlog = null;
+
+        // ad additional ref & add to dbBinlog
+        for (int i = 0; i < totalBinlogNum; ++i) {
+            TBinlog binlog = testBinlogs.get(i);
+            if (dbBinlog == null) {
+                dbBinlog = new DBBinlog(binlogConfigCache, binlog);
+            }
+            dbBinlog.addBinlog(binlog, null);
+        }
+
+        // trigger gc
+        dbBinlog.gc();
+
+        // check binlog status
+        long unGcTableId = baseTableId + tableNum - 1;
+        for (TBinlog binlog : testBinlogs) {
+            if (binlog.getTableIds().contains(unGcTableId)) {
+                Assertions.assertEquals(1, binlog.getTableRef());
+            } else {
+                Assertions.assertEquals(0, binlog.getTableRef());
+            }
+        }
+    }
+
+    @Test
+    public void testTableCommitSeqGc() {
+        // init base data
+        long expiredTime = baseNum + expiredBinlogNum;
+        Map<String, Long> ttlMap = Maps.newHashMap();
+        MockBinlogConfigCache binlogConfigCache = BinlogTestUtils.newMockBinlogConfigCache(ttlMap);
+        binlogConfigCache.addDbBinlogConfig(dbId, true, expiredTime);
+
+        // init & add binlogs
+        List<TBinlog> testBinlogs = Lists.newArrayList();
+        for (int i = 0; i < totalBinlogNum; ++i) {
+            // generate tableIds
+            long tableId = baseTableId + (i / (tableNum - 1));
+            long additionalTableId = (long) (Math.random() * tableNum) + baseTableId;
+            while (tableId == additionalTableId) {
+                additionalTableId = (long) (Math.random() * tableNum) + baseTableId;
+            }
+            List<Long> tableIds = Lists.newArrayList(tableId, additionalTableId);
+            // init stamp
+            long stamp = baseNum + i;
+
+            TBinlog binlog = BinlogTestUtils.newBinlog(dbId, tableIds, stamp, stamp);
+            testBinlogs.add(binlog);
+        }
+
+        // init dbBinlog
+        DBBinlog dbBinlog = null;
+
+        // ad additional ref & add to dbBinlog
+        for (int i = 0; i < totalBinlogNum; ++i) {
+            TBinlog binlog = testBinlogs.get(i);
+            if (dbBinlog == null) {
+                dbBinlog = new DBBinlog(binlogConfigCache, binlog);
+            }
+            dbBinlog.addBinlog(binlog, null);
+        }
+
+        // trigger gc
+        dbBinlog.gc();
+
+        // check binlog status
+        for (TBinlog binlog : testBinlogs) {
+            if (binlog.getTimestamp() <= expiredTime) {
+                Assertions.assertEquals(0, binlog.getTableRef());
+            } else {
+                Assertions.assertTrue(binlog.getTableRef() != 0);
+            }
+        }
+    }
+
+    @Test
+    public void testAddBinlog() throws NoSuchFieldException, IllegalAccessException {
+        // set max value num
+        int maxValue = 12;
+
+        // mock up
+        BinlogConfigCache mockCache = Mockito.mock(BinlogConfigCache.class);
+        Mockito.when(mockCache.isEnableDB(Mockito.anyLong())).thenReturn(true);
+        Mockito.when(mockCache.isEnableTable(Mockito.anyLong(), Mockito.anyLong())).thenReturn(true);
+
+        // reflect field
+        Field allBinlogsField = DBBinlog.class.getDeclaredField("allBinlogs");
+        allBinlogsField.setAccessible(true);
+        Field tableBinlogMapField = DBBinlog.class.getDeclaredField("tableBinlogMap");
+        tableBinlogMapField.setAccessible(true);
+
+
+        for (int i = 0; i <= maxValue; ++i) {
+            TBinlogType type = TBinlogType.findByValue(i);
+            if (type == TBinlogType.DUMMY) {
+                continue;
+            }
+            TBinlog binlog = BinlogTestUtils.newBinlog(dbId, baseTableId, 1, 1);
+            binlog.setType(type);
+            DBBinlog dbBinlog = new DBBinlog(mockCache, binlog);
+
+            dbBinlog.addBinlog(binlog, null);
+
+            TreeSet<TBinlog> allbinlogs = (TreeSet<TBinlog>) allBinlogsField.get(dbBinlog);
+            Map<Long, TableBinlog> tableBinlogMap = (Map<Long, TableBinlog>) tableBinlogMapField.get(dbBinlog);
+            Assertions.assertTrue(allbinlogs.contains(binlog));
+            switch (type) {
+                case CREATE_TABLE:
+                case DROP_TABLE: {
+                    Assertions.assertTrue(tableBinlogMap.isEmpty());
+                    break;
+                }
+                default: {
+                    Assertions.assertTrue(tableBinlogMap.containsKey(baseTableId));
+                    break;
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testDbAndTableGcWithDisable() {
+        // init base data
+        long expiredTime = baseNum + expiredBinlogNum;
+        Map<String, Long> ttlMap = Maps.newHashMap();
+        for (int i = 0; i < tableNum; ++i) {
+            String key = String.format("%d_%d", dbId, baseTableId + i);
+            ttlMap.put(key, expiredTime);
+        }
+        MockBinlogConfigCache binlogConfigCache = BinlogTestUtils.newMockBinlogConfigCache(ttlMap);
+        // disable db binlog
+        binlogConfigCache.addDbBinlogConfig(dbId, false, 0L);
+        // disable some table binlog
+        for (int i = 0; i <= gcTableNum; i++) {
+            binlogConfigCache.addTableBinlogConfig(dbId, baseTableId + i, false, expiredTime);
+        }
+
+        // init & add binlogs
+        List<TBinlog> testBinlogs = Lists.newArrayList();
+        Long[] tableLastCommitInfo = new Long[tableNum];
+        long maxGcTableId = baseTableId + gcTableNum;
+        for (int i = 0; i < totalBinlogNum; ++i) {
+            long tableId = baseTableId + (i / tableNum);
+            long commitSeq = baseNum + i;
+            tableLastCommitInfo[i / tableNum] = commitSeq;
+            TBinlog binlog = BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, baseNum);
+            testBinlogs.add(binlog);
+        }
+
+        // init DbBinlog
+        DBBinlog dbBinlog = null;
+
+        // insert binlogs
+        for (int i = 0; i < totalBinlogNum; ++i) {
+            if (dbBinlog == null) {
+                dbBinlog = new DBBinlog(binlogConfigCache, testBinlogs.get(i));
+            }
+            dbBinlog.addBinlog(testBinlogs.get(i), null);
+        }
+
+        // trigger gc
+        BinlogTombstone tombstone = dbBinlog.gc();
+
+        // check binlog status - all binlogs should be cleared for disabled tables
+        for (TBinlog binlog : testBinlogs) {
+            long tableId = binlog.getTableIds().get(0);
+            if (tableId <= maxGcTableId) {
+                // For disabled tables, all binlogs should be cleared
+                Assertions.assertEquals(0, binlog.getTableRef());
+            } else {
+                // For enabled tables, only expired binlogs should be cleared
+                if (binlog.getTimestamp() <= expiredTime) {
+                    Assertions.assertEquals(0, binlog.getTableRef());
+                } else {
+                    Assertions.assertEquals(1, binlog.getTableRef());
+                }
+            }
+        }
+
+        // check tombstone
+        Assertions.assertFalse(tombstone.isDbBinlogTomstone());
+        Assertions.assertEquals(baseNum + totalBinlogNum - 1, tombstone.getCommitSeq());
+    }
+
+    @Test
+    public void testDbAndTableGcWithEnable() {
+        // init base data
+        long expiredTime = baseNum + expiredBinlogNum;
+        Map<String, Long> ttlMap = Maps.newHashMap();
+        for (int i = 0; i < tableNum; ++i) {
+            String key = String.format("%d_%d", dbId, baseTableId + i);
+            ttlMap.put(key, expiredTime);
+        }
+        MockBinlogConfigCache binlogConfigCache = BinlogTestUtils.newMockBinlogConfigCache(ttlMap);
+        // enable db binlog
+        binlogConfigCache.addDbBinlogConfig(dbId, true, expiredTime);
+        // enable all table binlog
+        for (int i = 0; i < tableNum; i++) {
+            binlogConfigCache.addTableBinlogConfig(dbId, baseTableId + i, true, expiredTime);
+        }
+
+        // init & add binlogs
+        List<TBinlog> testBinlogs = Lists.newArrayList();
+        for (int i = 0; i < totalBinlogNum; ++i) {
+            long tableId = baseTableId + (i / tableNum);
+            long commitSeq = baseNum + i;
+            TBinlog binlog = BinlogTestUtils.newBinlog(dbId, tableId, commitSeq, baseNum + i);
+            testBinlogs.add(binlog);
+        }
+
+        // init DbBinlog
+        DBBinlog dbBinlog = null;
+
+        // insert binlogs
+        for (int i = 0; i < totalBinlogNum; ++i) {
+            if (dbBinlog == null) {
+                dbBinlog = new DBBinlog(binlogConfigCache, testBinlogs.get(i));
+            }
+            dbBinlog.addBinlog(testBinlogs.get(i), null);
+        }
+
+        // trigger gc
+        BinlogTombstone tombstone = dbBinlog.gc();
+
+        // check binlog status - only expired binlogs should be cleared
+        for (TBinlog binlog : testBinlogs) {
+            if (binlog.getTimestamp() <= expiredTime) {
+                Assertions.assertEquals(0, binlog.getTableRef());
+            } else {
+                Assertions.assertEquals(1, binlog.getTableRef());
+            }
+        }
+
+        // check tombstone
+        Assertions.assertTrue(tombstone.isDbBinlogTomstone());
+        Assertions.assertEquals(expiredTime, tombstone.getCommitSeq());
+    }
+}

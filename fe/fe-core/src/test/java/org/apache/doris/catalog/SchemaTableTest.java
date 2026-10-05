@@ -1,0 +1,131 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.catalog;
+
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.SchemaTable.SchemaTableAggregateType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.utframe.TestWithFeService;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+
+public class SchemaTableTest {
+    @Test
+    public void testGenerateAggBySchemaAggType() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Expression expression = SchemaTable.generateAggBySchemaAggType(a, SchemaTableAggregateType.AVG);
+        Assertions.assertEquals(IntegerType.INSTANCE, expression.getDataType());
+        Assertions.assertTrue(expression.child(0) instanceof Avg);
+        expression = SchemaTable.generateAggBySchemaAggType(a, SchemaTableAggregateType.MAX);
+        Assertions.assertTrue(expression instanceof Max);
+        expression = SchemaTable.generateAggBySchemaAggType(a, SchemaTableAggregateType.MIN);
+        Assertions.assertTrue(expression instanceof Min);
+        expression = SchemaTable.generateAggBySchemaAggType(a, SchemaTableAggregateType.SUM);
+        Assertions.assertTrue(expression.child(0) instanceof Sum);
+        expression = SchemaTable.generateAggBySchemaAggType(a, null);
+        Assertions.assertTrue(expression instanceof AnyValue);
+
+        a = new SlotReference("a", DoubleType.INSTANCE);
+        expression = SchemaTable.generateAggBySchemaAggType(a, SchemaTableAggregateType.AVG);
+        Assertions.assertEquals(DoubleType.INSTANCE, expression.getDataType());
+
+        a = new SlotReference("a", BigIntType.INSTANCE);
+        expression = SchemaTable.generateAggBySchemaAggType(a, SchemaTableAggregateType.AVG);
+        Assertions.assertEquals(BigIntType.INSTANCE, expression.getDataType());
+
+        a = new SlotReference("a", JsonType.INSTANCE);
+        try {
+            SchemaTable.generateAggBySchemaAggType(a, SchemaTableAggregateType.AVG);
+        } catch (Exception e) {
+            Assertions.assertTrue(e.getMessage().contains("can not cast"));
+        }
+        a = new SlotReference("a", StringType.INSTANCE);
+        expression = SchemaTable.generateAggBySchemaAggType(a, SchemaTableAggregateType.AVG);
+        Assertions.assertEquals(StringType.INSTANCE, expression.getDataType());
+    }
+
+    @Test
+    public void testShouldFetchAllFe() throws AnalysisException, IOException {
+        UserIdentity user1 = new UserIdentity("user1", "%");
+        user1.analyze();
+        TestWithFeService.createCtx(user1, "127.0.0.1");
+
+        SchemaTable sqlBlockRuleStatus = (SchemaTable) SchemaTable.TABLE_MAP.get("sql_block_rule_status");
+        Assertions.assertTrue(sqlBlockRuleStatus.shouldFetchAllFe());
+        Assertions.assertTrue(sqlBlockRuleStatus.shouldAddAgg());
+        Assertions.assertEquals("REQUIRE_PARTITION_FILTER", sqlBlockRuleStatus.getFullSchema().get(8).getName());
+
+        SchemaTable processlist = (SchemaTable) SchemaTable.TABLE_MAP.get("processlist");
+        Assertions.assertTrue(processlist.shouldFetchAllFe());
+        Assertions.assertFalse(processlist.shouldAddAgg());
+
+        SchemaTable viewDependency = (SchemaTable) SchemaTable.TABLE_MAP.get("view_dependency");
+        Assertions.assertFalse(viewDependency.shouldFetchAllFe());
+        Assertions.assertFalse(viewDependency.shouldAddAgg());
+
+        SchemaTable authenticationIntegrations =
+                (SchemaTable) SchemaTable.TABLE_MAP.get("authentication_integrations");
+        Assertions.assertFalse(authenticationIntegrations.shouldFetchAllFe());
+        Assertions.assertFalse(authenticationIntegrations.shouldAddAgg());
+        Assertions.assertEquals(8, authenticationIntegrations.getFullSchema().size());
+        Assertions.assertEquals("CREATE_USER", authenticationIntegrations.getFullSchema().get(4).getName());
+        Assertions.assertEquals("CREATE_TIME", authenticationIntegrations.getFullSchema().get(5).getName());
+        Assertions.assertEquals("ALTER_USER", authenticationIntegrations.getFullSchema().get(6).getName());
+        Assertions.assertEquals("MODIFY_TIME", authenticationIntegrations.getFullSchema().get(7).getName());
+
+        SchemaTable roleMappings = (SchemaTable) SchemaTable.TABLE_MAP.get("role_mappings");
+        Assertions.assertFalse(roleMappings.shouldFetchAllFe());
+        Assertions.assertFalse(roleMappings.shouldAddAgg());
+        Assertions.assertEquals(8, roleMappings.getFullSchema().size());
+        Assertions.assertEquals("NAME", roleMappings.getFullSchema().get(0).getName());
+        Assertions.assertEquals("INTEGRATION_NAME", roleMappings.getFullSchema().get(1).getName());
+        Assertions.assertEquals("RULES", roleMappings.getFullSchema().get(2).getName());
+        Assertions.assertEquals("COMMENT", roleMappings.getFullSchema().get(3).getName());
+        Assertions.assertEquals("CREATE_USER", roleMappings.getFullSchema().get(4).getName());
+        Assertions.assertEquals("CREATE_TIME", roleMappings.getFullSchema().get(5).getName());
+        Assertions.assertEquals("ALTER_USER", roleMappings.getFullSchema().get(6).getName());
+        Assertions.assertEquals("MODIFY_TIME", roleMappings.getFullSchema().get(7).getName());
+
+        SchemaTable tsoStatus = (SchemaTable) SchemaTable.TABLE_MAP.get("tso_status");
+        Assertions.assertFalse(tsoStatus.shouldFetchAllFe());
+        Assertions.assertFalse(tsoStatus.shouldAddAgg());
+        Assertions.assertEquals(6, tsoStatus.getFullSchema().size());
+        Assertions.assertEquals("WINDOW_END_PHYSICAL_TIME", tsoStatus.getFullSchema().get(0).getName());
+        Assertions.assertEquals("CURRENT_TSO", tsoStatus.getFullSchema().get(1).getName());
+        Assertions.assertEquals("CURRENT_TSO_PHYSICAL_TIME", tsoStatus.getFullSchema().get(2).getName());
+        Assertions.assertEquals("CURRENT_TSO_LOGICAL_COUNTER", tsoStatus.getFullSchema().get(3).getName());
+        Assertions.assertEquals("COMMITTED_TSO", tsoStatus.getFullSchema().get(4).getName());
+        Assertions.assertEquals("COMMITTED_TSO_PHYSICAL_TIME", tsoStatus.getFullSchema().get(5).getName());
+    }
+}

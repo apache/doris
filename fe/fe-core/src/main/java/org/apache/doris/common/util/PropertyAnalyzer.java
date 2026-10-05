@@ -1,0 +1,2382 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.common.util;
+
+import org.apache.doris.analysis.DataSortInfo;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
+import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TSortType;
+import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTabletType;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+public class PropertyAnalyzer {
+
+    public static final String PROPERTIES_SHORT_KEY = "short_key";
+    public static final String PROPERTIES_REPLICATION_NUM = "replication_num";
+    public static final String PROPERTIES_REPLICATION_ALLOCATION = "replication_allocation";
+    public static final String PROPERTIES_MIN_LOAD_REPLICA_NUM = "min_load_replica_num";
+    public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
+    public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
+    public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
+    // base time for the data in the partition
+    public static final String PROPERTIES_DATA_BASE_TIME = "data_base_time_ms";
+    // for 1.x -> 2.x migration
+    public static final String PROPERTIES_VERSION_INFO = "version_info";
+    // for restore
+    public static final String PROPERTIES_SCHEMA_VERSION = "schema_version";
+    public static final String PROPERTIES_PARTITION_ID = "partition_id";
+    public static final String PROPERTIES_VISIBLE_VERSION = "visible_version";
+    public static final String PROPERTIES_IN_ATOMIC_RESTORE = "in_atomic_restore";
+
+    public static final String PROPERTIES_BF_COLUMNS = "bloom_filter_columns";
+    public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
+
+    public static final String PROPERTIES_COLUMN_SEPARATOR = "column_separator";
+    public static final String PROPERTIES_LINE_DELIMITER = "line_delimiter";
+
+    public static final String PROPERTIES_COLOCATE_WITH = "colocate_with";
+
+    public static final String PROPERTIES_TIMEOUT = "timeout";
+    public static final String PROPERTIES_COMPRESSION = "compression";
+
+    // row store page size, default 16KB
+    public static final String PROPERTIES_ROW_STORE_PAGE_SIZE = "row_store_page_size";
+    public static final long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384L;
+
+    public static final String PROPERTIES_STORAGE_PAGE_SIZE = "storage_page_size";
+    public static final long STORAGE_PAGE_SIZE_DEFAULT_VALUE = 65536L;
+
+    public static final String PROPERTIES_STORAGE_DICT_PAGE_SIZE = "storage_dict_page_size";
+    public static final long STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE = 262144L;
+
+    public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
+
+    public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
+    public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
+    /*
+     * for upgrade alpha rowset to beta rowset, valid value: v1, v2
+     * v1: alpha rowset
+     * v2: beta rowset
+     */
+    public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
+
+    public static final String PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT = "inverted_index_storage_format";
+
+    public static final String PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT =
+            "partition.inverted_index_storage_format";
+
+    public static final String PROPERTIES_INMEMORY = "in_memory";
+
+    public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
+    public static final long MAX_FILE_CACHE_TTL_SECONDS = Long.MAX_VALUE / 2L;
+
+    // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
+    public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
+    public static final String PROPERTIES_ESTIMATE_PARTITION_SIZE = "estimate_partition_size";
+
+    public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
+
+    public static final String PROPERTIES_STRICT_RANGE = "strict_range";
+    public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
+    public static final String PROPERTIES_TYPE = "type";
+    // This is common prefix for function column
+    public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
+    public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
+    public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
+
+    public static final String PROPERTIES_SEQUENCE_MAPPING = "sequence_mapping";
+
+    public static final String PROPERTIES_SWAP_TABLE = "swap";
+
+    public static final String TAG_LOCATION = "tag.location";
+
+    public static final String PROPERTIES_DISABLE_QUERY = "disable_query";
+
+    public static final String PROPERTIES_DISABLE_LOAD = "disable_load";
+
+    public static final String PROPERTIES_STORAGE_POLICY = "storage_policy";
+
+    public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
+
+    // Legacy persisted switch for flatten-nested variant behavior before it was deprecated.
+    @Deprecated
+    public static final String LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "variant_enable_flatten_nested";
+
+    // Deprecated legacy switch for flatten-nested variant behavior.
+    // It is distinct from variant_enable_nested_group.
+    @Deprecated
+    public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "deprecated_variant_enable_flatten_nested";
+
+    public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
+            "vertical_compaction_num_columns_per_group";
+
+    public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column"; // deprecated
+
+    public static final String PROPERTIES_ROW_STORE_COLUMNS = "row_store_columns";
+
+    public static final String PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD = "skip_write_index_on_load";
+
+    public static final String PROPERTIES_COMPACTION_POLICY = "compaction_policy";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES =
+            "time_series_compaction_goal_size_mbytes";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD =
+            "time_series_compaction_file_count_threshold";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS =
+            "time_series_compaction_time_threshold_seconds";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD =
+            "time_series_compaction_empty_rowsets_threshold";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD =
+            "time_series_compaction_level_threshold";
+
+    public static final String PROPERTIES_MUTABLE = "mutable";
+
+    public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
+
+    // binlog.*
+    public static final String PROPERTIES_BINLOG_PREFIX = "binlog.";
+    public static final String PROPERTIES_BINLOG_ENABLE = "binlog.enable";
+    public static final String PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
+    public static final String PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
+    public static final String PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
+    public static final String PROPERTIES_BINLOG_FORMAT = "binlog.format";
+    public static final String PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value";
+    public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
+            "enable_duplicate_without_keys_by_default";
+    public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
+
+    public static final String PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION =
+            "enable_nondeterministic_function";
+
+    public static final String PROPERTIES_USE_FOR_REWRITE =
+            "use_for_rewrite";
+    public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
+    public static final String PROPERTIES_IVM_USE_FULL_KEYS = "ivm_use_full_keys";
+    /**
+     * Limits IVM incremental refresh of each configured base table to its last N
+     * partitions (by partition value). This is a lossy computation window used only
+     * by the IVM incremental refresh path: COMPLETE refresh (initial load, fallback,
+     * manual REFRESH COMPLETE) always covers the full table and stays authoritative.
+     *
+     * <p>When the window of a table is enlarged (N becomes larger) or removed, partitions
+     * that were previously ignored by the lossy window come back into the refresh range.
+     * Their stream backlog was skipped, so the ALTER marks the MV as requiring a complete
+     * baseline rebuild: the next refresh (AUTO) performs a full refresh, and a strict
+     * manual INCREMENTAL refresh is rejected until then.
+     */
+    public static final String PROPERTIES_IVM_PARTITION_WINDOW_LIMIT =
+            "ivm_partition_window_limit";
+
+    public static final String ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES =
+            "async_mv.query_rewrite.consistency_relaxed_tables";
+    public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
+    public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
+    public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
+    public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
+    public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
+    public static final String PROPERTIES_PARTITION_RETENTION_COUNT = "partition.retention_count";
+    public static final String PROPERTIES_STORAGE_VAULT_NAME = "storage_vault_name";
+    public static final String PROPERTIES_STORAGE_VAULT_ID = "storage_vault_id";
+    // For unique key data model, the feature Merge-on-Write will leverage a primary
+    // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
+    // which can avoid the merging cost in read stage, and accelerate the aggregation
+    // query performance significantly.
+    // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
+    // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
+    public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
+    public static final String ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN = "enable_unique_key_skip_bitmap_column";
+    private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
+    public static final String COMMA_SEPARATOR = ",";
+    private static final double MAX_FPP = 0.05;
+    private static final double MIN_FPP = 0.0001;
+
+    public static final String PROPERTIES_GROUP_COMMIT_INTERVAL_MS = "group_commit_interval_ms";
+    public static final int PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE
+            = Config.group_commit_interval_ms_default_value;
+
+    public static final String PROPERTIES_GROUP_COMMIT_DATA_BYTES = "group_commit_data_bytes";
+    public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
+            = Config.group_commit_data_bytes_default_value;
+
+    public static final String PROPERTIES_GROUP_COMMIT_MODE = "group_commit_mode";
+    public static final String GROUP_COMMIT_MODE_OFF = "off_mode";
+    public static final String GROUP_COMMIT_MODE_ASYNC = "async_mode";
+    public static final String GROUP_COMMIT_MODE_SYNC = "sync_mode";
+
+    public static final String PROPERTIES_ENABLE_MOW_LIGHT_DELETE =
+            "enable_mow_light_delete";
+    public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
+            = Config.enable_mow_light_delete;
+
+    public static final String PROPERTIES_AUTO_ANALYZE_POLICY = "auto_analyze_policy";
+    public static final String ENABLE_AUTO_ANALYZE_POLICY = "enable";
+    public static final String DISABLE_AUTO_ANALYZE_POLICY = "disable";
+    public static final String USE_CATALOG_AUTO_ANALYZE_POLICY = "base_on_catalog";
+
+    // compaction policy
+    public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
+    public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
+    public static final String BINLOG_COMPACTION_POLICY = "binlog";
+    public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 1024;
+    public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 1000;
+    public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
+    public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
+    public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
+    public static final int VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE = 5;
+
+    public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
+
+    public static final String PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE = "variant_enable_typed_paths_to_sparse";
+    public static final String PROPERTIES_VARIANT_ENABLE_NESTED_GROUP = "variant_enable_nested_group";
+    public static final String PROPERTIES_TDE_ALGORITHM = "tde_algorithm";
+    public static final String AES256 = "AES256";
+    public static final String SM4 = "SM4";
+    public static final String PLAINTEXT = "PLAINTEXT";
+
+    public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+            "variant_max_sparse_column_statistics_size";
+    // number of buckets when using bucketized sparse serialization
+    public static final String PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT = "variant_sparse_hash_shard_count";
+
+    public static final String PROPERTIES_VARIANT_ENABLE_DOC_MODE = "variant_enable_doc_mode";
+
+    public static final String PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "variant_doc_materialization_min_rows";
+
+    // number of buckets when using doc snapshot serialization
+    public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
+
+    // stream properties
+    public static final String PROPERTIES_STREAM_TYPE = "type";
+    public static final String PROPERTIES_STREAM_SHOW_INITIAL_ROWS = "show_initial_rows";
+
+    public enum RewriteType {
+        PUT,      // always put property
+        REPLACE,  // replace if exists property
+        DELETE,   // delete property
+    }
+
+    public static class RewriteProperty {
+        RewriteType rewriteType;
+        String key;
+        String value;
+
+        private RewriteProperty(RewriteType rewriteType, String key, String value) {
+            this.rewriteType = rewriteType;
+            this.key = key;
+            this.value = value;
+        }
+
+        public String key() {
+            return this.key;
+        }
+
+        public static RewriteProperty put(String key, String value) {
+            return new RewriteProperty(RewriteType.PUT, key, value);
+        }
+
+        public static RewriteProperty replace(String key, String value) {
+            return new RewriteProperty(RewriteType.REPLACE, key, value);
+        }
+
+        public static RewriteProperty  delete(String key) {
+            return new RewriteProperty(RewriteType.DELETE, key, null);
+        }
+
+        public void rewrite(Map<String, String> properties) {
+            switch (rewriteType) {
+                case PUT:
+                    properties.put(key, value);
+                    break;
+                case REPLACE:
+                    if (properties.containsKey(key)) {
+                        properties.put(key, value);
+                    }
+                    break;
+                case DELETE:
+                    properties.remove(key);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+    }
+
+    protected ImmutableList<RewriteProperty> forceProperties;
+
+    public PropertyAnalyzer() {
+        forceProperties = ImmutableList.of(
+                RewriteProperty.replace(PROPERTIES_FILE_CACHE_TTL_SECONDS, "0")
+                );
+    }
+
+    private static class SingletonHolder {
+        private static final PropertyAnalyzer INSTANCE = EnvFactory.getInstance().createPropertyAnalyzer();
+    }
+
+    public static PropertyAnalyzer getInstance() {
+        return SingletonHolder.INSTANCE;
+    }
+
+    /**
+     * check and replace members of DataProperty by properties.
+     *
+     * @param properties      key->value for members to change.
+     * @param oldDataProperty old DataProperty
+     * @return new DataProperty
+     * @throws AnalysisException property has invalid key->value
+     */
+    public static DataProperty analyzeDataProperty(Map<String, String> properties, final DataProperty oldDataProperty)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return oldDataProperty;
+        }
+
+        TStorageMedium storageMedium = oldDataProperty.getStorageMedium();
+        long cooldownTimestamp = oldDataProperty.getCooldownTimeMs();
+        final String oldStoragePolicy = oldDataProperty.getStoragePolicy();
+        // When we create one table with table's property set storage policy,
+        // the properties wouldn't contain storage policy so the hasStoragePolicy would be false,
+        // then we would just set the partition's storage policy the same as the table's
+        String newStoragePolicy = oldStoragePolicy;
+        boolean hasStoragePolicy = false;
+        boolean storageMediumSpecified = false;
+        boolean isBeingSynced = false;
+
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM)) {
+                if (value.equalsIgnoreCase(TStorageMedium.SSD.name())) {
+                    storageMedium = TStorageMedium.SSD;
+                    storageMediumSpecified = true;
+                } else if (value.equalsIgnoreCase(TStorageMedium.HDD.name())) {
+                    storageMedium = TStorageMedium.HDD;
+                    storageMediumSpecified = true;
+                } else {
+                    throw new AnalysisException("Invalid storage medium: " + value);
+                }
+            } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
+                try {
+                    // Cooldown timestamps are stored in milliseconds, so DATETIMEV2(6) preserves their
+                    // fractional part without imposing the narrower TIMESTAMP_NS epoch range.
+                    DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(value,
+                            ScalarType.createDatetimeV2Type(6));
+                    cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                } catch (AnalysisException e) {
+                    LOG.warn("dateLiteral failed, use max cool down time", e);
+                    cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+                }
+            } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
+                hasStoragePolicy = true;
+                newStoragePolicy = value;
+            } else if (key.equalsIgnoreCase(PROPERTIES_IS_BEING_SYNCED)) {
+                isBeingSynced = Boolean.parseBoolean(value);
+            }
+        } // end for properties
+
+        properties.remove(PROPERTIES_STORAGE_MEDIUM);
+        properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
+        properties.remove(PROPERTIES_STORAGE_POLICY);
+        properties.remove(PROPERTIES_DATA_BASE_TIME);
+        properties.remove(PROPERTIES_FILE_CACHE_TTL_SECONDS);
+
+        Preconditions.checkNotNull(storageMedium);
+
+        if (storageMedium == TStorageMedium.HDD) {
+            cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+            LOG.info("Can not assign cool down timestamp to HDD storage medium, ignore user setting.");
+        }
+
+        boolean hasCooldown = cooldownTimestamp != DataProperty.MAX_COOLDOWN_TIME_MS;
+        long currentTimeMs = System.currentTimeMillis();
+        if (storageMedium == TStorageMedium.SSD && hasCooldown) {
+            if (cooldownTimestamp <= currentTimeMs) {
+                throw new AnalysisException(
+                        "Cool down time: " + cooldownTimestamp + " should later than now: " + currentTimeMs);
+            }
+        }
+
+        if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
+            cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        }
+
+        // when isBeingSynced property is set to true, the storage policy will be ignored
+        if (isBeingSynced) {
+            hasStoragePolicy = false;
+            newStoragePolicy = "";
+        }
+
+        if (hasStoragePolicy && !"".equals(newStoragePolicy)) {
+            // check remote storage policy
+            StoragePolicy checkedPolicy = StoragePolicy.ofCheck(newStoragePolicy);
+            Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedPolicy);
+            if (!(policy instanceof StoragePolicy)) {
+                throw new AnalysisException("No PolicyStorage: " + newStoragePolicy);
+            }
+
+            StoragePolicy storagePolicy = (StoragePolicy) policy;
+            // Consider a scenario where if cold data has already been uploaded to resource A,
+            // and the user attempts to modify the policy to upload it to resource B,
+            // the data needs to be transferred from A to B.
+            // However, Doris currently does not support cross-bucket data transfer, therefore,
+            // changing the policy to a different policy with different resource is disabled.
+            // As for the case where the resource is the same, modifying the cooldown time is allowed,
+            // as this will not affect the already cooled data, but only the new data after modifying the policy.
+            if (null != oldStoragePolicy && !oldStoragePolicy.equals(newStoragePolicy)) {
+                // check remote storage policy
+                StoragePolicy oldPolicy = StoragePolicy.ofCheck(oldStoragePolicy);
+                Policy p = Env.getCurrentEnv().getPolicyMgr().getPolicy(oldPolicy);
+                if ((p instanceof StoragePolicy)) {
+                    String newResource = storagePolicy.getStorageResource();
+                    String oldResource = ((StoragePolicy) p).getStorageResource();
+                    if (!newResource.equals(oldResource)) {
+                        throw new AnalysisException("currently do not support change origin "
+                                + "storage policy to another one with different resource: ");
+                    }
+                }
+            }
+            // check remote storage cool down timestamp
+            if (storagePolicy.getCooldownTimestampMs() != -1) {
+                if (storagePolicy.getCooldownTimestampMs() <= currentTimeMs) {
+                    throw new AnalysisException(
+                            "remote storage cool down time: " + storagePolicy.getCooldownTimestampMs()
+                                    + " should later than now: " + currentTimeMs);
+                }
+                if (hasCooldown && storagePolicy.getCooldownTimestampMs() <= cooldownTimestamp) {
+                    throw new AnalysisException(
+                            "remote storage cool down time: " + storagePolicy.getCooldownTimestampMs()
+                                    + " should later than storage cool down time: " + cooldownTimestamp);
+                }
+            }
+        }
+
+        boolean mutable = PropertyAnalyzer.analyzeBooleanProp(properties, PROPERTIES_MUTABLE, true);
+        properties.remove(PROPERTIES_MUTABLE);
+
+        DataProperty dataProperty = new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
+        // check the state of data property
+        if (storageMediumSpecified) {
+            dataProperty.setStorageMediumSpecified(true);
+        }
+        return dataProperty;
+    }
+
+    public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
+        short shortKeyColumnCount = (short) -1;
+        if (properties != null && properties.containsKey(PROPERTIES_SHORT_KEY)) {
+            // check and use specified short key
+            try {
+                shortKeyColumnCount = Short.parseShort(properties.get(PROPERTIES_SHORT_KEY));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Short key: " + e.getMessage());
+            }
+
+            if (shortKeyColumnCount <= 0) {
+                throw new AnalysisException("Short key column count should larger than 0.");
+            }
+
+            properties.remove(PROPERTIES_SHORT_KEY);
+        }
+
+        return shortKeyColumnCount;
+    }
+
+    private static Short analyzeReplicationNum(Map<String, String> properties, String prefix, short oldReplicationNum)
+            throws AnalysisException {
+        Short replicationNum = oldReplicationNum;
+        String propKey = Strings.isNullOrEmpty(prefix)
+                ? PROPERTIES_REPLICATION_NUM
+                : prefix + "." + PROPERTIES_REPLICATION_NUM;
+        if (properties != null && properties.containsKey(propKey)) {
+            try {
+                replicationNum = Short.valueOf(properties.get(propKey));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
+            }
+
+            if (replicationNum < Config.min_replication_num_per_tablet
+                    || replicationNum > Config.max_replication_num_per_tablet) {
+                throw new AnalysisException("Replication num should between " + Config.min_replication_num_per_tablet
+                        + " and " + Config.max_replication_num_per_tablet);
+            }
+
+            properties.remove(propKey);
+        }
+        return replicationNum;
+    }
+
+    public static short analyzeMinLoadReplicaNum(Map<String, String> properties) throws AnalysisException {
+        short minLoadReplicaNum = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_MIN_LOAD_REPLICA_NUM)) {
+            try {
+                minLoadReplicaNum = Short.parseShort(properties.get(PROPERTIES_MIN_LOAD_REPLICA_NUM));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
+            }
+
+            if (minLoadReplicaNum <= 0 && minLoadReplicaNum != -1) {
+                throw new AnalysisException("min_load_replica_num should > 0 or =-1");
+            }
+
+            properties.remove(PROPERTIES_MIN_LOAD_REPLICA_NUM);
+        }
+        return minLoadReplicaNum;
+    }
+
+    public static TStorageType analyzeStorageType(Map<String, String> properties) throws AnalysisException {
+        // default is COLUMN
+        TStorageType tStorageType = TStorageType.COLUMN;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_TYPE)) {
+            String storageType = properties.get(PROPERTIES_STORAGE_TYPE);
+            if (storageType.equalsIgnoreCase(TStorageType.COLUMN.name())) {
+                tStorageType = TStorageType.COLUMN;
+            } else {
+                throw new AnalysisException("Invalid storage type: " + storageType);
+            }
+
+            properties.remove(PROPERTIES_STORAGE_TYPE);
+        }
+
+        return tStorageType;
+    }
+
+    public static TTabletType analyzeTabletType(Map<String, String> properties) throws AnalysisException {
+        // default is TABLET_TYPE_DISK
+        TTabletType tTabletType = TTabletType.TABLET_TYPE_DISK;
+        if (properties != null && properties.containsKey(PROPERTIES_TABLET_TYPE)) {
+            String tabletType = properties.get(PROPERTIES_TABLET_TYPE);
+            if (tabletType.equalsIgnoreCase("memory")) {
+                tTabletType = TTabletType.TABLET_TYPE_MEMORY;
+            } else if (tabletType.equalsIgnoreCase("disk")) {
+                tTabletType = TTabletType.TABLET_TYPE_DISK;
+            } else {
+                throw new AnalysisException(("Invalid tablet type"));
+            }
+            properties.remove(PROPERTIES_TABLET_TYPE);
+        }
+        return tTabletType;
+    }
+
+    public static long analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
+        long version = Partition.PARTITION_INIT_VERSION;
+        if (properties != null && properties.containsKey(PROPERTIES_VERSION_INFO)) {
+            String versionInfoStr = properties.get(PROPERTIES_VERSION_INFO);
+            try {
+                version = Long.parseLong(versionInfoStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("version info number format error: " + versionInfoStr);
+            }
+            properties.remove(PROPERTIES_VERSION_INFO);
+        }
+        return version;
+    }
+
+    public static long analyzeTTL(Map<String, String> properties) throws AnalysisException {
+        long ttlSeconds = 0;
+        if (properties != null && properties.containsKey(PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
+            ttlSeconds = analyzeFileCacheTtlSeconds(properties.get(PROPERTIES_FILE_CACHE_TTL_SECONDS));
+        }
+        return ttlSeconds;
+    }
+
+    public static long analyzeFileCacheTtlSeconds(String ttlSecondsStr) throws AnalysisException {
+        long ttlSeconds;
+        try {
+            ttlSeconds = Long.parseLong(ttlSecondsStr);
+        } catch (NumberFormatException e) {
+            throw invalidFileCacheTtlSecondsException(ttlSecondsStr);
+        }
+        if (ttlSeconds < 0 || ttlSeconds > MAX_FILE_CACHE_TTL_SECONDS) {
+            throw invalidFileCacheTtlSecondsException(ttlSecondsStr);
+        }
+        return ttlSeconds;
+    }
+
+    private static AnalysisException invalidFileCacheTtlSecondsException(String ttlSecondsStr) {
+        return new AnalysisException("The value " + ttlSecondsStr + " formats error or is out of range "
+                + "(0 <= integer <= " + MAX_FILE_CACHE_TTL_SECONDS + "). Larger values may overflow in BE "
+                + "and change TTL cache to normal cache; please use " + MAX_FILE_CACHE_TTL_SECONDS
+                + " or a smaller value.");
+    }
+
+    public static int analyzePartitionRetentionCount(Map<String, String> properties) throws AnalysisException {
+        int retentionCount = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            String val = properties.get(PROPERTIES_PARTITION_RETENTION_COUNT);
+            properties.remove(PROPERTIES_PARTITION_RETENTION_COUNT);
+            try {
+                retentionCount = Integer.parseInt(val);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("partition.retention_count format error");
+            }
+            if (retentionCount <= 0) {
+                throw new AnalysisException("partition.retention_count should be > 0");
+            }
+        }
+        return retentionCount;
+    }
+
+    public static int analyzeSchemaVersion(Map<String, String> properties) throws AnalysisException {
+        int schemaVersion = 0;
+        if (properties != null && properties.containsKey(PROPERTIES_SCHEMA_VERSION)) {
+            String schemaVersionStr = properties.get(PROPERTIES_SCHEMA_VERSION);
+            try {
+                schemaVersion = Integer.parseInt(schemaVersionStr);
+            } catch (Exception e) {
+                throw new AnalysisException("schema version format error");
+            }
+
+            properties.remove(PROPERTIES_SCHEMA_VERSION);
+        }
+
+        return schemaVersion;
+    }
+
+    private static Long getPropertyLong(Map<String, String> properties, String propertyId) throws AnalysisException {
+        long id = -1;
+        if (properties != null && properties.containsKey(propertyId)) {
+            String propertyIdStr = properties.get(propertyId);
+            try {
+                id = Long.parseLong(propertyIdStr);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid property long id: " + propertyIdStr);
+            }
+
+            properties.remove(propertyId);
+        }
+
+        return id;
+    }
+
+    public static Long analyzePartitionId(Map<String, String> properties) throws AnalysisException {
+        return getPropertyLong(properties, PROPERTIES_PARTITION_ID);
+    }
+
+    public static Long analyzeVisibleVersion(Map<String, String> properties) throws AnalysisException {
+        return getPropertyLong(properties, PROPERTIES_VISIBLE_VERSION);
+    }
+
+    public static Set<String> analyzeBloomFilterColumns(Map<String, String> properties, List<Column> columns,
+            KeysType keysType) throws AnalysisException {
+        Set<String> bfColumns = null;
+        if (properties != null && properties.containsKey(PROPERTIES_BF_COLUMNS)) {
+            bfColumns = Sets.newHashSet();
+            String bfColumnsStr = properties.get(PROPERTIES_BF_COLUMNS);
+            if (Strings.isNullOrEmpty(bfColumnsStr)) {
+                return bfColumns;
+            }
+
+            String[] bfColumnArr = bfColumnsStr.split(COMMA_SEPARATOR);
+            if (bfColumnArr.length == 0) {
+                return bfColumns;
+            }
+            Set<String> bfColumnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            for (String bfColumn : bfColumnArr) {
+                bfColumn = bfColumn.trim();
+                boolean found = false;
+                for (Column column : columns) {
+                    if (column.getName().equalsIgnoreCase(bfColumn)) {
+                        PrimitiveType type = column.getDataType();
+
+                        // key columns and none/replace aggregate non-key columns support
+                        if (!column.isSupportBloomFilter()) {
+                            throw new AnalysisException(type + " is not supported in bloom filter index. "
+                                    + "invalid column: " + bfColumn);
+                        } else if (keysType != KeysType.AGG_KEYS || column.isKey()) {
+                            if (!bfColumnSet.add(bfColumn)) {
+                                throw new AnalysisException("Reduplicated bloom filter column: " + bfColumn);
+                            }
+
+                            bfColumns.add(column.getName());
+                            found = true;
+                            break;
+                        } else {
+                            throw new AnalysisException("Bloom filter index should only be used in columns"
+                                    + " of UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table."
+                                    + " invalid column: " + bfColumn);
+                        }
+                    }
+                }
+
+                if (!found) {
+                    throw new AnalysisException("Bloom filter column does not exist in table. invalid column: "
+                            + bfColumn);
+                }
+            }
+
+            properties.remove(PROPERTIES_BF_COLUMNS);
+        }
+
+        return bfColumns;
+    }
+
+    public static double analyzeBloomFilterFpp(Map<String, String> properties) throws AnalysisException {
+        double bfFpp = 0;
+        if (properties != null && properties.containsKey(PROPERTIES_BF_FPP)) {
+            String bfFppStr = properties.get(PROPERTIES_BF_FPP);
+            try {
+                bfFpp = Double.parseDouble(bfFppStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Bloom filter fpp is not Double");
+            }
+
+            // check range
+            if (bfFpp < MIN_FPP || bfFpp > MAX_FPP) {
+                throw new AnalysisException("Bloom filter fpp should in [" + MIN_FPP + ", " + MAX_FPP + "]");
+            }
+
+            properties.remove(PROPERTIES_BF_FPP);
+        }
+
+        return bfFpp;
+    }
+
+    // analyze the colocation properties of table
+    public static String analyzeColocate(Map<String, String> properties) {
+        String colocateGroup = null;
+        if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_WITH)) {
+            colocateGroup = properties.get(PROPERTIES_COLOCATE_WITH);
+            properties.remove(PROPERTIES_COLOCATE_WITH);
+        }
+        return colocateGroup;
+    }
+
+    public static long analyzeTimeout(Map<String, String> properties, long defaultTimeout) throws AnalysisException {
+        long timeout = defaultTimeout;
+        if (properties != null && properties.containsKey(PROPERTIES_TIMEOUT)) {
+            String timeoutStr = properties.get(PROPERTIES_TIMEOUT);
+            try {
+                timeout = Long.parseLong(timeoutStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid timeout format: " + timeoutStr);
+            }
+            properties.remove(PROPERTIES_TIMEOUT);
+        }
+        return timeout;
+    }
+
+    public static Boolean analyzeUseLightSchemaChange(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return true;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
+        // set light schema change true by default
+        if (null == value) {
+            return true;
+        }
+        properties.remove(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeDisableAutoCompaction(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_DISABLE_AUTO_COMPACTION);
+        // set light schema change false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_DISABLE_AUTO_COMPACTION);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_DISABLE_AUTO_COMPACTION
+                + " must be `true` or `false`");
+    }
+
+    @Deprecated
+    public static Boolean analyzeVariantFlattenNested(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED
+                + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT
+                + " must be `true` or `false`");
+    }
+
+    public static List<String> analyzeRowStoreColumns(Map<String, String> properties,
+            List<String> columns) throws AnalysisException {
+        List<String> rowStoreColumns = Lists.newArrayList();
+        String value = properties.get(PROPERTIES_ROW_STORE_COLUMNS);
+        // set empty row store columns by default
+        if (null == value) {
+            return null;
+        }
+        properties.remove(PROPERTIES_ROW_STORE_COLUMNS);
+        String[] rsColumnArr = value.split(COMMA_SEPARATOR);
+        rowStoreColumns.addAll(Arrays.asList(rsColumnArr));
+        if (rowStoreColumns.isEmpty()) {
+            throw new AnalysisException(PROPERTIES_ROW_STORE_COLUMNS + " must not be empty");
+        }
+        // check columns in column def
+        List<String> invalidColumns = rowStoreColumns.stream()
+                .filter(expectedColName -> columns.stream().noneMatch(
+                        column -> column.equalsIgnoreCase(expectedColName)))
+                .collect(Collectors.toList());
+        if (!invalidColumns.isEmpty()) {
+            throw new AnalysisException(
+                    "Column does not exist in table. Invalid columns: "
+                            + invalidColumns.stream().collect(Collectors.joining(", ", "", "")));
+        }
+        return rowStoreColumns;
+    }
+
+    public static Boolean analyzeStoreRowColumn(Map<String, String> properties)
+                        throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_STORE_ROW_COLUMN);
+        // set store_row_column false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_STORE_ROW_COLUMN);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        } else {
+            throw new AnalysisException(PROPERTIES_STORE_ROW_COLUMN + "must be `true` or `false`");
+        }
+    }
+
+    public static Boolean analyzeSkipWriteIndexOnLoad(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
+        // set skip_write_index_on_load false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
+        if (value.equalsIgnoreCase("true")) {
+            throw new AnalysisException("Property " + PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
+                    + " is forbidden now.");
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
+                + " must be `true` or `false`");
+    }
+
+    public static String analyzeCompactionPolicy(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return SIZE_BASED_COMPACTION_POLICY;
+        }
+        String compactionPolicy = SIZE_BASED_COMPACTION_POLICY;
+        if (properties.containsKey(PROPERTIES_COMPACTION_POLICY)) {
+            compactionPolicy = properties.get(PROPERTIES_COMPACTION_POLICY);
+            properties.remove(PROPERTIES_COMPACTION_POLICY);
+            if (compactionPolicy != null && !compactionPolicy.equals(TIME_SERIES_COMPACTION_POLICY)
+                    && !compactionPolicy.equals(SIZE_BASED_COMPACTION_POLICY)) {
+                throw new AnalysisException(PROPERTIES_COMPACTION_POLICY
+                        + " must be " + TIME_SERIES_COMPACTION_POLICY + " or " + SIZE_BASED_COMPACTION_POLICY);
+            }
+        }
+
+        if (keysType == KeysType.UNIQUE_KEYS && compactionPolicy.equals(TIME_SERIES_COMPACTION_POLICY)) {
+            throw new AnalysisException("Time series compaction policy is not supported for unique key table");
+        }
+        return compactionPolicy;
+    }
+
+    public static long analyzeTimeSeriesCompactionEmptyRowsetsThreshold(Map<String, String> properties)
+            throws AnalysisException {
+        long emptyRowsetsThreshold = TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return emptyRowsetsThreshold;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+            String emptyRowsetsThresholdStr = properties
+                                    .get(PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
+            try {
+                emptyRowsetsThreshold = Long.parseLong(emptyRowsetsThresholdStr);
+                if (emptyRowsetsThreshold < 2) {
+                    throw new AnalysisException("time_series_compaction_empty_rowsets_threshold can not"
+                            + " be less than 2: " + emptyRowsetsThresholdStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_empty_rowsets_threshold: "
+                        + emptyRowsetsThresholdStr);
+            }
+        }
+        return emptyRowsetsThreshold;
+    }
+
+    public static long analyzeTimeSeriesCompactionLevelThreshold(Map<String, String> properties)
+            throws AnalysisException {
+        long levelThreshold = TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return levelThreshold;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
+            String levelThresholdStr = properties
+                                    .get(PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
+            try {
+                levelThreshold = Long.parseLong(levelThresholdStr);
+                if (levelThreshold < 1 || levelThreshold > 2) {
+                    throw new AnalysisException("time_series_compaction_level_threshold can not"
+                            + " less than 1 or greater than 2: " + levelThreshold);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_level_threshold: "
+                        + levelThreshold);
+            }
+        }
+        return levelThreshold;
+    }
+
+    public static long analyzeTimeSeriesCompactionFileCountThreshold(Map<String, String> properties)
+            throws AnalysisException {
+        long fileCountThreshold = TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return fileCountThreshold;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
+            String fileCountThresholdStr = properties
+                    .get(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+            try {
+                fileCountThreshold = Long.parseLong(fileCountThresholdStr);
+                if (fileCountThreshold < 10) {
+                    throw new AnalysisException("time_series_compaction_file_count_threshold can not be "
+                            + "less than 10: " + fileCountThresholdStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
+                        + fileCountThresholdStr);
+            }
+        }
+        return fileCountThreshold;
+    }
+
+    public static long analyzeTimeSeriesCompactionTimeThresholdSeconds(Map<String, String> properties)
+            throws AnalysisException {
+        long timeThresholdSeconds = TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return timeThresholdSeconds;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
+            String timeThresholdSecondsStr = properties.get(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+            try {
+                timeThresholdSeconds = Long.parseLong(timeThresholdSecondsStr);
+                if (timeThresholdSeconds < 60) {
+                    throw new AnalysisException("time_series_compaction_time_threshold_seconds can not be"
+                            + " less than 60: " + timeThresholdSecondsStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format: "
+                        + timeThresholdSecondsStr);
+            }
+        }
+        return timeThresholdSeconds;
+    }
+
+    public static long analyzeTimeSeriesCompactionGoalSizeMbytes(Map<String, String> properties)
+            throws AnalysisException {
+        long goalSizeMbytes = TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return goalSizeMbytes;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+            String goalSizeMbytesStr = properties.get(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            try {
+                goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
+                if (goalSizeMbytes < 10) {
+                    throw new AnalysisException("time_series_compaction_goal_size_mbytes can not be"
+                            + " less than 10: " + goalSizeMbytesStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
+                        + goalSizeMbytesStr);
+            }
+        }
+        return goalSizeMbytes;
+    }
+
+    public static TCompressionType stringToCompressionType(String compressionType) throws AnalysisException {
+        if (compressionType.equalsIgnoreCase("no_compression")) {
+            return TCompressionType.NO_COMPRESSION;
+        } else if (compressionType.equalsIgnoreCase("lz4")) {
+            return TCompressionType.LZ4;
+        } else if (compressionType.equalsIgnoreCase("lz4f")) {
+            return TCompressionType.LZ4F;
+        } else if (compressionType.equalsIgnoreCase("lz4hc")) {
+            return TCompressionType.LZ4HC;
+        } else if (compressionType.equalsIgnoreCase("zlib")) {
+            return TCompressionType.ZLIB;
+        } else if (compressionType.equalsIgnoreCase("zstd")) {
+            return TCompressionType.ZSTD;
+        } else if (compressionType.equalsIgnoreCase("snappy")) {
+            return TCompressionType.SNAPPY;
+        } else if (compressionType.equalsIgnoreCase("default_compression")
+                && !Config.default_compression_type.equalsIgnoreCase("default_compression")) {
+            return TCompressionType.valueOf(Config.default_compression_type);
+        } else if (compressionType.equalsIgnoreCase("default_compression")) {
+            return TCompressionType.LZ4F;
+        } else {
+            throw new AnalysisException("unknown compression type: " + compressionType);
+        }
+    }
+
+    // analyzeCompressionType will parse the compression type from properties
+    public static TCompressionType getCompressionTypeFromProperties(Map<String, String> properties)
+            throws AnalysisException {
+        String compressionType = "";
+        if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
+            compressionType = properties.get(PROPERTIES_COMPRESSION);
+        } else {
+            return stringToCompressionType(Config.default_compression_type);
+        }
+
+        return stringToCompressionType(compressionType);
+    }
+
+    // analyzeCompressionType will parse the compression type from properties
+    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
+        TCompressionType compressionType = getCompressionTypeFromProperties(properties);
+        properties.remove(PROPERTIES_COMPRESSION);
+        return compressionType;
+    }
+
+    public static long alignTo4K(long size) {
+        return (size + 4095) & ~4095;
+    }
+
+    // analyzeRowStorePageSize will parse the row_store_page_size from properties
+    public static long analyzeRowStorePageSize(Map<String, String> properties) throws AnalysisException {
+        long rowStorePageSize = ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_ROW_STORE_PAGE_SIZE)) {
+            String rowStorePageSizeStr = properties.get(PROPERTIES_ROW_STORE_PAGE_SIZE);
+            try {
+                rowStorePageSize = alignTo4K(Long.parseLong(rowStorePageSizeStr));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid row store page size: " + rowStorePageSizeStr);
+            }
+
+            if (rowStorePageSize <= 0) {
+                throw new AnalysisException("Row store page size should larger than 0.");
+            }
+
+            properties.remove(PROPERTIES_ROW_STORE_PAGE_SIZE);
+        }
+
+        return rowStorePageSize;
+    }
+
+    public static long analyzeStoragePageSize(Map<String, String> properties) throws AnalysisException {
+        long storagePageSize = STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_PAGE_SIZE)) {
+            String storagePageSizeStr = properties.get(PROPERTIES_STORAGE_PAGE_SIZE);
+            try {
+                storagePageSize = Long.parseLong(storagePageSizeStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid storage page size: " + storagePageSizeStr);
+            }
+            if (storagePageSize < 4096 || storagePageSize > 10485760) {
+                throw new AnalysisException("Storage page size must be between 4KB and 10MB.");
+            }
+            storagePageSize = alignTo4K(storagePageSize);
+            properties.remove(PROPERTIES_STORAGE_PAGE_SIZE);
+        }
+        return storagePageSize;
+    }
+
+    public static long analyzeStorageDictPageSize(Map<String, String> properties) throws AnalysisException {
+        long storageDictPageSize = STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_DICT_PAGE_SIZE)) {
+            String storageDictPageSizeStr = properties.get(PROPERTIES_STORAGE_DICT_PAGE_SIZE);
+            try {
+                storageDictPageSize = Long.parseLong(storageDictPageSizeStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid storage dict page size: " + storageDictPageSizeStr);
+            }
+            if (storageDictPageSize < 0 || storageDictPageSize > 104857600) {
+                throw new AnalysisException("Storage dict page size must be between 0 and 100MB.");
+            }
+            storageDictPageSize = alignTo4K(storageDictPageSize);
+            properties.remove(PROPERTIES_STORAGE_DICT_PAGE_SIZE);
+        }
+        return storageDictPageSize;
+    }
+
+    // analyzeStorageFormat will parse the storage format from properties
+    // sql: alter table tablet_name set ("storage_format" = "v2")
+    // Use this sql to convert all tablets(base and rollup index) to a new format segment
+    public static TStorageFormat analyzeStorageFormat(Map<String, String> properties) throws AnalysisException {
+        String storageFormat = "";
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_FORMAT)) {
+            storageFormat = properties.get(PROPERTIES_STORAGE_FORMAT);
+            properties.remove(PROPERTIES_STORAGE_FORMAT);
+        } else {
+            return TStorageFormat.V2;
+        }
+
+        if (storageFormat.equalsIgnoreCase("V1")) {
+            throw new AnalysisException("Storage format V1 has been deprecated since version 0.14, "
+                    + "please use V2 instead");
+        } else if (storageFormat.equalsIgnoreCase("V2")) {
+            return TStorageFormat.V2;
+        } else if (storageFormat.equalsIgnoreCase("V3")) {
+            // V3 (V2 + external column meta feature)
+            return TStorageFormat.V3;
+        } else if (storageFormat.equalsIgnoreCase("default")) {
+            return TStorageFormat.V2;
+        } else {
+            throw new AnalysisException("unknown storage format: " + storageFormat);
+        }
+    }
+
+    public static TInvertedIndexFileStorageFormat analyzeInvertedIndexFileStorageFormat(Map<String, String> properties)
+            throws AnalysisException {
+        String invertedIndexFileStorageFormat = "";
+        if (properties != null && properties.containsKey(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
+            invertedIndexFileStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+            properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+        } else {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
+                return TInvertedIndexFileStorageFormat.V2;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("SNII")) {
+                return TInvertedIndexFileStorageFormat.SNII;
+            } else {
+                return TInvertedIndexFileStorageFormat.V3;
+            }
+        }
+
+        if (invertedIndexFileStorageFormat.equalsIgnoreCase("v1")) {
+            throw new AnalysisException(
+                    "Inverted index V1 is deprecated and no longer allowed for new index creation."
+                            + " Please use inverted index V2.");
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
+            return TInvertedIndexFileStorageFormat.V2;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v3")) {
+            return TInvertedIndexFileStorageFormat.V3;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("snii")) {
+            return TInvertedIndexFileStorageFormat.SNII;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
+            if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
+                return TInvertedIndexFileStorageFormat.V2;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("SNII")) {
+                return TInvertedIndexFileStorageFormat.SNII;
+            } else {
+                return TInvertedIndexFileStorageFormat.V3;
+            }
+        } else {
+            throw new AnalysisException("unknown inverted index storage format: " + invertedIndexFileStorageFormat);
+        }
+    }
+
+    public static TInvertedIndexFileStorageFormat analyzePartitionInvertedIndexFileStorageFormat(
+            Map<String, String> properties) throws AnalysisException {
+        if (properties == null || !properties.containsKey(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            return null;
+        }
+        if (!Config.isCloudMode()) {
+            throw new AnalysisException("partition.inverted_index_storage_format is only supported in cloud mode");
+        }
+        if (!Config.enable_partition_inverted_index_storage_format_rollout) {
+            properties.remove(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+            LOG.info("Ignore {} because partition inverted index storage format rollout is disabled",
+                    PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+            return null;
+        }
+
+        String formatValue = properties.remove(PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+        // "default" resolves to the FE config inverted_index_storage_format, which is neither the format the
+        // table was created with nor stable across versions, so a rollout target has to be spelled out.
+        if ("default".equalsIgnoreCase(formatValue)) {
+            throw new AnalysisException("partition inverted index storage format does not support 'default', "
+                    + "please specify V2, V3 or SNII explicitly");
+        }
+        // V1 has to be caught before the table-level analyzer, which rejects it with a create-index wording.
+        if ("V1".equalsIgnoreCase(formatValue)) {
+            throw new AnalysisException("partition inverted index storage format only supports V2, V3 and SNII");
+        }
+
+        Map<String, String> formatProperties = new HashMap<>();
+        formatProperties.put(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, formatValue);
+        return analyzeInvertedIndexFileStorageFormat(formatProperties);
+    }
+
+    // analyze common boolean properties, such as "in_memory" = "false"
+    public static boolean analyzeBooleanProp(Map<String, String> properties, String propKey, boolean defaultVal) {
+        if (properties != null && properties.containsKey(propKey)) {
+            String val = properties.get(propKey);
+            properties.remove(propKey);
+            return Boolean.parseBoolean(val);
+        }
+        return defaultVal;
+    }
+
+    public static String analyzeEstimatePartitionSize(Map<String, String> properties) {
+        String  estimatePartitionSize = "";
+        if (properties != null && properties.containsKey(PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
+            estimatePartitionSize = properties.get(PROPERTIES_ESTIMATE_PARTITION_SIZE);
+            properties.remove(PROPERTIES_ESTIMATE_PARTITION_SIZE);
+        }
+        return estimatePartitionSize;
+    }
+
+    public static String analyzeStoragePolicy(Map<String, String> properties) {
+        String storagePolicy = "";
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            storagePolicy = properties.get(PROPERTIES_STORAGE_POLICY);
+        }
+
+        return storagePolicy;
+    }
+
+    public static boolean hasStoragePolicy(Map<String, String> properties) {
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            return true;
+        }
+        return false;
+    }
+
+    public static String analyzeStorageVaultName(Map<String, String> properties) {
+        String storageVaultName = null;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {
+            storageVaultName = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
+            properties.remove(PROPERTIES_STORAGE_VAULT_NAME);
+        }
+
+        return storageVaultName;
+    }
+
+    /**
+     * @param properties, db
+     * @return <storageVaultName, storageVaultId>
+     * @throws AnalysisException
+     */
+    public static Pair<String, String> analyzeStorageVault(Map<String, String> properties, Database db)
+            throws AnalysisException {
+        String storageVaultName = analyzeStorageVaultName(properties);
+        String storageVaultId = null;
+
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            // If user does not specify one storage vault then FE would check db's storage vault then the default vault
+            // the storage vault inherit order is as follows: table -> db -> default
+            if (db.getDbProperties() != null) {
+                Map<String, String> dbProperties = new HashMap<>(db.getDbProperties().getProperties());
+                storageVaultName = PropertyAnalyzer.analyzeStorageVaultName(dbProperties);
+            }
+
+            if (!Strings.isNullOrEmpty(storageVaultName)) {
+                storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
+                LOG.info("Using database[{}] storage vault: name={}, id={}",
+                        db.getName(), storageVaultName, storageVaultId);
+            } else {
+                // continue to check default vault
+                Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
+                if (info == null || Strings.isNullOrEmpty(info.first) || Strings.isNullOrEmpty(info.second)) {
+                    throw new AnalysisException("No default storage vault."
+                            + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                            + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
+                }
+                storageVaultName = info.first;
+                LOG.info("Using default storage vault, name:{} id:{}", info.first, info.second);
+            }
+        }
+
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            throw new AnalysisException("Invalid Storage Vault. "
+                    + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                    + " and pick one to set the table property `\"storage_vault_name\" = \"<vault_name>\"`");
+        }
+
+        storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
+        if (Strings.isNullOrEmpty(storageVaultId)) {
+            throw new AnalysisException("Storage vault '" + storageVaultName + "' does not exist. "
+                    + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
+                    + "or create a new one with `CREATE STORAGE VAULT`.");
+        }
+
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_ID)) {
+            Preconditions.checkArgument(storageVaultId.equals(properties.get(PROPERTIES_STORAGE_VAULT_ID)),
+                    "storageVaultId check failed, %s-%s", storageVaultId, properties.get(PROPERTIES_STORAGE_VAULT_ID));
+            properties.remove(PROPERTIES_STORAGE_VAULT_ID);
+        }
+
+        return Pair.of(storageVaultName, storageVaultId);
+    }
+
+    // analyze property like : "type" = "xxx";
+    public static String analyzeType(Map<String, String> properties) throws AnalysisException {
+        String type = null;
+        if (properties != null && properties.containsKey(PROPERTIES_TYPE)) {
+            type = properties.get(PROPERTIES_TYPE);
+            properties.remove(PROPERTIES_TYPE);
+        }
+        return type;
+    }
+
+    public static Type analyzeSequenceType(Map<String, String> properties, KeysType keysType) throws AnalysisException {
+        String typeStr = null;
+        String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_TYPE;
+        if (properties != null && properties.containsKey(propertyName)) {
+            typeStr = properties.get(propertyName);
+            properties.remove(propertyName);
+        }
+        if (typeStr == null) {
+            return null;
+        }
+        if (typeStr != null && keysType != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("sequence column only support UNIQUE_KEYS");
+        }
+
+        Type type = DataType.convertFromString(typeStr.toLowerCase()).toCatalogDataType();
+
+        if (!type.isFixedPointType() && !type.isDateType()) {
+            throw new AnalysisException("sequence type only support integer types and date types");
+        }
+
+        return type;
+    }
+
+    public static String analyzeSequenceMapCol(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        String sequenceCol = null;
+        String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_COL;
+        if (properties != null && properties.containsKey(propertyName)) {
+            sequenceCol = properties.get(propertyName);
+            properties.remove(propertyName);
+        }
+        if (sequenceCol != null && keysType != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("sequence column only support UNIQUE_KEYS");
+        }
+        return sequenceCol;
+    }
+
+    public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key,
+            Boolean defaultValue) {
+        if (properties.containsKey(key)) {
+            String value = properties.remove(key);
+            return Boolean.valueOf(value);
+        }
+        return defaultValue;
+    }
+
+    /**
+     * Found property with "tag." prefix and return a tag map, which key is tag type and value is tag value
+     * Eg.
+     * "tag.location" = "group_a", "tag.compute" = "x1"
+     * Returns:
+     * [location->group_a] [compute->x1]
+     *
+     * @param properties
+     * @param defaultValue
+     * @return
+     * @throws AnalysisException
+     */
+    public static Map<String, String> analyzeBackendTagsProperties(Map<String, String> properties, Tag defaultValue)
+            throws AnalysisException {
+        Map<String, String> tagMap = Maps.newHashMap();
+        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<String, String> entry = iter.next();
+            if (!entry.getKey().startsWith("tag.")) {
+                continue;
+            }
+            String[] keyParts = entry.getKey().split("\\.");
+            if (keyParts.length != 2) {
+                continue;
+            }
+            String val = entry.getValue().replaceAll(" ", "");
+            Tag tag = Tag.create(keyParts[1], val);
+            tagMap.put(tag.type, tag.value);
+            iter.remove();
+        }
+        if (defaultValue != null && !tagMap.containsKey(defaultValue.type)) {
+            tagMap.put(defaultValue.type, defaultValue.value);
+        }
+        return tagMap;
+    }
+
+    public static boolean hasBinlogConfig(Map<String, String> properties) {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+
+        for (String key : properties.keySet()) {
+            if (key.startsWith(PROPERTIES_BINLOG_PREFIX)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static Map<String, String> analyzeBinlogConfig(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return null;
+        }
+
+        Map<String, String> binlogConfigMap = Maps.newHashMap();
+        // check PROPERTIES_BINLOG_ENABLE = "binlog.enable";
+        if (properties.containsKey(PROPERTIES_BINLOG_ENABLE)) {
+            String enable = properties.get(PROPERTIES_BINLOG_ENABLE);
+            try {
+                binlogConfigMap.put(PROPERTIES_BINLOG_ENABLE, String.valueOf(Boolean.parseBoolean(enable)));
+                properties.remove(PROPERTIES_BINLOG_ENABLE);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog enable value: " + enable);
+            }
+        }
+        // check PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
+        if (properties.containsKey(PROPERTIES_BINLOG_TTL_SECONDS)) {
+            String ttlSeconds = properties.get(PROPERTIES_BINLOG_TTL_SECONDS);
+            try {
+                binlogConfigMap.put(PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(Long.parseLong(ttlSeconds)));
+                properties.remove(PROPERTIES_BINLOG_TTL_SECONDS);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog ttl_seconds value: " + ttlSeconds);
+            }
+        }
+        // check PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
+        if (properties.containsKey(PROPERTIES_BINLOG_MAX_BYTES)) {
+            String maxBytes = properties.get(PROPERTIES_BINLOG_MAX_BYTES);
+            try {
+                binlogConfigMap.put(PROPERTIES_BINLOG_MAX_BYTES, String.valueOf(Long.parseLong(maxBytes)));
+                properties.remove(PROPERTIES_BINLOG_MAX_BYTES);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog max_bytes value: " + maxBytes);
+            }
+        }
+        // check PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
+        if (properties.containsKey(PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
+            String maxHistoryNums = properties.get(PROPERTIES_BINLOG_MAX_HISTORY_NUMS);
+            try {
+                binlogConfigMap.put(PROPERTIES_BINLOG_MAX_HISTORY_NUMS, String.valueOf(Long.parseLong(maxHistoryNums)));
+                properties.remove(PROPERTIES_BINLOG_MAX_HISTORY_NUMS);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog max_history_nums value: " + maxHistoryNums);
+            }
+        }
+
+        // check PROPERTIES_BINLOG_FORMAT = "binlog.format";
+        if (properties.containsKey(PROPERTIES_BINLOG_FORMAT)) {
+            String format = properties.get(PROPERTIES_BINLOG_FORMAT);
+            try {
+                BinlogConfig.BinlogFormat.valueOf(format);
+                binlogConfigMap.put(PROPERTIES_BINLOG_FORMAT, format);
+                properties.remove(PROPERTIES_BINLOG_FORMAT);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog format value: " + format);
+            }
+        }
+
+        // check PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value"
+        if (properties.containsKey(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
+            String needHistoricalValue = properties.get(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
+            if (!StringUtils.equalsAnyIgnoreCase(needHistoricalValue, "true", "false")) {
+                throw new AnalysisException("Invalid binlog need_historical_value value: " + needHistoricalValue);
+            }
+            binlogConfigMap.put(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
+                    String.valueOf(Boolean.parseBoolean(needHistoricalValue)));
+            properties.remove(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
+        }
+
+
+        return binlogConfigMap;
+    }
+
+    public static boolean analyzeIsBeingSynced(Map<String, String> properties, boolean defaultValue) {
+        if (properties != null && properties.containsKey(PROPERTIES_IS_BEING_SYNCED)) {
+            String value = properties.remove(PROPERTIES_IS_BEING_SYNCED);
+            return Boolean.valueOf(value);
+        }
+        return defaultValue;
+    }
+
+    // analyze replica allocation property without checking if backends can satisfy the allocation
+    // mainly used for metadata replay.
+    public static ReplicaAllocation analyzeReplicaAllocationWithoutCheck(Map<String, String> properties,
+            String prefix) throws AnalysisException {
+        return analyzeReplicaAllocationImpl(properties, prefix, false);
+    }
+
+    public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties, String prefix)
+            throws AnalysisException {
+        if (!Config.force_olap_table_replication_allocation.isEmpty()) {
+            properties = forceRewriteReplicaAllocation(properties, prefix);
+        }
+        return analyzeReplicaAllocationImpl(properties, prefix, true);
+    }
+
+    public static Map<String, String> forceRewriteReplicaAllocation(Map<String, String> properties,
+            String prefix) {
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        String propNumKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_NUM
+                : prefix + "." + PROPERTIES_REPLICATION_NUM;
+        if (properties.containsKey(propNumKey)) {
+            properties.remove(propNumKey);
+        }
+        String propTagKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
+                : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
+        if (properties.containsKey(propTagKey)) {
+            properties.remove(propTagKey);
+        }
+        properties.put(propTagKey,  Config.force_olap_table_replication_allocation);
+        return properties;
+    }
+
+    // There are 2 kinds of replication property:
+    // 1. "replication_num" = "3"
+    // 2. "replication_allocation" = "tag.location.zone1: 2, tag.location.zone2: 1"
+    // These 2 kinds of property will all be converted to a ReplicaAllocation and return.
+    // Return ReplicaAllocation.NOT_SET if no replica property is set.
+    //
+    // prefix is for property key such as "dynamic_partition.replication_num", which prefix is "dynamic_partition"
+    private static ReplicaAllocation analyzeReplicaAllocationImpl(Map<String, String> properties, String prefix,
+            boolean checkBackends)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return ReplicaAllocation.NOT_SET;
+        }
+        // if give "replication_num" property, return with default backend tag
+        Short replicaNum = analyzeReplicationNum(properties, prefix, (short) 0);
+        if (replicaNum > 0) {
+            return new ReplicaAllocation(replicaNum);
+        }
+
+        String propKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
+                : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
+        // if not set, return default replication allocation
+        if (!properties.containsKey(propKey)) {
+            return ReplicaAllocation.NOT_SET;
+        }
+
+        // analyze user specified replication allocation
+        // format is as: "tag.location.zone1: 2, tag.location.zone2: 1"
+        ReplicaAllocation replicaAlloc = new ReplicaAllocation();
+        String allocationVal = properties.remove(propKey);
+        allocationVal = allocationVal.replaceAll(" ", "");
+        String[] locations = allocationVal.split(",");
+        int totalReplicaNum = 0;
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
+        for (String location : locations) {
+            String[] parts = location.split(":");
+            if (parts.length != 2) {
+                throw new AnalysisException("Invalid replication allocation property: " + location);
+            }
+            if (!parts[0].startsWith(TAG_LOCATION)) {
+                throw new AnalysisException("Invalid replication allocation tag property: " + location);
+            }
+            String locationVal = parts[0].replace(TAG_LOCATION, "").replace(".", "");
+            if (Strings.isNullOrEmpty(locationVal)) {
+                throw new AnalysisException("Invalid replication allocation location tag property: " + location);
+            }
+
+            Short replicationNum = Short.valueOf(parts[1]);
+            replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), replicationNum);
+            totalReplicaNum += replicationNum;
+
+            // Check if the current backends satisfy the ReplicaAllocation condition,
+            // to avoid user set it success but failed to create table or dynamic partitions
+            if (checkBackends) {
+                try {
+                    SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+                    systemInfoService.selectBackendIdsForReplicaCreation(
+                            replicaAlloc, nextIndexs, null, false, true);
+                } catch (DdlException ddlException) {
+                    throw new AnalysisException(ddlException.getMessage());
+                }
+            }
+        }
+        if (totalReplicaNum < Config.min_replication_num_per_tablet
+                || totalReplicaNum > Config.max_replication_num_per_tablet) {
+            throw new AnalysisException("Total replication num should between " + Config.min_replication_num_per_tablet
+                    + " and " + Config.max_replication_num_per_tablet);
+        }
+
+        if (replicaAlloc.isEmpty()) {
+            throw new AnalysisException("Not specified replica allocation property");
+        }
+        return replicaAlloc;
+    }
+
+    public static DataSortInfo analyzeDataSortInfo(Map<String, String> properties, KeysType keyType,
+            int keyCount, TStorageFormat storageFormat) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return new DataSortInfo(TSortType.LEXICAL, keyCount);
+        }
+        String sortMethod = TSortType.LEXICAL.name();
+        if (properties.containsKey(DataSortInfo.DATA_SORT_TYPE)) {
+            sortMethod = properties.remove(DataSortInfo.DATA_SORT_TYPE);
+        }
+        TSortType sortType = TSortType.LEXICAL;
+        if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
+            sortType = TSortType.LEXICAL;
+        } else {
+            throw new AnalysisException("only support lexical method now!");
+        }
+
+        int colNum = keyCount;
+        if (properties.containsKey(DataSortInfo.DATA_SORT_COL_NUM)) {
+            try {
+                colNum = Integer.valueOf(properties.remove(DataSortInfo.DATA_SORT_COL_NUM));
+            } catch (Exception e) {
+                throw new AnalysisException("param " + DataSortInfo.DATA_SORT_COL_NUM + " error");
+            }
+        }
+        DataSortInfo dataSortInfo = new DataSortInfo(sortType, colNum);
+        return dataSortInfo;
+    }
+
+    public static boolean hasSeqMapping(Map<String, String> properties) {
+        String propertyNamePrefix = PROPERTIES_SEQUENCE_MAPPING + ".";
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            String propertyName = entry.getKey();
+            if (propertyName.startsWith(propertyNamePrefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // property: "sequence_mapping.s1" = "C，D",
+    // return: Map<String, List<String>> sequence_column <----> columns_in_group
+    public static Map<String, List<String>> analyzeSeqMapping(
+            Map<String, String> properties,
+            List<Column> columns,
+            KeysType keysType) throws AnalysisException {
+
+        if (properties == null || properties.size() == 0) {
+            return null;
+        }
+
+        List<String> columnNames = new ArrayList<>();
+        List<String> keyColumnNames = new ArrayList<>();
+        columns.forEach(x -> columnNames.add(x.getName().toLowerCase()));
+        columns.stream().filter(Column::isKey).forEach(x -> keyColumnNames.add(x.getName().toLowerCase()));
+
+        String propertyNamePrefix = PROPERTIES_SEQUENCE_MAPPING + ".";
+        Map<String, List<String>> resultMapping = new HashMap<>();
+        List<String> propsSeqMap = new ArrayList<>();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            String propertyName = entry.getKey();
+            if (propertyName.startsWith(propertyNamePrefix)) {
+
+                if (keysType != KeysType.UNIQUE_KEYS) {
+                    throw new AnalysisException(
+                            "column sequence mapping only be supported in unique table");
+                }
+
+                if (properties.containsKey(PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_TYPE)) {
+                    throw new AnalysisException(
+                            "column group sequence and sequence column can't apply to both");
+                }
+
+                String[] columnGroupSequence = propertyName.split("\\.");
+                ArrayList<String> columnInGroup = new ArrayList<>(
+                        Arrays.asList(entry.getValue().replace(" ", "").split(",")));
+                if (columnGroupSequence.length != 2) {
+                    throw new AnalysisException("sequence column of column group should be specified");
+                }
+
+                String sequenceColumn = columnGroupSequence[1];
+
+                // Validate column
+                for (Column seqCol : columns) {
+                    if (sequenceColumn.equalsIgnoreCase(seqCol.getName())) {
+                        Type type = seqCol.getType();
+                        if (!validateSeqType(type)) {
+                            throw new AnalysisException("Unsupported data type in sequence column");
+                        }
+
+                    }
+                }
+
+                if (!columnNames.contains(sequenceColumn.toLowerCase())) {
+                    throw new AnalysisException(
+                            "sequence column [" + sequenceColumn + "] in column_group does not exist in schema");
+                }
+                if (keyColumnNames.contains(sequenceColumn.toLowerCase())) {
+                    throw new AnalysisException(
+                            "sequence column [" + sequenceColumn + "] in column_group can't be key column");
+                }
+
+                // allow empty
+                if (columnInGroup.size() == 1 && columnInGroup.get(0).isEmpty()) {
+                    columnInGroup.clear();
+                }
+
+                for (String column : columnInGroup) {
+                    if (!columnNames.contains(column.toLowerCase())) {
+                        throw new AnalysisException("value column [" + column + "] in column_group ["
+                                + sequenceColumn + "] does not exist in schema");
+                    }
+                    if (keyColumnNames.contains(column.toLowerCase())) {
+                        throw new AnalysisException("value column [" + column + "] in column_group ["
+                                + sequenceColumn + "] can't be key column");
+                    }
+                }
+
+                resultMapping.put(sequenceColumn, columnInGroup);
+                propsSeqMap.add(propertyName);
+            }
+        }
+
+        // clear prop about seq map
+        for (String prop : propsSeqMap) {
+            properties.remove(prop);
+        }
+
+        if (resultMapping.isEmpty()) {
+            return null;
+        }
+
+        int totalColumnsNum = 0;
+        Set<String> result = new HashSet<>();
+        for (Map.Entry<String, List<String>> entry : resultMapping.entrySet()) {
+            String seqColumn = entry.getKey();
+            List<String> columnsInMapping = entry.getValue();
+            totalColumnsNum = totalColumnsNum + 1 + columnsInMapping.size();
+            result.add(seqColumn);
+            result.addAll(columnsInMapping);
+        }
+        if (result.size() != totalColumnsNum) {
+            throw new AnalysisException("The columns are overlapping");
+        }
+
+        int valueCount = 0;
+        for (Column col : columns) {
+            if (!col.isKey()) {
+                valueCount++;
+            }
+        }
+
+        if (totalColumnsNum != valueCount) {
+            throw new AnalysisException("The columns are not equal between the schema and prop");
+        }
+
+        return resultMapping;
+    }
+
+    public static boolean validateSeqType(Type type) {
+        return type.isDateType() || type.isFixedPointType();
+    }
+
+    public static boolean analyzeUniqueKeyMergeOnWrite(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+        if (value == null) {
+            return false;
+        }
+        properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+        if (value.equals("true")) {
+            return true;
+        } else if (value.equals("false")) {
+            return false;
+        }
+        throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
+    }
+
+    public static boolean analyzeUniqueKeySkipBitmapColumn(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN);
+        if (value == null) {
+            return false;
+        }
+        properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN);
+        if (value.equals("true")) {
+            return true;
+        } else if (value.equals("false")) {
+            return false;
+        }
+        throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN
+                + " must be `true` or `false`");
+    }
+
+    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties,
+            boolean enableUniqueKeyMergeOnWrite)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
+        }
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+        if (value == null) {
+            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
+        }
+        properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+        if (value.equals("true")) {
+            return true;
+        } else if (value.equals("false")) {
+            return false;
+        }
+        throw new AnalysisException(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE + " must be `true` or `false`");
+    }
+
+    /**
+     * Found property with "group_commit_interval_ms" prefix and return a time in ms.
+     * e.g.
+     * "group_commit_interval_ms"="1000"
+     * Returns:
+     * 1000
+     *
+     * @param properties
+     * @return
+     * @throws AnalysisException
+     */
+    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
+        int groupCommitIntervalMs = PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
+            String groupIntervalCommitMsStr = properties.get(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            try {
+                groupCommitIntervalMs = Integer.parseInt(groupIntervalCommitMsStr);
+            } catch (Exception e) {
+                throw new AnalysisException("parse group_commit_interval_ms format error");
+            }
+            if (groupCommitIntervalMs <= 0) {
+                throw new AnalysisException("group_commit_interval_ms must be greater than 0");
+            }
+
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            }
+        }
+
+        return groupCommitIntervalMs;
+    }
+
+    public static int analyzeGroupCommitDataBytes(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
+        int groupCommitDataBytes = PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
+            String groupIntervalCommitDataBytesStr = properties.get(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            try {
+                groupCommitDataBytes = Integer.parseInt(groupIntervalCommitDataBytesStr);
+            } catch (Exception e) {
+                throw new AnalysisException("parse group_commit_data_bytes format error");
+            }
+            if (groupCommitDataBytes <= 0) {
+                throw new AnalysisException("group_commit_data_bytes must be greater than 0");
+            }
+
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            }
+        }
+
+        return groupCommitDataBytes;
+    }
+
+    public static String analyzeGroupCommitMode(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
+        String groupCommitMode = GROUP_COMMIT_MODE_OFF;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_MODE)) {
+            groupCommitMode = properties.get(PROPERTIES_GROUP_COMMIT_MODE);
+            if (!groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_OFF)
+                    && !groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_ASYNC)
+                    && !groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_SYNC)) {
+                throw new AnalysisException("Invalid group_commit_mode: " + groupCommitMode
+                        + ". Valid values: " + GROUP_COMMIT_MODE_OFF + ", " + GROUP_COMMIT_MODE_ASYNC
+                        + ", " + GROUP_COMMIT_MODE_SYNC);
+            }
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_MODE);
+            }
+        }
+        return groupCommitMode.toLowerCase();
+    }
+
+    /**
+     * Check the type property of the catalog props.
+     */
+    public static void checkCatalogProperties(Map<String, String> properties, boolean isAlter)
+            throws AnalysisException {
+        // validate access controller properties
+        // eg:
+        // (
+        // "access_controller.class" = "ranger-hive",
+        // "access_controller.properties.prop1" = "xxx",
+        // "access_controller.properties.prop2" = "yyy",
+        // )
+        // The name the source is published under; a factory class name still works but ties the catalog to
+        // where that source happens to live.
+        // 1. get access controller class
+        if (isAlter) {
+            // The 'use_meta_cache' property can not be modified
+            if (properties.containsKey(ExternalCatalog.USE_META_CACHE)) {
+                throw new AnalysisException("Can not modify property " + ExternalCatalog.USE_META_CACHE
+                        + ". You need to create a new Catalog with the property.");
+            }
+        }
+    }
+
+    public Map<String, String> rewriteOlapProperties(
+            String ctl, String db, Map<String, String> properties) {
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        rewriteReplicaAllocationProperties(ctl, db, properties);
+        rewriteForceProperties(properties);
+        return properties;
+    }
+
+    public void rewriteForceProperties(Map<String, String> properties) {
+        if (properties == null) {
+            return;
+        }
+        forceProperties.forEach(property -> property.rewrite(properties));
+    }
+
+    public ImmutableList<RewriteProperty> getForceProperties() {
+        return forceProperties;
+    }
+
+    private static Map<String, String> rewriteReplicaAllocationProperties(
+            String ctl, String db, Map<String, String> properties) {
+        if (Config.force_olap_table_replication_num <= 0) {
+            return rewriteReplicaAllocationPropertiesByDatabase(ctl, db, properties);
+        }
+        // if force_olap_table_replication_num is set, use this value to rewrite the replication_num or
+        // replication_allocation properties
+        Map<String, String> newProperties = properties;
+        if (newProperties == null) {
+            newProperties = Maps.newHashMap();
+        }
+        boolean rewrite = false;
+        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                    String.valueOf(Config.force_olap_table_replication_num));
+            rewrite = true;
+        }
+        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                    new ReplicaAllocation((short) Config.force_olap_table_replication_num).toCreateStmt());
+            rewrite = true;
+        }
+        if (!rewrite) {
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                    String.valueOf(Config.force_olap_table_replication_num));
+        }
+        return newProperties;
+    }
+
+    private static Map<String, String> rewriteReplicaAllocationPropertiesByDatabase(
+            String ctl, String database, Map<String, String> properties) {
+        // if table contain `replication_allocation` or `replication_num`,not need rewrite by db
+        if (properties != null && (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
+            return properties;
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
+        if (catalog == null) {
+            return properties;
+        }
+        DatabaseIf db = catalog.getDbNullable(database);
+        if (db == null) {
+            return properties;
+        }
+        // if db not have properties,not need rewrite
+        if (db.getDbProperties() == null) {
+            return properties;
+        }
+        Map<String, String> dbProperties = db.getDbProperties().getProperties();
+        if (dbProperties == null) {
+            return properties;
+        }
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION) && StringUtils
+                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION))) {
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                    dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION));
+        }
+        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && StringUtils
+                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                    dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        }
+        return properties;
+    }
+
+    // Since we can't change the default value of the property `enable_unique_key_merge_on_write`
+    // due to backward compatibility, we just explicitly set the value of this property to `true` if
+    // the user doesn't specify the property in `CreateTableStmt`/`CreateTableInfo`
+    public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
+        if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+        }
+        return properties;
+    }
+
+    public static Map<String, String> addEnableUniqueKeySkipBitmapPropertyIfNotExists(Map<String, String> properties) {
+        if (properties != null && !properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN,
+                    Boolean.toString(Config.enable_skip_bitmap_column_by_default));
+        }
+        return properties;
+    }
+
+    public static int analyzeVariantMaxSubcolumnsCount(Map<String, String> properties, int defuatValue)
+                                                                                throws AnalysisException {
+        int maxSubcoumnsCount = defuatValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+            String maxSubcoumnsCountStr = properties.get(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+            try {
+                maxSubcoumnsCount = Integer.parseInt(maxSubcoumnsCountStr);
+                if (maxSubcoumnsCount < 0 || maxSubcoumnsCount > 100000) {
+                    throw new AnalysisException("varaint max counts count must between 0 and 100000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("varaint max counts count format error");
+            }
+
+            properties.remove(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+        }
+        return maxSubcoumnsCount;
+    }
+
+    public static boolean analyzeEnableTypedPathsToSparse(Map<String, String> properties,
+                        boolean defaultValue) throws AnalysisException {
+        boolean enableTypedPathsToSparse = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
+            String enableTypedPathsToSparseStr = properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+            try {
+                enableTypedPathsToSparse = Boolean.parseBoolean(enableTypedPathsToSparseStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+        }
+        return enableTypedPathsToSparse;
+    }
+
+    public static boolean analyzeEnableNestedGroup(Map<String, String> properties,
+                        boolean defaultValue) throws AnalysisException {
+        boolean enableNestedGroup = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP)) {
+            String enableNestedGroupStr = properties.get(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
+            try {
+                enableNestedGroup = Boolean.parseBoolean(enableNestedGroupStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_nested_group must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
+        }
+        return enableNestedGroup;
+    }
+
+    public static int analyzeVariantMaxSparseColumnStatisticsSize(Map<String, String> properties, int defuatValue)
+                                                                                throws AnalysisException {
+        int maxSparseColumnStatisticsSize = defuatValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
+            String maxSparseColumnStatisticsSizeStr =
+                    properties.get(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
+            try {
+                maxSparseColumnStatisticsSize = Integer.parseInt(maxSparseColumnStatisticsSizeStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size format error:" + e.getMessage());
+            }
+            if (maxSparseColumnStatisticsSize < 1 || maxSparseColumnStatisticsSize > 50000) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size must between 1 and 50000 ");
+            }
+
+            properties.remove(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
+        }
+        return maxSparseColumnStatisticsSize;
+    }
+
+    public static int analyzeVariantSparseHashShardCount(Map<String, String> properties, int defaultValue)
+                                                                                throws AnalysisException {
+        int bucketNum = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT)) {
+            String bucketNumStr = properties.get(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
+            try {
+                bucketNum = Integer.parseInt(bucketNumStr);
+                if (bucketNum < 0 || bucketNum > 1024) {
+                    throw new AnalysisException("variant_sparse_hash_shard_count must between 0 and 1024 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("variant_sparse_hash_shard_count format error:" + e.getMessage());
+            }
+
+            properties.remove(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
+        }
+        return bucketNum;
+    }
+
+    public static boolean analyzeEnableVariantDocMode(Map<String, String> properties, boolean defaultValue)
+                                                                                throws AnalysisException {
+        boolean enableVariantDocMode = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)) {
+            String enableVariantDocModeStr = properties.get(PROPERTIES_VARIANT_ENABLE_DOC_MODE);
+            try {
+                enableVariantDocMode = Boolean.parseBoolean(enableVariantDocModeStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_doc_mode must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_DOC_MODE);
+        }
+        return enableVariantDocMode;
+    }
+
+    public static long analyzeVariantDocMaterializationMinRows(Map<String, String> properties,
+                                                               long defaultValue)
+                                                                                throws AnalysisException {
+        long minRows = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS)) {
+            String minRowsStr = properties.get(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS);
+            try {
+                minRows = Long.parseLong(minRowsStr);
+                if (minRows < 0 || minRows > 1_000_000_000) {
+                    throw new AnalysisException(
+                            "variant_doc_materialization_min_rows must between 0 and 1000000000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "variant_doc_materialization_min_rows format error:" + e.getMessage());
+            }
+            properties.remove(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS);
+        }
+        return minRows;
+    }
+
+    public static int analyzeVariantDocHashShardCount(Map<String, String> properties, int defaultValue)
+            throws AnalysisException {
+        int shardCount = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT)) {
+            String shardCountStr = properties.get(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+            try {
+                shardCount = Integer.parseInt(shardCountStr);
+                if (shardCount < 0 || shardCount > 1024) {
+                    throw new AnalysisException("variant_doc_hash_shard_count must between 0 and 1024 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "variant_doc_hash_shard_count format error:" + e.getMessage());
+            }
+            properties.remove(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+        }
+        return shardCount;
+    }
+
+    public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)) {
+            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+                throw new AnalysisException("variant_max_subcolumns_count and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT)) {
+                throw new AnalysisException("variant_sparse_hash_shard_count and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+        }
+        // variant_enable_nested_group=true is mutually exclusive with
+        // variant_enable_doc_mode=true and variant_max_subcolumns_count>0
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP)
+                && "true".equalsIgnoreCase(properties.get(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP))) {
+            if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)
+                    && "true".equalsIgnoreCase(properties.get(PROPERTIES_VARIANT_ENABLE_DOC_MODE))) {
+                throw new AnalysisException("variant_enable_nested_group and variant_enable_doc_mode "
+                        + "cannot both be true");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+                int count = Integer.parseInt(properties.get(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT));
+                if (count > 0) {
+                    throw new AnalysisException("variant_enable_nested_group cannot be true when "
+                            + "variant_max_subcolumns_count > 0");
+                }
+            }
+        }
+    }
+
+    public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {
+        String name;
+        //if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
+        //    name = Config.doris_tde_algorithm;
+        //} else if (!PLAINTEXT.equals(Config.doris_tde_algorithm)) {
+        //    throw new AnalysisException("Cannot create a table on encrypted FE,"
+        //            + " please set Config.doris_tde_algorithm to PLAINTEXT");
+        //} else {
+        //    name = properties.remove(PROPERTIES_TDE_ALGORITHM);
+        //}
+        //
+        if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
+            name = Config.doris_tde_algorithm;
+        } else {
+            throw new AnalysisException("Do not support tde_algorithm property currently");
+        }
+
+        if (AES256.equalsIgnoreCase(name)) {
+            return TEncryptionAlgorithm.AES256;
+        }
+        if (SM4.equalsIgnoreCase(name)) {
+            return TEncryptionAlgorithm.SM4;
+        }
+        if (PLAINTEXT.equalsIgnoreCase(name)) {
+            return TEncryptionAlgorithm.PLAINTEXT;
+        }
+        throw new AnalysisException("Invalid tde algorithm: " + name + ", only support AES256 and SM4 currently");
+    }
+
+    public static Integer analyzeVerticalCompactionNumColumnsPerGroup(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+        }
+        String value = properties.get(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+        if (null == value) {
+            return VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+        }
+        properties.remove(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+        try {
+            int num = Integer.parseInt(value);
+            if (num < 1) {
+                throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
+                        + " must be >= 1");
+            }
+            return num;
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
+                    + " must be a valid integer");
+        }
+    }
+
+    public static BaseTableStream.StreamScanType analyzeStreamType(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties != null && properties.containsKey(PROPERTIES_STREAM_TYPE)) {
+            String value = properties.get(PROPERTIES_STREAM_TYPE);
+            BaseTableStream.StreamScanType type = BaseTableStream.StreamScanType.getType(value);
+            if (type.equals(BaseTableStream.StreamScanType.UNKNOWN)) {
+                throw new AnalysisException("not supported " + PropertyAnalyzer.PROPERTIES_STREAM_TYPE
+                        +  ": " + value);
+            }
+            properties.remove(PROPERTIES_STREAM_TYPE);
+            return type;
+        }
+        return BaseTableStream.StreamScanType.MIN_DELTA;
+    }
+}

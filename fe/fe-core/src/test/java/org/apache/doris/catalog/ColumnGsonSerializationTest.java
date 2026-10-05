@@ -1,0 +1,196 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.catalog;
+
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.common.collect.Lists;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.annotations.SerializedName;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.io.DataInput;
+import java.io.DataInputStream;
+import java.io.DataOutput;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+
+public class ColumnGsonSerializationTest {
+
+    private static String fileName = "./ColumnGsonSerializationTest";
+    private static Path path = Paths.get(fileName);
+
+    @AfterEach
+    public void tearDown() throws IOException {
+        Files.deleteIfExists(path);
+    }
+
+    public static class ColumnList implements Writable {
+        @SerializedName(value = "columns")
+        public List<Column> columns = Lists.newArrayList();
+
+        @Override
+        public void write(DataOutput out) throws IOException {
+            String json = GsonUtils.GSON.toJson(this);
+            Text.writeString(out, json);
+        }
+
+        public static ColumnList read(DataInput in) throws IOException {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, ColumnList.class);
+        }
+    }
+
+    @Test
+    public void testSerializeColumn() throws IOException, AnalysisException {
+        // 1. Write objects to file
+        Files.createFile(path);
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc");
+
+        String c1Json = GsonUtils.GSON.toJson(c1);
+        Text.writeString(out, c1Json);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        String readJson = Text.readString(in);
+        Column readC1 = GsonUtils.GSON.fromJson(readJson, Column.class);
+
+        Assertions.assertEquals(c1, readC1);
+        // 3.close
+        in.close();
+    }
+
+    @Test
+    public void testSerializeColumnList() throws IOException, AnalysisException {
+        // 1. Write objects to file
+        Files.createFile(path);
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc");
+        Column c2 = new Column("c2", ScalarType.createType(PrimitiveType.VARCHAR, 32, -1, -1), true, null, true, "cmy", "");
+        Column c3 = new Column("c3", ScalarType.createDecimalType(27, 9), false, AggregateType.SUM, false, "1.1", "decimalv2");
+
+        ColumnList columnList = new ColumnList();
+        columnList.columns.add(c1);
+        columnList.columns.add(c2);
+        columnList.columns.add(c3);
+
+        columnList.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        ColumnList readList = ColumnList.read(in);
+        List<Column> columns = readList.columns;
+
+        Assertions.assertEquals(3, columns.size());
+        Assertions.assertEquals(c1, columns.get(0));
+        Assertions.assertEquals(c2, columns.get(1));
+        Assertions.assertEquals(c3, columns.get(2));
+        // 3.close
+        in.close();
+    }
+
+    @Test
+    public void testReplayPreRootTurkishStructFieldName() {
+        StructType structType = new StructType(new StructField("I", Type.INT));
+        JsonObject legacyJson = JsonParser.parseString(
+                GsonUtils.GSON.toJson(structType, Type.class)).getAsJsonObject();
+
+        JsonObject fieldMap = legacyJson.getAsJsonObject("fieldMap");
+        JsonElement legacyMapField = fieldMap.remove("i");
+        setLegacyTurkishFieldName(legacyMapField.getAsJsonObject());
+        fieldMap.add("ı", legacyMapField);
+        JsonArray fields = legacyJson.getAsJsonArray("fields");
+        setLegacyTurkishFieldName(fields.get(0).getAsJsonObject());
+
+        StructType replayed = (StructType) GsonUtils.GSON.fromJson(legacyJson, Type.class);
+        Assertions.assertEquals("ı", replayed.getField("I").getName());
+
+        org.apache.doris.nereids.types.StructType nereidsType =
+                (org.apache.doris.nereids.types.StructType)
+                        org.apache.doris.nereids.types.DataType.fromCatalogType(replayed);
+        Assertions.assertEquals("ı", nereidsType.getField("I").getName());
+
+        StructType roundTrip = (StructType) nereidsType.toCatalogDataType();
+        Assertions.assertEquals("ı", roundTrip.getField("I").getName());
+    }
+
+    @Test
+    public void testCurrentDotlessStructFieldDoesNotMatchAsciiI() {
+        StructType structType = new StructType(new StructField("ı", Type.INT));
+        Assertions.assertNull(structType.getField("I"));
+
+        org.apache.doris.nereids.types.StructType nereidsType =
+                (org.apache.doris.nereids.types.StructType)
+                        org.apache.doris.nereids.types.DataType.fromCatalogType(structType);
+        Assertions.assertNull(nereidsType.getField("I"));
+    }
+
+    @Test
+    public void testReplayPreRootTurkishStructFieldCollisionIsAmbiguous() {
+        StructType structType = new StructType(
+                new StructField("ı", Type.INT), new StructField("i", Type.BIGINT));
+        JsonObject legacyJson = JsonParser.parseString(
+                GsonUtils.GSON.toJson(structType, Type.class)).getAsJsonObject();
+        legacyJson.getAsJsonObject("fieldMap").entrySet().forEach(
+                entry -> entry.getValue().getAsJsonObject().remove("originalName"));
+        legacyJson.getAsJsonArray("fields").forEach(
+                field -> field.getAsJsonObject().remove("originalName"));
+
+        StructType replayed = (StructType) GsonUtils.GSON.fromJson(legacyJson, Type.class);
+        Assertions.assertNull(replayed.getField("I"));
+        Assertions.assertEquals("ı", replayed.getField("ı").getName());
+        Assertions.assertEquals("i", replayed.getField("i").getName());
+
+        org.apache.doris.nereids.types.StructType nereidsType =
+                (org.apache.doris.nereids.types.StructType)
+                        org.apache.doris.nereids.types.DataType.fromCatalogType(replayed);
+        Assertions.assertNull(nereidsType.getField("I"));
+        Assertions.assertEquals("ı", nereidsType.getField("ı").getName());
+        Assertions.assertEquals("i", nereidsType.getField("i").getName());
+
+        StructType roundTrip = (StructType) nereidsType.toCatalogDataType();
+        Assertions.assertNull(roundTrip.getField("I"));
+    }
+
+    private static void setLegacyTurkishFieldName(JsonObject field) {
+        field.addProperty("name", "ı");
+        field.remove("originalName");
+    }
+
+}

@@ -1,0 +1,362 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.rewrite;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
+import org.apache.doris.nereids.stats.ExpressionEstimation;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.AggregateUtils;
+import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Process aggregate with a DISTINCT AGGFunction
+ * Decide whether to split DISTINCT aggregate into top-bottom aggregation or use multi_distinct;
+ * For example, transforms:
+ *   SELECT COUNT(DISTINCT a), count(c) FROM t GROUP BY b
+ * 1.Rewrites queries containing DISTINCT aggregate functions by splitting them into two processing layers:
+ *   Lower layer: Performs deduplication on both grouping columns and DISTINCT columns
+ *   Upper layer: Applies simple aggregation on the deduplicated results
+ * rewrite into:
+ *   SELECT COUNT(a), sum0(cnt) FROM (
+ *     SELECT a, b, count(c) cnt FROM t GROUP BY a, b
+ *   ) GROUP BY b
+ *
+ * use multi_distinct:
+ * rewrite into:
+ *.  SELECT MULTI_DISTINCT_COUNT(a), count(c) FROM t GROUP BY b
+ */
+public class DistinctAggregateRewriter implements RewriteRuleFactory {
+    public static final DistinctAggregateRewriter INSTANCE = new DistinctAggregateRewriter();
+    // TODO: add other functions
+    private static final Set<Class<? extends AggregateFunction>> supportSplitOtherFunctions = ImmutableSet.of(
+            Sum.class, Min.class, Max.class, Count.class, Sum0.class, AnyValue.class);
+
+    enum Strategy {
+        SPLIT_IN_REWRITE, MULTI_STRATEGY, SPLIT_IN_CASCADES
+    }
+
+    private static final String errorString = "Unsupported query: GROUP_CONCAT(DISTINCT ... ORDER BY ...)"
+            + " cannot be used together with a multi-argument COUNT(DISTINCT ...).";
+
+    @Override
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalAggregate()
+                        .whenNot(agg -> agg.getGroupByExpressions().isEmpty())
+                        .whenNot(Aggregate::canSkewRewrite)
+                        .thenApply(ctx -> rewrite(ctx.root, ctx.connectContext))
+                        .toRule(RuleType.DISTINCT_AGGREGATE_SPLIT),
+                logicalAggregate()
+                        .when(agg -> agg.getGroupByExpressions().isEmpty() && agg.mustUseMultiDistinctAgg())
+                        .then(agg -> {
+                            // count(distinct a,b) cannot use multi_distinct
+                            if (AggregateUtils.containsCountDistinctMultiExpr(agg)) {
+                                throw new AnalysisException(errorString);
+                            }
+                            return convertToMultiDistinct(agg);
+                        })
+                        .toRule(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT)
+        );
+    }
+
+    @VisibleForTesting
+    Strategy chooseStrategy(LogicalAggregate<? extends Plan> aggregate) {
+        // count(distinct a,b) cannot use multi_distinct
+        boolean mustSplit = AggregateUtils.containsCountDistinctMultiExpr(aggregate);
+        boolean mustUseMulti = aggregate.mustUseMultiDistinctAgg();
+        if (mustSplit && mustUseMulti) {
+            throw new AnalysisException(errorString);
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (mustSplit) {
+            if (ctx.getSessionVariable().aggPhase == 3 || ctx.getSessionVariable().aggPhase == 4) {
+                return Strategy.SPLIT_IN_CASCADES;
+            }
+            return Strategy.SPLIT_IN_REWRITE;
+        }
+        if (mustUseMulti) {
+            return Strategy.MULTI_STRATEGY;
+        }
+        if (ctx.getSessionVariable().aggPhase == 1 || ctx.getSessionVariable().aggPhase == 2) {
+            return Strategy.MULTI_STRATEGY;
+        }
+        if (ctx.getSessionVariable().aggPhase == 3 || ctx.getSessionVariable().aggPhase == 4) {
+            return Strategy.SPLIT_IN_CASCADES;
+        }
+        if (aggregate.getStats() == null || aggregate.child().getStats() == null) {
+            StatsDerive derive = new StatsDerive(false);
+            aggregate.accept(derive, new DeriveContext());
+        }
+        Statistics aggStats = aggregate.getStats();
+        Statistics aggChildStats = aggregate.child().getStats();
+        Set<Expression> dstArgs = aggregate.getDistinctArguments();
+        if (isDistinctKeySatisfyDistribution(aggregate)) {
+            return Strategy.SPLIT_IN_REWRITE;
+        }
+        // has unknown statistics, split to bottom and top agg
+        if (AggregateUtils.hasUnknownStatistics(aggregate.getGroupByExpressions(), aggChildStats)
+                || AggregateUtils.hasUnknownStatistics(dstArgs, aggChildStats)) {
+            return Strategy.MULTI_STRATEGY;
+        }
+
+        double gbyNdv = aggStats.getRowCount();
+        Expression dstKey = dstArgs.iterator().next();
+        ColumnStatistic dstKeyStats = aggChildStats.findColumnStatistics(dstKey);
+        if (dstKeyStats == null) {
+            dstKeyStats = ExpressionEstimation.estimate(dstKey, aggChildStats);
+        }
+        double dstNdv = dstKeyStats.ndv;
+        double inputRows = aggChildStats.getRowCount();
+        // group by key ndv is low, distinct key ndv is high, multi_distinct is better
+        // otherwise split to bottom and top agg
+        if (gbyNdv < inputRows * AggregateUtils.LOW_CARDINALITY_THRESHOLD
+                && dstNdv > inputRows * AggregateUtils.HIGH_CARDINALITY_THRESHOLD) {
+            return Strategy.MULTI_STRATEGY;
+        } else {
+            return Strategy.SPLIT_IN_REWRITE;
+        }
+    }
+
+    private boolean isDistinctKeySatisfyDistribution(LogicalAggregate<? extends Plan> aggregate) {
+        DistinctDistributionInfo info = resolveDistinctDistributionInfo(aggregate);
+        if (info == null) {
+            return false;
+        }
+        Set<String> distinctColumnNames = new HashSet<>();
+        for (SlotReference slot : info.distinctSlots) {
+            distinctColumnNames.add(slot.getName().toLowerCase());
+        }
+        DistributionInfo distributionInfo = info.distributionInfo;
+        if (!(distributionInfo instanceof HashDistributionInfo)) {
+            return false;
+        }
+        List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+        if (distributionColumns.isEmpty()) {
+            return false;
+        }
+        for (Column column : distributionColumns) {
+            if (!distinctColumnNames.contains(column.getName().toLowerCase())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** This function get the DistinctDistributionInfo from aggregate,
+     * and can handle such scenarios: aggregate's child is filter or project, or both of them:
+     * agg(count(distinct a), group by b)
+     *   ->project()
+     *     ->filter()
+     *       ->scan(distributed by hash(a))
+     * @return Table DistributionInfo and the slots of the base table
+     *         referenced by the distinct column of the aggregate function.
+     */
+    private DistinctDistributionInfo resolveDistinctDistributionInfo(LogicalAggregate<? extends Plan> aggregate) {
+        Set<Expression> distinctArgs = aggregate.getDistinctArguments();
+        if (distinctArgs.isEmpty()) {
+            return null;
+        }
+        Set<SlotReference> distinctSlots = new HashSet<>();
+        for (Expression expression : distinctArgs) {
+            if (!(expression instanceof SlotReference)) {
+                return null;
+            }
+            distinctSlots.add((SlotReference) expression);
+        }
+        Plan child = aggregate.child();
+        while (child instanceof LogicalProject || child instanceof LogicalFilter) {
+            if (child instanceof LogicalProject) {
+                LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) child;
+                Map<Slot, Expression> projectExprMap = new HashMap<>();
+                for (NamedExpression namedExpression : project.getProjects()) {
+                    Expression projectExpr = namedExpression;
+                    if (namedExpression instanceof Alias) {
+                        projectExpr = ((Alias) namedExpression).child();
+                    }
+                    projectExprMap.put(namedExpression.toSlot(), projectExpr);
+                }
+                Set<SlotReference> replaced = new HashSet<>();
+                for (SlotReference slot : distinctSlots) {
+                    Expression projectExpr = projectExprMap.get(slot);
+                    if (!(projectExpr instanceof SlotReference)) {
+                        return null;
+                    }
+                    replaced.add((SlotReference) projectExpr);
+                }
+                distinctSlots = replaced;
+                child = project.child();
+                continue;
+            }
+            child = ((LogicalFilter<? extends Plan>) child).child();
+        }
+        if (!(child instanceof LogicalOlapScan)) {
+            return null;
+        }
+        LogicalOlapScan scan = (LogicalOlapScan) child;
+        OlapTable olapTable = scan.getTable();
+        if (olapTable == null) {
+            return null;
+        }
+        if (!Utils.isSelectUnpartition(olapTable, scan.getSelectedPartitionIds())
+                && !Utils.isBelongStableCG(olapTable)) {
+            return null;
+        }
+        for (SlotReference slot : distinctSlots) {
+            if (!slot.getOriginalTable().isPresent()
+                    || slot.getOriginalTable().get() != olapTable) {
+                return null;
+            }
+        }
+        return new DistinctDistributionInfo(olapTable.getDefaultDistributionInfo(), distinctSlots);
+    }
+
+    private static class DistinctDistributionInfo {
+        private final DistributionInfo distributionInfo;
+        private final Set<SlotReference> distinctSlots;
+
+        private DistinctDistributionInfo(DistributionInfo distributionInfo, Set<SlotReference> distinctSlots) {
+            this.distributionInfo = distributionInfo;
+            this.distinctSlots = distinctSlots;
+        }
+    }
+
+    private Plan rewrite(LogicalAggregate<? extends Plan> aggregate, ConnectContext ctx) {
+        if (aggregate.distinctFuncNum() == 0) {
+            return null;
+        }
+        Strategy strategy = chooseStrategy(aggregate);
+        if (strategy == Strategy.MULTI_STRATEGY) {
+            return convertToMultiDistinct(aggregate);
+        } else if (strategy == Strategy.SPLIT_IN_REWRITE) {
+            return splitDistinctAgg(aggregate);
+        } else if (strategy == Strategy.SPLIT_IN_CASCADES) {
+            return null;
+        }
+        return null;
+    }
+
+    private Plan convertToMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
+        return MultiDistinctFunctionStrategy.rewrite(aggregate);
+    }
+
+    private Plan splitDistinctAgg(LogicalAggregate<? extends Plan> aggregate) {
+        Map<AggregateFunction, Expression> aggFuncs = aggregate.getAggregateFunctionWithGuardExpr();
+        Set<AggregateFunction> distinctAggFuncs = new HashSet<>();
+        Map<AggregateFunction, Expression> otherFunctions = new HashMap<>();
+        for (Map.Entry<AggregateFunction, Expression> entry : aggFuncs.entrySet()) {
+            if (entry.getKey().isDistinct()) {
+                distinctAggFuncs.add(entry.getKey());
+            } else {
+                otherFunctions.put(entry.getKey(), entry.getValue());
+            }
+        }
+        if (distinctAggFuncs.size() != 1) {
+            return null;
+        }
+        // If there are some functions that cannot be split in other function, AGG cannot be split
+        for (Map.Entry<AggregateFunction, Expression> entry : otherFunctions.entrySet()) {
+            if (!supportSplitOtherFunctions.contains(entry.getKey().getClass())) {
+                return null;
+            }
+        }
+
+        // construct bottom agg
+        // group by key: group by key + distinct key
+        Set<NamedExpression> groupByKeys = AggregateUtils.getAllKeySet(aggregate);
+        ImmutableList.Builder<NamedExpression> bottomAggOtherFunctions = ImmutableList.builder();
+        Map<AggregateFunction, NamedExpression> aggFuncToSlot = new HashMap<>();
+        for (Map.Entry<AggregateFunction, Expression> entry : otherFunctions.entrySet()) {
+            Alias bottomAggFuncAlias = new Alias(entry.getValue());
+            bottomAggOtherFunctions.add(bottomAggFuncAlias);
+            aggFuncToSlot.put(entry.getKey(), bottomAggFuncAlias.toSlot());
+        }
+
+        List<NamedExpression> aggOutput = ImmutableList.<NamedExpression>builder()
+                .addAll(groupByKeys)
+                .addAll(bottomAggOtherFunctions.build())
+                .build();
+
+        LogicalAggregate<Plan> bottomAgg = new LogicalAggregate<>(Utils.fastToImmutableList(groupByKeys),
+                aggOutput, aggregate.child());
+
+        // construct top agg
+        List<NamedExpression> topAggOutput = ExpressionUtils.rewriteDownShortCircuit(aggregate.getOutputExpressions(),
+                expr -> {
+                    if (expr instanceof AggregateFunction) {
+                        AggregateFunction aggFunc = (AggregateFunction) expr;
+                        if (aggFunc.isDistinct()) {
+                            if (aggFunc instanceof Count && aggFunc.arity() > 1) {
+                                return AggregateUtils.countDistinctMultiExprToCountIf((Count) aggFunc);
+                            } else {
+                                return aggFunc.withDistinctAndChildren(false, aggFunc.children());
+                            }
+                        } else {
+                            if (aggFuncToSlot.get(aggFunc) != null) {
+                                if (aggFunc instanceof Count) {
+                                    return new Sum0(aggFuncToSlot.get(aggFunc));
+                                } else {
+                                    return aggFunc.withChildren(aggFuncToSlot.get(aggFunc));
+                                }
+                            }
+                            return aggFunc;
+                        }
+                    }
+                    return expr;
+                }
+        );
+        return new LogicalAggregate<Plan>(aggregate.getGroupByExpressions(), topAggOutput, bottomAgg);
+    }
+}

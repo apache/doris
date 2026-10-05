@@ -1,0 +1,220 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "io/cache/lru_queue_recorder.h"
+
+#include "common/check.h"
+#include "common/config.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/file_cache_common.h"
+
+namespace doris::io {
+
+namespace {} // namespace
+
+void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType log_type,
+                                          const UInt128Wrapper hash, const size_t offset,
+                                          const size_t size) {
+    if (config::file_cache_background_lru_dump_tail_record_num <= 0) {
+        return;
+    }
+    ++(_lru_queue_update_cnt_from_last_dump[type]);
+    auto log = std::make_unique<CacheLRULog>(log_type, hash, offset, size);
+    if (!reserve_lru_log_queue_slot(type)) {
+        return;
+    }
+    CacheLRULogQueue& log_queue = get_lru_log_queue(type);
+    if (!log_queue.enqueue(std::move(log))) {
+        release_lru_log_queue_slot(type);
+        return;
+    }
+    size_t idx = file_cache_type_index(type);
+    *(_mgr->_lru_recorder_queue_produce_metrics[idx]) << 1;
+    *(_mgr->_lru_recorder_queue_length_recorder[idx]) << lru_log_queue_size(type);
+}
+
+size_t LRUQueueRecorder::replay_queue_event(FileCacheType type) {
+    // we don't need the real cache lock for the shadow queue, but we do need a lock to prevent read/write contension
+    CacheLRULogQueue& log_queue = get_lru_log_queue(type);
+    LRUQueue& shadow_queue = get_shadow_queue(type);
+
+    size_t idx = file_cache_type_index(type);
+    size_t replayed = 0;
+    {
+        std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
+        std::unique_ptr<CacheLRULog> log;
+        while (log_queue.try_dequeue(log)) {
+            release_lru_log_queue_slot(type);
+            ++replayed;
+            try {
+                switch (log->type) {
+                case CacheLRULogType::ADD: {
+                    shadow_queue.add(log->hash, log->offset, log->size, lru_log_lock);
+                    limit_shadow_queue_size(shadow_queue, lru_log_lock);
+                    break;
+                }
+                case CacheLRULogType::REMOVE: {
+                    auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
+                    if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
+                        shadow_queue.remove(it, lru_log_lock);
+                    } else {
+                        LOG(WARNING) << "REMOVE failed, doesn't exist in shadow queue";
+                    }
+                    limit_shadow_queue_size(shadow_queue, lru_log_lock);
+                    break;
+                }
+                case CacheLRULogType::MOVETOBACK: {
+                    auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
+                    if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
+                        shadow_queue.move_to_end(it, lru_log_lock);
+                    } else {
+                        LOG(WARNING) << "MOVETOBACK failed, doesn't exist in shadow queue";
+                    }
+                    break;
+                }
+                case CacheLRULogType::RESIZE: {
+                    auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
+                    if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
+                        shadow_queue.resize(it, log->size, lru_log_lock);
+                    } else {
+                        LOG(WARNING) << "RESIZE failed, doesn't exist in shadow queue";
+                    }
+                    break;
+                }
+                default:
+                    LOG(WARNING) << "Unknown CacheLRULogType: " << static_cast<int>(log->type);
+                    break;
+                }
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Failed to replay queue event: " << e.what();
+            }
+        }
+        if (replayed > 0) {
+            _mgr->_lru_recorder_shadow_queue_element_count_metrics[idx]->set_value(
+                    shadow_queue.get_elements_num(lru_log_lock));
+        }
+    }
+    if (replayed > 0) {
+        *(_mgr->_lru_recorder_queue_consume_metrics[idx]) << replayed;
+    }
+    *(_mgr->_lru_recorder_queue_length_recorder[idx]) << lru_log_queue_size(type);
+    return replayed;
+}
+
+// we evaluate the diff between two queue by calculate how many operation is
+// needed for transfer one to another (Levenshtein Distance)
+// NOTE: HEAVY calculation with cache lock, only for debugging
+void LRUQueueRecorder::evaluate_queue_diff(LRUQueue& base, std::string name,
+                                           std::lock_guard<std::mutex>& cache_lock) {
+    FileCacheType type = string_to_cache_type(name);
+    LRUQueue& target = get_shadow_queue(type);
+    size_t distance = target.levenshtein_distance_from(base, cache_lock);
+    *(_mgr->_shadow_queue_levenshtein_distance) << distance;
+    if (distance > 20) {
+        LOG(WARNING) << name << " shadow queue is different from real queue";
+    }
+}
+
+LRUQueue& LRUQueueRecorder::get_shadow_queue(FileCacheType type) {
+    switch (type) {
+    case FileCacheType::INDEX:
+        return _shadow_index_queue;
+    case FileCacheType::DISPOSABLE:
+        return _shadow_disposable_queue;
+    case FileCacheType::NORMAL:
+        return _shadow_normal_queue;
+    case FileCacheType::TTL:
+        return _shadow_ttl_queue;
+    default:
+        LOG(WARNING) << "invalid shadow queue type";
+        DCHECK(false);
+    }
+    return _shadow_normal_queue;
+}
+
+CacheLRULogQueue& LRUQueueRecorder::get_lru_log_queue(FileCacheType type) {
+    switch (type) {
+    case FileCacheType::INDEX:
+        return _index_lru_log_queue;
+    case FileCacheType::DISPOSABLE:
+        return _disposable_lru_log_queue;
+    case FileCacheType::NORMAL:
+        return _normal_lru_log_queue;
+    case FileCacheType::TTL:
+        return _ttl_lru_log_queue;
+    default:
+        LOG(WARNING) << "invalid lru log queue type";
+        DCHECK(false);
+    }
+    return _normal_lru_log_queue;
+}
+
+size_t LRUQueueRecorder::get_lru_queue_update_cnt_from_last_dump(FileCacheType type) {
+    return _lru_queue_update_cnt_from_last_dump[type];
+}
+
+void LRUQueueRecorder::reset_lru_queue_update_cnt_from_last_dump(FileCacheType type) {
+    _lru_queue_update_cnt_from_last_dump[type] = 0;
+}
+
+size_t LRUQueueRecorder::lru_log_queue_size(FileCacheType type) const {
+    return _lru_log_queue_size[file_cache_type_index(type)].load(std::memory_order_relaxed);
+}
+
+void LRUQueueRecorder::limit_shadow_queue_size(LRUQueue& shadow_queue,
+                                               std::lock_guard<std::mutex>& lru_log_lock) {
+    int64_t queue_limit = config::file_cache_background_lru_dump_tail_record_num;
+    if (queue_limit <= 0) {
+        return;
+    }
+    size_t limit = static_cast<size_t>(queue_limit);
+    size_t queue_size = shadow_queue.get_elements_num(lru_log_lock);
+    while (queue_size > limit) {
+        if (!shadow_queue.pop_front(lru_log_lock)) {
+            return;
+        }
+        --queue_size;
+    }
+}
+
+bool LRUQueueRecorder::reserve_lru_log_queue_slot(FileCacheType type) {
+    int64_t queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    if (queue_limit <= 0) {
+        return false;
+    }
+    auto& queue_size = _lru_log_queue_size[file_cache_type_index(type)];
+    size_t cur_size = queue_size.load(std::memory_order_relaxed);
+    while (cur_size < static_cast<size_t>(queue_limit)) {
+        if (queue_size.compare_exchange_weak(cur_size, cur_size + 1, std::memory_order_relaxed)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void LRUQueueRecorder::release_lru_log_queue_slot(FileCacheType type) {
+    auto& queue_size = _lru_log_queue_size[file_cache_type_index(type)];
+    size_t cur_size = queue_size.load(std::memory_order_relaxed);
+    while (true) {
+        DORIS_CHECK_GT(cur_size, 0);
+        if (queue_size.compare_exchange_weak(cur_size, cur_size - 1, std::memory_order_relaxed)) {
+            return;
+        }
+    }
+}
+
+} // end of namespace doris::io

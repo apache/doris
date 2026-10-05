@@ -1,0 +1,208 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands.info;
+
+import org.apache.doris.analysis.DefaultValueExprDef;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.foundation.util.UUIDUtils;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+
+/**
+ * default value of a column.
+ */
+public class DefaultValue {
+
+    public static String E_NUM = "E";
+    public static String PI = "PI";
+    public static String CURRENT_DATE = "CURRENT_DATE";
+    public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
+    public static String NOW = "now";
+    public static String HLL_EMPTY = "HLL_EMPTY";
+    public static String BITMAP_EMPTY = "BITMAP_EMPTY";
+    public static String UUID_V4 = "uuid_v4";
+    public static String UUID_V7 = "uuid_v7";
+    public static DefaultValue CURRENT_DATE_DEFAULT_VALUE = new DefaultValue(CURRENT_DATE, CURRENT_DATE.toLowerCase());
+    public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(CURRENT_TIMESTAMP, NOW);
+    // default null
+    public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(null);
+    public static String ZERO = new String(new byte[] {0});
+    public static String ZERO_NUMBER = "0";
+    // default "value", "0" means empty hll
+    public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO, HLL_EMPTY);
+    // default "value", "0" means empty bitmap
+    public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO, BITMAP_EMPTY);
+    // default "value", "[]" means empty array
+    public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue("[]");
+    // Lets use the const value from math pacakge.
+    public static DefaultValue PI_DEFAULT_VALUE = new DefaultValue(Double.toString(Math.PI), PI);
+
+    public static DefaultValue E_NUM_DEFAULT_VALUE = new DefaultValue(Double.toString(Math.E), E_NUM);
+    private final String value;
+    // used for column which defaultValue is an expression.
+    private final DefaultValueExprDef defaultValueExprDef;
+
+    public DefaultValue(String value) {
+        this.value = value;
+        this.defaultValueExprDef = null;
+    }
+
+    /**
+     * used for column which defaultValue is an expression.
+     * @param value default value
+     * @param exprName default value expression
+     */
+    public DefaultValue(String value, String exprName) {
+        this.value = value;
+        this.defaultValueExprDef = new DefaultValueExprDef(exprName);
+    }
+
+    public DefaultValue(String value, String exprName, Long precision) {
+        this.value = value;
+        this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
+    }
+
+    /**
+     * default value current_timestamp(precision)
+     */
+    public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision) {
+        return currentTimeStampDefaultValueWithPrecision(precision, DateTimeV2Type.SYSTEM_DEFAULT);
+    }
+
+    /**
+     * default value current_timestamp(precision), validated against the target column type
+     */
+    public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision, DataType type) {
+        int maxScale = type.isTimeStampNsType() ? TimeStampNsType.SCALE : DateTimeV2Type.MAX_SCALE;
+        if (precision > maxScale || precision < 0) {
+            throw new AnalysisException("column's default value current_timestamp"
+                    + " precision must be between 0 and " + maxScale);
+        }
+        if (precision == 0) {
+            return new DefaultValue(CURRENT_TIMESTAMP, NOW);
+        }
+        String value = CURRENT_TIMESTAMP + "(" + precision + ")";
+        String exprName = NOW;
+        return new DefaultValue(value, exprName, precision);
+    }
+
+    /** Build a UUID generation default, canonicalizing the public function aliases. */
+    public static DefaultValue uuidDefaultValue(String functionName) {
+        String normalizedName = functionName.toLowerCase(Locale.ROOT);
+        switch (normalizedName) {
+            case "uuid_v4":
+            case "generate_uuid_v4":
+            case "generateuuidv4":
+                return new DefaultValue(UUID_V4 + "()", UUID_V4);
+            case "uuid_v7":
+            case "generate_uuid_v7":
+            case "generateuuidv7":
+                return new DefaultValue(UUID_V7 + "()", UUID_V7);
+            default:
+                throw new AnalysisException("Unsupported default value function: " + functionName);
+        }
+    }
+
+    public boolean isCurrentTimeStamp() {
+        return "CURRENT_TIMESTAMP".equals(value) && defaultValueExprDef != null
+                && NOW.equals(defaultValueExprDef.getExprName());
+    }
+
+    public boolean isCurrentTimeStampWithPrecision() {
+        return defaultValueExprDef != null && value.startsWith(CURRENT_TIMESTAMP + "(")
+                && NOW.equals(defaultValueExprDef.getExprName());
+    }
+
+    public long getCurrentTimeStampPrecision() {
+        if (isCurrentTimeStampWithPrecision()) {
+            return Long.parseLong(value.substring(CURRENT_TIMESTAMP.length() + 1, value.length() - 1));
+        }
+        return 0;
+    }
+
+    /**
+     * get string result of a default value expression.
+     */
+    public String getRawValue() {
+        if (isCurrentTimeStamp()) {
+            return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
+        } else if (isCurrentTimeStampWithPrecision()) {
+            long precision = getCurrentTimeStampPrecision();
+            if (precision == 0) {
+                return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
+            }
+            String format = "yyyy-MM-dd HH:mm:ss." + "S".repeat((int) precision);
+            return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
+                    .format(DateTimeFormatter.ofPattern(format));
+        } else if (isUuidFunction(UUID_V4)) {
+            return UUIDUtils.fastUUID().toString();
+        } else if (isUuidFunction(UUID_V7)) {
+            return UUIDUtils.uuidV7().toString();
+        }
+        return value;
+    }
+
+    /** Get a schema-change backfill value using the target type's default precision. */
+    public String getRawValue(DataType targetType) {
+        if (targetType.isTimeStampNsType() && isCurrentTimeStamp()) {
+            return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
+                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        }
+        return getRawValue();
+    }
+
+    public boolean isUuidFunction() {
+        return isUuidFunction(UUID_V4) || isUuidFunction(UUID_V7);
+    }
+
+    private boolean isUuidFunction(String functionName) {
+        return defaultValueExprDef != null
+                && functionName.equalsIgnoreCase(defaultValueExprDef.getExprName());
+    }
+
+    /**
+     * get string value of a default value expression.
+     */
+    public String getValue() {
+        return value;
+    }
+
+    public DefaultValueExprDef getDefaultValueExprDef() {
+        return defaultValueExprDef;
+    }
+
+    /**
+     * toSql
+     */
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("DEFAULT ");
+        if (value != null) {
+            sb.append('"').append(value).append('"');
+        } else {
+            sb.append("NULL");
+        }
+        return sb.toString();
+    }
+}

@@ -1,0 +1,1449 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.hudi;
+
+import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileScanRangeParams;
+
+import org.apache.avro.Schema;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hudi.common.config.HoodieMetadataConfig;
+import org.apache.hudi.common.engine.HoodieLocalEngineContext;
+import org.apache.hudi.common.model.BaseFile;
+import org.apache.hudi.common.model.FileSlice;
+import org.apache.hudi.common.model.HoodieBaseFile;
+import org.apache.hudi.common.model.HoodieLogFile;
+import org.apache.hudi.common.model.HoodieTableType;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
+import org.apache.hudi.common.table.view.FileSystemViewManager;
+import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.metadata.HoodieTableMetadata;
+import org.apache.hudi.metadata.HoodieTableMetadataUtil;
+import org.apache.hudi.storage.StoragePath;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
+
+/**
+ * Scan plan provider for Hudi tables.
+ *
+ * <p>Implements the core scan planning pipeline:
+ * <ol>
+ *   <li>Build {@link HoodieTableMetaClient} from the table's base path</li>
+ *   <li>Resolve the query instant from the completed timeline</li>
+ *   <li>Resolve partitions (pruned via applyFilter or all partitions)</li>
+ *   <li>For each partition:
+ *     <ul>
+ *       <li>COW: list latest base files → native reader splits (Parquet/ORC)</li>
+ *       <li>MOR: list latest merged file slices → JNI splits (or native if no logs)</li>
+ *     </ul>
+ *   </li>
+ * </ol>
+ *
+ * <p>Scope: snapshot reads, {@code FOR TIME AS OF} time travel (a pinned {@code queryInstant}), {@code @incr}
+ * incremental FILE selection (a resolved {@code (begin, end]} window), and schema evolution (per-file {@code
+ * schema_id} + the scan-level {@code -1}/history dictionary for BE's field-id matching, resolved AT the pinned
+ * instant under time travel). Incremental row-level filtering to the window (a synthetic {@code
+ * _hoodie_commit_time} predicate) is an fe-core analysis-time step, not this provider's concern.</p>
+ */
+public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
+
+    private static final Logger LOG = LogManager.getLogger(HudiScanPlanProvider.class);
+
+    // The force_jni_scanner session flag (VariableMgr.toMap channel, read via
+    // ConnectorSession.getSessionProperties()). When true, the JNI escape hatch is engaged: a native-eligible
+    // slice is routed to the JNI reader (dodging native-reader bugs), matching legacy
+    // HudiScanNode.canUseNativeReader() / setScanParams (sessionVariable.isForceJniScanner()). Same key + read
+    // path as the paimon connector's FORCE_JNI_SCANNER. Default false, so normal reads are unaffected.
+    private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+    private static final String CONTAINS_NATIVE_PARQUET = "hudi.contains_native_parquet";
+    static final String SCAN_REUSE_NAMESPACE = "hudi.scan-reuse";
+
+    // Scan-node prop carrying the base64 native-reader schema-evolution dictionary (current_schema_id +
+    // history_schema_info). getScanNodeProperties builds it; populateScanLevelParams copies it onto the real
+    // TFileScanRangeParams. Mirrors the paimon connector's SCHEMA_EVOLUTION_PROP.
+    private static final String SCHEMA_EVOLUTION_PROP = "hudi.schema_evolution";
+
+    private final Map<String, String> properties;
+    private final ConnectorContext context;
+    // Every metaClient this provider builds is built inside this; see planScan.
+    private final HudiMetaClientExecutor executor;
+
+    /**
+     * A provider whose planning runs on the calling thread as it is: for tests of the pure helpers, and
+     * for nothing that opens a filesystem.
+     */
+    HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context) {
+        this(properties, context, HudiMetaClientExecutor.inline());
+    }
+
+    /**
+     * @param executor what every metaClient-touching call runs inside. {@link HudiConnector} hands over
+     *                 its own, which pins the plugin classloader and runs the call under the connector's
+     *                 filesystem scope - the UGI whose cached filesystems {@code HudiConnector.close()}
+     *                 releases. That is what ties the planning path's filesystems to the connector's
+     *                 lifetime: built outside it, they would be cached under the FE login user, where
+     *                 nothing ever closes them, and every catalog configuration that came and went
+     *                 would leave its S3 client and executor threads behind for the life of the FE.
+     */
+    HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context,
+            HudiMetaClientExecutor executor) {
+        this.properties = properties;
+        this.context = context;
+        this.executor = executor;
+    }
+
+    /** What the planning runs inside; see the constructor. For tests. */
+    HudiMetaClientExecutor planningExecutor() {
+        return executor;
+    }
+
+    @Override
+    public boolean usesHiveParquetInt96TimeZone() {
+        // Hudi preserves its legacy session-timezone contract in both native and JNI readers.
+        return false;
+    }
+
+    /**
+     * Reads the {@code force_jni_scanner} session flag from the SPI session properties. Package-private static
+     * for offline unit testing. Default false (legacy default) when unset or the session is null.
+     */
+    static boolean isForceJniScannerEnabled(ConnectorSession session) {
+        if (session == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(session.getSessionProperties().get(FORCE_JNI_SCANNER));
+    }
+
+    /**
+     * Remaps {@code LZ4FRAME -> LZ4BLOCK}, preserving the behavior legacy {@code HudiScanNode} inherited from its
+     * superclass {@code HiveScanNode.getFileCompressType} (hadoop writes {@code .lz4} as the LZ4 block codec, not
+     * the frame format the extension implies). The new provider does not extend the hive one, so this override
+     * restores the inherited legacy remap rather than relying on "hudi never produces a {@code .lz4} split".
+     * Only {@code LZ4FRAME} is remapped; every other codec passes through.
+     */
+    @Override
+    public TFileCompressType adjustFileCompressType(TFileCompressType inferred) {
+        return inferred == TFileCompressType.LZ4FRAME ? TFileCompressType.LZ4BLOCK : inferred;
+    }
+
+    @Override
+    public boolean supportsFileCache() {
+        // copy-on-write hudi tables are read by BE's native parquet reader. Declared explicitly because hudi
+        // tables live in an hms catalog: once governance follows the serving connector rather than the
+        // catalog type name, not declaring it here would silently drop hudi out of admission control.
+        return true;
+    }
+
+    /**
+     * Plans inside {@link #executor}: the metaClient, the timeline, the file-system view and the
+     * partition listing all open filesystems, and where those are cached is decided by the UGI current
+     * at that moment. The engine only pins the plugin classloader around this call
+     * ({@code PluginDrivenScanNode.onPluginClassLoader}); the executor adds the connector's filesystem
+     * scope, so that what this opens is closed with the connector rather than kept until FE restart.
+     */
+    @Override
+    public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        return executor.execute(() -> planScanInScope(session, request));
+    }
+
+    private List<ConnectorScanRange> planScanInScope(ConnectorSession session, ConnectorScanRequest request) {
+        // Statement-scoped reuse: within one statement the identical scan (same table, same
+        // instant/incremental pin, same partition set, same table generation) plans once and every
+        // duplicated relation shares the result. The generation token (latest completed instant)
+        // fences the key against same-path table recreation: without it, alias A's ranges (stamped
+        // with generation-A schema_id values) could be paired with alias B's generation-B
+        // history_schema_info dictionary, causing BE to map files through wrong field identities.
+        // The scope is NONE for offline planning and tests, in which case the loader runs on every
+        // call. Session variables are constant within a statement and deliberately absent.
+        if (session == null || !session.isExternalScanTaskReuseEnabled()) {
+            return doPlanScan(session, request);
+        }
+        HudiStatementTable statementTable = resolveHudiTable(
+                session, (HudiTableHandle) request.getTableHandle());
+        String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
+        Map<HudiScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
+                memoKey, () -> new ConcurrentHashMap<>());
+        HudiScanReuseKey reuseKey = hudiScanReuseKey(
+                (HudiTableHandle) request.getTableHandle(), statementTable.generation);
+        AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
+        List<ConnectorScanRange> cached = scanReuse.computeIfAbsent(reuseKey, key -> {
+            PlannedScan plannedScan = doPlanScanForReuse(session, request, statementTable);
+            List<ConnectorScanRange> planned = Collections.unmodifiableList(plannedScan.ranges);
+            if (!plannedScan.cacheable) {
+                // ConcurrentHashMap does not install a mapping when the loader returns null. Return this
+                // caller's degraded result below, but let the next identical alias retry schema resolution.
+                uncached.set(planned);
+                return null;
+            }
+            return planned;
+        });
+        return cached != null ? cached : Objects.requireNonNull(uncached.get());
+    }
+
+    /**
+     * Resolve one Hudi physical table generation for each full table identity in a statement.
+     * Both split planning and scan-node property construction consume the returned holder.
+     */
+    HudiStatementTable resolveHudiTable(ConnectorSession session, HudiTableHandle hudiHandle) {
+        if (session != null && session.isExternalScanTaskReuseEnabled()
+                && session.getStatementScope() != null
+                && session.getStatementScope() != ConnectorStatementScope.NONE) {
+            String memoKey = SCAN_REUSE_NAMESPACE + ":tables:"
+                    + session.getCatalogId() + ":" + session.getQueryId();
+            Map<HudiTableResolutionKey, HudiStatementTable> tables =
+                    session.getStatementScope().computeIfAbsent(memoKey, () -> new ConcurrentHashMap<>());
+            HudiTableResolutionKey key = new HudiTableResolutionKey(hudiHandle);
+            return tables.computeIfAbsent(key, ignored -> loadHudiTable(hudiHandle));
+        }
+        return loadHudiTable(hudiHandle);
+    }
+
+    private HudiStatementTable loadHudiTable(HudiTableHandle hudiHandle) {
+        Configuration hadoopConf = buildHadoopConf();
+        HoodieTableMetaClient metaClient = buildMetaClient(hadoopConf, hudiHandle.getBasePath());
+        String generation = metaClient.getCommitsAndCompactionTimeline()
+                .filterCompletedInstants()
+                .lastInstant()
+                .map(HoodieInstant::requestedTime)
+                .orElse("none");
+        return new HudiStatementTable(metaClient, generation, hadoopConf);
+    }
+
+    // Package-private so the statement-reuse test can replace remote Hudi planning with a recording loader.
+    List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request) {
+        return doPlanScan(session, request,
+                loadHudiTable((HudiTableHandle) request.getTableHandle()));
+    }
+
+    List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request,
+            HudiStatementTable statementTable) {
+        return doPlanScan(session, request, statementTable, null);
+    }
+
+    // Package-private so statement-reuse tests can model a transient degraded schema lookup without opening
+    // a real Hudi table. Production planning marks the result uncacheable at each tolerated schema fallback.
+    PlannedScan doPlanScanForReuse(ConnectorSession session, ConnectorScanRequest request,
+            HudiStatementTable statementTable) {
+        PlanCompleteness completeness = new PlanCompleteness();
+        return new PlannedScan(doPlanScan(session, request, statementTable, completeness),
+                completeness.isComplete());
+    }
+
+    private List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request,
+            HudiStatementTable statementTable, PlanCompleteness completeness) {
+        HudiTableHandle hudiHandle = (HudiTableHandle) request.getTableHandle();
+        String basePath = hudiHandle.getBasePath();
+        HoodieTableMetaClient metaClient = statementTable.metaClient;
+        Configuration conf = statementTable.hadoopConf;
+
+        // Determine COW vs MOR from the Hudi table config (authoritative), NOT the substring-detected handle
+        // type: an UNKNOWN detection must not silently pick the wrong read path for a COW table (detection
+        // hardening).
+        boolean isCow = metaClient.getTableType() == HoodieTableType.COPY_ON_WRITE;
+        // force_jni_scanner routes even a native-eligible read to the JNI reader (legacy
+        // HudiScanNode.canUseNativeReader() = !isForceJniScanner() && isCowTable), so a COW table under
+        // force_jni takes the merged-file-slice (JNI) path too.
+        boolean forceJni = isForceJniScannerEnabled(session);
+        boolean useNativeCowPath = isCow && !forceJni;
+
+        HoodieTimeline timeline = metaClient.getCommitsAndCompactionTimeline()
+                .filterCompletedInstants();
+
+        Optional<HoodieInstant> lastInstant = timeline.lastInstant().toJavaOptional();
+        if (!lastInstant.isPresent()) {
+            LOG.info("No completed instants on timeline for {}, returning empty splits", basePath);
+            return Collections.emptyList();
+        }
+        // FOR TIME AS OF pins an explicit instant (applySnapshot stamped it on the handle); a plain read has
+        // none and reads the latest completed instant (byte-identical to before this step). This single local
+        // drives every downstream instant use: COW/MOR getLatest*BeforeOrOn file selection AND the MOR-JNI
+        // THudiFileDesc.instantTime, so FE file selection and the BE merge instant stay consistent.
+        String queryInstant = hudiHandle.getQueryInstant() != null
+                ? hudiHandle.getQueryInstant()
+                : lastInstant.get().requestedTime();
+
+        // Resolve column names and types for JNI reader
+        List<String> columnNames;
+        List<String> columnTypes;
+        Schema avroSchema = null;
+        try {
+            TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
+            // The LATEST table Avro schema (5 `_hoodie_*` meta columns included, explicit `true` = legacy
+            // parity): the base for the per-file schema_id resolver below, which classifies each file's OWN
+            // written version (independent of the query instant).
+            avroSchema = schemaResolver.getTableAvroSchema(true);
+            // HD-C5b: the JNI (MOR-realtime) reader's column list must be the schema AT the pinned instant for a
+            // FOR TIME AS OF read over a schema-on-read table (legacy HudiScanNode:222-224), kept in lockstep
+            // with the getScanNodeProperties native -1 overlay so a renamed column shows its historical name to
+            // the merge reader. A plain read (queryInstant == null) or a non-evolution table (no commit-metadata
+            // InternalSchema at the instant, D3) keeps the latest schema — byte-identical.
+            Schema jniSchema = HudiSchemaUtils.resolveJniColumnSchema(
+                    schemaResolver, metaClient, avroSchema, hudiHandle.getQueryInstant());
+            // JNI reader column names MUST be lower-cased: BE HadoopHudiJniScanner.initRequiredColumnsAndTypes
+            // keys hudiColNameToType by these names, then looks each requiredField up as an EXACT lower-case key
+            // (mixed-case "Id" would miss lower-case "id" -> throw, crashing every MOR/JNI split). Matches the
+            // Doris-column path (avroSchemaToColumns:905) and the native history_schema_info dict
+            // (HudiSchemaUtils.buildField:137); legacy HudiScanNode:223 also emits lower-case names.
+            columnNames = jniColumnNames(jniSchema);
+            columnTypes = jniSchema.getFields().stream()
+                    .map(f -> HudiTypeMapping.toHiveTypeString(f.schema()))
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            if (completeness != null) {
+                completeness.markIncomplete();
+            }
+            LOG.warn("Failed to resolve Hudi schema for JNI reader, JNI splits may fail: {}",
+                    e.getMessage());
+            columnNames = Collections.emptyList();
+            columnTypes = Collections.emptyList();
+        }
+
+        // The mode-aware table InternalSchema (+ evolution flag), resolved ONCE, drives the per-file
+        // THudiFileDesc.schema_id stamped on native slices for BE's field-id path. Resolved in its OWN try/catch
+        // (NOT the JNI-column block above): a schema-evolution / commit-metadata hiccup must degrade to null ->
+        // no schema_id -> BE BY_NAME (the safe baseline), WITHOUT discarding the already-computed JNI columnNames/
+        // columnTypes (which a plain MOR read needs). schema_id is dormant/inert until the dict is emitted.
+        HudiSchemaUtils.ResolvedInternalSchema resolvedSchema = null;
+        if (avroSchema != null) {
+            try {
+                resolvedSchema = HudiSchemaUtils.resolveTableInternalSchema(
+                        new TableSchemaResolver(metaClient), avroSchema);
+            } catch (Exception e) {
+                if (completeness != null) {
+                    completeness.markIncomplete();
+                }
+                LOG.warn("Failed to resolve Hudi InternalSchema for schema_id; native reads fall back to BY_NAME: {}",
+                        e.getMessage());
+            }
+        }
+
+        // Per-file native-reader schema_id resolver (base-file path -> version), or null to skip stamping
+        // (base schema unresolved -> BY_NAME). A per-file resolution failure logs and returns null for that file
+        // (BY_NAME) rather than failing the whole scan. Runs on this TCCL-pinned scan thread.
+        final HudiSchemaUtils.ResolvedInternalSchema baseSchema = resolvedSchema;
+        Function<String, Long> schemaIdResolver = buildSchemaIdResolver(baseSchema, metaClient, completeness);
+
+        String inputFormat = hudiHandle.getInputFormat();
+        String serdeLib = hudiHandle.getSerdeLib();
+
+        // @incr incremental read: a non-null beginInstant is the marker (INC-1 stamped the resolved (begin, end]
+        // window onto the handle). Select the files the window touches via the ported IncrementalRelation family
+        // instead of the latest-snapshot partition scan below. NOTE: this selects FILES only — row-level
+        // filtering to (begin, end] is a LATER step (an FE-side synthetic _hoodie_commit_time predicate), so a
+        // bare @incr read would over-read until that lands (a tracked gap on the now-live path). The COW-vs-
+        // MOR relation choice is driven by the SAME isCow the snapshot path uses (metaClient.getTableType(),
+        // hoodie.properties-authoritative): this SUBSUMES the legacy RO-as-RT flip (LogicalHudiScan:251-260 /
+        // HudiScanNode:187-199), which existed only because legacy classifies from the hive inputFormat (a MOR
+        // _ro facade uses HoodieParquetInputFormat, so legacy misreads it as COW and the flip re-routes it to
+        // MOR). metaClient.getTableType() reads MERGE_ON_READ for that facade directly, so no flip — and no serde
+        // params are needed on the handle. Do NOT restore the flip.
+        if (hudiHandle.getBeginInstant() != null) {
+            IncrementalRelation relation = buildIncrementalRelation(metaClient, conf, hudiHandle, isCow);
+            Optional<List<ConnectorScanRange>> incrementalRanges = incrementalRanges(relation, isCow, forceJni,
+                    basePath, inputFormat, serdeLib, columnNames, columnTypes, partitionFieldNames(metaClient),
+                    this::normalizeNativeUri);
+            if (incrementalRanges.isPresent()) {
+                LOG.info("Hudi incremental scan planning: {}.{} window=({}, {}] splits={}",
+                        hudiHandle.getDbName(), hudiHandle.getTableName(),
+                        hudiHandle.getBeginInstant(), hudiHandle.getEndInstant(), incrementalRanges.get().size());
+                return incrementalRanges.get();
+            }
+            // relation.fallbackFullTableScan() (archived instant / missing file) → degrade to the normal
+            // latest-snapshot partition scan below (legacy HudiScanNode.getSplits:470), reading the latest instant.
+        }
+
+        // Build file system view via FileSystemViewManager (Hudi 1.0.2 API)
+        HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
+                .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
+                .build();
+        HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
+        try (HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
+                engineCtx, metaClient, metadataConfig)) {
+            // Resolve partitions
+            List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
+
+            List<ConnectorScanRange> ranges = new ArrayList<>();
+            for (String partitionPath : partitionPaths) {
+                Map<String, String> partValues = parsePartitionValues(
+                        partitionPath, hudiHandle.getPartitionKeyNames());
+
+                if (useNativeCowPath) {
+                    collectCowSplits(fsView, partitionPath, queryInstant,
+                            basePath, partValues, ranges, schemaIdResolver);
+                } else {
+                    collectMorSplits(fsView, partitionPath, queryInstant,
+                            basePath, inputFormat, serdeLib,
+                            columnNames, columnTypes, partValues, forceJni, ranges, schemaIdResolver);
+                }
+            }
+
+            LOG.info("Hudi scan planning: {}.{} type={} partitions={} splits={}",
+                    hudiHandle.getDbName(), hudiHandle.getTableName(),
+                    hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
+
+            return ranges;
+        }
+    }
+
+    Function<String, Long> buildSchemaIdResolver(HudiSchemaUtils.ResolvedInternalSchema baseSchema,
+            HoodieTableMetaClient metaClient, PlanCompleteness completeness) {
+        if (baseSchema == null) {
+            return null;
+        }
+        return filePath -> {
+            try {
+                return resolveFileSchemaId(filePath, baseSchema, metaClient);
+            } catch (Exception e) {
+                if (completeness != null) {
+                    completeness.markIncomplete();
+                }
+                LOG.warn("Failed to resolve Hudi per-file schema_id for {}: {}", filePath, e.getMessage());
+                return null;
+            }
+        };
+    }
+
+    // Package-private test seam for a fail-once resolver; the production implementation remains the single
+    // HudiSchemaUtils lookup used by every native snapshot split.
+    long resolveFileSchemaId(String filePath, HudiSchemaUtils.ResolvedInternalSchema baseSchema,
+            HoodieTableMetaClient metaClient) {
+        return HudiSchemaUtils.resolveFileInternalSchema(filePath,
+                baseSchema.enableSchemaEvolution, baseSchema.internalSchema, metaClient).schemaId();
+    }
+
+    static final class PlannedScan {
+        private final List<ConnectorScanRange> ranges;
+        private final boolean cacheable;
+
+        PlannedScan(List<ConnectorScanRange> ranges, boolean cacheable) {
+            this.ranges = ranges;
+            this.cacheable = cacheable;
+        }
+    }
+
+    static final class PlanCompleteness {
+        private boolean complete = true;
+
+        void markIncomplete() {
+            complete = false;
+        }
+
+        boolean isComplete() {
+            return complete;
+        }
+    }
+
+    @Override
+    public Map<String, String> getScanNodeProperties(
+            ConnectorSession session, ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter) {
+        HudiTableHandle hudiHandle = (HudiTableHandle) handle;
+        boolean isCow = "COPY_ON_WRITE".equals(hudiHandle.getHudiTableType());
+
+        Map<String, String> props = new LinkedHashMap<>();
+        // For COW tables, we default to parquet (may be overridden per-split).
+        // For MOR tables, default is JNI.
+        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, isCow ? "parquet" : "jni");
+        props.put("table_format_type", "hudi");
+        // Lazy MOR splits can reveal a log-free Parquet file after BE has selected its scanner.
+        props.put(CONTAINS_NATIVE_PARQUET, Boolean.toString(!isForceJniScannerEnabled(session)
+                && hudiHandle.getInputFormat() != null
+                && hudiHandle.getInputFormat().toLowerCase(Locale.ROOT).contains("parquet")));
+
+        // Partition keys
+        List<String> partKeys = hudiHandle.getPartitionKeyNames();
+        if (partKeys != null && !partKeys.isEmpty()) {
+            props.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS, String.join(",", partKeys));
+        }
+
+        // BE-facing storage for the native + JNI readers, mirroring legacy getLocationProperties' dual merge.
+        //  (1) BE-canonical static credentials (AWS_* for object stores, resolved hadoop.*/dfs.* for HDFS): BE's
+        //      native (FILE_S3) reader understands ONLY these canonical keys, so without them a private bucket
+        //      403s (the raw catalog aliases s3.access_key/... are useless to it). Sourced from the context's
+        //      single normalization hook. Empty for no context (offline tests) or a credential-less warehouse.
+        if (context != null) {
+            storage().getBackendStorageProperties()
+                    .forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
+        }
+        //  (1b) Hadoop-canonical object-store config (fs.s3a.* / fs.oss.* / resolved hadoop.*/dfs.*) TRANSLATED
+        //      from the catalog's typed StorageProperties, for the Hudi JNI reader's own Hadoop FileSystem.
+        //      S3AFileSystem reads ONLY fs.s3a.* — never the AWS_* canonical keys (1) nor the s3. aliases (2) — so
+        //      without this a private s3a warehouse configured with the Doris s3. aliases throws
+        //      NoAuthWithAWSException in the JNI scanner. This is the "hadoopProperties" half of legacy
+        //      getLocationProperties' merge that the raw passthrough (2) alone does not reconstruct (the catalog
+        //      carries s3. aliases, not fs.s3a. keys). Emitted BEFORE (2) so a user-inline fs./hadoop. key still
+        //      wins (mirrors buildHadoopConf precedence); null context yields an empty map (offline / HDFS-only).
+        storageHadoopConfig(context).forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
+        //  (2) Hadoop-format passthrough for the Hudi JNI reader (its own Hadoop FileSystem: fs.s3a.* etc).
+        //      Emitted AFTER the canonical set so an overlapping hadoop key resolves to the catalog's explicit
+        //      value (legacy putAll order: backendStorageProperties then hadoopProperties). The s3./oss./cos./obs.
+        //      Doris aliases are harmless to BE (ignored by both readers) but kept so no configured key is dropped.
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith("hadoop.") || key.startsWith("fs.")
+                    || key.startsWith("dfs.") || key.startsWith("hive.")
+                    || key.startsWith("s3.") || key.startsWith("cos.")
+                    || key.startsWith("oss.") || key.startsWith("obs.")) {
+                props.put(ScanNodePropertyKeys.LOCATION_PREFIX + key, entry.getValue());
+            }
+        }
+
+        // Emit the native-reader schema-evolution dictionary so BE matches file<->table columns BY FIELD ID
+        // across rename/reorder (else a renamed column reads NULL on its old files). Skipped under force_jni:
+        // every split then goes JNI and never consults the dict (paimon-parity gate). Best-effort: a build
+        // failure logs and drops the prop -> native reads fall back to BE BY_NAME (the safe baseline), never a
+        // hard scan failure. populateScanLevelParams copies it onto the real params.
+        if (!isForceJniScannerEnabled(session)) {
+            try {
+                // Inside the executor for the same reason planScan is: the metaClient opens filesystems.
+                // When statement-scoped reuse is active, use the SAME metaClient planScan cached at the
+                // scope so the schema evolution dictionary reflects the same generation the scan plan
+                // was built against.
+                Optional<String> dict = executor.execute(() -> {
+                    HudiStatementTable statementTable = resolveHudiTable(session, hudiHandle);
+                    return schemaEvolutionDict(statementTable, hudiHandle, columns);
+                });
+                dict.ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
+            } catch (Exception e) {
+                LOG.warn("Failed to build Hudi schema-evolution dict for {}.{}; native reads fall back to BY_NAME: {}",
+                        hudiHandle.getDbName(), hudiHandle.getTableName(), e.getMessage());
+            }
+        }
+
+        return props;
+    }
+
+    /** The native-reader schema-evolution dictionary of {@code getScanNodeProperties}, or empty. */
+    Optional<String> schemaEvolutionDict(HudiStatementTable statementTable, HudiTableHandle hudiHandle,
+            List<ConnectorColumnHandle> columns) throws Exception {
+        HoodieTableMetaClient metaClient = statementTable.metaClient;
+        TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
+        // HD-C5b: FOR TIME AS OF over a schema-on-read table -> re-resolve the native -1 overlay from the
+        // FULL schema AT the pinned instant. The requested column HANDLES are latest-keyed
+        // (getColumnHandles runs before the MVCC pin), so a column renamed after the pin is absent from
+        // them under its pinned name; building the overlay from them would drop that BE scan slot (BE's
+        // field-id reader SIGABRTs on a scan slot missing from the overlay). A plain read (no pin) or a
+        // non-evolution FOR TIME AS OF (latest == at-instant, D3) uses the steady-state dict keyed off the
+        // requested columns. NOTE: no meta column can reach the pinned path — the at-instant bound schema
+        // (HD-C5a, from the InternalSchema) has no `_hoodie_*` columns, so the query cannot project one.
+        String pin = hudiHandle.getQueryInstant();
+        Optional<InternalSchema> pinnedSchema = pin == null
+                ? Optional.empty()
+                : HudiSchemaUtils.resolveInternalSchemaAtInstant(schemaResolver, metaClient, pin);
+        if (pinnedSchema.isPresent()) {
+            return Optional.of(HudiSchemaUtils.buildSchemaEvolutionDictAtInstant(metaClient, pinnedSchema.get()));
+        }
+        Schema latestAvro = schemaResolver.getTableAvroSchema(true);
+        return HudiSchemaUtils.buildSchemaEvolutionProp(metaClient, schemaResolver, latestAvro,
+                castHudiColumns(columns));
+    }
+
+    /** The requested column handles as {@link HudiColumnHandle}s (this connector's own handle type). */
+    private static List<HudiColumnHandle> castHudiColumns(List<ConnectorColumnHandle> columns) {
+        if (columns == null) {
+            return Collections.emptyList();
+        }
+        List<HudiColumnHandle> result = new ArrayList<>(columns.size());
+        for (ConnectorColumnHandle handle : columns) {
+            result.add((HudiColumnHandle) handle);
+        }
+        return result;
+    }
+
+    @Override
+    public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
+        HudiSchemaUtils.applySchemaEvolution(params, nodeProperties.get(SCHEMA_EVOLUTION_PROP));
+        if (Boolean.parseBoolean(nodeProperties.get(CONTAINS_NATIVE_PARQUET))) {
+            params.setContainsNativeParquet(true);
+        }
+    }
+
+    /**
+     * Normalizes a raw HMS/Hudi-SDK storage URI into BE's canonical scheme for the NATIVE reader's range path
+     * (e.g. {@code s3a://}/{@code oss://}/{@code cos://} &rarr; {@code s3://}), delegating to the engine seam
+     * {@link ConnectorStorageContext#normalizeStorageUri(String)} — the connector cannot import fe-core's
+     * {@code LocationPath}. BE's native S3 file factory (S3URI) accepts ONLY {@code s3://}, so an un-normalized
+     * {@code s3a://} range path fails the native read with "Invalid S3 URI". Mirrors iceberg/paimon
+     * {@code normalizeUri}. Applied ONLY to the native range {@code .path()}; the JNI reader's
+     * {@code THudiFileDesc} base/data/delta-log paths stay raw {@code s3a://} (Hadoop {@code S3AFileSystem}
+     * wants the {@code s3a} scheme). A null context (offline unit tests) preserves the raw URI.
+     */
+    private String normalizeNativeUri(String rawUri) {
+        return context != null ? storage().normalizeStorageUri(rawUri) : rawUri;
+    }
+
+    /**
+     * Collect splits for COW (Copy on Write) tables.
+     * COW tables only have base files — use native Parquet/ORC reader.
+     */
+    private void collectCowSplits(
+            HoodieTableFileSystemView fsView,
+            String partitionPath, String queryInstant,
+            String basePath,
+            Map<String, String> partValues,
+            List<ConnectorScanRange> ranges,
+            Function<String, Long> schemaIdResolver) {
+        fsView.getLatestBaseFilesBeforeOrOn(partitionPath, queryInstant)
+                .forEach(baseFile -> {
+                    String filePath = baseFile.getPath();
+                    long fileSize = baseFile.getFileSize();
+                    String format = detectFileFormat(filePath);
+
+                    HudiScanRange.Builder builder = new HudiScanRange.Builder()
+                            .path(normalizeNativeUri(filePath))
+                            .start(0)
+                            .length(fileSize)
+                            .fileSize(fileSize)
+                            .fileFormat(format)
+                            .partitionValues(partValues);
+                    // COW base files always read native -> stamp the per-file schema version for BE's field-id path.
+                    Long schemaId = schemaIdResolver == null ? null : schemaIdResolver.apply(filePath);
+                    if (schemaId != null) {
+                        builder.schemaId(schemaId);
+                    }
+                    ranges.add(builder.build());
+                });
+    }
+
+    /**
+     * Collect splits for MOR (Merge on Read) tables.
+     * MOR tables may have base files + delta log files. If a file slice
+     * has no delta logs, we can use the native reader; otherwise JNI.
+     */
+    private void collectMorSplits(
+            HoodieTableFileSystemView fsView,
+            String partitionPath, String queryInstant,
+            String basePath, String inputFormat, String serdeLib,
+            List<String> columnNames, List<String> columnTypes,
+            Map<String, String> partValues, boolean forceJni,
+            List<ConnectorScanRange> ranges,
+            Function<String, Long> schemaIdResolver) {
+        fsView.getLatestMergedFileSlicesBeforeOrOn(partitionPath, queryInstant)
+                .forEach(fileSlice -> ranges.add(buildMorRange(fileSlice, partValues, queryInstant,
+                        forceJni, basePath, inputFormat, serdeLib, columnNames, columnTypes, schemaIdResolver,
+                        this::normalizeNativeUri)));
+    }
+
+    /**
+     * Builds one MOR {@link HudiScanRange} from a merged {@link FileSlice}, shared by the snapshot MOR path
+     * ({@link #collectMorSplits}) and the {@code @incr} MOR path ({@link #incrementalRanges}). Byte-faithful port
+     * of legacy {@code HudiScanNode.generateHudiSplit}: a slice with no delta logs reads natively (parquet/orc)
+     * UNLESS {@code force_jni} keeps it on JNI, a log-only slice uses its first log as the agency path, and a JNI
+     * slice carries the full merge metadata. The {@code jniInstant} is the merge instant BE reads: the snapshot
+     * path passes its {@code queryInstant}, the incremental path passes the resolved window END
+     * ({@code relation.getEndTs()}). Package-private static so the mapping is unit-testable with a hand-built
+     * {@link FileSlice} and reused by both paths without duplication.
+     *
+     * <p>{@code schemaIdResolver} (base-file path -&gt; native schema version) is applied ONLY to a native
+     * (no-log, non-force-jni) slice — the JNI merge reader consumes no schema_id. {@code null} skips stamping
+     * (the {@code @incr} path passes null: {@code @incr} lists the latest schema, no per-file dict).</p>
+     */
+    static HudiScanRange buildMorRange(FileSlice fileSlice, Map<String, String> partValues, String jniInstant,
+            boolean forceJni, String basePath, String inputFormat, String serdeLib,
+            List<String> columnNames, List<String> columnTypes,
+            Function<String, Long> schemaIdResolver, UnaryOperator<String> nativePathNormalizer) {
+        Optional<HoodieBaseFile> baseFileOpt = fileSlice.getBaseFile().toJavaOptional();
+        String filePath = baseFileOpt.map(BaseFile::getPath).orElse("");
+        long fileSize = baseFileOpt.map(BaseFile::getFileSize).orElse(0L);
+
+        List<String> logs = fileSlice.getLogFiles()
+                .map(HoodieLogFile::getPath)
+                .map(StoragePath::toString)
+                .collect(Collectors.toList());
+
+        // Dynamic format decision: no logs → native reader, UNLESS force_jni keeps it on JNI
+        // (legacy HudiScanNode.setScanParams' !isForceJniScanner() guard on the no-log downgrade).
+        boolean useNative = logs.isEmpty() && !filePath.isEmpty() && !forceJni;
+        String format = useNative ? detectFileFormat(filePath) : "jni";
+
+        // For log-only slices, use first log as agency path
+        String agencyPath = filePath.isEmpty() && !logs.isEmpty()
+                ? logs.get(0) : filePath;
+
+        HudiScanRange.Builder builder = new HudiScanRange.Builder()
+                .path(nativePathNormalizer.apply(agencyPath))
+                .start(0)
+                .length(fileSize)
+                .fileSize(fileSize)
+                .fileFormat(format)
+                .partitionValues(partValues)
+                // Bake force_jni so populateRangeParams (no session) keeps this slice on JNI too.
+                .forceJni(forceJni);
+
+        if (!useNative) {
+            // JNI reader needs full metadata
+            builder.instantTime(jniInstant)
+                    .serde(serdeLib)
+                    .inputFormat(inputFormat)
+                    .basePath(basePath)
+                    .dataFilePath(filePath)
+                    .dataFileLength(fileSize)
+                    .deltaLogs(logs)
+                    .columnNames(columnNames)
+                    .columnTypes(columnTypes);
+        } else if (schemaIdResolver != null) {
+            // Native no-log slice reads via the field-id native reader -> stamp its base file's schema version.
+            Long schemaId = schemaIdResolver.apply(filePath);
+            if (schemaId != null) {
+                builder.schemaId(schemaId);
+            }
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Builds the ported {@link IncrementalRelation} for a resolved {@code @incr} window: a COW relation when
+     * {@code isCow} (metaClient-authoritative), else a MOR relation. The relation consumes the ALREADY-RESOLVED
+     * {@code begin/endInstant} from the handle (INC-1) and the raw {@code @incr} option params (glob / fallback /
+     * hollow-commit policy) threaded onto the handle, and does file selection only. Runs inline in {@code
+     * planScan}, reusing its metaClient + Hadoop conf, so the relation's filesystem/timeline I/O inherits the
+     * scan thread's plugin classloader pin (the same context the snapshot path's metaClient I/O runs in). The
+     * ctor's {@link IOException} is re-typed to {@link DorisConnectorException} (parity with {@link
+     * #resolvePartitions}).
+     */
+    private static IncrementalRelation buildIncrementalRelation(HoodieTableMetaClient metaClient,
+            Configuration conf, HudiTableHandle handle, boolean isCow) {
+        Map<String, String> optParams = handle.getIncrementalParams();
+        HollowCommitHandling policy = IncrementalRelation.hollowCommitHandling(optParams);
+        try {
+            return isCow
+                    ? new COWIncrementalRelation(metaClient, conf, handle.getBeginInstant(),
+                            handle.getEndInstant(), policy, optParams)
+                    : new MORIncrementalRelation(metaClient, conf, handle.getBeginInstant(),
+                            handle.getEndInstant(), policy, optParams);
+        } catch (IOException e) {
+            throw new DorisConnectorException(
+                    "Failed to build incremental relation for " + handle.getBasePath(), e);
+        }
+    }
+
+    /**
+     * The incremental split set for a resolved {@code @incr} window, or {@link Optional#empty()} to signal the
+     * caller must DEGRADE to the normal latest-snapshot scan. Byte-parity with legacy {@code
+     * HudiScanNode.getSplits:470} + {@code getIncrementalSplits}, but routing on the relation TYPE
+     * ({@code isCow}) rather than legacy's {@code canUseNativeReader()}:
+     * <ul>
+     *   <li>{@code relation.fallbackFullTableScan()} (an archived instant / missing file) &rarr;
+     *       {@link Optional#empty()} = degrade to the latest-snapshot scan (NOT an error), legacy {@code :470}.</li>
+     *   <li>COW &rarr; {@link IncrementalRelation#collectSplits()} yields native ranges directly.
+     *       <b>{@code force_jni} is intentionally IGNORED for a COW incremental read</b> (it always reads native)
+     *       &mdash; a signed, deliberate deviation from legacy, which routes {@code force_jni}+COW to the MOR-style
+     *       branch and calls {@code collectFileSlices()} on a COW relation &rarr; {@code UnsupportedOperationException}
+     *       (a latent legacy crash). Routing on the relation type never calls the unsupported shape.</li>
+     *   <li>MOR &rarr; {@link IncrementalRelation#collectFileSlices()} (a FLAT cross-partition slice list) turned
+     *       into JNI ranges at the resolved window END ({@code relation.getEndTs()}), with per-slice partition
+     *       values parsed from the slice's own partition path against the Hudi table-config partition fields
+     *       (the same non-handle source the COW relation uses). {@code force_jni} still keeps a no-log MOR slice
+     *       on JNI via {@link #buildMorRange}.</li>
+     * </ul>
+     * Package-private static, pure over the {@link IncrementalRelation} contract, so file-selection routing +
+     * the degrade decision are unit-testable with a fake relation (no live metaClient).
+     */
+    static Optional<List<ConnectorScanRange>> incrementalRanges(IncrementalRelation relation, boolean isCow,
+            boolean forceJni, String basePath, String inputFormat, String serdeLib,
+            List<String> columnNames, List<String> columnTypes, List<String> partitionFieldNames,
+            UnaryOperator<String> nativePathNormalizer) {
+        if (relation.fallbackFullTableScan()) {
+            return Optional.empty();
+        }
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        if (isCow) {
+            // COW @incr yields native ranges directly; normalize their scheme (s3a->s3) for BE's native reader
+            // (COWIncrementalRelation.collectSplits builds .path() from the raw HMS base path).
+            ranges.addAll(relation.collectSplits(nativePathNormalizer));
+            return Optional.of(ranges);
+        }
+        String endTs = relation.getEndTs();
+        for (FileSlice fileSlice : relation.collectFileSlices()) {
+            Map<String, String> partValues = parsePartitionValues(fileSlice.getPartitionPath(), partitionFieldNames);
+            // @incr lists the LATEST schema (no per-file schema_id dict on the incremental path) -> null resolver.
+            ranges.add(buildMorRange(fileSlice, partValues, endTs, forceJni,
+                    basePath, inputFormat, serdeLib, columnNames, columnTypes, null, nativePathNormalizer));
+        }
+        return Optional.of(ranges);
+    }
+
+    /**
+     * The Hudi table-config partition-field names (byte-faithful to legacy {@code HudiScanNode:391-393}), the
+     * source the incremental MOR path parses per-slice partition values against &mdash; NOT the HMS-sourced
+     * handle partition keys the snapshot path uses (the two coincide only for hive-synced tables).
+     */
+    private static List<String> partitionFieldNames(HoodieTableMetaClient metaClient) {
+        Option<String[]> fields = metaClient.getTableConfig().getPartitionFields();
+        return fields.isPresent() ? Arrays.asList(fields.get()) : Collections.emptyList();
+    }
+
+    /**
+     * Resolve partition paths from handle or by listing all partitions.
+     */
+    private List<String> resolvePartitions(
+            HudiTableHandle handle, HoodieTableMetaClient metaClient) {
+        // Check if partitions were pruned via applyFilter
+        List<String> prunedPaths = handle.getPrunedPartitionPaths();
+        if (prunedPaths != null) {
+            return prunedPaths;
+        }
+
+        // No pruning — list all partitions
+        List<String> partKeyNames = handle.getPartitionKeyNames();
+        if (partKeyNames == null || partKeyNames.isEmpty()) {
+            // Unpartitioned table
+            return Collections.singletonList("");
+        }
+
+        try {
+            return listAllPartitionPaths(metaClient);
+        } catch (Exception e) {
+            throw new DorisConnectorException(
+                    "Failed to list partitions for " + handle.getBasePath(), e);
+        }
+    }
+
+    /**
+     * Builds a {@link HoodieTableMetaClient} from a Hadoop {@link Configuration} and base path. Package-private
+     * static so the metadata path ({@link HudiConnectorMetadata}) builds the metaClient the same way the scan
+     * does, from inside the plugin-auth + TCCL pin its execute-wrapper supplies.
+     */
+    static HoodieTableMetaClient buildMetaClient(Configuration conf, String basePath) {
+        return HoodieTableMetaClient.builder()
+                .setConf(new org.apache.hudi.storage.hadoop.HadoopStorageConfiguration(conf))
+                .setBasePath(basePath)
+                .build();
+    }
+
+    /**
+     * Returns the LATEST completed instant as its raw {@code requestedTime} String (e.g.
+     * {@code yyyyMMddHHmmssSSS}, compared lexicographically), or {@code Optional.empty()} when the timeline has
+     * no completed instants. Reads the same {@code getCommitsAndCompactionTimeline().filterCompletedInstants()}
+     * as {@link #latestCompletedInstant} / {@link #planScan}.
+     *
+     * <p>This ONE shared helper is byte-parity with legacy COW/MOR incremental {@code latestTime} for BOTH table
+     * types, because {@code metaClient.getCommitsAndCompactionTimeline()} resolves per table type to exactly the
+     * timeline legacy uses per type (verified against hudi-common 1.0.2 bytecode):
+     * <ul>
+     *   <li>COW &rarr; {@code getActiveTimeline().getCommitAndReplaceTimeline()} = {@code {commit, replacecommit,
+     *       clustering}} &mdash; identical to what legacy COW's {@code metaClient.getCommitTimeline()} returns
+     *       (that metaClient method ALSO delegates to {@code getCommitAndReplaceTimeline()}, so it is NOT
+     *       commit-only; it includes the replacecommit/clustering instants COW produces via INSERT OVERWRITE /
+     *       clustering).</li>
+     *   <li>MOR &rarr; {@code getActiveTimeline().getWriteTimeline()} &mdash; identical to legacy MOR's
+     *       {@code metaClient.getCommitsAndCompactionTimeline()}.</li>
+     * </ul>
+     * Both legacy and this helper take {@code lastInstant().requestedTime()} under the default hollow-commit
+     * policy; the {@code USE_TRANSITION_TIME} completion-time variant is served by the overload below.
+     */
+    static Optional<String> latestCompletedInstantTime(HoodieTableMetaClient metaClient) {
+        return latestCompletedInstantTime(metaClient, false);
+    }
+
+    /**
+     * The LATEST completed instant on the requested-time axis (default) or the completion-time axis when
+     * {@code useCompletionTime} is true. The completion-time axis is legacy's {@code USE_TRANSITION_TIME}
+     * hollow-commit policy path: legacy COW/MOR derive the default / {@code "latest"} end via
+     * {@code lastInstant().getCompletionTime()} rather than {@code requestedTime()} under that policy
+     * ({@code COWIncrementalRelation:94-96} / {@code MORIncrementalRelation:88-90}), and both their file
+     * selection ({@code findInstantsInRangeByCompletionTime}) and the row filter consume that completion-time
+     * end. {@link HudiConnectorMetadata#resolveTimeTravel} resolves the end on the SAME axis so the ONE
+     * handle-stamped end is correct for both — the connector never lets the file set and the row filter diverge
+     * on the window. Completion time {@code >=} requested time for any instant, so a requested-time end fed into
+     * completion-time selection would silently drop the final in-window commit (under-read).
+     */
+    static Optional<String> latestCompletedInstantTime(HoodieTableMetaClient metaClient, boolean useCompletionTime) {
+        return metaClient.getCommitsAndCompactionTimeline()
+                .filterCompletedInstants().lastInstant().toJavaOptional()
+                .map(instant -> useCompletionTime ? instant.getCompletionTime() : instant.requestedTime());
+    }
+
+    /**
+     * Returns the LATEST completed instant as a numeric long ({@code yyyyMMddHHmmssSSS}), or {@code 0L} when
+     * the timeline has none. Byte-faithful port of legacy {@code HudiUtils.getLastTimeStamp} and the same
+     * timeline {@link #planScan} reads at query time — so the MVCC pin and the scan take the identical instant.
+     */
+    static long latestCompletedInstant(HoodieTableMetaClient metaClient) {
+        return requestedTimeToInstant(latestCompletedInstantTime(metaClient));
+    }
+
+    /**
+     * Pure numeric mapping backing {@link #latestCompletedInstant}: a present {@code requestedTime} parses to a
+     * long ({@code Long.parseLong}, fail-loud on malformed = legacy parity); absent &rarr; {@code 0L} (legacy
+     * empty-timeline sentinel, {@code >= 0} so it survives the dictionary-refresh filter). Extracted so the
+     * empty/value semantics are unit-testable without a live metaClient.
+     */
+    static long requestedTimeToInstant(Optional<String> requestedTime) {
+        return requestedTime.map(Long::parseLong).orElse(0L);
+    }
+
+    /**
+     * The zone hudi generated this table's instants in ({@code hoodie.table.timeline.timezone}, default
+     * {@code LOCAL}). An instant string carries no offset, so it can only be read back through the table's
+     * own declared zone.
+     *
+     * <p>Read from the table config rather than through {@code HoodieInstantTimeGenerator}'s one-line
+     * parse helper on purpose: that helper takes the zone from a JVM-global static, which would put a
+     * whole timezone offset of error on a table that explicitly declares {@code UTC}.
+     */
+    static ZoneId timelineZone(HoodieTableMetaClient metaClient) {
+        return metaClient.getTableConfig().getTimelineTimezone().getZoneId();
+    }
+
+    /**
+     * Converts a hudi instant ({@code yyyyMMddHHmmssSSS} read as a number) to epoch millis - the unit
+     * {@code ConnectorPartitionInfo#getLastModifiedMillis} requires.
+     *
+     * <p>These are NOT interchangeable even though both are a {@code long}: an instant for 2024 reads as
+     * ~2.0e16 while the same moment in epoch millis is ~1.7e12, four orders of magnitude apart. The
+     * engine subtracts this field from the wall clock to decide whether a table has been quiet long
+     * enough to serve from the SQL cache, so an instant fed in there makes the difference come out as 0
+     * forever and silently disables that cache for the table and everything queried alongside it.
+     *
+     * <p>The raw instant keeps its own job (timeline lookup, snapshot id, time travel); only this
+     * freshness field changes unit. {@code instant <= 0} (empty timeline) maps to {@code 0}; anything
+     * unparseable logs and maps to {@code 0}, meaning "no reliable change signal" - the engine already
+     * degrades safely on that, and a statistics field must never fail a query on the scan hot path.
+     */
+    static long instantToEpochMillis(long instant, ZoneId zone) {
+        if (instant <= 0) {
+            return 0L;
+        }
+        String instantTime = HoodieInstantTimeGenerator.fixInstantTimeCompatibility(String.valueOf(instant));
+        try {
+            return LocalDateTime
+                    .parse(instantTime, DateTimeFormatter.ofPattern(
+                            HoodieInstantTimeGenerator.MILLIS_INSTANT_TIMESTAMP_FORMAT))
+                    .atZone(zone).toInstant().toEpochMilli();
+        } catch (DateTimeParseException e) {
+            LOG.warn("Cannot read hudi instant {} as a timestamp; reporting no last-modified time", instant, e);
+            return 0L;
+        }
+    }
+
+    /**
+     * Lists ALL partition relative paths from the Hudi metadata table (COW/MOR agnostic). Byte-faithful port of
+     * legacy {@code HudiPartitionUtils.getAllPartitionNames}; extracted so both {@link #resolvePartitions} and
+     * the metadata partition-listing path share one copy of the {@code HoodieTableMetadata.create(...)} dance.
+     */
+    static List<String> listAllPartitionPaths(HoodieTableMetaClient metaClient) throws Exception {
+        HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
+                .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
+                .build();
+        HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
+        HoodieTableMetadata tableMetadata = HoodieTableMetadata.create(
+                engineCtx, metaClient.getStorage(), metadataConfig,
+                metaClient.getBasePath().toString(), true);
+        return listAllPartitionPaths(tableMetadata::getAllPartitionPaths, tableMetadata);
+    }
+
+    static List<String> listAllPartitionPaths(
+            java.util.concurrent.Callable<List<String>> loader, AutoCloseable resource) throws Exception {
+        try (AutoCloseable owned = resource) {
+            return loader.call();
+        }
+    }
+
+    /**
+     * The partitions holding data AS OF {@code queryInstant} — {@link #listAllPartitionPaths} minus every
+     * partition whose file slices all start after the pin.
+     *
+     * <p>A partition path, once written, stays in the metadata table forever: {@code listAllPartitionPaths}
+     * answers "ever existed", not "existed then". Reading a table at its FIRST commit would otherwise report
+     * every partition the table has today.
+     *
+     * <p>The membership test and the scan are not literally the same view call - this one asks
+     * {@code getLatestFileSlicesBeforeOrOn}, while {@link #collectCowSplits} and {@link #collectMorSplits}
+     * ask their own per-type views, each with its own per-slice filtering. What they DO share is the file
+     * group set and the {@code <= queryInstant} cut, and the only extra narrowing on this side
+     * ({@code filterUncommittedFiles}, which accepts an instant that is in the timeline OR archived) covers
+     * everything the scan's own {@code isFileSliceCommitted} accepts. So every difference between them falls
+     * on the safe side: this listing can only be a SUPERSET of the partitions the scan finds files in, never
+     * short of it, and a pruned-away partition that the scan would have read cannot happen.
+     *
+     * <p>{@code getLatestFileSlicesBeforeOrOn} rather than the base-file view because it covers both table
+     * types — a COW slice is its base file, and a MOR partition whose only data at the pin is log files still
+     * holds rows.
+     *
+     * <p>{@code allPaths} is supplied by the caller rather than listed here: the only caller has just listed
+     * them off the same metaClient, and listing them twice is a second full metadata-table read per
+     * {@code FOR TIME AS OF} query.
+     */
+    static List<String> listPartitionPathsAsOf(HoodieTableMetaClient metaClient, List<String> allPaths,
+            String queryInstant) throws Exception {
+        HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
+                .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
+                .build();
+        HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
+        try (HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
+                engineCtx, metaClient, metadataConfig)) {
+            List<String> asOf = new ArrayList<>(allPaths.size());
+            int unresolved = 0;
+            for (String partitionPath : allPaths) {
+                // Per partition, and non-fatal per partition: this walks EVERY partition of the table,
+                // including ones the query's predicates would have pruned away, so one unreadable partition
+                // must not fail a query that would never have touched it. Keeping it is the safe direction -
+                // the pin only ever removes partitions, so an unresolved one stays in and is scanned.
+                try {
+                    if (fsView.getLatestFileSlicesBeforeOrOn(partitionPath, queryInstant, true)
+                            .findAny().isPresent()) {
+                        asOf.add(partitionPath);
+                    }
+                } catch (Exception e) {
+                    // The stack once. A systemic failure - the metadata table unreachable, say - hits every
+                    // partition of the table, and a table with thousands of them would otherwise write
+                    // thousands of stacks into fe.log for one query.
+                    if (unresolved == 0) {
+                        LOG.warn("Cannot tell whether hudi partition '{}' of {} held data at instant {}; "
+                                + "keeping it in the listing. Further partitions failing the same way in "
+                                + "this listing are counted, not logged.", partitionPath,
+                                metaClient.getBasePath(), queryInstant, e);
+                    } else if (LOG.isDebugEnabled()) {
+                        LOG.debug("Cannot tell whether hudi partition '{}' of {} held data at instant {}",
+                                partitionPath, metaClient.getBasePath(), queryInstant, e);
+                    }
+                    unresolved++;
+                    asOf.add(partitionPath);
+                }
+            }
+            if (unresolved > 0) {
+                // Said separately from the per-partition warning, because "some partitions could not be
+                // resolved" and "the pin decided nothing at all" read very differently to whoever is looking
+                // at a query that scanned the whole table.
+                LOG.warn("Hudi partition listing at instant {} for {}: {} of {} partitions could not be "
+                        + "resolved and were kept{}", queryInstant, metaClient.getBasePath(), unresolved,
+                        allPaths.size(), unresolved == allPaths.size()
+                                ? " - the listing is NOT snapshot-exact for this query and prunes nothing"
+                                : "");
+            }
+            return asOf;
+        }
+    }
+
+    /**
+     * Parse a Hudi partition's relative path into a column&rarr;value map, byte-faithful to legacy
+     * {@code HudiPartitionUtils.parsePartitionValues}. Handles BOTH hive-style ("year=2024/month=01") and Hudi's
+     * DEFAULT non-hive-style POSITIONAL ("2024/01") layouts, and URL-unescapes every value:
+     * <ul>
+     *   <li>A fragment carrying the "col=" prefix contributes the suffix; a fragment WITHOUT it is mapped
+     *       POSITIONALLY to the i-th partition column. The old split-on-'=' logic silently DROPPED a
+     *       prefix-less fragment, so a non-hive-style partitioned table read NULL partition columns on a plain
+     *       snapshot read — this is the regression this fix closes.</li>
+     *   <li>Single partition column with a mismatched fragment count: the whole path (minus an optional "col="
+     *       prefix) is that column's value (legacy single-column-whole-path fallback).</li>
+     *   <li>Fragment count != column count with &gt; 1 column: fail loud, exactly like legacy.</li>
+     *   <li>Every value is unescaped via {@link #unescapePathName} (e.g. "%20" &rarr; space) — legacy delegated
+     *       to Hive's {@code FileUtils.unescapePathName}; inlined here so the connector needs no hive-common
+     *       dependency (mirrors the fe-connector-hive inlined copy).</li>
+     * </ul>
+     *
+     * <p>Static + package-private for direct unit testing (no live HoodieTableMetaClient needed).
+     *
+     * <p>NOTE: this derives values from the partition path fed to the FileSystemView. On the UNPRUNED path that
+     * path is Hudi's own relative path (getAllPartitionPaths) = the shape the FileSystemView uses, so values are
+     * consistent. The PRUNED path (applyFilter) currently feeds HMS hive-style partition NAMES, which match the
+     * FileSystemView only for hive-sync'd tables; making the pruned partition SOURCE useHiveSyncPartition-aware
+     * for non-hive-style tables belongs to the partition-listing step (which ports that source once), and is
+     * likewise closed before the catalog flip.
+     */
+    static Map<String, String> parsePartitionValues(
+            String partitionPath, List<String> partKeyNames) {
+        if (partKeyNames == null || partKeyNames.isEmpty()) {
+            // Non-partitioned table (legacy returns an empty value list). The unpartitioned scan path always
+            // reaches here with an empty key list, so an empty partitionPath needs no separate guard.
+            return Collections.emptyMap();
+        }
+        Map<String, String> values = new LinkedHashMap<>();
+        String[] fragments = partitionPath.split("/");
+        if (fragments.length != partKeyNames.size()) {
+            if (partKeyNames.size() == 1) {
+                String prefix = partKeyNames.get(0) + "=";
+                String value = partitionPath.startsWith(prefix)
+                        ? partitionPath.substring(prefix.length()) : partitionPath;
+                values.put(partKeyNames.get(0), unescapePathName(value));
+                return values;
+            }
+            throw new DorisConnectorException(
+                    "Failed to parse partition values of path: " + partitionPath);
+        }
+        for (int i = 0; i < fragments.length; i++) {
+            String prefix = partKeyNames.get(i) + "=";
+            String raw = fragments[i].startsWith(prefix)
+                    ? fragments[i].substring(prefix.length()) : fragments[i];
+            values.put(partKeyNames.get(i), unescapePathName(raw));
+        }
+        return values;
+    }
+
+    /**
+     * How hudi spells a NULL partition value in a directory name. Byte-frozen: it is what this connector has
+     * always SENT in columns_from_path, and it is also accepted as an INPUT spelling.
+     */
+    static final String HUDI_NULL_PARTITION_VALUE = "\\N";
+
+    /**
+     * Whether a hudi partition value means a genuine SQL NULL. Three spellings do: the hive-canonical
+     * {@code __HIVE_DEFAULT_PARTITION__} sentinel, the older text-table {@code \N}, and - defensively - a Java
+     * null.
+     *
+     * <p>Shared by the scan path ({@link HudiScanRange#applyPartitionValues}) and the listing path
+     * ({@code HudiConnectorMetadata.buildPartitionInfos}) because the two must not disagree: the listing decides
+     * whether the engine prunes a partition with {@code col IS NULL} or with {@code col = '<literal>'}, and the
+     * scan decides which files that partition contributes. A partition written as {@code \N} used to be listed
+     * as the literal string and scanned as NULL, so {@code col IS NULL} pruned it away and the query came back
+     * with zero rows from a partition the scan would have matched.
+     *
+     * <p>The 3-way rule holds only for directory-name partitioning: hive narrows it (a hive column may hold
+     * {@code \N} as DATA) and paimon rejects it outright (its partition values are typed). Hudi's other
+     * default-partition constant, the literal string {@code "default"}, is deliberately NOT included - a table
+     * with a real partition value of "default" is far more likely than one relying on that deprecated encoding.
+     */
+    static boolean isNullPartitionValue(String value) {
+        return value == null
+                || ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value)
+                || HUDI_NULL_PARTITION_VALUE.equals(value);
+    }
+
+    /**
+     * Renders a Hive-style partition name ({@code "col0=val0/col1=val1/..."}) from a column&rarr;value map, in
+     * partition-key order, ESCAPING each value with {@link #escapePathName} (the canonical Hive {@code
+     * makePartName}).
+     *
+     * <p><b>MANDATORY for the generic MVCC model:</b> fe-core rebuilds the partition item by re-parsing this
+     * name via {@code HiveUtil.toPartitionValues} under a {@code checkState(values.size()==types.size())}. A raw
+     * positional path ({@code "2024/01"}) would yield the wrong value count &rarr; the partition is skipped
+     * &rarr; silent UNPARTITIONED degrade, so a hive-style name is required. Escaping is MANDATORY too:
+     * {@code HiveUtil.toPartitionValues} splits on {@code '/'}, so a value that itself spans {@code '/'} (e.g. a
+     * single partition column with a {@code yyyy/MM/dd} output format &rarr; path {@code "2024/01/02"}) must be
+     * escaped ({@code "%2F"}) or the re-parse would truncate/collide it. Since {@code escapePathName} is the
+     * exact inverse of {@link #escapePathName}'s unescape (the same set {@code HiveUtil.toPartitionValues} uses),
+     * the re-parse recovers EXACTLY the values {@link #parsePartitionValues} produced. Static + package-private
+     * for direct unit testing.
+     */
+    static String renderHiveStylePartitionName(List<String> partKeyNames, Map<String, String> values) {
+        StringBuilder sb = new StringBuilder();
+        for (String col : partKeyNames) {
+            if (sb.length() > 0) {
+                sb.append('/');
+            }
+            sb.append(col).append('=').append(escapePathName(values.get(col)));
+        }
+        return sb.toString();
+    }
+
+    // Hive FileUtils.charToEscape minus the control range: escaped so a partition VALUE containing one of these
+    // survives the round-trip through HiveUtil.toPartitionValues (which url-unescapes). '/' and '=' are the
+    // load-bearing ones (structural to the re-parse); the rest mirror Hive for name faithfulness.
+    private static final String CHARS_TO_ESCAPE = "\"#%'*/:=?\\{[]^";
+
+    /**
+     * URL-encodes a partition value into a Hive-escaped path component (e.g. {@code "a/b"} &rarr; {@code
+     * "a%2Fb"}). Byte-faithful port of Hive's {@code org.apache.hadoop.hive.common.FileUtils.escapePathName} and
+     * the exact inverse of {@link #unescapePathName}, so a rendered hive-style name re-parses (unescapes) back
+     * to the original value. Inlined so the connector needs no hive-common dependency.
+     */
+    private static String escapePathName(String value) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c < 0x20 || c == 0x7F || CHARS_TO_ESCAPE.indexOf(c) >= 0) {
+                sb.append('%').append(String.format("%02X", (int) c));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * URL-decodes a Hive-escaped path component (e.g. "a%2Fb" &rarr; "a/b"). Byte-faithful port of Hive's
+     * {@code org.apache.hadoop.hive.common.FileUtils.unescapePathName} (identical to the fe-connector-hive
+     * inlined copy in {@code HiveWriteUtils}), so the connector needs no hive-common dependency.
+     */
+    static String unescapePathName(String path) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (c == '%' && i + 2 < path.length()) {
+                int code = -1;
+                try {
+                    code = Integer.parseInt(path.substring(i + 1, i + 3), 16);
+                } catch (Exception e) {
+                    code = -1;
+                }
+                if (code >= 0) {
+                    sb.append((char) code);
+                    i += 2;
+                    continue;
+                }
+            }
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * The JNI (MOR-realtime) reader's required-column names, LOWER-CASED. BE
+     * {@code HadoopHudiJniScanner.initRequiredColumnsAndTypes} builds {@code hudiColNameToType} keyed by these
+     * names and resolves each requiredField with an EXACT lower-case {@code containsKey}, so a mixed-case Avro
+     * name ({@code "Id"}) would miss the lower-case slot ({@code "id"}) and throw, crashing every MOR/JNI split.
+     * Byte-consistent with the Doris-column casing ({@code HudiConnectorMetadata.avroSchemaToColumns} /
+     * {@code HudiSchemaUtils.buildField}) and legacy {@code HudiScanNode} (which emits lower-case Column names).
+     * Column ORDER is preserved so the parallel {@code columnTypes} list stays positionally aligned. Package-
+     * private static for offline unit testing (planScan itself needs a live metaClient).
+     */
+    static List<String> jniColumnNames(Schema jniSchema) {
+        return jniSchema.getFields().stream()
+                .map(f -> f.name().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Detect file format from file path suffix. Package-private static so the ported incremental relations
+     * ({@code COWIncrementalRelation}) stamp the required explicit {@code fileFormat} on their native
+     * {@link HudiScanRange}s the same way the snapshot COW path does.
+     */
+    static String detectFileFormat(String filePath) {
+        if (filePath == null || filePath.isEmpty()) {
+            return "parquet";
+        }
+        String lower = filePath.toLowerCase();
+        if (lower.endsWith(".parquet")) {
+            return "parquet";
+        } else if (lower.endsWith(".orc")) {
+            return "orc";
+        }
+        return "parquet";
+    }
+
+    private Configuration buildHadoopConf() {
+        Configuration conf = new Configuration();
+        // Overlay the catalog's bound fe-filesystem storage config (s3.access_key -> fs.s3a.access.key, etc.)
+        // FIRST so an inline user fs./dfs./hadoop. key still wins in the loop below. Without this the FE-side
+        // HoodieTableMetaClient's S3AFileSystem gets no object-store credentials and cannot read
+        // .hoodie/hoodie.properties (NoAuthWithAWSException). Mirrors iceberg/paimon buildStorageHadoopConfig.
+        storageHadoopConfig(context).forEach(conf::set);
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith("hadoop.") || key.startsWith("fs.")
+                    || key.startsWith("dfs.") || key.startsWith("hive.")) {
+                conf.set(key, entry.getValue());
+            }
+        }
+        HudiConnector.enableFileSystemCache(conf);
+        return conf;
+    }
+
+    /**
+     * The canonical object-store/HDFS Hadoop config (fs.s3a.* / fs.oss.* / hadoop.* …) translated from the
+     * catalog's bound fe-filesystem {@code StorageProperties}. This is the ONLY source of the S3/OSS credentials
+     * the FE-side {@link HoodieTableMetaClient} needs — the raw catalog aliases (s3.access_key, …) are NOT Hadoop
+     * keys and S3AFileSystem never reads them. Empty for a null context (offline unit tests) or a catalog with no
+     * typed storage. Mirrors {@code IcebergConnector.buildStorageHadoopConfig} / {@code PaimonConnector}.
+     */
+    static Map<String, String> storageHadoopConfig(ConnectorContext context) {
+        Map<String, String> merged = new HashMap<>();
+        if (context != null) {
+            context.getStorageContext().getStorageProperties().forEach(sp ->
+                    sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap())));
+        }
+        return merged;
+    }
+
+    /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
+    private ConnectorStorageContext storage() {
+        return context.getStorageContext();
+    }
+
+    /** Package-private for offline unit tests of key construction. */
+    static HudiScanReuseKey hudiScanReuseKey(HudiTableHandle handle, String generation) {
+        return new HudiScanReuseKey(handle, generation);
+    }
+
+    /** One statement-stable Hudi meta client paired with the generation read from that client. */
+    static final class HudiStatementTable {
+        private final HoodieTableMetaClient metaClient;
+        private final String generation;
+        private final Configuration hadoopConf;
+
+        HudiStatementTable(HoodieTableMetaClient metaClient, String generation,
+                Configuration hadoopConf) {
+            this.metaClient = metaClient;
+            this.generation = generation;
+            this.hadoopConf = hadoopConf;
+        }
+    }
+
+    /** Physical Hudi table identity used to resolve one statement-scoped meta client. */
+    static final class HudiTableResolutionKey {
+        private final String dbName;
+        private final String tableName;
+        private final String basePath;
+
+        HudiTableResolutionKey(HudiTableHandle handle) {
+            this.dbName = handle.getDbName();
+            this.tableName = handle.getTableName();
+            this.basePath = handle.getBasePath();
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof HudiTableResolutionKey)) {
+                return false;
+            }
+            HudiTableResolutionKey that = (HudiTableResolutionKey) object;
+            return Objects.equals(dbName, that.dbName)
+                    && Objects.equals(tableName, that.tableName)
+                    && Objects.equals(basePath, that.basePath);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(dbName, tableName, basePath);
+        }
+    }
+
+    /**
+     * Statement-scoped cache key for one Hudi scan.
+     *
+     * <p>Includes every input that changes the planned split list: table identity, the snapshot
+     * instant, the incremental window (begin/end instant + incremental options), the pruned
+     * partition set, the partition keys, the JNI metadata carriers (input format / serde), and
+     * the resolved table generation (latest completed instant). The generation fences the key
+     * against same-path table recreation: without it, alias A's ranges (stamped with
+     * generation-A per-file schema_id values) could be paired with alias B's generation-B
+     * history_schema_info dictionary, causing BE to map files through wrong field identities.
+     * Session variables are statement-constant and deliberately absent.
+     */
+    static final class HudiScanReuseKey {
+        private final String dbName;
+        private final String tableName;
+        private final String basePath;
+        private final String queryInstant;
+        private final String beginInstant;
+        private final String endInstant;
+        private final Map<String, String> incrementalParams;
+        private final List<String> prunedPartitionPaths;
+        private final List<String> partitionKeyNames;
+        private final String inputFormat;
+        private final String serdeLib;
+        private final String generation;
+
+        // Hudi scan-planning identity is fully captured by the handle, its query/incremental
+        // parameters, and the resolved table generation; request-level filter, columns, and
+        // countPushdown do not affect split planning and are deliberately excluded from the key.
+        private HudiScanReuseKey(HudiTableHandle handle, String generation) {
+            // Catalog and query isolation are provided by the statement-scope memo key.
+            this.dbName = handle.getDbName();
+            this.tableName = handle.getTableName();
+            this.basePath = handle.getBasePath();
+            this.queryInstant = handle.getQueryInstant();
+            this.beginInstant = handle.getBeginInstant();
+            this.endInstant = handle.getEndInstant();
+            this.incrementalParams = handle.getIncrementalParams() == null
+                    ? Collections.emptyMap()
+                    : Collections.unmodifiableMap(new HashMap<>(handle.getIncrementalParams()));
+            this.prunedPartitionPaths = handle.getPrunedPartitionPaths() == null
+                    ? null
+                    : Collections.unmodifiableList(new ArrayList<>(handle.getPrunedPartitionPaths()));
+            this.partitionKeyNames = handle.getPartitionKeyNames() == null
+                    ? Collections.emptyList()
+                    : Collections.unmodifiableList(new ArrayList<>(handle.getPartitionKeyNames()));
+            this.inputFormat = handle.getInputFormat();
+            this.serdeLib = handle.getSerdeLib();
+            this.generation = generation;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof HudiScanReuseKey)) {
+                return false;
+            }
+            HudiScanReuseKey that = (HudiScanReuseKey) object;
+            return Objects.equals(dbName, that.dbName)
+                    && Objects.equals(tableName, that.tableName)
+                    && Objects.equals(basePath, that.basePath)
+                    && Objects.equals(queryInstant, that.queryInstant)
+                    && Objects.equals(beginInstant, that.beginInstant)
+                    && Objects.equals(endInstant, that.endInstant)
+                    && Objects.equals(incrementalParams, that.incrementalParams)
+                    && Objects.equals(prunedPartitionPaths, that.prunedPartitionPaths)
+                    && Objects.equals(partitionKeyNames, that.partitionKeyNames)
+                    && Objects.equals(inputFormat, that.inputFormat)
+                    && Objects.equals(serdeLib, that.serdeLib)
+                    && Objects.equals(generation, that.generation);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(dbName, tableName, basePath,
+                    queryInstant, beginInstant, endInstant, incrementalParams,
+                    prunedPartitionPaths, partitionKeyNames, inputFormat, serdeLib, generation);
+        }
+
+        @Override
+        public String toString() {
+            return "HudiScanReuseKey{table=" + dbName + "." + tableName + "}";
+        }
+    }
+}

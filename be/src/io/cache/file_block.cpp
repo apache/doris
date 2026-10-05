@@ -1,0 +1,382 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "io/cache/file_block.h"
+
+#include <butil/iobuf.h>
+#include <glog/logging.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <sstream>
+#include <string>
+#include <thread>
+
+#include "common/status.h"
+#include "cpp/sync_point.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/mem_file_cache_storage.h"
+
+namespace doris {
+namespace io {
+
+namespace {
+
+Status abort_pending_cache_write(FileCacheStorage* storage, const FileCacheKey& key) {
+    if (auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(storage); fs_storage != nullptr) {
+        return fs_storage->abort(key);
+    }
+    if (auto* mem_storage = dynamic_cast<MemFileCacheStorage*>(storage); mem_storage != nullptr) {
+        return mem_storage->abort(key);
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+std::ostream& operator<<(std::ostream& os, const FileBlock::State& value) {
+    os << FileBlock::state_to_string(value);
+    return os;
+}
+
+FileBlock::FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr,
+                     State download_state)
+        : _block_range(key.offset, key.offset + size - 1),
+          _download_state(download_state),
+          _mgr(mgr),
+          _key(key) {
+    /// On creation, file block state can be EMPTY, DOWNLOADED, SKIP_CACHE.
+    switch (_download_state) {
+    case State::DOWNLOADING: {
+        DCHECK(false) << "Can create cell with either EMPTY, DOWNLOADED, SKIP_CACHE ";
+        break;
+    }
+    default: {
+        break;
+    }
+    }
+}
+
+FileBlock::State FileBlock::state() const {
+    std::lock_guard block_lock(_mutex);
+    return _download_state;
+}
+
+FileBlock::State FileBlock::state_unsafe() const {
+    return _download_state;
+}
+
+uint64_t FileBlock::get_caller_id() {
+    uint64_t id;
+#if defined(__APPLE__)
+    // On macOS, use pthread_threadid_np to get the thread ID
+    pthread_threadid_np(nullptr, &id);
+#else
+    id = static_cast<uint64_t>(pthread_self());
+#endif
+    DCHECK(id != 0);
+    return id;
+}
+
+uint64_t FileBlock::get_or_set_downloader() {
+    std::lock_guard block_lock(_mutex);
+
+    if (_downloader_id == 0 && _download_state != State::DOWNLOADED) {
+        DCHECK(_download_state != State::DOWNLOADING);
+        _downloader_id = get_caller_id();
+        _download_state = State::DOWNLOADING;
+    } else if (_downloader_id == get_caller_id()) {
+        LOG(INFO) << "Attempt to set the same downloader for block " << range().to_string()
+                  << " for the second time";
+    }
+
+    return _downloader_id;
+}
+
+void FileBlock::reset_downloader(std::lock_guard<std::mutex>& block_lock) {
+    DCHECK(_downloader_id != 0) << "There is no downloader";
+
+    DCHECK(get_caller_id() == _downloader_id) << "Downloader can be reset only by downloader";
+
+    reset_downloader_impl(block_lock);
+}
+
+void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& block_lock) {
+    if (_downloaded_size == range().size()) {
+        Status st = set_downloaded(block_lock);
+        if (!st.ok()) {
+            LOG(WARNING) << "reset downloader failed, err=" << st
+                         << ", block=" << get_info_for_log_impl(block_lock);
+        }
+    } else {
+        _downloaded_size = 0;
+        _download_state = State::EMPTY;
+        _downloader_id = 0;
+    }
+}
+
+Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& block_lock) {
+    DCHECK(_download_state != State::DOWNLOADED);
+    if (_downloaded_size == 0) {
+        _download_state = State::EMPTY;
+        _downloader_id = 0;
+        LOG(WARNING) << "set file cache block downloaded failed: empty block, block="
+                     << get_info_for_log_impl(block_lock);
+        return Status::InternalError("Try to set empty block {} as downloaded",
+                                     _block_range.to_string());
+    }
+    Status status = _mgr->_storage->finalize(_key, this->_block_range.size());
+    if (status.ok()) [[likely]] {
+        _download_state = State::DOWNLOADED;
+    } else {
+        auto abort_st = abort_pending_cache_write(_mgr->_storage.get(), _key);
+        LOG(WARNING) << "finalize file cache block failed, err=" << status
+                     << ", abort_status=" << abort_st
+                     << ", block=" << get_info_for_log_impl(block_lock);
+        _download_state = State::EMPTY;
+        _downloaded_size = 0;
+    }
+    _downloader_id = 0;
+    return status;
+}
+
+uint64_t FileBlock::get_downloader() const {
+    std::lock_guard block_lock(_mutex);
+    return _downloader_id;
+}
+
+bool FileBlock::is_downloader() const {
+    std::lock_guard block_lock(_mutex);
+    return get_caller_id() == _downloader_id;
+}
+
+bool FileBlock::is_downloader_impl(std::lock_guard<std::mutex>& /* block_lock */) const {
+    return get_caller_id() == _downloader_id;
+}
+
+Status FileBlock::append(Slice data) {
+    return appendv(&data, 1);
+}
+
+Status FileBlock::appendv(const Slice* data, size_t data_cnt) {
+    size_t appended_size = 0;
+    for (size_t idx = 0; idx < data_cnt; ++idx) {
+        appended_size += data[idx].size;
+    }
+    DCHECK(appended_size != 0) << "Writing zero size is not allowed";
+    auto st = _mgr->_storage->appendv(_key, data, data_cnt);
+    if (!st.ok()) {
+        auto abort_st = abort_pending_cache_write(_mgr->_storage.get(), _key);
+        LOG(WARNING) << "appendv file cache block failed, append_size=" << appended_size
+                     << ", slice_count=" << data_cnt << ", err=" << st
+                     << ", abort_status=" << abort_st << ", block=" << get_info_for_log();
+        return st;
+    }
+    _downloaded_size += appended_size;
+    return Status::OK();
+}
+
+Status FileBlock::append_iobuf(const butil::IOBuf& data) {
+    const size_t appended_size = data.length();
+    DCHECK(appended_size != 0) << "Writing zero size is not allowed";
+    auto st = _mgr->_storage->append_iobuf(_key, data);
+    if (!st.ok()) {
+        auto abort_st = abort_pending_cache_write(_mgr->_storage.get(), _key);
+        LOG(WARNING) << "append_iobuf file cache block failed, append_size=" << appended_size
+                     << ", err=" << st << ", abort_status=" << abort_st
+                     << ", block=" << get_info_for_log();
+        return st;
+    }
+    _downloaded_size += appended_size;
+    return Status::OK();
+}
+
+Status FileBlock::finalize() {
+    if (_downloaded_size == 0) {
+        std::lock_guard block_lock(_mutex);
+        _download_state = State::EMPTY;
+        _downloader_id = 0;
+        _cv.notify_all();
+        LOG(WARNING) << "finalize file cache block failed: empty block, block="
+                     << get_info_for_log_impl(block_lock);
+        return Status::InternalError("Try to finalize an empty file block {}",
+                                     _block_range.to_string());
+    }
+    if (_downloaded_size != _block_range.size()) {
+        SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
+        size_t old_size = _block_range.size();
+        size_t new_size = _downloaded_size;
+        DCHECK(new_size < old_size);
+        _mgr->reset_range(_key.hash, _block_range.left, old_size, new_size, cache_lock);
+    }
+    std::lock_guard block_lock(_mutex);
+    Status st = set_downloaded(block_lock);
+    _cv.notify_all();
+    return st;
+}
+
+Status FileBlock::read(Slice buffer, size_t read_offset) {
+    return _mgr->_storage->read(_key, read_offset, buffer);
+}
+
+Status FileBlock::read_to_iobuf(butil::IOBuf* out, size_t read_offset, size_t bytes_req,
+                                size_t* bytes_read) {
+    return _mgr->_storage->read_to_iobuf(_key, read_offset, bytes_req, out, bytes_read);
+}
+
+Status FileBlock::change_cache_type(FileCacheType new_type) {
+    SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
+    return change_cache_type_lock(new_type, cache_lock);
+}
+
+Status FileBlock::change_cache_type_lock(FileCacheType new_type,
+                                         std::lock_guard<std::mutex>& cache_lock) {
+    std::lock_guard block_lock(_mutex);
+
+    if (new_type == _key.meta.type) {
+        return Status::OK();
+    }
+    if (_download_state == State::DOWNLOADED) {
+        Status st;
+        TEST_SYNC_POINT_CALLBACK("FileBlock::change_cache_type", &st);
+        RETURN_IF_ERROR(_mgr->_storage->change_key_meta_type(_key, new_type, _block_range.size()));
+    }
+    _mgr->change_cache_type(_key.hash, _block_range.left, new_type, cache_lock);
+    _key.meta.type = new_type;
+    return Status::OK();
+}
+
+FileBlock::State FileBlock::wait() {
+    std::unique_lock block_lock(_mutex);
+
+    if (_downloader_id == 0) {
+        return _download_state;
+    }
+
+    if (_download_state == State::DOWNLOADING) {
+        DCHECK(_downloader_id != 0 && _downloader_id != get_caller_id());
+        _cv.wait_for(block_lock, std::chrono::milliseconds(config::block_cache_wait_timeout_ms));
+    }
+
+    return _download_state;
+}
+
+void FileBlock::complete_unlocked(std::lock_guard<std::mutex>& block_lock) {
+    if (is_downloader_impl(block_lock)) {
+        reset_downloader(block_lock);
+        _cv.notify_all();
+    }
+}
+
+std::string FileBlock::get_info_for_log() const {
+    std::lock_guard block_lock(_mutex);
+    return get_info_for_log_impl(block_lock);
+}
+
+std::string FileBlock::get_info_for_log_impl(std::lock_guard<std::mutex>& block_lock) const {
+    std::stringstream info;
+    info << "File block: " << range().to_string() << ", ";
+    info << "hash: " << _key.hash.to_string() << ", ";
+    info << "cache_type: " << cache_type_to_string(_key.meta.type) << ", ";
+    info << "state: " << state_to_string(_download_state) << ", ";
+    info << "size: " << _block_range.size() << ", ";
+    info << "downloaded_size: " << _downloaded_size << ", ";
+    info << "downloader id: " << _downloader_id << ", ";
+    info << "caller id: " << get_caller_id() << ", ";
+
+    std::string cache_file = "<unknown>";
+    if (_mgr != nullptr && _mgr->_storage != nullptr) {
+        cache_file = _mgr->_storage->get_local_file(_key);
+    }
+    info << "cache_file: " << cache_file;
+
+    return info.str();
+}
+
+FileBlock::State FileBlock::state_unlock(std::lock_guard<std::mutex>&) const {
+    return _download_state;
+}
+
+std::string FileBlock::state_to_string(FileBlock::State state) {
+    switch (state) {
+    case FileBlock::State::DOWNLOADED:
+        return "DOWNLOADED";
+    case FileBlock::State::EMPTY:
+        return "EMPTY";
+    case FileBlock::State::DOWNLOADING:
+        return "DOWNLOADING";
+    case FileBlock::State::SKIP_CACHE:
+        return "SKIP_CACHE";
+    default:
+        DCHECK(false);
+        return "";
+    }
+}
+
+std::string FileBlock::get_cache_file() const {
+    return _mgr->_storage->get_local_file(this->_key);
+}
+
+void FileBlock::release_cache_reference(std::shared_ptr<FileBlock>& file_block,
+                                        CacheReferenceRole role) {
+    if (!file_block) {
+        return;
+    }
+    BlockFileCache* mgr = file_block->_mgr;
+    {
+        bool should_remove = false;
+        {
+            std::lock_guard block_lock(file_block->_mutex);
+            if (role == CacheReferenceRole::HOLDER) {
+                file_block->complete_unlocked(block_lock);
+            }
+            if (file_block.use_count() == 2 &&
+                (file_block->is_deleting() ||
+                 file_block->state_unlock(block_lock) == FileBlock::State::EMPTY)) {
+                should_remove = true;
+            }
+        }
+        if (should_remove) {
+            SCOPED_CACHE_LOCK(mgr->_mutex, mgr);
+            std::lock_guard block_lock(file_block->_mutex);
+            if (file_block.use_count() == 2) {
+                DCHECK(file_block->state_unlock(block_lock) != FileBlock::State::DOWNLOADING);
+                // one in cache, one held by the cache user
+                if (file_block->is_deleting() ||
+                    file_block->state_unlock(block_lock) == FileBlock::State::EMPTY) {
+                    mgr->remove(file_block, cache_lock, block_lock, false);
+                }
+            }
+        }
+    }
+    file_block.reset();
+}
+
+FileBlocksHolder::~FileBlocksHolder() {
+    for (auto& file_block : file_blocks) {
+        FileBlock::release_cache_reference(file_block, FileBlock::CacheReferenceRole::HOLDER);
+    }
+}
+
+FileBlocksProbeResult::~FileBlocksProbeResult() {
+    for (auto& file_block : file_blocks) {
+        FileBlock::release_cache_reference(file_block, FileBlock::CacheReferenceRole::PROBE);
+    }
+}
+
+} // namespace io
+} // namespace doris

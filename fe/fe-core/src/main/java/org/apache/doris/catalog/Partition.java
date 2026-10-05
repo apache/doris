@@ -1,0 +1,527 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.catalog;
+
+import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.rpc.RpcException;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.security.MessageDigest;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+/**
+ * Internal representation of partition-related metadata.
+ */
+public class Partition extends MetaObject {
+    private static final Logger LOG = LogManager.getLogger(Partition.class);
+
+    // Every partition starts from version 1, version 1 has no data
+    public static final long PARTITION_INIT_VERSION = 1L;
+
+    public enum PartitionState {
+        NORMAL,
+        @Deprecated
+        ROLLUP,
+        @Deprecated
+        SCHEMA_CHANGE,
+        RESTORE
+    }
+
+    @SerializedName(value = "id")
+    private long id;
+    @SerializedName(value = "nm", alternate = {"name"})
+    private String name;
+    @SerializedName(value = "st", alternate = {"state"})
+    private PartitionState state;
+    @SerializedName(value = "bi", alternate = {"baseIndex"})
+    private MaterializedIndex baseIndex;
+    /**
+     * Visible rollup indexes are indexes which are visible to user.
+     * User can do query on them, show them in related 'show' stmt.
+     */
+    @SerializedName(value = "ivr", alternate = {"idToVisibleRollupIndex"})
+    private Map<Long, MaterializedIndex> idToVisibleRollupIndex = Maps.newHashMap();
+    /**
+     * Shadow indexes are indexes which are not visible to user.
+     * Query will not run on these shadow indexes, and user can not see them neither.
+     * But load process will load data into these shadow indexes.
+     */
+    @SerializedName(value = "isi", alternate = {"idToShadowIndex"})
+    private Map<Long, MaterializedIndex> idToShadowIndex = Maps.newHashMap();
+
+    /**
+     * committed version(hash): after txn is committed, set committed version(hash)
+     * visible version(hash): after txn is published, set visible version
+     * next version(hash): next version is set after finished committing, it should equals to committed version + 1
+     */
+
+    @SerializedName(value = "vv", alternate = {"visibleVersion"})
+    private long visibleVersion;
+    @SerializedName(value = "vvt", alternate = {"visibleVersionTime"})
+    private long visibleVersionTime;
+    @SerializedName(value = "nv", alternate = {"nextVersion"})
+    protected long nextVersion;
+    @SerializedName(value = "di", alternate = {"distributionInfo"})
+    private DistributionInfo distributionInfo;
+    @SerializedName(value = "tso")
+    private long tso = -1;
+
+    private transient volatile String remoteMetaChecksum;
+
+    protected Partition() {
+    }
+
+    public Partition(long id, String name,
+            MaterializedIndex baseIndex, DistributionInfo distributionInfo) {
+        this.id = id;
+        this.name = name;
+        this.state = PartitionState.NORMAL;
+
+        this.baseIndex = baseIndex;
+
+        this.visibleVersion = PARTITION_INIT_VERSION;
+        this.visibleVersionTime = System.currentTimeMillis();
+        // PARTITION_INIT_VERSION == 1, so the first load version is 2 !!!
+        this.nextVersion = PARTITION_INIT_VERSION + 1;
+
+        this.distributionInfo = distributionInfo;
+    }
+
+    public void setIdForRestore(long id) {
+        this.id = id;
+    }
+
+    public long getId() {
+        return this.id;
+    }
+
+    public void setName(String newName) {
+        this.name = newName;
+    }
+
+    public String getName() {
+        return this.name;
+    }
+
+    public void setState(PartitionState state) {
+        this.state = state;
+    }
+
+    /*
+     * If a partition is overwritten by a restore job, we need to reset all version info to
+     * the restored partition version info》
+     */
+    public void updateVersionForRestore(long visibleVersion) {
+        this.setVisibleVersion(visibleVersion);
+        this.nextVersion = this.visibleVersion + 1;
+        LOG.info("update partition {}({}) version for restore: visible: {}, next: {}",
+                name, id, visibleVersion, nextVersion);
+    }
+
+    public void updateVisibleVersion(long visibleVersion) {
+        updateVisibleVersionAndTime(visibleVersion, System.currentTimeMillis(), -1);
+    }
+
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
+        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime, -1);
+    }
+
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime, long tso) {
+        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime, tso);
+    }
+
+    /* fromCache is only used in CloudPartition
+     * make it overrided here to avoid rewrite all the usages with ugly Config.isCloudConfig() branches
+     */
+    public long getCachedVisibleVersion() {
+        return visibleVersion;
+    }
+
+    public long getVisibleVersion() {
+        return visibleVersion;
+    }
+
+    public long getVisibleVersionTime() {
+        return visibleVersionTime;
+    }
+
+    public static List<Long> getVisibleVersions(List<? extends Partition> partitions) throws RpcException {
+        if (Config.isCloudMode()) {
+            return CloudPartition.getSnapshotVisibleVersion((List<CloudPartition>) partitions);
+        } else {
+            return partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
+        }
+    }
+
+    // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
+    protected void setVisibleVersion(long visibleVersion) {
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = System.currentTimeMillis();
+    }
+
+    public void setVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = visibleVersionTime;
+        this.tso = -1;
+    }
+
+    public void setVisibleVersionAndTime(long visibleVersion, long visibleVersionTime, long tso) {
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = visibleVersionTime;
+        this.tso = tso;
+    }
+
+    public PartitionState getState() {
+        return this.state;
+    }
+
+    public DistributionInfo getDistributionInfo() {
+        return distributionInfo;
+    }
+
+    public void createRollupIndex(MaterializedIndex mIndex) {
+        if (mIndex.getState().isVisible()) {
+            this.idToVisibleRollupIndex.put(mIndex.getId(), mIndex);
+        } else {
+            this.idToShadowIndex.put(mIndex.getId(), mIndex);
+        }
+    }
+
+    public MaterializedIndex deleteRollupIndex(long indexId) {
+        if (this.idToVisibleRollupIndex.containsKey(indexId)) {
+            LOG.info("delete visible rollup index {} in partition {}-{}", indexId, id, name);
+            return idToVisibleRollupIndex.remove(indexId);
+        } else {
+            LOG.info("delete shadow rollup index {} in partition {}-{}", indexId, id, name);
+            return idToShadowIndex.remove(indexId);
+        }
+    }
+
+    public MaterializedIndex getBaseIndex() {
+        return baseIndex;
+    }
+
+    public long getNextVersion() {
+        return nextVersion;
+    }
+
+    public void setNextVersion(long nextVersion) {
+        this.nextVersion = nextVersion;
+    }
+
+    public long getCommittedVersion() {
+        return this.nextVersion - 1;
+    }
+
+    public MaterializedIndex getIndex(long indexId) {
+        if (baseIndex.getId() == indexId) {
+            return baseIndex;
+        }
+        if (idToVisibleRollupIndex.containsKey(indexId)) {
+            return idToVisibleRollupIndex.get(indexId);
+        } else {
+            return idToShadowIndex.get(indexId);
+        }
+    }
+
+    public List<MaterializedIndex> getMaterializedIndices(IndexExtState extState) {
+        return getMaterializedIndices(extState, false);
+    }
+
+    public List<MaterializedIndex> getMaterializedIndices(IndexExtState extState, boolean includeRowBinlog) {
+        List<MaterializedIndex> indices = Lists.newArrayList();
+        switch (extState) {
+            case ALL:
+                indices.add(baseIndex);
+                indices.addAll(idToVisibleRollupIndex.values());
+                indices.addAll(idToShadowIndex.values());
+                break;
+            case VISIBLE:
+                indices.add(baseIndex);
+                indices.addAll(idToVisibleRollupIndex.values());
+                break;
+            case SHADOW:
+                indices.addAll(idToShadowIndex.values());
+                break;
+            default:
+                break;
+        }
+        if (!includeRowBinlog) {
+            indices.removeIf(MaterializedIndex::isRowBinlog);
+        }
+        return indices;
+    }
+
+    public String getMetaChecksum() {
+        MessageDigest digest = DigestUtils.getSha256Digest();
+        // Include partition-level fields whose changes should invalidate the cached
+        // remote partition payload, even when visibleVersion / visibleVersionTime
+        // remain unchanged (e.g. ALTER TABLE ... RENAME PARTITION only mutates name).
+        updateMetaChecksum(digest, (byte) 11, id);
+        updateMetaChecksumString(digest, (byte) 12, name);
+        updateMetaChecksum(digest, (byte) 13, state == null ? -1L : state.ordinal());
+        updateMetaChecksum(digest, (byte) 14, visibleVersion);
+        updateMetaChecksum(digest, (byte) 15, visibleVersionTime);
+        updateMetaChecksum(digest, (byte) 16, nextVersion);
+        if (distributionInfo != null) {
+            DistributionInfoType distType = distributionInfo.getType();
+            updateMetaChecksum(digest, (byte) 17, distType == null ? -1L : distType.ordinal());
+            updateMetaChecksum(digest, (byte) 18, distributionInfo.getBucketNum());
+            updateMetaChecksum(digest, (byte) 19, distributionInfo.getAutoBucket() ? 1L : 0L);
+        } else {
+            updateMetaChecksum(digest, (byte) 17, -1L);
+        }
+        List<MaterializedIndex> indexes = getMaterializedIndices(IndexExtState.VISIBLE, true);
+        indexes.sort(Comparator.comparingLong(MaterializedIndex::getId));
+        for (MaterializedIndex index : indexes) {
+            updateMetaChecksum(digest, (byte) 1, index.getId());
+            List<Tablet> tablets = Lists.newArrayList(index.getTablets());
+            tablets.sort(Comparator.comparingLong(Tablet::getId));
+            for (Tablet tablet : tablets) {
+                updateMetaChecksum(digest, (byte) 2, tablet.getId());
+                List<Replica> replicas = Lists.newArrayList(tablet.getReplicas());
+                replicas.sort(Comparator.comparingLong(Replica::getId)
+                        .thenComparingLong(Replica::getBackendIdWithoutException));
+                for (Replica replica : replicas) {
+                    updateMetaChecksum(digest, (byte) 3, replica.getId());
+                    updateMetaChecksum(digest, (byte) 4, replica.getBackendIdWithoutException());
+                    // Include all replica fields that affect getQueryableReplicas() filtering,
+                    // so a stale remote cache is invalidated whenever any of them changes
+                    // (e.g. replica becomes bad, lastFailedVersion is set, version/state changes).
+                    updateMetaChecksum(digest, (byte) 5, replica.getVersion());
+                    updateMetaChecksum(digest, (byte) 6, replica.getLastFailedVersion());
+                    updateMetaChecksum(digest, (byte) 7, replica.getPathHash());
+                    Replica.ReplicaState state = replica.getState();
+                    updateMetaChecksum(digest, (byte) 8, state == null ? -1L : state.ordinal());
+                    updateMetaChecksum(digest, (byte) 9, replica.isBad() ? 1L : 0L);
+                    updateMetaChecksum(digest, (byte) 10, replica.isUserDrop() ? 1L : 0L);
+                }
+            }
+        }
+        return Hex.encodeHexString(digest.digest());
+    }
+
+    public String getRemoteMetaChecksum() {
+        return remoteMetaChecksum;
+    }
+
+    public void setRemoteMetaChecksum(String checksum) {
+        if (checksum != null) {
+            this.remoteMetaChecksum = checksum;
+        }
+    }
+
+    private void updateMetaChecksum(MessageDigest digest, byte tag, long value) {
+        Util.updateMessageDigest(digest, tag);
+        Util.updateMessageDigest(digest, value);
+    }
+
+    private void updateMetaChecksumString(MessageDigest digest, byte tag, String value) {
+        Util.updateMessageDigest(digest, tag);
+        if (value == null) {
+            Util.updateMessageDigest(digest, -1L);
+            return;
+        }
+        int len = value.length();
+        Util.updateMessageDigest(digest, (long) len);
+        for (int i = 0; i < len; i++) {
+            char c = value.charAt(i);
+            digest.update((byte) (c >>> 8));
+            digest.update((byte) c);
+        }
+    }
+
+    public long getAllDataSize(boolean singleReplica) {
+        return getDataSize(singleReplica) + getRemoteDataSize();
+    }
+
+    // this is local data size
+    public long getDataSize(boolean singleReplica) {
+        long dataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+            dataSize += mIndex.getDataSize(singleReplica, false);
+        }
+        return dataSize;
+    }
+
+    public long getRemoteDataSize() {
+        long remoteDataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+            remoteDataSize += mIndex.getRemoteDataSize();
+        }
+        return remoteDataSize;
+    }
+
+    public long getBinlogDataSize() {
+        long binlogDataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+            binlogDataSize += mIndex.getBinlogSize();
+        }
+        return binlogDataSize;
+    }
+
+    public long getReplicaCount() {
+        long replicaCount = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+            replicaCount += mIndex.getReplicaCount();
+        }
+        return replicaCount;
+    }
+
+    public long getAllReplicaCount() {
+        long replicaCount = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.ALL, true)) {
+            replicaCount += mIndex.getReplicaCount();
+        }
+        return replicaCount;
+    }
+
+    public boolean hasData() {
+        // The fe unit test need to check the selected index id without any data.
+        // So if set FeConstants.runningUnitTest, we can ensure that the number of partitions is not empty,
+        // And the test case can continue to execute the logic of 'select best roll up'
+        return ((visibleVersion != PARTITION_INIT_VERSION)
+                || FeConstants.runningUnitTest);
+    }
+
+    /*
+     * Change the index' state from SHADOW to NORMAL
+     * Also move it to idToVisibleRollupIndex if it is not the base index.
+     */
+    public boolean visualiseShadowIndex(long shadowIndexId, boolean isBaseIndex) {
+        MaterializedIndex shadowIdx = idToShadowIndex.remove(shadowIndexId);
+        if (shadowIdx == null) {
+            return false;
+        }
+        Preconditions.checkState(!idToVisibleRollupIndex.containsKey(shadowIndexId), shadowIndexId);
+        shadowIdx.setState(IndexState.NORMAL);
+        if (isBaseIndex) {
+            baseIndex = shadowIdx;
+        } else {
+            idToVisibleRollupIndex.put(shadowIndexId, shadowIdx);
+        }
+        LOG.info("visualise the shadow index: {}", shadowIndexId);
+        return true;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof Partition)) {
+            return false;
+        }
+
+        Partition other = (Partition) obj;
+
+        return (visibleVersion == other.visibleVersion)
+                && baseIndex.equals(other.baseIndex)
+                && distributionInfo.equals(other.distributionInfo)
+                && idToVisibleRollupIndex.equals(other.idToVisibleRollupIndex);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(visibleVersion, baseIndex, idToVisibleRollupIndex, distributionInfo);
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder buffer = new StringBuilder();
+        buffer.append("partition_id: ").append(id).append("; ");
+        buffer.append("name: ").append(name).append("; ");
+        buffer.append("partition_state.name: ").append(state.name()).append("; ");
+
+        buffer.append("base_index: ").append(baseIndex.toString()).append("; ");
+
+        int rollupCount = (idToVisibleRollupIndex != null) ? idToVisibleRollupIndex.size() : 0;
+        buffer.append("rollup count: ").append(rollupCount).append("; ");
+
+        if (idToVisibleRollupIndex != null) {
+            for (Map.Entry<Long, MaterializedIndex> entry : idToVisibleRollupIndex.entrySet()) {
+                buffer.append("rollup_index: ").append(entry.getValue().toString()).append("; ");
+            }
+        }
+
+        buffer.append("committedVersion: ").append(visibleVersion).append("; ");
+        buffer.append("distribution_info.type: ").append(distributionInfo.getType().name()).append("; ");
+        buffer.append("distribution_info: ").append(distributionInfo.toString());
+
+        return buffer.toString();
+    }
+
+    public void convertHashDistributionToRandomDistribution() {
+        if (distributionInfo.getType() == DistributionInfoType.HASH) {
+            distributionInfo = ((HashDistributionInfo) distributionInfo).toRandomDistributionInfo();
+        }
+    }
+
+    public boolean isRollupIndex(long id) {
+        return idToVisibleRollupIndex.containsKey(id);
+    }
+
+
+    public long getRowCount() {
+        return getBaseIndex().getRowCount();
+    }
+
+    public long getAvgRowLength() {
+        long rowCount = getBaseIndex().getRowCount();
+        long dataSize = getBaseIndex().getDataSize(false, false);
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    public long getDataLength() {
+        return getBaseIndex().getDataSize(false, false);
+    }
+
+    public long getDataSizeExcludeEmptyReplica(boolean singleReplica) {
+        long dataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+            dataSize += mIndex.getDataSize(singleReplica, true);
+        }
+        return dataSize + getRemoteDataSize();
+    }
+
+    public Long getTso() {
+        return tso;
+    }
+}

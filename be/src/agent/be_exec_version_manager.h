@@ -1,0 +1,75 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <map>
+#include <set>
+#include <string>
+
+#include "common/exception.h"
+#include "common/status.h"
+
+namespace doris {
+
+constexpr inline int USE_NEW_FIXED_OBJECT_SERIALIZATION_VERSION = 10;
+constexpr inline int SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION = 11;
+constexpr inline int SUPPORT_ICEBERG_VARIANT_VERSION = 12;
+constexpr inline int SUPPORT_EXTERNAL_TABLE_SINK_HASH_VERSION = 13;
+constexpr inline int SUPPORT_TIMESTAMP_NS_VERSION = 14;
+constexpr inline int SUPPORT_HIVE_OPEN_CSV_VERSION = 15;
+
+class BeExecVersionManager {
+public:
+    BeExecVersionManager() = delete;
+
+    static Status check_be_exec_version(int be_exec_version);
+
+    static int get_function_compatibility(int be_exec_version, std::string function_name);
+
+    static void check_function_compatibility(int current_be_exec_version, int data_be_exec_version,
+                                             std::string function_name);
+
+    static int get_newest_version() { return max_be_exec_version; }
+
+    static std::string get_function_suffix(int be_exec_version) {
+        return "_for_old_version_" + std::to_string(be_exec_version);
+    }
+
+    // For example, there are incompatible changes between version=7 and version=6, at this time breaking_old_version is 6.
+    static void registe_old_function_compatibility(int breaking_old_version,
+                                                   std::string function_name) {
+        _function_change_map[function_name].insert(breaking_old_version);
+    }
+
+    static void registe_restrict_function_compatibility(std::string function_name) {
+        _function_restrict_map.insert(function_name);
+    }
+
+private:
+    static const int max_be_exec_version;
+    static const int min_be_exec_version;
+    // [function name] -> [breaking change start version]
+    static std::map<std::string, std::set<int>> _function_change_map;
+    // those function must has input newest be exec version
+    static std::set<std::string> _function_restrict_map;
+};
+
+} // namespace doris

@@ -1,0 +1,106 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <brpc/controller.h>
+#include <brpc/uri.h>
+#include <gen_cpp/cloud.pb.h>
+
+#include <functional>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
+#include "common/util.h"
+
+namespace doris::cloud {
+
+struct HttpResponse {
+    int status_code;
+    std::string msg;
+    std::string body;
+};
+
+std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode ret);
+
+HttpResponse http_json_reply(MetaServiceCode code, const std::string& msg,
+                             std::optional<std::string> body = {});
+
+HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri);
+
+HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* ctrl);
+
+HttpResponse process_http_encode_key(const brpc::URI& uri);
+
+// The order is unspecified. These lists let callers verify that tooling covers every registered
+// key type without duplicating the registry itself.
+std::vector<std::string_view> get_supported_http_key_types();
+std::vector<std::string_view> get_supported_http_versioned_key_types();
+
+/// Return the query value or an empty string if not exists.
+inline static std::string_view http_query(const brpc::URI& uri, const char* name) {
+    return uri.GetQuery(name) ? *uri.GetQuery(name) : std::string_view();
+}
+
+inline static HttpResponse http_json_reply(const MetaServiceResponseStatus& status,
+                                           std::optional<std::string> body = {}) {
+    return http_json_reply(status.code(), status.msg(), body);
+}
+
+inline static HttpResponse http_json_reply_message(MetaServiceCode code, const std::string& msg,
+                                                   const google::protobuf::Message& body) {
+    return http_json_reply(code, msg, proto_to_json(body));
+}
+
+inline static HttpResponse http_json_reply_message(const MetaServiceResponseStatus& status,
+                                                   const google::protobuf::Message& msg) {
+    return http_json_reply(status, proto_to_json(msg));
+}
+
+inline static HttpResponse http_text_reply(MetaServiceCode code, const std::string& msg,
+                                           const std::string& body) {
+    auto [status_code, status_msg] = convert_ms_code_to_http_code(code);
+    std::string response_msg =
+            code == MetaServiceCode::OK && msg.empty() ? std::string(status_msg) : msg;
+    return {.status_code = status_code, .msg = std::move(response_msg), .body = body};
+}
+
+inline static HttpResponse http_text_reply(const MetaServiceResponseStatus& status,
+                                           const std::string& body) {
+    return http_text_reply(status.code(), status.msg(), body);
+}
+
+// Forward declarations
+class MetaServiceImpl;
+class RecyclerServiceImpl;
+
+// Role-based HTTP handler
+enum class HttpRole { META_SERVICE = 1, RECYCLER = 2, BOTH = 3 };
+
+using HttpHandler = std::function<HttpResponse(void*, brpc::Controller*)>;
+
+struct HttpHandlerInfo {
+    HttpHandler handler;
+    // Route-local overrides keyed by API version, e.g. {"v2", handler_for_v2}.
+    std::unordered_map<std::string_view, HttpHandler> versioned_handlers;
+    HttpRole role;
+};
+
+} // namespace doris::cloud

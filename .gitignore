@@ -1,0 +1,162 @@
+# ignore file with wildcard anywhere
+*.swo
+*.swp
+*.pyc
+*.class
+*.iml
+*.jar
+*.log
+*.so.tmp
+*.flattened-pom.xml
+core.*
+
+# ignore file with specifiy name anywhere
+.DS_Store
+.classpath
+.factorypath
+.worktree_initialized
+nohup.out
+/custom_env.sh
+/custom_env_mac.sh
+/.build_profile.jsonl
+/.build_profile_state.*
+derby.log
+dependency-reduced-pom.xml
+yarn.lock
+ut_dir
+package-lock.json
+# The Web UI lockfile is an exception to the rule above: ui/dist is built into
+# doris-fe.jar and shipped, so the exact dependency set has to be recorded in the
+# source tree for the binary release to be reproducible from it.
+!ui/package-lock.json
+__pycache__
+
+# ignore all sub `/bin` and `/build` directory
+**/build/
+**/target/
+**/node_modules/
+**/log/
+
+# ignore project file
+.cproject
+.project
+.cache
+.settings/
+**/.idea/
+!.idea/vcs.xml
+!.idea/icon.svg
+**/.vscode/
+**/.fleet/
+
+# docs
+docs/contents/
+docs/.temp
+
+# output, thirdparty, extension
+output/
+output.bak/
+rpc_data/
+metastore_db/
+thirdparty/src*
+thirdparty/installed*
+thirdparty/doris-thirdparty*.tar.xz
+
+docker/thirdparties/docker-compose/mysql/data
+docker/thirdparties/docker-compose/hive/scripts/tpch1.db/
+docker/thirdparties/docker-compose/hive/scripts/tvf_data
+
+fe_plugins/output
+fe_plugins/**/.factorypath
+
+docker/thirdparties/docker-compose/hive/scripts/data/*/*/data
+
+# regression-test
+regression-test/framework/dependency-reduced-pom.xml
+regression-test/realdata/*
+regression-test/cacheData/*
+regression-test/conf/regression-conf-custom.groovy
+regression-test/framework/bin/*
+regression-test/framework/src/main/groovy/org/apache/doris/thrift
+regression-test/certificate.p12
+
+samples/doris-demo/remote-udf-python-demo/*_pb2.py
+samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py
+samples/doris-demo/remote-udf-cpp-demo/*.o
+samples/doris-demo/remote-udf-cpp-demo/*.pb.h
+samples/doris-demo/remote-udf-cpp-demo/*.pb.cc
+samples/doris-demo/remote-udf-cpp-demo/function_server_demo
+
+# FE
+fe/mocked/
+fe/gen/
+fe/fe-core/gen/
+fe/fe-core/src/main/resources/static/
+fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens
+fe/fe-core/src/main/antlr4/org/apache/doris/nereids/gen/
+fe/fe-common/src/main/java/org/apache/doris/thrift
+fe/fe-common/src/main/java/org/apache/parquet
+fe/fe-thrift/src/main/java/org/apache/doris/thrift
+fe/fe-thrift/src/main/java/org/apache/parquet
+fe/fe-core/src/main/java/org/apache/parquet
+
+# BE
+be/build*/
+be/cmake-build*/
+be/ut_build*/
+be/compile-bench-results/
+be/src/gen_cpp/*.[cc, cpp, h]
+be/src/gen_cpp/opcode
+be/tags
+be/test/olap/test_data/tablet_meta_test.hdr
+be/.devcontainer/
+be/src/apache-orc/
+
+# Cloud
+cloud/build*/
+cloud/cmake-build*/
+cloud/ut_build*/
+
+## tools
+tools/ssb-tools/bin/ssb-data/
+tools/ssb-tools/bin/ssb-dbgen/
+tools/ssb-tools/bin/*.tar.gz
+tools/**/TPC-H_Tools_v*.zip
+tools/**/TPC-H_Tools_v*/
+tools/**/tpc-h_v*.docx
+tools/**/tpc-h_v*.pdf
+tools/**/tpch-data/
+tools/tpch-tools/bin/result
+tools/single-node-cluster/fe*
+tools/tpcds-tools/TPC-DS_Tools_*.zip
+tools/tpcds-tools/bin/DSGen-software*
+tools/tpcds-tools/bin/tpcds-data/
+tools/tpcds-tools/bin/result
+tools/**/result.csv
+
+# be-ut
+data_test
+lru_cache_test
+
+/conf/log4j2-spring.xml
+/fe/fe-core/src/test/resources/real-help-resource.zip
+/ui/dist
+
+# docker
+docker/thirdparties/docker-compose/*/data
+docker/thirdparties/docker-compose/*/logs
+docker/thirdparties/docker-compose/*/*.yaml
+docker/thirdparties/docker-compose/*/*.env
+docker/thirdparties/docker-compose/*/cache/
+docker/thirdparties/docker-compose/*/scripts/SUCCESS
+docker/runtime/be/resource/apache-doris/
+
+# other
+compile_commands.json
+
+# generated kuromoji dictionary binaries
+/be/dict/kuromoji/*.bin
+
+.worktrees/
+.worktree_initialized
+
+plan-doc/

@@ -1,0 +1,153 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+// CLucene is third-party code and is not clean under -Wconversion (which
+// -Wshorten-64-to-32 belongs to). Whether its first expansion lands inside
+// someone else's suppressed region depends on include order, so suppress it
+// deliberately here (same pattern as inverted_index_common_impl.h).
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+#include <CLucene.h> // IWYU pragma: keep
+#include <CLucene/store/IndexInput.h>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+
+#include <gen_cpp/olap_file.pb.h>
+
+#include <map>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include "common/be_mock_util.h"
+#include "common/config.h"
+#include "io/fs/file_system.h"
+#include "storage/index/index_file_writer.h"
+#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_bkd_searcher.h"
+#include "storage/index/snii/snii_doris_adapter.h"
+
+namespace doris {
+class TabletIndex;
+namespace segment_v2 {
+class ReaderFileEntry;
+class DorisCompoundReader;
+
+// A singleton class responsible for reading index files, managing file entries, and providing interfaces to access index data.
+// The singleton object is at segment level, and it is shared by all threads that read the same segment (even across different queries).
+// It is created when the first index reader is initialized, and destroyed when the segment is closed.
+class IndexFileReader {
+public:
+    // Modern C++ using std::unordered_map with smart pointers for automatic memory management
+    using EntriesType = std::unordered_map<std::string, std::unique_ptr<ReaderFileEntry>>;
+    // Map to hold the file entries for each index ID.
+    using IndicesEntriesMap =
+            std::map<std::pair<int64_t, std::string>, std::unique_ptr<EntriesType>>;
+
+    IndexFileReader(io::FileSystemSPtr fs, std::string index_path_prefix,
+                    InvertedIndexStorageFormatPB storage_format,
+                    InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo(),
+                    int64_t tablet_id = -1)
+            : _fs(std::move(fs)),
+              _index_path_prefix(std::move(index_path_prefix)),
+              _storage_format(storage_format),
+              _idx_file_info(std::move(idx_file_info)),
+              _tablet_id(tablet_id) {}
+    virtual ~IndexFileReader() = default;
+
+    MOCK_FUNCTION Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
+                              const io::IOContext* io_ctx = nullptr);
+    MOCK_FUNCTION Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> open(
+            const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
+    // Opens one BLOB logical index of kind kBkd: resolves its named sub-files
+    // (bkd_data / bkd_index / bkd_nulls) into extents through the CONTAINER's own
+    // directory and hands back a reader bound to this IndexFileReader's file.
+    // The caller must keep this IndexFileReader alive for the reader's lifetime,
+    // exactly as open_snii_index requires.
+    Result<std::unique_ptr<doris::snii::bkd::BkdSearcher>> open_snii_bkd_index(
+            const TabletIndex* index_meta, const io::IOContext* io_ctx) const;
+    Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> open_snii_index(
+            const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr,
+            doris::snii::reader::LogicalIndexOpenMode open_mode =
+                    doris::snii::reader::LogicalIndexOpenMode::kQuery) const;
+    // SNII only: builds the fully validated inheritance view of this container
+    // for a BUILD INDEX rewrite. `segment_doc_count` is the segment's row count;
+    // every kept logical index must agree with it.
+    Status prepare_snii_rewrite_snapshot(
+            const std::vector<doris::snii::reader::LogicalIndexKey>& keep,
+            uint64_t segment_doc_count, doris::snii::reader::SniiRewriteSnapshot* out) const;
+    // SNII only: the raw byte source backing this container, handed to
+    // SniiCompoundWriter::inherit for the sequential prefix copy.
+    doris::snii::io::FileReader* snii_io_reader() const { return _snii_file_reader.get(); }
+    // SNII only: true when the opened container holds a blob logical index
+    // (BKD / ANN). False when this reader opened no SNII container at all.
+    bool snii_has_blob_index() const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _snii_segment_reader != nullptr && _snii_segment_reader->has_blob_index();
+    }
+    void debug_file_entries();
+    std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
+    std::string get_index_file_path(const TabletIndex* index_meta) const;
+    Status index_file_exist(const TabletIndex* index_meta, bool* res) const;
+    Status has_null(const TabletIndex* index_meta, bool* res) const;
+    Result<InvertedIndexDirectoryMap> get_all_directories();
+    // open file v2, init _stream
+    int64_t get_inverted_file_size() const {
+        if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
+            return _snii_file_reader == nullptr ? 0 : _snii_file_reader->size();
+        }
+        return _stream == nullptr ? 0 : _stream->length();
+    }
+    const std::string& get_index_path_prefix() const { return _index_path_prefix; }
+    InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
+    friend IndexFileWriter;
+
+protected:
+    Status _init_from(int32_t read_buffer_size, const io::IOContext* io_ctx);
+    Status _init_snii(const io::IOContext* io_ctx);
+    Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> _open(
+            int64_t index_id, const std::string& index_suffix,
+            const io::IOContext* io_ctx = nullptr) const;
+
+private:
+    IndicesEntriesMap _indices_entries;
+    std::unique_ptr<CL_NS(store)::IndexInput> _stream = nullptr;
+    std::shared_ptr<snii_doris::DorisSniiFileReader> _snii_file_reader;
+    std::unique_ptr<doris::snii::reader::SniiSegmentReader> _snii_segment_reader;
+    const io::FileSystemSPtr _fs;
+    std::string _index_path_prefix;
+    int32_t _read_buffer_size = -1;
+    InvertedIndexStorageFormatPB _storage_format;
+    mutable std::shared_mutex _mutex; // Use mutable for const read operations
+    bool _inited = false;
+    InvertedIndexFileInfo _idx_file_info;
+    int64_t _tablet_id = -1;
+};
+
+} // namespace segment_v2
+} // namespace doris

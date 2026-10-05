@@ -1,0 +1,623 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.resource.workloadgroup;
+
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.persist.DropWorkloadGroupOperationLog;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroup;
+import org.apache.doris.resource.computegroup.MergedComputeGroup;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
+
+public class WorkloadGroupMgrTest {
+
+    private EditLog editLog = Mockito.mock(EditLog.class);
+
+    private Env env = Mockito.mock(Env.class);
+
+    private AccessControllerManager accessControllerManager = Mockito.mock(AccessControllerManager.class);
+
+    private Auth auth = Mockito.mock(Auth.class);
+
+    private MockedStatic<Env> mockedEnv;
+
+    private AtomicLong id = new AtomicLong(10);
+
+    @BeforeEach
+    public void setUp() throws DdlException {
+        mockedEnv = Mockito.mockStatic(Env.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getNextId()).thenAnswer(inv -> id.addAndGet(1));
+        Mockito.doNothing().when(editLog).logCreateWorkloadGroup(ArgumentMatchers.any());
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(accessControllerManager.checkWorkloadGroupPriv(ArgumentMatchers.nullable(ConnectContext.class), ArgumentMatchers.anyString(), ArgumentMatchers.any())).thenReturn(true);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.isWorkloadGroupInUse(ArgumentMatchers.anyString())).thenReturn(Pair.of(false, ""));
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (mockedEnv != null) {
+            mockedEnv.close();
+        }
+    }
+
+    @Test
+    public void testCreateWorkloadGroup() throws DdlException {
+        Config.enable_workload_group = true;
+        WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
+        workloadGroupMgr.getIdToWorkloadGroup().clear();
+        workloadGroupMgr.getNameToWorkloadGroup().clear();
+
+        // 1 create workload group 1
+        Map<String, String> properties1 = Maps.newHashMap();
+        String cg1 = "cg1";
+        long wgId1 = 1;
+        String wgName1 = "wg1";
+        properties1.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
+        properties1.put(WorkloadGroup.MIN_MEMORY_PERCENT, "40%");
+        properties1.put(WorkloadGroup.MAX_MEMORY_PERCENT, "50%");
+        properties1.put(WorkloadGroup.COMPUTE_GROUP, cg1);
+        WorkloadGroup wg1 = new WorkloadGroup(wgId1, wgName1, properties1);
+        workloadGroupMgr.createWorkloadGroup(cg1, wg1, false);
+
+        WorkloadGroupKey key1 = WorkloadGroupKey.get(cg1, wgName1);
+        Map<WorkloadGroupKey, WorkloadGroup> nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
+        Assertions.assertEquals(1, nameToRG.size());
+        Assertions.assertTrue(nameToRG.containsKey(key1));
+        WorkloadGroup group1 = nameToRG.get(key1);
+        Assertions.assertEquals(key1.getWorkloadGroupName(), group1.getName());
+        Assertions.assertEquals(key1.getComputeGroup(), group1.getComputeGroup());
+
+        Map<Long, WorkloadGroup> idToRG = workloadGroupMgr.getIdToWorkloadGroup();
+        Assertions.assertEquals(1, idToRG.size());
+        Assertions.assertTrue(idToRG.containsKey(group1.getId()));
+
+        // 2 create workload group 2
+        long wgId2 = 2;
+        String cg2 = "cg2";
+        String wgName2 = "wg2";
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(WorkloadGroup.MIN_CPU_PERCENT, "20");
+        properties2.put(WorkloadGroup.MAX_MEMORY_PERCENT, "30%");
+        properties2.put(WorkloadGroup.COMPUTE_GROUP, cg2);
+        WorkloadGroup wg2 = new WorkloadGroup(wgId2, wgName2, properties2);
+        workloadGroupMgr.createWorkloadGroup(cg2, wg2, false);
+
+        WorkloadGroupKey key2 = WorkloadGroupKey.get(cg2, wgName2);
+        nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
+        Assertions.assertEquals(2, nameToRG.size());
+        Assertions.assertTrue(nameToRG.containsKey(key2));
+        WorkloadGroup group2 = nameToRG.get(key2);
+        idToRG = workloadGroupMgr.getIdToWorkloadGroup();
+        Assertions.assertEquals(2, idToRG.size());
+        Assertions.assertTrue(idToRG.containsKey(group2.getId()));
+        Assertions.assertTrue(key2.getComputeGroup().equals(wg2.getComputeGroup()));
+
+        // 3 test memory limit exceeds, it will success
+        Map<String, String> properties3 = Maps.newHashMap();
+        properties3.put(WorkloadGroup.MIN_CPU_PERCENT, "20");
+        properties3.put(WorkloadGroup.MAX_MEMORY_PERCENT, "90%");
+        properties3.put(WorkloadGroup.COMPUTE_GROUP, cg1);
+        String wgName3 = "wg3";
+        long wgId3 = 3;
+        properties3.put(WorkloadGroup.MAX_MEMORY_PERCENT, "1%");
+        workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(wgId3, wgName3, properties3), false);
+
+        // test sum of  min cpu percent > 100, it will fail
+        try {
+            Map<String, String> propertiesErrorMincpu = Maps.newHashMap();
+            propertiesErrorMincpu.put(WorkloadGroup.MIN_CPU_PERCENT, "80");
+            propertiesErrorMincpu.put(WorkloadGroup.MAX_MEMORY_PERCENT, "90%");
+            propertiesErrorMincpu.put(WorkloadGroup.COMPUTE_GROUP, cg1);
+            propertiesErrorMincpu.put(WorkloadGroup.MAX_MEMORY_PERCENT, "1%");
+            workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(11, "wg_err_mincpu", propertiesErrorMincpu), false);
+            Assertions.fail();
+        } catch (DdlException e) {
+            Assertions.assertTrue(true);
+        }
+
+        // test sum of  min memory percent > 100, it will fail
+        try {
+            Map<String, String> propertiesErrorMinmem = Maps.newHashMap();
+            propertiesErrorMinmem.put(WorkloadGroup.MIN_MEMORY_PERCENT, "80%");
+            propertiesErrorMinmem.put(WorkloadGroup.MAX_MEMORY_PERCENT, "90%");
+            propertiesErrorMinmem.put(WorkloadGroup.COMPUTE_GROUP, cg1);
+            propertiesErrorMinmem.put(WorkloadGroup.MAX_MEMORY_PERCENT, "1%");
+            workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(11, "wg_err_minmem", propertiesErrorMinmem), false);
+            Assertions.fail();
+        } catch (DdlException e) {
+            Assertions.assertTrue(true);
+        }
+
+        // 4 test create duplicate workload group error.
+        workloadGroupMgr.createWorkloadGroup(cg1, wg1, true);
+        try {
+            // create wg1 in cg1, it should fail
+            workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(4, wgName1, properties1), false);
+            Assertions.fail();
+        } catch (DdlException e) {
+            Assertions.assertTrue(e.getMessage().contains("already has workload group"));
+        }
+        Map<String, String> properties4 = Maps.newHashMap();
+        properties4.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
+        properties4.put(WorkloadGroup.COMPUTE_GROUP, cg2);
+        // create wg1 in cg2, it should be success
+        workloadGroupMgr.createWorkloadGroup(cg2, new WorkloadGroup(4, wgName1, properties4), false);
+
+        // test workload group's min cpu percent > max cpu percent
+        try {
+            Map<String, String> propertiesMinCpu = Maps.newHashMap();
+            propertiesMinCpu.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
+            propertiesMinCpu.put(WorkloadGroup.MAX_CPU_PERCENT, "5");
+            propertiesMinCpu.put(WorkloadGroup.MAX_MEMORY_PERCENT, "50%");
+            propertiesMinCpu.put(WorkloadGroup.COMPUTE_GROUP, cg1);
+            // create wg1 in cg1, it should fail
+            workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(11, "test_min_cpu", propertiesMinCpu), false);
+            Assertions.fail();
+        } catch (DdlException e) {
+            Assertions.assertTrue(true);
+        }
+
+        // test workload group's min memory percent > max memory percent
+        try {
+            Map<String, String> propertiesMinMemory = Maps.newHashMap();
+            propertiesMinMemory.put(WorkloadGroup.MIN_MEMORY_PERCENT, "10");
+            propertiesMinMemory.put(WorkloadGroup.MAX_MEMORY_PERCENT, "5");
+            propertiesMinMemory.put(WorkloadGroup.COMPUTE_GROUP, cg1);
+            // create wg1 in cg1, it should fail
+            workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(11, "test_min_memory", propertiesMinMemory), false);
+            Assertions.fail();
+        } catch (DdlException e) {
+            Assertions.assertTrue(true);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 15})
+    public void testWorkloadGroupCountLimit(int limit) throws DdlException {
+        int originalLimit = Config.workload_group_max_num;
+        try {
+            Config.workload_group_max_num = limit;
+            WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
+            for (String computeGroup : List.of("cg1", "cg2")) {
+                for (int i = 0; i < limit; i++) {
+                    Map<String, String> properties = Maps.newHashMap();
+                    properties.put(WorkloadGroup.COMPUTE_GROUP, computeGroup);
+                    properties.put(WorkloadGroup.MIN_CPU_PERCENT, "0");
+                    String name = i == 0 ? WorkloadGroupMgr.DEFAULT_GROUP_NAME : "wg" + i;
+                    WorkloadGroup group = new WorkloadGroup(id.incrementAndGet(), name, properties);
+                    workloadGroupMgr.createWorkloadGroup(computeGroup, group, false);
+                    Assertions.assertSame(group, workloadGroupMgr.getNameToWorkloadGroup()
+                            .get(WorkloadGroupKey.get(computeGroup, name)));
+                }
+
+                Map<String, String> properties = Maps.newHashMap();
+                properties.put(WorkloadGroup.COMPUTE_GROUP, computeGroup);
+                properties.put(WorkloadGroup.MIN_CPU_PERCENT, "0");
+                WorkloadGroup excess = new WorkloadGroup(id.incrementAndGet(), "excess", properties);
+                DdlException exception = Assertions.assertThrows(DdlException.class,
+                        () -> workloadGroupMgr.createWorkloadGroup(computeGroup, excess, false));
+                Assertions.assertTrue(exception.getMessage().contains("can not exceed " + limit));
+                Assertions.assertFalse(workloadGroupMgr.getIdToWorkloadGroup().containsKey(excess.getId()));
+                Assertions.assertFalse(workloadGroupMgr.getNameToWorkloadGroup()
+                        .containsKey(WorkloadGroupKey.get(computeGroup, excess.getName())));
+                Mockito.verify(editLog, Mockito.never()).logCreateWorkloadGroup(excess);
+            }
+            Assertions.assertEquals(2 * limit, workloadGroupMgr.getIdToWorkloadGroup().size());
+            Assertions.assertEquals(2 * limit, workloadGroupMgr.getNameToWorkloadGroup().size());
+            Mockito.verify(editLog, Mockito.times(2 * limit)).logCreateWorkloadGroup(ArgumentMatchers.any());
+        } finally {
+            Config.workload_group_max_num = originalLimit;
+        }
+    }
+
+    @Test
+    public void testGetWorkloadGroup() throws UserException {
+        Config.enable_workload_group = true;
+        WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
+        long wgId1 = 1;
+        String wgName1 = "wg1";
+        String cgName1 = "cg1";
+        Map<String, String> properties1 = Maps.newHashMap();
+        properties1.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
+        properties1.put(WorkloadGroup.COMPUTE_GROUP, cgName1);
+        workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(wgId1, wgName1, properties1), false);
+
+        long wgId2 = 2;
+        String wgName2 = "wg2";
+        String cgName2 = "cg2";
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(WorkloadGroup.MIN_CPU_PERCENT, "20");
+        properties2.put(WorkloadGroup.COMPUTE_GROUP, cgName2);
+        workloadGroupMgr.createWorkloadGroup(cgName2, new WorkloadGroup(wgId2, wgName2, properties2), false);
+
+        workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(100, "normal", properties1), false);
+        workloadGroupMgr.createWorkloadGroup(cgName2, new WorkloadGroup(101, "normal", properties1), false);
+
+        // 1 test get workload group by ConnectContext
+        ConnectContext ctx = new ConnectContext();
+        // 1.1 not set wg, get normal
+        ctx.setComputeGroup(new ComputeGroup(cgName1, cgName1, null));
+        List<TPipelineWorkloadGroup> ret = workloadGroupMgr.getWorkloadGroup(ctx)
+                .stream()
+                .map(e -> e.toThrift())
+                .collect(Collectors.toList());
+        Assertions.assertTrue(ret.get(0).getId() == 100);
+
+        ctx.setComputeGroup(new ComputeGroup(cgName2, cgName2, null));
+        Assertions.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).get(0).getId() == 101);
+
+        // 1.2 get from user prop
+
+        // 1.3 get from session
+        ctx.getSessionVariable().setWorkloadGroup(wgName2);
+        Assertions.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).size() == 1);
+        Assertions.assertTrue(workloadGroupMgr.getWorkloadGroup(ctx).get(0).getId() == wgId2);
+
+        // 1.4 get multi workload group
+        Set<String> cgSet = Sets.newHashSet();
+        cgSet.add(cgName1);
+        cgSet.add(cgName2);
+        long wgId3 = 3;
+        ComputeGroup mergedComputeGroup = new MergedComputeGroup(
+                String.join(",", cgSet), cgSet, null);
+        ctx.setComputeGroup(mergedComputeGroup);
+        Map<String, String> prop3 = Maps.newHashMap();
+        prop3.put(WorkloadGroup.COMPUTE_GROUP, cgName1);
+        workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(wgId3, wgName2, prop3), false);
+        List<TPipelineWorkloadGroup> tPipWgList = workloadGroupMgr.getWorkloadGroup(ctx)
+                .stream()
+                .map(e -> e.toThrift())
+                .collect(Collectors.toList());
+        Set<Long> idSet = Sets.newHashSet();
+        for (TPipelineWorkloadGroup tpip : tPipWgList) {
+            idSet.add(tpip.getId());
+        }
+
+        Assertions.assertTrue(idSet.size() == 2);
+        Assertions.assertTrue(idSet.contains(wgId2));
+        Assertions.assertTrue(idSet.contains(wgId3));
+
+        // 1.5 test get failed
+        ctx.getSessionVariable().setWorkloadGroup("abc");
+        try {
+            workloadGroupMgr.getWorkloadGroup(ctx)
+                .stream()
+                .map(e -> e.toThrift()).collect(Collectors.toList());
+            Assertions.fail();
+        } catch (UserException e) {
+            Assertions.assertTrue(e.getMessage().contains("Can not find workload group"));
+        }
+    }
+
+    @Test
+    public void testAlterWorkloadGroup() throws UserException {
+        Config.enable_workload_group = true;
+        WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
+        workloadGroupMgr.getIdToWorkloadGroup().clear();
+        workloadGroupMgr.getNameToWorkloadGroup().clear();
+
+        Map<String, String> p0 = Maps.newHashMap();
+        try {
+            workloadGroupMgr.alterWorkloadGroup(new ComputeGroup("", "", null), "", p0);
+        } catch (DdlException e) {
+            Assertions.assertTrue(e.getMessage().contains("should contain at least one property"));
+        }
+
+        p0.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
+        try {
+            workloadGroupMgr.alterWorkloadGroup(new ComputeGroup("", "", null), "abc", p0);
+        } catch (UserException e) {
+            Assertions.assertTrue(e.getMessage().contains("Can not find workload group"));
+        }
+
+        long wgId1 = 1;
+        String wgName1 = "wg1";
+        String cgName1 = "cg1";
+        Map<String, String> prop1 = Maps.newHashMap();
+        prop1.put(WorkloadGroup.COMPUTE_GROUP, cgName1);
+        prop1.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
+        workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(wgId1, wgName1, prop1), false);
+        Assertions.assertTrue(Long.valueOf(
+                workloadGroupMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName1, wgName1)).getProperties()
+                        .get(WorkloadGroup.MIN_CPU_PERCENT)) == 10);
+
+        // test alter failed
+        String cgName2 = "cg2";
+        String wgName2 = "wg2";
+        Map<String, String> prop2 = Maps.newHashMap();
+        prop2.put(WorkloadGroup.MIN_CPU_PERCENT, "20");
+        try {
+            workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cgName2, cgName2, null), wgName2, prop2);
+            Assertions.fail();
+        } catch (UserException e) {
+            Assertions.assertTrue(e.getMessage().contains("Can not find workload group"));
+        }
+
+        // test alter success
+        workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cgName1, cgName1, null), wgName1, prop2);
+        WorkloadGroup wg = workloadGroupMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName1, wgName1));
+        Assertions.assertTrue(Long.valueOf(wg.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT)) == 20);
+    }
+
+    // before:
+    //   empty cg: wg1, wg2, wg3(id=3)
+    //   cg1: wg3(id=4)
+    // after:
+    //   cg1: wg1, wg2, wg3(id=4)
+    //   cg2: wg1, wg2, wg3
+    @Test
+    public void testBindWorkloadGroupToCg() throws DdlException {
+        WorkloadGroupMgr wgMgr = new WorkloadGroupMgr();
+        wgMgr.getIdToNameMap().clear();
+        wgMgr.getNameToWorkloadGroup().clear();
+
+        long wgId1 = 1;
+        String wgName1 = "wg1";
+        Map<String, String> prop1 = Maps.newHashMap();
+        prop1.put(WorkloadGroup.MIN_CPU_PERCENT, "12");
+        WorkloadGroup wg1 = new WorkloadGroup(wgId1, wgName1, prop1);
+        wgMgr.getIdToWorkloadGroup().put(wgId1, wg1);
+        wgMgr.getNameToWorkloadGroup().put(WorkloadGroupKey.get(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName1), wg1);
+
+        long wgId2 = 2;
+        String wgName2 = "wg2";
+        Map<String, String> prop2 = Maps.newHashMap();
+        prop2.put(WorkloadGroup.MIN_CPU_PERCENT, "12");
+        WorkloadGroup wg2 = new WorkloadGroup(wgId2, wgName2, prop2);
+        wgMgr.getIdToWorkloadGroup().put(wgId2, wg2);
+        wgMgr.getNameToWorkloadGroup().put(WorkloadGroupKey.get(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName2), wg2);
+
+        long wgId3 = 3;
+        String wgName3 = "wg3";
+        Map<String, String> prop3 = Maps.newHashMap();
+        prop3.put(WorkloadGroup.MIN_CPU_PERCENT, "12");
+        WorkloadGroup wg3 = new WorkloadGroup(wgId3, wgName3, prop3);
+        wgMgr.getIdToWorkloadGroup().put(wgId3, wg3);
+        wgMgr.getNameToWorkloadGroup().put(WorkloadGroupKey.get(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName3), wg3);
+
+        // create a duplicate wg3 which binds to a compute group
+        String cg1 = "cg1";
+
+        long wgId4 = 4;
+        String wgName4 = wgName3;
+        Map<String, String> prop4 = Maps.newHashMap();
+        prop4.put(WorkloadGroup.MIN_CPU_PERCENT, "15");
+        prop4.put(WorkloadGroup.COMPUTE_GROUP, cg1);
+        WorkloadGroup wg4 = new WorkloadGroup(wgId4, wgName4, prop4);
+        wgMgr.createWorkloadGroup(cg1, wg4, false);
+
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 4);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 4);
+        Assertions.assertTrue(wgMgr.getOldWorkloadGroup().size() == 3);
+
+        String cg2 = "cg2";
+        Set<String> cgSet = Sets.newHashSet();
+        cgSet.add(cg1);
+        cgSet.add(cg2);
+
+        for (WorkloadGroup oldWg : wgMgr.getOldWorkloadGroup()) {
+            wgMgr.bindWorkloadGroupToComputeGroup(cgSet, oldWg);
+        }
+
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 6);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 6);
+        Assertions.assertTrue(wgMgr.getOldWorkloadGroup().size() == 0);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId1) == null);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId2) == null);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId3) == null);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId4).equals(wg4));
+
+        for (String cgName : cgSet) {
+            WorkloadGroup wg11 = wgMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName, wgName1));
+            WorkloadGroup wg22 = wgMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName, wgName2));
+            WorkloadGroup wg33 = wgMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName, wgName3));
+
+            Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg11.getId()));
+            Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg22.getId()));
+            Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg33.getId()));
+
+            Assertions.assertTrue(wg11.getComputeGroup().equals(cgName));
+            Assertions.assertTrue(wg22.getComputeGroup().equals(cgName));
+            Assertions.assertTrue(wg33.getComputeGroup().equals(cgName));
+
+            Assertions.assertTrue(wg11.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("12"));
+            Assertions.assertTrue(wg22.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("12"));
+            if (cg1.equals(cgName)) {
+                Assertions.assertTrue(wg33.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("15"));
+            } else {
+                Assertions.assertTrue(wg33.getProperties().get(WorkloadGroup.MIN_CPU_PERCENT).equals("12"));
+            }
+
+        }
+
+    }
+
+    @Test
+    public void testMultiTagCreateWorkloadGroup() throws UserException {
+        Config.enable_workload_group = true;
+        String[] props = {WorkloadGroup.MAX_MEMORY_PERCENT};
+        for (String propName : props) {
+            WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
+
+            // create cg1.wg1 with 30%
+            String cgName1 = "cg1";
+            String wgName11 = "wg1";
+            Map<String, String> prop1 = Maps.newHashMap();
+            prop1.put(WorkloadGroup.COMPUTE_GROUP, cgName1);
+            prop1.put(propName, "30%");
+            workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(1, wgName11, prop1), false);
+
+            // create cg2.wg1 with 71%
+            String cgName2 = "cg2";
+            String wgName21 = "wg1";
+            Map<String, String> prop2 = Maps.newHashMap();
+            prop2.put(WorkloadGroup.COMPUTE_GROUP, cgName2);
+            prop2.put(propName, "71%");
+            workloadGroupMgr.createWorkloadGroup(cgName2, new WorkloadGroup(2, wgName21, prop2), false);
+
+            // create cg1.wg2 with 71%, it should be failed.
+            String wgName12 = "wg2";
+            Map<String, String> prop3 = Maps.newHashMap();
+            prop3.put(WorkloadGroup.COMPUTE_GROUP, cgName1);
+            prop3.put(propName, "70%");
+            workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(3, wgName12, prop3), false);
+
+            // create cg2.wg2 with limit 20%, it should be succ.
+            String wgName22 = "wg2";
+            Map<String, String> prop5 = Maps.newHashMap();
+            prop5.put(WorkloadGroup.COMPUTE_GROUP, cgName2);
+            prop5.put(propName, "9%");
+            workloadGroupMgr.createWorkloadGroup(cgName2, new WorkloadGroup(5, wgName22, prop5), false);
+        }
+    }
+
+    @Test
+    public void testMultiTagAlterWorkloadGroup() throws UserException {
+        Config.enable_workload_group = true;
+        String[] props = {WorkloadGroup.MAX_MEMORY_PERCENT, WorkloadGroup.MAX_CPU_PERCENT};
+        String cg1 = "cg1";
+        String cg2 = "cg2";
+        for (String prop : props) {
+            WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
+                // create 3 wgs for cg1
+                {
+                    String wgName = "wg1";
+                    Map<String, String> properties = Maps.newHashMap();
+                    properties.put(prop, "10%");
+                    properties.put(WorkloadGroup.COMPUTE_GROUP, cg1);
+                    workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(1, wgName, properties), false);
+                }
+
+                {
+                    String wgName = "wg2";
+                    Map<String, String> properties = Maps.newHashMap();
+                    properties.put(prop, "10%");
+                    properties.put(WorkloadGroup.COMPUTE_GROUP, cg1);
+                    workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(2, wgName, properties), false);
+                }
+
+                {
+                    String wgName = "wg3";
+                    Map<String, String> properties = Maps.newHashMap();
+                    properties.put(prop, "10%");
+                    properties.put(WorkloadGroup.COMPUTE_GROUP, cg1);
+                    workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(3, wgName, properties), false);
+                }
+
+                // create 2 wgs for cg2
+                {
+                    String wgName = "wg1";
+                    Map<String, String> properties = Maps.newHashMap();
+                    properties.put(prop, "10%");
+                    properties.put(WorkloadGroup.COMPUTE_GROUP, cg2);
+                    workloadGroupMgr.createWorkloadGroup(cg2, new WorkloadGroup(4, wgName, properties), false);
+                }
+
+                {
+                    String wgName = "wg2";
+                    Map<String, String> properties = Maps.newHashMap();
+                    properties.put(prop, "10%");
+                    properties.put(WorkloadGroup.COMPUTE_GROUP, cg2);
+                    workloadGroupMgr.createWorkloadGroup(cg2, new WorkloadGroup(5, wgName, properties), false);
+                }
+
+                // alter cg1.wg1 failed
+                {
+                    Map<String, String> properties = Maps.newHashMap();
+                    properties.put(prop, "90%");
+                    try {
+                        workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cg1, cg1, null), "wg1", properties);
+                    } catch (DdlException e) {
+                        Assertions.assertTrue(e.getMessage().contains("current sum val:110"));
+                        Assertions.assertTrue(e.getMessage().contains("cg1"));
+                        Assertions.assertFalse(e.getMessage().contains("cg2"));
+                    }
+                }
+
+                // alter cg1.wg1 succ
+                {
+                    Map<String, String> properties = Maps.newHashMap();
+                    properties.put(prop, "20%");
+                    workloadGroupMgr.alterWorkloadGroup(new ComputeGroup(cg1, cg1, null), "wg1", properties);
+                }
+        }
+    }
+
+    @Test
+    public void testReplayWorkloadGroup() {
+        WorkloadGroupMgr wgMgr = new WorkloadGroupMgr();
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 0);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 0);
+
+        // 1 test replay create
+        WorkloadGroup wg1 = new WorkloadGroup(1, "wg1", Maps.newHashMap());
+        wgMgr.replayCreateWorkloadGroup(wg1);
+
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 1);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 1);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg1.getWorkloadGroupKey())
+                .equals(wgMgr.getIdToWorkloadGroup().get(wg1.getId())));
+
+        // 2 test replay alter
+        Map<String, String> pop2 = Maps.newHashMap();
+        pop2.put("MIN_CPU_PERCENT", "2345");
+        WorkloadGroup wg2 = new WorkloadGroup(1, "wg1", pop2);
+        wgMgr.replayAlterWorkloadGroup(wg2);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg2.getWorkloadGroupKey())
+                .equals(wgMgr.getIdToWorkloadGroup().get(wg2.getId())));
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg2.getWorkloadGroupKey()).getProperties().get("MIN_CPU_PERCENT")
+                .equals("2345"));
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 1);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 1);
+
+        // 3 test replay drop
+        DropWorkloadGroupOperationLog dropLog = new DropWorkloadGroupOperationLog(1);
+        wgMgr.replayDropWorkloadGroup(dropLog);
+        Assertions.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 0);
+        Assertions.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 0);
+    }
+}

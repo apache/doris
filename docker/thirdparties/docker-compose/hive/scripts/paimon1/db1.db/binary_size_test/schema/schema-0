@@ -1,0 +1,31 @@
+{
+  "version" : 3,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "test_id",
+    "type" : "BIGINT NOT NULL"
+  }, {
+    "id" : 1,
+    "name" : "size_category",
+    "type" : "STRING"
+  }, {
+    "id" : 2,
+    "name" : "target_size",
+    "type" : "BIGINT"
+  }, {
+    "id" : 3,
+    "name" : "binary_data",
+    "type" : "BYTES"
+  }, {
+    "id" : 4,
+    "name" : "test_time",
+    "type" : "TIMESTAMP(3)"
+  } ],
+  "highestFieldId" : 4,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ "test_id" ],
+  "options" : { },
+  "comment" : "",
+  "timeMillis" : 1762767555559
+}

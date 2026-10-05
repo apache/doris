@@ -1,0 +1,1685 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands.info;
+
+import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InvertedIndexUtil;
+import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.common.util.GeneratedColumnUtil;
+import org.apache.doris.common.util.GeneratedColumnUtil.ExprAndName;
+import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.common.util.ParseUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantField;
+import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Random;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
+
+/**
+ * table info in creating table.
+ */
+public class CreateTableInfo {
+    public static final String ENGINE_OLAP = "olap";
+    public static final String ENGINE_JDBC = "jdbc";
+    public static final String ENGINE_ELASTICSEARCH = "elasticsearch";
+    public static final String ENGINE_ODBC = "odbc";
+    public static final String ENGINE_MYSQL = "mysql";
+    public static final String ENGINE_BROKER = "broker";
+    public static final String ENGINE_HIVE = "hive";
+    public static final String ENGINE_ICEBERG = "iceberg";
+    public static final String ENGINE_PAIMON = "paimon";
+    public static final String ENGINE_MAXCOMPUTE = "maxcompute";
+    private static final ImmutableSet<AggregateType> GENERATED_COLUMN_ALLOW_AGG_TYPE =
+            ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
+
+    private static final Logger LOG = LogManager.getLogger(CreateTableInfo.class);
+
+    protected TableNameInfo tableNameInfo;
+    protected boolean ifNotExists;
+    protected List<String> keys;
+    protected String comment;
+    protected DistributionDescriptor distribution;
+    protected Map<String, String> properties;
+    protected PartitionDesc partitionDesc;
+    protected List<ColumnDefinition> columns;
+    private String ctlName;
+    private String dbName;
+    private String tableName;
+    private List<IndexDefinition> indexes;
+    private List<String> ctasColumns;
+    private String engineName;
+    /**
+     * Whether the target catalog is the internal one. This is the only engine-shaped question analysis still
+     * asks: the internal catalog creates olap tables, whose validation lives here, while every other catalog
+     * validates its own tables inside its connector. Set by {@link #resolveTargetCatalog()} before any use.
+     */
+    private boolean targetIsInternalCatalog;
+    private KeysType keysType;
+    private List<RollupDefinition> rollups;
+    private Map<String, String> extProperties;
+    private boolean isEnableMergeOnWrite = false;
+    private boolean isEnableSkipBitmapColumn = false;
+    private boolean isExternal = false;
+    private boolean isTemp = false;
+    private List<SortFieldInfo> sortOrderFields = null; // order by fields
+    private PartitionTableInfo partitionTableInfo; // get when validate
+    private DistributionDesc distributionDesc;
+
+    // get when validate
+    private Map<ColumnDefinition, Map<IndexType, List<IndexDefinition>>> columnToIndexes = new HashMap<>();
+    private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
+
+    /**
+     * constructor for create table
+     */
+    public CreateTableInfo(
+            boolean ifNotExists,
+            boolean isExternal,
+            boolean isTemp,
+            String ctlName,
+            String dbName,
+            String tableName,
+            List<ColumnDefinition> columns,
+            List<IndexDefinition> indexes,
+            String engineName,
+            KeysType keysType,
+            List<String> keys,
+            String comment,
+            PartitionTableInfo partitionTableInfo,
+            DistributionDescriptor distribution,
+            List<RollupDefinition> rollups,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
+            List<SortFieldInfo> sortOrderFields) {
+        this.ifNotExists = ifNotExists;
+        this.isExternal = isExternal;
+        this.isTemp = isTemp;
+        this.ctlName = ctlName;
+        this.dbName = dbName;
+        this.tableName = tableName;
+        this.tableNameInfo = new TableNameInfo(ctlName, dbName, tableName);
+        this.ctasColumns = null;
+        this.columns = Utils.copyRequiredMutableList(columns);
+        this.indexes = Utils.copyRequiredMutableList(indexes);
+        this.engineName = engineName;
+        this.keysType = keysType;
+        this.keys = Utils.copyRequiredList(keys);
+        this.comment = comment;
+        this.partitionTableInfo = partitionTableInfo;
+        this.distribution = distribution;
+        this.rollups = Utils.copyRequiredList(rollups);
+        this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
+        this.extProperties = extProperties;
+        this.sortOrderFields = Utils.copyRequiredList(sortOrderFields);
+    }
+
+    /**
+     * constructor for create table as select
+     */
+    public CreateTableInfo(
+            boolean ifNotExists,
+            boolean isExternal,
+            boolean isTemp,
+            String ctlName,
+            String dbName,
+            String tableName,
+            List<String> cols,
+            String engineName,
+            KeysType keysType,
+            List<String> keys,
+            String comment,
+            PartitionTableInfo partitionTableInfo,
+            DistributionDescriptor distribution,
+            List<RollupDefinition> rollups,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
+            List<SortFieldInfo> sortOrderFields) {
+        this.ifNotExists = ifNotExists;
+        this.isExternal = isExternal;
+        this.isTemp = isTemp;
+        this.ctlName = ctlName;
+        this.dbName = dbName;
+        this.tableName = tableName;
+        this.tableNameInfo = new TableNameInfo(ctlName, dbName, tableName);
+        this.ctasColumns = cols;
+        this.columns = null;
+        this.indexes = Lists.newArrayList();
+        this.engineName = engineName;
+        this.keysType = keysType;
+        this.keys = Utils.copyRequiredList(keys);
+        this.comment = comment;
+        this.partitionTableInfo = partitionTableInfo;
+        this.distribution = distribution;
+        this.rollups = Utils.copyRequiredList(rollups);
+        this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
+        this.extProperties = extProperties;
+        this.sortOrderFields = Utils.copyRequiredList(sortOrderFields);
+    }
+
+    /**
+     * constructor for create multi table materialized view
+     */
+    public CreateTableInfo(
+            boolean ifNotExists,
+            TableNameInfo mvName,
+            List<String> keys,
+            String comment,
+            DistributionDescriptor distribution,
+            Map<String, String> properties) {
+        this.ifNotExists = ifNotExists;
+        this.tableNameInfo = mvName;
+        this.keys = keys;
+        this.comment = comment;
+        this.distribution = distribution;
+        this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
+    }
+
+    /**
+     * withTableNameAndIfNotExists
+     */
+    public CreateTableInfo withTableNameAndIfNotExists(String tableName, boolean ifNotExists) {
+        if (ctasColumns != null) {
+            return new CreateTableInfo(ifNotExists, isExternal, isTemp, ctlName, dbName, tableName, ctasColumns,
+                    engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
+                    extProperties, sortOrderFields);
+        } else {
+            return new CreateTableInfo(ifNotExists, isExternal, isTemp, ctlName, dbName, tableName, columns, indexes,
+                    engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
+                    extProperties, sortOrderFields);
+        }
+    }
+
+    public boolean isEnableMergeOnWrite() {
+        return isEnableMergeOnWrite;
+    }
+
+    /**
+     * Analyze the unique-key merge-on-write property and keep the derived state in sync with properties.
+     */
+    protected void analyzeUniqueKeyMergeOnWrite() {
+        if (properties != null && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)
+                && keysType != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE
+                    + " property only support unique key table");
+        }
+
+        isEnableMergeOnWrite = false;
+        if (keysType == KeysType.UNIQUE_KEYS && properties != null) {
+            properties = PropertyAnalyzer.enableUniqueKeyMergeOnWriteIfNotExists(properties);
+            try {
+                isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(
+                        new HashMap<>(properties));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+        }
+    }
+
+    public void setIndexes(List<IndexDefinition> indexes) {
+        this.indexes = indexes;
+    }
+
+    public void setSortOrderFields(List<SortFieldInfo> sortOrderFields) {
+        this.sortOrderFields = sortOrderFields;
+    }
+
+    public List<SortFieldInfo> getSortOrderFields() {
+        return sortOrderFields;
+    }
+
+    private boolean isEffectiveRowBinlogEnabled() {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        BinlogConfig binlogConfig = db == null
+                ? BinlogConfig.fromProperties(properties)
+                : db.getBinlogConfigsForCreateTable(properties).second;
+        return binlogConfig.isEnableForStreaming();
+    }
+
+    public void setRollups(List<RollupDefinition> rollups) {
+        this.rollups = rollups;
+    }
+
+    public void setPartitionTableInfo(PartitionTableInfo partitionTableInfo) {
+        this.partitionTableInfo = partitionTableInfo;
+    }
+
+    public void setEngineName(String engineName) {
+        this.engineName = engineName;
+    }
+
+    public void setKeysType(KeysType keysType) {
+        this.keysType = keysType;
+    }
+
+    public void setCtasColumns(List<String> ctasColumns) {
+        this.ctasColumns = ctasColumns;
+    }
+
+    public void setCatalog(String ctlName) {
+        this.ctlName = ctlName;
+    }
+
+    public void setDbName(String dbName) {
+        this.dbName = dbName;
+    }
+
+    public void setTableName(String tableName) {
+        this.tableName = tableName;
+    }
+
+    public List<String> getCtasColumns() {
+        return ctasColumns;
+    }
+
+    public String getCtlName() {
+        return ctlName;
+    }
+
+    public String getDbName() {
+        return dbName;
+    }
+
+    public String getTableName() {
+        return tableNameInfo.getTbl();
+    }
+
+    public String getEngineName() {
+        return engineName;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
+    }
+
+    public void setColumns(List<ColumnDefinition> columns) {
+        this.columns = columns;
+    }
+
+    /**
+     * full qualifier table name.
+     */
+    public List<String> getTableNameParts() {
+        if (ctlName != null && dbName != null) {
+            return ImmutableList.of(ctlName, dbName, tableName);
+        }
+        if (dbName != null) {
+            return ImmutableList.of(dbName, tableName);
+        }
+        return ImmutableList.of(tableName);
+    }
+
+    /**
+     * analyze create table info
+     */
+    public void validate(ConnectContext ctx) {
+        // pre-block in some cases.
+        if (columns.isEmpty()) {
+            throw new AnalysisException("table should contain at least one column");
+        }
+
+        // analyze catalog name
+        if (Strings.isNullOrEmpty(ctlName)) {
+            if (ctx.getCurrentCatalog() != null) {
+                ctlName = ctx.getCurrentCatalog().getName();
+            } else {
+                ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+            }
+        }
+        resolveTargetCatalog();
+
+        // not allow auto bucket with auto list partition
+        if (partitionTableInfo != null
+                && partitionTableInfo.getPartitionType().equalsIgnoreCase(PartitionType.LIST.name())
+                && partitionTableInfo.isAutoPartition() && distribution != null && distribution.isAutoBucket()) {
+            throw new AnalysisException("Cannot use auto bucket with auto list partition");
+        }
+
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+
+        if (targetIsInternalCatalog) {
+            if (distribution == null) {
+                distribution = new DistributionDescriptor(false, true, FeConstants.default_bucket_num, null);
+            }
+            properties = maybeRewriteByAutoBucket(distribution, properties);
+        }
+
+        try {
+            // check display name for temporary table, its inner name cannot pass validation
+            FeNameFormat.checkTableName(Util.getTempTableDisplayName(tableName));
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+
+        // analyze table name
+        if (Strings.isNullOrEmpty(dbName)) {
+            dbName = ctx.getDatabase();
+        }
+        try {
+            InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), ctlName, dbName,
+                tableName, PrivPredicate.CREATE)) {
+            try {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        "CREATE");
+            } catch (Exception ex) {
+                throw new AnalysisException(ex.getMessage(), ex.getCause());
+            }
+        }
+
+        Preconditions.checkState(!Strings.isNullOrEmpty(ctlName), "catalog name is null or empty");
+        Preconditions.checkState(!Strings.isNullOrEmpty(dbName), "database name is null or empty");
+
+        //check datatype: datev1, decimalv2
+        for (ColumnDefinition columnDef : columns) {
+            String columnNameUpperCase = columnDef.getName().toUpperCase();
+            if (columnNameUpperCase.startsWith("__DORIS_")) {
+                throw new AnalysisException(
+                        "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
+            }
+            if (columnDef.getType().isVarBinaryType()) {
+                throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
+            }
+            if (columnDef.getType().isVariantType()) {
+                if (columnNameUpperCase.indexOf('.') != -1) {
+                    throw new AnalysisException(
+                        "Disable to create table of `VARIANT` type column named with a `.` character: "
+                                + columnNameUpperCase);
+                }
+            }
+            if (columnDef.getType().isDateType() && Config.disable_datev1) {
+                throw new AnalysisException(
+                        "Disable to create table with `DATE` type columns, please use `DATEV2`.");
+            }
+            if (columnDef.getType().isDecimalV2Type() && Config.disable_decimalv2) {
+                throw new AnalysisException("Disable to create table with `DECIMAL` type columns,"
+                        + "please use `DECIMALV3`.");
+            }
+        }
+        // check duplicated columns
+        Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        columns.forEach(c -> {
+            if (columnMap.put(c.getName(), c) != null) {
+                try {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME,
+                            c.getName());
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
+        });
+
+        if (targetIsInternalCatalog) {
+            boolean enableDuplicateWithoutKeysByDefault = false;
+            properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties);
+
+            // In fuzzy tests, randomly set storage_format=V3 (ext_meta) for some tables.
+            SessionVariable sv = ctx.getSessionVariable();
+            boolean randomUseV3 =
+                    sv != null && sv.useV3StorageFormat;
+            if (randomUseV3
+                    && properties != null
+                    && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "V3");
+                LOG.info("Randomly set storage_format=V3 for table {}.{} in fuzzy mode (session={})",
+                         dbName, tableName,
+                         ctx != null ? ctx.getSessionId() : "<null>");
+            }
+            try {
+                if (properties != null) {
+                    enableDuplicateWithoutKeysByDefault =
+                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+            if (keys.isEmpty()) {
+                boolean hasAggColumn = false;
+                for (ColumnDefinition column : columns) {
+                    if (column.getAggType() != null) {
+                        hasAggColumn = true;
+                        break;
+                    }
+                }
+                keys = Lists.newArrayList();
+                if (hasAggColumn) {
+                    for (ColumnDefinition column : columns) {
+                        if (column.getAggType() != null) {
+                            break;
+                        }
+                        keys.add(column.getName());
+                    }
+                    keysType = KeysType.AGG_KEYS;
+                } else {
+                    if (!enableDuplicateWithoutKeysByDefault) {
+                        int keyLength = 0;
+                        for (ColumnDefinition column : columns) {
+                            DataType type = column.getType();
+                            Type catalogType = column.getType().toCatalogDataType();
+                            keyLength += catalogType.getIndexSize();
+                            if (keys.size() >= FeConstants.shortkey_max_column_count
+                                    || keyLength > FeConstants.shortkey_maxsize_bytes) {
+                                if (keys.isEmpty() && type.isStringLikeType()) {
+                                    keys.add(column.getName());
+                                }
+                                break;
+                            }
+                            if (!catalogType.couldBeShortKey()) {
+                                break;
+                            }
+                            keys.add(column.getName());
+                            if (type.isVarcharType()) {
+                                break;
+                            }
+                        }
+                    }
+                    keysType = KeysType.DUP_KEYS;
+                }
+                // The OLAP table must have at least one short key,
+                // and the float and double should not be short key,
+                // so the float and double could not be the first column in OLAP table.
+                if (keys.isEmpty() && (keysType != KeysType.DUP_KEYS
+                        || !enableDuplicateWithoutKeysByDefault)) {
+                    throw new AnalysisException(
+                            "The olap table first column could not be float, double, string"
+                                    + " or array, struct, map, please use decimal or varchar instead.");
+                }
+            } else if (enableDuplicateWithoutKeysByDefault) {
+                throw new AnalysisException(
+                        "table property 'enable_duplicate_without_keys_by_default' only can"
+                                + " set 'true' when create olap table by default.");
+            }
+
+            analyzeUniqueKeyMergeOnWrite();
+
+            try {
+                if (Config.random_add_order_by_keys_for_mow && isEnableMergeOnWrite && sortOrderFields.isEmpty()
+                        && !isEffectiveRowBinlogEnabled()
+                        && PropertyAnalyzer.analyzeUseLightSchemaChange(new HashMap<>(properties))) {
+                    // exclude columns whose data type can not be order key, see {@link ColumnDefinition#validate}
+                    List<ColumnDefinition> orderKeysCandidates = columns.stream().filter(c -> {
+                        DataType type = c.getType();
+                        return !(type.isFloatLikeType() || type.isStringType() || type.isArrayType()
+                                || type.isBitmapType() || type.isHllType() || type.isQuantileStateType()
+                                || type.isJsonType()
+                                || type.isVariantType()
+                                || type.isMapType()
+                                || type.isStructType());
+                    }).collect(Collectors.toList());
+                    if (orderKeysCandidates.size() > 0) {
+                        sortOrderFields = new ArrayList<>();
+                        Random random = new Random();
+                        int randomClusterKeysCount = random.nextInt(orderKeysCandidates.size()) + 1;
+                        Collections.shuffle(orderKeysCandidates);
+                        for (int i = 0; i < randomClusterKeysCount; i++) {
+                            sortOrderFields.add(new SortFieldInfo(orderKeysCandidates.get(i).getName()));
+                        }
+                        LOG.info("Randomly add order keys for table {}.{}: {}",
+                                dbName, tableName, sortOrderFields.stream().map(SortFieldInfo::getColumnName)
+                                        .collect(Collectors.joining(",")));
+                    }
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+
+            validateKeyColumns();
+            if (!sortOrderFields.isEmpty()) {
+                if (!isEnableMergeOnWrite) {
+                    throw new AnalysisException(
+                            "Order keys only support unique keys table which enabled "
+                                    + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+                }
+            }
+            for (int i = 0; i < keys.size(); ++i) {
+                columns.get(i).setIsKey(true);
+            }
+
+            if (keysType != KeysType.AGG_KEYS) {
+                AggregateType type = AggregateType.REPLACE;
+                if (keysType == KeysType.DUP_KEYS) {
+                    type = AggregateType.NONE;
+                }
+                if (keysType == KeysType.UNIQUE_KEYS && isEnableMergeOnWrite) {
+                    type = AggregateType.NONE;
+                }
+                for (int i = keys.size(); i < columns.size(); ++i) {
+                    columns.get(i).setAggType(type);
+                }
+            }
+
+            properties = addOlapHiddenColumns(columns, keysType, isEnableMergeOnWrite, properties);
+
+            // validate partition
+            partitionTableInfo.extractPartitionColumns();
+            partitionTableInfo.validatePartitionInfo(
+                    columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
+
+            // validate distribution descriptor
+            distribution.updateCols(columns.get(0).getName());
+            distribution.validate(columnMap, keysType);
+
+            // validate key set.
+            if (!distribution.isHash()) {
+                if (keysType.equals(KeysType.UNIQUE_KEYS)) {
+                    throw new AnalysisException(
+                            "Should not be distributed by random when keys type is unique");
+                } else if (keysType.equals(KeysType.AGG_KEYS)) {
+                    for (ColumnDefinition c : columns) {
+                        if (AggregateType.REPLACE.equals(c.getAggType())
+                                || AggregateType.REPLACE_IF_NOT_NULL.equals(c.getAggType())) {
+                            throw new AnalysisException(
+                                    "Should not be distributed by random when keys type is agg"
+                                            + "and column is in replace, [" + c.getName()
+                                            + "] is invalid");
+                        }
+                    }
+                }
+            }
+
+            for (RollupDefinition rollup : rollups) {
+                rollup.validate();
+            }
+        } else {
+            // An external table has no Doris key model to declare.
+            if (keysType != null) {
+                throw new AnalysisException(
+                        "Create table in catalog '" + ctlName + "' should not contain keys desc");
+            }
+
+            if (!rollups.isEmpty()) {
+                throw new AnalysisException("Catalog '" + ctlName + "' doesn't support rollup tables.");
+            }
+
+            // DISTRIBUTE BY / write sort order / NOT NULL columns / hive external partition rules are per-source
+            // DDL constraints; each is now enforced by the target connector inside its own createTable (mirroring
+            // MaxComputeConnectorMetadata.validateColumns). fe-core only gates the write sort-order clause
+            // generically: a connector accepts ORDER BY only when it declares SUPPORTS_SORT_ORDER (iceberg today),
+            // and that connector then validates the sort columns. Any other target (paimon/hive/maxcompute, and
+            // every internal-catalog engine) is rejected here.
+            if (sortOrderFields != null && !sortOrderFields.isEmpty()) {
+                CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+                // hasConnectorCapability forces the catalog to initialize, which is acceptable here: the user
+                // asked for a clause only one connector supports, so a catalog that cannot even be reached
+                // owes them the initialization error rather than a clause-support answer.
+                boolean supportsSortOrder = catalog instanceof PluginDrivenExternalCatalog
+                        && ((PluginDrivenExternalCatalog) catalog)
+                                .hasConnectorCapability(ConnectorCapability.SUPPORTS_SORT_ORDER);
+                if (!supportsSortOrder) {
+                    throw new AnalysisException(
+                            "Sort order (ORDER BY) is not supported by catalog '" + ctlName + "'.");
+                }
+            }
+
+            for (ColumnDefinition columnDef : columns) {
+                columnDef.setIsKey(true);
+            }
+        }
+        final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
+        Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        keysSet.addAll(keys);
+        Set<String> orderKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        orderKeySet.addAll(sortOrderFields.stream().map(SortFieldInfo::getColumnName).collect(Collectors.toSet()));
+        // Internal statistics tables need state columns. The internal-query flag can also be set by user SHOWs.
+        boolean isSystemGeneratedTable = targetIsInternalCatalog && FeConstants.INTERNAL_DB_NAME.equals(dbName);
+        columns.forEach(c -> c.validate(targetIsInternalCatalog, keysSet, orderKeySet, finalEnableMergeOnWrite,
+                keysType, isSystemGeneratedTable));
+
+        try {
+            invertedIndexFileStorageFormat =
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+
+        // validate index
+        if (!indexes.isEmpty()) {
+            Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            if (invertedIndexFileStorageFormat == null) {
+                try {
+                    invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                            new HashMap<>(properties));
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
+
+            for (IndexDefinition indexDef : indexes) {
+                indexDef.validate();
+                if (!targetIsInternalCatalog) {
+                    throw new AnalysisException(
+                            "index only support in olap engine at current version.");
+                }
+                if (indexDef.getIndexType() == IndexType.ANN) {
+                    if (invertedIndexFileStorageFormat != null
+                            && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
+                        throw new AnalysisException("ANN index is not supported in index format "
+                                + invertedIndexFileStorageFormat);
+                    }
+                }
+                for (String indexColName : indexDef.getColumnNames()) {
+                    boolean found = false;
+                    for (ColumnDefinition column : columns) {
+                        if (column.getName().equalsIgnoreCase(indexColName)) {
+                            indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
+                                    invertedIndexFileStorageFormat);
+                            found = true;
+                            columnToIndexes.computeIfAbsent(column, k -> new HashMap<>())
+                                .computeIfAbsent(indexDef.getIndexType(), k -> new ArrayList<>())
+                                    .add(indexDef);
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        throw new AnalysisException(
+                                "Column does not exist in table. invalid column: " + indexColName);
+                    }
+                }
+                distinct.add(indexDef.getIndexName());
+            }
+            if (distinct.size() != indexes.size()) {
+                throw new AnalysisException("index name must be unique.");
+            }
+        }
+        columnToIndexesCheck();
+        generatedColumnCheck(ctx);
+        analyzeEngine();
+
+        if (targetIsInternalCatalog) {
+            Env env = Env.getCurrentEnv();
+            if (ctx != null && env != null && partitionTableInfo != null
+                    && !partitionTableInfo.getPartitionList().isEmpty()) {
+                checkLegalityOfPartitionExprs(partitionTableInfo);
+            }
+
+            if (partitionTableInfo != null) {
+                checkPartitionNullity(columns, partitionTableInfo);
+            }
+        }
+    }
+
+    /**
+     * Resolves the target catalog and settles everything the statement used to derive from the engine name.
+     *
+     * <p>{@code ENGINE=} predates catalogs and is optional. The engine keeps no table of which name belongs to
+     * which data source: an explicitly written name is handed to the target catalog, which alone knows whether
+     * it is its own ({@link CatalogIf#validateCreateTableEngine}). An omitted clause is always legal.</p>
+     *
+     * <p>Only the internal catalog still needs a name downstream — {@code InternalCatalog.createTable}
+     * dispatches on it — so it keeps being padded with {@code olap}. An external target simply carries no
+     * engine name: nothing past analysis reads one (the connector request is built from columns, partitioning,
+     * bucketing and properties), which is why the engine can stop inventing one.</p>
+     */
+    private void resolveTargetCatalog() {
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(ctlName));
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+        if (catalog == null) {
+            throw new AnalysisException("Unknown catalog: " + ctlName);
+        }
+        targetIsInternalCatalog = catalog.isInternalCatalog();
+
+        if (!Strings.isNullOrEmpty(engineName)) {
+            try {
+                catalog.validateCreateTableEngine(engineName);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                // The catalog family throws the checked AnalysisException; analysis here reports the unchecked
+                // one. Only the type is adapted -- getDetailMessage() is the catalog's own wording without the
+                // "errCode = N, detailMessage = " envelope that family adds, so the user sees it verbatim.
+                throw new AnalysisException(e.getDetailMessage(), e);
+            }
+        } else if (targetIsInternalCatalog) {
+            engineName = ENGINE_OLAP;
+        }
+
+        // EXTERNAL is legacy syntax that only ever meant "not an olap table". It used to be forced on by the
+        // engine-name whitelist; derive it from the target instead, and keep rejecting it where it contradicts
+        // the target. It is not cosmetic: it relaxes partition validation for tables Doris does not own.
+        if (isExternal && targetIsInternalCatalog) {
+            throw new AnalysisException("Do not support external table with engine name = olap");
+        }
+        isExternal = !targetIsInternalCatalog;
+
+        if (isTemp && !targetIsInternalCatalog) {
+            throw new AnalysisException("Do not support temporary table in catalog: " + ctlName);
+        }
+        if (isTemp && !rollups.isEmpty()) {
+            throw new AnalysisException("Do not support temporary table with rollup ");
+        }
+    }
+
+    /**
+     * validate ctas definition
+     */
+    public void validateCreateTableAsSelect(List<String> qualifierTableName, List<ColumnDefinition> columns,
+                                            ConnectContext ctx) {
+        String catalogName = qualifierTableName.get(0);
+        this.ctlName = catalogName;
+        resolveTargetCatalog();
+        this.columns = Utils.copyRequiredMutableList(columns);
+        // bucket num is hard coded 10 to be consistent with legacy planner
+        if (targetIsInternalCatalog && this.distribution == null) {
+            this.distribution = new DistributionDescriptor(true, false, 10,
+                    Lists.newArrayList(columns.get(0).getName()));
+        }
+        validate(ctx);
+    }
+
+    /**
+     * if auto bucket auto bucket enable, rewrite distribution bucket num &&
+     * set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
+     *
+     * @param distributionDesc distributionDesc
+     * @param properties properties
+     * @return new properties
+     */
+    public static Map<String, String> maybeRewriteByAutoBucket(
+            DistributionDescriptor distributionDesc, Map<String, String> properties) {
+        if (distributionDesc == null || !distributionDesc.isAutoBucket()) {
+            return properties;
+        }
+
+        // auto bucket is enable
+        Map<String, String> newProperties = properties;
+        if (newProperties == null) {
+            newProperties = new HashMap<String, String>();
+        }
+        newProperties.put(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "true");
+
+        try {
+            if (!newProperties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
+                distributionDesc.updateBucketNum(FeConstants.default_bucket_num);
+            } else {
+                long partitionSize = ParseUtil.analyzeDataVolume(
+                        newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
+                distributionDesc.updateBucketNum(AutoBucketUtils.getBucketsNum(partitionSize,
+                        Config.autobucket_min_buckets));
+            }
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+        return newProperties;
+    }
+
+    private void validateKeyColumns() {
+        if (keysType == null) {
+            throw new AnalysisException("Keys type is null.");
+        }
+
+        if (keys.isEmpty() && keysType != KeysType.DUP_KEYS) {
+            throw new AnalysisException("The number of key columns is 0.");
+        }
+
+        if (keys.size() > columns.size()) {
+            throw new AnalysisException(
+                    "The number of key columns should be less than the number of columns.");
+        }
+
+        for (int i = 0; i < keys.size(); ++i) {
+            String name = columns.get(i).getName();
+            if (!keys.get(i).equalsIgnoreCase(name)) {
+                String keyName = keys.get(i);
+                if (columns.stream().noneMatch(col -> col.getName().equalsIgnoreCase(keyName))) {
+                    throw new AnalysisException("Key column[" + keyName + "] doesn't exist.");
+                }
+                throw new AnalysisException("Key columns should be a ordered prefix of the schema."
+                        + " KeyColumns[" + i + "] (starts from zero) is " + keyName + ", "
+                        + "but corresponding column is " + name + " in the previous "
+                        + "columns declaration.");
+            }
+
+            if (columns.get(i).getAggType() != null) {
+                throw new AnalysisException(
+                        "Key column[" + name + "] should not specify aggregate type.");
+            }
+        }
+
+        // for olap table
+        for (int i = keys.size(); i < columns.size(); ++i) {
+            if (keysType == KeysType.AGG_KEYS) {
+                if (columns.get(i).getAggType() == null) {
+                    throw new AnalysisException(
+                            keysType.name() + " table should specify aggregate type for "
+                                    + "non-key column[" + columns.get(i).getName() + "]");
+                }
+            } else {
+                if (columns.get(i).getAggType() != null) {
+                    throw new AnalysisException(
+                            keysType.name() + " table should not specify aggregate type for "
+                                    + "non-key column[" + columns.get(i).getName() + "]");
+                }
+            }
+        }
+
+        if (!sortOrderFields.isEmpty()) {
+            // the same code as KeysDesc#analyzeOrderKeys
+            if (keysType != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("Order keys only support unique keys table");
+            }
+            // check that order keys is not duplicated
+            for (int i = 0; i < sortOrderFields.size(); i++) {
+                String name = sortOrderFields.get(i).getColumnName();
+                if (!sortOrderFields.get(i).isAscending()) {
+                    throw new AnalysisException("Order keys only support ASC in OLAP table.");
+                }
+                if (!sortOrderFields.get(i).isNullFirst()) {
+                    throw new AnalysisException("Order keys only support NULLS FIRST in OLAP table.");
+                }
+                for (int j = 0; j < i; j++) {
+                    if (sortOrderFields.get(j).getColumnName().equalsIgnoreCase(name)) {
+                        throw new AnalysisException("Duplicate order key column[" + name + "].");
+                    }
+                }
+            }
+            // check that order keys is not equal to primary keys
+            int minKeySize = Math.min(keys.size(), sortOrderFields.size());
+            boolean sameKey = true;
+            for (int i = 0; i < minKeySize; ++i) {
+                if (!keys.get(i).equalsIgnoreCase(sortOrderFields.get(i).getColumnName())) {
+                    sameKey = false;
+                    break;
+                }
+            }
+            if (sameKey && !Config.random_add_order_by_keys_for_mow) {
+                throw new AnalysisException("Unique keys and order keys should be different.");
+            }
+            // check that order key column exists
+            for (int i = 0; i < sortOrderFields.size(); ++i) {
+                String name = sortOrderFields.get(i).getColumnName();
+                for (int j = 0; j < columns.size(); j++) {
+                    if (columns.get(j).getName().equalsIgnoreCase(name)) {
+                        columns.get(j).setClusterKeyId(i);
+                        break;
+                    }
+                    if (j == columns.size() - 1) {
+                        throw new AnalysisException("Order key column[" + name + "] doesn't exist.");
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * analyzeEngine
+     */
+    public void analyzeEngine() {
+        this.partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
+        this.distributionDesc =
+            distribution != null ? distribution.translateToCatalogStyle() : null;
+
+    }
+
+    public void setIsExternal(boolean isExternal) {
+        this.isExternal = isExternal;
+    }
+
+    /**
+     * Reuse the standard OLAP create-table hidden-column rules so all UNIQUE+MOW schemas stay aligned,
+     * including async MTMVs that synthesize their ColumnDefinitions outside CreateTableInfo.
+     */
+    public static Map<String, String> addOlapHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
+            boolean isEnableMergeOnWrite, Map<String, String> properties) {
+        return addOlapHiddenColumns(columns, keysType, isEnableMergeOnWrite, properties, true);
+    }
+
+    /**
+     * Add OLAP hidden columns following the standard create-table rules, optionally skipping row-store
+     * columns when callers have already materialized their own row-store layout.
+     */
+    public static Map<String, String> addOlapHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
+            boolean isEnableMergeOnWrite, Map<String, String> properties, boolean includeRowStoreColumn) {
+        boolean hasSeqMapping = properties != null && PropertyAnalyzer.hasSeqMapping(properties);
+        if (keysType.equals(KeysType.UNIQUE_KEYS) && !hasSeqMapping) {
+            if (isEnableMergeOnWrite) {
+                columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.NONE));
+            } else {
+                columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.REPLACE));
+            }
+        }
+
+        if (includeRowStoreColumn) {
+            boolean storeRowColumn = false;
+            List<String> rowStoreColumns = null;
+            if (properties != null) {
+                try {
+                    storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties));
+                    rowStoreColumns = PropertyAnalyzer.analyzeRowStoreColumns(Maps.newHashMap(properties),
+                            columns.stream().map(ColumnDefinition::getName).collect(Collectors.toList()));
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
+            if (storeRowColumn || (rowStoreColumns != null && !rowStoreColumns.isEmpty())) {
+                if (keysType.equals(KeysType.AGG_KEYS)) {
+                    throw new AnalysisException("Aggregate table can't support row column now");
+                }
+                if (keysType.equals(KeysType.UNIQUE_KEYS)) {
+                    if (isEnableMergeOnWrite) {
+                        columns.add(ColumnDefinition.newRowStoreColumnDefinition(AggregateType.NONE));
+                    } else {
+                        columns.add(ColumnDefinition.newRowStoreColumnDefinition(AggregateType.REPLACE));
+                    }
+                } else {
+                    columns.add(ColumnDefinition.newRowStoreColumnDefinition(null));
+                }
+            }
+        }
+
+        if (Config.enable_hidden_version_column_by_default && keysType.equals(KeysType.UNIQUE_KEYS) && !hasSeqMapping) {
+            if (isEnableMergeOnWrite) {
+                columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.NONE));
+            } else {
+                columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.REPLACE));
+            }
+        }
+
+        boolean isEnableSkipBitmapColumn = false;
+        if (properties != null) {
+            if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
+                    && !(keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
+                throw new AnalysisException("table property enable_unique_key_skip_bitmap_column can"
+                        + "only be set in merge-on-write unique table.");
+            }
+            if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+                properties = PropertyAnalyzer.addEnableUniqueKeySkipBitmapPropertyIfNotExists(properties);
+                try {
+                    isEnableSkipBitmapColumn = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(
+                            new HashMap<>(properties));
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
+        }
+
+        if (isEnableSkipBitmapColumn && keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+            columns.add(ColumnDefinition.newSkipBitmapColumnDef(AggregateType.NONE));
+        }
+        return properties;
+    }
+
+    private void generatedColumnCommonCheck() {
+        for (ColumnDefinition column : columns) {
+            if (keysType == KeysType.AGG_KEYS && column.getGeneratedColumnDesc().isPresent()
+                    && (!column.isKey() && !GENERATED_COLUMN_ALLOW_AGG_TYPE.contains(column.getAggType()))) {
+                throw new AnalysisException("The generated columns can be key columns, "
+                        + "or value columns of replace and replace_if_not_null aggregation type.");
+            }
+            if (column.getGeneratedColumnDesc().isPresent() && !targetIsInternalCatalog) {
+                throw new AnalysisException("Tables can only have generated columns if the olap engine is used");
+            }
+        }
+    }
+
+    private void generatedColumnCheck(ConnectContext ctx) {
+        generatedColumnCommonCheck();
+        LogicalEmptyRelation plan = new LogicalEmptyRelation(
+                ConnectContext.get().getStatementContext().getNextRelationId(),
+                new ArrayList<>());
+        CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
+                PhysicalProperties.ANY);
+        Map<String, Slot> columnToSlotReference = Maps.newHashMap();
+        Map<String, ColumnDefinition> nameToColumnDefinition = Maps.newHashMap();
+        Map<Slot, SlotRefAndIdx> translateMap = Maps.newHashMap();
+        for (int i = 0; i < columns.size(); i++) {
+            ColumnDefinition column = columns.get(i);
+            Slot slot = new SlotReference(column.getName(), column.getType());
+            columnToSlotReference.put(column.getName(), slot);
+            nameToColumnDefinition.put(column.getName(), column);
+            SlotRef slotRef = new SlotRef(null, column.getName());
+            slotRef.setType(column.getType().toCatalogDataType());
+            translateMap.put(slot, new SlotRefAndIdx(slotRef, i, column.getGeneratedColumnDesc().isPresent()));
+        }
+        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+        List<Slot> slots = Lists.newArrayList(columnToSlotReference.values());
+        List<ExprAndName> exprAndNames = Lists.newArrayList();
+        for (int i = 0; i < columns.size(); i++) {
+            ColumnDefinition column = columns.get(i);
+            Optional<GeneratedColumnDesc> info = column.getGeneratedColumnDesc();
+            if (!info.isPresent()) {
+                continue;
+            }
+            try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx,
+                    info.get().getSessionVariables().orElse(null))) {
+                Expression parsedExpression = info.get().getExpression();
+                checkParsedExpressionInGeneratedColumn(parsedExpression);
+                Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToSlotReference);
+                Scope scope = new Scope(slots);
+                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+                Expression expr;
+                try {
+                    expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
+                } catch (AnalysisException e) {
+                    throw new AnalysisException("In generated column '" + column.getName() + "', "
+                            + Utils.convertFirstChar(e.getMessage()));
+                }
+                checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
+                TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
+                ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
+                Expr e = expr.accept(translator, planTranslatorContext);
+                info.get().setExpr(e);
+                exprAndNames.add(new ExprAndName(e.clone(), column.getName()));
+            }
+        }
+
+        // for alter drop column
+        Map<String, List<String>> columnToListOfGeneratedColumnsThatReferToThis = new HashMap<>();
+        for (ColumnDefinition column : columns) {
+            Optional<GeneratedColumnDesc> info = column.getGeneratedColumnDesc();
+            if (!info.isPresent()) {
+                continue;
+            }
+            Expr generatedExpr = info.get().getExpr();
+            Set<Expr> slotRefsInGeneratedExpr = new HashSet<>();
+            generatedExpr.collect(e -> e instanceof SlotRef, slotRefsInGeneratedExpr);
+            for (Expr slotRefExpr : slotRefsInGeneratedExpr) {
+                String name = ((SlotRef) slotRefExpr).getColumnName();
+                columnToListOfGeneratedColumnsThatReferToThis
+                        .computeIfAbsent(name, k -> new ArrayList<>())
+                        .add(column.getName());
+            }
+        }
+        for (Map.Entry<String, List<String>> entry : columnToListOfGeneratedColumnsThatReferToThis.entrySet()) {
+            ColumnDefinition col = nameToColumnDefinition.get(entry.getKey());
+            col.addGeneratedColumnsThatReferToThis(entry.getValue());
+        }
+
+        // expand expr
+        GeneratedColumnUtil.rewriteColumns(exprAndNames);
+    }
+
+    private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, Slot>> {
+        public static final SlotReplacer INSTANCE = new SlotReplacer();
+
+        public Expression replace(Expression e, Map<String, Slot> replaceMap) {
+            return e.accept(this, replaceMap);
+        }
+
+        @Override
+        public Expression visitUnboundSlot(UnboundSlot unboundSlot, Map<String, Slot> replaceMap) {
+            if (!replaceMap.containsKey(unboundSlot.getName())) {
+                throw new AnalysisException("Unknown column '" + unboundSlot.getName()
+                        + "' in 'generated column function'");
+            }
+            return replaceMap.get(unboundSlot.getName());
+        }
+    }
+
+    void checkParsedExpressionInGeneratedColumn(Expression expr) {
+        expr.foreach(e -> {
+            if (e instanceof SubqueryExpr) {
+                throw new AnalysisException("Generated column does not support subquery.");
+            } else if (e instanceof Lambda) {
+                throw new AnalysisException("Generated column does not support lambda.");
+            } else if (e instanceof UnboundVariable) {
+                throw new AnalysisException("Generated column expression cannot contain variable.");
+            }
+        });
+    }
+
+    void checkExpressionInGeneratedColumn(Expression expr, ColumnDefinition column,
+            Map<String, ColumnDefinition> nameToColumnDefinition) {
+        expr.foreach(e -> {
+            if (e instanceof Slot && nameToColumnDefinition.containsKey(((Slot) e).getName())) {
+                ColumnDefinition columnDefinition = nameToColumnDefinition.get(((Slot) e).getName());
+                if (columnDefinition.getAutoIncInitValue() != -1) {
+                    throw new AnalysisException(
+                            "Generated column '" + column.getName()
+                                    + "' cannot refer to auto-increment column.");
+                }
+            } else if (e instanceof BoundFunction && !checkFunctionInGeneratedColumn((BoundFunction) e)) {
+                throw new AnalysisException("Expression of generated column '"
+                        + column.getName() + "' contains a disallowed function:'"
+                        + ((BoundFunction) e).getName() + "'");
+            }
+        });
+    }
+
+    boolean checkFunctionInGeneratedColumn(Expression expr) {
+        if (!(expr instanceof ScalarFunction)) {
+            return false;
+        }
+        if (expr instanceof Udf) {
+            return false;
+        }
+        if (expr instanceof GroupingScalarFunction) {
+            return false;
+        }
+        return true;
+    }
+
+    private static class ExpressionToExpr extends ExpressionTranslator {
+        private final Map<Slot, SlotRefAndIdx> slotRefMap;
+        private final int index;
+
+        public ExpressionToExpr(int index, Map<Slot, SlotRefAndIdx> slotRefMap) {
+            this.index = index;
+            this.slotRefMap = slotRefMap;
+        }
+
+        @Override
+        public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
+            if (!slotRefMap.containsKey(slotReference)) {
+                throw new AnalysisException("Unknown column '" + slotReference.getName() + "'");
+            }
+            int idx = slotRefMap.get(slotReference).getIdx();
+            boolean isGenCol = slotRefMap.get(slotReference).isGeneratedColumn();
+            if (isGenCol && idx >= index) {
+                throw new AnalysisException(
+                        "Generated column can refer only to generated columns defined prior to it.");
+            }
+            return slotRefMap.get(slotReference).getSlotRef();
+        }
+    }
+
+    /** SlotRefAndIdx */
+    public static class SlotRefAndIdx {
+        private final SlotRef slotRef;
+        private final int idx;
+        private final boolean isGeneratedColumn;
+
+        public SlotRefAndIdx(SlotRef slotRef, int idx, boolean isGeneratedColumn) {
+            this.slotRef = slotRef;
+            this.idx = idx;
+            this.isGeneratedColumn = isGeneratedColumn;
+        }
+
+        public int getIdx() {
+            return idx;
+        }
+
+        public SlotRef getSlotRef() {
+            return slotRef;
+        }
+
+        public boolean isGeneratedColumn() {
+            return isGeneratedColumn;
+        }
+    }
+
+    public PartitionTableInfo getPartitionTableInfo() {
+        return partitionTableInfo;
+    }
+
+    public DistributionDescriptor getDistribution() {
+        return distribution;
+    }
+
+    public boolean isTemp() {
+        return isTemp;
+    }
+
+    public PartitionDesc getPartitionDesc() {
+        return partitionDesc;
+    }
+
+    public List<ColumnDefinition> getColumnDefinitions() {
+        return columns;
+    }
+
+    public List<Column> getColumns() {
+        return columns.stream()
+            .map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public DistributionDesc getDistributionDesc() {
+        return distributionDesc;
+    }
+
+    public boolean isExternal() {
+        return isExternal;
+    }
+
+    public Map<String, String> getExtProperties() {
+        return extProperties;
+    }
+
+    public List<Index> getIndexes() {
+        return indexes.stream().map(IndexDefinition::translateToCatalogStyle)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * getAddRollupOps
+     */
+    public List<AlterOp> getAddRollupOps() {
+        List<AlterOp> addRollups = Lists.newArrayList();
+        if (!rollups.isEmpty()) {
+            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToAddRollupOp)
+                    .collect(Collectors.toList()));
+        }
+        return addRollups;
+    }
+
+    public KeysDesc getKeysDesc() {
+        return new KeysDesc(keysType, keys,
+                sortOrderFields.stream().map(SortFieldInfo::getColumnName).collect(Collectors.toList()));
+    }
+
+    // 1. if the column is variant type, check it's field pattern is valid
+    // 2. if the column is not variant type, check it's index def is valid
+    private void columnToIndexesCheck() {
+        for (Map.Entry<ColumnDefinition, Map<IndexType, List<IndexDefinition>>> entry : columnToIndexes.entrySet()) {
+            ColumnDefinition column = entry.getKey();
+            Map<IndexType, List<IndexDefinition>> indexTypeToIndexDefs = entry.getValue();
+            for (Map.Entry<IndexType, List<IndexDefinition>> indexDefEntry : indexTypeToIndexDefs.entrySet()) {
+                IndexType indexType = indexDefEntry.getKey();
+                List<IndexDefinition> indexDefs = indexDefEntry.getValue();
+                if (indexType != IndexType.INVERTED) {
+                    if (indexDefs.size() > 1) {
+                        throw new AnalysisException("column: " + column.getName()
+                                                    + " cannot have multiple indexes, index type: " + indexType);
+                    } else {
+                        continue;
+                    }
+                }
+
+                // check inverted index
+                if (column.getType().isVariantType()) {
+                    Map<String, List<IndexDefinition>> fieldPatternToIndexDef = new HashMap<>();
+                    Map<String, DataType> fieldPatternToDataType = new HashMap<>();
+                    for (IndexDefinition indexDef : indexDefs) {
+                        String fieldPattern = InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties());
+                        if (fieldPattern.isEmpty()) {
+                            fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>()).add(indexDef);
+                            fieldPatternToDataType.put(fieldPattern, column.getType());
+                            continue;
+                        }
+                        boolean findFieldPattern = false;
+                        VariantType variantType = (VariantType) column.getType();
+                        List<VariantField> predefinedFields = variantType.getPredefinedFields();
+                        for (VariantField field : predefinedFields) {
+                            if (field.getPattern().equals(fieldPattern)) {
+                                findFieldPattern = true;
+                                if (!IndexDefinition.isSupportIdxType(field.getDataType())) {
+                                    throw new AnalysisException("field pattern: "
+                                            + fieldPattern + " is not supported for inverted index"
+                                            + " of column: " + column.getName());
+                                }
+
+                                // keep variant subcolumn checks aligned with ordinary column rules
+                                try {
+                                    InvertedIndexUtil.checkInvertedIndexParser(column.getName(),
+                                            field.getDataType().toCatalogDataType().getPrimitiveType(),
+                                            indexDef.getProperties(), invertedIndexFileStorageFormat);
+                                } catch (Exception ex) {
+                                    throw new AnalysisException("invalid INVERTED index: field pattern: "
+                                            + fieldPattern + ", " + ex.getMessage(), ex);
+                                }
+                                fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
+                                                                                                    .add(indexDef);
+                                fieldPatternToDataType.put(fieldPattern, field.getDataType());
+                                break;
+                            }
+                        }
+                        if (!findFieldPattern) {
+                            throw new AnalysisException("can not find field pattern: " + fieldPattern
+                                        + " in column: " + column.getName());
+                        }
+                    }
+                    for (Map.Entry<String, List<IndexDefinition>> fieldIndexEntry : fieldPatternToIndexDef.entrySet()) {
+                        String fieldPattern = fieldIndexEntry.getKey();
+                        List<IndexDefinition> fieldPatternIndexDefs = fieldIndexEntry.getValue();
+                        DataType dataType = fieldPatternToDataType.get(fieldPattern);
+                        if (!InvertedIndexUtil.canHaveMultipleInvertedIndexes(dataType, fieldPatternIndexDefs)) {
+                            throw new AnalysisException("column: "
+                                + column.getName()
+                                + " cannot have multiple inverted indexes of the same type with field pattern: "
+                                + fieldPattern);
+                        }
+                    }
+                } else {
+                    for (IndexDefinition indexDef : indexDefs) {
+                        if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
+                            throw new AnalysisException("column: " + column.getName()
+                                                                + " cannot have field pattern in index.");
+                        }
+                    }
+                    if (!InvertedIndexUtil.canHaveMultipleInvertedIndexes(column.getType(), indexDefs)) {
+                        throw new AnalysisException("column: " + column.getName()
+                                                                + " cannot have multiple inverted indexes"
+                                                                + " of the same type.");
+                    }
+                    if (invertedIndexFileStorageFormat != null
+                                && invertedIndexFileStorageFormat.compareTo(TInvertedIndexFileStorageFormat.V2) < 0
+                                && indexDefs.size() > 1) {
+                        throw new AnalysisException("column: " + column.getName()
+                                                + " cannot have multiple inverted indexes with file storage format: "
+                                                + invertedIndexFileStorageFormat);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * to sql
+     */
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("CREATE ");
+        if (isTemp) {
+            sb.append("TEMPORARY ");
+        }
+        if (isExternal) {
+            sb.append("EXTERNAL ");
+        }
+        sb.append("TABLE ");
+        if (ifNotExists) {
+            sb.append("IF NOT EXISTS ");
+        }
+        sb.append(tableNameInfo.toSql()).append(" (\n");
+        int idx = 0;
+        for (ColumnDefinition columnDef : columns) {
+            if (idx != 0) {
+                sb.append(",\n");
+            }
+            sb.append("  ").append(columnDef.toSql());
+            idx++;
+        }
+        if (CollectionUtils.isNotEmpty(indexes)) {
+            sb.append(",\n");
+            for (IndexDefinition indexDef : indexes) {
+                sb.append("  ").append(indexDef.toSql());
+            }
+        }
+        sb.append("\n)");
+        if (!Strings.isNullOrEmpty(engineName)) {
+            sb.append(" ENGINE = ").append(engineName.toLowerCase());
+        }
+
+        if (keys != null) {
+            sb.append("\n").append(getKeysDesc().toSql());
+        }
+
+        if (!Strings.isNullOrEmpty(comment)) {
+            sb.append("\nCOMMENT \"").append(comment).append("\"");
+        }
+
+        if (partitionDesc != null) {
+            sb.append("\n").append(partitionDesc.toSql());
+        }
+
+        if (distributionDesc != null) {
+            sb.append("\n").append(distributionDesc.toSql());
+        }
+
+        if (rollups != null && !rollups.isEmpty()) {
+            sb.append("\n rollup(");
+            StringBuilder opsSb = new StringBuilder();
+            for (int i = 0; i < rollups.size(); i++) {
+                opsSb.append(rollups.get(i).toSql());
+                if (i != rollups.size() - 1) {
+                    opsSb.append(",");
+                }
+            }
+            sb.append(opsSb.toString().replace("ADD ROLLUP", "")).append(")");
+        }
+
+        // properties may contains password and other sensitive information,
+        // so do not print properties.
+        // This toSql() method is only used for log, user can see detail info by using show create table stmt,
+        // which is implemented in Catalog.getDdlStmt()
+        if (properties != null && !properties.isEmpty()) {
+            sb.append("\nPROPERTIES (");
+            sb.append(new DatasourcePrintableMap<>(properties, " = ", true, true, true));
+            sb.append(")");
+        }
+
+        if (extProperties != null && !extProperties.isEmpty()) {
+            sb.append("\n").append(Strings.nullToEmpty(engineName).toUpperCase()).append(" PROPERTIES (");
+            sb.append(new DatasourcePrintableMap<>(extProperties, " = ", true, true, true));
+            sb.append(")");
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * checkPartitionNullity
+     */
+    public void checkPartitionNullity(List<ColumnDefinition> baseSchema, PartitionTableInfo partitionTableInfo)
+            throws AnalysisException {
+        // in creating OlapTable, expr.desc is null. so we should find the column ourself.
+        List<Expression> partitionExprs = partitionTableInfo.getPartitionList();
+        List<Boolean> partitionSlotNullables = new ArrayList<>();
+        for (Expression expr : partitionExprs) {
+            if (expr instanceof UnboundSlot) {
+                partitionSlotNullables.add(findAllowNullforSlot(baseSchema, (UnboundSlot) expr));
+            } else if (expr instanceof UnboundFunction) {
+                partitionSlotNullables.add(true);
+            } else {
+                throw new AnalysisException("Unknown partition expr type:" + expr.getExpressionName());
+            }
+        }
+
+        for (PartitionDefinition partitionDef : partitionTableInfo.getPartitionDefs()) {
+            if (partitionDef instanceof InPartition) {
+                List<List<Expression>> inValues = ((InPartition) partitionDef).getValues();
+                for (List<Expression> item : inValues) {
+                    checkNullityEqual(partitionSlotNullables, item);
+                }
+            } else if (partitionDef instanceof LessThanPartition) {
+                List<Expression> values = ((LessThanPartition) partitionDef).getValues();
+                checkNullityEqual(partitionSlotNullables, values);
+            } else if (partitionDef instanceof FixedRangePartition) {
+                List<Expression> upperValues = ((FixedRangePartition) partitionDef).getUpperBounds();
+                List<Expression> lowerValues = ((FixedRangePartition) partitionDef).getLowerBounds();
+                checkNullityEqual(partitionSlotNullables, lowerValues);
+                checkNullityEqual(partitionSlotNullables, upperValues);
+            } else if (partitionDef instanceof StepPartition) {
+                List<Expression> fromValues = ((StepPartition) partitionDef).getFromExpression();
+                List<Expression> toValues = ((StepPartition) partitionDef).getToExpression();
+                checkNullityEqual(partitionSlotNullables, fromValues);
+                checkNullityEqual(partitionSlotNullables, toValues);
+            }
+        }
+    }
+
+    private boolean findAllowNullforSlot(List<ColumnDefinition> baseSchema, UnboundSlot slot) throws AnalysisException {
+        for (ColumnDefinition col : baseSchema) {
+            if (col.nameEquals(slot.getName(), true)) {
+                return col.isNullable();
+            }
+        }
+        throw new AnalysisException("Unknown partition column name:" + slot.getName());
+    }
+
+    private void checkNullityEqual(List<Boolean> partitionSlotNullables, List<Expression> item) {
+        if (item == null || item.isEmpty()) {
+            return;
+        }
+
+        for (int i = 0; i < item.size(); i++) {
+            try {
+                Expression expr = item.get(i);
+                if (expr.isLiteral()) {
+                    if (!partitionSlotNullables.get(i) && expr.isNullLiteral()) {
+                        throw new AnalysisException(
+                            "Can't have null partition is for NOT NULL partition "
+                                + "column in partition expr's index " + i);
+                    }
+                }
+            } catch (IndexOutOfBoundsException e) {
+                throw new AnalysisException(
+                    "partition item's size out of partition columns: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * checkLegalityOfPartitionExprs
+     */
+    public void checkLegalityOfPartitionExprs(PartitionTableInfo partitionTableInfo) {
+        List<Expression> paritionExprs = partitionTableInfo.getPartitionList();
+        for (Expression expr : paritionExprs) {
+            if (expr instanceof UnboundFunction) {
+                if (!partitionTableInfo.isAutoPartition()
+                        || partitionTableInfo.getPartitionType() != PartitionType.RANGE.name()) {
+                    throw new AnalysisException("only Auto Range Partition support UnboundFunction");
+                }
+                UnboundFunction func = (UnboundFunction) expr;
+                List<Expression> children = func.children();
+                for (int i = 0; i < children.size(); i++) {
+                    Expression child = children.get(i);
+                    if (!(child instanceof Literal || child instanceof UnboundSlot)) {
+                        throw new AnalysisException(String.format(
+                            "partition expression %s has unrecognized parameter in slot %d",
+                            func.getExpressionName(), i));
+                    }
+                }
+            } else if (expr instanceof UnboundSlot) {
+                if (partitionTableInfo.isAutoPartition() && Objects.equals(partitionTableInfo.getPartitionType(),
+                        PartitionType.RANGE.name())) {
+                    throw new AnalysisException("Auto Range Partition need UnboundFunction");
+                }
+            } else {
+                throw new AnalysisException("partition expression " + expr.getExpressionName() + " is illegal!");
+            }
+        }
+    }
+
+    /**
+     * Add hidden columns required by row binlog.
+     */
+    public void createRowBinlogHiddenColumnsIfNecessary(BinlogConfig binlogConfig) {
+        addRowBinlogHiddenColumns(columns, keysType, isEnableMergeOnWrite, binlogConfig);
+    }
+
+    /**
+     * Append the hidden columns a row-binlog table carries. Callers that build the column list
+     * outside the create-table flow (an analyzed MTMV schema) go through here as well, so both
+     * sides of {@code MTMVPlanUtil#checkColumnIfChange} agree on the physical layout.
+     *
+     * <p>Idempotent: a column that is already present is kept once.
+     */
+    public static void addRowBinlogHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
+            boolean isEnableMergeOnWrite, BinlogConfig binlogConfig) {
+        if (binlogConfig == null || !binlogConfig.isRowFormat()) {
+            return;
+        }
+        if (keysType.equals(KeysType.DUP_KEYS)) {
+            addIfAbsent(columns, ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+            addIfAbsent(columns, ColumnDefinition.newRowLsnColumnDefinition(AggregateType.NONE));
+        } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+            addIfAbsent(columns, ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+        }
+    }
+
+    private static void addIfAbsent(List<ColumnDefinition> columns, ColumnDefinition columnDefinition) {
+        boolean present = columns.stream()
+                .anyMatch(column -> column.getName().equalsIgnoreCase(columnDefinition.getName()));
+        if (!present) {
+            columns.add(columnDefinition);
+        }
+    }
+}

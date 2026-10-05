@@ -1,0 +1,375 @@
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+set -eo pipefail
+#set -x
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+DORIS_HOME="${ROOT}"
+
+java_major_version() {
+    local java_cmd="$1"
+    local spec_version
+
+    spec_version="$("${java_cmd}" -XshowSettings:properties -version 2>&1 \
+        | awk -F'= ' '/java.specification.version =/ {print $2; exit}')"
+    # Cygwin's Java properties output uses CRLF line endings.
+    spec_version="${spec_version//$'\r'/}"
+    if [[ "${spec_version}" == 1.* ]]; then
+        spec_version="${spec_version#1.}"
+    fi
+    echo "${spec_version%%.*}"
+}
+
+is_jdk17_home() {
+    local java_home="$1"
+    [[ -n "${java_home}" ]] && [[ -x "${java_home}/bin/java" ]] \
+        && [[ -x "${java_home}/bin/javac" ]] \
+        && [[ "$(java_major_version "${java_home}/bin/java")" == "17" ]]
+}
+
+find_jdk17_home() {
+    local candidate
+
+    for candidate in "${JAVA_HOME:-}" "${JDK_17:-}"; do
+        if is_jdk17_home "${candidate}"; then
+            echo "${candidate}"
+            return 0
+        fi
+    done
+
+    if [[ "$(uname -s)" == "Darwin" ]] && [[ -x /usr/libexec/java_home ]]; then
+        candidate="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
+        if is_jdk17_home "${candidate}"; then
+            echo "${candidate}"
+            return 0
+        fi
+    elif [[ -d /usr/lib/jvm ]]; then
+        while IFS= read -r candidate; do
+            if is_jdk17_home "${candidate}"; then
+                echo "${candidate}"
+                return 0
+            fi
+        done < <(find /usr/lib/jvm -mindepth 1 -maxdepth 1 \( -type d -o -type l \) 2>/dev/null | sort)
+    fi
+
+    echo "Error: JDK 17 is required. Set JAVA_HOME or JDK_17, or install JDK 17." >&2
+    return 1
+}
+
+JAVA_HOME="$(find_jdk17_home)"
+export JAVA_HOME
+export PATH="${JAVA_HOME}/bin:${PATH}"
+export JAVA="${JAVA_HOME}/bin/java"
+JAVA_MAJOR_VERSION="$(java_major_version "${JAVA}")"
+echo "Using JDK ${JAVA_MAJOR_VERSION}: ${JAVA_HOME}"
+
+# Check args
+usage() {
+    echo "
+Usage: $0 <shell_options> <framework_options>
+  Optional shell_options:
+     --clean    clean output of regression test framework
+     --teamcity print teamcity service messages
+     --run      run regression test. build framework if necessary
+
+  Optional framework_options:
+     -s                                run a specified suite
+     -g                                run a specified group
+     -d                                run a specified directory
+     -f                                run a specified file (only when the file name equals the suite name; will be converted to -d and -s automatically)
+     -h                                **print all framework options usage**
+     -xs                               exclude the specified suite
+     -xg                               exclude the specified group
+     -xd                               exclude the specified directory
+     -genOut                           generate .out file if not exist
+     -forceGenOut                      delete and generate .out file
+     -parallel                         run tests using specified threads
+     -dockerSuiteParallel              run docker tests using specified threads
+     -randomOrder                      run tests in a random order
+     -noKillDocker                     don't kill container when finish docker suites
+     -runMode                          if run docker suites, no need to setup external doris clusters.
+                                       user may specify run mode: cloud or not_cloud.
+     -times                            rum tests {times} times
+
+  Eg.
+    $0                                                                       build regression test framework and run all suite which in default group
+    $0 --run test_select                                                     run a suite which named as test_select
+    $0 --compile                                                             only compile regression framework
+    $0 --run -s test_select                                                  run a suite which named as test_select
+    $0 --run test_select -genOut                                             generate output file for test_select if not exist
+    $0 --run -g default                                                      run all suite in the group which named as default
+    $0 --run -d demo,correctness/tmp                                         run all suite in the directories which named as demo and correctness/tmp
+    $0 --run -d regression-test/suites/demo                                  specify the suite directories path from repo root
+    $0 --run -f regression-test/suites/demo/case.groovy                      run a specific .groovy test file (converted to -d and -s automatically)
+    $0 --run -f regression-test/suites/demo/case.sql                         run a specific .sql test file (converted to -d and -s automatically)
+    $0 --clean                                                               clean output of regression test framework
+    $0 --clean --run test_select                                             clean output and build regression test framework and run a suite which named as test_select
+    $0 --run -h                                                              print framework options
+    $0 --teamcity --run test_select                                          print teamcity service messages and build regression test framework and run test_select
+
+Log path: \${DORIS_HOME}/output/regression-test/log
+Default config file: \${DORIS_HOME}/regression-test/conf/regression-conf.groovy
+  "
+    exit 1
+}
+ONLY_COMPILE=0
+CLEAN=0
+WRONG_CMD=0
+TEAMCITY=0
+RUN=0
+if [[ "$#" == 0 ]]; then
+    #default
+    CLEAN=0
+    WRONG_CMD=0
+    TEAMCITY=0
+    RUN=1
+else
+    CLEAN=0
+    RUN=0
+    TEAMCITY=0
+    WRONG_CMD=0
+    while true; do
+        case "$1" in
+        --clean)
+            CLEAN=1
+            shift
+            ;;
+        --teamcity)
+            TEAMCITY=1
+            shift
+            ;;
+        --conf)
+            CUSTOM_CONFIG_FILE="$2"
+            shift
+            shift
+            ;;
+        --compile)
+            RUN=1
+            ONLY_COMPILE=1
+            shift
+            ;;
+        --run)
+            RUN=1
+            shift
+            ;;
+        *)
+            if [[ "${RUN}" -eq 0 ]] && [[ "${CLEAN}" -eq 0 ]]; then
+                WRONG_CMD=1
+            fi
+            break
+            ;;
+        esac
+    done
+fi
+
+if [[ ${WRONG_CMD} -eq 1 ]]; then
+    usage
+fi
+
+# set maven
+MVN_CMD='mvn'
+if [[ -n "${CUSTOM_MVN}" ]]; then
+    MVN_CMD="${CUSTOM_MVN}"
+fi
+if ! "${MVN_CMD}" --version; then
+    echo "Error: mvn is not found"
+    exit 1
+fi
+export MVN_CMD
+
+CONF_DIR="${DORIS_HOME}/regression-test/conf"
+if [[ -n "${CUSTOM_CONFIG_FILE}" ]] && [[ -f "${CUSTOM_CONFIG_FILE}" ]]; then
+    CONFIG_FILE="${CUSTOM_CONFIG_FILE}"
+    echo "Using custom config file ${CONFIG_FILE}"
+else
+    CONFIG_FILE="${CONF_DIR}/regression-conf.groovy"
+fi
+LOG_CONFIG_FILE="${CONF_DIR}/logback.xml"
+
+FRAMEWORK_SOURCE_DIR="${DORIS_HOME}/regression-test/framework"
+REGRESSION_TEST_BUILD_DIR="${FRAMEWORK_SOURCE_DIR}/target"
+FRAMEWORK_APACHE_DIR="${FRAMEWORK_SOURCE_DIR}/src/main/groovy/org/apache"
+
+OUTPUT_DIR="${DORIS_HOME}/output/regression-test"
+LOG_OUTPUT_FILE="${OUTPUT_DIR}/log"
+RUN_JAR="${OUTPUT_DIR}/lib/regression-test-*.jar"
+if [[ -z "${DORIS_THIRDPARTY}" ]]; then
+    export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
+fi
+
+rm -rf "${FRAMEWORK_APACHE_DIR}/doris/thrift"
+
+if [[ "${CLEAN}" -eq 1 ]]; then
+    rm -rf "${REGRESSION_TEST_BUILD_DIR}"
+    rm -rf "${OUTPUT_DIR}"
+fi
+
+if [[ "${RUN}" -ne 1 ]]; then
+    echo "Finished"
+    exit 0
+fi
+
+if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
+    echo "===== Build Regression Test Framework ====="
+
+    # Configure Maven for better network resilience
+    export MAVEN_OPTS="${MAVEN_OPTS:-} -Dmaven.wagon.http.retryHandler.count=3 -Dmaven.wagon.httpconnectionManager.ttlSeconds=25 -Dmaven.wagon.http.retryHandler.class=standard"
+
+    # Function to execute Maven command with retry logic
+    execute_maven_with_retry() {
+        local cmd="$1"
+        local max_attempts=3
+        local attempt=1
+        
+        while [[ ${attempt} -le ${max_attempts} ]]; do
+            echo "Attempt ${attempt}/${max_attempts}: ${cmd}"
+            if eval "${cmd}"; then
+                echo "Command succeeded on attempt ${attempt}"
+                return 0
+            else
+                echo "Command failed on attempt ${attempt}"
+                if [[ ${attempt} -lt ${max_attempts} ]]; then
+                    sleep $((attempt * 5))  # Linear backoff
+                fi
+                ((attempt++))
+            fi
+        done
+        
+        echo "Command failed after ${max_attempts} attempts"
+        return 1
+    }
+
+    # Navigate to framework directory and build with retry
+    cd "${DORIS_HOME}/regression-test/framework" || { echo "Failed to change directory"; exit 1; }
+    
+    # First try to download dependencies only
+    echo "Downloading dependencies..."
+    dep_output_file="$(mktemp -t doris-dependencies-XXXXXX.txt)" || { echo "Failed to create temporary file for dependency output"; exit 1; }
+    execute_maven_with_retry "${MVN_CMD} dependency:resolve -B -DskipTests=true -Dmdep.prependGroupId=true -DoutputFile=${dep_output_file}" || {
+        echo "Failed to download dependencies"
+        exit 1
+    }
+    
+    # Then package with retry
+    echo "Building package..."
+    # Keep framework unit tests in the standard compile path so pipeline builds enforce framework regressions.
+    execute_maven_with_retry "${MVN_CMD} clean package -B -Dmaven.javadoc.skip=true" || {
+        echo "Failed to build package"
+        exit 1
+    }
+    
+    cd "${DORIS_HOME}" || { echo "Failed to return to DORIS_HOME"; exit 1; }
+
+    mkdir -p "${OUTPUT_DIR}"/{lib,log}
+    cp -r "${REGRESSION_TEST_BUILD_DIR}"/regression-test-*.jar "${OUTPUT_DIR}/lib"
+
+    echo "===== BUILD JAVA_UDF_SRC TO GENERATE JAR ====="
+    mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
+    cd "${DORIS_HOME}"/regression-test/java-udf-src || { echo "Failed to change directory to java-udf-src"; exit 1; }
+
+    # Build the UDF test jar with the same JDK 17 used by the regression framework.
+    if ! execute_maven_with_retry "${MVN_CMD} clean package -B -DskipTests=true -Dmaven.javadoc.skip=true"; then
+        echo "Failed to build UDF package"
+        exit 1
+    fi
+
+    cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
+    # be and fe dir is compiled output
+    mkdir -p "${DORIS_HOME}"/output/fe/custom_lib/
+    mkdir -p "${DORIS_HOME}"/output/be/custom_lib/
+    cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/fe/custom_lib/
+    cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/be/custom_lib/
+    cd "${DORIS_HOME}" || { echo "Failed to return to DORIS_HOME"; exit 1; }
+fi
+
+# Arrow Flight SQL JDBC needs java.nio opened when the regression framework runs on JDK 17+.
+if [[ -n "${JAVA_MAJOR_VERSION}" ]] && [[ "${JAVA_MAJOR_VERSION}" -ge 17 ]] \
+    && [[ " ${JAVA_OPTS:-} " != *"--add-opens=java.base/java.nio="* ]]; then
+    JAVA_OPTS="${JAVA_OPTS:+${JAVA_OPTS} }--add-opens=java.base/java.nio=ALL-UNNAMED"
+fi
+
+REGRESSION_OPTIONS_PREFIX=''
+
+# Parse -f/--file option and convert to -d and -s
+FILE_PATH=""
+NEW_ARGS=()
+SKIP_NEXT=0
+
+for arg in "$@"; do
+    if [[ ${SKIP_NEXT} -eq 1 ]]; then
+        FILE_PATH="${arg}"
+        SKIP_NEXT=0
+        continue
+    fi
+    
+    if [[ "${arg}" == "-f" ]] || [[ "${arg}" == "--file" ]]; then
+        SKIP_NEXT=1
+        continue
+    fi
+    
+    NEW_ARGS+=("${arg}")
+done
+
+# If -f option is provided, extract directory and suite name
+if [[ -n "${FILE_PATH}" ]]; then
+    # Extract directory (parent path)
+    # e.g., "regression-test/suites/shape_check/tpch_sf1000/shape/q1.groovy" -> "regression-test/suites/shape_check/tpch_sf1000/shape"
+    FILE_DIR=$(dirname "${FILE_PATH}")
+    
+    # Extract suite name (filename without .groovy or .sql extension)
+    # e.g., "q1.groovy" -> "q1" or "q01.sql" -> "q01"
+    FILE_NAME=$(basename "${FILE_PATH}")
+    # Remove .groovy extension if exists
+    SUITE_NAME="${FILE_NAME%.groovy}"
+    # Remove .sql extension if exists
+    SUITE_NAME="${SUITE_NAME%.sql}"
+    
+    echo "Converted -f ${FILE_PATH} to -d ${FILE_DIR} -s ${SUITE_NAME}"
+    
+    # Add -d and -s to arguments
+    NEW_ARGS+=("-d" "${FILE_DIR}" "-s" "${SUITE_NAME}")
+fi
+
+# Reset positional parameters
+set -- "${NEW_ARGS[@]}"
+
+# contains framework options and not start with -
+# it should be suite name
+if [[ "$#" -ne 0 ]] && [[ "$1" =~ ^[^-].* ]]; then
+    # specify suiteName
+    REGRESSION_OPTIONS_PREFIX='-s'
+fi
+
+echo "===== Run Regression Test ====="
+
+if [[ "${TEAMCITY}" -eq 1 ]]; then
+    JAVA_OPTS="${JAVA_OPTS} -DstdoutAppenderType=teamcity -Xmx2048m"
+fi
+
+if [[ "${ONLY_COMPILE}" -eq 0 ]]; then
+    "${JAVA}" -DDORIS_HOME="${DORIS_HOME}" \
+        -DLOG_PATH="${LOG_OUTPUT_FILE}" \
+        -Dfile.encoding="UTF-8" \
+        -Dlogback.configurationFile="${LOG_CONFIG_FILE}" \
+        ${JAVA_OPTS:+${JAVA_OPTS}} \
+        -jar ${RUN_JAR:+${RUN_JAR}} \
+        -cf "${CONFIG_FILE}" \
+        ${REGRESSION_OPTIONS_PREFIX:+${REGRESSION_OPTIONS_PREFIX}} "$@"
+fi

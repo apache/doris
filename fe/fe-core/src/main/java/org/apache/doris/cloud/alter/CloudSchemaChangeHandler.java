@@ -1,0 +1,670 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.cloud.alter;
+
+import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DynamicPartitionUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TStatusCode;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+public class CloudSchemaChangeHandler extends SchemaChangeHandler {
+    private static final Logger LOG = LogManager.getLogger(CloudSchemaChangeHandler.class);
+
+    @Override
+    public void updatePartitionsProperties(Database db, String tableName, List<String> partitionNames,
+                                           Map<String, String> properties) throws DdlException, MetaNotFoundException {
+        Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
+
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        if (properties.size() != 1) {
+            throw new DdlException("Can only set one partition property at a time");
+        }
+
+        UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
+            long ttlSeconds;
+            try {
+                ttlSeconds = PropertyAnalyzer.analyzeFileCacheTtlSeconds(
+                        properties.get(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            olapTable.readLock();
+            try {
+                if (ttlSeconds == olapTable.getTTLSeconds()) {
+                    LOG.info("ttlSeconds:{} is equal with olapTable.getTTLSeconds():{}", ttlSeconds,
+                            olapTable.getTTLSeconds());
+                    return;
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.ttlSeconds = ttlSeconds;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TTL_SECONDS;
+        } else {
+            LOG.warn("invalid properties:{}", properties);
+            throw new DdlException("invalid properties");
+        }
+
+        for (String partitionName : partitionNames) {
+            try {
+                updateCloudPartitionMeta(db, olapTable.getName(), partitionName, param);
+            } catch (Exception e) {
+                LOG.warn("tableName:{}, partitionNames:{} updateCloudPartitionsProperties exception:",
+                        tableName, partitionNames, e);
+                throw new DdlException(e.getMessage());
+            }
+        }
+    }
+
+    //TODO: extract the common code with SchemaChangeHandler
+    @Override
+    public void updateTableProperties(Database db, String tableName, Map<String, String> properties)
+            throws UserException {
+        final Set<String> allowedProps = new HashSet<String>() {
+            {
+                add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE);
+                add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+                add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+                add(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS);
+                add(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
+                add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
+                add(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
+                add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+                add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
+                add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+                add(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+                add(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
+            }
+        };
+        List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
+                .collect(Collectors.toList());
+        if (!notAllowedProps.isEmpty()) {
+            throw new UserException("modifying property " + notAllowedProps + " is forbidden");
+        }
+
+        if (properties.size() != 1) {
+            throw new UserException("Can only set one table property at a time");
+        }
+
+        List<Partition> partitions = Lists.newArrayList();
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat =
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+            if (invertedIndexFileStorageFormat == null) {
+                return;
+            }
+            olapTable.readLock();
+            try {
+                if (invertedIndexFileStorageFormat == olapTable.getPartitionInvertedIndexFileStorageFormat()) {
+                    LOG.info("partitionInvertedIndexFileStorageFormat:{} is equal with table format:{}",
+                            invertedIndexFileStorageFormat, olapTable.getPartitionInvertedIndexFileStorageFormat());
+                    return;
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT,
+                    invertedIndexFileStorageFormat.name());
+        }
+
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
+            long ttlSeconds = PropertyAnalyzer.analyzeTTL(properties);
+            olapTable.readLock();
+            try {
+                if (ttlSeconds == olapTable.getTTLSeconds()) {
+                    LOG.info("ttlSeconds:{} is equal with olapTable.getTTLSeconds():{}", ttlSeconds,
+                            olapTable.getTTLSeconds());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.ttlSeconds = ttlSeconds;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TTL_SECONDS;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE)) {
+            String groupCommitMode = PropertyAnalyzer.analyzeGroupCommitMode(properties, false);
+            olapTable.readLock();
+            try {
+                if (groupCommitMode.equalsIgnoreCase(olapTable.getGroupCommitMode())) {
+                    LOG.info("groupCommitMode:{} is equal with olapTable.groupCommitMode():{}",
+                            groupCommitMode, olapTable.getGroupCommitMode());
+                    return;
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.groupCommitMode = groupCommitMode;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.GROUP_COMMIT_MODE;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
+            int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties, false);
+            olapTable.readLock();
+            try {
+                if (groupCommitIntervalMs == olapTable.getGroupCommitIntervalMs()) {
+                    LOG.info("groupCommitIntervalMs:{} is equal with olapTable.getGroupCommitIntervalMs():{}",
+                            groupCommitIntervalMs, olapTable.getGroupCommitIntervalMs());
+                    return;
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.groupCommitIntervalMs = groupCommitIntervalMs;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.GROUP_COMMIT_INTERVAL_MS;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
+            int groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties, false);
+            olapTable.readLock();
+            try {
+                if (groupCommitDataBytes == olapTable.getGroupCommitDataBytes()) {
+                    LOG.info("groupCommitDataBytes:{} is equal with olapTable.getGroupCommitDataBytes():{}",
+                            groupCommitDataBytes, olapTable.getGroupCommitDataBytes());
+                    return;
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.groupCommitDataBytes = groupCommitDataBytes;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.GROUP_COMMIT_DATA_BYTES;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
+            String compactionPolicy = properties.get(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
+            if (compactionPolicy != null
+                    && !compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                    && !compactionPolicy.equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
+                throw new UserException("Table compaction policy only support for "
+                        + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
+                        + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
+            }
+            if (compactionPolicy != null && compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                    && olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+                throw new UserException("Time series compaction policy is not supported for unique key table");
+            }
+            olapTable.readLock();
+            try {
+                if (compactionPolicy == olapTable.getCompactionPolicy()) {
+                    LOG.info("compactionPolicy:{} is equal with olapTable.getCompactionPolicy():{}",
+                            compactionPolicy, olapTable.getCompactionPolicy());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.compactionPolicy = compactionPolicy;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+            long timeSeriesCompactionGoalSizeMbytes = Long.parseLong(properties.get(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES));
+            olapTable.readLock();
+            try {
+                if (timeSeriesCompactionGoalSizeMbytes
+                        == olapTable.getTimeSeriesCompactionGoalSizeMbytes()) {
+                    LOG.info("timeSeriesCompactionGoalSizeMbytes:{} is equal with"
+                                    + " olapTable.timeSeriesCompactionGoalSizeMbytes():{}",
+                            timeSeriesCompactionGoalSizeMbytes,
+                            olapTable.getTimeSeriesCompactionGoalSizeMbytes());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.timeSeriesCompactionGoalSizeMbytes = timeSeriesCompactionGoalSizeMbytes;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
+            long timeSeriesCompactionFileCountThreshold = Long.parseLong(properties.get(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD));
+            olapTable.readLock();
+            try {
+                if (timeSeriesCompactionFileCountThreshold
+                        == olapTable.getTimeSeriesCompactionFileCountThreshold()) {
+                    LOG.info("timeSeriesCompactionFileCountThreshold:{} is equal with"
+                                    + " olapTable.getTimeSeriesCompactionFileCountThreshold():{}",
+                            timeSeriesCompactionFileCountThreshold,
+                            olapTable.getTimeSeriesCompactionFileCountThreshold());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.timeSeriesCompactionFileCountThreshold = timeSeriesCompactionFileCountThreshold;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
+            long timeSeriesCompactionTimeThresholdSeconds = Long.parseLong(properties.get(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
+            olapTable.readLock();
+            try {
+                if (timeSeriesCompactionTimeThresholdSeconds
+                        == olapTable.getTimeSeriesCompactionTimeThresholdSeconds()) {
+                    LOG.info("timeSeriesCompactionTimeThresholdSeconds:{} is equal with"
+                                    + " olapTable.getTimeSeriesCompactionTimeThresholdSeconds():{}",
+                            timeSeriesCompactionTimeThresholdSeconds,
+                            olapTable.getTimeSeriesCompactionTimeThresholdSeconds());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+            long timeSeriesCompactionEmptyRowsetsThreshold = Long.parseLong(properties.get(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD));
+            olapTable.readLock();
+            try {
+                if (timeSeriesCompactionEmptyRowsetsThreshold
+                        == olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()) {
+                    LOG.info("timeSeriesCompactionEmptyRowsetsThreshold:{} is equal with"
+                                    + " olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold():{}",
+                            timeSeriesCompactionEmptyRowsetsThreshold,
+                            olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.timeSeriesCompactionEmptyRowsetsThreshold = timeSeriesCompactionEmptyRowsetsThreshold;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
+            long timeSeriesCompactionLevelThreshold = Long.parseLong(properties.get(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD));
+            olapTable.readLock();
+            try {
+                if (timeSeriesCompactionLevelThreshold
+                        == olapTable.getTimeSeriesCompactionLevelThreshold()) {
+                    LOG.info("timeSeriesCompactionLevelThreshold:{} is equal with"
+                                    + " olapTable.getTimeSeriesCompactionLevelThreshold():{}",
+                            timeSeriesCompactionLevelThreshold,
+                            olapTable.getTimeSeriesCompactionLevelThreshold());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.timeSeriesCompactionLevelThreshold = timeSeriesCompactionLevelThreshold;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
+            boolean disableAutoCompaction = Boolean.parseBoolean(properties.get(PropertyAnalyzer
+                    .PROPERTIES_DISABLE_AUTO_COMPACTION));
+            olapTable.readLock();
+            try {
+                if (disableAutoCompaction
+                        == olapTable.disableAutoCompaction()) {
+                    LOG.info("disableAutoCompaction:{} is equal with"
+                                    + " olapTable.disableAutoCompaction():{}",
+                            disableAutoCompaction,
+                            olapTable.disableAutoCompaction());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.disableAutoCompaction = disableAutoCompaction;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.DISABLE_AUTO_COMPACTION;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)) {
+            boolean enableMowLightDelete = Boolean.parseBoolean(properties.get(PropertyAnalyzer
+                    .PROPERTIES_ENABLE_MOW_LIGHT_DELETE));
+            olapTable.readLock();
+            try {
+                if (enableMowLightDelete
+                        == olapTable.getEnableMowLightDelete()) {
+                    LOG.info("enableMowLightDelete:{} is equal with"
+                                    + " olapTable.getEnableMowLightDelete():{}",
+                            enableMowLightDelete,
+                            olapTable.getEnableMowLightDelete());
+                    return;
+                }
+                if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                    throw new UserException("enable_mow_light_delete property is "
+                            + "not supported for unique merge-on-read table");
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.enableMowLightDelete = enableMowLightDelete;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.ENABLE_MOW_LIGHT_DELETE;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+            // Do nothing.
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            // Retention count only changes FE table properties and scheduler registration below.
+        } else if (properties.containsKey(
+                PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
+            int verticalCompactionNumColumnsPerGroup = Integer.parseInt(properties.get(
+                    PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP));
+            olapTable.readLock();
+            try {
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.verticalCompactionNumColumnsPerGroup = verticalCompactionNumColumnsPerGroup;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            // Existing tablet metadata retains its creation-time format.
+        } else {
+            LOG.warn("invalid properties:{}", properties);
+            throw new UserException("invalid properties");
+        }
+
+        for (Partition partition : partitions) {
+            updateCloudPartitionMeta(db, olapTable.getName(), partition.getName(), param);
+        }
+
+        olapTable.writeLockOrDdlException();
+        try {
+            checkPartitionRetentionCount(olapTable, properties);
+            Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
+        } finally {
+            olapTable.writeUnlock();
+        }
+
+        // after modifyTableProperties, buildPartitionRetentionCount has been done.
+        DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
+    }
+
+    @Override
+    public void updatePartitionProperties(Database db, String tableName, String partitionName,
+            long storagePolicyId, int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
+            Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad,
+            int disableAutoCompaction, int verticalCompactionNumColumnsPerGroup) throws UserException {
+        Preconditions.checkNotNull(binlogConfig);
+        UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        param.binlogConfig = binlogConfig;
+        param.type = UpdatePartitionMetaParam.TabletMetaType.BINLOG_CONFIG;
+        updateCloudPartitionMeta(db, tableName, partitionName, param);
+    }
+
+    private static class UpdatePartitionMetaParam {
+        public enum TabletMetaType {
+            INMEMORY,
+            PERSISTENT,
+            TTL_SECONDS,
+            GROUP_COMMIT_MODE,
+            GROUP_COMMIT_INTERVAL_MS,
+            GROUP_COMMIT_DATA_BYTES,
+            COMPACTION_POLICY,
+            TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
+            TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
+            TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+            TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+            TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+            DISABLE_AUTO_COMPACTION,
+            ENABLE_MOW_LIGHT_DELETE,
+            VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP,
+            BINLOG_CONFIG,
+        }
+
+        TabletMetaType type;
+        boolean isPersistent = false;
+        boolean isInMemory = false;
+        long ttlSeconds = 0;
+        String groupCommitMode;
+        long groupCommitIntervalMs = 0;
+        long groupCommitDataBytes = 0;
+        String compactionPolicy;
+        long timeSeriesCompactionGoalSizeMbytes = 0;
+        long timeSeriesCompactionFileCountThreshold = 0;
+        long timeSeriesCompactionTimeThresholdSeconds = 0;
+        long timeSeriesCompactionEmptyRowsetsThreshold = 0;
+        long timeSeriesCompactionLevelThreshold = 0;
+        boolean disableAutoCompaction = false;
+        boolean enableMowLightDelete = false;
+        int verticalCompactionNumColumnsPerGroup = 5;
+        BinlogConfig binlogConfig;
+    }
+
+    public void updateCloudPartitionMeta(Database db,
+            String tableName,
+            String partitionName,
+            UpdatePartitionMetaParam param) throws UserException {
+        List<Long> tabletIds = new ArrayList<>();
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(partitionName);
+            if (partition == null) {
+                throw new DdlException(
+                        "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
+            }
+            boolean includeRowBinlog = param.type != UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY;
+            for (MaterializedIndex index
+                    : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeRowBinlog)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tabletIds.add(tablet.getId());
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+        for (int index = 0; index < tabletIds.size();) {
+            int nextIndex = tabletIds.size() - index > Config.cloud_txn_tablet_batch_size
+                    ? index + Config.cloud_txn_tablet_batch_size
+                    : tabletIds.size();
+            Cloud.UpdateTabletRequest.Builder requestBuilder = Cloud.UpdateTabletRequest.newBuilder()
+                    .setRequestIp(FrontendOptions.getLocalHostAddressCached());
+            while (index < nextIndex) {
+                Cloud.TabletMetaInfoPB.Builder infoBuilder = Cloud.TabletMetaInfoPB.newBuilder();
+                infoBuilder.setTabletId(tabletIds.get(index));
+                switch (param.type) {
+                    case PERSISTENT:
+                        infoBuilder.setIsPersistent(param.isPersistent);
+                        break;
+                    case INMEMORY:
+                        infoBuilder.setIsInMemory(param.isInMemory);
+                        break;
+                    case TTL_SECONDS:
+                        infoBuilder.setTtlSeconds(param.ttlSeconds);
+                        break;
+                    case GROUP_COMMIT_INTERVAL_MS:
+                        infoBuilder.setGroupCommitIntervalMs(param.groupCommitIntervalMs);
+                        break;
+                    case GROUP_COMMIT_DATA_BYTES:
+                        infoBuilder.setGroupCommitDataBytes(param.groupCommitDataBytes);
+                        break;
+                    case GROUP_COMMIT_MODE:
+                        infoBuilder.setGroupCommitMode(param.groupCommitMode);
+                        break;
+                    case COMPACTION_POLICY:
+                        infoBuilder.setCompactionPolicy(param.compactionPolicy);
+                        break;
+                    case TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES:
+                        infoBuilder.setTimeSeriesCompactionGoalSizeMbytes(
+                                param.timeSeriesCompactionGoalSizeMbytes);
+                        break;
+                    case TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD:
+                        infoBuilder.setTimeSeriesCompactionFileCountThreshold(
+                                param.timeSeriesCompactionFileCountThreshold);
+                        break;
+                    case TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS:
+                        infoBuilder.setTimeSeriesCompactionTimeThresholdSeconds(
+                                param.timeSeriesCompactionTimeThresholdSeconds);
+                        break;
+                    case TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD:
+                        infoBuilder.setTimeSeriesCompactionEmptyRowsetsThreshold(
+                                param.timeSeriesCompactionEmptyRowsetsThreshold);
+                        break;
+                    case TIME_SERIES_COMPACTION_LEVEL_THRESHOLD:
+                        infoBuilder.setTimeSeriesCompactionLevelThreshold(
+                                param.timeSeriesCompactionLevelThreshold);
+                        break;
+                    case DISABLE_AUTO_COMPACTION:
+                        infoBuilder.setDisableAutoCompaction(
+                                param.disableAutoCompaction);
+                        break;
+                    case ENABLE_MOW_LIGHT_DELETE:
+                        infoBuilder.setEnableMowLightDelete(
+                                param.enableMowLightDelete
+                        );
+                        break;
+                    case VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP:
+                        infoBuilder.setVerticalCompactionNumColumnsPerGroup(
+                                param.verticalCompactionNumColumnsPerGroup);
+                        break;
+                    case BINLOG_CONFIG:
+                        infoBuilder.setBinlogConfig(param.binlogConfig.toProtobuf());
+                        break;
+                    default:
+                        throw new UserException("Unknown TabletMetaType");
+                }
+                Cloud.TabletMetaInfoPB tabletMetaInfo = infoBuilder.build();
+                requestBuilder.addTabletMetaInfos(tabletMetaInfo);
+                index++;
+            }
+            requestBuilder.setCloudUniqueId(Config.cloud_unique_id);
+            Cloud.UpdateTabletRequest updateTabletReq = requestBuilder.build();
+            LOG.info("UpdateTabletRequest: {} ", updateTabletReq);
+
+            Cloud.UpdateTabletResponse response;
+            try {
+                response = MetaServiceProxy.getInstance().updateTablet(updateTabletReq);
+            } catch (Exception e) {
+                LOG.warn("updateTablet Exception:", e);
+                throw new UserException(e.getMessage());
+            }
+            LOG.info("response: {} ", response);
+
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                throw new UserException(response.getStatus().getMsg());
+            }
+
+            notifyBackendsToSyncTabletMeta(tableName, updateTabletReq.getTabletMetaInfosList().stream()
+                    .map(Cloud.TabletMetaInfoPB::getTabletId)
+                    .collect(Collectors.toList()));
+        }
+    }
+
+    void notifyBackendsToSyncTabletMeta(String tableName, List<Long> tabletIds) {
+        if (tabletIds.isEmpty()) {
+            return;
+        }
+        if (DebugPointUtil.isEnable("CloudSchemaChangeHandler.notifyBackendsToSyncTabletMeta.skip")) {
+            LOG.info("skip sync tablet meta rpc dispatch by debug point, tableName={}, tabletIds={}",
+                    tableName, tabletIds);
+            return;
+        }
+        List<Backend> backends;
+        try {
+            backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
+        } catch (UserException e) {
+            LOG.warn("failed to get alive backends for sync tablet meta, tableName={}, tabletIds={}",
+                    tableName, tabletIds, e);
+            return;
+        }
+
+        InternalService.PSyncTabletMetaRequest request = InternalService.PSyncTabletMetaRequest.newBuilder()
+                .addAllTabletIds(tabletIds)
+                .build();
+        long dispatchStartTimeMs = System.currentTimeMillis();
+        int sentBackends = 0;
+        int skippedBackends = 0;
+        LOG.info("start to dispatch sync tablet meta rpc, tableName={}, tabletIds={}, request={}",
+                tableName, tabletIds, request);
+        for (Backend backend : backends) {
+            if (!backend.isAlive() || backend.getBrpcPort() <= 0) {
+                skippedBackends++;
+                continue;
+            }
+            try {
+                long rpcStartTimeMs = System.currentTimeMillis();
+                ListenableFuture<InternalService.PSyncTabletMetaResponse> future =
+                        BackendServiceProxy.getInstance().syncTabletMeta(backend.getBrpcAddress(), request);
+                sentBackends++;
+                Futures.addCallback(future, new FutureCallback<InternalService.PSyncTabletMetaResponse>() {
+                    @Override
+                    public void onSuccess(InternalService.PSyncTabletMetaResponse response) {
+                        long costMs = System.currentTimeMillis() - rpcStartTimeMs;
+                        if (response == null || !response.hasStatus()
+                                || response.getStatus().getStatusCode() != TStatusCode.OK.getValue()) {
+                            LOG.warn("sync tablet meta rpc returned non-ok response, backendId={}, tabletIds={},"
+                                            + " tableName={}, response={}, costMs={}",
+                                    backend.getId(), tabletIds, tableName, response, costMs);
+                            return;
+                        }
+                        LOG.info("sync tablet meta rpc finished, backendId={}, tableName={}, tabletIds={},"
+                                        + " response={}, costMs={}",
+                                backend.getId(), tableName, tabletIds, response, costMs);
+                    }
+
+                    @Override
+                    public void onFailure(Throwable t) {
+                        LOG.warn("sync tablet meta rpc failed, backendId={}, tableName={}, tabletIds={}, costMs={}",
+                                backend.getId(), tableName, tabletIds,
+                                System.currentTimeMillis() - rpcStartTimeMs, t);
+                    }
+                }, MoreExecutors.directExecutor());
+            } catch (Exception e) {
+                LOG.warn("failed to dispatch sync tablet meta rpc, backendId={}, tableName={}, tabletIds={}",
+                        backend.getId(), tableName, tabletIds, e);
+            }
+        }
+        LOG.info("finish dispatching sync tablet meta rpc, tableName={}, tabletIds={}, backendNum={},"
+                        + " sentBackends={}, skippedBackends={}, costMs={}",
+                tableName, tabletIds, backends.size(), sentBackends, skippedBackends,
+                System.currentTimeMillis() - dispatchStartTimeMs);
+    }
+}

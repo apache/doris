@@ -1,0 +1,69 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.visitor;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
+import org.apache.doris.nereids.trees.plans.Plan;
+
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Collect the nondeterministic expressions in a plan.
+ */
+public class NondeterministicFunctionCollector
+        extends DefaultPlanVisitor<Void, List<Expression>> {
+
+    public static final NondeterministicFunctionCollector INSTANCE = new NondeterministicFunctionCollector(false);
+
+    /** MV-specific instance that skips hidden IVM row-id aliases during collection. */
+    public static final NondeterministicFunctionCollector MV_INSTANCE = new NondeterministicFunctionCollector(true);
+
+    private final boolean skipIvmRowId;
+
+    private NondeterministicFunctionCollector(boolean skipIvmRowId) {
+        this.skipIvmRowId = skipIvmRowId;
+    }
+
+    @Override
+    public Void visit(Plan plan, List<Expression> collectedExpressions) {
+        List<? extends Expression> expressions = plan.getExpressions();
+        if (expressions.isEmpty()) {
+            return super.visit(plan, collectedExpressions);
+        }
+        for (Expression expression : expressions) {
+            if (skipIvmRowId && isMvRowIdAlias(expression)) {
+                continue;
+            }
+            Set<Expression> nondeterministicFunctions =
+                    expression.collect(expr -> !((ExpressionTrait) expr).isDeterministic()
+                            && expr instanceof FunctionTrait);
+            collectedExpressions.addAll(nondeterministicFunctions);
+        }
+        return super.visit(plan, collectedExpressions);
+    }
+
+    private boolean isMvRowIdAlias(Expression expression) {
+        return expression instanceof Alias
+                && Column.IVM_ROW_ID_COL.equals(((Alias) expression).getName());
+    }
+}

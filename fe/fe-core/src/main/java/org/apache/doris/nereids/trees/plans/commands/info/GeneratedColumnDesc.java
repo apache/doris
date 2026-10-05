@@ -1,0 +1,78 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands.info;
+
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.GeneratedColumnInfo;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+import java.util.Map;
+import java.util.Optional;
+
+/**GeneratedColumnDesc for nereids*/
+public class GeneratedColumnDesc {
+    /**GeneratedColumnType*/
+    public enum GeneratedColumnType {
+        VIRTUAL,
+        STORED
+    }
+
+    private final GeneratedColumnType type;
+    private final String exprSql;
+    private Expr expr;
+    private final Expression expression;
+    private Optional<Map<String, String>> sessionVariables = Optional.empty();
+
+    /** constructor */
+    public GeneratedColumnDesc(String exprSql, Expression expression) {
+        this.exprSql = exprSql;
+        this.expression = expression;
+        this.type = GeneratedColumnType.STORED;
+    }
+
+    /** Defer parsing a copied expression until the source column's session settings are active. */
+    public GeneratedColumnDesc(String exprSql) {
+        this(exprSql, null);
+    }
+
+    public Expr getExpr() {
+        return expr;
+    }
+
+    public void setExpr(Expr expr) {
+        this.expr = expr;
+    }
+
+    public Expression getExpression() {
+        // CREATE TABLE LIKE must also parse the expression under its original session settings.
+        return expression == null ? new NereidsParser().parseExpression(exprSql) : expression;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = Optional.ofNullable(sessionVariables);
+    }
+
+    public Optional<Map<String, String>> getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public GeneratedColumnInfo translateToInfo() {
+        return new GeneratedColumnInfo(exprSql, expr);
+    }
+}

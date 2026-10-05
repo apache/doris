@@ -1,0 +1,186 @@
+set sql_dialect='presto';
+set enable_fallback_to_original_planner=false;
+set debug_skip_fold_constant=false;
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234567'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345678'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456789'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234567890'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345678901'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901] is invalid
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456789012'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012] is invalid
+-- SELECT hour(TIME '12:34:56'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56] is invalid
+-- SELECT hour(TIME '12:34:56.1'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1] is invalid
+-- SELECT hour(TIME '12:34:56.12'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12] is invalid
+-- SELECT hour(TIME '12:34:56.123'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123] is invalid
+-- SELECT hour(TIME '12:34:56.1234'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234] is invalid
+-- SELECT hour(TIME '12:34:56.12345'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345] is invalid
+-- SELECT hour(TIME '12:34:56.123456'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456] is invalid
+-- SELECT hour(TIME '12:34:56.1234567'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567] is invalid
+-- SELECT hour(TIME '12:34:56.12345678'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678] is invalid
+-- SELECT hour(TIME '12:34:56.123456789'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789] is invalid
+-- SELECT hour(TIME '12:34:56.1234567890'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890] is invalid
+-- SELECT hour(TIME '12:34:56.12345678901'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901] is invalid
+-- SELECT hour(TIME '12:34:56.123456789012'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234567'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345678'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456789'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234567890'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345678901'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901] is invalid
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456789012'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012] is invalid
+-- SELECT minute(TIME '12:34:56'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56] is invalid
+-- SELECT minute(TIME '12:34:56.1'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1] is invalid
+-- SELECT minute(TIME '12:34:56.12'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12] is invalid
+-- SELECT minute(TIME '12:34:56.123'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123] is invalid
+-- SELECT minute(TIME '12:34:56.1234'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234] is invalid
+-- SELECT minute(TIME '12:34:56.12345'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345] is invalid
+-- SELECT minute(TIME '12:34:56.123456'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456] is invalid
+-- SELECT minute(TIME '12:34:56.1234567'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567] is invalid
+-- SELECT minute(TIME '12:34:56.12345678'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678] is invalid
+-- SELECT minute(TIME '12:34:56.123456789'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789] is invalid
+-- SELECT minute(TIME '12:34:56.1234567890'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890] is invalid
+-- SELECT minute(TIME '12:34:56.12345678901'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901] is invalid
+-- SELECT minute(TIME '12:34:56.123456789012'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234567'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345678'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456789'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234567890'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345678901'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901] is invalid
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456789012'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012] is invalid
+-- SELECT second(TIME '12:34:56'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56] is invalid
+-- SELECT second(TIME '12:34:56.1'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1] is invalid
+-- SELECT second(TIME '12:34:56.12'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12] is invalid
+-- SELECT second(TIME '12:34:56.123'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123] is invalid
+-- SELECT second(TIME '12:34:56.1234'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234] is invalid
+-- SELECT second(TIME '12:34:56.12345'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345] is invalid
+-- SELECT second(TIME '12:34:56.123456'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456] is invalid
+-- SELECT second(TIME '12:34:56.1234567'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567] is invalid
+-- SELECT second(TIME '12:34:56.12345678'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678] is invalid
+-- SELECT second(TIME '12:34:56.123456789'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789] is invalid
+-- SELECT second(TIME '12:34:56.1234567890'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.1234567890] is invalid
+-- SELECT second(TIME '12:34:56.12345678901'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.12345678901] is invalid
+-- SELECT second(TIME '12:34:56.123456789012'); # error: errCode = 2, detailMessage = date/datetime literal [12:34:56.123456789012] is invalid
+-- SELECT millisecond(TIME '12:34:56'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234567'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234567');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345678'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345678');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456789'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456789');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234567890'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234567890');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345678901'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345678901');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456789012'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456789012');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+set debug_skip_fold_constant=true;
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234567'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345678'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456789'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.1234567890'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.12345678901'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(HOUR FROM TIME '12:34:56.123456789012'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.1'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.12'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.123'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.1234'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.12345'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.123456'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.1234567'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.12345678'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.123456789'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.1234567890'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.12345678901'); # differ: doris : None, presto : 12
+-- SELECT hour(TIME '12:34:56.123456789012'); # differ: doris : None, presto : 12
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234567'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345678'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456789'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.1234567890'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.12345678901'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(MINUTE FROM TIME '12:34:56.123456789012'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.1'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.12'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.123'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.1234'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.12345'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.123456'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.1234567'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.12345678'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.123456789'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.1234567890'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.12345678901'); # differ: doris : None, presto : 34
+-- SELECT minute(TIME '12:34:56.123456789012'); # differ: doris : None, presto : 34
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234567'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345678'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456789'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.1234567890'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.12345678901'); # differ: doris : None, presto : 56
+-- SELECT EXTRACT(SECOND FROM TIME '12:34:56.123456789012'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.1'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.12'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.123'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.1234'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.12345'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.123456'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.1234567'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.12345678'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.123456789'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.1234567890'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.12345678901'); # differ: doris : None, presto : 56
+-- SELECT second(TIME '12:34:56.123456789012'); # differ: doris : None, presto : 56
+-- SELECT millisecond(TIME '12:34:56'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234567'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234567');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345678'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345678');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456789'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456789');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.1234567890'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.1234567890');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.12345678901'); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.12345678901');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	
+-- SELECT millisecond(TIME '12:34:56.123456789012') # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT millisecond(TIME '12:34:56.123456789012');	                        ^	Encountered: STRING LITERAL	Expected: ||, COMMA, .	

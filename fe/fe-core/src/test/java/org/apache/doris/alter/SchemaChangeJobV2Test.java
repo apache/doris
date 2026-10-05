@@ -1,0 +1,758 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.alter;
+
+import org.apache.doris.alter.AlterJobV2.JobState;
+import org.apache.doris.backup.CatalogMocker;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.DynamicPartitionProperty;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEditLog;
+import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.LocalTablet;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.SchemaVersionAndHash;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
+import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.FakeTransactionIDGenerator;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+public class SchemaChangeJobV2Test {
+
+    private static String fileName = "./SchemaChangeV2Test";
+
+    private static FakeEditLog fakeEditLog;
+    private static FakeEnv fakeEnv;
+    private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
+    private static MockedStatic<AgentTaskExecutor> mockedAgentTaskExecutor;
+    private static GlobalTransactionMgr masterTransMgr;
+    private static GlobalTransactionMgr slaveTransMgr;
+    private static Env masterEnv;
+    private static Env slaveEnv;
+    private static ColumnDefinition newCol = new ColumnDefinition("add_v", DataType.fromCatalogType(ScalarType.createType(PrimitiveType.INT)),
+            false, AggregateType.MAX, false, Optional.of(new DefaultValue("1")), "");
+    private static AddColumnOp addColumnOp = new AddColumnOp(newCol, new ColumnPosition("v"), null, null);
+
+    @BeforeEach
+    public void setUp()
+            throws InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException,
+            NoSuchMethodException, SecurityException, UserException {
+        FakeEnv.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        fakeEditLog = new FakeEditLog();
+        fakeEnv = new FakeEnv();
+        fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
+        masterEnv = CatalogTestUtil.createTestCatalog();
+        slaveEnv = CatalogTestUtil.createTestCatalog();
+        masterTransMgr = (GlobalTransactionMgr) masterEnv.getGlobalTransactionMgr();
+        masterTransMgr.setEditLog(masterEnv.getEditLog());
+        slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
+        slaveTransMgr.setEditLog(slaveEnv.getEditLog());
+        addColumnOp.validate(new ConnectContext());
+
+        FeConstants.runningUnitTest = true;
+        AgentTaskQueue.clearAllTasks();
+        mockedAgentTaskExecutor = Mockito.mockStatic(AgentTaskExecutor.class);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (mockedAgentTaskExecutor != null) {
+            mockedAgentTaskExecutor.close();
+            mockedAgentTaskExecutor = null;
+        }
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        if (fakeTransactionIDGenerator != null) {
+            fakeTransactionIDGenerator.close();
+        }
+    }
+
+    @Test
+    public void testAddSchemaChange() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        schemaChangeHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, alterJobsV2.size());
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
+    }
+
+    @Test
+    public void testDropColumnUpdatesBfColumnsBeforeJobFinalized() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Column bfColumn = olapTable.getBaseSchema().stream()
+                .filter(column -> !column.isKey())
+                .findFirst()
+                .orElseThrow();
+        olapTable.setBloomFilterInfo(Sets.newHashSet(bfColumn.getName()), 0.05);
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(new DropColumnOp(bfColumn.getName(), null, Maps.newHashMap()));
+        schemaChangeHandler.process(alterOps, db, olapTable);
+
+        Assertions.assertNull(olapTable.getCopiedBfColumns());
+        SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) schemaChangeHandler
+                .getAlterJobsV2().values().stream().findFirst().orElseThrow();
+        Assertions.assertNull(Deencapsulation.getField(schemaChangeJob, "bfColumns"));
+        Assertions.assertFalse((Boolean) Deencapsulation.getField(schemaChangeJob, "hasBfChange"));
+    }
+
+    // start a schema change, then finished
+    @Test
+    public void testSchemaChange1() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        // add a schema change job
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        schemaChangeHandler.process(alterOps,  db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, alterJobsV2.size());
+        SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
+
+        MaterializedIndex baseIndex = testPartition.getBaseIndex();
+        Assertions.assertEquals(IndexState.NORMAL, baseIndex.getState());
+        Assertions.assertEquals(PartitionState.NORMAL, testPartition.getState());
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
+
+        Tablet baseTablet = baseIndex.getTablets().get(0);
+        List<Replica> replicas = baseTablet.getReplicas();
+        Replica replica1 = replicas.get(0);
+        Replica replica2 = replicas.get(1);
+        Replica replica3 = replicas.get(2);
+
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
+        Assertions.assertEquals(-1, replica1.getLastFailedVersion());
+        Assertions.assertEquals(-1, replica2.getLastFailedVersion());
+        Assertions.assertEquals(-1, replica3.getLastFailedVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
+
+        // runPendingJob
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.WAITING_TXN, schemaChangeJob.getJobState());
+        Assertions.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
+        Assertions.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.VISIBLE).size());
+        Assertions.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
+
+        // runWaitingTxnJob
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
+
+        // runRunningJob, task not finished
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
+
+        // runRunningJob
+        schemaChangeHandler.runAfterCatalogReady();
+        // task not finished, still running
+        Assertions.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
+
+        // finish alter tasks
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assertions.assertEquals(3, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+        MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
+        for (Tablet shadowTablet : shadowIndex.getTablets()) {
+            for (Replica shadowReplica : shadowTablet.getReplicas()) {
+                shadowReplica.updateVersion(testPartition.getVisibleVersion());
+            }
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.FINISHED, schemaChangeJob.getJobState());
+    }
+
+    @Test
+    public void testSchemaChangeWhileTabletNotStable() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        // add a schema change job
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        schemaChangeHandler.process(alterOps,  db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, alterJobsV2.size());
+        SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
+
+        MaterializedIndex baseIndex = testPartition.getBaseIndex();
+        Assertions.assertEquals(IndexState.NORMAL, baseIndex.getState());
+        Assertions.assertEquals(PartitionState.NORMAL, testPartition.getState());
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
+
+        Tablet baseTablet = baseIndex.getTablets().get(0);
+        List<Replica> replicas = baseTablet.getReplicas();
+        Replica replica1 = replicas.get(0);
+        Replica replica2 = replicas.get(1);
+        Replica replica3 = replicas.get(2);
+
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
+        Assertions.assertEquals(-1, replica1.getLastFailedVersion());
+        Assertions.assertEquals(-1, replica2.getLastFailedVersion());
+        Assertions.assertEquals(-1, replica3.getLastFailedVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
+
+        // runPendingJob
+        replica1.setState(Replica.ReplicaState.DECOMMISSION);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.PENDING, schemaChangeJob.getJobState());
+
+        // table is stable runPendingJob again
+        replica1.setState(Replica.ReplicaState.NORMAL);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.WAITING_TXN, schemaChangeJob.getJobState());
+        Assertions.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
+        Assertions.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.VISIBLE).size());
+        Assertions.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
+
+        // runWaitingTxnJob
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
+
+        // runWaitingTxnJob, task not finished
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
+
+        // runRunningJob
+        schemaChangeHandler.runAfterCatalogReady();
+        // task not finished, still running
+        Assertions.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
+
+        // finish alter tasks
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assertions.assertEquals(3, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+        MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
+        for (Tablet shadowTablet : shadowIndex.getTablets()) {
+            for (Replica shadowReplica : shadowTablet.getReplicas()) {
+                shadowReplica.updateVersion(testPartition.getVisibleVersion());
+            }
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.FINISHED, schemaChangeJob.getJobState());
+    }
+
+    @Test
+    public void testModifyDynamicPartitionNormal() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DynamicPartitionProperty.ENABLE, "true");
+        properties.put(DynamicPartitionProperty.TIME_UNIT, "day");
+        properties.put(DynamicPartitionProperty.END, "3");
+        properties.put(DynamicPartitionProperty.PREFIX, "p");
+        properties.put(DynamicPartitionProperty.BUCKETS, "30");
+        alterOps.add(new ModifyTablePropertiesOp(properties));
+        Database db = CatalogMocker.mockDb();
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
+        schemaChangeHandler.process(alterOps,  db, olapTable);
+        Assertions.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
+        Assertions.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assertions.assertEquals("day", olapTable.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
+        Assertions.assertEquals(3, olapTable.getTableProperty().getDynamicPartitionProperty().getEnd());
+        Assertions.assertEquals("p", olapTable.getTableProperty().getDynamicPartitionProperty().getPrefix());
+        Assertions.assertEquals(30, olapTable.getTableProperty().getDynamicPartitionProperty().getBuckets());
+
+        // set dynamic_partition.enable = false
+        ArrayList<AlterOp> tmpAlterOps = new ArrayList<>();
+        properties.put(DynamicPartitionProperty.ENABLE, "false");
+        tmpAlterOps.add(new ModifyTablePropertiesOp(properties));
+        schemaChangeHandler.process(tmpAlterOps,  db, olapTable);
+        Assertions.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
+        // set dynamic_partition.time_unit = week
+        tmpAlterOps = new ArrayList<>();
+        properties.put(DynamicPartitionProperty.TIME_UNIT, "week");
+        tmpAlterOps.add(new ModifyTablePropertiesOp(properties));
+        schemaChangeHandler.process(tmpAlterOps,  db, olapTable);
+        Assertions.assertEquals("week", olapTable.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
+        // set dynamic_partition.end = 10
+        tmpAlterOps = new ArrayList<>();
+        properties.put(DynamicPartitionProperty.END, "10");
+        tmpAlterOps.add(new ModifyTablePropertiesOp(properties));
+        schemaChangeHandler.process(tmpAlterOps,  db, olapTable);
+        Assertions.assertEquals(10, olapTable.getTableProperty().getDynamicPartitionProperty().getEnd());
+        // set dynamic_partition.prefix = p1
+        tmpAlterOps = new ArrayList<>();
+        properties.put(DynamicPartitionProperty.PREFIX, "p1");
+        tmpAlterOps.add(new ModifyTablePropertiesOp(properties));
+        schemaChangeHandler.process(tmpAlterOps,  db, olapTable);
+        Assertions.assertEquals("p1", olapTable.getTableProperty().getDynamicPartitionProperty().getPrefix());
+        // set dynamic_partition.buckets = 3
+        tmpAlterOps = new ArrayList<>();
+        properties.put(DynamicPartitionProperty.BUCKETS, "3");
+        tmpAlterOps.add(new ModifyTablePropertiesOp(properties));
+        schemaChangeHandler.process(tmpAlterOps,  db, olapTable);
+        Assertions.assertEquals(3, olapTable.getTableProperty().getDynamicPartitionProperty().getBuckets());
+    }
+
+    public void modifyDynamicPartitionWithoutTableProperty(String propertyKey, String propertyValue)
+            throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        Map<String, String> properties = new HashMap<>();
+        properties.put(propertyKey, propertyValue);
+        alterOps.add(new ModifyTablePropertiesOp(properties));
+
+        Database db = CatalogMocker.mockDb();
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
+
+        DdlException e = Assertions.assertThrows(DdlException.class, () -> {
+            schemaChangeHandler.process(alterOps,  db, olapTable);
+        });
+        Assertions.assertTrue(e.getMessage().contains("errCode = 2,"
+                + " detailMessage = Table test_db.test_tbl2 is not a dynamic partition table. "
+                + "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table."),
+                "unexpected message: " + e.getMessage());
+    }
+
+    @Test
+    public void testModifyDynamicPartitionWithoutTableProperty() throws UserException {
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.ENABLE, "false");
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.TIME_UNIT, "day");
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.END, "3");
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.PREFIX, "p");
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.BUCKETS, "30");
+    }
+
+    @Test
+    public void testModifyDynamicPartitionWithInvalidProperty() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DynamicPartitionProperty.ENABLE, "true");
+        properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "time_uint", "day");
+        properties.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX + "edn", "3");
+        properties.put(DynamicPartitionProperty.PREFIX, "p");
+        properties.put(DynamicPartitionProperty.BUCKETS, "30");
+        properties.put("invalid_property", "invalid_value");
+        alterOps.add(new ModifyTablePropertiesOp(properties));
+
+        Database db = CatalogMocker.mockDb();
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
+        DdlException e = Assertions.assertThrows(DdlException.class, () -> {
+            schemaChangeHandler.process(alterOps, db, olapTable);
+        });
+        Assertions.assertTrue(e.getMessage().contains("errCode = 2,"
+                + " detailMessage = Invalid dynamic partition properties: dynamic_partition.time_uint, dynamic_partition.edn"),
+                "unexpected message: " + e.getMessage());
+    }
+
+    @Test
+    public void testSerializeOfSchemaChangeJob() throws IOException {
+        // prepare file
+        File file = new File(fileName);
+        file.createNewFile();
+        file.deleteOnExit();
+        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+
+        SchemaChangeJobV2 schemaChangeJobV2 = AlterJobV2Factory.createSchemaChangeJobV2(
+                "", 1, 1, 1, "test", 600000);
+        schemaChangeJobV2.setStorageFormat(TStorageFormat.V2);
+        Deencapsulation.setField(schemaChangeJobV2, "jobState", JobState.FINISHED);
+        Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();
+        indexSchemaVersionAndHashMap.put(Long.valueOf(1000), new SchemaVersionAndHash(10, 20));
+        Deencapsulation.setField(schemaChangeJobV2, "indexSchemaVersionAndHashMap", indexSchemaVersionAndHashMap);
+
+        // write schema change job
+        schemaChangeJobV2.write(out);
+        out.flush();
+        out.close();
+
+        // read objects from file
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        SchemaChangeJobV2 result = (SchemaChangeJobV2) AlterJobV2.read(in);
+        Assertions.assertEquals(1, result.getJobId());
+        Assertions.assertEquals(JobState.FINISHED, result.getJobState());
+        Assertions.assertEquals(TStorageFormat.V2, Deencapsulation.getField(result, "storageFormat"));
+
+        Assertions.assertNotNull(Deencapsulation.getField(result, "partitionIndexMap"));
+        Assertions.assertNotNull(Deencapsulation.getField(result, "partitionIndexTabletMap"));
+
+        Map<Long, SchemaVersionAndHash> map = Deencapsulation.getField(result, "indexSchemaVersionAndHashMap");
+        Assertions.assertEquals(10, map.get(1000L).schemaVersion);
+        Assertions.assertEquals(20, map.get(1000L).schemaHash);
+    }
+
+    @Test
+    public void testModifyTableDistributionType() throws DdlException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
+        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1).get();
+        Env.getCurrentEnv().convertDistributionType(db, olapTable);
+        Assertions.assertTrue(olapTable.getDefaultDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
+        Partition partition1 = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        Assertions.assertTrue(partition1.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
+    }
+
+    @Test
+    public void testAbnormalModifyTableDistributionType1() throws UserException {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
+        Mockito.when(table.isColocateTable()).thenReturn(true);
+        DdlException e = Assertions.assertThrows(DdlException.class, () -> {
+            Env.getCurrentEnv().convertDistributionType(db, table);
+        });
+        Assertions.assertTrue(e.getMessage().contains("errCode = 2, detailMessage = Cannot change distribution type of colocate table."),
+                "unexpected message: " + e.getMessage());
+    }
+
+    @Test
+    public void testAbnormalModifyTableDistributionType2() throws UserException {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
+        Mockito.when(table.isColocateTable()).thenReturn(false);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+        DdlException e = Assertions.assertThrows(DdlException.class, () -> {
+            Env.getCurrentEnv().convertDistributionType(db, table);
+        });
+        Assertions.assertTrue(e.getMessage().contains("errCode = 2, detailMessage = Cannot change distribution type of unique keys table."),
+                "unexpected message: " + e.getMessage());
+    }
+
+    @Test
+    public void testAbnormalModifyTableDistributionType3() throws UserException {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        Database db = masterEnv.getInternalCatalog().getDb(CatalogTestUtil.testDbId1).get();
+        Mockito.when(table.isColocateTable()).thenReturn(false);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(
+            new Column("k1", Type.INT, true, null, "0", ""),
+            new Column("v1", Type.INT, false, AggregateType.REPLACE, "0", "")));
+        DdlException e = Assertions.assertThrows(DdlException.class, () -> {
+            Env.getCurrentEnv().convertDistributionType(db, table);
+        });
+        Assertions.assertTrue(e.getMessage().contains("errCode = 2, detailMessage = Cannot change "
+                + "distribution type of aggregate keys table which has value columns with REPLACE type."),
+                "unexpected message: " + e.getMessage());
+    }
+
+    @Test
+    public void testCreateShadowIndexReplicaCopiesBfIndexesOnlyForBaseShadowReplica() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        Partition partition = table.getPartition(CatalogTestUtil.testPartitionId2);
+
+        long rollupIndexId = 40001L;
+        long rollupTabletId = 40002L;
+        long rollupReplicaId = 40003L;
+        String rollupName = "r1";
+        List<Column> rollupSchema = Lists.newArrayList(new Column(table.getBaseSchema().get(0)),
+                new Column(table.getBaseSchema().get(2)));
+        partition.createRollupIndex(createLocalIndex(rollupIndexId, rollupTabletId, rollupReplicaId,
+                CatalogTestUtil.testBackendId1, IndexState.NORMAL));
+        table.setIndexMeta(rollupIndexId, rollupName, rollupSchema, 1, 41001, (short) 2,
+                TStorageType.COLUMN, KeysType.DUP_KEYS);
+
+        List<Index> bfIndexes = Lists.newArrayList(
+                new Index(1L, "bf_v1", Lists.newArrayList("v1"), IndexType.BLOOMFILTER, null, ""));
+        table.setIndexes(bfIndexes);
+        table.setState(OlapTableState.SCHEMA_CHANGE);
+
+        long shadowBaseIndexId = 50001L;
+        long shadowBaseTabletId = 50002L;
+        long shadowBaseReplicaId = 50003L;
+        long shadowRollupIndexId = 50011L;
+        long shadowRollupTabletId = 50012L;
+        long shadowRollupReplicaId = 50013L;
+
+        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2("", 1000L, db.getId(),
+                table.getId(), table.getName(), 60000L);
+        schemaChangeJob.setAlterIndexInfo(true, bfIndexes);
+        schemaChangeJob.setBloomFilterInfo(false, null, 0.02);
+        schemaChangeJob.addPartitionShadowIndex(partition.getId(), shadowBaseIndexId,
+                createLocalIndex(shadowBaseIndexId, shadowBaseTabletId, shadowBaseReplicaId,
+                        CatalogTestUtil.testBackendId1, IndexState.SHADOW));
+        schemaChangeJob.addTabletIdMap(partition.getId(), shadowBaseIndexId, shadowBaseTabletId,
+                CatalogTestUtil.testTabletId2);
+        schemaChangeJob.addIndexSchema(shadowBaseIndexId, table.getBaseIndexId(),
+                Column.SHADOW_NAME_PREFIX + table.getIndexNameById(table.getBaseIndexId()), 2, 51001, (short) 3,
+                createShadowSchema(table.getBaseSchema()));
+
+        schemaChangeJob.addPartitionShadowIndex(partition.getId(), shadowRollupIndexId,
+                createLocalIndex(shadowRollupIndexId, shadowRollupTabletId, shadowRollupReplicaId,
+                        CatalogTestUtil.testBackendId1, IndexState.SHADOW));
+        schemaChangeJob.addTabletIdMap(partition.getId(), shadowRollupIndexId, shadowRollupTabletId, rollupTabletId);
+        schemaChangeJob.addIndexSchema(shadowRollupIndexId, rollupIndexId,
+                Column.SHADOW_NAME_PREFIX + rollupName, 2, 51002, (short) 2, createShadowSchema(rollupSchema));
+
+        List<AgentTask> submittedTasks = new ArrayList<>();
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = false;
+        mockedAgentTaskExecutor.when(() -> AgentTaskExecutor.submit(Mockito.any(AgentBatchTask.class)))
+                .thenAnswer(invocation -> {
+                    AgentBatchTask batchTask = invocation.getArgument(0);
+                    submittedTasks.addAll(batchTask.getAllTasks());
+                    for (AgentTask task : batchTask.getAllTasks()) {
+                        CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
+                        createReplicaTask.countDownLatch(createReplicaTask.getBackendId(),
+                                createReplicaTask.getTabletId());
+                    }
+                    return null;
+                });
+
+        try {
+            schemaChangeJob.createShadowIndexReplica();
+        } finally {
+            FeConstants.runningUnitTest = originalRunningUnitTest;
+            AgentTaskQueue.clearAllTasks();
+        }
+
+        // Only base shadow indexes copy BfIndex metadata. BfColumns are carried separately,
+        // so BfIndex metadata does not get folded
+        // into the rollup shadow replica.
+        Assertions.assertEquals(2, submittedTasks.size());
+        CreateReplicaTask baseTask = (CreateReplicaTask) submittedTasks.stream()
+                .filter(task -> task.getIndexId() == shadowBaseIndexId)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("base shadow create task not found"));
+        CreateReplicaTask rollupTask = (CreateReplicaTask) submittedTasks.stream()
+                .filter(task -> task.getIndexId() == shadowRollupIndexId)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("rollup shadow create task not found"));
+
+        @SuppressWarnings("unchecked")
+        List<Index> baseTaskIndexes = Deencapsulation.getField(baseTask, "indexes");
+        @SuppressWarnings("unchecked")
+        List<Index> rollupTaskIndexes = Deencapsulation.getField(rollupTask, "indexes");
+        @SuppressWarnings("unchecked")
+        Set<String> baseTaskBfColumns = Deencapsulation.getField(baseTask, "bfColumns");
+        @SuppressWarnings("unchecked")
+        Set<String> rollupTaskBfColumns = Deencapsulation.getField(rollupTask, "bfColumns");
+
+        Assertions.assertEquals(bfIndexes, baseTaskIndexes);
+        Assertions.assertNull(rollupTaskIndexes);
+        Assertions.assertNull(baseTaskBfColumns);
+        Assertions.assertNull(rollupTaskBfColumns);
+    }
+
+    private MaterializedIndex createLocalIndex(long indexId, long tabletId, long replicaId, long backendId,
+            IndexState indexState) {
+        MaterializedIndex index = new MaterializedIndex(indexId, indexState);
+        LocalTablet tablet = new LocalTablet(tabletId);
+        tablet.addReplica(new LocalReplica(replicaId, backendId, CatalogTestUtil.testStartVersion, 0, 0L, 0L, 0L,
+                Replica.ReplicaState.NORMAL, -1, 0), true);
+        index.addTablet(tablet, null, true);
+        return index;
+    }
+
+    private List<Column> createShadowSchema(List<Column> originSchema) {
+        List<Column> shadowSchema = new ArrayList<>(originSchema.size());
+        for (Column column : originSchema) {
+            Column shadowColumn = new Column(column);
+            shadowColumn.setName(Column.SHADOW_NAME_PREFIX + column.getName());
+            shadowSchema.add(shadowColumn);
+        }
+        return shadowSchema;
+    }
+}

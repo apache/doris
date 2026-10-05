@@ -1,0 +1,106 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <cstdint>
+#include <vector>
+
+#include "common/status.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/frq_prelude.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+
+// WindowedPostingReader -- shared read-side decode of a windowed term's posting
+// from its two-level frq_prelude + grouped dd-block.
+//
+// A windowed pod_ref entry's .frq payload is laid out
+//   [prelude][dd-block]
+// where the dd-block concatenates every window's dd_region, so the whole
+// payload is ONE contiguous run. This helper:
+//   1. range-fetches the prelude (prelude_len bytes) and parses the directory,
+//   2. range-fetches the WHOLE dd-block in ONE contiguous range,
+//   3. decodes each window's dd region from the in-memory block via the prelude
+//      metadata (dd_off/dd_disk_len) and concatenates the per-window docids /
+//      positions. BM25 term frequencies are the per-doc position counts.
+//
+// The slim/inline single-window path is handled by the term/phrase/scoring
+// callers directly; this helper is for enc=windowed entries only.
+namespace doris::snii::reader {
+
+// Coalesce gap (bytes) used when batch-fetching MULTIPLE dd sub-ranges of the
+// SAME term (the phrase window-skip path): dd regions of one term are
+// contiguous in the dd-block, so merging reads separated by <= this gap into
+// one physical Range GET trades a little over-read for fewer remote GETs (the
+// design's higher-priority metric). Only applied to same-term multi-window
+// batches, never to cross-term.
+inline constexpr uint64_t kSameTermCoalesceGap = 16 * 1024;
+
+// Full decoded posting for one windowed term (docids ascending across windows).
+struct DecodedPosting {
+    std::vector<uint32_t> docids;
+    std::vector<std::vector<uint32_t>> positions; // aligned; empty when no prx
+};
+
+// Decodes the entire windowed posting. want_positions requires the index to
+// have positions (and the entry to carry prx); when false ONLY the .frq payload
+// is fetched (docid-only callers). Returns Corruption on any prelude/block
+// inconsistency (doc-count mismatch, out-of-range offsets).
+Status read_windowed_posting(const LogicalIndexReader& idx, const format::DictEntry& entry,
+                             uint64_t frq_base, uint64_t prx_base, bool want_positions,
+                             DecodedPosting* out);
+
+// --- Sub-block (window) skipping helpers (shared with phrase / scoring) --
+//
+// These expose the per-window dd/prx addressing within the grouped blocks so
+// the skip path can fetch ONLY the windows covering candidate docids (their dd
+// sub-ranges within the dd-block, near-contiguous and coalesce-friendly)
+// instead of the whole posting, without duplicating the offset arithmetic.
+
+// Absolute file byte ranges of one window's regions. dd is always valid; prx is
+// valid only when want_positions (and has_prx).
+struct WindowAbsRange {
+    uint64_t dd_off = 0;
+    uint64_t dd_len = 0;
+    uint64_t prx_off = 0;
+    uint64_t prx_len = 0;
+};
+
+// Fetches + parses the two-level prelude of a windowed entry (one batched
+// read).
+Status fetch_windowed_prelude(const LogicalIndexReader& idx, const format::DictEntry& entry,
+                              uint64_t frq_base, format::FrqPreludeReader* prelude);
+
+// Computes the absolute file ranges of window w's dd region (and .prx window
+// when want_positions), fully validated against the POD sections (anti-DoS:
+// rejects out-of-range offsets and overflowing locators).
+Status windowed_window_range(const LogicalIndexReader& idx, const format::DictEntry& entry,
+                             uint64_t frq_base, uint64_t prx_base,
+                             const format::FrqPreludeReader& prelude, uint32_t w,
+                             bool want_positions, WindowAbsRange* out);
+
+// Decodes one window's docids (and per-doc positions when want_positions) from
+// already-fetched byte slices: dd_region is the window's dd sub-slice;
+// prx_window its .prx bytes. The decoded docids are absolute (win_base
+// applied). Returns Corruption on any doc-count mismatch between the prelude,
+// dd and prx.
+Status decode_window_slices(const format::WindowMeta& meta, Slice dd_region, Slice prx_window,
+                            bool want_positions, std::vector<uint32_t>* docids,
+                            std::vector<std::vector<uint32_t>>* positions);
+
+} // namespace doris::snii::reader

@@ -1,0 +1,139 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.encryption;
+
+import com.google.gson.annotations.SerializedName;
+
+import java.security.MessageDigest;
+import java.util.Base64;
+import java.util.Objects;
+
+public class RootKeyInfo {
+    public enum RootKeyType {
+        LOCAL("local"),
+        AWS_KMS("aws_kms"),
+        ALIYUN_KMS("aliyun_kms"),
+        RANGER_KMS("ranger_kms"),
+        GCP_KMS("gcp_kms"),
+        AZURE_KMS("azure_kms");
+
+        public static RootKeyType tryFrom(String name) {
+            Objects.requireNonNull(name);
+            if (LOCAL.name.equalsIgnoreCase(name)) {
+                return LOCAL;
+            }
+            if (AWS_KMS.name.equalsIgnoreCase(name)) {
+                return AWS_KMS;
+            }
+            if (ALIYUN_KMS.name.equalsIgnoreCase(name)) {
+                return ALIYUN_KMS;
+            }
+            if (RANGER_KMS.name.equalsIgnoreCase(name)) {
+                return RANGER_KMS;
+            }
+            if (GCP_KMS.name.equalsIgnoreCase(name)) {
+                return GCP_KMS;
+            }
+            if (AZURE_KMS.name.equalsIgnoreCase(name)) {
+                return AZURE_KMS;
+            }
+            throw new IllegalArgumentException("invalid name: " + name);
+        }
+
+        RootKeyType(String name) {
+            this.name = name;
+        }
+
+        String name;
+    }
+
+    public RootKeyInfo() {}
+
+    public RootKeyInfo(RootKeyInfo info) {
+        this.type = info.type;
+        this.algorithm = info.algorithm;
+        this.region = info.region;
+        this.endpoint = info.endpoint;
+        this.cmkId = info.cmkId;
+        this.ak = info.ak;
+        this.sk = info.sk;
+        this.password = info.password;
+        this.rootKeyFilePath = info.rootKeyFilePath;
+        this.rootKeyHash = info.rootKeyHash;
+        this.rootKeyBase64 = info.rootKeyBase64;
+    }
+
+    @SerializedName(value = "type")
+    public RootKeyType type;
+
+    @SerializedName(value = "algorithm")
+    public EncryptionKey.Algorithm algorithm;
+
+    @SerializedName(value = "region")
+    public String region;
+
+    @SerializedName(value = "endpoint")
+    public String endpoint;
+
+    @SerializedName(value = "cmkId")
+    public String cmkId;
+
+    @SerializedName(value = "ak")
+    public String ak;
+
+    @SerializedName(value = "sk")
+    public String sk;
+
+    @SerializedName(value = "password")
+    public String password;
+
+    // File path of the local root key. This is a persisted key reference, similar to cmkId for KMS.
+    @SerializedName(value = "rootKeyFilePath")
+    public String rootKeyFilePath;
+
+    // SHA-256 hash of the root key (Base64 encoded). Used to verify the root key on FE restart.
+    @SerializedName(value = "rootKeyHash")
+    public String rootKeyHash;
+
+    // Root key in Base64 encoding. Used for passing the key during rotation, not persisted to the edit log.
+    public transient String rootKeyBase64;
+
+    public void setRootKeyHashFromKey(byte[] rootKeyBytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(rootKeyBytes);
+            this.rootKeyHash = Base64.getEncoder().encodeToString(hash);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to compute root key hash", e);
+        }
+    }
+
+    public boolean verifyRootKey(byte[] rootKeyBytes) {
+        if (this.rootKeyHash == null || this.rootKeyHash.isEmpty()) {
+            return true;
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(rootKeyBytes);
+            String inputHash = Base64.getEncoder().encodeToString(hash);
+            return this.rootKeyHash.equals(inputHash);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to verify root key", e);
+        }
+    }
+}

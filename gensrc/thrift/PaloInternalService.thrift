@@ -1,0 +1,816 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+namespace cpp doris
+namespace java org.apache.doris.thrift
+
+include "Status.thrift"
+include "Types.thrift"
+include "Exprs.thrift"
+include "Descriptors.thrift"
+include "PlanNodes.thrift"
+include "Planner.thrift"
+include "DataSinks.thrift"
+include "Data.thrift"
+include "RuntimeProfile.thrift"
+
+// constants for TQueryOptions.num_nodes
+const i32 NUM_NODES_ALL = 0
+const i32 NUM_NODES_ALL_RACKS = -1
+
+// constants for TPlanNodeId
+const i32 INVALID_PLAN_NODE_ID = -1
+
+// Constant default partition ID, must be < 0 to avoid collisions
+const i64 DEFAULT_PARTITION_ID = -1;
+
+enum TQueryType {
+    SELECT = 0,
+    LOAD = 1,
+    EXTERNAL = 2
+}
+
+enum TErrorHubType {
+    MYSQL = 0,
+    BROKER = 1,
+    NULL_TYPE = 2
+}
+
+enum TPrefetchMode {
+    NONE = 0,
+    HT_BUCKET = 1
+}
+
+struct TMysqlErrorHubInfo {
+    1: required string host;
+    2: required i32 port;
+    3: required string user;
+    4: required string passwd;
+    5: required string db;
+    6: required string table;
+}
+
+struct TBrokerErrorHubInfo {
+    1: required Types.TNetworkAddress broker_addr;
+    2: required string path;
+    3: required map<string, string> prop;
+}
+
+struct TLoadErrorHubInfo {
+    1: required TErrorHubType type = TErrorHubType.NULL_TYPE;
+    2: optional TMysqlErrorHubInfo mysql_info;
+    3: optional TBrokerErrorHubInfo broker_info;
+}
+
+struct TResourceLimit {
+    1: optional i32 cpu_limit
+}
+
+enum TSerdeDialect {
+  DORIS = 0,
+  PRESTO = 1,
+  HIVE = 2
+}
+
+// Query options that correspond to PaloService.PaloQueryOptions,
+// with their respective defaults
+struct TQueryOptions {
+  1: optional bool abort_on_error = 0 // Deprecated
+  2: optional i32 max_errors = 0
+  3: optional bool disable_codegen = 1 // Deprecated
+  4: optional i32 batch_size = 0
+  5: optional i32 num_nodes = NUM_NODES_ALL
+  6: optional i64 max_scan_range_length = 0 // Deprecated
+  7: optional i32 max_scanners_concurrency = 0
+  8: optional i32 max_io_buffers = 0 // Deprecated
+  9: optional bool allow_unsupported_formats = 0 // Deprecated
+  10: optional i64 default_order_by_limit = -1
+  // 11: optional string debug_action = "" // Never used
+  12: optional i64 mem_limit = 2147483648
+  13: optional bool abort_on_default_limit_exceeded = 0 // Deprecated
+  14: optional i32 query_timeout = 3600
+  15: optional bool is_report_success = 0
+  16: optional i32 codegen_level = 0 // Deprecated
+  // INT64::MAX
+  17: optional i64 kudu_latest_observed_ts = 9223372036854775807 // Deprecated
+  18: optional TQueryType query_type = TQueryType.SELECT
+  19: optional i64 min_reservation = 0 // Deprecated
+  20: optional i64 max_reservation = 107374182400 // Deprecated
+  21: optional i64 initial_reservation_total_claims = 2147483647 // TODO chenhao // Deprecated
+  22: optional i64 buffer_pool_limit = 2147483648 // Deprecated
+
+  // The default spillable buffer size in bytes, which may be overridden by the planner.
+  // Defaults to 2MB.
+  23: optional i64 default_spillable_buffer_size = 2097152; //Deprecated
+
+  // The minimum spillable buffer to use. The planner will not choose a size smaller than
+  // this. Defaults to 64KB.
+  24: optional i64 min_spillable_buffer_size = 65536; //Deprecated
+
+  // The maximum size of row that the query will reserve memory to process. Processing
+  // rows larger than this may result in a query failure. Defaults to 512KB, e.g.
+  // enough for a row with 15 32KB strings or many smaller columns.
+  //
+  // Different operators handle this option in different ways. E.g. some simply increase
+  // the size of all their buffers to fit this row size, whereas others may use more
+  // sophisticated strategies - e.g. reserving a small number of buffers large enough to
+  // fit maximum-sized rows.
+  25: optional i64 max_row_size = 524288; //Deprecated
+
+  // stream preaggregation
+  26: optional bool disable_stream_preaggregations = false;
+
+  // multithreaded degree of intra-node parallelism
+  27: optional i32 mt_dop = 0; // Deprecated
+  // if this is a query option for LOAD, load_mem_limit should be set to limit the mem comsuption
+  // of load channel.
+  28: optional i64 load_mem_limit = 0;
+  // see BE config `doris_max_scan_key_num` for details
+  // if set, this will overwrite the BE config.
+  29: optional i32 max_scan_key_num;
+  // see BE config `max_pushdown_conditions_per_column` for details
+  // if set, this will overwrite the BE config.
+  30: optional i32 max_pushdown_conditions_per_column
+  // whether enable spilling to disk
+  // 31: optional bool enable_spilling = false;
+  // whether enable parallel merge in exchange node
+  32: optional bool enable_enable_exchange_node_parallel_merge = false; // deprecated
+
+  // Time in ms to wait until runtime filters are delivered.
+  33: optional i32 runtime_filter_wait_time_ms = 1000
+
+  // if the right table is greater than this value in the hash join,  we will ignore IN filter
+  34: optional i32 runtime_filter_max_in_num = 1024;
+
+  // the resource limitation of this query
+  42: optional TResourceLimit resource_limit
+
+  // show bitmap data in result, if use this in mysql cli may make the terminal
+  // output corrupted character
+  43: optional bool return_object_data_as_binary = false
+
+  // trim tailing spaces while querying external table and stream load
+  44: optional bool trim_tailing_spaces_for_external_table_query = false
+
+  45: optional bool enable_function_pushdown;
+
+  46: optional string fragment_transmission_compression_codec;
+
+  48: optional bool enable_local_exchange;
+
+  // For debug purpose, dont' merge unique key and agg key when reading data.
+  49: optional bool skip_storage_engine_merge = false
+
+  // For debug purpose, skip delete predicates when reading data
+  50: optional bool skip_delete_predicate = false
+
+  51: optional bool enable_new_shuffle_hash_method
+
+  52: optional i32 be_exec_version = 0
+
+  53: optional i32 partitioned_hash_join_rows_threshold = 0 // deprecated
+
+  54: optional bool enable_share_hash_table_for_broadcast_join
+
+  55: optional bool check_overflow_for_decimal = true
+
+  // For debug purpose, skip delete bitmap when reading data
+  56: optional bool skip_delete_bitmap = false
+  // non-pipelinex engine removed. always true.
+  57: optional bool enable_pipeline_engine = true
+
+  58: optional i32 repeat_max_num = 0 // Deprecated
+
+  // deprecated, use spill_sort_mem_limit
+  59: optional i64 external_sort_bytes_threshold = 0
+
+  // deprecated
+  60: optional i32 partitioned_hash_agg_rows_threshold = 0 // deprecated
+
+  61: optional bool enable_file_cache = false
+
+  62: optional i32 insert_timeout = 14400
+
+  63: optional i32 execution_timeout = 3600
+
+  64: optional bool dry_run_query = false
+
+  65: optional bool enable_common_expr_pushdown = false; // deprecated
+
+  66: optional i32 parallel_instance = 1
+  // Indicate where useServerPrepStmts enabled
+  67: optional bool mysql_row_binary_format = false;
+  // Not used anymore
+  68: optional i64 external_agg_bytes_threshold = 0 // deprecated
+
+  // Not used anymore, use spill_aggregation_partition_count
+  69: optional i32 external_agg_partition_bits = 4 // deprecated
+
+  // Specify base path for file cache
+  70: optional string file_cache_base_path
+
+  71: optional bool enable_parquet_lazy_mat = true
+
+  72: optional bool enable_orc_lazy_mat = true
+
+  73: optional i64 scan_queue_mem_limit
+
+  74: optional bool enable_scan_node_run_serial = false; // deprecated
+
+  75: optional bool enable_insert_strict = false;
+
+  76: optional bool enable_inverted_index_query = true;
+
+  77: optional bool truncate_char_or_varchar_columns = false
+
+  78: optional bool enable_hash_join_early_start_probe = false // deprecated
+  // non-pipelinex engine removed. always true.
+  79: optional bool enable_pipeline_x_engine = true;
+
+  80: optional bool enable_memtable_on_sink_node = false;
+
+  81: optional bool enable_delete_sub_predicate_v2 = false; // deprecated
+
+  // A tag used to distinguish fe start epoch.
+  82: optional i64 fe_process_uuid = 0;
+
+  83: optional i32 inverted_index_conjunction_opt_threshold = 1000;
+  // A seperate flag to indicate whether to enable profile, not
+  // use is_report_success any more
+  84: optional bool enable_profile = false;
+  85: optional bool enable_page_cache = false;
+  86: optional i32 analyze_timeout = 43200;
+
+  87: optional bool faster_float_convert = false; // deprecated
+
+  88: optional bool enable_decimal256 = false;
+
+  89: optional bool enable_local_shuffle = false;
+  // For emergency use, skip missing version when reading rowsets
+  90: optional bool skip_missing_version = false;
+
+  91: optional bool runtime_filter_wait_infinitely = false;
+
+  92: optional i32 condition_cache_digest = 0;
+  
+  93: optional i32 inverted_index_max_expansions = 50;
+
+  94: optional i32 inverted_index_skip_threshold = 50;
+
+  95: optional bool enable_parallel_scan = false;
+
+  96: optional i32 parallel_scan_max_scanners_count = 0;
+
+  97: optional i64 parallel_scan_min_rows_per_scanner = 0;
+
+  98: optional bool skip_bad_tablet = false;
+  // Increase concurrency of scanners adaptively, the maxinum times to scale up
+  99: optional double scanner_scale_up_ratio = 0; //deprecated
+
+  100: optional bool enable_distinct_streaming_aggregation = true;
+
+  // deprecated
+  101: optional bool enable_join_spill = false
+
+  // deprecated
+  102: optional bool enable_sort_spill = false
+
+  // deprecated
+  103: optional bool enable_agg_spill = false
+
+  104: optional i64 min_revocable_mem = 0
+
+  105: optional i64 spill_streaming_agg_mem_limit = 0;
+
+  // max rows of each sub-queue in DataQueue.
+  106: optional i64 data_queue_max_blocks = 0;
+  
+  // deprecated
+  107: optional bool enable_common_expr_pushdown_for_inverted_index = false;
+  108: optional i64 local_exchange_free_blocks_limit;
+
+  109: optional bool enable_force_spill = false;
+
+  110: optional bool enable_parquet_filter_by_min_max = true
+  111: optional bool enable_orc_filter_by_min_max = true
+
+  112: optional i32 max_column_reader_num = 0
+
+  113: optional bool enable_local_merge_sort = false; // deprecated
+
+  114: optional bool enable_parallel_result_sink = false;
+
+  115: optional bool enable_short_circuit_query_access_column_store = false;
+
+  116: optional bool enable_no_need_read_data_opt = true;
+  
+  117: optional bool read_csv_empty_line_as_null = false;
+
+  118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
+
+  119: optional bool enable_match_without_inverted_index = true;
+
+  120: optional bool enable_fallback_on_missing_inverted_index = true;
+
+  121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
+
+  122: optional i32 runtime_bloom_filter_min_size = 1048576;
+
+  //Access Parquet/ORC columns by name by default. Set this property to `false` to access columns
+  //by their ordinal position in the Hive table definition.  
+  123: optional bool hive_parquet_use_column_names = true;
+  124: optional bool hive_orc_use_column_names = true;
+
+  125: optional bool enable_segment_cache = true;
+
+  126: optional i32 runtime_bloom_filter_max_size = 16777216;
+  127: optional i32 in_list_value_count_threshold = 10;
+  // We need this two fields to make sure thrift id on master is compatible with other branch.
+  128: optional bool enable_verbose_profile = false;  // deprecated
+  129: optional i32 rpc_verbose_profile_max_instance_count = 0;
+
+  130: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
+  131: optional i32 adaptive_pipeline_task_serial_read_on_limit = 10000;
+
+  132: optional i32 parallel_prepare_threshold = 0;
+  133: optional i32 partition_topn_max_partitions = 1024;
+  134: optional i32 partition_topn_pre_partition_rows = 1000;
+
+  135: optional bool enable_parallel_outfile = false;
+
+  136: optional bool enable_phrase_query_sequential_opt = true; // deprecated
+  
+  137: optional bool enable_auto_create_when_overwrite = false;
+
+  138: optional i64 orc_tiny_stripe_threshold_bytes = 8388608;
+  139: optional i64 orc_once_max_read_bytes = 8388608;
+  140: optional i64 orc_max_merge_distance_bytes = 1048576;
+
+  141: optional bool ignore_runtime_filter_error = false;
+
+  142: optional bool enable_fixed_len_to_uint32_v2 = false;
+  143: optional bool enable_shared_exchange_sink_buffer = true;
+
+
+  144: optional bool enable_inverted_index_searcher_cache = true;
+  145: optional bool enable_inverted_index_query_cache = true;
+  146: optional bool enable_condition_cache = false; //deprecated 
+
+  147: optional i32 profile_level = 1;
+
+  148: optional i32 min_scanners_concurrency = 1;
+  149: optional i32 min_scan_scheduler_concurrency = 0; //deprecated
+  // Controls runtime-filter partition pruning for readers that honor this option.
+  // FileScannerV2 always enables safe partition pruning.
+  150: optional bool enable_runtime_filter_partition_prune = true;
+
+  // The minimum memory that an operator required to run.
+  151: optional i32 minimum_operator_memory_required_kb = 1024;
+
+  152: optional bool enable_mem_overcommit = true; // deprecated
+  153: optional i32 query_slot_count = 0;
+  154: optional bool enable_spill = false
+  155: optional bool enable_reserve_memory = true
+  156: optional i32 revocable_memory_high_watermark_percent = -1
+
+  157: optional i64 spill_sort_mem_limit = 134217728
+  158: optional i64 spill_sort_batch_bytes = 8388608
+  159: optional i32 spill_aggregation_partition_count = 32
+  160: optional i32 spill_hash_join_partition_count = 32
+  161: optional i64 low_memory_mode_buffer_limit = 33554432
+  162: optional bool dump_heap_profile_when_mem_limit_exceeded = false
+  163: optional bool inverted_index_compatible_read = false
+  164: optional bool check_orc_init_sargs_success = false
+  165: optional i32 exchange_multi_blocks_byte_size = 262144
+  // true to use strict cast mode.
+  166: optional bool enable_strict_cast = false
+  167: optional bool new_version_unix_timestamp = false
+
+  168: optional i32 hnsw_ef_search = 32;
+  169: optional bool hnsw_check_relative_distance = true;
+  170: optional bool hnsw_bounded_queue = true;
+
+  171: optional bool optimize_index_scan_parallelism = false;
+
+  172: optional bool enable_prefer_cached_rowset
+  173: optional i64 query_freshness_tolerance_ms
+  174: optional i64 merge_read_slice_size = 8388608;
+
+  175: optional bool enable_fuzzy_blockable_task = false;
+  176: optional list<i32> shuffled_agg_ids;
+
+  177: optional bool enable_extended_regex = false;
+  // Target file size in bytes for Iceberg write operations
+  // Default 0 means use config::iceberg_sink_max_file_size
+  178: optional i64 iceberg_write_target_file_size_bytes = 0;
+  179: optional bool enable_parquet_filter_by_bloom_filter = true;
+  180: optional i32 max_file_scanners_concurrency = 0;
+  181: optional i32 min_file_scanners_concurrency = 0;
+  182: optional i32 ivf_nprobe = 32;
+  // Enable hybrid sorting: dynamically selects between PdqSort and TimSort based on 
+  // runtime profiling to choose the most efficient algorithm for the data pattern
+  183: optional bool enable_use_hybrid_sort = false;
+  184: optional i32 cte_max_recursion_depth;
+
+  185: optional bool enable_parquet_file_page_cache = true;
+
+  186: optional bool enable_streaming_agg_hash_join_force_passthrough;
+
+  187: optional bool enable_distinct_streaming_agg_force_passthrough;
+
+  188: optional bool enable_broadcast_join_force_passthrough;
+
+  189: optional bool enable_aggregate_function_null_v2 = false;
+
+  195: optional bool enable_left_semi_direct_return_opt;
+
+  200: optional bool enable_adjust_conjunct_order_by_cost;
+  // Deprecated: the paimon-cpp reader has been removed. Retained for wire compatibility.
+  201: optional bool enable_paimon_cpp_reader = false;
+
+  // Whether all fragments of this query are assigned to a single backend.
+  // When true, the streaming aggregation operator can use more aggressive
+  // hash table expansion thresholds since all data is local.
+  202: optional bool single_backend_query = false;
+
+  203: optional bool enable_inverted_index_wand_query = true;
+
+  // Per-read/per-write buffer size used during spill I/O, in bytes. Controls the
+  // I/O batch size for spill write and merge read. This value can be overridden
+  // per-query by setting the session variable `spill_buffer_size_bytes` in FE.
+  // Default is 8MB.
+  204: optional i64 spill_buffer_size_bytes = 8388608
+
+  // Per-sink memory limit after spill is triggered. When a sink operator's revocable
+  // memory exceeds the corresponding threshold, it proactively spills to disk.
+  // Default is 64MB for all three.
+  205: optional i64 spill_join_build_sink_mem_limit_bytes = 67108864
+  206: optional i64 spill_aggregation_sink_mem_limit_bytes = 67108864
+  207: optional i64 spill_sort_sink_mem_limit_bytes = 67108864
+
+  // Total memory budget for the sort merge phase after spill. Divided by
+  // spill_buffer_size_bytes gives the number of files merged in parallel.
+  // Default is 64MB.
+  208: optional i64 spill_sort_merge_mem_limit_bytes = 67108864
+
+  // Maximum depth for repartitioning recursion. Controls how many recursive
+  // repartition rounds are allowed before giving up and treating a partition
+  // as terminal. This value can be overridden per-query by setting the
+  // session variable `spill_repartition_max_depth` in FE. Default is 8.
+  209: optional i32 spill_repartition_max_depth = 8
+
+  210: optional double max_scan_mem_ratio = 0.3;
+  211: optional bool enable_adaptive_scan = false;
+
+  212: optional bool enable_local_exchange_before_agg = true;
+
+  213: optional i64 file_presigned_url_ttl_seconds = 3600;
+  214: optional i32 embed_max_batch_size = 5;
+  215: optional i64 ai_context_window_size = 131072;
+
+  // Use Rust-based Lance reader for FORMAT_LANCE scan ranges
+  216: optional bool enable_rust_lance_reader = false; // deprecated
+  217: optional bool new_version_percentile = false
+
+  // Adaptive batch size: target output block size in bytes. Valid range [1MB, 512MB].
+  // Default 8MB. Sent by FE session variable preferred_block_size_bytes.
+  218: optional i64 preferred_block_size_bytes = 8388608
+
+  // Push LIMIT into SegmentIterator when safe.
+  219: optional bool enable_segment_limit_pushdown = true
+
+  220: optional bool enable_ann_index_result_cache = true
+  // ANN search falls back to exact vector distance evaluation when candidate rows
+  // before ANN search are less than this value. 0 disables the absolute threshold.
+  221: optional i64 ann_index_candidate_rows_threshold = 0
+  // Candidate row ratio threshold against segment rows. Existing default is 0.3.
+  222: optional double ann_index_candidate_rows_percent_threshold = 0.3
+
+  // enable plan local exchange node in fe
+  223: optional bool enable_local_shuffle_planner;
+
+  // Controls expression-based ZoneMap pruning for readers that honor this option.
+  // FileScannerV2 always enables safe expression ZoneMap pruning.
+  224: optional bool enable_expr_zonemap_filter = true
+
+  225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
+
+  226: optional bool enable_prune_nested_column = false;
+  227: optional bool new_version_bitmap_op_count = false;
+  228: optional bool enable_local_exchange_before_streaming_agg = false;
+  // FE is the receiver of fragment reports, so BE must also honor its message limit.
+  229: optional i32 coordinator_thrift_max_message_size;
+  // FE can explicitly and idempotently acknowledge external-file commit reports.
+  230: optional bool supports_external_file_report_ack = false;
+  // Fall back to RE2 when Hyperscan cannot compile a regular expression.
+  231: optional bool enable_hyperscan_fallback = true;
+  232: optional bool enable_runtime_filter_bucket_prune = true;
+  // For cloud, to control if the content would be written into file cache
+  // In write path, to control if the content would be written into file cache.
+  // In read path, read from file cache or remote storage when execute query.
+  1000: optional bool disable_file_cache = false
+  1001: optional i32 file_cache_query_limit_percent = -1
+  1002: optional bool enable_file_scanner_v2 = false
+  1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
+  1004: optional i64 file_cache_query_limit_bytes = -1
+  // SNII inverted index query reads take the REMOTE_ONLY_ON_MISS file-cache
+  // policy: cache hits are served, but a miss reads remote directly and writes
+  // nothing back into the file cache. Data (.dat) and segment-meta reads keep
+  // the normal read-through-and-write-back path, and so do CLucene (V1/V2/V3)
+  // index reads -- the two formats amplify write-back differently, so each
+  // needs its own switch.
+  1005: optional bool inverted_index_snii_read_no_write_file_cache = false
+  // Whether to force a pushed-down MIN/MAX onto the zone map even when its bound is not a value
+  // the data holds right now: a string bound cut at 512 bytes is a prefix, and any bound still
+  // covers rows a delete predicate removed. Statistics collection sets it; every other query
+  // reads the data instead.
+  // Defaults to false because an old FE never sends this field, and BE checked both cases before.
+  1006: optional bool force_pushdown_zonemap_minmax = false
+}
+
+
+// A scan range plus the parameters needed to execute that scan.
+struct TScanRangeParams {
+  1: required PlanNodes.TScanRange scan_range
+  2: optional i32 volume_id = -1
+}
+
+struct TRuntimeFilterTargetParamsV2 {
+  1: required list<Types.TUniqueId> target_fragment_instance_ids
+  // The address of the instance where the fragment is expected to run
+  2: required Types.TNetworkAddress target_fragment_instance_addr
+  3: optional list<i32> target_fragment_ids
+}
+
+struct TRuntimeFilterParams {
+  // Runtime filter merge instance address. Used if this filter has a remote target
+  1: optional Types.TNetworkAddress runtime_filter_merge_addr
+
+  // Runtime filter ID to the runtime filter desc
+  // Used if this filter has a remote target
+  3: optional map<i32, PlanNodes.TRuntimeFilterDesc> rid_to_runtime_filter
+
+  // Number of Runtime filter producers
+  // Used if this filter has a remote target
+  4: optional map<i32, i32> runtime_filter_builder_num
+
+  // Used if this filter has a remote target
+  5: optional map<i32, list<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2
+}
+
+// Parameters for a single execution instance of a particular TPlanFragment
+// TODO: for range partitioning, we also need to specify the range boundaries
+struct TPlanFragmentExecParams {
+  // a globally unique id assigned to the entire query
+  1: required Types.TUniqueId query_id
+
+  // a globally unique id assigned to this particular execution instance of
+  // a TPlanFragment
+  2: required Types.TUniqueId fragment_instance_id
+  // all fields before 14 are deleted
+  // 14: optional list<i32> topn_filter_source_node_ids //deprecated
+}
+
+// Global query parameters assigned by the coordinator.
+struct TQueryGlobals {
+  // String containing a timestamp set as the current time.
+  // Format is yyyy-MM-dd HH:mm:ss
+  1: required string now_string
+
+  // To support timezone in Doris. timestamp_ms is the millisecond uinix timestamp for
+  // this query to calculate time zone relative function
+  2: optional i64 timestamp_ms
+
+  // time_zone is the timezone this query used.
+  // If this value is set, BE will ignore now_string
+  3: optional string time_zone
+
+  // Set to true if in a load plan, the max_filter_ratio is 0.0
+  4: optional bool load_zero_tolerance = false
+
+  5: optional i32 nano_seconds
+
+  // Locale name used for month/day names formatting, e.g. en_US
+  6: optional string lc_time_names
+}
+
+
+// Service Protocol Details
+
+enum PaloInternalServiceVersion {
+  V1 = 0
+}
+
+struct TTxnParams {
+  1: optional bool need_txn
+  2: optional string token
+  3: optional i64 thrift_rpc_timeout_ms
+  4: optional string db
+  5: optional string tbl
+  6: optional string user_ip
+  7: optional i64 txn_id
+  8: optional Types.TUniqueId fragment_instance_id
+  9: optional i64 db_id
+  10: optional double max_filter_ratio
+  // For load task with transaction, use this to indicate we use pipeline or not
+  // non-pipelinex engine removed. always true.
+  11: optional bool enable_pipeline_txn_load = true;
+}
+
+// Definition of global dict, global dict is used to accelerate query performance of low cardinality data
+struct TColumnDict {
+  1: optional Types.TPrimitiveType type
+  2: list<string> str_dict  // map one string to a integer, using offset as id
+}
+
+struct TGlobalDict {
+  1: optional map<i32, TColumnDict> dicts,  // map dict_id to column dict
+  2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
+}
+
+struct TPipelineWorkloadGroup {
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
+}
+
+struct TFoldConstantParams {
+  1: required map<string, map<string, Exprs.TExpr>> expr_map
+  2: required TQueryGlobals query_globals
+  3: optional bool vec_exec
+  4: optional TQueryOptions query_options
+  5: optional Types.TUniqueId query_id
+  6: optional bool is_nereids
+}
+
+struct TTabletWithPartition {
+    1: required i64 partition_id
+    2: required i64 tablet_id
+    3: optional i64 binlog_tablet_id
+}
+
+struct TFetchDataResult {
+    // result batch
+    1: required Data.TResultBatch result_batch
+    // end of stream flag
+    2: required bool eos
+    // packet num used check lost of packet
+    3: required i32 packet_num
+    // Operation result
+    4: optional Status.TStatus status
+}
+
+// For cloud
+enum TCompoundType {
+    UNKNOWN = 0,
+    AND = 1,
+    OR = 2,
+    NOT = 3,
+}
+
+struct TAIResource {
+  1: optional string endpoint
+  2: optional string provider_type
+  3: optional string model_name
+  4: optional string api_key
+  5: optional double temperature
+  6: optional i64 max_tokens
+  7: optional i32 max_retries
+  8: optional i32 retry_delay_second
+  9: optional string anthropic_version
+  10: optional i32 dimensions
+  11: optional string embed_endpoint
+  12: optional string embed_provider_type
+  13: optional string embed_model_name
+  14: optional string embed_api_key
+  15: optional string effort
+  16: optional string embed_mm_endpoint
+  17: optional string embed_mm_provider_type
+  18: optional string embed_mm_model_name
+  19: optional string embed_mm_api_key
+}
+
+struct TCondition {
+    1:  required string column_name
+    2:  required string condition_op
+    3:  required list<string> condition_values
+    // In delete condition, the different column may have same column name, need
+    // using unique id to distinguish them
+    4:  optional i32 column_unique_id
+    5:  optional bool marked_by_runtime_filter = false // deprecated
+
+    // For cloud
+    1000: optional TCompoundType compound_type = TCompoundType.UNKNOWN
+}
+
+struct TPipelineInstanceParams {
+  1: required Types.TUniqueId fragment_instance_id
+  // deprecated
+  2: optional bool build_hash_table_for_broadcast_join = false;
+  3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
+  4: optional i32 sender_id
+  5: optional TRuntimeFilterParams runtime_filter_params
+  6: optional i32 backend_num
+  7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans // deprecated
+  8: optional list<i32> topn_filter_source_node_ids // deprecated after we set topn_filter_descs
+  9: optional list<PlanNodes.TTopnFilterDesc> topn_filter_descs
+}
+
+// ExecPlanFragment
+struct TPipelineFragmentParams {
+  1: required PaloInternalServiceVersion protocol_version
+  2: required Types.TUniqueId query_id
+  3: optional i32 fragment_id
+  4: required map<Types.TPlanNodeId, i32> per_exch_num_senders
+  5: optional Descriptors.TDescriptorTable desc_tbl
+  // Deprecated
+  6: optional Types.TResourceInfo resource_info
+  7: list<DataSinks.TPlanFragmentDestination> destinations
+  8: optional i32 num_senders
+  9: optional bool send_query_statistics_with_every_batch
+  10: optional Types.TNetworkAddress coord
+  11: optional TQueryGlobals query_globals
+  12: optional TQueryOptions query_options
+  // load job related
+  13: optional string import_label
+  14: optional string db_name
+  15: optional i64 load_job_id
+  16: optional TLoadErrorHubInfo load_error_hub_info
+  17: optional i32 fragment_num_on_host
+  18: optional i64 backend_id
+  19: optional bool need_wait_execution_trigger = false
+  20: optional list<Types.TUniqueId> instances_sharing_hash_table
+  21: optional bool is_simplified_param = false;
+  22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
+  23: optional Planner.TPlanFragment fragment
+  24: list<TPipelineInstanceParams> local_params
+  26: optional list<TPipelineWorkloadGroup> workload_groups
+  27: optional TTxnParams txn_conf
+  28: optional string table_name
+  // scan node id -> scan range params, only for external file scan
+  29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
+  30: optional bool group_commit = false;
+  31: optional i32 load_stream_per_node // num load stream for each sink backend
+  32: optional i32 total_load_streams // total num of load streams the downstream backend will see
+  33: optional i32 num_local_sink
+  34: optional i32 num_buckets
+  35: optional map<i32, i32> bucket_seq_to_instance_idx
+  36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans // deprecated
+  37: optional i32 parallel_instances
+  38: optional i32 total_instances
+  39: optional map<i32, i32> shuffle_idx_to_instance_idx
+  40: optional bool is_nereids = true;
+  41: optional i64 wal_id
+  42: optional i64 content_length
+  43: optional Types.TNetworkAddress current_connect_fe
+  // Used by 2.1
+  44: optional list<i32> topn_filter_source_node_ids
+  45: optional map<string, TAIResource> ai_resources
+  46: optional bool need_notify_close
+
+  // For cloud
+  1000: optional bool is_mow_table;
+  1001: optional bool enable_tso;
+}
+
+// pull up runtime filter info from instance level to BE level
+struct TRuntimeFilterInfo {
+  // for join runtime filter and setop runtime filter
+  1: optional TRuntimeFilterParams runtime_filter_params
+  // for topn runtime filter
+  2: optional list<PlanNodes.TTopnFilterDesc> topn_filter_descs
+}
+
+struct TPipelineFragmentParamsList {
+  1: optional list<TPipelineFragmentParams> params_list;
+  2: optional Descriptors.TDescriptorTable desc_tbl;
+  // scan node id -> scan range params, only for external file scan
+  3: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params;
+  4: optional Types.TNetworkAddress coord;
+  5: optional TQueryGlobals query_globals;
+  6: optional Types.TResourceInfo resource_info;
+  // The total number of fragments on same BE host
+  7: optional i32 fragment_num_on_host
+  8: optional TQueryOptions query_options
+  9: optional bool is_nereids = true;
+  10: optional list<TPipelineWorkloadGroup> workload_groups
+  11: optional Types.TUniqueId query_id
+  12: optional list<i32> topn_filter_source_node_ids
+  13: optional Types.TNetworkAddress runtime_filter_merge_addr
+  14: optional TRuntimeFilterInfo runtime_filter_info
+}

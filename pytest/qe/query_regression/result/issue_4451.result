@@ -1,0 +1,16 @@
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=111','HOST')
+(['mp.weixin.qq.com'],)
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=111','PATH')
+(['/s/bblf5-0Ur8MUgG02kpOc5Q'],)
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=111','PROTOCOL')
+(['https'],)
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=111','QUERY')
+(['case=111'],)
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=111','QUERY','case')
+(['111'],)
+select parse_url('https://mp.weixin.qq.com/s/bblf5-0Ur8MUgG02kpOc5Q?case=#abc','REF');
+(['abc'],)
+select parse_url('https://mp.weixin.qq.com:8080/s/bblf5-0Ur8MUgG02kpOc5Q?case=#abc','PORT');
+(['8080'],)
+select parse_url('https://mp.weixin.qq.com:8080/s/bblf5-0Ur8MUgG02kpOc5Q?case=#abc','port');
+(['8080'],)

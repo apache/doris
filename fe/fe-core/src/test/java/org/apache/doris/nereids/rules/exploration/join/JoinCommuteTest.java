@@ -1,0 +1,181 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.exploration.join;
+
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class JoinCommuteTest implements MemoPatternMatchSupported {
+    @Test
+    void testInnerJoinCommute() {
+        testInnerJoinCommuteHelper(JoinType.INNER_JOIN);
+    }
+
+    private void testInnerJoinCommuteHelper(JoinType joinType) {
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+
+        LogicalPlan join = new LogicalPlanBuilder(scan1)
+                .join(scan2, joinType, Pair.of(0, 0)) // t1.id = t2.id
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyExploration(JoinCommute.LEFT_DEEP.build())
+                .printlnOrigin()
+                .printlnExploration()
+                .matchesExploration(
+                        logicalJoin(
+                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")),
+                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1"))
+                        )
+                )
+        ;
+    }
+
+    @Test
+    void testParallelJoinCommute() {
+        testParallelJoinCommuteHelper(JoinType.LEFT_OUTER_JOIN);
+        testParallelJoinCommuteHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testParallelJoinCommuteHelper(JoinType joinType) {
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) new LogicalPlanBuilder(scan1)
+                .join(scan2, joinType, Pair.of(0, 0))
+                .build();
+        join = join.withJoinConjuncts(
+                ImmutableList.of(),
+                ImmutableList.of(new GreaterThan(scan1.getOutput().get(0), scan2.getOutput().get(0))),
+                join.getJoinReorderContext());
+
+        Assertions.assertEquals(1, PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyExploration(JoinCommute.BUSHY.build())
+                .getAllPlan().size());
+    }
+
+    @Test
+    void testJoinConjunctNullableWhenCommute() {
+        testJoinConjunctNullableWhenCommuteHelper(JoinType.LEFT_OUTER_JOIN, JoinType.RIGHT_OUTER_JOIN);
+    }
+
+    private void testJoinConjunctNullableWhenCommuteHelper(JoinType joinType1, JoinType joinType2) {
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) new LogicalPlanBuilder(scan1)
+                .join(scan2, joinType1, Pair.of(0, 0))
+                .build();
+        join = join.withJoinConjuncts(
+                ImmutableList.of(new EqualTo(scan1.getOutput().get(0).withNullable(true),
+                        scan2.getOutput().get(0))),
+                ImmutableList.of(new GreaterThan(scan1.getOutput().get(0).withNullable(true),
+                        scan2.getOutput().get(0))),
+                join.getJoinReorderContext());
+
+        List<Plan> allPlan = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyExploration(JoinCommute.BUSHY.build())
+                .getAllPlan()
+                .stream()
+                .filter(plan -> plan instanceof LogicalJoin
+                        && ((LogicalJoin<?, ?>) plan).getJoinType() == joinType2)
+                .collect(Collectors.toList());
+        Assertions.assertEquals(1, allPlan.size());
+        // the input slot of join conjuncts should be nullable false after commute
+        LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) allPlan.get(0);
+        for (Expression expr : newJoin.getHashJoinConjuncts()) {
+            expr.collectToSet(SlotReference.class::isInstance)
+                    .forEach(slot -> Assertions.assertFalse(((SlotReference) slot).nullable()));
+        }
+        for (Expression expr : newJoin.getOtherJoinConjuncts()) {
+            expr.collectToSet(SlotReference.class::isInstance)
+                    .forEach(slot -> {
+                        if (slot.equals(scan1.getOutput().get(0))) {
+                            // the slot from scan1 should be nullable true
+                            Assertions.assertFalse(((SlotReference) slot).nullable());
+                        } else {
+                            // the slot from scan2 should be nullable false
+                            Assertions.assertTrue(((SlotReference) slot).nullable());
+                        }
+                    });
+        }
+    }
+
+    @Test
+    void testAsofJoinOtherConjunctsNotCommute() {
+        testAsofJoinOtherConjunctsNotCommuteHelper(JoinType.ASOF_LEFT_INNER_JOIN, JoinType.ASOF_LEFT_INNER_JOIN);
+        testAsofJoinOtherConjunctsNotCommuteHelper(JoinType.ASOF_LEFT_OUTER_JOIN, JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testAsofJoinOtherConjunctsNotCommuteHelper(JoinType joinType, JoinType expectedSwap) {
+        LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) new LogicalPlanBuilder(scan1)
+                        .join(scan2, joinType, Pair.of(0, 0))
+                        .build();
+
+        // represent ASOF match_condition as otherConjuncts (e.g. t1.ts > t2.ts)
+        join = join.withJoinConjuncts(
+                        join.getHashJoinConjuncts(),
+                        ImmutableList.of(new GreaterThan(scan1.getOutput().get(0), scan2.getOutput().get(0))),
+                        join.getJoinReorderContext());
+
+        List<Plan> allPlan = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                        .applyExploration(JoinCommute.BUSHY.build())
+                        .getAllPlan()
+                        .stream()
+                        .filter(plan -> plan instanceof LogicalJoin
+                                        && ((LogicalJoin<?, ?>) plan).getJoinType() == expectedSwap)
+                        .collect(Collectors.toList());
+        Assertions.assertEquals(1, allPlan.size());
+
+        LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) allPlan.get(0);
+        // other conjuncts should be commuted: left becomes scan2, right becomes scan1
+        Assertions.assertTrue(newJoin.getJoinType().isAsofLeftJoin());
+        Assertions.assertEquals(1, newJoin.getOtherJoinConjuncts().size());
+        Expression expr = newJoin.getOtherJoinConjuncts().get(0);
+        Assertions.assertTrue(expr instanceof GreaterThan);
+        GreaterThan gt = (GreaterThan) expr;
+        Assertions.assertTrue(gt.left() instanceof SlotReference);
+        Assertions.assertTrue(gt.right() instanceof SlotReference);
+        Assertions.assertEquals(scan1.getOutput().get(0), gt.left());
+        Assertions.assertEquals(scan2.getOutput().get(0), gt.right());
+    }
+}

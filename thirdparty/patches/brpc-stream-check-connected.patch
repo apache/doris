@@ -1,0 +1,15 @@
+diff --git a/src/brpc/socket.cpp b/src/brpc/socket.cpp
+index e3878c1..75c5b98 100644
+--- a/src/brpc/socket.cpp
++++ b/src/brpc/socket.cpp
+@@ -1451,7 +1451,9 @@ void Socket::CheckConnectedAndKeepWrite(int fd, int err, void* data) {
+     butil::fd_guard sockfd(fd);
+     WriteRequest* req = static_cast<WriteRequest*>(data);
+     Socket* s = req->socket;
+-    CHECK_GE(sockfd, 0);
++    if (err == 0) {
++        CHECK_GE(sockfd, 0);
++    }
+     if (err == 0 && s->CheckConnected(sockfd) == 0
+         && s->ResetFileDescriptor(sockfd) == 0) {
+         if (s->_app_connect) {

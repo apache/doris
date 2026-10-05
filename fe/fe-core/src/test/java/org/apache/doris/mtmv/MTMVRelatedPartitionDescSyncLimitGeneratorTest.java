@@ -1,0 +1,95 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.mtmv;
+
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+
+import com.google.common.collect.Maps;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.Map;
+
+
+public class MTMVRelatedPartitionDescSyncLimitGeneratorTest {
+
+    @Test
+    public void testGenerateMTMVPartitionSyncConfigByProperties() throws AnalysisException {
+        MTMVRelatedPartitionDescSyncLimitGenerator generator = new MTMVRelatedPartitionDescSyncLimitGenerator();
+        Map<String, String> mvProperties = Maps.newHashMap();
+        MTMVPartitionSyncConfig config = generator
+                .generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        Assertions.assertEquals(-1, config.getSyncLimit());
+        Assertions.assertFalse(config.getDateFormat().isPresent());
+        Assertions.assertEquals(MTMVPartitionSyncTimeUnit.DAY, config.getTimeUnit());
+
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT, "1");
+        config = generator.generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        Assertions.assertEquals(1, config.getSyncLimit());
+        Assertions.assertFalse(config.getDateFormat().isPresent());
+        Assertions.assertEquals(MTMVPartitionSyncTimeUnit.DAY, config.getTimeUnit());
+
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT, "month");
+        config = generator.generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        Assertions.assertEquals(1, config.getSyncLimit());
+        Assertions.assertFalse(config.getDateFormat().isPresent());
+        Assertions.assertEquals(MTMVPartitionSyncTimeUnit.MONTH, config.getTimeUnit());
+
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT, "%Y%m%d");
+        config = generator.generateMTMVPartitionSyncConfigByProperties(mvProperties);
+        Assertions.assertEquals(1, config.getSyncLimit());
+        Assertions.assertEquals("%Y%m%d", config.getDateFormat().get());
+        Assertions.assertEquals(MTMVPartitionSyncTimeUnit.MONTH, config.getTimeUnit());
+    }
+
+    @Test
+    public void testGetNowTruncSubSec() throws AnalysisException {
+        MTMVRelatedPartitionDescSyncLimitGenerator generator = new MTMVRelatedPartitionDescSyncLimitGenerator();
+        DateTimeV2Literal dateTimeLiteral = new DateTimeV2Literal("2020-02-03 20:10:10");
+        try (MockedStatic<DateTimeAcquire> ms = Mockito.mockStatic(DateTimeAcquire.class)) {
+            ms.when(DateTimeAcquire::now).thenReturn(dateTimeLiteral);
+            long nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 1);
+            // 2020-02-03
+            Assertions.assertEquals(1580659200L, nowTruncSubSec);
+            nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.MONTH, 1);
+            // 2020-02-01
+            Assertions.assertEquals(1580486400L, nowTruncSubSec);
+            nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.YEAR, 1);
+            // 2020-01-01
+            Assertions.assertEquals(1577808000L, nowTruncSubSec);
+            nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.MONTH, 3);
+            // 2019-12-01
+            Assertions.assertEquals(1575129600L, nowTruncSubSec);
+            nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 4);
+            // 2020-01-31
+            Assertions.assertEquals(1580400000L, nowTruncSubSec);
+        }
+
+        dateTimeLiteral = new DateTimeV2Literal("1970-01-02 20:10:10");
+        try (MockedStatic<DateTimeAcquire> ms = Mockito.mockStatic(DateTimeAcquire.class)) {
+            ms.when(DateTimeAcquire::now).thenReturn(dateTimeLiteral);
+            long nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 3);
+            Assertions.assertEquals(-115200L, nowTruncSubSec);
+        }
+    }
+}

@@ -1,0 +1,1267 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.transaction;
+
+import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEditLog;
+import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
+import org.apache.doris.job.offset.jdbc.JdbcOffset;
+import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.meta.MetaContext;
+import org.apache.doris.mtmv.ivm.IvmInfo;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
+import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.thrift.TPartitionVersionInfo;
+import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.GlobalTransactionMgrTest.SubTransactionInfo;
+import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.tso.TSOService;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+public class DatabaseTransactionMgrTest {
+    private static final Logger LOG = LogManager.getLogger(DatabaseTransactionMgrTest.class);
+    private List<Long> allBackends = GlobalTransactionMgrTest.allBackends;
+
+    private static FakeEditLog fakeEditLog;
+    private static FakeEnv fakeEnv;
+    private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
+    private static GlobalTransactionMgr masterTransMgr;
+    private static GlobalTransactionMgr slaveTransMgr;
+    private static Env masterEnv;
+    private static Env slaveEnv;
+    private static Map<String, Long> LabelToTxnId;
+
+    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(
+            TransactionState.TxnSourceType.FE, 0, "localfe", System.currentTimeMillis());
+
+    public static void setTransactionFinishPublish(TransactionState transactionState, List<Long> backendIds) {
+        setTransactionFinishPublish(transactionState, backendIds, new HashMap<>());
+    }
+
+    public static void setTransactionFinishPublish(TransactionState transactionState, List<Long> backendIds,
+            Map<String, Map<Long, Long>> keyToSuccessTablets) {
+        if (transactionState.getSubTxnIds() != null) {
+            LOG.info("txnId={}, subTxnIdToTableCommitInfo={}", transactionState.getTransactionId(),
+                    transactionState.getSubTxnIdToTableCommitInfo());
+            /** the same with {@link PublishVersionDaemon#publishVersion} */
+            for (Entry<Long, TableCommitInfo> entry : transactionState.getSubTxnIdToTableCommitInfo().entrySet()) {
+                long subTxnId = entry.getKey();
+                List<TPartitionVersionInfo> partitionVersionInfos = entry.getValue().generateTPartitionVersionInfos();
+                LOG.info("add publish task, txnId={}, subTxnId={}, backends={}, partitionVersionInfos={}",
+                        transactionState.getTransactionId(), subTxnId, backendIds, partitionVersionInfos);
+                for (Long backendId : backendIds) {
+                    PublishVersionTask task = new PublishVersionTask(backendId, subTxnId,
+                            transactionState.getDbId(), partitionVersionInfos, System.currentTimeMillis());
+                    task.setFinished(true);
+                    task.setSuccTablets(
+                            keyToSuccessTablets.getOrDefault(backendId + "-" + subTxnId, new HashMap<>()));
+                    transactionState.addPublishVersionTask(backendId, task);
+                }
+            }
+        } else {
+            for (long backendId : backendIds) {
+                PublishVersionTask task = new PublishVersionTask(backendId, transactionState.getTransactionId(),
+                        transactionState.getDbId(), null, System.currentTimeMillis());
+                task.setFinished(true);
+                task.setSuccTablets(
+                        keyToSuccessTablets.getOrDefault(backendId + "-" + transactionState.getTransactionId(),
+                                new HashMap<>()));
+                transactionState.addPublishVersionTask(backendId, task);
+            }
+        }
+    }
+
+    @BeforeEach
+    public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
+            InvocationTargetException, NoSuchMethodException, SecurityException, UserException {
+        fakeEditLog = new FakeEditLog();
+        fakeEnv = new FakeEnv();
+        fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
+        masterEnv = CatalogTestUtil.createTestCatalog();
+        slaveEnv = CatalogTestUtil.createTestCatalog();
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        masterTransMgr = (GlobalTransactionMgr) masterEnv.getGlobalTransactionMgr();
+        masterTransMgr.setEditLog(masterEnv.getEditLog());
+
+        slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
+        slaveTransMgr.setEditLog(slaveEnv.getEditLog());
+
+        LabelToTxnId = addTransactionToTransactionMgr();
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        if (fakeTransactionIDGenerator != null) {
+            fakeTransactionIDGenerator.close();
+        }
+    }
+
+    public Map<String, Long> addTransactionToTransactionMgr() throws UserException {
+        Map<String, Long> labelToTxnId = Maps.newHashMap();
+        FakeEnv.setEnv(masterEnv);
+
+        // txn1
+        long transactionId1 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1),
+                CatalogTestUtil.testTxnLabel1,
+                transactionSource,
+                TransactionState.LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+        // commit and publish transaction
+        List<TabletCommitInfo> transTablets = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                CatalogTestUtil.testTabletId1, allBackends);
+        Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        masterTransMgr.commitTransactionWithoutLock(
+                CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1,
+                transTablets, null);
+        TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
+        Map<String, Map<Long, Long>> keyToSuccessTablets = new HashMap<>();
+        DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets,
+                allBackends, transactionState1.getTransactionId(), CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion + 1);
+        setTransactionFinishPublish(transactionState1, allBackends, keyToSuccessTablets);
+        Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
+        Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1,
+                partitionVisibleVersions, backendPartitions);
+        labelToTxnId.put(CatalogTestUtil.testTxnLabel1, transactionId1);
+
+        // txn 2, 3, 4
+        TransactionState.TxnCoordinator beTransactionSource = new TransactionState.TxnCoordinator(
+                TransactionState.TxnSourceType.BE, 0, "be1", System.currentTimeMillis());
+        long transactionId2 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1),
+                CatalogTestUtil.testTxnLabel2,
+                beTransactionSource,
+                TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, Config.stream_load_default_timeout_second);
+        long transactionId3 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1),
+                CatalogTestUtil.testTxnLabel3,
+                beTransactionSource,
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, Config.stream_load_default_timeout_second);
+        long transactionId4 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1),
+                CatalogTestUtil.testTxnLabel4,
+                beTransactionSource,
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, Config.stream_load_default_timeout_second);
+        labelToTxnId.put(CatalogTestUtil.testTxnLabel2, transactionId2);
+        labelToTxnId.put(CatalogTestUtil.testTxnLabel3, transactionId3);
+        labelToTxnId.put(CatalogTestUtil.testTxnLabel4, transactionId4);
+
+        FakeEnv.setEnv(slaveEnv);
+        slaveTransMgr.replayUpsertTransactionState(transactionState1);
+        return labelToTxnId;
+    }
+
+    @Test
+    public void testNormal() throws UserException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Assertions.assertEquals(4, masterDbTransMgr.getTransactionNum());
+        Assertions.assertEquals(3, masterDbTransMgr.getRunningTxnNums());
+        Assertions.assertEquals(1, masterDbTransMgr.getFinishedTxnNums());
+        DatabaseTransactionMgr slaveDbTransMgr = slaveTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Assertions.assertEquals(1, slaveDbTransMgr.getTransactionNum());
+        Assertions.assertEquals(1, slaveDbTransMgr.getFinishedTxnNums());
+
+        Assertions.assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1).size());
+        Assertions.assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel2).size());
+        Assertions.assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel3).size());
+        Assertions.assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel4).size());
+
+        Long txnId1 = masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1).iterator().next();
+        Assertions.assertEquals(txnId1, LabelToTxnId.get(CatalogTestUtil.testTxnLabel1));
+        TransactionState transactionState1 = masterDbTransMgr.getTransactionState(
+                LabelToTxnId.get(CatalogTestUtil.testTxnLabel1));
+        Assertions.assertEquals(txnId1.longValue(), transactionState1.getTransactionId());
+        Assertions.assertEquals(TransactionStatus.VISIBLE, transactionState1.getTransactionStatus());
+
+        Long txnId2 = masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel2).iterator().next();
+        Assertions.assertEquals(txnId2, LabelToTxnId.get(CatalogTestUtil.testTxnLabel2));
+        TransactionState transactionState2 = masterDbTransMgr.getTransactionState(txnId2);
+        Assertions.assertEquals(txnId2.longValue(), transactionState2.getTransactionId());
+        Assertions.assertEquals(TransactionStatus.PREPARE, transactionState2.getTransactionStatus());
+    }
+
+    @Test
+    public void testResourceGroupSuccessQuorum() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_load_success_quorum;
+        Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
+        Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
+        Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
+        Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
+        Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
+        Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        ReplicaAllocation originalAllocation = table.getPartitionInfo()
+                .getReplicaAllocation(CatalogTestUtil.testPartitionId1);
+        table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
+                new ReplicaAllocation(ImmutableMap.of(
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 2,
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 1)));
+
+        try {
+            Config.resource_group_load_success_quorum = new String[] {"group1:2", "group2:1"};
+            long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_failure",
+                    transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3));
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assertions.fail();
+            } catch (TabletQuorumFailedException e) {
+                Assertions.assertTrue(e.getMessage().contains("resource group success quorum failed for group1"));
+            }
+
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_group2_failure",
+                    transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assertions.fail();
+            } catch (TabletQuorumFailedException e) {
+                Assertions.assertTrue(e.getMessage().contains("resource group success quorum failed for group2"));
+            }
+
+            backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+            table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
+                    new ReplicaAllocation(ImmutableMap.of(
+                            Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 1,
+                            Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 2)));
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_clamp", transactionSource,
+                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+
+            // Invalid items are ignored. The parse result is cached, so only the first commit after
+            // a config change may warn; later commits on the hot path must stay silent.
+            Config.resource_group_load_success_quorum = new String[] {"invalid", "group1:not-a-number"};
+            try (TestLogAppender appender = TestLogAppender.attach(DatabaseTransactionMgr.class, Level.WARN)) {
+                transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                        Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_invalid_0",
+                        transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assertions.assertTrue(appender.contains(Level.WARN, "Invalid resource_group_load_success_quorum item"));
+            }
+            try (TestLogAppender appender = TestLogAppender.attach(DatabaseTransactionMgr.class, Level.WARN)) {
+                transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                        Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_invalid_1",
+                        transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assertions.assertFalse(appender.contains(Level.WARN, "Invalid resource_group_load_success_quorum item"));
+            }
+
+        } finally {
+            Config.resource_group_load_success_quorum = originalResourceGroupSuccQuorum;
+            table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
+            backend1.setTagMap(backend1TagMap);
+            backend2.setTagMap(backend2TagMap);
+            backend3.setTagMap(backend3TagMap);
+        }
+    }
+
+    @Test
+    public void testResourceGroupSuccessQuorumDoesNotShrinkAfterReplicaBecomesUnavailable() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_load_success_quorum;
+        Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
+        Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
+        Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
+        Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
+        Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
+        Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        ReplicaAllocation originalAllocation = table.getPartitionInfo()
+                .getReplicaAllocation(CatalogTestUtil.testPartitionId1);
+        table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
+                new ReplicaAllocation(ImmutableMap.of(
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 2,
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 1)));
+        Replica backend2Replica = table.getPartition(CatalogTestUtil.testPartitionId1)
+                .getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1)
+                .getReplicaByBackendId(CatalogTestUtil.testBackendId2);
+
+        try {
+            Config.resource_group_load_success_quorum = new String[] {"group1:2"};
+            List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId3));
+            long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_dead_after_begin",
+                    transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            backend2.setAlive(false);
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assertions.fail();
+            } catch (TabletQuorumFailedException e) {
+                Assertions.assertTrue(e.getMessage().contains("resource group success quorum failed for group1"));
+            }
+            backend2.setAlive(true);
+
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_bad_after_begin",
+                    transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            backend2Replica.setBad(true);
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assertions.fail();
+            } catch (TabletQuorumFailedException e) {
+                Assertions.assertTrue(e.getMessage().contains("resource group success quorum failed for group1"));
+            }
+        } finally {
+            Config.resource_group_load_success_quorum = originalResourceGroupSuccQuorum;
+            backend2.setAlive(true);
+            backend2Replica.setBad(false);
+            table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
+            backend1.setTagMap(backend1TagMap);
+            backend2.setTagMap(backend2TagMap);
+            backend3.setTagMap(backend3TagMap);
+        }
+    }
+
+    @Test
+    public void testResourceGroupSuccessQuorumIgnoresExtraReplicaBeyondAllocation() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_load_success_quorum;
+        Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
+        Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
+        Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
+        Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
+        Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
+        Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+
+        long extraBackendId = CatalogTestUtil.testBackendId3 + 100;
+        Backend extraBackend = CatalogTestUtil.createBackend(extraBackendId, "extra-host", 123, 124, 125);
+        extraBackend.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        masterEnv.getCurrentSystemInfo().addBackend(extraBackend);
+
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        ReplicaAllocation originalAllocation = table.getPartitionInfo()
+                .getReplicaAllocation(CatalogTestUtil.testPartitionId1);
+        table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
+                new ReplicaAllocation(ImmutableMap.of(
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 1,
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 2)));
+        Tablet tablet = table.getPartition(CatalogTestUtil.testPartitionId1)
+                .getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
+        Replica extraReplica = new LocalReplica(CatalogTestUtil.testReplicaId3 + 100,
+                extraBackendId, Replica.ReplicaState.NORMAL,
+                CatalogTestUtil.testStartVersion, CatalogTestUtil.testSchemaHash1);
+        tablet.addReplica(extraReplica);
+
+        try {
+            Assertions.assertEquals(3, table.getPartitionInfo()
+                    .getReplicaAllocation(CatalogTestUtil.testPartitionId1).getTotalReplicaNum());
+            Assertions.assertEquals(4, tablet.getReplicas().size());
+            Assertions.assertEquals(Replica.ReplicaState.NORMAL,
+                    tablet.getReplicaByBackendId(extraBackendId).getState());
+
+            Config.resource_group_load_success_quorum = new String[] {"group1:2"};
+            long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_ignore_extra_replica",
+                    transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1,
+                    Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
+
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    transactionId, commitInfos, null);
+        } finally {
+            tablet.deleteReplica(extraReplica);
+            masterEnv.getCurrentSystemInfo().dropBackend(extraBackendId);
+            Config.resource_group_load_success_quorum = originalResourceGroupSuccQuorum;
+            table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
+            backend1.setTagMap(backend1TagMap);
+            backend2.setTagMap(backend2TagMap);
+            backend3.setTagMap(backend3TagMap);
+        }
+    }
+
+    @Test
+    public void testAbortTransaction() throws UserException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+
+        long txnId2 = LabelToTxnId.get(CatalogTestUtil.testTxnLabel2);
+        masterDbTransMgr.abortTransaction(txnId2, "test abort transaction", null);
+        Assertions.assertEquals(2, masterDbTransMgr.getRunningTxnNums());
+        Assertions.assertEquals(2, masterDbTransMgr.getFinishedTxnNums());
+        Assertions.assertEquals(4, masterDbTransMgr.getTransactionNum());
+
+        long txnId3 = LabelToTxnId.get(CatalogTestUtil.testTxnLabel3);
+        masterDbTransMgr.abortTransaction(txnId3, "test abort transaction", null);
+        Assertions.assertEquals(1, masterDbTransMgr.getRunningTxnNums());
+        Assertions.assertEquals(3, masterDbTransMgr.getFinishedTxnNums());
+        Assertions.assertEquals(4, masterDbTransMgr.getTransactionNum());
+    }
+
+    @Test
+    public void testAbortTransactionWithNotFoundException() throws UserException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+
+        long txnId1 = LabelToTxnId.get(CatalogTestUtil.testTxnLabel1);
+        UserException e = Assertions.assertThrows(UserException.class, () -> {
+            masterDbTransMgr.abortTransaction(txnId1, "test abort transaction", null);
+        });
+        Assertions.assertTrue(e.getMessage().contains("transaction not found"),
+                "unexpected message: " + e.getMessage());
+    }
+
+    @Test
+    public void testUpdateCatalogAfterCommittedAdvancesIvmSequencePrefixForNormalCommitAndReplay()
+            throws Exception {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Database masterDb = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        IvmInfo normalCommitIvmInfo = new IvmInfo();
+        BaseTableStream normalCommitStream = mockStreamTable(masterDb, 10001L, "stream_refresh_version_commit");
+        long normalCommitStreamId = normalCommitStream.getId();
+        injectTable(masterDb, mockIvmTable(10000L, "mv_refresh_version_commit", normalCommitIvmInfo));
+
+        TransactionState normalCommitTxn = buildStreamRefreshTransaction(
+                masterDb.getId(), 9000L, 10000L, normalCommitStreamId, 123L);
+
+        Method method = DatabaseTransactionMgr.class.getDeclaredMethod(
+                "updateCatalogAfterCommitted", TransactionState.class, Database.class, boolean.class);
+        method.setAccessible(true);
+        method.invoke(masterDbTransMgr, normalCommitTxn, masterDb, false);
+
+        Assertions.assertEquals(1L, normalCommitIvmInfo.getSequencePrefix());
+        Mockito.verify(normalCommitStream).unprotectedUpdateStreamUpdate(
+                normalCommitTxn.getStreamUpdateInfos().get(0).getUpdate(), normalCommitTxn.getCommitTime());
+
+        DatabaseTransactionMgr slaveDbTransMgr = slaveTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Database slaveDb = slaveEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        IvmInfo replayIvmInfo = new IvmInfo();
+        BaseTableStream replayStream = mockStreamTable(slaveDb, 10003L, "stream_refresh_version_replay");
+        long replayStreamId = replayStream.getId();
+        injectTable(slaveDb, mockIvmTable(10002L, "mv_refresh_version_replay", replayIvmInfo));
+
+        TransactionState replayTxn = buildStreamRefreshTransaction(
+                slaveDb.getId(), 9001L, 10002L, replayStreamId, 456L);
+        method.invoke(slaveDbTransMgr, replayTxn, slaveDb, true);
+
+        Assertions.assertEquals(1L, replayIvmInfo.getSequencePrefix());
+        Mockito.verify(replayStream).unprotectedUpdateStreamUpdate(
+                replayTxn.getStreamUpdateInfos().get(0).getUpdate(), replayTxn.getCommitTime());
+    }
+
+    private TransactionState buildStreamRefreshTransaction(long dbId, long txnId, long ivmTableId, long streamId,
+            long commitTime) {
+        TransactionState transactionState = new TransactionState(dbId, Lists.newArrayList(ivmTableId), txnId,
+                "ut_ivm_refresh_" + txnId, new TUniqueId(txnId, txnId),
+                LoadJobSourceType.FRONTEND, transactionSource, -1L,
+                Config.stream_load_default_timeout_second * 1000L);
+        transactionState.setCommitTime(commitTime);
+        transactionState.setStreamUpdateInfos(Collections.singletonList(
+                new TableStreamUpdateInfo(dbId, streamId, Mockito.mock(AbstractTableStreamUpdate.class))));
+        return transactionState;
+    }
+
+    private MTMV mockIvmTable(long tableId, String tableName, IvmInfo ivmInfo) {
+        MTMV ivm = Mockito.mock(MTMV.class);
+        Mockito.when(ivm.getId()).thenReturn(tableId);
+        Mockito.when(ivm.getName()).thenReturn(tableName);
+        Mockito.when(ivm.isIvm()).thenReturn(true);
+        Mockito.when(ivm.getIvmInfo()).thenReturn(ivmInfo);
+        return ivm;
+    }
+
+    private BaseTableStream mockStreamTable(Database db, long streamId, String streamName) {
+        BaseTableStream stream = Mockito.mock(BaseTableStream.class);
+        Mockito.when(stream.getId()).thenReturn(streamId);
+        Mockito.when(stream.getName()).thenReturn(streamName);
+        injectTable(db, stream);
+        return stream;
+    }
+
+    private void injectTable(Database db, Table table) {
+        Map<Long, Table> idToTable = Deencapsulation.getField(db, "idToTable");
+        @SuppressWarnings("unchecked")
+        ConcurrentMap<String, Table> nameToTable = Deencapsulation.getField(db, "nameToTable");
+        idToTable.put(table.getId(), table);
+        nameToTable.put(table.getName(), table);
+    }
+
+    @Test
+    public void testGetTransactionIdByCoordinateBe() throws UserException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        List<Pair<Long, Long>> transactionInfoList = masterDbTransMgr.getPrepareTransactionIdByCoordinateBe(0, "be1", 10);
+        Assertions.assertEquals(3, transactionInfoList.size());
+        Assertions.assertEquals(CatalogTestUtil.testDbId1, transactionInfoList.get(0).first.longValue());
+        Assertions.assertEquals(TransactionStatus.PREPARE,
+                masterDbTransMgr.getTransactionState(transactionInfoList.get(0).second).getTransactionStatus());
+    }
+
+    @Test
+    public void testGetSingleTranInfo() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        long txnId = LabelToTxnId.get(CatalogTestUtil.testTxnLabel1);
+        List<List<String>> singleTranInfos = masterDbTransMgr.getSingleTranInfo(CatalogTestUtil.testDbId1, txnId);
+        Assertions.assertEquals(1, singleTranInfos.size());
+        List<String> txnInfo = singleTranInfos.get(0);
+        Assertions.assertEquals("1000", txnInfo.get(0));
+        Assertions.assertEquals(CatalogTestUtil.testTxnLabel1, txnInfo.get(1));
+        Assertions.assertEquals("FE: localfe", txnInfo.get(2));
+        Assertions.assertEquals("VISIBLE", txnInfo.get(3));
+        Assertions.assertEquals("FRONTEND", txnInfo.get(4));
+        long currentTime = System.currentTimeMillis();
+        Assertions.assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(5)));
+        Assertions.assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(6)));
+        Assertions.assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(7)));
+        Assertions.assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(8)));
+        Assertions.assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(9)));
+        Assertions.assertEquals("", txnInfo.get(10));
+        Assertions.assertEquals("0", txnInfo.get(11));
+        Assertions.assertEquals("-1", txnInfo.get(12));
+        Assertions.assertEquals(String.valueOf(Config.stream_load_default_timeout_second * 1000), txnInfo.get(13));
+    }
+
+    @Test
+    public void testRemoveExpiredTxns() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Config.label_keep_max_second = -1;
+        long currentMillis = System.currentTimeMillis();
+        masterDbTransMgr.removeUselessTxns(currentMillis);
+        Assertions.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
+        Assertions.assertEquals(3, masterDbTransMgr.getTransactionNum());
+        Assertions.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
+    }
+
+    @Test
+    public void testRemoveOverLimitTxns() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Config.label_num_threshold = 0;
+        masterDbTransMgr.removeUselessTxns(System.currentTimeMillis());
+        Assertions.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
+        Assertions.assertEquals(3, masterDbTransMgr.getTransactionNum());
+        Assertions.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
+    }
+
+    @Test
+    public void testGetTableTransInfo() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Long txnId = LabelToTxnId.get(CatalogTestUtil.testTxnLabel1);
+        List<List<Comparable>> tableTransInfos = masterDbTransMgr.getTableTransInfo(txnId);
+        Assertions.assertEquals(1, tableTransInfos.size());
+        List<Comparable> tableTransInfo = tableTransInfos.get(0);
+        Assertions.assertEquals(2, tableTransInfo.size());
+        Assertions.assertEquals(2L, tableTransInfo.get(0));
+        Assertions.assertEquals("3", tableTransInfo.get(1));
+    }
+
+    @Test
+    public void testGetPartitionTransInfo() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Long txnId = LabelToTxnId.get(CatalogTestUtil.testTxnLabel1);
+        List<List<Comparable>> partitionTransInfos = masterDbTransMgr.getPartitionTransInfo(txnId,
+                CatalogTestUtil.testTableId1);
+        Assertions.assertEquals(1, partitionTransInfos.size());
+        List<Comparable> partitionTransInfo = partitionTransInfos.get(0);
+        Assertions.assertEquals(2, partitionTransInfo.size());
+        Assertions.assertEquals(3L, partitionTransInfo.get(0));
+        Assertions.assertEquals(13L, partitionTransInfo.get(1));
+    }
+
+    @Test
+    public void testDeleteTransaction() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        long txnId = LabelToTxnId.get(CatalogTestUtil.testTxnLabel1);
+        TransactionState transactionState = masterDbTransMgr.getTransactionState(txnId);
+        masterDbTransMgr.replayDeleteTransaction(transactionState);
+        Assertions.assertEquals(3, masterDbTransMgr.getRunningTxnNums());
+        Assertions.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
+        Assertions.assertEquals(3, masterDbTransMgr.getTransactionNum());
+        Assertions.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
+    }
+
+    @Test
+    public void testSubTransaction() throws UserException {
+        addSubTransaction();
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(
+                CatalogTestUtil.testDbId1);
+        Assertions.assertEquals(4 + 4, masterDbTransMgr.getTransactionNum());
+        Assertions.assertEquals(3 + 2, masterDbTransMgr.getRunningTxnNums());
+        Assertions.assertEquals(1 + 2, masterDbTransMgr.getFinishedTxnNums());
+        // LoadJobSourceType.INSERT_STREAMING does not write edit log when begin txn
+        DatabaseTransactionMgr slaveDbTransMgr = slaveTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Assertions.assertEquals(1, slaveDbTransMgr.getTransactionNum());
+
+        Assertions.assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel5).size());
+        Assertions.assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel6).size());
+        Assertions.assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel7).size());
+        Assertions.assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel8).size());
+
+        // test get transaction state by subTxnId
+        TransactionState transactionState6 = masterDbTransMgr.getTransactionState(
+                LabelToTxnId.get(CatalogTestUtil.testTxnLabel6));
+        long transactionId6 = transactionState6.getTransactionId();
+        long subTransactionId3 = transactionState6.getSubTxnIds().get(2);
+        TransactionState subTransactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1,
+                subTransactionId3);
+        Assertions.assertEquals(null, subTransactionState); // finished txn will remove sub txn map
+        // test show transaction state command
+        /*List<List<String>> singleTranInfos = masterDbTransMgr.getSingleTranInfo(CatalogTestUtil.testDbId1,
+                subTransactionId3);
+        Assert.assertEquals(1, singleTranInfos.size());
+        List<String> txnInfo = singleTranInfos.get(0);
+        Assert.assertEquals(String.valueOf(transactionId6), txnInfo.get(0));*/
+
+        // test get table transaction info: table_id to partition_id map
+        List<List<Comparable>> tableTransInfos = masterDbTransMgr.getTableTransInfo(transactionId6);
+        LOG.info("tableTransInfos: {}", tableTransInfos);
+        Assertions.assertEquals(3, tableTransInfos.size());
+        List<Comparable> tableTransInfo0 = tableTransInfos.get(0);
+        Assertions.assertEquals(2, tableTransInfo0.size());
+        Assertions.assertEquals(2L, tableTransInfo0.get(0));
+        Assertions.assertEquals("3", tableTransInfo0.get(1));
+        List<Comparable> tableTransInfo1 = tableTransInfos.get(1);
+        Assertions.assertEquals(2, tableTransInfo1.size());
+        Assertions.assertEquals(15L, tableTransInfo1.get(0));
+        Assertions.assertEquals("16", tableTransInfo1.get(1));
+        List<Comparable> tableTransInfo2 = tableTransInfos.get(2);
+        Assertions.assertEquals(2, tableTransInfo2.size());
+        Assertions.assertEquals(2L, tableTransInfo2.get(0));
+        Assertions.assertEquals("3", tableTransInfo2.get(1));
+
+        // test get partition transaction info
+        List<List<Comparable>> partitionTransInfos1 = masterDbTransMgr.getPartitionTransInfo(transactionId6,
+                CatalogTestUtil.testTableId1);
+        LOG.info("partitionTransInfos for table1: {}", partitionTransInfos1);
+        Assertions.assertEquals(2, partitionTransInfos1.size());
+        List<Comparable> partitionTransInfo0 = partitionTransInfos1.get(0);
+        Assertions.assertEquals(2, partitionTransInfo0.size());
+        Assertions.assertEquals(3L, partitionTransInfo0.get(0));
+        Assertions.assertEquals(14L, partitionTransInfo0.get(1));
+        List<Comparable> partitionTransInfo1 = partitionTransInfos1.get(1);
+        Assertions.assertEquals(2, partitionTransInfo1.size());
+        Assertions.assertEquals(3L, partitionTransInfo1.get(0));
+        Assertions.assertEquals(15L, partitionTransInfo1.get(1));
+        List<List<Comparable>> partitionTransInfos2 = masterDbTransMgr.getPartitionTransInfo(transactionId6,
+                CatalogTestUtil.testTableId2);
+        LOG.info("partitionTransInfos for table2: {}", partitionTransInfos2);
+        Assertions.assertEquals(1, partitionTransInfos2.size());
+        List<Comparable> partitionTransInfo3 = partitionTransInfos2.get(0);
+        Assertions.assertEquals(2, partitionTransInfo3.size());
+        Assertions.assertEquals(16L, partitionTransInfo3.get(0));
+        Assertions.assertEquals(13L, partitionTransInfo3.get(1));
+
+        // test delete transaction
+        masterDbTransMgr.replayDeleteTransaction(transactionState6);
+        Assertions.assertEquals(4 + 3, masterDbTransMgr.getTransactionNum());
+        Assertions.assertEquals(3 + 2, masterDbTransMgr.getRunningTxnNums());
+        Assertions.assertEquals(1 + 1, masterDbTransMgr.getFinishedTxnNums());
+        Assertions.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel6));
+        Assertions.assertNull(masterDbTransMgr.getTransactionState(subTransactionId3));
+    }
+
+    @Test
+    public void testRemoveExpiredTxnsWithSubTxn() throws UserException {
+        addSubTransaction();
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Config.label_keep_max_second = -1;
+        Config.streaming_label_keep_max_second = -1;
+        long currentMillis = System.currentTimeMillis();
+        masterDbTransMgr.removeUselessTxns(currentMillis);
+        Assertions.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
+        Assertions.assertEquals(3 + 2, masterDbTransMgr.getTransactionNum());
+        Assertions.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
+        Assertions.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel6));
+    }
+
+    @Test
+    public void testRemoveOverLimitTxnsWithSubTxn() throws UserException {
+        addSubTransaction();
+        // TODO: the 0 does not work
+        Config.label_num_threshold = 0;
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        masterDbTransMgr.removeUselessTxns(System.currentTimeMillis());
+        /*Assert.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
+        Assert.assertEquals(3 + 2, masterDbTransMgr.getTransactionNum());
+        Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
+        Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel6));*/
+    }
+
+    private Pair<TransactionState, List<Long>> beginTransactionWithSubTxn(String label, List<Long> tableIds)
+            throws UserException {
+        Assertions.assertTrue(tableIds.size() > 0);
+        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(tableIds.get(0)),
+                label, transactionSource, LoadJobSourceType.INSERT_STREAMING,
+                Config.stream_load_default_timeout_second);
+        TransactionState transactionState = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1)
+                .getTransactionState(transactionId);
+        List<Long> subTxnIds = new ArrayList<>();
+        subTxnIds.add(transactionId);
+        for (int i = 1; i < tableIds.size(); i++) {
+            /** add sub txn, the same as {@link TransactionEntry#beginTransaction} */
+            transactionState.addTableId(tableIds.get(i));
+            Long subTransactionId = masterTransMgr.getNextTransactionId();
+            subTxnIds.add(subTransactionId);
+            masterTransMgr.addSubTransaction(CatalogTestUtil.testDbId1, transactionId, subTransactionId);
+
+            // get transaction state by subTransactionId
+            TransactionState subTransactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1,
+                    subTransactionId);
+            Assertions.assertEquals(subTransactionState, transactionState);
+        }
+        return Pair.of(transactionState, subTxnIds);
+    }
+
+    protected static void setSuccessTablet(Map<String, Map<Long, Long>> keyToSuccessTablets, List<Long> beIds,
+            long txnId, long tabletId, long tabletVersion) {
+        for (Long beId : beIds) {
+            String key = beId + "-" + txnId;
+            Map<Long, Long> tabletVersionMap = keyToSuccessTablets.get(key);
+            if (tabletVersionMap == null) {
+                tabletVersionMap = new HashMap<>();
+                keyToSuccessTablets.put(key, tabletVersionMap);
+            }
+            tabletVersionMap.put(tabletId, tabletVersion);
+        }
+    }
+
+    /**
+     * txn with label5: prepare
+     *   sub_txn: table1
+     *   sub_txn: table1
+     *   sub_txn: table2
+     * txn with label6: visible
+     *   sub_txn: table1
+     *   sub_txn: table2
+     *   sub_txn: table1, load fail
+     *   sub_txn: table1
+     * txn with label7: aborted
+     *   sub_txn: table1
+     *   sub_txn: table2
+     *   sub_txn: table2
+     * txn with label7: committed
+     *   sub_txn: table1
+     *   sub_txn: table2
+     *   sub_txn: table1
+     */
+    private void addSubTransaction() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        Table table1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        Table table2 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId2);
+
+        // txn with label5
+        TransactionState transactionState5 = beginTransactionWithSubTxn(CatalogTestUtil.testTxnLabel5,
+                Lists.newArrayList(CatalogTestUtil.testTableId1, CatalogTestUtil.testTableId1,
+                        CatalogTestUtil.testTableId2)).first;
+
+        // txn with label6
+        Pair<TransactionState, List<Long>> txnInfo6 = beginTransactionWithSubTxn(CatalogTestUtil.testTxnLabel6,
+                Lists.newArrayList(CatalogTestUtil.testTableId1));
+        TransactionState transactionState6 = txnInfo6.first;
+        if (true) {
+            long transactionId = transactionState6.getTransactionId();
+            // add sub txn2
+            long subTxnId2 = masterTransMgr.getNextTransactionId();
+            transactionState6.addTableId(CatalogTestUtil.testTableId2);
+            masterTransMgr.addSubTransaction(CatalogTestUtil.testDbId1, transactionId, subTxnId2);
+            // add sub txn3
+            long subTxnId3 = masterTransMgr.getNextTransactionId();
+            transactionState6.addTableId(CatalogTestUtil.testTableId1);
+            masterTransMgr.addSubTransaction(CatalogTestUtil.testDbId1, transactionId, subTxnId3);
+            // sub txn3 fail
+            transactionState6.removeTableId(CatalogTestUtil.testTableId1);
+            Env.getCurrentGlobalTransactionMgr().removeSubTransaction(CatalogTestUtil.testDbId1, subTxnId3);
+            // add sub txn4
+            long subTxnId4 = masterTransMgr.getNextTransactionId();
+            transactionState6.addTableId(CatalogTestUtil.testTableId1);
+            masterTransMgr.addSubTransaction(CatalogTestUtil.testDbId1, transactionId, subTxnId4);
+
+            // commit transaction
+            ArrayList<SubTransactionInfo> subTransactionInfos = Lists.newArrayList(
+                    new SubTransactionInfo(table1, CatalogTestUtil.testTabletId1, allBackends, transactionId),
+                    new SubTransactionInfo(table2, CatalogTestUtil.testTabletId2, allBackends, subTxnId2),
+                    new SubTransactionInfo(table1, CatalogTestUtil.testTabletId1, allBackends, subTxnId4));
+            Map<String, Map<Long, Long>> keyToSuccessTablets = new HashMap<>();
+            setSuccessTablet(keyToSuccessTablets, allBackends, transactionId, CatalogTestUtil.testTabletId1, 14);
+            setSuccessTablet(keyToSuccessTablets, allBackends, subTxnId2, CatalogTestUtil.testTabletId2, 13);
+            setSuccessTablet(keyToSuccessTablets, allBackends, subTxnId4, CatalogTestUtil.testTabletId1, 15);
+            masterTransMgr.commitTransactionWithoutLock(
+                    CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2, table1),
+                    transactionState6.getTransactionId(),
+                    GlobalTransactionMgrTest.generateSubTransactionStates(masterTransMgr, transactionState6,
+                            subTransactionInfos), 300000);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, transactionState6.getTransactionStatus());
+
+            // finish transaction
+            DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState6, allBackends, keyToSuccessTablets);
+            Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
+            Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
+            masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId, partitionVisibleVersions,
+                    backendPartitions);
+            Assertions.assertEquals(TransactionStatus.VISIBLE, transactionState6.getTransactionStatus());
+        }
+
+        // txn with label7
+        TransactionState transactionState7 = beginTransactionWithSubTxn(CatalogTestUtil.testTxnLabel7,
+                Lists.newArrayList(CatalogTestUtil.testTableId1, CatalogTestUtil.testTableId2,
+                        CatalogTestUtil.testTableId2)).first;
+        // abort transaction
+        masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionState7.getTransactionId(),
+                "user rollback");
+        Assertions.assertEquals(TransactionStatus.ABORTED, transactionState7.getTransactionStatus());
+
+        // txn with label8
+        Pair<TransactionState, List<Long>> txnInfo8 = beginTransactionWithSubTxn(CatalogTestUtil.testTxnLabel8,
+                Lists.newArrayList(CatalogTestUtil.testTableId1, CatalogTestUtil.testTableId2,
+                        CatalogTestUtil.testTableId1));
+        TransactionState transactionState8 = txnInfo8.first;
+        if (true) {
+            List<Long> subTxnIds8 = txnInfo8.second;
+            // commit transaction
+            ArrayList<SubTransactionInfo> subTransactionInfos = Lists.newArrayList(
+                    new SubTransactionInfo(table1, CatalogTestUtil.testTabletId1, allBackends, subTxnIds8.get(0)),
+                    new SubTransactionInfo(table2, CatalogTestUtil.testTabletId2, allBackends, subTxnIds8.get(1)),
+                    new SubTransactionInfo(table1, CatalogTestUtil.testTabletId1, allBackends, subTxnIds8.get(2)));
+            masterTransMgr.commitTransactionWithoutLock(
+                    CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2),
+                    transactionState8.getTransactionId(),
+                    GlobalTransactionMgrTest.generateSubTransactionStates(masterTransMgr, transactionState8,
+                            subTransactionInfos), 300000);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, transactionState8.getTransactionStatus());
+        }
+
+        LabelToTxnId.put(CatalogTestUtil.testTxnLabel5, transactionState5.getTransactionId());
+        LabelToTxnId.put(CatalogTestUtil.testTxnLabel6, transactionState6.getTransactionId());
+        LabelToTxnId.put(CatalogTestUtil.testTxnLabel7, transactionState7.getTransactionId());
+        LabelToTxnId.put(CatalogTestUtil.testTxnLabel8, transactionState8.getTransactionId());
+    }
+
+    /**
+     * Sets table binlog format so tests can control table-level TSO without the legacy enable_tso property.
+     */
+    private void setTableBinlogFormat(OlapTable table, BinlogConfig.BinlogFormat binlogFormat) {
+        BinlogConfig binlogConfig = new BinlogConfig(table.getBinlogConfig());
+        binlogConfig.setEnable(true);
+        binlogConfig.setBinlogFormat(binlogFormat);
+        table.setBinlogConfig(binlogConfig);
+    }
+
+    private void checkAbortDuringCommitTso(List<Table> tables, TransactionState state, Executable commit) throws Exception {
+        long txnId = state.getTransactionId();
+        OlapTable table = (OlapTable) tables.get(0);
+        ReentrantReadWriteLock jobLock = new ReentrantReadWriteLock();
+        MetaLockUtils.writeLockTables(tables);
+        try {
+            JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+            JdbcOffset initialOffset = (JdbcOffset) provider.deserializeOffset(
+                    "[{\"splitId\":\"binlog-split\",\"lsn\":\"100\"}]");
+            provider.setCurrentOffset(initialOffset);
+            StreamingInsertJob job = Mockito.spy(new StreamingInsertJob() {});
+            // Supply a collected task offset, retaining the real afterCommitted behavior.
+            Mockito.doAnswer(invocation -> {
+                jobLock.writeLock().lock();
+                state.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
+                        txnId, 1L, 10L, 100L, 0L, 0L, 0L,
+                        "[{\"splitId\":\"binlog-split\",\"lsn\":\"200\"}]"));
+                return null;
+            }).when(job).beforeCommitted(state);
+            Deencapsulation.setField(job, "jobId", txnId);
+            Deencapsulation.setField(job, "lock", jobLock);
+            Deencapsulation.setField(job, "offsetProvider", provider);
+            masterTransMgr.getCallbackFactory().removeCallback(txnId);
+            masterTransMgr.getCallbackFactory().addCallback(job);
+            long nextVersion = table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion();
+            long commitTime = state.getCommitTime();
+            int commitInfoCount = state.getIdToTableCommitInfos().size();
+
+            FutureTask<Void> abortTask = new FutureTask<>(() -> {
+                try (FakeEnv threadEnv = new FakeEnv()) {
+                    // The timeout cleaner aborts through DatabaseTransactionMgr without acquiring table locks.
+                    masterTransMgr.getDatabaseTransactionMgr(state.getDbId())
+                            .abortTransaction(txnId, "abort while allocating TSO", null);
+                    return null;
+                }
+            });
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenAnswer(invocation -> {
+                // Start abort only once the committing thread is inside the TSO call.
+                new Thread(abortTask, "abort-during-commit-tso").start();
+                abortTask.get(10, TimeUnit.SECONDS);
+                Mockito.clearInvocations(masterEnv.getEditLog());
+                return 12345L;
+            });
+            setEnvTSOService(masterEnv, tsoService);
+
+            TransactionCommitFailedException failure = Assertions.assertThrows(
+                    TransactionCommitFailedException.class, commit);
+            Assertions.assertTrue(failure.getMessage().contains("abort while allocating TSO"));
+            Assertions.assertEquals(TransactionStatus.ABORTED, state.getTransactionStatus());
+            Assertions.assertEquals(commitTime, state.getCommitTime());
+            Assertions.assertEquals(-1L, state.getCommitTSO());
+            Assertions.assertEquals(commitInfoCount, state.getIdToTableCommitInfos().size());
+            Assertions.assertEquals(nextVersion, table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion());
+            Assertions.assertEquals(Map.of("lsn", "100"),
+                    ((BinlogSplit) provider.getCurrentOffset().getSplits().get(0)).getStartingOffset());
+            Mockito.verify(job).beforeCommitted(state);
+            Mockito.verify(job).afterCommitted(state, false);
+            Assertions.assertFalse(jobLock.isWriteLocked());
+            Mockito.verifyNoInteractions(masterEnv.getEditLog());
+        } finally {
+            MetaLockUtils.writeUnlockTables(tables);
+            if (jobLock.isWriteLockedByCurrentThread()) {
+                jobLock.writeLock().unlock();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"normal,false,false", "normal,true,false", "2pc,false,false", "2pc,true,false",
+            "subtxn,false,false", "subtxn,true,false", "normal,false,true", "normal,true,true",
+            "2pc,false,true", "2pc,true,true", "subtxn,false,true", "subtxn,true,true"})
+    public void testRowBinlogCommitBoundaries(String mode, boolean logOutsideLock, boolean abortDuringTso)
+            throws Exception {
+        boolean twoPhase = mode.equals("2pc");
+        boolean multiTable = mode.equals("subtxn");
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalLogOutsideLock = Config.enable_txn_log_outside_lock;
+        try {
+            Config.enable_txn_log_outside_lock = logOutsideLock;
+            Config.enable_feature_binlog = false;
+            FakeEnv.setEnv(masterEnv);
+            Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+            OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+            setEnvTSOService(masterEnv, new TSOService());
+
+            long txnId = masterTransMgr.beginTransaction(db.getId(), Lists.newArrayList(table.getId()),
+                    "disabled_row_binlog", transactionSource, LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            TransactionState transactionState = masterTransMgr.getTransactionState(db.getId(), txnId);
+            List<Table> tables = Lists.newArrayList(table);
+            List<TabletCommitInfo> tabletCommitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1, allBackends);
+            List<SubTransactionState> subTransactions = new ArrayList<>();
+            if (twoPhase) {
+                masterTransMgr.preCommitTransaction2PC(db, tables, txnId, tabletCommitInfos, 1000, null);
+            }
+            if (multiTable) {
+                OlapTable ccrTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId2);
+                setTableBinlogFormat(ccrTable, BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT);
+                tables.add(ccrTable);
+                subTransactions.addAll(GlobalTransactionMgrTest.generateSubTransactionStates(
+                        masterTransMgr, transactionState, Lists.newArrayList(
+                                new SubTransactionInfo(table, CatalogTestUtil.testTabletId1, allBackends),
+                                new SubTransactionInfo(ccrTable, CatalogTestUtil.testTabletId2, allBackends))));
+            }
+            TxnStateChangeCallback callback = Mockito.mock(TxnStateChangeCallback.class);
+            Mockito.when(callback.getId()).thenReturn(txnId);
+            masterTransMgr.getCallbackFactory().addCallback(callback);
+            transactionState.setCallbackId(txnId);
+            long nextVersion = table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion();
+            long commitTime = transactionState.getCommitTime();
+            int tableCommitInfoCount = transactionState.getIdToTableCommitInfos().size();
+
+            Executable commit = () -> {
+                if (twoPhase) {
+                    masterTransMgr.commitTransaction2PC(db, tables, txnId, 1000);
+                } else if (multiTable) {
+                    masterTransMgr.commitTransactionWithoutLock(db.getId(), tables, txnId,
+                            subTransactions, 1000);
+                } else {
+                    masterTransMgr.commitTransactionWithoutLock(db.getId(), tables, txnId, tabletCommitInfos, null);
+                }
+            };
+            TransactionCommitFailedException exception = Assertions.assertThrows(
+                    TransactionCommitFailedException.class, commit);
+
+            Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_binlog"));
+            Mockito.verify(callback, Mockito.never()).beforeCommitted(Mockito.any());
+            Assertions.assertEquals(twoPhase ? TransactionStatus.PRECOMMITTED : TransactionStatus.PREPARE,
+                    transactionState.getTransactionStatus());
+            Assertions.assertEquals(commitTime, transactionState.getCommitTime());
+            Assertions.assertEquals(-1L, transactionState.getCommitTSO());
+            Assertions.assertEquals(tableCommitInfoCount, transactionState.getIdToTableCommitInfos().size());
+            Assertions.assertEquals(nextVersion,
+                    table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion());
+
+            Config.enable_feature_binlog = true;
+            if (abortDuringTso) {
+                checkAbortDuringCommitTso(tables, transactionState, commit);
+                return;
+            }
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenReturn(12345L);
+            setEnvTSOService(masterEnv, tsoService);
+            Assertions.assertDoesNotThrow(commit);
+            Mockito.verify(callback).beforeCommitted(transactionState);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
+            Assertions.assertEquals(12345L, transactionState.getCommitTSO());
+
+            nextVersion = table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion();
+            Mockito.clearInvocations(callback, masterEnv.getEditLog(), tsoService);
+            if (twoPhase) {
+                Assertions.assertThrows(TransactionCommitFailedException.class, commit);
+            } else {
+                Assertions.assertDoesNotThrow(commit);
+            }
+            Assertions.assertEquals(nextVersion, table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion());
+            Mockito.verifyNoInteractions(callback, masterEnv.getEditLog(), tsoService);
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_txn_log_outside_lock = originalLogOutsideLock;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"disabled", "replay"})
+    public void testCommitTransactionSetsCommitTSOWhenEnableTso(String mode) throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            FakeEnv.setEnv(masterEnv);
+
+            OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                    .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
+            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+
+            long expectedCommitTSO = 12345L;
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenReturn(expectedCommitTSO);
+            setEnvTSOService(masterEnv, tsoService);
+
+            String label = "commitTSO_test_" + System.nanoTime();
+            long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1),
+                    label, transactionSource, TransactionState.LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> transTablets = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1, allBackends);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    txnId, transTablets, null);
+
+            TransactionState transactionState = fakeEditLog.getTransaction(txnId);
+            Assertions.assertNotNull(transactionState);
+            Assertions.assertEquals(expectedCommitTSO, transactionState.getCommitTSO());
+            TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(CatalogTestUtil.testTableId1);
+            Assertions.assertNotNull(tableCommitInfo);
+            Assertions.assertEquals(expectedCommitTSO, tableCommitInfo.getCommitTSO());
+
+            boolean replay = mode.equals("replay");
+            Config.enable_feature_binlog = false;
+            GlobalTransactionMgr transactionMgr = masterTransMgr;
+            Env publishEnv = masterEnv;
+            if (replay) {
+                publishEnv = slaveEnv;
+                transactionMgr = slaveTransMgr;
+                table = (OlapTable) slaveEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
+                        .getTableOrMetaException(table.getId());
+                setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+            }
+            FakeEnv.setEnv(publishEnv);
+            setEnvTSOService(publishEnv, new TSOService());
+            if (replay) {
+                transactionMgr.replayUpsertTransactionState(transactionState);
+            }
+            Map<String, Map<Long, Long>> successTablets = new HashMap<>();
+            setSuccessTablet(successTablets, allBackends, txnId, CatalogTestUtil.testTabletId1,
+                    CatalogTestUtil.testStartVersion + 2);
+            setTransactionFinishPublish(transactionState, allBackends, successTablets);
+            transactionMgr.finishTransaction(CatalogTestUtil.testDbId1, txnId, Maps.newHashMap(), Maps.newHashMap());
+
+            Assertions.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
+            Assertions.assertEquals(12345L, transactionState.getCommitTSO());
+            Assertions.assertEquals(CatalogTestUtil.testStartVersion + 2,
+                    table.getPartition(CatalogTestUtil.testPartitionId1).getVisibleVersion());
+            Assertions.assertEquals(12345L, table.getPartition(CatalogTestUtil.testPartitionId1).getTso());
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,true", "false,true", "false,false"})
+    public void testCommitTransactionCommitTSORemainsMinusOneWhenTableDisableTso(boolean rowFeature, boolean ccrEnabled)
+            throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = rowFeature;
+            FakeEnv.setEnv(masterEnv);
+
+            OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                    .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
+            BinlogConfig config = new BinlogConfig();
+            config.setEnable(ccrEnabled);
+            table.setBinlogConfig(config);
+
+            setEnvTSOService(masterEnv, new TSOService());
+
+            String label = "commitTSO_tableDisable_test_" + System.nanoTime();
+            long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1),
+                    label, transactionSource, TransactionState.LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> transTablets = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1, allBackends);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                    txnId, transTablets, null);
+
+            TransactionState transactionState = fakeEditLog.getTransaction(txnId);
+            Assertions.assertNotNull(transactionState);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
+            Assertions.assertEquals(-1L, transactionState.getCommitTSO());
+            TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(CatalogTestUtil.testTableId1);
+            Assertions.assertNotNull(tableCommitInfo);
+            Assertions.assertEquals(-1L, tableCommitInfo.getCommitTSO());
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
+    @Test
+    public void testCommitTransactionFailsWhenGetTSOInvalid() throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            FakeEnv.setEnv(masterEnv);
+
+            OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                    .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                    .getTableOrMetaException(CatalogTestUtil.testTableId1);
+            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenReturn(-1L);
+            setEnvTSOService(masterEnv, tsoService);
+
+            String label = "commitTSO_getTSOInvalid_test_" + System.nanoTime();
+            long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1),
+                    label, transactionSource, TransactionState.LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            List<TabletCommitInfo> transTablets = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1, allBackends);
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        txnId, transTablets, null);
+                Assertions.fail();
+            } catch (UserException e) {
+                Assertions.assertTrue(e.getMessage().contains("failed to get TSO"));
+            }
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
+    private static void setEnvTSOService(Env env, TSOService service) throws Exception {
+        Field f = Env.class.getDeclaredField("tsoService");
+        f.setAccessible(true);
+        f.set(env, service);
+    }
+}

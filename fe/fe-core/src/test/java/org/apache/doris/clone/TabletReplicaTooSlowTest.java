@@ -1,0 +1,289 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.clone;
+
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.Diagnoser;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.utframe.TestWithFeService;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Table;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.stream.Collectors;
+
+public class TabletReplicaTooSlowTest extends TestWithFeService {
+    private static final Logger LOG = LogManager.getLogger(TabletReplicaTooSlowTest.class);
+
+    private static Random random = new Random(System.currentTimeMillis());
+
+    private List<Backend> backends = Lists.newArrayList();
+
+    private long id = 10086;
+
+    private final SystemInfoService systemInfoService = new SystemInfoService();
+    private final TabletInvertedIndex invertedIndex = new LocalTabletInvertedIndex();
+    private Table<String, Tag, LoadStatisticForTag> statisticMap;
+
+    @Override
+    protected int backendNum() {
+        return 5;
+    }
+
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
+        FeConstants.runningUnitTest = true;
+        System.out.println(runningDir);
+        FeConstants.runningUnitTest = true;
+        Config.tablet_checker_interval_ms = 1000;
+        Config.tablet_repair_delay_factor_second = 1;
+        Config.repair_slow_replica = true;
+        // 5 backends:
+        // 127.0.0.1
+        // 127.0.0.2
+        // 127.0.0.3
+        // 127.0.0.4
+        // 127.0.0.5
+    }
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        // create database
+        String createDbStmtStr = "create database test;";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
+
+        // must set disk info, or the tablet scheduler won't work
+        backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
+        for (Backend be : backends) {
+            Map<String, TDisk> backendDisks = Maps.newHashMap();
+            TDisk tDisk1 = new TDisk();
+            tDisk1.setRootPath("/home/doris.HDD");
+            tDisk1.setDiskTotalCapacity(2000000000);
+            tDisk1.setDataUsedCapacity(1);
+            tDisk1.setUsed(true);
+            tDisk1.setDiskAvailableCapacity(tDisk1.disk_total_capacity - tDisk1.data_used_capacity);
+            tDisk1.setPathHash(random.nextLong());
+            tDisk1.setStorageMedium(TStorageMedium.HDD);
+            backendDisks.put(tDisk1.getRootPath(), tDisk1);
+
+            TDisk tDisk2 = new TDisk();
+            tDisk2.setRootPath("/home/doris.SSD");
+            tDisk2.setDiskTotalCapacity(2000000000);
+            tDisk2.setDataUsedCapacity(1);
+            tDisk2.setUsed(true);
+            tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);
+            tDisk2.setPathHash(random.nextLong());
+            tDisk2.setStorageMedium(TStorageMedium.SSD);
+            backendDisks.put(tDisk2.getRootPath(), tDisk2);
+
+            be.updateDisks(backendDisks);
+        }
+    }
+
+    private void createTableStmt(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    private static void updateReplicaVersionCount() {
+        Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
+        int versionCount = 1;
+        long tabletId = -1;
+        for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
+            tabletId = cell.getRowKey();
+            long beId = cell.getColumnKey();
+            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
+            List<Long> pathHashes = be.getDisks().values().stream()
+                    .map(DiskInfo::getPathHash).collect(Collectors.toList());
+            Replica replica = cell.getValue();
+            replica.setVisibleVersionCount(versionCount);
+            versionCount = versionCount + 200;
+
+            replica.setPathHash(pathHashes.get(0));
+        }
+
+        List<List<String>> result = Diagnoser.diagnoseTablet(tabletId);
+        Assertions.assertEquals(12, result.size());
+        Assertions.assertTrue(result.get(11).get(1).contains("version count is too high"));
+    }
+
+    private static String getDiagnosisInfo(List<List<String>> rows, String item) {
+        for (List<String> row : rows) {
+            if (item.equals(row.get(0))) {
+                return row.get(1);
+            }
+        }
+        return "";
+    }
+
+    private static Map<String, TDisk> copyBackendDisks(Backend backend) {
+        Map<String, TDisk> disks = Maps.newHashMap();
+        for (DiskInfo diskInfo : backend.getDisks().values()) {
+            TDisk tDisk = new TDisk();
+            tDisk.setRootPath(diskInfo.getRootPath());
+            tDisk.setDiskTotalCapacity(diskInfo.getTotalCapacityB());
+            tDisk.setDataUsedCapacity(diskInfo.getDataUsedCapacityB());
+            tDisk.setTrashUsedCapacity(diskInfo.getTrashUsedCapacityB());
+            tDisk.setDiskAvailableCapacity(diskInfo.getAvailableCapacityB());
+            tDisk.setUsed(diskInfo.getState() == DiskInfo.DiskState.ONLINE);
+            tDisk.setPathHash(diskInfo.getPathHash());
+            tDisk.setStorageMedium(diskInfo.getStorageMedium());
+            disks.put(tDisk.getRootPath(), tDisk);
+        }
+        return disks;
+    }
+
+    private static Map<String, TDisk> buildExceedLimitDisks(Backend backend) {
+        Map<String, TDisk> disks = Maps.newHashMap();
+        for (DiskInfo diskInfo : backend.getDisks().values()) {
+            TDisk tDisk = new TDisk();
+            tDisk.setRootPath(diskInfo.getRootPath());
+            tDisk.setDiskTotalCapacity(1L);
+            tDisk.setDataUsedCapacity(1L);
+            tDisk.setTrashUsedCapacity(0L);
+            tDisk.setDiskAvailableCapacity(0L);
+            tDisk.setUsed(true);
+            tDisk.setPathHash(diskInfo.getPathHash());
+            tDisk.setStorageMedium(diskInfo.getStorageMedium());
+            disks.put(tDisk.getRootPath(), tDisk);
+        }
+        return disks;
+    }
+
+    @Test
+    public void testDiagnoseTabletCloudModeSkipDiskAndVersionCheck() throws Exception {
+        String tableName = "tbl_diag_cloud_" + Math.abs(random.nextInt());
+        String createStr = "create table test." + tableName + "\n"
+                + "(k1 date, k2 int)\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties\n"
+                + "(\n"
+                + "    \"replication_num\" = \"3\"\n"
+                + ")";
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createStr));
+
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
+        Assertions.assertNotNull(db);
+        OlapTable table = (OlapTable) db.getTableNullable(tableName);
+        Assertions.assertNotNull(table);
+        Partition partition = table.getAllPartitions().iterator().next();
+        MaterializedIndex index = partition.getBaseIndex();
+        Tablet tablet = index.getTablets().get(0);
+        Replica replica = tablet.getReplicas().get(0);
+        long tabletId = tablet.getId();
+        long visibleVersion = partition.getCachedVisibleVersion();
+        Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+        Assertions.assertNotNull(backend);
+
+        Map<String, TDisk> originalDisks = copyBackendDisks(backend);
+        String originCloudUniqueId = Config.cloud_unique_id;
+        long originalVersion = replica.getVersion();
+
+        try {
+            backend.updateDisks(buildExceedLimitDisks(backend));
+            long mismatchVersion = visibleVersion == Long.MAX_VALUE ? visibleVersion - 1 : visibleVersion + 1;
+            replica.adminUpdateVersionInfo(mismatchVersion, null, null, System.currentTimeMillis());
+
+            List<List<String>> localResult = Diagnoser.diagnoseTablet(tabletId);
+            Assertions.assertTrue(getDiagnosisInfo(localResult, "ReplicaBackendStatus").contains("has no space left"));
+            Assertions.assertTrue(getDiagnosisInfo(localResult, "ReplicaVersionStatus").contains("does not equal"));
+
+            Config.cloud_unique_id = "diagnose-tablet-cloud-mode-ut";
+            List<List<String>> cloudResult = Diagnoser.diagnoseTablet(tabletId);
+            Assertions.assertEquals("OK", getDiagnosisInfo(cloudResult, "ReplicaBackendStatus"));
+            Assertions.assertEquals("OK", getDiagnosisInfo(cloudResult, "ReplicaVersionStatus"));
+        } finally {
+            Config.cloud_unique_id = originCloudUniqueId;
+            backend.updateDisks(originalDisks);
+            replica.adminUpdateVersionInfo(originalVersion, null, null, System.currentTimeMillis());
+        }
+    }
+
+    @Test
+    public void test() throws Exception {
+        // test colocate tablet repair
+        String createStr = "create table test.tbl1\n"
+                + "(k1 date, k2 int)\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties\n"
+                + "(\n"
+                + "    \"replication_num\" = \"3\"\n"
+                + ")";
+        ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createStr));
+
+        int maxLoop = 300;
+        boolean delete = false;
+        while (maxLoop-- > 0) {
+            Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
+            boolean found = false;
+            for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
+                Replica replica = cell.getValue();
+                if (replica.getVisibleVersionCount() == 401) {
+                    if (replica.tooSlow()) {
+                        LOG.info("set to TOO_SLOW.");
+                    }
+                    found = true;
+                }
+            }
+            if (!found) {
+                delete = true;
+                break;
+            }
+            Thread.sleep(1000);
+        }
+        Assertions.assertTrue(delete);
+    }
+}

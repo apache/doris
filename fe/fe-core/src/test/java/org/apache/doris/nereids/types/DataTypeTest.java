@@ -1,0 +1,893 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.types;
+
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.coercion.NumericType;
+import org.apache.doris.nereids.types.coercion.ScaleTimeType;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.Random;
+
+public class DataTypeTest {
+    @Test
+    public void testDataTypeEquals() {
+        DecimalV2Type decimalV2Type1 = DecimalV2Type.createDecimalV2Type(27, 9);
+        DecimalV2Type decimalV2Type2 = DecimalV2Type.createDecimalV2Type(27, 9);
+        DecimalV2Type decimalV2Type3 = DecimalV2Type.createDecimalV2Type(26, 9);
+        DecimalV2Type decimalV2Type4 = DecimalV2Type.createDecimalV2Type(27, 8);
+        Assertions.assertEquals(decimalV2Type1, decimalV2Type2);
+        Assertions.assertEquals(decimalV2Type1.hashCode(), decimalV2Type2.hashCode());
+        Assertions.assertNotEquals(decimalV2Type1, decimalV2Type3);
+        Assertions.assertNotEquals(decimalV2Type1.hashCode(), decimalV2Type3.hashCode());
+        Assertions.assertNotEquals(decimalV2Type1, decimalV2Type4);
+        Assertions.assertNotEquals(decimalV2Type1.hashCode(), decimalV2Type4.hashCode());
+
+        CharType charType1 = new CharType(10);
+        CharType charType2 = new CharType(10);
+        CharType charType3 = new CharType(15);
+        Assertions.assertEquals(charType1, charType2);
+        Assertions.assertEquals(charType1.hashCode(), charType2.hashCode());
+        Assertions.assertNotEquals(charType1, charType3);
+        Assertions.assertNotEquals(charType1.hashCode(), charType3.hashCode());
+
+        VarcharType varcharType1 = new VarcharType(32);
+        VarcharType varcharType2 = new VarcharType(32);
+        VarcharType varcharType3 = new VarcharType(64);
+        VarcharType varcharType4 = new VarcharType(-1);
+        VarcharType varcharType5 = new VarcharType(65533);
+        Assertions.assertEquals(varcharType1, varcharType2);
+        Assertions.assertEquals(varcharType1.hashCode(), varcharType2.hashCode());
+        Assertions.assertNotEquals(varcharType1, varcharType3);
+        Assertions.assertNotEquals(varcharType1.hashCode(), varcharType3.hashCode());
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, VarcharType.MAX_VARCHAR_TYPE);
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT.hashCode(), VarcharType.MAX_VARCHAR_TYPE.hashCode());
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, varcharType4);
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT.hashCode(), varcharType4.hashCode());
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, varcharType5);
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT.hashCode(), varcharType5.hashCode());
+    }
+
+    @Test
+    void testFromPrimitiveType() {
+        Assertions.assertEquals(DataType.fromCatalogType(Type.STRING), StringType.INSTANCE);
+        Assertions.assertSame(TimeStampNsType.INSTANCE,
+                DataType.fromCatalogType(Type.TIMESTAMP_NS));
+        Assertions.assertSame(TimeStampNsType.INSTANCE,
+                DataType.legacyTypeToNereidsType().get(Type.TIMESTAMP_NS.getPrimitiveType()));
+    }
+
+    @Test
+    void testTimeStampNsValidation() {
+        DataType timestampNs = TimeStampNsType.INSTANCE;
+        Assertions.assertDoesNotThrow(timestampNs::validateDataType);
+        Assertions.assertInstanceOf(DateLikeType.class, timestampNs);
+        Assertions.assertInstanceOf(ScaleTimeType.class, timestampNs);
+        Assertions.assertTrue(timestampNs.isDateLikeType());
+        Assertions.assertTrue(timestampNs.isTimeStampNsType());
+        Assertions.assertFalse(timestampNs.isDateTimeV2Type());
+        Assertions.assertFalse(timestampNs.isTimeStampTzType());
+        Assertions.assertEquals(ScalarType.TIMESTAMP_NS_SCALE, TimeStampNsType.INSTANCE.getScale());
+        Assertions.assertEquals(8, timestampNs.width());
+        Assertions.assertEquals("timestamp_ns", timestampNs.toSql());
+        Assertions.assertSame(TimeStampNsType.INSTANCE,
+                TimeStampNsType.INSTANCE.scaleTypeForType(DateTimeV2Type.MAX));
+        Assertions.assertSame(TimeStampNsType.INSTANCE,
+                TimeStampNsType.INSTANCE.forTypeFromString(
+                        new StringLiteral("2024-01-02 03:04:05.123456789")));
+        Assertions.assertInstanceOf(TimeStampNsLiteral.class,
+                ((DateLikeType) timestampNs).fromString("2024-01-02 03:04:05.123456789"));
+        Assertions.assertEquals(86400, timestampNs.rangeLength(20240102000000D, 20240101000000D));
+        Assertions.assertEquals(DateTimeV2Type.of(4), DateTimeV2Type.forType(
+                DecimalV2Type.createDecimalV2Type(12, 4)));
+        Assertions.assertEquals(DateTimeV2Type.of(5), DateTimeV2Type.forType(
+                DecimalV3Type.createDecimalV3Type(12, 5)));
+    }
+
+    @Test
+    void testTimeV2PromotionKeepsMicrosecondPrecision() {
+        Assertions.assertEquals(
+                ImmutableList.of(DateTimeV2Type.MAX, StringType.INSTANCE),
+                TimeV2Type.of(6).getAllPromotions());
+    }
+
+    @Test
+    void testImplicitDateTimeV2PrecisionKeepsMicrosecondCompatibility() {
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forType(StringType.INSTANCE));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forType(DecimalV3Type.createDecimalV3Type(18, 9)));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forTypeFromString("1st Jun 2007 09:45:30"));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forType(DateTimeV2Type.MAX));
+        Assertions.assertEquals(DateTimeV2Type.MAX,
+                DateTimeV2Type.forTypeFromString("2024-01-01 00:00:00.123456789"));
+    }
+
+    @Test
+    void testConvertFromString() {
+        // boolean
+        Assertions.assertEquals(BooleanType.INSTANCE, DataType.convertFromString("boolean"));
+        // tinyint
+        Assertions.assertEquals(TinyIntType.INSTANCE, DataType.convertFromString("tinyint"));
+        // smallint
+        Assertions.assertEquals(SmallIntType.INSTANCE, DataType.convertFromString("smallint"));
+        // int
+        Assertions.assertEquals(IntegerType.INSTANCE, DataType.convertFromString("int"));
+        // bigint
+        Assertions.assertEquals(BigIntType.INSTANCE, DataType.convertFromString("bigint"));
+        // largeint
+        Assertions.assertEquals(LargeIntType.INSTANCE, DataType.convertFromString("largeint"));
+        // float
+        Assertions.assertEquals(FloatType.INSTANCE, DataType.convertFromString("float"));
+        // double
+        Assertions.assertEquals(DoubleType.INSTANCE, DataType.convertFromString("double"));
+        // decimalv2
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(13, 9),
+                DataType.convertFromString("decimal(13, 9)"));
+        // decimalv3
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(13, 9),
+                DataType.convertFromString("decimalv3(13, 9)"));
+        // text
+        Assertions.assertEquals(StringType.INSTANCE, DataType.convertFromString("text"));
+        // string
+        Assertions.assertEquals(StringType.INSTANCE, DataType.convertFromString("string"));
+        // char
+        Assertions.assertEquals(CharType.createCharType(10), DataType.convertFromString("char(10)"));
+        Assertions.assertEquals(CharType.SYSTEM_DEFAULT, DataType.convertFromString("character"));
+        // varchar
+        Assertions.assertEquals(VarcharType.createVarcharType(10), DataType.convertFromString("varchar(10)"));
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, DataType.convertFromString("varchar(*)"));
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, DataType.convertFromString("varchar"));
+        // date
+        Assertions.assertEquals(DateType.INSTANCE, DataType.convertFromString("date"));
+        // datev2
+        Assertions.assertEquals(DateV2Type.INSTANCE, DataType.convertFromString("datev2"));
+        // time
+        Assertions.assertEquals(TimeV2Type.SYSTEM_DEFAULT, DataType.convertFromString("time"));
+
+        // datetime
+        Assertions.assertEquals(DateTimeType.INSTANCE, DataType.convertFromString("datetime"));
+
+        // datetimev2
+        Assertions.assertEquals(DateTimeV2Type.of(3), DataType.convertFromString("datetimev2(3)"));
+        Assertions.assertSame(TimeStampNsType.INSTANCE, DataType.convertFromString("timestamp_ns"));
+        for (String datetimeType : ImmutableList.of("datetime", "datetimev2")) {
+            for (int invalidScale = 7; invalidScale <= 9; invalidScale++) {
+                int scale = invalidScale;
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> DataType.convertFromString(datetimeType + "(" + scale + ")"));
+            }
+        }
+        for (int invalidScale : ImmutableList.of(0, 1, 6, 7, 8, 9)) {
+            int scale = invalidScale;
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> DataType.convertFromString("timestamp_ns(" + scale + ")"));
+        }
+        // hll
+        Assertions.assertEquals(HllType.INSTANCE, DataType.convertFromString("hll"));
+        // bitmap
+        Assertions.assertEquals(BitmapType.INSTANCE, DataType.convertFromString("bitmap"));
+        // quantile_state
+        Assertions.assertEquals(QuantileStateType.INSTANCE, DataType.convertFromString("quantile_state"));
+        // json
+        Assertions.assertEquals(JsonType.INSTANCE, DataType.convertFromString("json"));
+        // array
+        Assertions.assertEquals(ArrayType.of(IntegerType.INSTANCE), DataType.convertFromString("array<int>"));
+        Assertions.assertEquals(ArrayType.of(TimeStampNsType.INSTANCE),
+                DataType.convertFromString("array<timestamp_ns>"));
+        // map
+        Assertions.assertEquals(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), DataType.convertFromString("map<int, int>"));
+        Assertions.assertEquals(MapType.of(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
+                DataType.convertFromString("map<timestamp_ns, timestamp_ns>"));
+        // struct
+        Assertions.assertEquals(new StructType(ImmutableList.of(new StructField("a", IntegerType.INSTANCE, true, ""))), DataType.convertFromString("struct<a: int>"));
+        Assertions.assertEquals(
+                new StructType(ImmutableList.of(
+                        new StructField("ts", TimeStampNsType.INSTANCE, true, ""))),
+                DataType.convertFromString("struct<ts: timestamp_ns>"));
+
+    }
+
+    @Test
+    public void testIsInjectiveCastToForPrimitiveTypes() {
+        assertSafeCast(NullType.INSTANCE, IntegerType.INSTANCE);
+        assertSafeCast(IntegerType.INSTANCE, IntegerType.INSTANCE);
+        assertSafeCast(IntegerType.INSTANCE, BigIntType.INSTANCE);
+        assertUnsafeCast(BigIntType.INSTANCE, IntegerType.INSTANCE);
+        assertSafeCast(TinyIntType.INSTANCE, FloatType.INSTANCE);
+        assertSafeCast(SmallIntType.INSTANCE, FloatType.INSTANCE);
+        assertUnsafeCast(IntegerType.INSTANCE, FloatType.INSTANCE);
+        assertSafeCast(FloatType.INSTANCE, DoubleType.INSTANCE);
+        assertUnsafeCast(FloatType.INSTANCE, StringType.INSTANCE);
+        assertSafeCast(IntegerType.INSTANCE, DoubleType.INSTANCE);
+        assertUnsafeCast(BigIntType.INSTANCE, DoubleType.INSTANCE);
+
+        // DECIMALV2 is deprecated. Treat every cast involving it as non-injective, even when the
+        // declared domains suggest that the cast is an identity or widening conversion.
+        assertUnsafeCast(NullType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(BooleanType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(IntegerType.INSTANCE, DecimalV2Type.createDecimalV2Type(9, 0));
+        assertUnsafeCast(BigIntType.INSTANCE, DecimalV2Type.createDecimalV2Type(27, 0));
+        assertSafeCast(IntegerType.INSTANCE, DecimalV3Type.createDecimalV3Type(10, 0));
+        assertUnsafeCast(IntegerType.INSTANCE, DecimalV3Type.createDecimalV3Type(9, 0));
+        assertUnsafeCast(LargeIntType.INSTANCE, DecimalV3Type.createDecimalV3Type(38, 0));
+        assertSafeCast(LargeIntType.INSTANCE, DecimalV3Type.createDecimalV3TypeNotCheck256(39, 0));
+
+        assertSafeCast(BooleanType.INSTANCE, DecimalV3Type.createDecimalV3Type(1, 0));
+        assertUnsafeCast(BooleanType.INSTANCE, DecimalV3Type.createDecimalV3Type(1, 1));
+
+        assertSafeCast(DecimalV3Type.createDecimalV3Type(6, 2), DecimalV3Type.createDecimalV3Type(8, 3));
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(6, 2), DecimalV3Type.createDecimalV3Type(6, 1));
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(6, 2), DecimalV3Type.createDecimalV3Type(5, 2));
+        DecimalV2Type narrowDecimalV2 = DecimalV2Type.createDecimalV2Type(2, 0);
+        assertUnsafeCast(narrowDecimalV2, DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(DecimalV2Type.SYSTEM_DEFAULT, narrowDecimalV2);
+        assertUnsafeCast(narrowDecimalV2, DecimalV3Type.createDecimalV3Type(27, 9));
+        assertUnsafeCast(narrowDecimalV2, DecimalV3Type.createDecimalV3Type(26, 9));
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(27, 9), narrowDecimalV2);
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(28, 9), DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(27, 10), DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(narrowDecimalV2, TinyIntType.INSTANCE);
+        assertUnsafeCast(narrowDecimalV2, FloatType.INSTANCE);
+        assertUnsafeCast(narrowDecimalV2, DoubleType.INSTANCE);
+        assertUnsafeCast(narrowDecimalV2, StringType.INSTANCE);
+        assertSafeCast(DecimalV3Type.createDecimalV3Type(15, 0), DoubleType.INSTANCE);
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(16, 0), DoubleType.INSTANCE);
+        assertSafeCast(DecimalV3Type.createDecimalV3Type(15, 6), DoubleType.INSTANCE);
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(16, 6), DoubleType.INSTANCE);
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(6, 2), IntegerType.INSTANCE);
+
+        assertSafeCast(DateType.INSTANCE, DateTimeType.INSTANCE);
+        assertSafeCast(DateType.INSTANCE, DateTimeV2Type.of(0));
+        assertSafeCast(DateType.INSTANCE, IntegerType.INSTANCE);
+        assertSafeCast(DateType.INSTANCE, DoubleType.INSTANCE);
+        assertSafeCast(DateV2Type.INSTANCE, DateType.INSTANCE);
+        assertSafeCast(DateV2Type.INSTANCE, DateTimeType.INSTANCE);
+        assertSafeCast(DateV2Type.INSTANCE, IntegerType.INSTANCE);
+        assertSafeCast(DateV2Type.INSTANCE, StringType.INSTANCE);
+        assertSafeCast(DateTimeType.INSTANCE, DateTimeV2Type.of(0));
+        assertSafeCast(DateTimeType.INSTANCE, BigIntType.INSTANCE);
+        assertSafeCast(DateTimeType.INSTANCE, DoubleType.INSTANCE);
+        assertSafeCast(DateTimeV2Type.of(0), DateTimeType.INSTANCE);
+        assertSafeCast(DateTimeV2Type.of(0), BigIntType.INSTANCE);
+        assertSafeCast(DateTimeV2Type.of(0), DoubleType.INSTANCE);
+        assertSafeCast(DateTimeV2Type.of(3), DateTimeV2Type.of(6));
+        assertUnsafeCast(DateTimeV2Type.of(3), DateTimeType.INSTANCE);
+        assertUnsafeCast(DateTimeV2Type.of(3), BigIntType.INSTANCE);
+        assertUnsafeCast(DateTimeV2Type.of(3), DoubleType.INSTANCE);
+        assertUnsafeCast(DateTimeType.INSTANCE, DateType.INSTANCE);
+        assertSafeCast(TimeV2Type.of(0), FloatType.INSTANCE);
+        assertUnsafeCast(TimeV2Type.of(1), FloatType.INSTANCE);
+        assertSafeCast(TimeV2Type.MAX, BigIntType.INSTANCE);
+        assertSafeCast(TimeV2Type.MAX, LargeIntType.INSTANCE);
+        assertSafeCast(TimeV2Type.MAX, DoubleType.INSTANCE);
+        assertUnsafeCast(TimeV2Type.MAX, IntegerType.INSTANCE);
+        assertSafeCast(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
+        assertSafeCast(TimeStampNsType.INSTANCE, StringType.INSTANCE);
+        assertUnsafeCast(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX);
+        assertUnsafeCast(DateTimeV2Type.MAX, TimeStampNsType.INSTANCE);
+
+        assertSafeCast(IPv4Type.INSTANCE, IPv6Type.INSTANCE);
+        assertSafeCast(IPv4Type.INSTANCE, StringType.INSTANCE);
+        assertSafeCast(IPv6Type.INSTANCE, StringType.INSTANCE);
+        assertUnsafeCast(IPv6Type.INSTANCE, IPv4Type.INSTANCE);
+
+        assertSafeCast(VarcharType.createVarcharType(10), VarcharType.createVarcharType(20));
+        assertSafeCast(VarcharType.createVarcharType(10), StringType.INSTANCE);
+        assertSafeCast(VarcharType.createVarcharType(20), VarcharType.createVarcharType(10));
+        assertSafeCast(StringType.INSTANCE, VarcharType.createVarcharType(10));
+        assertSafeCast(StringType.INSTANCE, VarBinaryType.createVarBinaryType(10));
+        assertSafeCast(VarBinaryType.createVarBinaryType(10), StringType.INSTANCE);
+        assertSafeCast(VarBinaryType.createVarBinaryType(10), VarBinaryType.createVarBinaryType(2));
+
+        VariantType v1 = new VariantType(100);
+        VariantType anotherV1 = new VariantType(200);
+        assertSafeCast(v1, new VariantType(100));
+        assertSafeCast(v1, anotherV1);
+    }
+
+    @Test
+    public void testIsInjectiveCastToForDateTypes() {
+        for (DataType source : ImmutableList.of(DateType.INSTANCE, DateV2Type.INSTANCE)) {
+            assertSafeCast(source, DateType.INSTANCE);
+            assertSafeCast(source, DateV2Type.INSTANCE);
+            assertSafeCast(source, DateTimeType.INSTANCE);
+            for (int scale = 0; scale <= DateTimeV2Type.MAX_SCALE; scale++) {
+                assertSafeCast(source, DateTimeV2Type.of(scale));
+            }
+            assertUnsafeCast(source, TimeStampTzType.MAX);
+            assertUnsafeCast(source, TimeStampNsType.INSTANCE);
+            assertUnsafeCast(DateTimeV2Type.MAX, source);
+        }
+    }
+
+    @Test
+    public void testIsInjectiveCastToForComplexTypes() {
+        assertSafeCast(ArrayType.of(IntegerType.INSTANCE), ArrayType.of(BigIntType.INSTANCE));
+        assertUnsafeCast(ArrayType.of(BigIntType.INSTANCE), ArrayType.of(IntegerType.INSTANCE));
+        assertUnsafeCast(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT),
+                ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT));
+
+        MapType intVarcharMap = MapType.of(IntegerType.INSTANCE, VarcharType.createVarcharType(10));
+        assertSafeCast(intVarcharMap, intVarcharMap);
+        MapType decimalV2Map = MapType.of(IntegerType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
+        assertUnsafeCast(decimalV2Map, decimalV2Map);
+        assertUnsafeCast(intVarcharMap, MapType.of(BigIntType.INSTANCE, StringType.INSTANCE));
+        assertUnsafeCast(MapType.of(BigIntType.INSTANCE, VarcharType.createVarcharType(10)),
+                MapType.of(IntegerType.INSTANCE, StringType.INSTANCE));
+        assertUnsafeCast(ArrayType.of(intVarcharMap),
+                ArrayType.of(MapType.of(BigIntType.INSTANCE, StringType.INSTANCE)));
+
+        StructType intStringStruct = new StructType(ImmutableList.of(
+                new StructField("a", IntegerType.INSTANCE, true, ""),
+                new StructField("b", VarcharType.createVarcharType(10), true, "")));
+        StructType bigintStringStruct = new StructType(ImmutableList.of(
+                new StructField("a", BigIntType.INSTANCE, true, ""),
+                new StructField("b", StringType.INSTANCE, true, "")));
+        StructType intOnlyStruct = new StructType(ImmutableList.of(
+                new StructField("a", IntegerType.INSTANCE, true, "")));
+
+        assertSafeCast(intStringStruct, bigintStringStruct);
+        assertUnsafeCast(bigintStringStruct, intStringStruct);
+        assertUnsafeCast(intOnlyStruct, intStringStruct);
+
+        assertUnsafeCast(ArrayType.of(IntegerType.INSTANCE), StringType.INSTANCE);
+        assertUnsafeCast(MapType.of(IntegerType.INSTANCE, StringType.INSTANCE), StringType.INSTANCE);
+        assertUnsafeCast(intStringStruct, StringType.INSTANCE);
+    }
+
+    @Test
+    public void testAnyAccept() {
+        AnyDataType dateType = AnyDataType.INSTANCE_WITHOUT_INDEX;
+        Assertions.assertTrue(dateType.acceptsType(NullType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertTrue(dateType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertTrue(dateType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertTrue(dateType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertTrue(dateType.acceptsType(StringType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(DateType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testNullTypeAccept() {
+        NullType dateType = NullType.INSTANCE;
+        Assertions.assertTrue(dateType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dateType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dateType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dateType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dateType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testBooleanAccept() {
+        BooleanType dateType = BooleanType.INSTANCE;
+        Assertions.assertFalse(dateType.acceptsType(NullType.INSTANCE));
+        Assertions.assertTrue(dateType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dateType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dateType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dateType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dateType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dateType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testNumericAccept() {
+        NumericType dataType = NumericType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertTrue(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testIntegralAccept() {
+        IntegralType dataType = IntegralType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testTinyIntAccept() {
+        TinyIntType dataType = TinyIntType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testSmallIntAccept() {
+        SmallIntType dataType = SmallIntType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testIntAccept() {
+        IntegerType dataType = IntegerType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testBigIntAccept() {
+        BigIntType dataType = BigIntType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testLargeIntAccept() {
+        LargeIntType dataType = LargeIntType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testFractionalAccept() {
+        FractionalType dataType = FractionalType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertTrue(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testFloatAccept() {
+        FloatType dataType = FloatType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testDoubleAccept() {
+        DoubleType dataType = DoubleType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testDecimalAccept() {
+        DecimalV2Type dataType = DecimalV2Type.SYSTEM_DEFAULT;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertTrue(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testCharAccept() {
+        CharType dataType = CharType.createCharType(10);
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertTrue(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertTrue(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertTrue(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testVarcharAccept() {
+        VarcharType dataType = VarcharType.SYSTEM_DEFAULT;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertTrue(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertTrue(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertTrue(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testStringAccept() {
+        StringType dataType = StringType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertTrue(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertTrue(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertTrue(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testDateAccept() {
+        DateType dataType = DateType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testDateTimeAccept() {
+        DateTimeType dataType = DateTimeType.INSTANCE;
+        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
+        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
+        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
+        Assertions.assertFalse(dataType.acceptsType(DecimalV2Type.createDecimalV2Type(precision, scale)));
+        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
+        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
+        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
+        Assertions.assertTrue(dataType.acceptsType(DateTimeType.INSTANCE));
+    }
+
+    @Test
+    public void testSimpleName() {
+        Assertions.assertEquals("null", NullType.INSTANCE.simpleString());
+        Assertions.assertEquals("boolean", BooleanType.INSTANCE.simpleString());
+        Assertions.assertEquals("numeric", NumericType.INSTANCE.simpleString());
+        Assertions.assertEquals("integral", IntegralType.INSTANCE.simpleString());
+        Assertions.assertEquals("tinyint", TinyIntType.INSTANCE.simpleString());
+        Assertions.assertEquals("smallint", SmallIntType.INSTANCE.simpleString());
+        Assertions.assertEquals("int", IntegerType.INSTANCE.simpleString());
+        Assertions.assertEquals("bigint", BigIntType.INSTANCE.simpleString());
+        Assertions.assertEquals("signed", BigIntType.SIGNED.simpleString());
+        Assertions.assertEquals("largeint", LargeIntType.INSTANCE.simpleString());
+        Assertions.assertEquals("unsigned", LargeIntType.UNSIGNED.simpleString());
+        Assertions.assertEquals("fractional", FractionalType.INSTANCE.simpleString());
+        Assertions.assertEquals("float", FloatType.INSTANCE.simpleString());
+        Assertions.assertEquals("double", DoubleType.INSTANCE.simpleString());
+        Assertions.assertEquals("decimal", DecimalV2Type.SYSTEM_DEFAULT.simpleString());
+        Assertions.assertEquals("char", new CharType(10).simpleString());
+        Assertions.assertEquals("varchar", VarcharType.SYSTEM_DEFAULT.simpleString());
+        Assertions.assertEquals("text", StringType.INSTANCE.simpleString());
+        Assertions.assertEquals("date", DateType.INSTANCE.simpleString());
+        Assertions.assertEquals("datetime", DateTimeType.INSTANCE.simpleString());
+    }
+
+    @Test
+    public void testDefaultConcreteType() {
+        Assertions.assertEquals(NullType.INSTANCE, NullType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(BooleanType.INSTANCE, BooleanType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(DoubleType.INSTANCE, NumericType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(BigIntType.INSTANCE, IntegralType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(TinyIntType.INSTANCE, TinyIntType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(SmallIntType.INSTANCE, SmallIntType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(IntegerType.INSTANCE, IntegerType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(BigIntType.INSTANCE, BigIntType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(LargeIntType.INSTANCE, LargeIntType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(DoubleType.INSTANCE, FractionalType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(FloatType.INSTANCE, FloatType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(DoubleType.INSTANCE, DoubleType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT.defaultConcreteType());
+        Assertions.assertEquals(new CharType(10), new CharType(10).defaultConcreteType());
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT.defaultConcreteType());
+        Assertions.assertEquals(StringType.INSTANCE, StringType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(DateType.INSTANCE, DateType.INSTANCE.defaultConcreteType());
+        Assertions.assertEquals(DateTimeType.INSTANCE, DateTimeType.INSTANCE.defaultConcreteType());
+    }
+
+    // DORIS-25584: special aggregate/semi-structured types must be rejected as complex-type elements
+    // at any nesting depth, not only at depth 2.
+
+    @Test
+    public void testArrayMapBitmapKeyRejected() {
+        // ARRAY<MAP<BITMAP, INT>> — BITMAP as map key must be caught at depth 3
+        DataType type = ArrayType.of(MapType.of(BitmapType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertThrows(AnalysisException.class, type::validateDataType);
+    }
+
+    @Test
+    public void testArrayMapBitmapValueRejected() {
+        // ARRAY<MAP<STRING, BITMAP>> — BITMAP as map value must be caught at depth 3
+        DataType type = ArrayType.of(MapType.of(VarcharType.SYSTEM_DEFAULT, BitmapType.INSTANCE));
+        Assertions.assertThrows(AnalysisException.class, type::validateDataType);
+    }
+
+    @Test
+    public void testStructArrayHllRejected() {
+        // STRUCT<a: ARRAY<HLL>> — HLL inside array inside struct must be caught
+        DataType type = new StructType(
+                ImmutableList.of(new StructField("a", ArrayType.of(HllType.INSTANCE), true, "")));
+        Assertions.assertThrows(AnalysisException.class, type::validateDataType);
+    }
+
+    @Test
+    public void testMapArrayJsonbRejected() {
+        // MAP<STRING, ARRAY<JSONB>> — JSONB inside array as map value must be caught
+        DataType type = MapType.of(VarcharType.SYSTEM_DEFAULT, ArrayType.of(JsonType.INSTANCE));
+        Assertions.assertThrows(AnalysisException.class, type::validateDataType);
+    }
+
+    @Test
+    public void testArrayBitmapDirectlyRejected() {
+        // ARRAY<BITMAP> at depth 2 — must still be caught (regression guard)
+        DataType type = ArrayType.of(BitmapType.INSTANCE);
+        Assertions.assertThrows(AnalysisException.class, type::validateDataType);
+    }
+
+    @Test
+    public void testMapHllValueDirectlyRejected() {
+        // MAP<INT, HLL> at depth 2 — must still be caught (regression guard)
+        DataType type = MapType.of(IntegerType.INSTANCE, HllType.INSTANCE);
+        Assertions.assertThrows(AnalysisException.class, type::validateDataType);
+    }
+
+    @Test
+    public void testDeepValidComplexNestingAccepted() {
+        // ARRAY<MAP<STRING, INT>> — valid 3-level nesting must still be accepted
+        DataType type = ArrayType.of(MapType.of(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE));
+        Assertions.assertDoesNotThrow(type::validateDataType);
+    }
+
+    private void assertSafeCast(DataType source, DataType target) {
+        Assertions.assertTrue(source.isInjectiveCastTo(target), source.toSql() + " should safely cast to "
+                + target.toSql());
+    }
+
+    private void assertUnsafeCast(DataType source, DataType target) {
+        Assertions.assertFalse(source.isInjectiveCastTo(target), source.toSql() + " should not safely cast to "
+                + target.toSql());
+    }
+}

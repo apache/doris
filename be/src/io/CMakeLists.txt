@@ -1,0 +1,124 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# where to put generated libraries
+set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/io")
+
+# where to put generated binaries
+set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/io")
+
+file(GLOB_RECURSE IO_FILES CONFIGURE_DEPENDS *.cpp)
+
+if(ENABLE_TDE)
+    list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/encrypted_fs_factory.cpp")
+    file(GLOB_RECURSE EXTRA_SOURCES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/../${TDE_MODULE_DIR}/*.cpp")
+    list(APPEND IO_FILES ${EXTRA_SOURCES})
+endif()
+
+list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/fs_benchmark_tool.cpp")
+# Standalone tool with its own main(); must not be an archive member of libIO.a,
+# or unity builds merge it into an object that the doris_be link actually pulls in.
+list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/cache/file_cache_lru_tool.cpp")
+list(REMOVE_ITEM IO_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/cache/benchmark/async_file_cache_write_microbench.cpp")
+
+add_library(IO STATIC ${IO_FILES})
+
+pch_reuse(IO)
+
+# Unity build for the io glue (small fs/cache TUs, parse-cost dominated).
+# Opt-outs:
+# - three filesystem TUs whose CHECK_*_CLIENT file-scope macros must not
+#   leak into unity siblings
+# - http_file_system.cpp: sibling TUs' file-scope `using namespace ErrorCode`
+#   makes the unscoped HttpStatus enum constants shadow ErrorCode variables
+#   under -Wshadow -Werror (same pattern as the cloud http actions)
+# - benchmark sources and ENABLE_TDE module swaps stay individual
+set(IO_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/broker_file_system.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/hdfs_file_system.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/s3_file_system.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/http_file_system.cpp)
+file(GLOB_RECURSE IO_UNITY_BENCH_SRCS CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/*.cpp)
+list(APPEND IO_UNITY_SKIP ${IO_UNITY_BENCH_SRCS})
+if (ENABLE_TDE)
+    list(APPEND IO_UNITY_SKIP ${EXTRA_SOURCES})
+endif()
+doris_skip_unity_inclusion(${IO_UNITY_SKIP})
+set_target_properties(IO PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                    UNITY_BUILD_BATCH_SIZE 16)
+
+if (${BUILD_FS_BENCHMARK} STREQUAL "ON")
+    add_executable(fs_benchmark_tool
+        fs/benchmark/fs_benchmark_tool.cpp
+    )
+
+    pch_reuse(fs_benchmark_tool)
+
+    # This permits libraries loaded by dlopen to link to the symbols in the program.
+    set_target_properties(fs_benchmark_tool PROPERTIES ENABLE_EXPORTS 1)
+
+    target_link_libraries(fs_benchmark_tool
+        ${DORIS_LINK_LIBS}
+        benchmark
+    )
+
+    if (COMPILER_CLANG)
+        target_compile_options(fs_benchmark_tool PRIVATE
+        -Wno-implicit-int-conversion
+        -Wno-shorten-64-to-32
+        )
+    endif()
+
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+    install(TARGETS fs_benchmark_tool DESTINATION ${OUTPUT_DIR}/lib/)
+
+    add_custom_command(TARGET fs_benchmark_tool POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:fs_benchmark_tool> $<TARGET_FILE:fs_benchmark_tool>.dbg
+        COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:fs_benchmark_tool>
+        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:fs_benchmark_tool>.dbg $<TARGET_FILE:fs_benchmark_tool>
+        )
+
+endif()
+
+if (${BUILD_FILE_CACHE_LRU_TOOL} STREQUAL "ON")
+    add_executable(file_cache_lru_tool
+	cache/file_cache_lru_tool.cpp
+    )
+
+    pch_reuse(file_cache_lru_tool)
+
+    # This permits libraries loaded by dlopen to link to the symbols in the program.
+    set_target_properties(file_cache_lru_tool PROPERTIES ENABLE_EXPORTS 1)
+
+    target_link_libraries(file_cache_lru_tool
+        ${DORIS_LINK_LIBS}
+    )
+
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+    install(TARGETS file_cache_lru_tool DESTINATION ${OUTPUT_DIR}/lib/)
+
+    add_custom_command(TARGET file_cache_lru_tool POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:file_cache_lru_tool> $<TARGET_FILE:file_cache_lru_tool>.dbg
+        COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:file_cache_lru_tool>
+        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:file_cache_lru_tool>.dbg $<TARGET_FILE:file_cache_lru_tool>
+        )
+
+endif()

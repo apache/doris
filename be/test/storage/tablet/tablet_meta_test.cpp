@@ -1,0 +1,520 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "storage/tablet/tablet_meta.h"
+
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+#include <limits>
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "gtest/gtest_pred_impl.h"
+#include "storage/file_header.h"
+#include "storage/rowset/rowset.h"
+#include "storage/tablet/tablet_schema.h"
+#include "testutil/mock_rowset.h"
+#include "util/time.h"
+
+namespace doris {
+
+TEST(TabletMetaTest, SaveAndParse) {
+    std::string meta_path = "./be/test/storage/test_data/tablet_meta_test.hdr";
+
+    TabletMeta old_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    EXPECT_EQ(Status::OK(), old_tablet_meta.save(meta_path));
+
+    {
+        // Just to make stack space dirty
+        TabletMeta new_tablet_meta;
+        new_tablet_meta._preferred_rowset_type = BETA_ROWSET;
+    }
+    TabletMeta new_tablet_meta;
+    static_cast<void>(new_tablet_meta.create_from_file(meta_path));
+
+    EXPECT_EQ(old_tablet_meta, new_tablet_meta);
+}
+
+TEST(TabletMetaTest, SaveAsBufferAndParse) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size());
+    ASSERT_TRUE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+    {
+        TabletMeta dst_tablet_meta;
+        ASSERT_TRUE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+        ASSERT_EQ(src_tablet_meta, dst_tablet_meta);
+    }
+    // Test invalid buffer size
+    {
+        TabletMeta dst_tablet_meta;
+        ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), 10).ok());
+    }
+    // Test invalid buffer content
+    {
+        buffer[buffer.size() - 1] ^= 0xFF;
+        TabletMeta dst_tablet_meta;
+        ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+    }
+}
+
+TEST(TabletMetaTest, TopLevelInvertedIndexFormatOverridesSharedSchemaFormat) {
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_table_id(1);
+    tablet_meta_pb.set_index_id(2);
+    tablet_meta_pb.set_partition_id(3);
+    tablet_meta_pb.set_tablet_id(4);
+    tablet_meta_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    tablet_meta_pb.mutable_schema()->set_schema_version(7);
+    tablet_meta_pb.mutable_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    TabletMeta tablet_meta;
+    tablet_meta.init_from_pb(tablet_meta_pb);
+
+    ASSERT_TRUE(tablet_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, tablet_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              tablet_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    TabletMetaPB serialized;
+    tablet_meta.to_meta_pb(&serialized, false);
+    ASSERT_TRUE(serialized.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              serialized.schema().inverted_index_storage_format());
+}
+
+TEST(TabletMetaTest, LegacySchemaInvertedIndexFormatIsFallback) {
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_table_id(1);
+    tablet_meta_pb.set_index_id(2);
+    tablet_meta_pb.set_partition_id(3);
+    tablet_meta_pb.set_tablet_id(4);
+    tablet_meta_pb.mutable_schema()->set_schema_version(7);
+    tablet_meta_pb.mutable_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    TabletMeta tablet_meta;
+    tablet_meta.init_from_pb(tablet_meta_pb);
+
+    EXPECT_FALSE(tablet_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, tablet_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              tablet_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    TabletMetaPB serialized;
+    tablet_meta.to_meta_pb(&serialized, false);
+    EXPECT_FALSE(serialized.has_inverted_index_storage_format());
+}
+
+TEST(TabletMetaTest, SerializeToMemoryWithSmallBuffer) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size() - 1);
+    ASSERT_FALSE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+}
+
+TEST(TabletMetaTest, DeserializeFromMemoryWithOldHeader) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+
+    std::string proto_string;
+    ASSERT_TRUE(tablet_meta_pb.SerializeToString(&proto_string));
+
+    uint32_t protobuf_checksum =
+            olap_adler32(olap_adler32_init(), proto_string.data(), proto_string.size());
+
+    FixedFileHeader old_header;
+    old_header.file_length = sizeof(FixedFileHeader) + sizeof(uint32_t) + proto_string.size();
+    old_header.checksum = 0;
+    old_header.protobuf_length = proto_string.size();
+    old_header.protobuf_checksum = protobuf_checksum;
+
+    std::vector<uint8_t> buffer(old_header.file_length);
+    uint8_t* ptr = buffer.data();
+    memcpy(ptr, &old_header, sizeof(FixedFileHeader));
+    ptr += sizeof(FixedFileHeader);
+
+    uint32_t extra_value = 0; // Assume extra is 0
+    memcpy(ptr, &extra_value, sizeof(uint32_t));
+    ptr += sizeof(uint32_t);
+    memcpy(ptr, proto_string.data(), proto_string.size());
+
+    TabletMeta dst_tablet_meta;
+    ASSERT_TRUE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+    ASSERT_EQ(src_tablet_meta, dst_tablet_meta);
+}
+
+TEST(TabletMetaTest, DeserializeFromMemoryWithInvalidChecksum) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size());
+    ASSERT_TRUE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+
+    FixedFileHeaderV2* header = reinterpret_cast<FixedFileHeaderV2*>(buffer.data());
+    header->protobuf_checksum += 1; // wrong checksum
+
+    TabletMeta dst_tablet_meta;
+    ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+}
+
+TEST(TabletMetaTest, DeserializeFromMemoryWithInvalidProtobuf) {
+    TabletMeta src_tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    TabletMetaPB tablet_meta_pb;
+    src_tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+
+    FileHeader<TabletMetaPB> file_header("");
+    file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+    ASSERT_TRUE(file_header.prepare().ok());
+
+    std::vector<uint8_t> buffer(file_header.size());
+    ASSERT_TRUE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+
+    buffer[sizeof(FixedFileHeaderV2) + sizeof(uint32_t)] ^= 0xFF;
+
+    TabletMeta dst_tablet_meta;
+    ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+}
+
+TEST(TabletMetaTest, TestReviseMeta) {
+    TabletMeta tablet_meta;
+    std::vector<RowsetSharedPtr> src_rowsets;
+    std::vector<RowsetId> rsids;
+    // src rowsets
+    for (int i = 0; i < 4; i++) {
+        RowsetMetaPB rs_meta_pb;
+        RowsetId rowset_id;
+        rowset_id.init(i);
+        rsids.push_back(rowset_id);
+        rs_meta_pb.set_rowset_id_v2(rowset_id.to_string());
+        rs_meta_pb.set_num_segments(2);
+        rs_meta_pb.set_start_version(i);
+        rs_meta_pb.set_end_version(i);
+        RowsetMetaSharedPtr meta_ptr = std::make_shared<RowsetMeta>();
+        meta_ptr->init_from_pb(rs_meta_pb);
+        RowsetSharedPtr rowset_ptr;
+        TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
+        static_cast<void>(MockRowset::create_rowset(schema, meta_ptr, &rowset_ptr, false));
+        src_rowsets.push_back(rowset_ptr);
+        static_cast<void>(tablet_meta.add_rs_meta(rowset_ptr->rowset_meta()));
+    }
+    ASSERT_EQ(4, tablet_meta.all_rs_metas().size());
+
+    tablet_meta.delete_bitmap().add({rsids[0], 1, 1}, 1);
+    tablet_meta.delete_bitmap().add({rsids[1], 0, 2}, 2);
+    tablet_meta.delete_bitmap().add({rsids[2], 1, 1}, 1);
+    tablet_meta.delete_bitmap().add({rsids[3], 0, 2}, 3);
+    tablet_meta.delete_bitmap().add({rsids[3], 0, 4}, 4);
+    ASSERT_EQ(5, tablet_meta.delete_bitmap().delete_bitmap.size());
+
+    std::vector<RowsetMetaSharedPtr> new_rowsets;
+    new_rowsets.push_back(src_rowsets[2]->rowset_meta());
+    new_rowsets.push_back(src_rowsets[3]->rowset_meta());
+    tablet_meta.revise_rs_metas(std::move(new_rowsets));
+    // Take a snapshot with max_version=3.
+    DeleteBitmap snap = tablet_meta.delete_bitmap().snapshot(3);
+    tablet_meta.revise_delete_bitmap_unlocked(snap);
+    ASSERT_EQ(2, tablet_meta.all_rs_metas().size());
+    ASSERT_EQ(2, tablet_meta.delete_bitmap().delete_bitmap.size());
+    for (auto entry : tablet_meta.delete_bitmap().delete_bitmap) {
+        RowsetId rsid = std::get<0>(entry.first);
+        ASSERT_TRUE(rsid == rsids[2] || rsid == rsids[3]);
+        int64_t version = std::get<2>(entry.first);
+        ASSERT_TRUE(version <= 3); // should not contain versions greater than 3.
+    }
+}
+
+TEST(TabletMetaTest, TestDeleteBitmap) {
+    std::unique_ptr<DeleteBitmap> dbmp(new DeleteBitmap(10086));
+    auto gen1 = [&dbmp](int64_t max_rst_id, uint32_t max_seg_id, uint32_t max_row) {
+        for (int64_t i = 0; i < max_rst_id; ++i) {
+            for (uint32_t j = 0; j < max_seg_id; ++j) {
+                for (uint32_t k = 0; k < max_row; ++k) {
+                    dbmp->add({RowsetId {2, 0, 1, i}, j, 0}, k);
+                }
+            }
+        }
+    };
+    gen1(10, 20, 1000);
+    dbmp->add({RowsetId {2, 0, 1, 2}, 2, 0}, 2); // redundant
+    {
+        roaring::Roaring d;
+        dbmp->get({RowsetId {2, 0, 1, 2}, 0, 0}, &d);
+        EXPECT_EQ(d.cardinality(), 1000);
+        d -= *dbmp->get({RowsetId {2, 0, 1, 2}, 0, 0});
+        EXPECT_EQ(d.cardinality(), 0);
+    }
+
+    // Add version 1 and 2
+    dbmp->add({RowsetId {2, 0, 1, 1}, 1, 1}, 1100);
+    dbmp->add({RowsetId {2, 0, 1, 1}, 1, 1}, 1101);
+    dbmp->add({RowsetId {2, 0, 1, 1}, 1, 1}, 1102);
+    dbmp->add({RowsetId {2, 0, 1, 1}, 1, 1}, 1103);
+    dbmp->add({RowsetId {2, 0, 1, 1}, 1, 2}, 1104);
+
+    ASSERT_EQ(dbmp->delete_bitmap.size(), 10 * 20 + 2);
+
+    {
+        auto snap = dbmp->snapshot(1);
+        auto it = snap.delete_bitmap.begin();
+        while (it != snap.delete_bitmap.end()) {
+            ASSERT_TRUE(std::get<2>(it->first) <= 1);
+            it++;
+        }
+        ASSERT_EQ(snap.delete_bitmap.size(), 10 * 20 + 1);
+    }
+
+    {
+        auto snap = dbmp->snapshot(0);
+        auto it = snap.delete_bitmap.begin();
+        while (it != snap.delete_bitmap.end()) {
+            ASSERT_TRUE(std::get<2>(it->first) <= 0);
+            it++;
+        }
+        ASSERT_EQ(snap.delete_bitmap.size(), 10 * 20);
+    }
+
+    { // Bitmap of certain verisons only get their own row ids
+        auto bm = dbmp->get({RowsetId {2, 0, 1, 1}, 1, 2});
+        ASSERT_EQ(bm->cardinality(), 1);
+        ASSERT_FALSE(bm->contains(999));
+        ASSERT_FALSE(bm->contains(1100));
+        ASSERT_TRUE(bm->contains(1104));
+    }
+
+    {
+        // test remove
+        // Nothing removed
+        dbmp->remove({RowsetId {2, 0, 1, 1}, 0, 0}, {RowsetId {2, 0, 1, 1}, 0, 0});
+        ASSERT_EQ(dbmp->delete_bitmap.size(), 10 * 20 + 2);
+        dbmp->remove({RowsetId {2, 0, 1, 100}, 0, 0}, {RowsetId {2, 0, 1, 100}, 50000, 0});
+        ASSERT_EQ(dbmp->delete_bitmap.size(), 10 * 20 + 2);
+
+        // Remove all seg of rowset {2,0,1,0}
+        dbmp->remove({RowsetId {2, 0, 1, 0}, 0, 0}, {RowsetId {2, 0, 1, 0}, 5000, 0});
+        ASSERT_EQ(dbmp->delete_bitmap.size(), 9 * 20 + 2);
+        // Remove all rowset {2,0,1,7} to {2,0,1,9}
+        dbmp->remove({RowsetId {2, 0, 1, 8}, 0, 0}, {RowsetId {2, 0, 1, 9}, 5000, 0});
+        ASSERT_EQ(dbmp->delete_bitmap.size(), 7 * 20 + 2);
+    }
+
+    {
+        DeleteBitmap db_upper(10086);
+        dbmp->subset({RowsetId {2, 0, 1, 1}, 1, 0}, {RowsetId {2, 0, 1, 1}, 1000000, 0}, &db_upper);
+        roaring::Roaring d;
+        ASSERT_EQ(db_upper.get({RowsetId {2, 0, 1, 1}, 1, 1}, &d), 0);
+        ASSERT_EQ(d.cardinality(), 4);
+        ASSERT_EQ(db_upper.get({RowsetId {2, 0, 1, 1}, 1, 2}, &d), 0);
+        ASSERT_EQ(d.cardinality(), 1);
+        ASSERT_EQ(db_upper.delete_bitmap.size(), 21);
+    }
+
+    {
+        auto old_size = dbmp->delete_bitmap.size();
+        // test merge
+        DeleteBitmap other(10086);
+        other.add({RowsetId {2, 0, 1, 1}, 1, 1}, 1100);
+        dbmp->merge(other);
+        ASSERT_EQ(dbmp->delete_bitmap.size(), old_size);
+        other.add({RowsetId {2, 0, 1, 1}, 1001, 1}, 1100);
+        other.add({RowsetId {2, 0, 1, 1}, 1002, 1}, 1100);
+        dbmp->merge(other);
+        ASSERT_EQ(dbmp->delete_bitmap.size(), old_size + 2);
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Cache test
+    ////////////////////////////////////////////////////////////////////////////
+    // Aggregation bitmap contains all row ids that are in versions smaller or
+    {
+        // equal to the given version, boundary test
+        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2});
+        ASSERT_EQ(bm->cardinality(), 1005);
+        ASSERT_TRUE(bm->contains(999));
+        ASSERT_TRUE(bm->contains(1100));
+        ASSERT_TRUE(bm->contains(1101));
+        ASSERT_TRUE(bm->contains(1102));
+        ASSERT_TRUE(bm->contains(1103));
+        ASSERT_TRUE(bm->contains(1104));
+        bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2});
+        ASSERT_EQ(bm->cardinality(), 1005);
+    }
+
+    // Aggregation bitmap contains all row ids that are in versions smaller or
+    // equal to the given version, normal test
+    {
+        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 1000});
+        ASSERT_EQ(bm->cardinality(), 1005);
+        ASSERT_TRUE(bm->contains(999));
+        ASSERT_TRUE(bm->contains(1100));
+        ASSERT_TRUE(bm->contains(1101));
+        ASSERT_TRUE(bm->contains(1102));
+        ASSERT_TRUE(bm->contains(1103));
+        ASSERT_TRUE(bm->contains(1104));
+        bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 1000});
+        ASSERT_EQ(bm->cardinality(), 1005);
+    }
+
+    // Check data is not messed-up
+    ASSERT_TRUE(dbmp->contains({RowsetId {2, 0, 1, 1}, 1, 2}, 1104));
+    ASSERT_FALSE(dbmp->contains({RowsetId {2, 0, 1, 1}, 1, 2}, 1103));
+    ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 2}, 1104));
+    ASSERT_TRUE(dbmp->contains_agg({RowsetId {2, 0, 1, 1}, 1, 2}, 1103));
+
+    // Test c-tor of agg cache with global LRU
+    int cached_cardinality = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2})->cardinality();
+    {
+        // New delete bitmap with old agg cache
+        std::unique_ptr<DeleteBitmap> dbmp(new DeleteBitmap(10086));
+        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 1}, 1, 2});
+        ASSERT_TRUE(bm->contains(1104));
+        ASSERT_EQ(bm->cardinality(), cached_cardinality);
+    }
+
+    dbmp.reset(new DeleteBitmap(10086));
+    auto gen2 = [&dbmp](int64_t max_rst_id, uint32_t max_seg_id, uint32_t max_version,
+                        uint32_t max_row) {
+        for (int64_t i = 0; i < max_rst_id; ++i) {
+            for (uint32_t j = 0; j < max_seg_id; ++j) {
+                for (uint32_t version = 0; version < max_version; ++version) {
+                    for (uint32_t k = 0; k < max_row; ++k) {
+                        if (k % max_version == version) {
+                            dbmp->add({RowsetId {2, 0, 1, i}, j, version}, k);
+                        }
+                    }
+                }
+            }
+        }
+    };
+    gen2(2, 2, 10, 1000);
+    for (uint32_t version = 0; version < 10; ++version) {
+        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 0}, 0, version});
+        ASSERT_EQ(bm->cardinality(), 100 * (version + 1));
+    }
+
+    std::vector<DeleteBitmap::RowsetIdWithSegmentIds> rowsets;
+    auto rowset_id1 = RowsetId {2, 0, 1, 0};
+    auto rowset_id2 = RowsetId {2, 0, 1, 1};
+    rowsets.emplace_back(rowset_id1, std::vector<DeleteBitmap::SegmentId> {0, 1});
+    rowsets.emplace_back(rowset_id2, std::vector<DeleteBitmap::SegmentId> {0, 1});
+    DeleteBitmap subset_delete_map(10086);
+    dbmp->subset_and_agg(rowsets, 5, 9, &subset_delete_map);
+    ASSERT_EQ(subset_delete_map.delete_bitmap.size(), 4);
+
+    roaring::Roaring d;
+    subset_delete_map.get({rowset_id1, 0, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
+    subset_delete_map.get({rowset_id1, 1, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
+    subset_delete_map.get({rowset_id2, 0, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
+    subset_delete_map.get({rowset_id2, 1, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
+}
+
+TEST(TabletMetaTest, TestDeleteBitmapSubsetAndAggWithSegmentList) {
+    DeleteBitmap delete_bitmap(10086);
+    RowsetId rowset_id {2, 0, 1, 0};
+    delete_bitmap.add({rowset_id, 0, 5}, 100);
+    delete_bitmap.add({rowset_id, 10, 5}, 101);
+    delete_bitmap.add({rowset_id, 10, 9}, 102);
+    delete_bitmap.add({rowset_id, 12, 7}, 103);
+
+    std::vector<DeleteBitmap::RowsetIdWithSegmentIds> rowsets;
+    rowsets.emplace_back(rowset_id, std::vector<DeleteBitmap::SegmentId> {10, 12});
+    DeleteBitmap subset_delete_map(10086);
+    delete_bitmap.subset_and_agg(rowsets, 5, 9, &subset_delete_map);
+
+    ASSERT_EQ(subset_delete_map.delete_bitmap.size(), 2);
+    roaring::Roaring segment_delete_bitmap;
+    ASSERT_EQ(subset_delete_map.get({rowset_id, 10, 9}, &segment_delete_bitmap), 0);
+    EXPECT_EQ(segment_delete_bitmap.cardinality(), 2);
+    EXPECT_TRUE(segment_delete_bitmap.contains(101));
+    EXPECT_TRUE(segment_delete_bitmap.contains(102));
+    ASSERT_EQ(subset_delete_map.get({rowset_id, 12, 9}, &segment_delete_bitmap), 0);
+    EXPECT_EQ(segment_delete_bitmap.cardinality(), 1);
+    EXPECT_TRUE(segment_delete_bitmap.contains(103));
+    EXPECT_NE(subset_delete_map.get({rowset_id, 0, 9}, &segment_delete_bitmap), 0);
+}
+
+TEST(TabletMetaTest, FileCacheTtlExpirationTime) {
+    TabletMeta meta;
+
+    // No TTL configured: nothing to protect.
+    meta.set_creation_time(UnixSeconds() - 10);
+    meta.set_ttl_seconds(0);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // Unknown creation time cannot anchor a deadline.
+    meta.set_creation_time(0);
+    meta.set_ttl_seconds(3600);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // Live tablet: the deadline is creation time + ttl, an absolute timestamp.
+    int64_t ctime = UnixSeconds() - 10;
+    meta.set_creation_time(ctime);
+    meta.set_ttl_seconds(3600);
+    EXPECT_EQ(ctime + 3600, meta.file_cache_ttl_expiration_time());
+
+    // Past the deadline: report no TTL, so callers stamp new blocks as NORMAL instead of
+    // putting them in the TTL queue for the expiration sweep to take back out.
+    meta.set_creation_time(UnixSeconds() - 3600);
+    meta.set_ttl_seconds(60);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // Exactly at the deadline counts as expired.
+    int64_t now = UnixSeconds();
+    meta.set_creation_time(now - 60);
+    meta.set_ttl_seconds(60);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // A ttl large enough to overflow must not wrap into a past deadline.
+    meta.set_creation_time(UnixSeconds());
+    meta.set_ttl_seconds(std::numeric_limits<int64_t>::max());
+    EXPECT_EQ(std::numeric_limits<int64_t>::max(), meta.file_cache_ttl_expiration_time());
+}
+
+} // namespace doris

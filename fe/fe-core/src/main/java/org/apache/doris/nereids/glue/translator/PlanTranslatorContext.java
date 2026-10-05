@@ -1,0 +1,492 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.glue.translator;
+
+import org.apache.doris.analysis.ColumnRefExpr;
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.processor.post.TopnFilterContext;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.planner.CTEScanNode;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TPushAggOp;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * Context of physical plan.
+ */
+public class PlanTranslatorContext {
+    private final ConnectContext connectContext;
+    private final StatementContext statementContext;
+    private final ScanContext scanContext;
+    private final List<PlanFragment> planFragments = Lists.newArrayList();
+
+    private DescriptorTable descTable;
+
+    private final RuntimeFilterTranslator translator;
+
+    private final TopnFilterContext topnFilterContext;
+    /**
+     * index from Nereids' slot to legacy slot.
+     */
+    private final Map<ExprId, SlotRef> exprIdToSlotRef = Maps.newHashMap();
+
+    private final Map<Integer, PlanNodeId> nereidsIdToPlanNodeIdMap = Maps.newHashMap();
+
+    /**
+     * Inverted index from legacy slot to Nereids' slot.
+     */
+    private final Map<SlotId, ExprId> slotIdToExprId = Maps.newHashMap();
+
+    /**
+     * For each lambda argument (ArrayItemReference),
+     * we create a ColumnRef representing it and
+     * then translate it based on the ExprId of the ArrayItemReference.
+     */
+    private final Map<ExprId, ColumnRefExpr> exprIdToColumnRef = Maps.newHashMap();
+
+    private final List<ScanNode> scanNodes = Lists.newArrayList();
+    private final List<PhysicalRelation> physicalRelations = Lists.newArrayList();
+    private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
+
+    private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
+
+    private final Map<CTEId, PlanFragment> cteProduceFragments = Maps.newHashMap();
+
+    private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
+
+    private final Map<CTEId, PhysicalCTEConsumer> cteConsumerMap = Maps.newHashMap();
+
+    private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
+
+    private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
+    private final Map<RelationId, List<ExprId>> tablePushCountArgumentExprIds = Maps.newHashMap();
+
+    private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
+
+    /**
+     * Depth of fragment-merging binary nodes (hash join / nested loop join /
+     * set operation) whose children are being visited right now. Bucketed fusion
+     * removes the exchange node that would otherwise keep an olap scan in its own
+     * fragment; when the fused fragment is consumed by such a node the scan gets
+     * merged into a fragment that already contains other scans, which the
+     * scan-assignment jobs reject ("Not supported multiple scan multiple
+     * OlapTable but not contains colocate join or bucket shuffle join"). The
+     * translator therefore skips bucketed fusion while inside a merge child.
+     */
+    private int fragmentMergeChildDepth = 0;
+
+    // Per-node "is there a serial operator between me and the pipeline's sink" flag.
+    // Mirrors BE's any_of(operators[idx..end], is_serial_operator) check used by
+    // _add_local_exchange / need_to_local_exchange to skip LE insertion when an ancestor
+    // in the same pipeline is already serial (the whole pipeline runs with 1 task, so an
+    // extra LE would be a no-op).  Written by AddLocalExchange entry + PlanNode.enforceRequire
+    // step 1 (root → leaf during traversal).  Read by PlanNode.enforceRequire step 4 (Layer 1
+    // skip) and by child overrides that compute their require.  Reset to false at fragment
+    // root and across pipeline boundaries (see shouldResetSerialFlagForChild).
+    private final Map<PlanNodeId, Boolean> serialAncestorInPipelineMap = Maps.newHashMap();
+
+    // Per-node "does this pipeline have a serial parent pipeline" flag. Mirrors BE's
+    // Pipeline::num_tasks_of_parent() gate in _add_local_exchange: a pipeline whose parent
+    // has one task must not be split by another local exchange, because that would raise only
+    // the new source side to N tasks while the paired sink/source operators stay one-to-one.
+    private final Map<PlanNodeId, Boolean> serialParentPipelineMap = Maps.newHashMap();
+
+    // Per-node "is there a downstream operator that depends on hash distribution for
+    // correctness, with HASH/NOOP path connecting it to me" flag.  Mirrors BE's
+    // _followed_by_shuffled_operator propagation in pipeline_fragment_context.cpp.
+    // Written by PlanNode.enforceRequire step 1b (root → leaf).  Read by SetOperationNode
+    // to decide whether to propagate hash requirement to its inputs (only when downstream
+    // needs shuffle for correctness, not just for performance like StreamingAgg pre-agg).
+    private final Map<PlanNodeId, Boolean> shuffledAncestorMap = Maps.newHashMap();
+
+    // Whether the fragment currently being processed by AddLocalExchange is eligible for the
+    // bucket → local-hash parallelism upgrade: a pooled bucket-join fragment whose per-BE
+    // instance count exceeds (buckets-with-data per BE) × local_shuffle_bucket_upgrade_ratio.
+    // Computed once per fragment in AddLocalExchange.addLocalExchange from the distributed
+    // plan's LocalShuffleBucketJoinAssignedJob assignments; read by
+    // HashJoinNode.enforceAndDeriveLocalExchange.
+    private boolean currentFragmentBucketUpgradeEligible = false;
+
+    // Per-node "a bucket join above me in this fragment already upgraded to local hash" flag.
+    // An upgraded join marks its direct children so a stacked bucket join below keeps its
+    // BUCKET_HASH_SHUFFLE requires: if it also upgraded, its LOCAL hash output (keyed by ITS
+    // join keys) would type-satisfy the upper join's requireSpecific(LOCAL_EXECUTION_HASH)
+    // and suppress the LE that re-aligns data to the upper join's keys → wrong results.
+    private final Map<PlanNodeId, Boolean> bucketUpgradedAncestorMap = Maps.newHashMap();
+
+    // Whether the current fragment uses LocalShuffleAssignedJob (pooling scan with
+    // ignoreDataDistribution → _parallel_instances=1 in BE). When true, serial operators
+    // indicate real pipeline bottlenecks needing PASSTHROUGH fan-out (heavy_ops).
+    private boolean isTopMaterializeNode = true;
+
+    private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
+
+    /** PlanTranslatorContext */
+    public PlanTranslatorContext(CascadesContext ctx) {
+        this.connectContext = ctx.getConnectContext();
+        this.statementContext = ctx.getStatementContext();
+        this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
+                ? ScanContext.EMPTY
+                : ScanContext.builder()
+                        .clusterName(connectContext.getSessionVariable().resolveCloudClusterName(connectContext))
+                        .build();
+        this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+        this.topnFilterContext = ctx.getTopnFilterContext();
+        this.descTable = new DescriptorTable();
+    }
+
+    /** PlanTranslatorContext */
+    public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
+        this.connectContext = ctx.getConnectContext();
+        this.statementContext = ctx.getStatementContext();
+        this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
+                ? ScanContext.EMPTY
+                : ScanContext.builder()
+                        .clusterName(connectContext.getSessionVariable().resolveCloudClusterName(connectContext))
+                        .build();
+        this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+        this.topnFilterContext = ctx.getTopnFilterContext();
+        this.descTable = descTable;
+    }
+
+    /**
+     * Constructor for testing purposes with default values.
+     */
+    @VisibleForTesting
+    public PlanTranslatorContext() {
+        this.connectContext = null;
+        this.statementContext = new StatementContext();
+        this.scanContext = ScanContext.EMPTY;
+        this.translator = null;
+        this.topnFilterContext = new TopnFilterContext();
+        this.descTable = new DescriptorTable();
+    }
+
+    /**
+     * remember the unknown-stats column and its scan, used for forbid_unknown_col_stats check
+     */
+    public void addUnknownStatsColumn(ScanNode scan, SlotId slotId) {
+        Set<SlotId> slots = statsUnknownColumnsMap.get(scan);
+        if (slots == null) {
+            statsUnknownColumnsMap.put(scan, Sets.newHashSet(slotId));
+        } else {
+            statsUnknownColumnsMap.get(scan).add(slotId);
+        }
+    }
+
+    public boolean isColumnStatsUnknown(ScanNode scan, SlotId slotId) {
+        Set<SlotId> unknownSlots = statsUnknownColumnsMap.get(scan);
+        if (unknownSlots == null) {
+            return false;
+        }
+        return unknownSlots.contains(slotId);
+    }
+
+    public void removeScanFromStatsUnknownColumnsMap(ScanNode scan) {
+        statsUnknownColumnsMap.remove(scan);
+    }
+
+    public SessionVariable getSessionVariable() {
+        return connectContext == null ? null : connectContext.getSessionVariable();
+    }
+
+    public ConnectContext getConnectContext() {
+        return connectContext;
+    }
+
+    public StatementContext getStatementContext() {
+        return statementContext;
+    }
+
+    public Set<ScanNode> getScanNodeWithUnknownColumnStats() {
+        return statsUnknownColumnsMap.keySet();
+    }
+
+    public List<PlanFragment> getPlanFragments() {
+        return planFragments;
+    }
+
+    public Map<CTEId, PlanFragment> getCteProduceFragments() {
+        return cteProduceFragments;
+    }
+
+    public Map<CTEId, PhysicalCTEProducer> getCteProduceMap() {
+        return cteProducerMap;
+    }
+
+    public Map<CTEId, PhysicalCTEConsumer> getCteConsumerMap() {
+        return cteConsumerMap;
+    }
+
+    public Map<PlanFragmentId, CTEScanNode> getCteScanNodeMap() {
+        return cteScanNodeMap;
+    }
+
+    public TupleDescriptor generateTupleDesc() {
+        return descTable.createTupleDescriptor();
+    }
+
+    public Optional<RuntimeFilterTranslator> getRuntimeTranslator() {
+        return Optional.ofNullable(translator);
+    }
+
+    public TopnFilterContext getTopnFilterContext() {
+        return topnFilterContext;
+    }
+
+    public PlanFragmentId nextFragmentId() {
+        return fragmentIdGenerator.getNextId();
+    }
+
+    public PlanNodeId nextPlanNodeId() {
+        return nodeIdGenerator.getNextId();
+    }
+
+    public void setHasSerialAncestorInPipeline(PlanNode node, boolean hasSerialAncestorInPipeline) {
+        serialAncestorInPipelineMap.put(node.getId(), hasSerialAncestorInPipeline);
+    }
+
+    public boolean hasSerialAncestorInPipeline(PlanNode node) {
+        return serialAncestorInPipelineMap.getOrDefault(node.getId(), false);
+    }
+
+    public void setHasSerialParentPipeline(PlanNode node, boolean value) {
+        serialParentPipelineMap.put(node.getId(), value);
+    }
+
+    public boolean hasSerialParentPipeline(PlanNode node) {
+        return serialParentPipelineMap.getOrDefault(node.getId(), false);
+    }
+
+    public void setHasShuffleForCorrectnessAncestor(PlanNode node, boolean value) {
+        shuffledAncestorMap.put(node.getId(), value);
+    }
+
+    public boolean hasShuffleForCorrectnessAncestor(PlanNode node) {
+        return shuffledAncestorMap.getOrDefault(node.getId(), false);
+    }
+
+    public void setCurrentFragmentBucketUpgradeEligible(boolean eligible) {
+        this.currentFragmentBucketUpgradeEligible = eligible;
+    }
+
+    public boolean isCurrentFragmentBucketUpgradeEligible() {
+        return currentFragmentBucketUpgradeEligible;
+    }
+
+    public void setHasBucketUpgradedAncestor(PlanNode node, boolean value) {
+        bucketUpgradedAncestorMap.put(node.getId(), value);
+    }
+
+    public boolean hasBucketUpgradedAncestor(PlanNode node) {
+        return bucketUpgradedAncestorMap.getOrDefault(node.getId(), false);
+    }
+
+    public SlotDescriptor addSlotDesc(TupleDescriptor t) {
+        return descTable.addSlotDescriptor(t);
+    }
+
+    public void addPlanFragment(PlanFragment planFragment) {
+        this.planFragments.add(planFragment);
+    }
+
+    public void addExprIdSlotRefPair(ExprId exprId, SlotRef slotRef) {
+        exprIdToSlotRef.put(exprId, slotRef);
+        slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
+    }
+
+    public Map<Integer, PlanNodeId> getNereidsIdToPlanNodeIdMap() {
+        return nereidsIdToPlanNodeIdMap;
+    }
+
+    public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
+        exprIdToColumnRef.put(exprId, columnRefExpr);
+    }
+
+    public void enterFragmentMergeChild() {
+        fragmentMergeChildDepth++;
+    }
+
+    public void exitFragmentMergeChild() {
+        fragmentMergeChildDepth--;
+    }
+
+    public boolean isInFragmentMergeChild() {
+        return fragmentMergeChildDepth > 0;
+    }
+
+    /**
+     * merge source fragment info into target fragment.
+     * include runtime filter info and fragment attribute.
+     */
+    public void mergePlanFragment(PlanFragment srcFragment, PlanFragment targetFragment) {
+        srcFragment.getTargetRuntimeFilterIds().forEach(targetFragment::setTargetRuntimeFilterIds);
+        srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
+        targetFragment.setHasColocatePlanNode(targetFragment.hasColocatePlanNode()
+                || srcFragment.hasColocatePlanNode());
+        this.planFragments.remove(srcFragment);
+    }
+
+    public SlotRef findSlotRef(ExprId exprId) {
+        return exprIdToSlotRef.get(exprId);
+    }
+
+    public ColumnRefExpr findColumnRef(ExprId exprId) {
+        return exprIdToColumnRef.get(exprId);
+    }
+
+    public void addScanNode(ScanNode scanNode, PhysicalRelation physicalRelation) {
+        scanNodes.add(scanNode);
+        physicalRelations.add(physicalRelation);
+    }
+
+    public String getClusterName() {
+        return scanContext.getClusterName();
+    }
+
+    public ScanContext getScanContext() {
+        return scanContext;
+    }
+
+    public List<PhysicalRelation> getPhysicalRelations() {
+        return physicalRelations;
+    }
+
+    public ExprId findExprId(SlotId slotId) {
+        return slotIdToExprId.get(slotId);
+    }
+
+    public List<ScanNode> getScanNodes() {
+        return scanNodes;
+    }
+
+    /**
+     * Create SlotDesc and add it to the mappings from expression to the stales expr.
+     */
+    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
+        SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
+        // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
+        Optional<Column> column = slotReference.getOriginalColumn();
+        if (column.isPresent()) {
+            slotDescriptor.setColumn(column.get());
+        } else {
+            slotDescriptor.setCaptionAndNormalize(slotReference.toString());
+        }
+        slotDescriptor.setLabel(slotReference.getName());
+        slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
+        slotDescriptor.setIsNullable(slotReference.nullable());
+
+        if (column.isPresent()) {
+            slotDescriptor.setAutoInc(column.get().isAutoInc());
+        }
+        if (slotReference.getAllAccessPaths().isPresent()) {
+            slotDescriptor.setAllAccessPaths(slotReference.getAllAccessPaths().get());
+            slotDescriptor.setPredicateAccessPaths(slotReference.getPredicateAccessPaths().get());
+            slotDescriptor.setDisplayAllAccessPaths(slotReference.getDisplayAllAccessPaths().get());
+            slotDescriptor.setDisplayPredicateAccessPaths(slotReference.getDisplayPredicateAccessPaths().get());
+        }
+        SlotRef slotRef;
+        slotRef = new SlotRef(slotDescriptor);
+        slotRef.setLabel(slotReference.getName());
+        if (slotReference.hasSubColPath() && slotReference.getOriginalColumn().isPresent()) {
+            slotDescriptor.setSubColLables(slotReference.getSubPath());
+            // use lower case name for variant's root, since backend treat parent column as lower case
+            // see issue: https://github.com/apache/doris/pull/32999/commits
+            slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
+                    + "." + String.join(".", slotReference.getSubPath()));
+        }
+        this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
+        return slotDescriptor;
+    }
+
+    public List<TupleDescriptor> getTupleDesc(PlanNode planNode) {
+        if (planNode.getOutputTupleDesc() != null) {
+            return Lists.newArrayList(planNode.getOutputTupleDesc());
+        }
+        return planNode.getOutputTupleIds().stream().map(this::getTupleDesc).collect(Collectors.toList());
+    }
+
+    public TupleDescriptor getTupleDesc(TupleId tupleId) {
+        return descTable.getTupleDesc(tupleId);
+    }
+
+    public DescriptorTable getDescTable() {
+        return descTable;
+    }
+
+    public void setRelationPushAggOp(RelationId relationId, TPushAggOp aggOp) {
+        tablePushAggOp.put(relationId, aggOp);
+    }
+
+    public TPushAggOp getRelationPushAggOp(RelationId relationId) {
+        return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public void setRelationPushCountArgumentExprIds(RelationId relationId, List<ExprId> exprIds) {
+        tablePushCountArgumentExprIds.put(relationId, Lists.newArrayList(exprIds));
+    }
+
+    public List<ExprId> getRelationPushCountArgumentExprIds(RelationId relationId) {
+        return tablePushCountArgumentExprIds.getOrDefault(relationId, Collections.emptyList());
+    }
+
+    public boolean isTopMaterializeNode() {
+        return isTopMaterializeNode;
+    }
+
+    public void setTopMaterializeNode(boolean topMaterializeNode) {
+        isTopMaterializeNode = topMaterializeNode;
+    }
+
+    public Set<SlotId> getVirtualColumnIds() {
+        return virtualColumnIds;
+    }
+}

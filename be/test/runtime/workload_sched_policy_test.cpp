@@ -1,0 +1,516 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "runtime/workload_management/workload_sched_policy.h"
+
+#include <gen_cpp/BackendService_types.h>
+#include <gtest/gtest.h>
+
+#include "exec/pipeline/task_scheduler.h"
+#include "exec/scan/scanner_scheduler.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/resource_context.h"
+#include "runtime/workload_management/workload_condition.h"
+#include "util/threadpool.h"
+
+namespace doris {
+
+class WorkloadSchedPolicyTest : public testing::Test {
+public:
+    WorkloadSchedPolicyTest() = default;
+    ~WorkloadSchedPolicyTest() override = default;
+
+protected:
+    std::unique_ptr<WorkloadCondition> create_workload_condition(TWorkloadMetricType::type mtype,
+                                                                 TCompareOperator::type otype,
+                                                                 std::string value) {
+        TWorkloadCondition cond;
+        cond.metric_name = mtype;
+        cond.op = otype;
+        cond.value = value;
+        return WorkloadConditionFactory::create_workload_condition(&cond);
+    }
+
+    std::unique_ptr<WorkloadAction> create_workload_action(TWorkloadActionType::type atype) {
+        TWorkloadAction action;
+        action.action = atype;
+        return WorkloadActionFactory::create_workload_action(&action);
+    }
+
+    WorkloadAction::RuntimeContext create_runtime_context() {
+        std::shared_ptr<ResourceContext> resource_ctx = ResourceContext::create_shared();
+        WorkloadAction::RuntimeContext action_runtime_ctx(resource_ctx);
+        return action_runtime_ctx;
+    }
+
+    void SetUp() override {}
+};
+
+class MockTaskController : public TaskController {
+public:
+    MockTaskController() = default;
+    ~MockTaskController() override = default;
+
+    // Simulate BE task controllers that may or may not carry user metadata.
+    bool get_user(std::string* user) override {
+        if (!_has_user) {
+            return false;
+        }
+        *user = _user;
+        return true;
+    }
+    void set_user(std::string user) {
+        _user = std::move(user);
+        _has_user = true;
+    }
+    void clear_user() {
+        _user.clear();
+        _has_user = false;
+    }
+
+private:
+    bool _has_user = false;
+    std::string _user;
+};
+
+class MockWorkloadAction : public WorkloadAction {
+public:
+    MockWorkloadAction(WorkloadActionType type) : _type(type) {}
+    void exec(WorkloadAction::RuntimeContext* action_runtime_ctx) override { _exec_count++; }
+    WorkloadActionType get_action_type() override { return _type; }
+    int get_exec_count() { return _exec_count; }
+
+private:
+    WorkloadActionType _type;
+    int _exec_count = 0;
+};
+
+TEST_F(WorkloadSchedPolicyTest, one_policy_one_condition) {
+    // 1 empty resource
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
+    }
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::QUERY_TIME,
+                                                          TCompareOperator::type::GREATER, "10"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+    }
+
+    // 2 check query time
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::QUERY_TIME,
+                                                          TCompareOperator::type::GREATER, "10"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        TUniqueId task_id;
+        task_id.hi = 1;
+        task_id.lo = 1;
+        action_runtime_ctx.resource_ctx->task_controller()->set_task_id(task_id);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        action_runtime_ctx.resource_ctx->task_controller()->finish();
+        EXPECT_TRUE(policy->is_match(&action_runtime_ctx))
+                << ": " << action_runtime_ctx.resource_ctx->task_controller()->running_time();
+    }
+
+    // 3 check scan rows
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
+                                                          TCompareOperator::type::GREATER, "100"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_rows(99);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx))
+                << ": " << action_runtime_ctx.resource_ctx->io_context()->scan_rows();
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_rows(2);
+        EXPECT_TRUE(policy->is_match(&action_runtime_ctx))
+                << ": " << action_runtime_ctx.resource_ctx->io_context()->scan_rows();
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_rows(-2);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx))
+                << ": " << action_runtime_ctx.resource_ctx->io_context()->scan_rows();
+    }
+
+    // 4 check scan bytes
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_BYTES,
+                                                          TCompareOperator::type::GREATER, "1000"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_bytes(999);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx))
+                << ": " << action_runtime_ctx.resource_ctx->io_context()->scan_bytes();
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_bytes(2);
+        EXPECT_TRUE(policy->is_match(&action_runtime_ctx))
+                << ": " << action_runtime_ctx.resource_ctx->io_context()->scan_bytes();
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_bytes(-2);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx))
+                << ": " << action_runtime_ctx.resource_ctx->io_context()->scan_bytes();
+    }
+
+    // 5 check remote scan bytes
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(create_workload_condition(
+                TWorkloadMetricType::type::BE_SCAN_BYTES_FROM_REMOTE_STORAGE,
+                TCompareOperator::type::GREATER, "1000"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        // Updating total scan bytes alone must not satisfy the remote read condition.
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_bytes(1001);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx))
+                << ": " << action_runtime_ctx.resource_ctx->io_context()->scan_bytes();
+
+        // Updating remote scan bytes below the threshold must still miss.
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_bytes_from_remote_storage(999);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx))
+                << ": "
+                << action_runtime_ctx.resource_ctx->io_context()->scan_bytes_from_remote_storage();
+
+        // Only the remote scan bytes counter should drive this metric to a match.
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_bytes_from_remote_storage(2);
+        EXPECT_TRUE(policy->is_match(&action_runtime_ctx))
+                << ": "
+                << action_runtime_ctx.resource_ctx->io_context()->scan_bytes_from_remote_storage();
+    }
+
+    // 6 check query be memory bytes
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(
+                create_workload_condition(TWorkloadMetricType::type::QUERY_BE_MEMORY_BYTES,
+                                          TCompareOperator::type::GREATER, "10000"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        std::shared_ptr<MemTrackerLimiter> mem_tracker =
+                MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "Test");
+        action_runtime_ctx.resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
+        action_runtime_ctx.resource_ctx->memory_context()->mem_tracker()->consume(9999);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx))
+                << ": "
+                << action_runtime_ctx.resource_ctx->memory_context()->current_memory_bytes();
+        action_runtime_ctx.resource_ctx->memory_context()->mem_tracker()->consume(2);
+        EXPECT_TRUE(policy->is_match(&action_runtime_ctx))
+                << ": "
+                << action_runtime_ctx.resource_ctx->memory_context()->current_memory_bytes();
+        action_runtime_ctx.resource_ctx->memory_context()->mem_tracker()->consume(-2);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx))
+                << ": "
+                << action_runtime_ctx.resource_ctx->memory_context()->current_memory_bytes();
+    }
+}
+
+TEST_F(WorkloadSchedPolicyTest, one_policy_mutl_condition) {
+    // 1. init policy
+    std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+    std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+    cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::QUERY_TIME,
+                                                      TCompareOperator::type::GREATER, "10"));
+    cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
+                                                      TCompareOperator::type::GREATER, "100"));
+    cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_BYTES,
+                                                      TCompareOperator::type::GREATER, "1000"));
+    cond_ptr_list.push_back(
+            create_workload_condition(TWorkloadMetricType::type::QUERY_BE_MEMORY_BYTES,
+                                      TCompareOperator::type::GREATER, "10000"));
+    std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+    action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+    std::set<int64_t> wg_id_set;
+    policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                 std::move(action_ptr_list));
+
+    // 2. is match
+    WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+    TUniqueId task_id;
+    task_id.hi = 1;
+    task_id.lo = 1;
+    action_runtime_ctx.resource_ctx->task_controller()->set_task_id(task_id);
+    std::shared_ptr<MemTrackerLimiter> mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "Test");
+    action_runtime_ctx.resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    action_runtime_ctx.resource_ctx->task_controller()->finish();
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+    action_runtime_ctx.resource_ctx->io_context()->update_scan_rows(101);
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+    action_runtime_ctx.resource_ctx->io_context()->update_scan_bytes(1001);
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+    action_runtime_ctx.resource_ctx->memory_context()->mem_tracker()->consume(10001);
+    EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
+}
+
+TEST_F(WorkloadSchedPolicyTest, test_operator) {
+    // LESS
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
+                                                          TCompareOperator::type::LESS, "100"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_rows(100);
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+    }
+
+    // EQUAL
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
+                                                          TCompareOperator::type::EQUAL, "100"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+        action_runtime_ctx.resource_ctx->io_context()->update_scan_rows(100);
+        EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
+    }
+}
+
+TEST_F(WorkloadSchedPolicyTest, test_wg_id_set) {
+    std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+    std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+    cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::BE_SCAN_ROWS,
+                                                      TCompareOperator::type::GREATER_EQUAL, "0"));
+    std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+    std::set<int64_t> wg_id_set;
+    wg_id_set.insert(1);
+    policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                 std::move(action_ptr_list));
+
+    WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+    TWorkloadGroupInfo tworkload_group_info;
+    tworkload_group_info.__isset.id = true;
+    tworkload_group_info.id = 1;
+    tworkload_group_info.__isset.version = true;
+    tworkload_group_info.version = 1;
+    WorkloadGroupInfo workload_group_info =
+            WorkloadGroupInfo::parse_topic_info(tworkload_group_info);
+    auto workload_group = std::make_shared<WorkloadGroup>(workload_group_info);
+    action_runtime_ctx.resource_ctx->set_workload_group(workload_group);
+    EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
+}
+
+TEST_F(WorkloadSchedPolicyTest, test_task_controller_running_time) {
+    std::shared_ptr<TaskController> task_controller = std::make_shared<TaskController>();
+    TUniqueId task_id;
+    task_id.hi = 1;
+    task_id.lo = 1;
+
+    // 1. Before set_task_id, start_time is 0
+    EXPECT_EQ(task_controller->start_time(), 0);
+
+    // 2. set_task_id will init start_time
+    task_controller->set_task_id(task_id);
+    EXPECT_GT(task_controller->start_time(), 0);
+
+    // 3. running_time should be positive when running
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    int64_t running_time = task_controller->running_time();
+    EXPECT_GT(running_time, 0);
+    EXPECT_GE(running_time, 10);
+
+    // 4. finish task
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    task_controller->finish();
+    EXPECT_TRUE(task_controller->is_finished());
+
+    // 5. running_time should be fixed after finish
+    int64_t finished_running_time = task_controller->running_time();
+    EXPECT_GT(finished_running_time, running_time);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_EQ(task_controller->running_time(), finished_running_time);
+}
+
+TEST_F(WorkloadSchedPolicyTest, one_policy_username_condition) {
+    std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+    std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+    cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::USERNAME,
+                                                      TCompareOperator::type::EQUAL, "admin"));
+    std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+    action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+    std::set<int64_t> wg_id_set;
+    policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                 std::move(action_ptr_list));
+
+    WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+    std::unique_ptr<MockTaskController> task_controller = std::make_unique<MockTaskController>();
+    task_controller->set_user("root");
+    action_runtime_ctx.resource_ctx->set_task_controller(std::move(task_controller));
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+
+    static_cast<MockTaskController*>(action_runtime_ctx.resource_ctx->task_controller())
+            ->set_user("admin");
+    EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
+
+    // Missing user metadata must not be treated as an empty username match.
+    static_cast<MockTaskController*>(action_runtime_ctx.resource_ctx->task_controller())
+            ->clear_user();
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+
+    // Test INVALID operator
+    {
+        std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+        std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+        cond_ptr_list.push_back(create_workload_condition(
+                TWorkloadMetricType::type::USERNAME, TCompareOperator::type::GREATER, "admin"));
+        std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+        std::set<int64_t> wg_id_set;
+        policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                     std::move(action_ptr_list));
+
+        WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+        std::unique_ptr<MockTaskController> task_controller =
+                std::make_unique<MockTaskController>();
+        task_controller->set_user("admin");
+        action_runtime_ctx.resource_ctx->set_task_controller(std::move(task_controller));
+        EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+    }
+}
+
+TEST_F(WorkloadSchedPolicyTest, policy_mixed_conditions) {
+    std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+    std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+    cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::USERNAME,
+                                                      TCompareOperator::type::EQUAL, "admin"));
+    cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::QUERY_TIME,
+                                                      TCompareOperator::type::GREATER, "10"));
+    std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+    action_ptr_list.push_back(create_workload_action(TWorkloadActionType::type::CANCEL_QUERY));
+    std::set<int64_t> wg_id_set;
+    policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                 std::move(action_ptr_list));
+
+    WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+    std::unique_ptr<MockTaskController> task_controller = std::make_unique<MockTaskController>();
+    task_controller->set_user("admin");
+    TUniqueId task_id;
+    task_id.hi = 1;
+    task_id.lo = 1;
+    task_controller->set_task_id(task_id);
+    action_runtime_ctx.resource_ctx->set_task_controller(std::move(task_controller));
+
+    // 1. Username matches, but query time too short
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+
+    // 2. Username matches, query time long enough
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    action_runtime_ctx.resource_ctx->task_controller()->finish();
+    EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
+
+    // 3. Username mismatch, query time long enough
+    static_cast<MockTaskController*>(action_runtime_ctx.resource_ctx->task_controller())
+            ->set_user("root");
+    EXPECT_FALSE(policy->is_match(&action_runtime_ctx));
+}
+
+TEST_F(WorkloadSchedPolicyTest, policy_action_execution) {
+    std::shared_ptr<WorkloadSchedPolicy> policy = std::make_shared<WorkloadSchedPolicy>();
+    std::vector<std::unique_ptr<WorkloadCondition>> cond_ptr_list;
+    cond_ptr_list.push_back(create_workload_condition(TWorkloadMetricType::type::USERNAME,
+                                                      TCompareOperator::type::EQUAL, "admin"));
+
+    std::vector<std::unique_ptr<WorkloadAction>> action_ptr_list;
+    auto mock_action = std::make_unique<MockWorkloadAction>(WorkloadActionType::CANCEL_QUERY);
+    MockWorkloadAction* mock_action_ptr = mock_action.get();
+    action_ptr_list.push_back(std::move(mock_action));
+
+    std::set<int64_t> wg_id_set;
+    policy->init(0, "p1", 0, true, 0, wg_id_set, std::move(cond_ptr_list),
+                 std::move(action_ptr_list));
+
+    WorkloadAction::RuntimeContext action_runtime_ctx = create_runtime_context();
+    std::unique_ptr<MockTaskController> task_controller = std::make_unique<MockTaskController>();
+    task_controller->set_user("admin");
+    action_runtime_ctx.resource_ctx->set_task_controller(std::move(task_controller));
+
+    EXPECT_TRUE(policy->is_match(&action_runtime_ctx));
+    policy->exec_action(&action_runtime_ctx);
+    EXPECT_EQ(mock_action_ptr->get_exec_count(), 1);
+}
+
+TEST_F(WorkloadSchedPolicyTest, invalid_condition_creation) {
+    // Test creating condition with invalid metric type (using a value outside enum range if possible, or mocked TWorkloadCondition)
+    TWorkloadCondition cond;
+    cond.metric_name = static_cast<TWorkloadMetricType::type>(999); // Invalid type
+    cond.op = TCompareOperator::type::EQUAL;
+    cond.value = "test";
+
+    auto result = WorkloadConditionFactory::create_workload_condition(&cond);
+    EXPECT_EQ(result, nullptr);
+}
+
+} // namespace doris

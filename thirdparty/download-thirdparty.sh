@@ -1,0 +1,803 @@
+#!/bin/bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+################################################################
+# This script will download all thirdparties and java libraries
+# which are defined in *vars.sh*, unpack patch them if necessary.
+# You can run this script multi-times.
+# Things will only be downloaded, unpacked and patched once.
+################################################################
+
+# The shebang above only takes effect when this script is executed directly.
+# `sh download-thirdparty.sh` hands it to /bin/sh instead, which is dash on
+# Debian and Ubuntu and parses none of the `[[ ]]`, arrays and here-strings this
+# script is built on. It does not stop at the first of them either, it keeps
+# going and runs a mangled version of the script. Re-exec under bash so that the
+# way the script was invoked cannot decide whether the download works. Keep this
+# block POSIX, it has to be parsed by the shell that is about to be replaced.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
+set -eo pipefail
+
+curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+if [[ -z "${DORIS_HOME}" ]]; then
+    DORIS_HOME="${curdir}/.."
+fi
+
+# include custom environment variables
+if [[ -f "${DORIS_HOME}/custom_env.sh" ]]; then
+    # shellcheck disable=1091
+    . "${DORIS_HOME}/custom_env.sh"
+fi
+
+if [[ -z "${TP_DIR}" ]]; then
+    TP_DIR="${curdir}"
+fi
+
+if [[ ! -f "${TP_DIR}/vars.sh" ]]; then
+    echo 'vars.sh is missing'.
+    exit 1
+fi
+
+. "${TP_DIR}/vars.sh"
+
+mkdir -p "${TP_DIR}/src"
+
+SPEC_ARCHIVES=(
+)
+while [[ $# -gt 0 ]]; do
+    GIVEN_LIB=$1
+    SPEC_LIB=
+    lc_given_lib=$(echo "${GIVEN_LIB}" | tr '[:upper:]' '[:lower:]')
+    for TP_ARCH in "${TP_ARCHIVES[@]}"; do
+        lc_tp_arch=$(echo "${TP_ARCH}" | tr '[:upper:]' '[:lower:]')
+        if [[ "${lc_given_lib}" = "${lc_tp_arch}" ]]; then
+            SPEC_LIB=${TP_ARCH}
+            break
+        fi
+    done
+    shift 1
+    if [[ "${SPEC_LIB}" = "" ]]; then
+        echo "given lib: ${GIVEN_LIB} not found"
+        exit 1
+    fi
+    SPEC_ARCHIVES=(
+        "${SPEC_ARCHIVES[@]}"
+        "${SPEC_LIB}"
+    )
+done
+if [[ "${SPEC_LIB}" != "" ]]; then
+    # Arrow builds xsimd and Brotli from their source archives.
+    if [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW '* ]]; then
+        for arrow_companion in XSIMD BROTLI; do
+            if [[ " ${SPEC_ARCHIVES[*]} " != *" ${arrow_companion} "* ]]; then
+                SPEC_ARCHIVES+=("${arrow_companion}")
+            fi
+        done
+    fi
+
+    # ARROW_ADBC_FLIGHTSQL is a companion archive of arrow_adbc rather than a
+    # package of its own: it has no build function, build_arrow_adbc() only copies
+    # the prebuilt driver out of it. Its name therefore never appears on a command
+    # line, so narrowing to the named entries alone leaves it unfetched and
+    # `build-thirdparty.sh arrow_adbc` dies on the missing source directory.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW_ADBC '* ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " != *' ARROW_ADBC_FLIGHTSQL '* ]]; then
+        SPEC_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
+    fi
+    TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
+    echo "Download and build specified libs only: ${TP_ARCHIVES[*]}"
+fi
+
+md5sum_bin='md5sum'
+if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
+    # macOS ships BSD md5 rather than GNU md5sum. Giving up on verification there
+    # is not a neutral loss: `wget -O` creates its output file before the transfer,
+    # so a failed download leaves a 0-byte file behind, and an unverified retry
+    # then reports it as a valid cached archive and carries on.
+    md5sum_bin='md5'
+fi
+if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
+    echo "Warn: neither md5sum nor md5 is installed, archives will not be verified"
+    md5sum_bin=""
+fi
+
+md5sum_func() {
+    local FILENAME="$1"
+    local DESC_DIR="$2"
+    local MD5SUM="$3"
+    local md5
+
+    if [[ "${md5sum_bin}" == "" ]]; then
+        return 0
+    fi
+
+    # Compare the digest alone, the two tools disagree on everything around it.
+    if [[ "${md5sum_bin}" == 'md5' ]]; then
+        md5="$("${md5sum_bin}" -q "${DESC_DIR}/${FILENAME}")"
+    else
+        md5="$("${md5sum_bin}" "${DESC_DIR}/${FILENAME}" | awk '{ print $1 }')"
+    fi
+    if [[ "${md5}" != "${MD5SUM}" ]]; then
+        echo "${DESC_DIR}/${FILENAME} md5sum check failed!"
+        echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
+        return 1
+    fi
+    return 0
+}
+
+is_git_package() {
+    local TP_ARCH="$1"
+    local GIT_URL_VAR="${TP_ARCH}_GIT_URL"
+    [[ -n "${!GIT_URL_VAR}" ]]
+}
+
+git_url_for() {
+    local TP_ARCH="$1"
+    local GIT_URL_VAR="${TP_ARCH}_GIT_URL"
+    echo "${!GIT_URL_VAR}"
+}
+
+# return 0 if download succeed.
+# return 1 if not.
+download_func() {
+    local FILENAME="$1"
+    local DOWNLOAD_URL="$2"
+    local DESC_DIR="$3"
+    local MD5SUM="$4"
+
+    if [[ -z "${FILENAME}" ]]; then
+        echo "Error: No file name specified to download"
+        exit 1
+    fi
+    if [[ -z "${DOWNLOAD_URL}" ]]; then
+        echo "Error: No download url specified for ${FILENAME}"
+        exit 1
+    fi
+    if [[ -z "${DESC_DIR}" ]]; then
+        echo "Error: No dest dir specified for ${FILENAME}"
+        exit 1
+    fi
+
+    local STATUS=1
+    for attemp in 1 2; do
+        if [[ -r "${DESC_DIR}/${FILENAME}" ]]; then
+            if md5sum_func "${FILENAME}" "${DESC_DIR}" "${MD5SUM}"; then
+                echo "Archive ${FILENAME} already exist."
+                STATUS=0
+                break
+            fi
+            echo "Archive ${FILENAME} will be removed and download again."
+            rm -f "${DESC_DIR}/${FILENAME}"
+        else
+            echo "Downloading ${FILENAME} from ${DOWNLOAD_URL} to ${DESC_DIR}"
+            if wget --no-check-certificate -q "${DOWNLOAD_URL}" -O "${DESC_DIR}/${FILENAME}"; then
+                if md5sum_func "${FILENAME}" "${DESC_DIR}" "${MD5SUM}"; then
+                    STATUS=0
+                    echo "Success to download ${FILENAME}"
+                    break
+                fi
+                echo "Archive ${FILENAME} will be removed and download again."
+                rm -f "${DESC_DIR}/${FILENAME}"
+            else
+                echo "Failed to download ${FILENAME}. attemp: ${attemp}"
+            fi
+        fi
+    done
+
+    if [[ "${STATUS}" -ne 0 ]]; then
+        echo "Failed to download ${FILENAME}"
+    fi
+    return "${STATUS}"
+}
+
+download_with_fallbacks() {
+    local FILENAME="$1"
+    local DESC_DIR="$2"
+    local MD5SUM="$3"
+    shift 3
+
+    local DOWNLOAD_URL=""
+    for DOWNLOAD_URL in "$@"; do
+        [[ -n "${DOWNLOAD_URL}" ]] || continue
+        if download_func "${FILENAME}" "${DOWNLOAD_URL}" "${DESC_DIR}" "${MD5SUM}"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# download thirdparty archives
+echo "===== Downloading thirdparty archives..."
+for TP_ARCH in "${TP_ARCHIVES[@]}"; do
+    if is_git_package "${TP_ARCH}"; then
+        echo "Skip downloading ${TP_ARCH} (git repo: $(git_url_for "${TP_ARCH}"))"
+        continue
+    fi
+    NAME="${TP_ARCH}_NAME"
+    MD5SUM="${TP_ARCH}_MD5SUM"
+    URL="${TP_ARCH}_DOWNLOAD"
+    FALLBACK_URL="${TP_ARCH}_FALLBACK_DOWNLOAD"
+    DOWNLOAD_URLS=()
+    if [[ -n "${REPOSITORY_URL}" ]]; then
+        DOWNLOAD_URLS+=("${REPOSITORY_URL%/}/${!NAME}")
+    fi
+    DOWNLOAD_URLS+=("${!URL}")
+    if [[ -n "${!FALLBACK_URL}" ]]; then
+        DOWNLOAD_URLS+=("${!FALLBACK_URL}")
+    fi
+    if ! download_with_fallbacks "${!NAME}" "${TP_SOURCE_DIR}" "${!MD5SUM}" "${DOWNLOAD_URLS[@]}"; then
+        echo "Failed to download ${!NAME}"
+        exit 1
+    fi
+done
+echo "===== Downloading thirdparty archives...done"
+
+# check if all tp archives exists
+echo "===== Checking all thirdpart archives..."
+for TP_ARCH in "${TP_ARCHIVES[@]}"; do
+    if is_git_package "${TP_ARCH}"; then
+        continue
+    fi
+    NAME="${TP_ARCH}_NAME"
+    if [[ ! -r "${TP_SOURCE_DIR}/${!NAME}" ]]; then
+        echo "Failed to fetch ${!NAME}"
+        exit 1
+    fi
+done
+echo "===== Checking all thirdpart archives...done"
+
+# unpacking thirdpart archives
+echo "===== Unpacking all thirdparty archives..."
+TAR_CMD="tar"
+UNZIP_CMD="unzip"
+SUFFIX_TGZ="\.(tar\.gz|tgz)$"
+SUFFIX_XZ="\.tar\.xz$"
+SUFFIX_ZIP="\.zip$"
+SUFFIX_BZ2="\.tar\.bz2$"
+for TP_ARCH in "${TP_ARCHIVES[@]}"; do
+    if is_git_package "${TP_ARCH}"; then
+        continue
+    fi
+    NAME="${TP_ARCH}_NAME"
+    SOURCE="${TP_ARCH}_SOURCE"
+
+    if [[ -z "${!SOURCE}" ]]; then
+        continue
+    fi
+
+    if [[ ! -d "${TP_SOURCE_DIR}/${!SOURCE}" ]]; then
+        if [[ "${!NAME}" =~ ${SUFFIX_TGZ} ]]; then
+            echo "${TP_SOURCE_DIR}/${!NAME}"
+            echo "${TP_SOURCE_DIR}/${!SOURCE}"
+            if ! "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${!NAME}" -C "${TP_SOURCE_DIR}/"; then
+                echo "Failed to untar ${!NAME}"
+                exit 1
+            fi
+        elif [[ "${!NAME}" =~ ${SUFFIX_XZ} ]]; then
+            echo "${TP_SOURCE_DIR}/${!NAME}"
+            echo "${TP_SOURCE_DIR}/${!SOURCE}"
+            if ! "${TAR_CMD}" xJf "${TP_SOURCE_DIR}/${!NAME}" -C "${TP_SOURCE_DIR}/"; then
+                echo "Failed to untar ${!NAME}"
+                exit 1
+            fi
+        elif [[ "${!NAME}" =~ ${SUFFIX_ZIP} ]]; then
+            if ! "${UNZIP_CMD}" -o -qq "${TP_SOURCE_DIR}/${!NAME}" -d "${TP_SOURCE_DIR}/"; then
+                echo "Failed to unzip ${!NAME}"
+                exit 1
+            fi
+        elif [[ "${!NAME}" =~ ${SUFFIX_BZ2} ]]; then
+            if ! "${TAR_CMD}" xf "${TP_SOURCE_DIR}/${!NAME}" -C "${TP_SOURCE_DIR}/"; then
+                echo "Failed to untar ${!NAME}"
+                exit 1
+            fi
+        fi
+    else
+        echo "${!SOURCE} already unpacked."
+    fi
+done
+echo "===== Unpacking all thirdparty archives...done"
+
+# Clone and checkout git repositories
+echo "===== Cloning git repositories..."
+for TP_ARCH in "${TP_ARCHIVES[@]}"; do
+    if ! is_git_package "${TP_ARCH}"; then
+        continue
+    fi
+
+    GIT_URL_VAR="${TP_ARCH}_GIT_URL"
+    GIT_TAG_VAR="${TP_ARCH}_GIT_TAG"
+    SOURCE_VAR="${TP_ARCH}_SOURCE"
+    
+    GIT_URL="${!GIT_URL_VAR}"
+    GIT_TAG="${!GIT_TAG_VAR}"
+    SOURCE_DIR="${TP_SOURCE_DIR}/${!SOURCE_VAR}"
+
+    if [[ -z "${GIT_URL}" ]] || [[ -z "${GIT_TAG}" ]] || [[ -z "${!SOURCE_VAR}" ]]; then
+        echo "Warning: ${TP_ARCH} git configuration incomplete, skipping"
+        continue
+    fi
+
+    if [[ ! -d "${SOURCE_DIR}" ]]; then
+        echo "Cloning ${TP_ARCH} from ${GIT_URL}..."
+        cd "${TP_SOURCE_DIR}"
+        if ! git clone "${GIT_URL}" "${!SOURCE_VAR}"; then
+            echo "Failed to clone ${TP_ARCH}"
+            exit 1
+        fi
+    else
+        echo "${TP_ARCH} repository already exists, updating..."
+        cd "${SOURCE_DIR}"
+        git fetch origin || true
+    fi
+
+    cd "${SOURCE_DIR}"
+    if ! git checkout "${GIT_TAG}" 2>/dev/null; then
+        echo "Tag ${GIT_TAG} not found, trying to fetch..."
+        is_shallow="$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)"
+        if [[ "${is_shallow}" == "true" ]]; then
+            git fetch --unshallow origin || git fetch --depth=2147483647 origin
+        else
+            git fetch origin
+        fi
+        if ! git checkout "${GIT_TAG}"; then
+            echo "Failed to checkout ${GIT_TAG} for ${TP_ARCH}"
+            exit 1
+        fi
+    fi
+    echo "Successfully checked out ${GIT_TAG} for ${TP_ARCH}"
+done
+echo "===== Cloning git repositories...done"
+
+echo "===== Patching thirdparty archives..."
+
+###################################################################################
+# PATCHED_MARK is a empty file which will be created in some thirdparty source dir
+# only after that thirdparty source is patched.
+# This is to avoid duplicated patch.
+###################################################################################
+PATCHED_MARK="patched_mark"
+
+# glog patch
+if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
+    if [[ "${GLOG_SOURCE}" == "glog-0.4.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/glog-0.4.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/glog-0.6.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${GLOG_SOURCE}"
+fi
+
+# mysql patch
+if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
+    cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/mysql-server-mysql-5.7.18.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${MYSQL_SOURCE}"
+fi
+
+# gsasl2 patch to fix link error such as mutilple func defination
+# when link target with kerberos
+if [[ " ${TP_ARCHIVES[*]} " =~ " GSASL " ]]; then
+    cd "${TP_SOURCE_DIR}/${GSASL_SOURCE}"
+    if [[ ! -f ${PATCHED_MARK} ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/libgsasl-1.8.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${GSASL_SOURCE}"
+fi
+
+# cyrus-sasl patch to force compile gssapi plugin when static linking
+# this is for librdkafka with sasl
+if [[ " ${TP_ARCHIVES[*]} " =~ " CYRUS_SASL " ]]; then
+    cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
+    if [[ ! -f ${PATCHED_MARK} ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/cyrus-sasl-2.1.27.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${CYRUS_SASL_SOURCE}"
+fi
+
+#patch sqltypes.h, change TCAHR to TWCHAR to avoid conflict with clucene TCAHR
+if [[ " ${TP_ARCHIVES[*]} " =~ " ODBC " ]]; then
+    cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
+    if [[ ! -f ${PATCHED_MARK} ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/sqltypes.h.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${ODBC_SOURCE}"
+fi
+
+# rocksdb patch to fix compile error
+if [[ " ${TP_ARCHIVES[*]} " =~ " ROCKSDB " ]]; then
+    if [[ "${ROCKSDB_SOURCE}" == "rocksdb-5.14.2" ]]; then
+        cd "${TP_SOURCE_DIR}/${ROCKSDB_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/rocksdb-5.14.2.patch"
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                patch -p1 <"${TP_PATCH_DIR}/rocksdb-mac-compile-fix.patch"
+            fi 
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${ROCKSDB_SOURCE}"
+fi
+
+# arrow patch is used to get the raw orc reader for filter prune.
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
+    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-13.0.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-13.0.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-24.0.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            # Introducing the parameter that forces writing INT96 timestamps for
+            # compatibility with the Doris Parquet writer.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-force-write-int96-timestamps.patch"
+
+            # Add Parquet LZO page decompression support used by file scanner v2.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-lzo.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${ARROW_SOURCE}"
+fi
+
+# arrow-adbc patch adds the pre-generated JNI header, so that building the JNI
+# bridge needs no Maven. See the patch header for how to regenerate it.
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_ADBC " ]]; then
+    cd "${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-pregenerated-jni-header.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${ARROW_ADBC_SOURCE}"
+fi
+
+# patch librdkafka to avoid crash
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBRDKAFKA " ]]; then
+    if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-2.11.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p0 <"${TP_PATCH_DIR}/librdkafka-2.11.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBRDKAFKA_SOURCE}"
+fi
+
+# patch jemalloc, disable JEMALLOC_MANGLE for overloading the memory API.
+if [[ " ${TP_ARCHIVES[*]} " =~ " JEMALLOC_DORIS " ]]; then
+    if [[ "${JEMALLOC_DORIS_SOURCE}" = "jemalloc-5.3.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p0 <"${TP_PATCH_DIR}/jemalloc_hook.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
+fi
+
+# patch libunwind so Doris can force GNU libunwind to use the BE PHDR cache
+# without changing ordinary dl_iterate_phdr callers.
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUNWIND " ]]; then
+    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.8.3" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.8.3-doris-phdr-cache.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBUNWIND_SOURCE}"
+fi
+
+# patch hyperscan
+# https://github.com/intel/hyperscan/issues/292
+if [[ " ${TP_ARCHIVES[*]} " =~ " HYPERSCAN " ]]; then
+    if [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.11" ]]; then
+        cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/vectorscan-5.4.11.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${HYPERSCAN_SOURCE}"
+fi
+
+# patch aws sdk
+if [[ " ${TP_ARCHIVES[*]} " =~ " AWS_SDK " ]]; then
+    cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.11.119" ]]; then
+            if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.11.119.tar.gz -O aws-crt-cpp-1.11.119.tar.gz; then
+                tar xzf aws-crt-cpp-1.11.119.tar.gz
+            else
+                bash ./prefetch_crt_dependency.sh
+            fi
+            patch -p1 <"${TP_PATCH_DIR}/aws-sdk-cpp-1.11.119.patch"
+            patch -p1 <"${TP_PATCH_DIR}/aws-sdk-cpp-1.11.119-cmake.patch"
+        else
+            bash ./prefetch_crt_dependency.sh
+        fi
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${AWS_SDK_SOURCE}"
+fi
+
+# patch simdjson, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
+if [[ " ${TP_ARCHIVES[*]} " =~ " SIMDJSON " ]]; then
+    if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.11.6" ]]; then
+        cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/simdjson-3.0.1.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${SIMDJSON_SOURCE}"
+fi
+
+# patch brpc
+if [[ " ${TP_ARCHIVES[*]} " =~ " BRPC " ]]; then
+    if [[ "${BRPC_SOURCE}" == 'brpc-1.4.0' ]]; then
+        cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
+                echo "patch ${patch_file}"
+                patch -p1 --ignore-whitespace <"${patch_file}"
+            done
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${BRPC_SOURCE}"
+fi
+
+# patch ali sdk
+if [[ " ${TP_ARCHIVES[*]} " =~ " ALI_SDK " ]]; then
+    if [[ "${ALI_SDK_SOURCE}" = "aliyun-openapi-cpp-sdk-1.36.1586" ]]; then
+        cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/ali-sdk-1.36.1586.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${ALI_SDK_SOURCE}"
+fi
+
+# patch base64
+if [[ " ${TP_ARCHIVES[*]} " =~ " BASE64 " ]]; then
+    if [[ "${BASE64_SOURCE}" = "base64-0.5.2" ]]; then
+        cd "${TP_SOURCE_DIR}/${BASE64_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/base64-0.5.2.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${BASE64_SOURCE}"
+fi
+
+# patch libuuid
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUUID " ]]; then
+    if [[ "${LIBUUID_SOURCE}" = "libuuid-1.0.3" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBUUID_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libuuid-1.0.3.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBUUID_SOURCE}"
+fi
+
+# patch libdivide
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBDIVIDE " ]]; then
+    if [[ "${LIBDIVIDE_SOURCE}" = "libdivide-5.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBDIVIDE_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libdivide-5.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBDIVIDE_SOURCE}"
+fi
+
+# patch grpc
+if [[ " ${TP_ARCHIVES[*]} " =~ " GRPC " ]]; then
+    if [[ "${GRPC_SOURCE}" = "grpc-1.54.3" ]]; then
+        cd "${TP_SOURCE_DIR}/${GRPC_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/grpc-1.54.3.patch"
+            patch -p1 <"${TP_PATCH_DIR}/grpc-absl-fix.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${GRPC_SOURCE}"
+fi
+
+# patch flatbuffer
+if [[ " ${TP_ARCHIVES[*]} " =~ " FLATBUFFERS " ]]; then
+    if [[ "${FLATBUFFERS_SOURCE}" = "flatbuffers-2.0.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${FLATBUFFERS_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/flatbuffers-2.0.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${FLATBUFFERS_SOURCE}"
+fi
+
+# patch krb
+if [[ " ${TP_ARCHIVES[*]} " =~ " KRB5 " ]]; then
+    if [[ "${KRB5_SOURCE}" = "krb5-1.19" ]]; then
+        cd "${TP_SOURCE_DIR}/${KRB5_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/krb5-1.19.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${KRB5_SOURCE}"
+fi
+
+# patch libhdfs3
+if [[ " ${TP_ARCHIVES[*]} " =~ " HDFS3 " ]]; then
+    if [[ "${HDFS3_SOURCE}" == "doris-thirdparty-libhdfs3-v2.3.9" ]]; then
+        cd "${TP_SOURCE_DIR}/${HDFS3_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libhdfs3-v2.3.9-hostname.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${HDFS3_SOURCE}"
+fi
+
+# patch bitshuffle
+MACHINE_OS=$(uname -s)
+
+if [[ "${MACHINE_OS}" == "Darwin" ]]; then
+    echo "MacOS. Skipping BITSHUFFLE patching."
+else
+    if [[ " ${TP_ARCHIVES[*]} " =~ " BITSHUFFLE " ]]; then
+        if [[ "${BITSHUFFLE_SOURCE}" = "bitshuffle-0.5.1" ]]; then
+            cd "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}"
+            if [[ ! -f "${PATCHED_MARK}" ]]; then
+                patch -p1 <"${TP_PATCH_DIR}/bitshuffle-0.5.1.patch"
+                touch "${PATCHED_MARK}"
+            fi
+            cd -
+        fi
+        echo "Finished patching ${BITSHUFFLE_SOURCE}"
+    fi
+fi
+
+# patch re2
+if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
+    if [[ "${RE2_SOURCE}" == 're2-2021-02-02' ]]; then
+        cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            for patch_file in "${TP_PATCH_DIR}"/re2-*; do
+                echo "patch ${patch_file}"
+                patch -p1 --ignore-whitespace <"${patch_file}"
+            done
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${RE2_SOURCE}"
+fi
+
+# patch azure
+if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
+    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/azure-sdk-for-cpp-azure-core_1.16.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${AZURE_SOURCE}"
+fi
+
+# Foyer remains a local patch until its cache interface is accepted upstream.
+# All search fixes are supplied by the immutable lance-c dependency revision.
+if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
+    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
+    foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
+    # A new local patch must also replace previously patched cached sources.
+    # Empty markers from older builds cannot identify the applied patch version.
+    if [[ -f "${foyer_patch_marker}" ]] &&
+        [[ "$(cat "${foyer_patch_marker}")" != "${foyer_patch_checksum}" ]]; then
+        rm -rf "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_C_NAME}" -C "${TP_SOURCE_DIR}/"
+    fi
+    cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}_foyer" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/lance-c-foyer.patch"
+        printf '%s\n' "${foyer_patch_checksum}" > "${PATCHED_MARK}_foyer"
+    fi
+    cd -
+    echo "Finished patching ${LANCE_C_SOURCE}"
+fi
+
+if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
+    cd $TP_SOURCE_DIR/$CCTZ_SOURCE
+    if [[ ! -f "$PATCHED_MARK" ]] ; then
+        for patch_file in "${TP_PATCH_DIR}"/cctz-*; do
+            echo "patch ${patch_file}"
+            patch -p1 --ignore-whitespace <"${patch_file}"
+        done
+        touch "$PATCHED_MARK"
+    fi
+    cd -
+    echo "Finished patching ${CCTZ_SOURCE}"
+fi
+
+# boost patch to fix sigtimedwait not available on macOS
+if [[ " ${TP_ARCHIVES[*]} " =~ " BOOST " ]]; then
+    cd "${TP_SOURCE_DIR}/${BOOST_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/boost-1.81.0-mac-sigtimedwait.patch"
+        fi
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${BOOST_SOURCE}"
+fi
+
+# vim: ts=4 sw=4 ts=4 tw=100:

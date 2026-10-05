@@ -1,0 +1,227 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.job.offset;
+
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Interface for managing offsets and metadata of a data source.
+ */
+public interface SourceOffsetProvider {
+
+    /**
+     * Get source type, e.g. s3, kafka
+     *
+     * @return
+     */
+    String getSourceType();
+
+    /**
+     * Initialize the offset provider with job ID and original TVF properties.
+     * Only sets in-memory fields; safe to call on both fresh start and FE restart.
+     * May perform remote calls (e.g. fetching snapshot splits), so throws JobException.
+     */
+    default void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {}
+
+    /**
+     * One-time initialization on fresh job creation (not on FE restart). Subclasses may
+     * initialize split progress, fetch initial splits, or open remote readers.
+     * Default: no-op (most providers need no extra setup).
+     */
+    default void initOnCreate(List<String> syncTables) throws JobException {}
+
+    /**
+     * Get next offset to consume
+     *
+     * @return
+     */
+    Offset getNextOffset(StreamingJobProperties jobProps, Map<String, String> properties);
+
+    /**
+     * Get current offset to show
+     *
+     * @return
+     */
+    String getShowCurrentOffset();
+
+    /**
+     * Get remote datasource max offset to show
+     *
+     * @return
+     */
+    String getShowMaxOffset();
+
+    /**
+     * Rewrite the TVF parameters in the SQL based on the current offset.
+     * Only implemented by TVF-based providers (e.g. S3, cdc_stream).
+     *
+     * @param nextOffset
+     * @return rewritten InsertIntoTableCommand
+     */
+    InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand, Offset nextOffset, long taskId);
+
+    /**
+     * Update the offset of the source.
+     *
+     * @param offset
+     */
+    void updateOffset(Offset offset);
+
+    /**
+     * Bind the compute group that should route FE-initiated RPCs.
+     * Default: no-op for providers that do not make BE RPCs.
+     */
+    default void setCloudCluster(String cloudCluster) {}
+
+    /** Bind the BE this job is pinned to in the binlog phase, for reader-reuse heartbeat routing. */
+    default void setBoundBackendId(long boundBackendId) {}
+
+    /**
+     * Fetch remote meta information, such as listing files in S3 or getting latest offsets in Kafka.
+     */
+    void fetchRemoteMeta(Map<String, String> properties) throws Exception;
+
+    /**
+     * Whether there is more data to consume
+     *
+     * @return
+     */
+    boolean hasMoreDataToConsume();
+
+    /**
+     * Deserialize string offset to Offset
+     *
+     * @return
+     */
+    Offset deserializeOffset(String offset);
+
+    /**
+     * Deserialize offset property to Offset
+     *
+     * @return
+     */
+    Offset deserializeOffsetProperty(String offset);
+
+    /**
+     * Validate the offset format for ALTER JOB.
+     * Each provider defines its own rules (e.g. CDC only allows JSON specific offset).
+     */
+    default void validateAlterOffset(String offset) throws Exception {
+    }
+
+    /**
+     * Replaying OffsetProvider is currently only required by JDBC.
+     *
+     * @return
+     */
+    default void replayIfNeed(StreamingInsertJob job)  throws JobException {
+    }
+
+    default String getPersistInfo() {
+        return null;
+    }
+
+    /**
+     * Restore offset from persisted string during image load (gsonPostProcess).
+     * Called immediately after the provider is created so that even PAUSED jobs
+     * have the correct offset state.
+     */
+    default void restoreFromPersistInfo(String persistInfo) {
+    }
+
+    /**
+     * Returns the serialized JSON offset to store in txn commit attachment.
+     * Default: serialize running offset directly (e.g. S3 path).
+     * CDC stream TVF overrides to pull actual end offset from BE after fetchRecordStream completes.
+     * scanBackendIds: IDs of the BEs that ran the TVF scan node, used to locate taskOffsetCache.
+     */
+    default String getCommitOffsetJson(Offset runningOffset, long taskId, List<Long> scanBackendIds) {
+        return runningOffset.toSerializedJson();
+    }
+
+    /**
+     * Called after each task is committed. Providers that track data availability
+     * (e.g. JDBC binlog) can use this to update internal state such as hasMoreData.
+     * Default: no-op.
+     */
+    default void onTaskCommitted(long scannedRows, long loadBytes) {}
+
+    /**
+     * Applies the end offset from a committed task back onto the running offset object
+     * in-place, so that showRange() can display the full [start, end] interval.
+     * Default: no-op (only meaningful for JDBC providers).
+     */
+    default void applyEndOffsetToTask(Offset runningOffset, Offset endOffset) {}
+
+    /**
+     * Returns true if the provider has reached a natural completion point
+     * and the job should be marked as FINISHED.
+     * Default: false (most providers run indefinitely).
+     */
+    default boolean hasReachedEnd() {
+        return false;
+    }
+
+    /**
+     * Advance one batch of split fetching, called by scheduler each tick during PENDING/RUNNING.
+     * For providers without async splitting work (e.g. S3, Kafka), default is no-op.
+     * Aligned with flink-cdc SnapshotSplitAssigner naming.
+     *
+     * @throws JobException if fetching splits fails fatally
+     */
+    default void advanceSplits() throws JobException {}
+
+    /**
+     * Returns true if no more splits will be produced.
+     * For providers without splitting concept, always returns true.
+     * Aligned with flink-cdc SnapshotSplitAssigner.noMoreSplits() naming.
+     */
+    default boolean noMoreSplits() {
+        return true;
+    }
+
+    /** Splits produced but not yet consumed (FE-side backlog). */
+    default int pendingSplitCount() {
+        return 0;
+    }
+
+    /** Get the latest successfully observed source-log lag in bytes, or -1 before any observation. */
+    default long getLagBytes() {
+        return -1;
+    }
+
+    /** Get the source event timestamp at the committed offset as Unix seconds, or 0 if unavailable. */
+    default long getLastSourceEventTimestampSeconds() {
+        return 0;
+    }
+
+    /** Discard a lag value that was calculated from an offset explicitly replaced by the user. */
+    default void resetLag() {}
+
+    /** Get source lag as a numeric string for SHOW output. */
+    default String getLag() {
+        return String.valueOf(getLagBytes());
+    }
+
+}

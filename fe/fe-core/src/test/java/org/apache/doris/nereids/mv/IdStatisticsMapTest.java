@@ -1,0 +1,123 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.mv;
+
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
+import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.statistics.model.Statistics;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * Test idStatisticsMap in StatementContext is valid
+ */
+public class IdStatisticsMapTest extends SqlTestBase {
+
+    @Test
+    void testIdStatisticsIsExistWhenRewriteByMv() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+
+        installValidRelationManager();
+
+        connectContext.getState().setIsQuery(true);
+
+        connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        connectContext.getSessionVariable().setPreMaterializedViewRewriteStrategy(PreRewriteStrategy.NOT_IN_RBO.name());
+        dropMvByNereids("drop materialized view if exists mv100");
+        createMvByNereids("create materialized view mv100 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select T1.id from T1 inner join T2 "
+                + "on T1.id = T2.id;");
+        mockCandidateMtmv("mv100");
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id from T1 inner join T2 "
+                        + "on T1.id = T2.id "
+                        + "inner join T3 on T1.id = T3.id",
+                connectContext
+        );
+        PlanChecker tmpPlanChecker = PlanChecker.from(c1)
+                .setIsQuery()
+                .analyze()
+                .rewrite();
+        Set<Slot> materializationScanOutput = c1.getMaterializationContexts().get(0)
+                .getScanPlan(null, c1).getOutputSet();
+        tmpPlanChecker
+                .preMvRewrite()
+                .optimize()
+                .printlnBestPlanTree();
+        Map<RelationId, Statistics> idStatisticsMap = c1.getStatementContext().getRelationIdToStatisticsMap();
+        Assertions.assertFalse(idStatisticsMap.isEmpty());
+        Statistics statistics = idStatisticsMap.values().iterator().next();
+        Assertions.assertEquals(materializationScanOutput, statistics.columnStatistics().keySet());
+        dropMvByNereids("drop materialized view mv100");
+    }
+
+    @Test
+    void testIdStatisticsIsExistWhenRewriteByMvWhenRBORewrite() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+
+        installValidRelationManager();
+
+        connectContext.getState().setIsQuery(true);
+
+        connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        connectContext.getSessionVariable().setPreMaterializedViewRewriteStrategy(
+                PreRewriteStrategy.FORCE_IN_RBO.name());
+        dropMvByNereids("drop materialized view if exists mv100");
+        createMvByNereids("create materialized view mv100 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select T1.id from T1 inner join T2 "
+                + "on T1.id = T2.id;");
+        mockCandidateMtmv("mv100");
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id from T1 inner join T2 "
+                        + "on T1.id = T2.id "
+                        + "inner join T3 on T1.id = T3.id",
+                connectContext
+        );
+        PlanChecker tmpPlanChecker = PlanChecker.from(c1)
+                .setIsQuery()
+                .analyze()
+                .rewrite();
+        Assertions.assertFalse(
+                tmpPlanChecker.getCascadesContext().getStatementContext().getTmpPlanForMvRewrite().isEmpty());
+        tmpPlanChecker.preMvRewrite();
+        Set<Slot> materializationScanOutput = c1.getMaterializationContexts().get(0)
+                .getScanPlan(null, c1).getOutputSet();
+        tmpPlanChecker
+                .optimize()
+                .printlnBestPlanTree();
+        Map<RelationId, Statistics> idStatisticsMap = c1.getStatementContext().getRelationIdToStatisticsMap();
+        Assertions.assertFalse(idStatisticsMap.isEmpty());
+        Statistics statistics = idStatisticsMap.values().iterator().next();
+        Assertions.assertNotEquals(materializationScanOutput, statistics.columnStatistics().keySet());
+        dropMvByNereids("drop materialized view mv100");
+    }
+}

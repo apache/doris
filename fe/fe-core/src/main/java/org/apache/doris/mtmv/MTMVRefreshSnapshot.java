@@ -1,0 +1,120 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.mtmv;
+
+import org.apache.doris.catalog.MTMV;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
+
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
+
+public class MTMVRefreshSnapshot {
+    @SerializedName("ps")
+    private ConcurrentMap<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
+
+    public MTMVRefreshSnapshot() {
+        this.partitionSnapshots = Maps.newConcurrentMap();
+    }
+
+    public boolean equalsWithPct(String mtmvPartitionName, String pctPartitionName,
+            MTMVSnapshotIf pctPartitionCurrentSnapshot, BaseTableInfo pctTableInfo) {
+        MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
+        if (partitionSnapshot == null) {
+            return false;
+        }
+        MTMVSnapshotIf pctPartitionSnapshot = partitionSnapshot.getPctSnapshot(pctTableInfo)
+                .get(pctPartitionName);
+        if (pctPartitionSnapshot == null) {
+            return false;
+        }
+        return pctPartitionSnapshot.equals(pctPartitionCurrentSnapshot);
+    }
+
+    public Set<String> getPctSnapshots(String mtmvPartitionName, BaseTableInfo pctTableInfo) {
+        MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
+        if (partitionSnapshot == null) {
+            return Sets.newHashSet();
+        }
+        return partitionSnapshot.getPctSnapshot(pctTableInfo).keySet();
+    }
+
+    public boolean equalsWithBaseTable(String mtmvPartitionName, BaseTableInfo tableInfo,
+            MTMVSnapshotIf baseTableCurrentSnapshot) {
+        MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
+        if (partitionSnapshot == null) {
+            return false;
+        }
+        MTMVSnapshotIf relatedPartitionSnapshot = partitionSnapshot.getTableSnapshot(tableInfo);
+        if (relatedPartitionSnapshot == null) {
+            return false;
+        }
+        return relatedPartitionSnapshot.equals(baseTableCurrentSnapshot);
+    }
+
+    public void updateSnapshots(Map<String, MTMVRefreshPartitionSnapshot> addPartitionSnapshots,
+            Set<String> mvPartitionNames) {
+        if (!MapUtils.isEmpty(addPartitionSnapshots)) {
+            this.partitionSnapshots.putAll(addPartitionSnapshots);
+        }
+        Iterator<String> iterator = partitionSnapshots.keySet().iterator();
+        while (iterator.hasNext()) {
+            String partitionName = iterator.next();
+            if (!mvPartitionNames.contains(partitionName)) {
+                iterator.remove();
+            }
+        }
+    }
+
+    /**
+     * Drops these MV partitions' snapshots. An invalidated partition must not be able to back a
+     * transparent rewrite until it has been rebuilt: what it holds is exactly what the rebuild replaces.
+     */
+    public void removeSnapshots(Set<String> mvPartitionNames) {
+        if (CollectionUtils.isEmpty(mvPartitionNames)) {
+            return;
+        }
+        partitionSnapshots.keySet().removeAll(mvPartitionNames);
+    }
+
+    public Map<String, MTMVRefreshPartitionSnapshot> getPartitionSnapshots() {
+        return partitionSnapshots;
+    }
+
+    @Override
+    public String toString() {
+        return "MTMVRefreshSnapshot{"
+                + "partitionSnapshots=" + partitionSnapshots
+                + '}';
+    }
+
+    public void compatible(MTMV mtmv) throws Exception {
+        if (MapUtils.isEmpty(partitionSnapshots)) {
+            return;
+        }
+        for (MTMVRefreshPartitionSnapshot snapshot : partitionSnapshots.values()) {
+            snapshot.compatible(mtmv);
+        }
+    }
+}

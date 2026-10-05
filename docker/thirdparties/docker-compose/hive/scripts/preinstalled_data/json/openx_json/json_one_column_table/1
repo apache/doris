@@ -1,0 +1,5 @@
+
+{"name":"bad1","id":5,"numbers":[1,2,3]
+[1,2,3]
+"just a                 string"
+{"name":"bad2","id":6,"numbers":"not an array","scores":{"key4":40},"details":{"a":4,"b":"text","c":4000000}}

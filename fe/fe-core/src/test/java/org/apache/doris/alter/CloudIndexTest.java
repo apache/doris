@@ -1,0 +1,935 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.alter;
+
+import org.apache.doris.analysis.DataSortInfo;
+import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.FakeEditLog;
+import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalTablet;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.catalog.CloudEnvFactory;
+import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TSortType;
+import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.utframe.MockedMetaServerFactory;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+public class CloudIndexTest {
+    private static final Logger LOG = LogManager.getLogger(CloudIndexTest.class);
+
+    private static String fileName = "./CloudIndexTest";
+
+    private static FakeEditLog fakeEditLog;
+    private static FakeEnv fakeEnv;
+    private static Env masterEnv;
+    private static EditLog testEditLog;
+    private ConnectContext ctx;
+
+    private static Database db;
+    private static OlapTable olapTable;
+    private static CreateIndexOp createIndexOp;
+    private static CancelBuildIndexCommand cancelBuildIndexCommand;
+    private static SchemaChangeHandler schemaChangeHandler;
+
+    private MockedStatic<MetaServiceProxy> mockedMetaServiceProxy;
+    private MetaServiceProxy mockProxy;
+
+    private static void setField(Object target, Class<?> clazz, String fieldName, Object value)
+            throws Exception {
+        Field field = clazz.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (mockedMetaServiceProxy != null) {
+            mockedMetaServiceProxy.close();
+        }
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+    }
+
+    @BeforeEach
+    public void setUp() throws Exception {
+        FeConstants.runningUnitTest = true;
+        // Setup for MetaServiceProxy mock
+        mockProxy = Mockito.mock(MetaServiceProxy.class);
+        mockedMetaServiceProxy = Mockito.mockStatic(MetaServiceProxy.class);
+        mockedMetaServiceProxy.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.BeginTxnResponse.Builder beginTxnResponseBuilder = Cloud.BeginTxnResponse.newBuilder();
+            beginTxnResponseBuilder.setTxnId(1000)
+                    .setStatus(
+                            Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).setMsg("OK"));
+            return beginTxnResponseBuilder.build();
+        }).when(mockProxy).beginTxn(Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.TxnInfoPB.Builder txnInfoBuilder = Cloud.TxnInfoPB.newBuilder();
+            txnInfoBuilder.setDbId(CatalogTestUtil.testDbId1);
+            txnInfoBuilder.addAllTableIds(Lists.newArrayList(olapTable != null ? olapTable.getId() : 0L));
+            txnInfoBuilder.setLabel("test_label");
+            txnInfoBuilder.setListenerId(-1);
+            Cloud.CommitTxnResponse.Builder commitTxnResponseBuilder = Cloud.CommitTxnResponse.newBuilder();
+            commitTxnResponseBuilder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .setTxnInfo(txnInfoBuilder.build());
+            return commitTxnResponseBuilder.build();
+        }).when(mockProxy).commitTxn(Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.CheckTxnConflictResponse.Builder checkTxnConflictResponseBuilder =
+                    Cloud.CheckTxnConflictResponse.newBuilder();
+            checkTxnConflictResponseBuilder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .setFinished(true);
+            return checkTxnConflictResponseBuilder.build();
+        }).when(mockProxy).checkTxnConflict(Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.GetClusterResponse.Builder getClusterResponseBuilder = Cloud.GetClusterResponse.newBuilder();
+            Cloud.ClusterPB.Builder clusterBuilder = Cloud.ClusterPB.newBuilder();
+            clusterBuilder.setClusterId("test_id").setClusterName("test_group");
+
+            Cloud.NodeInfoPB.Builder node1 = Cloud.NodeInfoPB.newBuilder();
+            node1.setCloudUniqueId("test_cloud")
+                    .setName("host1")
+                    .setIp("host1")
+                    .setHost("host1")
+                    .setHeartbeatPort(123)
+                    .setEditLogPort(125)
+                    .setStatus(Cloud.NodeStatusPB.NODE_STATUS_RUNNING);
+            clusterBuilder.addNodes(node1.build());
+            getClusterResponseBuilder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .addCluster(clusterBuilder.build());
+            return getClusterResponseBuilder.build();
+        }).when(mockProxy).getCluster(Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.CreateTabletsResponse.Builder responseBuilder = Cloud.CreateTabletsResponse.newBuilder();
+            responseBuilder.setStatus(
+                    Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).setMsg("OK"));
+            return responseBuilder.build();
+        }).when(mockProxy).createTablets(Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.FinishTabletJobResponse.Builder responseBuilder = Cloud.FinishTabletJobResponse.newBuilder();
+            responseBuilder.setStatus(
+                    Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).setMsg("OK"));
+            return responseBuilder.build();
+        }).when(mockProxy).finishTabletJob(Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.IndexResponse.Builder builder = Cloud.IndexResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        }).when(mockProxy).prepareIndex(Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.IndexResponse.Builder builder = Cloud.IndexResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        }).when(mockProxy).commitIndex(Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.IndexResponse.Builder builder = Cloud.IndexResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        }).when(mockProxy).dropIndex(Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.CheckKVResponse.Builder builder = Cloud.CheckKVResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(MetaServiceCode.OK).setMsg("OK"));
+            return builder.build();
+        }).when(mockProxy).checkKv(Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.GetCurrentMaxTxnResponse.Builder builder = Cloud.GetCurrentMaxTxnResponse.newBuilder();
+            builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .setCurrentMaxTxnId(1000);
+            return builder.build();
+        }).when(mockProxy).getCurrentMaxTxnId(Mockito.any());
+
+        Config.cloud_unique_id = "test_cloud";
+        Config.meta_service_endpoint = MockedMetaServerFactory.METASERVER_DEFAULT_IP + ":" + 20121;
+
+        EnvFactory envFactory = EnvFactory.getInstance();
+        masterEnv = envFactory.createEnv(false);
+        SystemInfoService cloudSystemInfo = masterEnv.getClusterInfo();
+        fakeEnv = new FakeEnv();
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+
+        ctx = new ConnectContext();
+        ctx.setEnv(masterEnv);
+        UserIdentity rootUser = new UserIdentity("root", "%");
+        rootUser.setIsAnalyzed();
+        ctx.setCurrentUserIdentity(rootUser);
+        ctx.setThreadLocalInfo();
+        ctx.setCloudCluster("test_group");
+        Assertions.assertTrue(envFactory instanceof CloudEnvFactory);
+        Assertions.assertTrue(masterEnv instanceof CloudEnv);
+
+        // Replace MockUp<Env> with direct field injection on masterEnv
+        setField(masterEnv, Env.class, "selfNode",
+                new SystemInfoService.HostInfo("127.0.0.1", 9030));
+        testEditLog = Mockito.mock(EditLog.class);
+        setField(masterEnv, Env.class, "editLog", testEditLog);
+        setField(masterEnv, Env.class, "computeGroupMgr", new ComputeGroupMgr(Env.getCurrentSystemInfo()));
+        AccessControllerManager acm = new AccessControllerManager(masterEnv.getAuth()) {
+            @Override
+            public boolean checkTblPriv(ConnectContext ctx, String ctl, String db, String tbl,
+                    PrivPredicate wanted) {
+                return true;
+            }
+
+            @Override
+            public boolean checkCloudPriv(UserIdentity user, String cluster, PrivPredicate wanted,
+                    ResourceTypeEnum resourceType) {
+                return true;
+            }
+        };
+        setField(masterEnv, Env.class, "accessManager", acm);
+
+        // Replace MockUp<Auth> with spy
+        Auth authSpy = Mockito.spy(masterEnv.getAuth());
+        Mockito.doReturn("test_group").when(authSpy).getDefaultCloudCluster(Mockito.anyString());
+        Mockito.doAnswer(invocation -> {
+            try {
+                return masterEnv.getComputeGroupMgr().getComputeGroupByName("test_group");
+            } catch (Exception e) {
+                return masterEnv.getComputeGroupMgr().getAllBackendComputeGroup();
+            }
+        }).when(authSpy).getComputeGroup(Mockito.anyString());
+        setField(masterEnv, Env.class, "auth", authSpy);
+
+        // MockUp<CloudEnv> removed: checkCloudClusterPriv not called in test paths
+        // MockUp<ConnectContext> removed: ctx already has correct values via setters
+
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        // Replace MockUp<CloudSystemInfoService> with spy
+        CloudSystemInfoService sysInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        CloudSystemInfoService sysInfoSpy = Mockito.spy(sysInfo);
+        Mockito.doAnswer(invocation -> {
+            Backend backend = new Backend(10001L, "host1", 123);
+            backend.setAlive(true);
+            backend.setBePort(456);
+            backend.setHttpPort(789);
+            backend.setBrpcPort(321);
+            Map<String, String> tagMap = Maps.newHashMap();
+            tagMap.put("location", "default");
+            tagMap.put("cloud_cluster_id", "test_id");
+            tagMap.put("cloud_unique_id", "test_cloud");
+            tagMap.put("cloud_cluster_name", "test_group");
+            tagMap.put("cloud_cluster_status", "NORMAL");
+            tagMap.put("cloud_cluster_private_endpoint", "");
+            tagMap.put("cloud_cluster_public_endpoint", "");
+            backend.setTagMap(tagMap);
+            CloudSystemInfoService self = (CloudSystemInfoService) invocation.getMock();
+            self.addBackend(backend);
+            List<Backend> toAdd = new ArrayList<>();
+            toAdd.add(backend);
+            self.updateCloudClusterMap(toAdd, new ArrayList<>());
+            return null;
+        }).when(sysInfoSpy).addCloudCluster(Mockito.anyString(), Mockito.anyString());
+        setField(masterEnv, Env.class, "systemInfo", sysInfoSpy);
+        FakeEnv.setSystemInfo(sysInfoSpy);
+
+        sysInfoSpy.addCloudCluster("test_group", "");
+        List<Backend> backends =
+                ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getBackendsByClusterName("test_group");
+        Assertions.assertEquals(1, backends.size());
+        Assertions.assertEquals("host1", backends.get(0).getHost());
+        backends.get(0).setAlive(true);
+        ctx.setComputeGroup(masterEnv.getComputeGroupMgr().getAllBackendComputeGroup());
+
+        db = new Database(CatalogTestUtil.testDbId1, CatalogTestUtil.testDb1);
+        masterEnv.unprotectCreateDb(db);
+
+        AgentTaskQueue.clearAllTasks();
+        schemaChangeHandler = masterEnv.getSchemaChangeHandler();
+    }
+
+    @Test
+    public void testCreateNgramBfIndex() throws Exception {
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
+
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        String indexName = "ngram_bf_index";
+
+        // Add required properties for NGRAM_BF index
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("gram_size", "2");
+        properties.put("bf_size", "256");
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                "NGRAM_BF",
+                properties, "ngram bf index");
+        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
+        ctx.getSessionVariable().setEnableAddIndexForNewData(true);
+        schemaChangeHandler.process(alterOps, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, indexChangeJobMap.size());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+
+        long createJobId = indexChangeJobMap.values().stream().findAny().get().jobId;
+
+        // Finish the create index job first
+        SchemaChangeJobV2 createJobV2 = (SchemaChangeJobV2) indexChangeJobMap.get(createJobId);
+        Assertions.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
+    }
+
+    @Test
+    public void testAlterBfIndexWithLightweightMode() throws Exception {
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
+
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        String indexName = "bf_index";
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                "BLOOMFILTER", Maps.newHashMap(), "bf index");
+        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+
+        ctx.getSessionVariable().setEnableAddIndexForNewData(true);
+        List<AlterOp> addIndexOps = new ArrayList<>();
+        addIndexOps.add(createIndexOp);
+        schemaChangeHandler.process(addIndexOps, db, table);
+
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(1, schemaChangeHandler.getAlterJobsV2().size());
+        Assertions.assertEquals(0, schemaChangeHandler.getIndexChangeJobs().size());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals(IndexType.BLOOMFILTER, table.getIndexes().get(0).getIndexType());
+        Assertions.assertEquals(AlterJobV2.JobState.FINISHED,
+                schemaChangeHandler.getAlterJobsV2().values().iterator().next().getJobState());
+
+        DropIndexOp dropIndexOp = new DropIndexOp(indexName, false, tableName, false);
+        List<AlterOp> dropIndexOps = new ArrayList<>();
+        dropIndexOps.add(dropIndexOp);
+        schemaChangeHandler.process(dropIndexOps, db, table);
+
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(2, schemaChangeHandler.getAlterJobsV2().size());
+        Assertions.assertEquals(1, schemaChangeHandler.getIndexChangeJobs().size());
+        Assertions.assertTrue(table.getIndexes().isEmpty());
+    }
+
+    @Test
+    public void testBuildBfIndexRejectedInCloud() throws Exception {
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        String indexName = "bf_index";
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                "BLOOMFILTER", Maps.newHashMap(), "bf index");
+        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        CreateIndexOp createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        createIndexOp.validate(ctx);
+
+        ctx.getSessionVariable().setEnableAddIndexForNewData(true);
+        schemaChangeHandler.process(Lists.newArrayList(createIndexOp), db, table);
+
+        BuildIndexOp buildIndexOp = new BuildIndexOp(tableName, null, null, false);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> buildIndexOp.validate(ctx));
+        Assertions.assertTrue(exception.getMessage().contains("BLOOMFILTER index is not needed to build"));
+    }
+
+    @Test
+    public void testNormalCreateNgramBfIndex() throws Exception {
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
+
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        String indexName = "ngram_bf_index";
+
+        // Add required properties for NGRAM_BF index
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("gram_size", "2");
+        properties.put("bf_size", "256");
+
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                "NGRAM_BF",
+                properties, "ngram bf index");
+        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
+        // Set session variable to false (default)
+        ctx.getSessionVariable().setEnableAddIndexForNewData(false);
+        schemaChangeHandler.process(alterOps, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, indexChangeJobMap.size());
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+
+        long createJobId = indexChangeJobMap.values().stream().findAny().get().jobId;
+
+        // Finish the create index job first
+        SchemaChangeJobV2 createJobV2 = (SchemaChangeJobV2) indexChangeJobMap.get(createJobId);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.WAITING_TXN, createJobV2.getJobState());
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.RUNNING, createJobV2.getJobState());
+        Assertions.assertEquals(1, createJobV2.schemaChangeBatchTask.getTaskNum());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assertions.assertEquals(1, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
+    }
+
+    @Test
+    public void testCreateInvertedIndex() throws Exception {
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
+
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        String indexName = "raw_inverted_index";
+        // Explicitly set parser="none" for raw inverted index
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("parser", "none");
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                "INVERTED",
+                properties, "raw inverted index");
+        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
+        ctx.getSessionVariable().setEnableAddIndexForNewData(false);
+        schemaChangeHandler.process(alterOps, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, indexChangeJobMap.size());
+
+        long createJobId = indexChangeJobMap.values().stream().findAny().get().jobId;
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+
+        // Finish the create index job first
+        SchemaChangeJobV2 createJobV2 = (SchemaChangeJobV2) indexChangeJobMap.get(createJobId);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.WAITING_TXN, createJobV2.getJobState());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.RUNNING, createJobV2.getJobState());
+        Assertions.assertEquals(1, createJobV2.schemaChangeBatchTask.getTaskNum());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assertions.assertEquals(1, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.FINISHED, createJobV2.getJobState());
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals("raw_inverted_index", table.getIndexes().get(0).getIndexName());
+    }
+
+    @Test
+    public void testCreateInvertedIndexWithLightweightMode() throws Exception {
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
+
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        String indexName = "lightweight_raw_inverted_index";
+        // Explicitly set parser="none" for raw inverted index
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("parser", "none");
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                "INVERTED",
+                properties, "lightweight raw inverted index");
+        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexOp = new CreateIndexOp(tableName, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
+        // Test with enable_add_index_for_new_data = true, should use lightweight mode
+        ctx.getSessionVariable().setEnableAddIndexForNewData(true);
+        schemaChangeHandler.process(alterOps, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        // Lightweight mode should not create any schema change jobs
+        Assertions.assertEquals(1, indexChangeJobMap.size());
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals("lightweight_raw_inverted_index", table.getIndexes().get(0).getIndexName());
+        Assertions.assertEquals(OlapTableState.NORMAL, table.getState());
+        // Verify the index properties
+        Assertions.assertEquals("none", table.getIndexes().get(0).getProperties().get("parser"));
+    }
+
+    @Test
+    public void testCreateTokenizedInvertedIndex() throws Exception {
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
+
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+
+        // Set inverted index file storage format to V2 for cloud mode
+        table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+
+        String indexName = "tokenized_inverted_index";
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("parser", "english");
+        properties.put("support_phrase", "true");
+        properties.put("lower_case", "true");
+
+        // Use VARCHAR column v1 (index 2) for string type support
+        IndexDefinition indexDefinition = new IndexDefinition(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                "INVERTED",
+                properties, "tokenized inverted index with english parser");
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexOp = new CreateIndexOp(tableNameInfo, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
+        schemaChangeHandler.process(alterOps, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, indexChangeJobMap.size());
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+
+        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .findFirst()
+                .orElse(null);
+        Assertions.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        // This should be a heavyweight schema change for tokenized index
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assertions.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+        Assertions.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assertions.assertEquals(1, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
+
+        Assertions.assertEquals(1, table.getIndexes().size());
+        Assertions.assertEquals("tokenized_inverted_index", table.getIndexes().get(0).getIndexName());
+
+        // Verify that the index has the correct properties
+        Assertions.assertEquals("english", table.getIndexes().get(0).getProperties().get("parser"));
+        Assertions.assertEquals("true", table.getIndexes().get(0).getProperties().get("support_phrase"));
+        Assertions.assertEquals("true", table.getIndexes().get(0).getProperties().get("lower_case"));
+    }
+
+    @Test
+    public void testSchemaChangeWaitsWhenConflictTxnAbortFails() throws Exception {
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
+
+        Assertions.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assertions.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("parser", "english");
+        properties.put("support_phrase", "true");
+        properties.put("lower_case", "true");
+        IndexDefinition indexDefinition = new IndexDefinition("conflict_txn_abort_index", false,
+                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                "INVERTED",
+                properties, "tokenized inverted index with conflict txn abort");
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexOp = new CreateIndexOp(tableNameInfo, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
+        schemaChangeHandler.process(alterOps, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, indexChangeJobMap.size());
+
+        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .findFirst()
+                .orElse(null);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.TxnCoordinatorPB coordinator = Cloud.TxnCoordinatorPB.newBuilder()
+                    .setSourceType(Cloud.TxnSourceTypePB.TXN_SOURCE_TYPE_FE)
+                    .setIp("offline-fe")
+                    .setId(1L)
+                    .setStartTime(1L)
+                    .build();
+            Cloud.TxnInfoPB txnInfo = Cloud.TxnInfoPB.newBuilder()
+                    .setDbId(CatalogTestUtil.testDbId1)
+                    .addAllTableIds(Lists.newArrayList(CatalogTestUtil.testTableId2))
+                    .setTxnId(1002L)
+                    .setLabel("conflict_txn")
+                    .setListenerId(0L)
+                    .setStatus(Cloud.TxnStatusPB.TXN_STATUS_PREPARED)
+                    .setCoordinator(coordinator)
+                    .build();
+            return Cloud.CheckTxnConflictResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .addConflictTxns(txnInfo)
+                    .build();
+        }).when(mockProxy).checkTxnConflict(Mockito.any());
+        Mockito.doAnswer(invocation -> Cloud.GetTxnResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(MetaServiceCode.TXN_ID_NOT_FOUND).setMsg("txn not found"))
+                .build()).when(mockProxy).getTxn(Mockito.any());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+    }
+
+    @Test
+    public void testCreateShadowIndexReplicaForPartitionCopiesBfIndexesOnlyForBaseShadowReplica() throws Exception {
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        org.apache.doris.catalog.Partition partition = table.getPartition(CatalogTestUtil.testPartitionId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+
+        long rollupIndexId = 41001L;
+        long rollupTabletId = 41002L;
+        long rollupReplicaId = 41003L;
+        String rollupName = "r1";
+        List<Column> rollupSchema = Lists.newArrayList(new Column(table.getBaseSchema().get(0)),
+                new Column(table.getBaseSchema().get(2)));
+        partition.createRollupIndex(createCloudIndex(rollupIndexId, rollupTabletId, rollupReplicaId,
+                CatalogTestUtil.testBackendId1, db.getId(), table.getId(), partition.getId(), IndexState.NORMAL));
+        table.setIndexMeta(rollupIndexId, rollupName, rollupSchema, 1, 42001, (short) 2,
+                TStorageType.COLUMN, KeysType.DUP_KEYS);
+
+        List<Index> bfIndexes = Lists.newArrayList(
+                new Index(1L, "bf_v1", Lists.newArrayList("v1"), IndexType.BLOOMFILTER, null, ""));
+        table.setIndexes(bfIndexes);
+
+        long shadowBaseIndexId = 51001L;
+        long shadowBaseTabletId = 51002L;
+        long shadowBaseReplicaId = 51003L;
+        long shadowRollupIndexId = 51011L;
+        long shadowRollupTabletId = 51012L;
+        long shadowRollupReplicaId = 51013L;
+
+        CloudSchemaChangeJobV2 schemaChangeJob = new CloudSchemaChangeJobV2("", 1001L, db.getId(),
+                table.getId(), table.getName(), 60000L);
+        schemaChangeJob.setAlterIndexInfo(true, bfIndexes);
+        schemaChangeJob.setBloomFilterInfo(false, null, 0.02);
+        schemaChangeJob.addPartitionShadowIndex(partition.getId(), shadowBaseIndexId,
+                createCloudIndex(shadowBaseIndexId, shadowBaseTabletId, shadowBaseReplicaId,
+                        CatalogTestUtil.testBackendId1, db.getId(), table.getId(), partition.getId(),
+                        IndexState.SHADOW));
+        schemaChangeJob.addIndexSchema(shadowBaseIndexId, table.getBaseIndexId(),
+                Column.SHADOW_NAME_PREFIX + table.getIndexNameById(table.getBaseIndexId()), 2, 52001, (short) 3,
+                createShadowSchema(table.getBaseSchema()));
+
+        schemaChangeJob.addPartitionShadowIndex(partition.getId(), shadowRollupIndexId,
+                createCloudIndex(shadowRollupIndexId, shadowRollupTabletId, shadowRollupReplicaId,
+                        CatalogTestUtil.testBackendId1, db.getId(), table.getId(), partition.getId(),
+                        IndexState.SHADOW));
+        schemaChangeJob.addIndexSchema(shadowRollupIndexId, rollupIndexId,
+                Column.SHADOW_NAME_PREFIX + rollupName, 2, 52002, (short) 2, createShadowSchema(rollupSchema));
+
+        List<Cloud.CreateTabletsRequest> capturedRequests = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            Cloud.CreateTabletsRequest request = invocation.getArgument(0);
+            capturedRequests.add(request);
+            return Cloud.CreateTabletsResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .build();
+        }).when(mockProxy).createTablets(Mockito.any());
+
+        Method method = CloudSchemaChangeJobV2.class.getDeclaredMethod("createShadowIndexReplicaForPartition",
+                OlapTable.class);
+        method.setAccessible(true);
+        method.invoke(schemaChangeJob, table);
+
+        // Only the base shadow index copies BfIndex metadata. The rollup shadow index keeps
+        // the original schema-change behavior and does not receive BfIndex metadata or folded
+        // BfColumns flags from indexes. bfColumns is null so table-level bfFpp is not set;
+        // BfIndexes carry their own per-index FPP.
+        Assertions.assertEquals(2, capturedRequests.size());
+        Cloud.CreateTabletsRequest baseRequest = capturedRequests.stream()
+                .filter(request -> request.getTabletMetas(0).getIndexId() == shadowBaseIndexId)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("base shadow request not found"));
+        Cloud.CreateTabletsRequest rollupRequest = capturedRequests.stream()
+                .filter(request -> request.getTabletMetas(0).getIndexId() == shadowRollupIndexId)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("rollup shadow request not found"));
+
+        Assertions.assertEquals(1, baseRequest.getTabletMetas(0).getSchema().getIndexCount());
+        Assertions.assertEquals(0, rollupRequest.getTabletMetas(0).getSchema().getIndexCount());
+        Assertions.assertFalse(baseRequest.getTabletMetas(0).getSchema().hasBfFpp());
+        Assertions.assertFalse(rollupRequest.getTabletMetas(0).getSchema().hasBfFpp());
+        Assertions.assertEquals("k1", baseRequest.getTabletMetas(0).getSchema().getColumn(0).getName());
+        Assertions.assertEquals("k2", baseRequest.getTabletMetas(0).getSchema().getColumn(1).getName());
+        Assertions.assertEquals("v1", baseRequest.getTabletMetas(0).getSchema().getColumn(2).getName());
+        Assertions.assertFalse(baseRequest.getTabletMetas(0).getSchema().getColumn(0).getIsBfColumn());
+        Assertions.assertFalse(baseRequest.getTabletMetas(0).getSchema().getColumn(1).getIsBfColumn());
+        Assertions.assertTrue(baseRequest.getTabletMetas(0).getSchema().getColumn(2).getIsBfColumn());
+        Assertions.assertEquals("k1", rollupRequest.getTabletMetas(0).getSchema().getColumn(0).getName());
+        Assertions.assertEquals("v1", rollupRequest.getTabletMetas(0).getSchema().getColumn(1).getName());
+        Assertions.assertFalse(rollupRequest.getTabletMetas(0).getSchema().getColumn(0).getIsBfColumn());
+        Assertions.assertFalse(rollupRequest.getTabletMetas(0).getSchema().getColumn(1).getIsBfColumn());
+    }
+
+    private MaterializedIndex createCloudIndex(long indexId, long tabletId, long replicaId, long backendId,
+            long dbId, long tableId, long partitionId, IndexState indexState) {
+        MaterializedIndex index = new MaterializedIndex(indexId, indexState);
+        LocalTablet tablet = new LocalTablet(tabletId);
+        tablet.addReplica(new CloudReplica(replicaId, backendId, org.apache.doris.catalog.Replica.ReplicaState.NORMAL,
+                CatalogTestUtil.testStartVersion, 0, dbId, tableId, partitionId, indexId, 0), true);
+        index.addTablet(tablet, null, true);
+        return index;
+    }
+
+    private List<Column> createShadowSchema(List<Column> originSchema) {
+        List<Column> shadowSchema = new ArrayList<>(originSchema.size());
+        for (Column column : originSchema) {
+            Column shadowColumn = new Column(column);
+            shadowColumn.setName(Column.SHADOW_NAME_PREFIX + column.getName());
+            shadowSchema.add(shadowColumn);
+        }
+        return shadowSchema;
+    }
+}

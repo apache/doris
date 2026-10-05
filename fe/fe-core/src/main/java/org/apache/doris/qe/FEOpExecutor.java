@@ -1,0 +1,406 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.qe;
+
+import org.apache.doris.analysis.ExprToThriftVisitor;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.mysql.MysqlResultSetEndPacket;
+import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
+import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TMasterOpRequest;
+import org.apache.doris.thrift.TMasterOpResult;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
+import org.apache.thrift.transport.TTransportException;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * FEOpExecutor is used to send request to specific FE
+ */
+public class FEOpExecutor {
+    private static final Logger LOG = LogManager.getLogger(FEOpExecutor.class);
+
+    protected static final float RPC_TIMEOUT_COEFFICIENT = 1.2f;
+
+    protected final OriginStatement originStmt;
+    protected final ConnectContext ctx;
+    protected TMasterOpResult result;
+    protected TNetworkAddress feAddr;
+
+    // the total time of thrift connectTime, readTime and writeTime
+    protected int thriftTimeoutMs;
+
+    protected boolean shouldNotRetry;
+    protected boolean moreStmtExists = false;
+
+    public FEOpExecutor(TNetworkAddress feAddress, OriginStatement originStmt, ConnectContext ctx, boolean isQuery) {
+        this.feAddr = feAddress;
+        this.originStmt = originStmt;
+        this.ctx = ctx;
+        this.thriftTimeoutMs = (int) (ctx.getExecTimeoutS() * 1000 * RPC_TIMEOUT_COEFFICIENT);
+        // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
+        this.shouldNotRetry = !isQuery;
+    }
+
+    public void execute() throws Exception {
+        result = forward(buildStmtForwardParams());
+        if (ctx.isTxnModel()) {
+            if (result.isSetTxnLoadInfo()) {
+                ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
+            } else {
+                ctx.setTxnEntry(null);
+                LOG.info("set txn entry to null");
+            }
+        }
+        if (result.isSetAffectedRows()) {
+            ctx.updateReturnRows((int) result.getAffectedRows());
+        }
+    }
+
+    public void cancel() throws Exception {
+        TUniqueId queryId = ctx.queryId();
+        if (queryId == null) {
+            return;
+        }
+        Preconditions.checkNotNull(feAddr, "query with id %s is not forwarded to fe", queryId);
+        TMasterOpRequest request = new TMasterOpRequest();
+        request.setCancelQeury(true);
+        request.setQueryId(queryId);
+        request.setDb(ctx.getDatabase());
+        request.setUser(ctx.getQualifiedUser());
+        request.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        request.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        // just make the protocol happy
+        request.setSql("");
+        result = forward(request);
+    }
+
+    // Send request to specific fe
+    protected TMasterOpResult forward(TMasterOpRequest params) throws Exception {
+        ctx.getEnv().checkReadyOrThrow();
+
+        FrontendService.Client client;
+        try {
+            client = ClientPool.frontendPool.borrowObject(feAddr, thriftTimeoutMs);
+        } catch (Exception e) {
+            // may throw NullPointerException. add err msg
+            throw new Exception("Failed to get master client.", e);
+        }
+        final StringBuilder forwardMsg = new StringBuilder("forward to master FE " + feAddr.toString());
+        if (!params.isSyncJournalOnly()) {
+            forwardMsg.append(", statement id: ").append(ctx.getStmtId());
+        }
+        LOG.info(forwardMsg.toString());
+
+        boolean isReturnToPool = false;
+        try {
+            final TMasterOpResult result = client.forward(params);
+            isReturnToPool = true;
+            return result;
+        } catch (TTransportException e) {
+            // wrap the raw exception.
+            forwardMsg.append(" : failed");
+            Exception exception = new ForwardToMasterException(forwardMsg.toString(), e);
+
+            boolean ok = ClientPool.frontendPool.reopenOrClear(feAddr, client, thriftTimeoutMs);
+            if (!ok) {
+                throw exception;
+            }
+            if (shouldNotRetry || e.getType() == TTransportException.TIMED_OUT) {
+                throw exception;
+            } else {
+                LOG.warn(forwardMsg.append(" twice").toString(), e);
+                try {
+                    TMasterOpResult result = client.forward(params);
+                    isReturnToPool = true;
+                    return result;
+                } catch (TException ex) {
+                    throw exception;
+                }
+            }
+        } finally {
+            if (isReturnToPool) {
+                ClientPool.frontendPool.returnObject(feAddr, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(feAddr, client);
+            }
+        }
+    }
+
+    protected TMasterOpRequest buildStmtForwardParams() throws AnalysisException {
+        TMasterOpRequest params = new TMasterOpRequest();
+        // node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setConnectingFeLocalResourceGroup(Config.local_resource_group);
+        params.setSql(originStmt.originStmt);
+        params.setStmtIdx(originStmt.idx);
+        params.setUser(ctx.getQualifiedUser());
+        params.setDefaultCatalog(ctx.getDefaultCatalog());
+        params.setDefaultDatabase(ctx.getDatabase());
+        params.setDb(ctx.getDatabase());
+        params.setUserIp(ctx.getRemoteIP());
+        params.setStmtId(ctx.getStmtId());
+        params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        params.setSessionId(ctx.getSessionId());
+        params.setMoreResultExists(moreStmtExists);
+
+        if (Config.isCloudMode()) {
+            String cluster = "";
+            try {
+                cluster = ctx.getCloudCluster(false);
+            } catch (Exception e) {
+                LOG.warn("failed to get cloud compute group", e);
+            }
+            if (!Strings.isNullOrEmpty(cluster)) {
+                params.setCloudCluster(cluster);
+            }
+        }
+
+        // session variables
+        params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
+        params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));
+        if (null != ctx.queryId()) {
+            params.setQueryId(ctx.queryId());
+        }
+        // connect attributes (e.g. scheduleInfo for lineage)
+        Map<String, String> connectAttributes = ctx.getConnectAttributes();
+        if (connectAttributes != null && !connectAttributes.isEmpty()) {
+            params.setConnectAttributes(connectAttributes);
+        }
+
+        // set transaction load info
+        if (ctx.isTxnModel()) {
+            params.setTxnLoadInfo(ctx.getTxnEntry().getTxnLoadInfoInObserver());
+        }
+
+        ctx.getSessionContext().getDelegatedCredential().ifPresent((DelegatedCredential credential) -> {
+            params.setDelegatedCredentialSessionId(ctx.getSessionContext().getSessionId());
+            params.setDelegatedCredentialType(credential.getType().name());
+            params.setDelegatedCredentialToken(credential.getToken());
+            credential.getExpiresAtMillis().ifPresent(params::setDelegatedCredentialExpiresAtMillis);
+        });
+
+        // What the master needs to know about the client to produce the response it expects: the
+        // negotiated capabilities and the COM_STMT_EXECUTE packet for a MySQL connection, nothing
+        // for a protocol that consumes the master's status and rows rather than its packets.
+        ctx.getProtocolAdapter().fillForwardRequest(ctx, params);
+
+        return params;
+    }
+
+    public int getStatusCode() {
+        if (result == null || !result.isSetStatusCode()) {
+            return ErrorCode.ERR_UNKNOWN_ERROR.getCode();
+        }
+        return result.getStatusCode();
+    }
+
+    public String getErrMsg() {
+        if (result == null) {
+            return ErrorCode.ERR_UNKNOWN_ERROR.getErrorMsg();
+        }
+        if (!result.isSetErrMessage()) {
+            return "";
+        }
+        return result.getErrMessage();
+    }
+
+    public void setMoreStmtExists(boolean moreStmtExists) {
+        this.moreStmtExists = moreStmtExists;
+    }
+
+    public ByteBuffer getOutputPacket() {
+        if (result == null) {
+            return null;
+        }
+        return result.packet;
+    }
+
+    public boolean isClientDeprecatedEofApplied() {
+        return result != null && result.isSetClientDeprecatedEofApplied()
+                && result.isClientDeprecatedEofApplied();
+    }
+
+    public boolean hasQueryResultPackets() {
+        return result != null && result.isSetQueryResultBufList()
+                && !result.getQueryResultBufList().isEmpty();
+    }
+
+    // An old master cannot add the Connector/J cursor terminator. Normalize its buffered
+    // result at the follower, which still has the original execute flag and client capability.
+    // DML/DDL OK and ERR packets are retained verbatim, including warnings and load info.
+    public void prepareQueryResultForClient() {
+        MysqlProtocolAdapter mysqlAdapter = MysqlProtocolAdapter.of(ctx);
+        if (!mysqlAdapter.getChannel().clientDeprecatedEOF() || isClientDeprecatedEofApplied()
+                || !hasQueryResultPackets()) {
+            return;
+        }
+        List<ByteBuffer> packets = new ArrayList<>(result.getQueryResultBufList());
+        int metadataEnd = Math.toIntExact(MysqlProto.readVInt(packets.get(0).duplicate())) + 1;
+        boolean needsCursorTerminator = mysqlAdapter.clientConsumesCursorMetadataTerminator(ctx);
+        // An execution error may occur after only part of the metadata has been buffered.
+        if (metadataEnd > packets.size()) {
+            Preconditions.checkState(isErrorPacket(result.packet));
+            return;
+        }
+        boolean hasMetadataTerminator = metadataEnd < packets.size()
+                && isEofPacket(packets.get(metadataEnd));
+        if (hasMetadataTerminator) {
+            ByteBuffer metadata = packets.remove(metadataEnd);
+            if (needsCursorTerminator) {
+                packets.add(metadataEnd, resultSetTerminator(metadata));
+            }
+        } else if (needsCursorTerminator) {
+            MysqlSerializer serializer = MysqlSerializer.newInstance(ctx.getCapability());
+            new MysqlResultSetEndPacket(new QueryState()).writeTo(serializer);
+            packets.add(metadataEnd, serializer.toByteBuffer());
+        }
+        result.setQueryResultBufList(packets);
+        if (isEofPacket(result.packet)) {
+            result.setPacket(resultSetTerminator(result.packet));
+        }
+        result.setClientDeprecatedEofApplied(true);
+    }
+
+    private static boolean isErrorPacket(ByteBuffer packet) {
+        return Byte.toUnsignedInt(packet.get(packet.position())) == 0xFF;
+    }
+
+    private static boolean isEofPacket(ByteBuffer packet) {
+        return packet.remaining() <= 8 && Byte.toUnsignedInt(packet.get(packet.position())) == 0xFE;
+    }
+
+    private static ByteBuffer resultSetTerminator(ByteBuffer packet) {
+        if (packet.remaining() != 5) {
+            return packet;
+        }
+        ByteBuffer eof = packet.duplicate();
+        MysqlProto.readInt1(eof);
+        int warnings = MysqlProto.readInt2(eof);
+        QueryState state = new QueryState();
+        state.setOk(0, warnings, null);
+        state.serverStatus = MysqlProto.readInt2(eof);
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        new MysqlResultSetEndPacket(state).writeTo(serializer);
+        return serializer.toByteBuffer();
+    }
+
+    public TUniqueId getQueryId() {
+        if (result != null && result.isSetQueryId()) {
+            return result.getQueryId();
+        } else {
+            return null;
+        }
+    }
+
+    public Set<Long> getAuditStatisticsBackendIds() {
+        if (result == null || !result.isSetAuditStatisticsBackendIds()) {
+            return Collections.emptySet();
+        }
+        return ImmutableSet.copyOf(result.getAuditStatisticsBackendIds());
+    }
+
+    public String getProxyStatus() {
+        if (result == null) {
+            return QueryState.MysqlStateType.UNKNOWN.name();
+        }
+        if (!result.isSetStatus()) {
+            return QueryState.MysqlStateType.UNKNOWN.name();
+        } else {
+            return result.getStatus();
+        }
+    }
+
+    public ShowResultSet getProxyResultSet() {
+        if (result == null) {
+            return null;
+        }
+        if (result.isSetResultSet()) {
+            return new ShowResultSet(result.resultSet);
+        } else {
+            return null;
+        }
+    }
+
+    public List<ByteBuffer> getQueryResultBufList() {
+        return result.isSetQueryResultBufList() ? result.getQueryResultBufList() : Collections.emptyList();
+    }
+
+    private Map<String, TExprNode> getForwardUserVariables(Map<String, LiteralExpr> userVariables) {
+        Map<String, TExprNode> forwardVariables = Maps.newHashMap();
+        for (Map.Entry<String, LiteralExpr> entry : userVariables.entrySet()) {
+            LiteralExpr literalExpr = entry.getValue();
+            TExpr tExpr = ExprToThriftVisitor.treeToThrift(literalExpr);
+            TExprNode tExprNode = tExpr.nodes.get(0);
+            forwardVariables.put(entry.getKey(), tExprNode);
+        }
+        return forwardVariables;
+    }
+
+    protected static class ForwardToMasterException extends RuntimeException {
+        private static final Map<Integer, String> TYPE_MSG_MAP =
+                ImmutableMap.<Integer, String>builder()
+                        .put(TTransportException.UNKNOWN, "Unknown exception")
+                        .put(TTransportException.NOT_OPEN, "Connection is not open")
+                        .put(TTransportException.ALREADY_OPEN, "Connection has already opened up")
+                        .put(TTransportException.TIMED_OUT,
+                                "Connection timeout, please check network state or enlarge session variable:"
+                                        + "`query_timeout`/`insert_timeout`")
+                        .put(TTransportException.END_OF_FILE, "EOF")
+                        .put(TTransportException.CORRUPTED_DATA, "Corrupted data")
+                        .put(TTransportException.MESSAGE_SIZE_LIMIT, "Message size exceeds limit")
+                        .build();
+
+        private final String msg;
+
+        public ForwardToMasterException(String msg, TTransportException exception) {
+            this.msg = msg + ", cause: " + TYPE_MSG_MAP.get(exception.getType()) + ", " + exception.getMessage();
+        }
+
+        @Override
+        public String getMessage() {
+            return msg;
+        }
+    }
+}

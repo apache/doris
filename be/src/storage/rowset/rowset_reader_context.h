@@ -1,0 +1,124 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
+#define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
+
+#include <optional>
+#include <set>
+#include <vector>
+
+#include "exprs/score_runtime.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "io/io_common.h"
+#include "runtime/runtime_state.h"
+#include "storage/index/ann/ann_topn_runtime.h"
+#include "storage/olap_common.h"
+#include "storage/predicate/column_predicate.h"
+#include "storage/row_cursor.h"
+#include "storage/rowid_conversion.h"
+#include "storage/schema.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
+
+namespace doris {
+
+class DeleteBitmap;
+class DeleteHandler;
+class TabletSchema;
+
+struct RowsetReaderContext {
+    ReaderType reader_type = ReaderType::READER_QUERY;
+    bool read_row_binlog = false;
+    Version version {-1, -1};
+    // Set only by compaction, alongside its extended tablet_schema.
+    VariantCompactionPathsSPtr variant_compaction_paths;
+    std::vector<int> topn_filter_source_node_ids;
+    // whether rowset should return ordered rows.
+    bool need_ordered_result = true;
+    // used for special optimization for query : ORDER BY key DESC LIMIT n
+    bool read_orderby_key_reverse = false;
+    // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+    // For example, use lower rowset version / segment id first.
+    bool use_insert_order_when_same = false;
+    // ordinals (positions in read_schema) of the orderby key columns
+    std::vector<uint32_t>* read_orderby_key_columns = nullptr;
+    // limit of rows for read_orderby_key
+    size_t read_orderby_key_limit = 0;
+    ReadSchemaSPtr read_schema = nullptr;
+    TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
+    // column name -> column predicate
+    // adding column_name for predicate to make use of column selectivity
+    const std::vector<std::shared_ptr<ColumnPredicate>>* predicates = nullptr;
+    // value column predicate in UNIQUE table
+    const std::vector<std::shared_ptr<ColumnPredicate>>* value_predicates = nullptr;
+    const std::vector<std::optional<RowCursor>>* lower_bound_keys = nullptr;
+    const std::vector<bool>* is_lower_keys_included = nullptr;
+    const std::vector<std::optional<RowCursor>>* upper_bound_keys = nullptr;
+    const std::vector<bool>* is_upper_keys_included = nullptr;
+    const DeleteHandler* delete_handler = nullptr;
+    OlapReaderStatistics* stats = nullptr;
+    RuntimeState* runtime_state = nullptr;
+    VExprContextSPtrs common_expr_ctxs_push_down;
+    bool use_page_cache = false;
+    // Whether equal-key merge should use the sequence column as its tie-break column.
+    bool use_sequence_column_for_merge_order = true;
+    int batch_size = 1024;
+    // Effective adaptive batch size byte budget. 0 means disabled internally.
+    size_t preferred_block_size_bytes = 8388608UL;
+
+    bool is_unique = false;
+    //record row num merged in generic iterator
+    uint64_t* merged_rows = nullptr;
+    // for unique key merge on write
+    bool enable_unique_key_merge_on_write = false;
+    DeleteBitmapPtr delete_bitmap = nullptr;
+    bool record_rowids = false;
+    RowIdConversion* rowid_conversion = nullptr;
+    bool is_key_column_group = false;
+    // column unique ids referenced by output/orderby exprs (NOT ordinals)
+    const std::set<int32_t>* output_columns = nullptr;
+    std::set<ColumnId> extra_columns;
+    RowsetId rowset_id;
+    // slots that cast may be eliminated in storage layer
+    std::map<std::string, DataTypePtr> target_cast_type_for_variants;
+    // Absolute timestamp (seconds since epoch) after which cache blocks filled by this
+    // read stop being TTL protected; 0 means no TTL.
+    // See TabletMeta::file_cache_ttl_expiration_time().
+    int64_t file_cache_expiration_time = 0;
+
+    std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
+
+    std::map<int32_t, TColumnAccessPaths> all_access_paths;
+    std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
+
+    std::shared_ptr<ScoreRuntime> score_runtime;
+    CollectionStatisticsPtr collection_statistics;
+    std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
+
+    uint64_t condition_cache_digest = 0;
+
+    // When true, push down value predicates for MOR tables
+    bool enable_mor_value_predicate_pushdown = false;
+
+    // General LIMIT budget forwarded to SegmentIterator.
+    int64_t general_read_limit = -1;
+};
+
+} // namespace doris
+
+#endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H

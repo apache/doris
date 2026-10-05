@@ -1,0 +1,573 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "exprs/function/function_ip.h"
+
+#include <initializer_list>
+
+#include "core/column/column_const.h"
+#include "core/data_type/data_type_ipv6.h"
+#include "core/data_type/data_type_number.h"
+#include "core/types.h"
+#include "exprs/function/function_test_util.h"
+#include "gtest/gtest_pred_impl.h"
+#include "storage/index/index_iterator.h"
+#include "storage/index/inverted/inverted_index_reader.h"
+
+namespace doris {
+
+static ColumnUInt8::MutablePtr make_null_map(std::initializer_list<UInt8> values) {
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data() = values;
+    return null_map;
+}
+
+TEST(FunctionIpTest, IPAddressVariantTypeTest) {
+    IPAddressVariant ipv4_zero("0.0.0.0");
+    EXPECT_TRUE(ipv4_zero.is_v4());
+    EXPECT_FALSE(ipv4_zero.is_v6());
+    EXPECT_EQ(ipv4_zero.as_v4(), 0);
+
+    IPAddressVariant ipv6_zero("::");
+    EXPECT_FALSE(ipv6_zero.is_v4());
+    EXPECT_TRUE(ipv6_zero.is_v6());
+}
+
+TEST(FunctionIpTest, StringToNumRejectsEmbeddedNullTail) {
+    std::string invalid_ipv4 = "192.168.0.1";
+    invalid_ipv4.push_back('\0');
+    invalid_ipv4.append("tail");
+
+    std::string invalid_ipv6 = "2001:db8::1";
+    invalid_ipv6.push_back('\0');
+    invalid_ipv6.append("tail");
+
+    const DataSet ipv4_error_data = {{{invalid_ipv4}, int64_t {0}}};
+    const DataSet ipv4_default_data = {{{invalid_ipv4}, int64_t {0}}};
+    const DataSet ipv4_null_data = {{{invalid_ipv4}, Null()}};
+    const DataSet ipv6_error_data = {{{invalid_ipv6}, std::string {}}};
+    const DataSet ipv6_default_data = {{{invalid_ipv6}, std::string(IPV6_BINARY_LENGTH, '\0')},
+                                       {{invalid_ipv4}, std::string(IPV6_BINARY_LENGTH, '\0')}};
+    const DataSet ipv6_null_data = {{{invalid_ipv6}, Null()}, {{invalid_ipv4}, Null()}};
+
+    for (const auto& input_types : {InputTypeSet {PrimitiveType::TYPE_VARCHAR},
+                                    InputTypeSet {Consted {PrimitiveType::TYPE_VARCHAR}}}) {
+        auto status = check_function<DataTypeInt64>("ipv4_string_to_num", input_types,
+                                                    ipv4_error_data, -1, -1, true);
+        EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+
+        status = check_function<DataTypeString>("ipv6_string_to_num", input_types, ipv6_error_data,
+                                                -1, -1, true);
+        EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+    }
+
+    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    check_function_all_arg_comb<DataTypeInt64>("ipv4_string_to_num_or_default", input_types,
+                                               ipv4_default_data);
+    check_function_all_arg_comb<DataTypeInt64, true>("ipv4_string_to_num_or_null", input_types,
+                                                     ipv4_null_data);
+    check_function_all_arg_comb<DataTypeInt64, true>("inet_aton", input_types, ipv4_null_data);
+    check_function_all_arg_comb<DataTypeString>("ipv6_string_to_num_or_default", input_types,
+                                                ipv6_default_data);
+    check_function_all_arg_comb<DataTypeString, true>("ipv6_string_to_num_or_null", input_types,
+                                                      ipv6_null_data);
+    check_function_all_arg_comb<DataTypeString, true>("inet6_aton", input_types, ipv6_null_data);
+}
+
+TEST(FunctionIpTest, IPv6FromUInt128StringRejectsEmptyAndOverflow) {
+    const std::string max_uint128 = "340282366920938463463374607431768211455";
+    IPv6 max_value = 0;
+    EXPECT_TRUE(IPv6Value::from_uint128_string(max_value, max_uint128.data(), max_uint128.size()));
+    EXPECT_EQ(max_value, static_cast<IPv6>(-1));
+
+    for (const auto& value :
+         {std::string("340282366920938463463374607431768211456"),
+          std::string("680564733841876926926749214863536422913"), std::string()}) {
+        IPv6 parsed = 0;
+        EXPECT_FALSE(IPv6Value::from_uint128_string(parsed, value.data(), value.size()));
+    }
+
+    IPv6 parsed = 0;
+    EXPECT_TRUE(IPv6Value::from_uint128_string(parsed, "1", 1));
+    EXPECT_EQ(parsed, static_cast<IPv6>(1));
+}
+
+TEST(FunctionIpTest, StringToIPv6AcceptsLongIPv4Spellings) {
+    std::string mapped_ipv4_zero(IPV6_BINARY_LENGTH, '\0');
+    mapped_ipv4_zero[10] = static_cast<char>(0xff);
+    mapped_ipv4_zero[11] = static_cast<char>(0xff);
+
+    for (const auto& [input, input_type] :
+         {std::pair {std::string("0000.0000.0000.0"), InputTypeSet {PrimitiveType::TYPE_VARCHAR}},
+          std::pair {std::string("0000.0000.0000.0000"),
+                     InputTypeSet {Consted {PrimitiveType::TYPE_VARCHAR}}}}) {
+        const DataSet data = {{{input}, mapped_ipv4_zero}};
+        static_cast<void>(check_function<DataTypeString>("ipv6_string_to_num", input_type, data));
+    }
+}
+
+TEST(FunctionIpTest, IPv4CompatAndMappedRequireIPv6BinaryLength) {
+    const std::string ipv4_address = {static_cast<char>(0xc0), static_cast<char>(0xa8), '\0',
+                                      static_cast<char>(0x01)};
+
+    const std::string compat_prefix(IPV6_BINARY_LENGTH - IPV4_BINARY_LENGTH, '\0');
+    const std::string compat_address = compat_prefix + ipv4_address;
+    const DataSet compat_data = {{{compat_prefix}, uint8_t {0}},
+                                 {{ipv4_address}, uint8_t {0}},
+                                 {{compat_address}, uint8_t {1}},
+                                 {{compat_address + '\0'}, uint8_t {0}}};
+
+    const std::string mapped_marker = {static_cast<char>(0xff), static_cast<char>(0xff)};
+    const std::string mapped_prefix(IPV6_BINARY_LENGTH - IPV4_BINARY_LENGTH - mapped_marker.size(),
+                                    '\0');
+    const std::string mapped_address = mapped_prefix + mapped_marker + ipv4_address;
+    const DataSet mapped_data = {{{mapped_prefix}, uint8_t {0}},
+                                 {{mapped_marker}, uint8_t {0}},
+                                 {{mapped_address}, uint8_t {1}},
+                                 {{mapped_address + '\0'}, uint8_t {0}}};
+
+    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    check_function_all_arg_comb<DataTypeUInt8, true>("is_ipv4_compat", input_types, compat_data);
+    check_function_all_arg_comb<DataTypeUInt8, true>("is_ipv4_mapped", input_types, mapped_data);
+}
+
+TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
+    std::string func_name = "is_ip_address_in_range";
+
+    DataSet data_set = {
+            {{std::string("127.0.0.1"), std::string("127.0.0.0/8")}, (uint8_t)1},
+            {{std::string("128.0.0.1"), std::string("127.0.0.0/8")}, (uint8_t)0},
+            {{std::string("ffff::1"), std::string("ffff::/16")}, (uint8_t)1},
+            {{std::string("fffe::1"), std::string("ffff::/16")}, (uint8_t)0},
+            {{std::string("192.168.99.255"), std::string("192.168.100.0/22")}, (uint8_t)0},
+            {{std::string("192.168.100.1"), std::string("192.168.100.0/22")}, (uint8_t)1},
+            {{std::string("192.168.103.255"), std::string("192.168.100.0/22")}, (uint8_t)1},
+            {{std::string("192.168.104.0"), std::string("192.168.100.0/22")}, (uint8_t)0},
+            {{std::string("::192.168.99.255"), std::string("::192.168.100.0/118")}, (uint8_t)0},
+            {{std::string("::192.168.100.1"), std::string("::192.168.100.0/118")}, (uint8_t)1},
+            {{std::string("::192.168.103.255"), std::string("::192.168.100.0/118")}, (uint8_t)1},
+            {{std::string("::192.168.104.0"), std::string("::192.168.100.0/118")}, (uint8_t)0},
+            {{std::string("192.168.100.1"), std::string("192.168.100.0/22")}, (uint8_t)1},
+            {{std::string("192.168.100.1"), std::string("192.168.100.0/24")}, (uint8_t)1},
+            {{std::string("192.168.100.1"), std::string("192.168.100.0/32")}, (uint8_t)0},
+            {{std::string("::192.168.100.1"), std::string("::192.168.100.0/118")}, (uint8_t)1},
+            {{std::string("::192.168.100.1"), std::string("::192.168.100.0/120")}, (uint8_t)1},
+            {{std::string("::192.168.100.1"), std::string("::192.168.100.0/128")}, (uint8_t)0},
+            {{std::string("192.168.100.1"), std::string("192.168.100.0/22")}, (uint8_t)1},
+            {{std::string("192.168.103.255"), std::string("192.168.100.0/24")}, (uint8_t)0},
+            {{std::string("::192.168.100.1"), std::string("::192.168.100.0/118")}, (uint8_t)1},
+            {{std::string("::192.168.103.255"), std::string("::192.168.100.0/120")}, (uint8_t)0},
+            {{std::string("127.0.0.1"), std::string("ffff::/16")}, (uint8_t)0},
+            {{std::string("127.0.0.1"), std::string("::127.0.0.1/128")}, (uint8_t)0},
+            {{std::string("::1"), std::string("127.0.0.0/8")}, (uint8_t)0},
+            {{std::string("::127.0.0.1"), std::string("127.0.0.1/32")}, (uint8_t)0}};
+
+    {
+        // vector vs vector
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
+    }
+
+    {
+        // vector vs scalar
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
+        for (const auto& line : data_set) {
+            DataSet const_cidr_dataset = {line};
+            static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types,
+                                                                  const_cidr_dataset));
+        }
+    }
+
+    {
+        // scalar vs vector
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                    PrimitiveType::TYPE_VARCHAR};
+        for (const auto& line : data_set) {
+            DataSet const_addr_dataset = {line};
+            static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types,
+                                                                  const_addr_dataset));
+        }
+    }
+
+    {
+        DataSet ipv4_data_set = {
+                {{static_cast<IPv4>(0), std::string("0.0.0.0/0")}, static_cast<uint8_t>(1)},
+                {{static_cast<IPv4>(0), std::string("0.0.0.0/32")}, static_cast<uint8_t>(1)},
+                {{static_cast<IPv4>(1), std::string("0.0.0.0/32")}, static_cast<uint8_t>(0)},
+        };
+        InputTypeSet input_types = {PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_VARCHAR};
+        static_cast<void>(
+                check_function<DataTypeUInt8, true>(func_name, input_types, ipv4_data_set));
+    }
+}
+
+TEST(FunctionIpTest, FunctionIPv4ToIPv6Test) {
+    std::string func_name = "ipv4_to_ipv6";
+
+    DataSet data_set = {
+            {{static_cast<IPv4>(0)}, static_cast<IPv6>(0xFFFF00000000ULL)},          // 0.0.0.0
+            {{static_cast<IPv4>(1)}, static_cast<IPv6>(0xFFFF00000001ULL)},          // 0.0.0.1
+            {{static_cast<IPv4>(2130706433)}, static_cast<IPv6>(0xFFFF7F000001ULL)}, // 127.0.0.1
+            {{static_cast<IPv4>(3232235521)}, static_cast<IPv6>(0xFFFFC0A80001ULL)}, // 192.168.0.1
+            {{static_cast<IPv4>(4294967294)},
+             static_cast<IPv6>(0xFFFFFFFFFFFEULL)}, // 255.255.255.254
+            {{static_cast<IPv4>(4294967295)},
+             static_cast<IPv6>(0xFFFFFFFFFFFFULL)} // 255.255.255.255
+    };
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_IPV4};
+    static_cast<void>(check_function<DataTypeIPv6, true>(func_name, input_types, data_set));
+}
+
+TEST(FunctionIpTest, FunctionCutIPv6Test) {
+    std::string func_name = "cut_ipv6";
+
+    std::array<std::array<uint8_t, 16>, 9> ipv6s = {
+            std::array<uint8_t, 16> {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},   // ::
+            std::array<uint8_t, 16> {0x1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // ::1
+            std::array<uint8_t, 16> {0x02, 0, 0x02, 0xb1, 0, 0, 0, 0, 0x10, 0x06, 0xa1, 0, 0x70,
+                                     0x1b, 0x01, 0x20}, // 2001:1b70:a1:610::b102:2
+            std::array<uint8_t, 16> {0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                                     0xff, 0xff, 0xff, 0xff, 0xff,
+                                     0xff}, // ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe
+            std::array<uint8_t, 16> {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                                     0xff, 0xff, 0xff, 0xff, 0xff,
+                                     0xff}, // ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+            std::array<uint8_t, 16> {0x01, 0, 0xa8, 0xc0, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                     0}, // ::ffff:192.168.0.1
+            std::array<uint8_t, 16> {0x01, 0, 0, 0x7f, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                     0}, // ::ffff:127.0.0.1
+            std::array<uint8_t, 16> {0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                     0}, // ::ffff:255.255.255.254
+            std::array<uint8_t, 16> {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                     0} // ::ffff:255.255.255.255
+    };
+
+    std::vector<int8_t> bytes = {0, 2, 4, 8, 16, 2, 4, 8, 16};
+
+    std::vector<std::string> results = {"::",
+                                        "::",
+                                        "2001:1b70:a1:610::",
+                                        "ffff:ffff:ffff:ffff::",
+                                        "::",
+                                        "::ffff:192.168.0.0",
+                                        "::ffff:0.0.0.0",
+                                        "::",
+                                        "::"};
+
+    DataSet data_set;
+
+    for (int i = 0; i < 5; ++i) {
+        IPv6 ipv6;
+        std::memcpy(&ipv6, &ipv6s[i], sizeof(IPv6));
+        // *reinterpret_cast<uint128_t*> will result in core dump, using std::memcpy instead.
+        data_set.push_back({{ipv6, bytes[i], (int8_t)0}, results[i]});
+    }
+
+    for (int i = 5; i < results.size(); ++i) {
+        IPv6 ipv6;
+        std::memcpy(&ipv6, &ipv6s[i], sizeof(IPv6));
+        // *reinterpret_cast<uint128_t*> will result in core dump, using std::memcpy instead.
+        data_set.push_back({{ipv6, (int8_t)0, bytes[i]}, results[i]});
+    }
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_TINYINT,
+                                PrimitiveType::TYPE_TINYINT};
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    std::array<uint8_t, 16> ipv6_bytes {0xff, 0x12, 0xcd, 0xab, 0x04, 0x00, 0x03, 0x00,
+                                        0x02, 0x00, 0x01, 0x00, 0xb8, 0x0d, 0x01, 0x20};
+    IPv6 ipv6;
+    std::memcpy(&ipv6, &ipv6_bytes, sizeof(IPv6));
+    DataSet odd_bytes_data_set = {
+            {{ipv6, (int8_t)1, (int8_t)0}, std::string("2001:db8:1:2:3:4:abcd:1200")},
+            {{ipv6, (int8_t)3, (int8_t)0}, std::string("2001:db8:1:2:3:4:ab00:0")},
+            {{ipv6, (int8_t)15, (int8_t)0}, std::string("2000::")}};
+    static_cast<void>(
+            check_function<DataTypeString, true>(func_name, input_types, odd_bytes_data_set));
+}
+
+TEST(FunctionIpTest, NullablePayloadsAreIgnoredByRangeAndCutFunctions) {
+    const auto ipv4_type = std::make_shared<DataTypeIPv4>();
+    const auto ipv6_type = std::make_shared<DataTypeIPv6>();
+    const auto int16_type = std::make_shared<DataTypeInt16>();
+    const auto int8_type = std::make_shared<DataTypeInt8>();
+    const auto string_type = std::make_shared<DataTypeString>();
+
+    {
+        auto ip = ColumnIPv4::create();
+        ip->get_data() = {0x7f000001, 0xffffffff, 0x7f000001};
+        auto cidr = ColumnInt16::create();
+        cidr->get_data() = {24, -16706, 24};
+        auto nullable_ip = ColumnNullable::create(std::move(ip), make_null_map({0, 0, 1}));
+        auto nullable_cidr = ColumnNullable::create(std::move(cidr), make_null_map({0, 1, 0}));
+        auto nullable_ipv4_type = make_nullable(ipv4_type);
+        auto nullable_int16_type = make_nullable(int16_type);
+        FunctionIPv4CIDRToRange function;
+        DataTypes argument_types {nullable_ipv4_type, nullable_int16_type};
+        auto result_type = function.get_return_type_impl(argument_types);
+        Block block;
+        block.insert({std::move(nullable_ip), nullable_ipv4_type, "ip"});
+        block.insert({std::move(nullable_cidr), nullable_int16_type, "cidr"});
+        block.insert({nullptr, result_type, "result"});
+
+        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1}, 2, 3).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+        EXPECT_TRUE(result.is_null_at(2));
+    }
+
+    {
+        auto addr = ColumnIPv6::create();
+        addr->get_data() = {static_cast<IPv6>(1), ~static_cast<IPv6>(0), static_cast<IPv6>(1)};
+        auto cidr = ColumnInt16::create();
+        cidr->get_data() = {128, 8, -16706};
+        auto nullable_addr = ColumnNullable::create(std::move(addr), make_null_map({0, 1, 0}));
+        auto nullable_cidr = ColumnNullable::create(std::move(cidr), make_null_map({0, 0, 1}));
+        auto nullable_ipv6_type = make_nullable(ipv6_type);
+        auto nullable_int16_type = make_nullable(int16_type);
+        FunctionIPv6CIDRToRange function;
+        DataTypes argument_types {nullable_ipv6_type, nullable_int16_type};
+        auto result_type = function.get_return_type_impl(argument_types);
+        Block block;
+        block.insert({std::move(nullable_addr), nullable_ipv6_type, "addr"});
+        block.insert({std::move(nullable_cidr), nullable_int16_type, "cidr"});
+        block.insert({nullptr, result_type, "result"});
+
+        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1}, 2, 3).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+        EXPECT_TRUE(result.is_null_at(2));
+    }
+
+    {
+        auto addr = ColumnString::create();
+        addr->insert_data("2001:db8::1", 11);
+        addr->insert_data("", 0);
+        auto cidr = ColumnInt16::create();
+        cidr->get_data() = {64, 8};
+        auto nullable_addr = ColumnNullable::create(std::move(addr), make_null_map({0, 1}));
+        auto nullable_addr_type = make_nullable(string_type);
+        FunctionIPv6CIDRToRange function;
+        DataTypes argument_types {nullable_addr_type, int16_type};
+        auto result_type = function.get_return_type_impl(argument_types);
+        Block block;
+        block.insert({std::move(nullable_addr), nullable_addr_type, "addr"});
+        block.insert({std::move(cidr), int16_type, "cidr"});
+        block.insert({nullptr, result_type, "result"});
+
+        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1}, 2, 2).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+    }
+
+    {
+        auto ip = ColumnIPv4::create(3, 0xffffffff);
+        auto nullable_ip = ColumnNullable::create(std::move(ip), ColumnUInt8::create(3, 0));
+        auto const_cidr_data =
+                ColumnNullable::create(ColumnInt16::create(1, -16706), ColumnUInt8::create(1, 1));
+        auto const_cidr = ColumnConst::create(std::move(const_cidr_data), 3);
+        auto nullable_ipv4_type = make_nullable(ipv4_type);
+        auto nullable_int16_type = make_nullable(int16_type);
+        FunctionIPv4CIDRToRange function;
+        DataTypes argument_types {nullable_ipv4_type, nullable_int16_type};
+        auto result_type = function.get_return_type_impl(argument_types);
+        Block block;
+        block.insert({std::move(nullable_ip), nullable_ipv4_type, "ip"});
+        block.insert({std::move(const_cidr), nullable_int16_type, "cidr"});
+        block.insert({nullptr, result_type, "result"});
+
+        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1}, 2, 3).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        EXPECT_TRUE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+        EXPECT_TRUE(result.is_null_at(2));
+    }
+
+    {
+        auto addr = ColumnIPv6::create();
+        addr->get_data() = {~static_cast<IPv6>(0), static_cast<IPv6>(1)};
+        auto ipv6_null_map = make_null_map({1, 0});
+        auto ipv6_column = ColumnNullable::create(std::move(addr), std::move(ipv6_null_map));
+        auto ipv6_count = ColumnInt8::create();
+        ipv6_count->get_data() = {127, 0};
+        auto ipv4_count = ColumnInt8::create();
+        ipv4_count->get_data() = {0, 127};
+        auto ipv6_count_null_map = make_null_map({0, 0});
+        auto ipv4_count_null_map = make_null_map({0, 1});
+        auto nullable_ipv6 = make_nullable(ipv6_type);
+        auto nullable_int8 = make_nullable(int8_type);
+        auto nullable_ipv6_count =
+                ColumnNullable::create(std::move(ipv6_count), std::move(ipv6_count_null_map));
+        auto nullable_ipv4_count =
+                ColumnNullable::create(std::move(ipv4_count), std::move(ipv4_count_null_map));
+        FunctionCutIPv6 function;
+        DataTypes argument_types {nullable_ipv6, nullable_int8, nullable_int8};
+        auto result_type = function.get_return_type_impl(argument_types);
+        Block block;
+        block.insert({std::move(ipv6_column), nullable_ipv6, "addr"});
+        block.insert({std::move(nullable_ipv6_count), nullable_int8, "ipv6_count"});
+        block.insert({std::move(nullable_ipv4_count), nullable_int8, "ipv4_count"});
+        block.insert({nullptr, result_type, "result"});
+
+        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1, 2}, 3, 2).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(3).column);
+        EXPECT_TRUE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+    }
+}
+
+TEST(FunctionIpTest, IPv6CIDRToRangeStillRejectsInvalidNonNullString) {
+    auto addr = ColumnString::create();
+    addr->insert_data("abc", 3);
+    auto nullable_addr_type = make_nullable(std::make_shared<DataTypeString>());
+    auto nullable_addr = ColumnNullable::create(std::move(addr), ColumnUInt8::create(1, 0));
+    auto cidr = ColumnInt16::create(1, 64);
+    auto cidr_type = std::make_shared<DataTypeInt16>();
+    FunctionIPv6CIDRToRange function;
+    DataTypes argument_types {nullable_addr_type, cidr_type};
+    auto result_type = function.get_return_type_impl(argument_types);
+    Block block;
+    block.insert({std::move(nullable_addr), nullable_addr_type, "addr"});
+    block.insert({std::move(cidr), cidr_type, "cidr"});
+    block.insert({nullptr, result_type, "result"});
+
+    EXPECT_THROW(static_cast<void>(function.execute_impl(nullptr, block, {0, 1}, 2, 1)), Exception);
+}
+
+class MockIndexReader : public segment_v2::InvertedIndexReader {
+public:
+    MockIndexReader(const TabletIndex& index_meta)
+            : segment_v2::InvertedIndexReader(&index_meta, nullptr) {}
+    ~MockIndexReader() override = default;
+    segment_v2::InvertedIndexReaderType type() override {
+        return segment_v2::InvertedIndexReaderType::BKD;
+    }
+    Status query(const segment_v2::IndexQueryContextPtr& context, const std::string& column_name,
+                 const Field& query_value, segment_v2::InvertedIndexQueryType query_type,
+                 std::shared_ptr<roaring::Roaring>& bit_map,
+                 const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override {
+        return Status::OK();
+    }
+    Status try_query(const segment_v2::IndexQueryContextPtr& context,
+                     const std::string& column_name, const Field& query_value,
+                     segment_v2::InvertedIndexQueryType query_type, size_t* count) override {
+        return Status::OK();
+    }
+    Status new_iterator(std::unique_ptr<segment_v2::IndexIterator>* iterator) override {
+        return Status::OK();
+    }
+};
+
+class MockIndexIterator : public segment_v2::IndexIterator {
+public:
+    MockIndexIterator(std::shared_ptr<MockIndexReader> reader) : _reader(reader) {}
+    ~MockIndexIterator() override = default;
+    segment_v2::IndexReaderPtr get_reader(segment_v2::IndexReaderType reader_type) const override {
+        if (std::holds_alternative<segment_v2::InvertedIndexReaderType>(reader_type)) {
+            if (std::get<segment_v2::InvertedIndexReaderType>(reader_type) ==
+                segment_v2::InvertedIndexReaderType::BKD) {
+                return _reader;
+            }
+        }
+        return nullptr;
+    }
+    Status read_from_index(const segment_v2::IndexParam& param) override {
+        auto* p = std::get<segment_v2::InvertedIndexParam*>(param);
+        if (p->query_type == segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY) {
+            p->roaring->addRange(10, 20);
+        } else if (p->query_type == segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY) {
+            p->roaring->addRange(15, 25);
+        }
+        return Status::OK();
+    }
+    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* cache_handle) override {
+        return Status::OK();
+    }
+    Result<bool> has_null() override { return false; }
+
+private:
+    std::shared_ptr<MockIndexReader> _reader;
+};
+
+TEST(FunctionIpTest, evaluate_inverted_index) {
+    FunctionIsIPAddressInRange func;
+
+    // IPv4 test
+    {
+        auto cidr_col = ColumnString::create();
+        cidr_col->insert_data("0.0.0.0/0", 9);
+        auto const_cidr_col = ColumnConst::create(std::move(cidr_col), 1);
+
+        ColumnsWithTypeAndName arguments = {
+                {std::move(const_cidr_col), std::make_shared<DataTypeString>(), "cidr"}};
+
+        std::vector<IndexFieldNameAndTypePair> data_type_with_names = {
+                {"ip_addr", std::make_shared<DataTypeIPv4>()}};
+
+        TabletIndex index_meta;
+        auto reader = std::make_shared<MockIndexReader>(index_meta);
+        auto iter = std::make_unique<MockIndexIterator>(reader);
+        std::vector<segment_v2::IndexIterator*> iterators = {iter.get()};
+
+        segment_v2::InvertedIndexResultBitmap bitmap_result;
+        auto status = func.evaluate_inverted_index(arguments, data_type_with_names, iterators, 100,
+                                                   nullptr, bitmap_result);
+        ASSERT_TRUE(status.ok());
+
+        // min_param: [10, 20), max_param: [15, 25)
+        // intersection: [15, 20) -> 15, 16, 17, 18, 19
+        ASSERT_EQ(bitmap_result.get_data_bitmap()->cardinality(), 5);
+        for (int i = 15; i < 20; ++i) {
+            ASSERT_TRUE(bitmap_result.get_data_bitmap()->contains(i));
+        }
+    }
+
+    // IPv6 test
+    {
+        auto cidr_col = ColumnString::create();
+        cidr_col->insert_data("ffff::/16", 9);
+        auto const_cidr_col = ColumnConst::create(std::move(cidr_col), 1);
+
+        ColumnsWithTypeAndName arguments = {
+                {std::move(const_cidr_col), std::make_shared<DataTypeString>(), "cidr"}};
+
+        std::vector<IndexFieldNameAndTypePair> data_type_with_names = {
+                {"ip_addr", std::make_shared<DataTypeIPv6>()}};
+
+        TabletIndex index_meta;
+        auto reader = std::make_shared<MockIndexReader>(index_meta);
+        auto iter = std::make_unique<MockIndexIterator>(reader);
+        std::vector<segment_v2::IndexIterator*> iterators = {iter.get()};
+
+        segment_v2::InvertedIndexResultBitmap bitmap_result;
+        auto status = func.evaluate_inverted_index(arguments, data_type_with_names, iterators, 100,
+                                                   nullptr, bitmap_result);
+        ASSERT_TRUE(status.ok());
+
+        ASSERT_EQ(bitmap_result.get_data_bitmap()->cardinality(), 5);
+        for (int i = 15; i < 20; ++i) {
+            ASSERT_TRUE(bitmap_result.get_data_bitmap()->contains(i));
+        }
+    }
+}
+
+} // namespace doris

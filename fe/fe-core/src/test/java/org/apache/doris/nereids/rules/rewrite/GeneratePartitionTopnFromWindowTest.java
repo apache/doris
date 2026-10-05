@@ -1,0 +1,318 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.rewrite;
+
+import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.WindowFuncType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+public class GeneratePartitionTopnFromWindowTest implements MemoPatternMatchSupported {
+    private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
+            ImmutableList.of(""));
+
+    /*-
+     * origin plan:
+     *                project
+     *                  |
+     *                filter row_number <= 100
+     *                  |
+     *               window(ROW_NUMBER() as row_number PARTITION BY gender ORDER BY age)
+     *                  |
+     *               scan(student)
+     *
+     *  transformed plan:
+     *                project
+     *                  |
+     *                filter row_number <= 100
+     *                  |
+     *               window(ROW_NUMBER() as row_number PARTITION BY gender ORDER BY age)
+     *                  |
+     *      partitionTopN(row_number(), partition by gender, order by age, hasGlobalLimit: false, partitionLimit: 100)
+     *                  |
+     *               scan(student)
+     */
+    @Test
+    public void testGeneratePartitionTopnFromWindow() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setEnablePartitionTopN(true);
+        NamedExpression gender = scan.getOutput().get(1).toSlot();
+        NamedExpression age = scan.getOutput().get(3).toSlot();
+
+        List<Expression> partitionKeyList = ImmutableList.of(gender);
+        List<OrderExpression> orderKeyList = ImmutableList.of(new OrderExpression(
+                new OrderKey(age, true, true)));
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList, windowFrame);
+        Alias windowAlias1 = new Alias(window1, window1.toSql());
+        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan);
+        Expression filterPredicate = new LessThanEqual(window.getOutput().get(4).toSlot(), Literal.of(100));
+
+        LogicalPlan plan = new LogicalPlanBuilder(window)
+                .filter(filterPredicate)
+                .project(ImmutableList.of(0))
+                .build();
+
+        PlanChecker.from(context, plan)
+                .applyTopDown(new CreatePartitionTopNFromWindow())
+                .matches(
+                    logicalProject(
+                        logicalFilter(
+                            logicalWindow(
+                                logicalPartitionTopN(
+                                    logicalOlapScan()
+                                ).when(logicalPartitionTopN -> {
+                                    WindowFuncType funName = logicalPartitionTopN.getFunction();
+                                    List<Expression> partitionKeys = logicalPartitionTopN.getPartitionKeys();
+                                    List<OrderExpression> orderKeys = logicalPartitionTopN.getOrderKeys();
+                                    boolean hasGlobalLimit = logicalPartitionTopN.hasGlobalLimit();
+                                    long partitionLimit = logicalPartitionTopN.getPartitionLimit();
+                                    return funName == WindowFuncType.ROW_NUMBER && partitionKeys.equals(partitionKeyList)
+                                        && orderKeys.equals(orderKeyList) && !hasGlobalLimit && partitionLimit == 100;
+                                })
+                            )
+                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
+                    )
+                );
+    }
+
+    @Test
+    public void testPartitionTopNPrunesPartitionKeyFromLogicalOrderKeys() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setEnablePartitionTopN(true);
+        NamedExpression gender = scan.getOutput().get(1).toSlot();
+        NamedExpression age = scan.getOutput().get(3).toSlot();
+
+        List<Expression> partitionKeyList = ImmutableList.of(gender);
+        List<OrderExpression> orderKeyList = ImmutableList.of(
+                new OrderExpression(new OrderKey(gender, true, true)),
+                new OrderExpression(new OrderKey(age, true, true)));
+        List<OrderExpression> expectedOrderKeyList = ImmutableList.of(
+                new OrderExpression(new OrderKey(age, true, true)));
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList, windowFrame);
+        Alias windowAlias1 = new Alias(window1, window1.toSql());
+        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan);
+        Expression filterPredicate = new LessThanEqual(window.getOutput().get(4).toSlot(), Literal.of(100));
+
+        LogicalPlan plan = new LogicalPlanBuilder(window)
+                .filter(filterPredicate)
+                .project(ImmutableList.of(0))
+                .build();
+
+        // EliminateOrderByKey prunes the order key that repeats the partition key (gender) from the window;
+        // CreatePartitionTopNFromWindow then generates a PartitionTopN that inherits the pruned order keys.
+        PlanChecker.from(context, plan)
+                .applyTopDown(new EliminateOrderByKey())
+                .applyTopDown(new CreatePartitionTopNFromWindow())
+                .matches(
+                    logicalProject(
+                        logicalFilter(
+                            logicalWindow(
+                                logicalPartitionTopN(
+                                    logicalOlapScan()
+                                ).when(logicalPartitionTopN -> logicalPartitionTopN.getFunction()
+                                        == WindowFuncType.ROW_NUMBER
+                                        && logicalPartitionTopN.getPartitionKeys().equals(partitionKeyList)
+                                        && logicalPartitionTopN.getOrderKeys().equals(expectedOrderKeyList)
+                                        && !logicalPartitionTopN.hasGlobalLimit()
+                                        && logicalPartitionTopN.getPartitionLimit() == 100)
+                            ).when(logicalWindow -> logicalWindow.getActualWindowExpressions().get(0)
+                                    .getOrderKeys().equals(expectedOrderKeyList))
+                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
+                    )
+                );
+    }
+
+    @Test
+    public void testMultipleWindowsWithDifferentOrders() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setEnablePartitionTopN(true);
+        NamedExpression gender = scan.getOutput().get(1).toSlot();
+        NamedExpression age = scan.getOutput().get(3).toSlot();
+
+        List<Expression> partitionKeyList = ImmutableList.of(gender);
+        List<OrderExpression> orderKeyList = ImmutableList.of(new OrderExpression(
+                new OrderKey(age, true, true)));
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList, windowFrame);
+        Alias windowAlias1 = new Alias(window1, window1.toSql());
+
+        List<OrderExpression> orderKeyList2 = ImmutableList.of(new OrderExpression(
+                new OrderKey(age, false, true)));
+        WindowExpression window2 = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList2, windowFrame);
+        Alias windowAlias2 = new Alias(window2, window2.toSql());
+
+        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1, windowAlias2);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan);
+        Expression filterPredicate = new LessThanEqual(window.getOutput().get(4).toSlot(), Literal.of(100));
+
+        LogicalPlan plan = new LogicalPlanBuilder(window)
+                .filter(filterPredicate)
+                .project(ImmutableList.of(0))
+                .build();
+
+        PlanChecker.from(context, plan)
+                .applyTopDown(new CreatePartitionTopNFromWindow())
+                .matches(
+                        logicalProject(
+                                logicalFilter(
+                                        logicalWindow(
+                                                logicalOlapScan()
+                                        ))));
+    }
+
+    @Test
+    public void testMultipleWindowsWithDifferentPartitions() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setEnablePartitionTopN(true);
+        NamedExpression gender = scan.getOutput().get(1).toSlot();
+        NamedExpression name = scan.getOutput().get(2).toSlot();
+        NamedExpression age = scan.getOutput().get(3).toSlot();
+
+        List<OrderExpression> orderKeyList = ImmutableList.of(new OrderExpression(
+                new OrderKey(age, true, true)));
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+
+        // window1: partition by gender, order by age
+        WindowExpression window1 = new WindowExpression(new RowNumber(),
+                ImmutableList.of(gender), orderKeyList, windowFrame);
+        Alias windowAlias1 = new Alias(window1, window1.toSql());
+
+        // window2: same order key (age) but different partition key (name)
+        WindowExpression window2 = new WindowExpression(new RowNumber(),
+                ImmutableList.of(name), orderKeyList, windowFrame);
+        Alias windowAlias2 = new Alias(window2, window2.toSql());
+
+        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1, windowAlias2);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan);
+        // filter on window1 (row_number partitioned by gender)
+        Expression filterPredicate = new LessThanEqual(window.getOutput().get(4).toSlot(), Literal.of(1));
+
+        LogicalPlan plan = new LogicalPlanBuilder(window)
+                .filter(filterPredicate)
+                .project(ImmutableList.of(0))
+                .build();
+
+        // The optimization must be disabled: pushing a partitionTopN partitioned by gender below the whole
+        // window would prune the input rows of window2 (partitioned by name) and corrupt its result.
+        PlanChecker.from(context, plan)
+                .applyTopDown(new CreatePartitionTopNFromWindow())
+                .matches(
+                        logicalProject(
+                                logicalFilter(
+                                        logicalWindow(
+                                                logicalOlapScan()
+                                        ))));
+    }
+
+    @Test
+    public void testMultipleWindowsSubsetPartitionGeneratesTopn() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setEnablePartitionTopN(true);
+        NamedExpression gender = scan.getOutput().get(1).toSlot();
+        NamedExpression name = scan.getOutput().get(2).toSlot();
+        NamedExpression age = scan.getOutput().get(3).toSlot();
+
+        List<Expression> partitionKeyList = ImmutableList.of(gender);
+        List<OrderExpression> orderKeyList = ImmutableList.of(new OrderExpression(
+                new OrderKey(age, true, true)));
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+
+        // window1 (chosen via filter): partition by gender, the coarser key
+        WindowExpression window1 = new WindowExpression(new RowNumber(),
+                partitionKeyList, orderKeyList, windowFrame);
+        Alias windowAlias1 = new Alias(window1, window1.toSql());
+
+        // window2: partition by (gender, name) -- a SUPERSET of window1's partition key
+        WindowExpression window2 = new WindowExpression(new RowNumber(),
+                ImmutableList.of(gender, name), orderKeyList, windowFrame);
+        Alias windowAlias2 = new Alias(window2, window2.toSql());
+
+        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1, windowAlias2);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan);
+        // filter on window1 (the coarser, chosen window)
+        Expression filterPredicate = new LessThanEqual(window.getOutput().get(4).toSlot(), Literal.of(100));
+
+        LogicalPlan plan = new LogicalPlanBuilder(window)
+                .filter(filterPredicate)
+                .project(ImmutableList.of(0))
+                .build();
+
+        // The chosen partition key (gender) is a subset of the other window's
+        // (gender, name), so pruning per gender cannot corrupt window2 -> the
+        // partition topn is still generated.
+        PlanChecker.from(context, plan)
+                .applyTopDown(new CreatePartitionTopNFromWindow())
+                .matches(
+                        logicalProject(
+                                logicalFilter(
+                                        logicalWindow(
+                                                logicalPartitionTopN(
+                                                        logicalOlapScan()
+                                                ).when(logicalPartitionTopN -> {
+                                                    WindowFuncType funName = logicalPartitionTopN.getFunction();
+                                                    List<Expression> partitionKeys = logicalPartitionTopN.getPartitionKeys();
+                                                    boolean hasGlobalLimit = logicalPartitionTopN.hasGlobalLimit();
+                                                    long partitionLimit = logicalPartitionTopN.getPartitionLimit();
+                                                    return funName == WindowFuncType.ROW_NUMBER
+                                                        && partitionKeys.equals(partitionKeyList)
+                                                        && !hasGlobalLimit && partitionLimit == 100;
+                                                })
+                                        )
+                                ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
+                        )
+                );
+    }
+}

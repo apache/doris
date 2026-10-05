@@ -1,0 +1,246 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <gen_cpp/Descriptors_types.h>
+#include <parallel_hashmap/phmap.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <map>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
+#include "common/status.h"
+#include "core/column/column.h"
+#include "core/data_type/data_type.h"
+#include "core/field.h"
+#include "core/string_ref.h"
+#include "core/types.h"
+#include "exprs/aggregate/aggregate_function.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
+#include "storage/tablet/tablet_fwd.h"
+#include "storage/tablet/tablet_schema.h"
+
+namespace doris {
+class TabletSchema;
+enum class FieldType;
+namespace segment_v2 {
+struct VariantStatisticsPB;
+} // namespace segment_v2
+class Block;
+class IColumn;
+using MutableColumnPtr = IColumn::MutablePtr;
+struct ColumnWithTypeAndName;
+enum class ExtractType;
+template <typename T>
+class ColumnStr;
+using ColumnString = ColumnStr<UInt32>;
+} // namespace doris
+
+const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
+const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
+namespace doris::variant_util {
+
+// Convert a restricted glob pattern into a regex (for tests/internal use).
+Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern);
+
+// Match a glob pattern against a path using RE2.
+bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path);
+
+using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
+using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
+
+inline bool should_record_variant_path_stats(const TabletColumn& column) {
+    return !column.variant_enable_nested_group();
+}
+
+inline bool should_write_variant_binary_columns(const TabletColumn& column) {
+    return !column.variant_enable_nested_group();
+}
+
+inline bool should_check_variant_path_stats(const TabletColumn& column) {
+    return !column.variant_enable_nested_group();
+}
+
+struct VariantExtendedInfo {
+    PathToNoneNullValues path_to_none_null_values; // key: path, value: number of none null values
+    std::unordered_set<std::string> sparse_paths;  // sparse paths in this variant column
+    std::unordered_set<std::string> typed_paths;   // typed paths in this variant column
+    std::unordered_set<PathInData, PathInData::Hash>
+            nested_paths;               // nested paths in this variant column
+    PathToDataTypes path_to_data_types; // key: path, value: data types
+    bool has_nested_group = false;      // whether this variant column has nested group
+};
+
+/// Returns number of dimensions in Array type. 0 if type is not array.
+size_t get_number_of_dimensions(const IDataType& type);
+
+/// Returns number of dimensions in Array column. 0 if column is not array.
+size_t get_number_of_dimensions(const IColumn& column);
+
+/// Returns type of scalars of Array of arbitrary dimensions.
+DataTypePtr get_base_type_of_array(const DataTypePtr& type);
+
+// Cast column to dst type
+Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result);
+
+struct ExtraInfo {
+    // -1 indicates it's not a Frontend generated column
+    int32_t unique_id = -1;
+    int32_t parent_unique_id = -1;
+    PathInData path_info {};
+};
+
+TabletColumn get_column_by_type(const DataTypePtr& data_type, const std::string& name,
+                                const ExtraInfo& ext_info);
+
+// check if the tuple_paths has ambiguous paths
+// situation:
+// throw exception if there exists a prefix with matched names, but not matched structure (is Nested, number of dimensions).
+Status check_variant_has_no_ambiguous_paths(const std::vector<PathInData>& paths);
+
+// Pick the tablet schema with the highest schema version as the reference.
+// Then update all variant columns to there least common types.
+// Return the final merged schema as common schema.
+// If base_schema == nullptr then, max schema version tablet schema will be picked as base schema
+Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                               const TabletSchemaSPtr& base_schema, TabletSchemaSPtr& result,
+                               bool check_schema_size = false);
+
+// Get least common types for extracted columns which has Path info,
+// with a speicified variant column's unique id
+Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  std::set<PathInData>* path_set);
+
+// inherit attributes like index/agg info from it's parent column
+void inherit_column_attributes(TabletSchemaSPtr& schema);
+
+// source: variant column
+// target: extracted column from variant column
+void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
+                               TabletSchemaSPtr* target_schema = nullptr);
+
+// Align variant subcolumn BF inheritance with FE BF-supported types.
+bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type);
+
+bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
+                           int32_t new_col_idx, int32_t old_col_idx);
+
+// create engine-side ColumnMap<String, String> for variant sparse/doc storage payloads.
+MutableColumnPtr create_variant_binary_column();
+
+DataTypePtr get_variant_binary_column_type();
+
+// create TabletColumn Map<String, String> for sparse storage
+TabletColumn create_sparse_column(const TabletColumn& variant);
+
+// Create one bucket sparse column: name = variant.name_lower_case() + "." + SPARSE_COLUMN_PATH + ".b{index}"
+TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_index);
+
+TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_index);
+
+// Compute bucket id for given path string using SipHash64(path) % bucket_num.
+uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num);
+
+void get_field_info(const Field& field, FieldInfo* info);
+
+// inherit index from parent column
+bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
+                   TabletIndexes& sub_column_indexes, FieldType column_type,
+                   const std::string& suffix_path, bool is_array_nested_type = false);
+
+bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
+                   TabletIndexes& sub_column_indexes, const TabletColumn& column);
+
+bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
+                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb);
+
+Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
+                                    TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                    const std::map<std::string, TabletColumnPtr>& typed_columns,
+                                    std::set<PathInData>* path_set = nullptr);
+
+bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
+                              const std::string& path,
+                              TabletSchema::SubColumnInfo* sub_column_info);
+
+class VariantCompactionUtil {
+public:
+    // get the subpaths and sparse paths for the variant column
+    static void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& path_stats,
+                             VariantCompactionPaths& paths_set_info);
+
+    // collect extended info from the variant column
+    static Status aggregate_variant_extended_info(
+            const RowsetSharedPtr& rs,
+            std::unordered_map<int32_t, VariantExtendedInfo>* uid_to_variant_extended_info);
+
+    // collect path stats from the variant column
+    static Status aggregate_path_to_stats(
+            const RowsetSharedPtr& rs,
+            std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats);
+
+    // Build the temporary schema for compaction, this will reduce the memory usage of compacting
+    // variant columns. `paths` receives that schema's variant path layout.
+    static Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
+                                                 TabletSchemaSPtr& target,
+                                                 VariantCompactionPathsMap& paths);
+
+    // Used to collect all the subcolumns types of variant column from rowsets
+    static TabletSchemaSPtr calculate_variant_extended_schema(
+            const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema);
+
+    // Check if the path stats are consistent between inputs rowsets and output rowset.
+    // Used to check the correctness of compaction.
+    static Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs,
+                                   RowsetSharedPtr output, BaseTabletSPtr tablet);
+
+    // Calculate statistics about variant data paths from the encoded sparse column
+    static void calculate_variant_stats(const IColumn& encoded_sparse_column,
+                                        segment_v2::VariantStatisticsPB* stats,
+                                        size_t max_sparse_column_statistics_size, size_t row_pos,
+                                        size_t num_rows);
+
+    static void get_compaction_subcolumns_from_subpaths(
+            VariantCompactionPaths& paths_set_info, const TabletColumnPtr parent_column,
+            const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
+            const std::unordered_set<std::string>& sparse_paths, TabletSchemaSPtr& output_schema);
+
+    static void get_compaction_subcolumns_from_data_types(VariantCompactionPaths& paths_set_info,
+                                                          const TabletColumnPtr parent_column,
+                                                          const TabletSchemaSPtr& target,
+                                                          const PathToDataTypes& path_to_data_types,
+                                                          TabletSchemaSPtr& output_schema);
+
+    static Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
+                                               const std::unordered_set<std::string>& typed_paths,
+                                               const TabletColumnPtr parent_column,
+                                               TabletSchemaSPtr& output_schema,
+                                               VariantCompactionPaths& paths_set_info);
+
+    static Status get_compaction_nested_columns(
+            const std::unordered_set<PathInData, PathInData::Hash>& nested_paths,
+            const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
+            TabletSchemaSPtr& output_schema, VariantCompactionPaths& paths_set_info);
+};
+
+} // namespace  doris::variant_util

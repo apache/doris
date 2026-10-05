@@ -1,0 +1,200 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.types;
+
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.coercion.ComplexDataType;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+/**
+ * Struct type in Nereids.
+ */
+@Developing
+public class StructType extends DataType implements ComplexDataType, NestedColumnPrunable {
+
+    public static final StructType SYSTEM_DEFAULT = new StructType();
+
+    public static final int WIDTH = 24;
+
+    private final List<StructField> fields;
+    private final Map<String, StructField> nameToFields;
+
+    private StructType() {
+        nameToFields = new HashMap<>();
+        fields = ImmutableList.of();
+    }
+
+    /**
+     * construct struct type.
+     */
+    public StructType(List<StructField> fields) {
+        this.fields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
+        // field name should be lowercase and check the same or not
+        // ATTN: should use LinkedHashMap to keep order
+        this.nameToFields = new LinkedHashMap<>();
+        for (StructField field : this.fields) {
+            String fieldName = field.getName().toLowerCase(Locale.ROOT);
+            StructField existingField = this.nameToFields.put(fieldName, field);
+            if (existingField != null) {
+                throw new AnalysisException("Duplicate field name found: " + fieldName);
+            }
+        }
+    }
+
+    public List<StructField> getFields() {
+        return fields;
+    }
+
+    public Map<String, StructField> getNameToFields() {
+        return nameToFields;
+    }
+
+    /** Get a field by its case-insensitive runtime name. */
+    public StructField getField(String name) {
+        StructField field = nameToFields.get(name.toLowerCase(Locale.ROOT));
+        if (field != null && (!field.isLegacyLocaleDependentName() || field.getName().equals(name))) {
+            return field;
+        }
+        StructField legacyMatch = null;
+        for (int i = fields.size() - 1; i >= 0; i--) {
+            StructField legacyField = fields.get(i);
+            // Limit broad case folding to old replayed fields so new ROOT-distinct names remain distinct.
+            if (legacyField.isLegacyLocaleDependentName() && legacyField.getName().equalsIgnoreCase(name)) {
+                if (legacyMatch != null) {
+                    // The old locale was not persisted, so choosing either folded sibling could return wrong data.
+                    return null;
+                }
+                legacyMatch = legacyField;
+            }
+        }
+        return legacyMatch != null ? legacyMatch : field;
+    }
+
+    @Override
+    public DataType conversion() {
+        return new StructType(fields.stream().map(StructField::conversion).collect(Collectors.toList()));
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof StructType) {
+            StructType structType = (StructType) target;
+            if (this.fields.size() != structType.fields.size()) {
+                return false;
+            }
+            for (int i = 0; i < fields.size(); i++) {
+                if (!this.fields.get(i).getDataType().isInjectiveCastTo(structType.fields.get(i).getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        // DataTypeStructSerDe::to_string concatenates field text with structural delimiters but
+        // does not escape delimiter-like field content. The resulting STRING is not a unique
+        // representation of the source STRUCT and must not be treated as an injective cast.
+        return false;
+    }
+
+    @Override
+    public Type toCatalogDataType() {
+        return new org.apache.doris.catalog.StructType(fields.stream()
+                .map(StructField::toCatalogDataType)
+                .collect(Collectors.toCollection(ArrayList::new)));
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        return other instanceof StructType;
+    }
+
+    @Override
+    public String simpleString() {
+        return "struct";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        StructType that = (StructType) o;
+        return Objects.equals(fields, that.fields);
+    }
+
+    @Override
+    public boolean equalsForRecursiveCte(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        StructType other = (StructType) o;
+        if (fields.size() != other.fields.size()) {
+            return false;
+        }
+        for (int i = 0; i < fields.size(); ++i) {
+            if ((fields.get(i).isNullable() != other.fields.get(i).isNullable())
+                    || !fields.get(i).getDataType().equalsForRecursiveCte(other.fields.get(i).getDataType())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), fields);
+    }
+
+    @Override
+    public int width() {
+        return WIDTH;
+    }
+
+    @Override
+    public String toSql() {
+        return "STRUCT<" + fields.stream().map(StructField::toSql).collect(Collectors.joining(",")) + ">";
+    }
+
+    @Override
+    public String toString() {
+        return "STRUCT<" + fields.stream().map(StructField::toString).collect(Collectors.joining(",")) + ">";
+    }
+}

@@ -1,0 +1,197 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.cdcclient.controller;
+
+import org.apache.doris.cdcclient.common.Env;
+import org.apache.doris.cdcclient.model.rest.RestResponse;
+import org.apache.doris.cdcclient.service.PipelineCoordinator;
+import org.apache.doris.cdcclient.source.reader.SourceReader;
+import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchRecordRequest;
+import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
+import org.apache.doris.job.cdc.request.WriteRecordRequest;
+import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
+
+import org.apache.commons.lang3.exception.ExceptionUtils;
+
+import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+@RestController
+public class ClientController {
+    private static final Logger LOG = LoggerFactory.getLogger(ClientController.class);
+
+    @Autowired private PipelineCoordinator pipelineCoordinator;
+
+    /** init source reader */
+    @RequestMapping(path = "/api/initReader", method = RequestMethod.POST)
+    public Object initSourceReader(@RequestBody JobBaseConfig jobConfig) {
+        try {
+            SourceReader reader = Env.getCurrentEnv().getReader(jobConfig, true);
+            return RestResponse.success("Source reader initialized successfully");
+        } catch (Exception ex) {
+            LOG.error("Failed to create reader, jobId={}", jobConfig.getJobId(), ex);
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
+        }
+    }
+
+    /** Fetch source splits for snapshot */
+    @RequestMapping(path = "/api/fetchSplits", method = RequestMethod.POST)
+    public Object fetchSplits(@RequestBody FetchTableSplitsRequest ftsReq) {
+        try {
+            SourceReader reader = Env.getCurrentEnv().getReader(ftsReq);
+            List splits = reader.getSourceSplits(ftsReq);
+            return RestResponse.success(splits);
+        } catch (Exception ex) {
+            LOG.error("Failed to fetch splits, jobId={}", ftsReq.getJobId(), ex);
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
+        }
+    }
+
+    /** Fetch records from source reader, for debug */
+    @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.POST)
+    public Object fetchRecords(@RequestBody FetchRecordRequest recordReq) {
+        try {
+            return RestResponse.success(pipelineCoordinator.fetchRecords(recordReq));
+        } catch (Exception ex) {
+            LOG.error("Failed fetch record, jobId={}", recordReq.getJobId(), ex);
+            return RestResponse.internalError(ex.getMessage());
+        }
+    }
+
+    @RequestMapping(path = "/api/fetchRecordStream", method = RequestMethod.POST)
+    public StreamingResponseBody fetchRecordStream(@RequestBody FetchRecordRequest recordReq)
+            throws Exception {
+        return pipelineCoordinator.fetchRecordStream(recordReq);
+    }
+
+    /** Fetch records from source reader and Write records to backend */
+    @RequestMapping(path = "/api/writeRecords", method = RequestMethod.POST)
+    public Object writeRecord(@RequestBody WriteRecordRequest recordReq) {
+        LOG.info(
+                "Received write record request for jobId={}, taskId={}, meta={}",
+                recordReq.getJobId(),
+                recordReq.getTaskId(),
+                recordReq.getMeta());
+        pipelineCoordinator.writeRecordsAsync(recordReq);
+        return RestResponse.success("Request accepted, processing asynchronously");
+    }
+
+    /** Fetch lastest end meta */
+    @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
+    public Object fetchEndOffset(@RequestBody FetchEndOffsetRequest jobConfig) {
+        LOG.info("Fetching end offset for job {}", jobConfig.getJobId());
+        try {
+            SourceReader reader = Env.getCurrentEnv().getMetaReader(jobConfig);
+            Env.getCurrentEnv().keepAlive(jobConfig.getJobId());
+            FetchEndOffsetResult result = reader.fetchEndOffset(jobConfig);
+            // Requests from older FEs do not contain referenceOffset and expect the legacy
+            // response.
+            return RestResponse.success(
+                    jobConfig.getReferenceOffset() == null ? result.getEndOffset() : result);
+        } catch (Exception ex) {
+            LOG.error("Failed to fetch end offset, jobId={}", jobConfig.getJobId(), ex);
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
+        }
+    }
+
+    /** compare datasource Binlog Offset */
+    @RequestMapping(path = "/api/compareOffset", method = RequestMethod.POST)
+    public Object compareOffset(@RequestBody CompareOffsetRequest compareOffsetRequest) {
+        try {
+            SourceReader reader = Env.getCurrentEnv().getMetaReader(compareOffsetRequest);
+            return RestResponse.success(reader.compareOffset(compareOffsetRequest));
+        } catch (Exception ex) {
+            LOG.error("Failed to compare offset, jobId={}", compareOffsetRequest.getJobId(), ex);
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
+        }
+    }
+
+    /** Close job */
+    @RequestMapping(path = "/api/close", method = RequestMethod.POST)
+    public Object close(@RequestBody JobBaseConfig jobConfig) {
+        String jobId = jobConfig.getJobId();
+        LOG.info("Closing job {}", jobId);
+        Env env = Env.getCurrentEnv();
+        // Don't rebuild a reader to close it; an absent reader (owner BE gone) just needs its slot
+        // dropped.
+        SourceReader reader = env.getReaderIfPresent(jobId);
+        try {
+            if (reader != null) {
+                reader.release(jobConfig);
+            }
+            SourceReader dropper = reader != null ? reader : env.getMetaReader(jobConfig);
+            env.releaseSourceResourcesOrRetry(dropper, jobConfig);
+        } catch (Exception ex) {
+            LOG.warn("Close job {} teardown failed: {}", jobId, ex.getMessage());
+            env.scheduleSlotDrop(jobConfig);
+        } finally {
+            env.close(jobId);
+            pipelineCoordinator.closeJobStreamLoad(jobId);
+        }
+        return RestResponse.success(true);
+    }
+
+    /** Release a job's reader on this backend: stop engine, keep the replication slot. */
+    @RequestMapping(path = "/api/releaseReader/{taskId}", method = RequestMethod.POST)
+    public Object releaseReader(
+            @PathVariable("taskId") String taskId, @RequestBody JobBaseConfig jobConfig) {
+        LOG.info("Releasing reader (keep slot) for job {} task {}", jobConfig.getJobId(), taskId);
+        Env env = Env.getCurrentEnv();
+        // Only the owning task may release; detach removes the context under the per-job lock so a
+        // racing claim rebuilds a fresh reader, and a stale RPC is a no-op.
+        SourceReader reader = env.detachReaderIfOwner(jobConfig.getJobId(), taskId);
+        if (reader == null) {
+            LOG.info(
+                    "No owned reader for job {} task {}, skip release",
+                    jobConfig.getJobId(),
+                    taskId);
+            return RestResponse.success(true);
+        }
+        // Upstream-only: stop engine, keep slot. Loader is job-scoped, cleaned up by /api/close.
+        reader.release(jobConfig);
+        return RestResponse.success(true);
+    }
+
+    /** get task fail reason */
+    @RequestMapping(path = "/api/getFailReason/{taskId}", method = RequestMethod.POST)
+    public Object getFailReason(@PathVariable("taskId") String taskId) {
+        return RestResponse.success(pipelineCoordinator.getTaskFailReason(taskId));
+    }
+
+    @RequestMapping(path = "/api/getTaskStatus/{taskId}", method = RequestMethod.POST)
+    public Object getTaskStatus(@PathVariable("taskId") String taskId) {
+        return RestResponse.success(pipelineCoordinator.getTaskStatus(taskId));
+    }
+
+    @RequestMapping(path = "/api/getTaskOffset/{taskId}", method = RequestMethod.POST)
+    public Object getTaskIdOffset(@PathVariable("taskId") String taskId) {
+        return RestResponse.success(pipelineCoordinator.getOffsetWithTaskId(taskId));
+    }
+}

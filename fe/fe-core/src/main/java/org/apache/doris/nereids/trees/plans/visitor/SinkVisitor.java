@@ -1,0 +1,188 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.visitor;
+
+import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
+import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalConnectorTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
+
+/**
+ * sink visitor
+ */
+public interface SinkVisitor<R, C> {
+
+    // *******************************
+    // interface
+    // *******************************
+
+    R visitLogicalSink(LogicalSink<? extends Plan> logicalSink, C context);
+
+    R visitPhysicalSink(PhysicalSink<? extends Plan> physicalSink, C context);
+
+    // *******************************
+    // unbound
+    // *******************************
+
+    default R visitUnboundTableSink(UnboundTableSink<? extends Plan> unboundTableSink, C context) {
+        return visitLogicalSink(unboundTableSink, context);
+    }
+
+    default R visitUnboundConnectorTableSink(UnboundConnectorTableSink<? extends Plan> unboundTableSink, C context) {
+        return visitLogicalSink(unboundTableSink, context);
+    }
+
+    default R visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink, C context) {
+        return visitLogicalSink(unboundResultSink, context);
+    }
+
+    default R visitUnboundDictionarySink(UnboundDictionarySink<? extends Plan> unboundDictionarySink, C context) {
+        return visitLogicalSink(unboundDictionarySink, context);
+    }
+
+    default R visitUnboundBlackholeSink(UnboundBlackholeSink<? extends Plan> unboundBlackholeSink, C context) {
+        return visitLogicalSink(unboundBlackholeSink, context);
+    }
+
+    default R visitUnboundTVFTableSink(UnboundTVFTableSink<? extends Plan> unboundTVFTableSink, C context) {
+        return visitLogicalSink(unboundTVFTableSink, context);
+    }
+
+    // *******************************
+    // logical
+    // *******************************
+
+    default R visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, C context) {
+        return visitLogicalSink(fileSink, context);
+    }
+
+    default R visitLogicalTableSink(LogicalTableSink<? extends Plan> logicalTableSink, C context) {
+        return visitLogicalSink(logicalTableSink, context);
+    }
+
+    default R visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, C context) {
+        return visitLogicalTableSink(olapTableSink, context);
+    }
+
+    default R visitLogicalExternalRowLevelDeleteSink(
+            LogicalExternalRowLevelDeleteSink<? extends Plan> deleteSink, C context) {
+        return visitLogicalTableSink(deleteSink, context);
+    }
+
+    default R visitLogicalExternalRowLevelMergeSink(
+            LogicalExternalRowLevelMergeSink<? extends Plan> mergeSink, C context) {
+        return visitLogicalTableSink(mergeSink, context);
+    }
+
+    default R visitLogicalConnectorTableSink(LogicalConnectorTableSink<? extends Plan> connectorTableSink,
+            C context) {
+        return visitLogicalTableSink(connectorTableSink, context);
+    }
+
+    default R visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, C context) {
+        return visitLogicalSink(logicalResultSink, context);
+    }
+
+    default R visitLogicalDictionarySink(LogicalDictionarySink<? extends Plan> logicalDictionarySink, C context) {
+        return visitLogicalTableSink(logicalDictionarySink, context);
+    }
+
+    default R visitLogicalBlackholeSink(
+            LogicalBlackholeSink<? extends Plan> logicalBlackholeSink, C context) {
+        return visitLogicalSink(logicalBlackholeSink, context);
+    }
+
+    default R visitLogicalTVFTableSink(
+            LogicalTVFTableSink<? extends Plan> logicalTVFTableSink, C context) {
+        return visitLogicalSink(logicalTVFTableSink, context);
+    }
+
+    // *******************************
+    // physical
+    // *******************************
+
+    default R visitPhysicalBlackholeSink(
+            PhysicalBlackholeSink<? extends Plan> sink, C context) {
+        return visitPhysicalSink(sink, context);
+    }
+
+    default R visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, C context) {
+        return visitPhysicalSink(fileSink, context);
+    }
+
+    default R visitPhysicalTableSink(PhysicalTableSink<? extends Plan> physicalTableSink, C context) {
+        return visitPhysicalSink(physicalTableSink, context);
+    }
+
+    default R visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, C context) {
+        return visitPhysicalTableSink(olapTableSink, context);
+    }
+
+    default R visitPhysicalExternalRowLevelDeleteSink(
+            PhysicalExternalRowLevelDeleteSink<? extends Plan> deleteSink, C context) {
+        return visitPhysicalTableSink(deleteSink, context);
+    }
+
+    default R visitPhysicalExternalRowLevelMergeSink(
+            PhysicalExternalRowLevelMergeSink<? extends Plan> mergeSink, C context) {
+        return visitPhysicalTableSink(mergeSink, context);
+    }
+
+    default R visitPhysicalConnectorTableSink(PhysicalConnectorTableSink<? extends Plan> connectorTableSink,
+            C context) {
+        return visitPhysicalTableSink(connectorTableSink, context);
+    }
+
+    default R visitPhysicalDictionarySink(PhysicalDictionarySink<? extends Plan> dictionarySink, C context) {
+        return visitPhysicalTableSink(dictionarySink, context);
+    }
+
+    default R visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink, C context) {
+        return visitPhysicalSink(physicalResultSink, context);
+    }
+
+    default R visitPhysicalTVFTableSink(
+            PhysicalTVFTableSink<? extends Plan> tvfTableSink, C context) {
+        return visitPhysicalSink(tvfTableSink, context);
+    }
+}

@@ -1,0 +1,155 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("sumRewrite") {
+    sql "set parallel_pipeline_task_num=2"
+    sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
+    sql "SET enable_fallback_to_original_planner=false"
+    sql "SET ignore_shape_nodes='PhysicalDistribute'"
+    sql "SET detail_shape_nodes='PhysicalProject,PhysicalHashAggregate'"
+
+    sql """
+        DROP TABLE IF EXISTS sr
+       """
+    sql """
+    CREATE TABLE IF NOT EXISTS sr(
+      `id` int NULL,
+      `not_null_id` int not NULL,
+      `f_id` float NULL,
+      `d_id` decimal(10,2),
+    ) ENGINE = OLAP
+    DISTRIBUTED BY HASH(id) BUCKETS 4
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+INSERT INTO sr (id, not_null_id, f_id, d_id) VALUES 
+(11, 6, 1.1, 210.01),
+(12, 6, 2.2, 220.02),
+(13, 7, 3.3, 230.03),
+(14, 7, 4.4, 240.04),
+(15, 8, 5.5, 250.05),
+(null, 8, 6.6, 260.06),
+(null, 9, 7.7, 270.07),
+(18, 9, 8.8, 280.08),
+(19, 10, 9.9, 290.09),
+(20, 10, 10.1, 400.10);
+"""
+
+    explainAndOrderResult 'sum_add_const', """ select sum(id + 2) from sr """
+
+    explainAndOrderResult 'sum_add_const_alias', """ select sum(id + 2) as result from sr """
+
+    explainAndOrderResult 'sum_add_const_where', """ select sum(id + 2) from sr where id is not null """
+
+    explainAndOrderResult 'sum_add_const_group_by', """ select not_null_id, sum(id + 2) from sr group by not_null_id """
+
+    explainAndOrderResult 'sum_add_const_having', """ select not_null_id, sum(id + 2) from sr group by not_null_id having sum(id + 2) > 5 """
+
+    explainAndOrderResult 'sum_sub_const', """ select sum(id - 2) from sr """
+
+    explainAndOrderResult 'sum_sub_const_alias',  """ select sum(id - 2) as result from sr """
+
+    explainAndOrderResult 'sum_sub_const_where',  """ select sum(id - 2) from sr where id is not null """
+
+    explainAndOrderResult 'sum_sub_const_group_by',  """ select not_null_id, sum(id - 2) from sr group by not_null_id """
+
+    explainAndOrderResult 'sum_sub_const_having',  """ select not_null_id, sum(id - 2) from sr group by not_null_id having sum(id - 2) > 0 """
+
+    explainAndOrderResult 'sum_add_const_empty_table',  """ select sum(id + 2) from sr where 1=0 """
+
+    explainAndOrderResult 'sum_add_const_empty_table_group_by',  """ select not_null_id, sum(id + 2) from sr where 1=0 group by not_null_id """
+
+    explainAndOrderResult 'sum_sub_const_empty_table',  """ select sum(id - 2) from sr where 1=0 """
+
+    explainAndOrderResult 'sum_sub_const_empty_table_group_by',  """ select not_null_id, sum(id - 2) from sr where 1=0 group by not_null_id """
+
+    // float类型字段测试
+    explainAndOrderResult 'float_sum_add_const',  """ select sum(f_id + 2) from sr """
+
+    explainAndOrderResult 'float_sum_add_const_alias',  """ select sum(f_id + 2) as result from sr """
+
+    explainAndOrderResult 'float_sum_add_const_where',  """ select sum(f_id + 2) from sr where f_id is not null """
+
+    explainAndOrderResult 'float_sum_add_const_group_by',  """ select not_null_id, sum(f_id + 2) from sr group by not_null_id """
+
+    explainAndOrderResult 'float_sum_add_const_having',  """ select not_null_id, sum(f_id + 2) from sr group by not_null_id having sum(f_id + 2) > 5 """
+
+    explainAndOrderResult 'float_sum_sub_const',  """ select sum(f_id - 2) from sr """
+
+    explainAndOrderResult 'float_sum_sub_const_alias',  """ select sum(f_id - 2) as result from sr """
+
+    explainAndOrderResult 'float_sum_sub_const_where',  """ select sum(f_id - 2) from sr where f_id is not null """
+
+    explainAndOrderResult 'float_sum_sub_const_group_by',  """ select not_null_id, sum(f_id - 2) from sr group by not_null_id """
+
+    explainAndOrderResult 'float_sum_sub_const_having',  """ select not_null_id, sum(f_id - 2) from sr group by not_null_id having sum(f_id - 2) > 0 """
+
+    explainAndOrderResult 'sum_null_and_not_null', """ select sum(id), sum(id + 1), sum(id - 1), sum(not_null_id), sum(not_null_id + 1), sum(not_null_id - 1) from sr"""
+
+    explainAndOrderResult 'sum_distinct', """select sum(id), sum(distinct id), sum(id + 1), sum(distinct id + 1) from sr"""
+
+    explainAndOrderResult 'sum_not_null_distinct', """select sum(not_null_id), sum(distinct not_null_id), sum(not_null_id + 1), sum(distinct not_null_id + 1) from sr"""
+    // 测试精度变化对sum加常数的影响
+    // explainAndOrderResult 'decimal_sum_add_const_precision_1',  """ select sum(d_id + 2) from sr """
+
+    // explainAndOrderResult 'decimal_sum_add_const_precision_2',  """ select sum(d_id + 2.2) from sr """
+
+    // explainAndOrderResult 'decimal_sum_add_const_precision_3',  """ select not_null_id, sum(d_id + 2) from sr group by not_null_id """
+
+    // explainAndOrderResult 'decimal_sum_add_const_precision_4',  """ select not_null_id, sum(d_id + 2.223) from sr group by not_null_id """
+
+    // 测试精度变化对sum减常数的影响  
+    // explainAndOrderResult 'decimal_sum_sub_const_precision_1',  """ select sum(d_id - 2) from sr """
+
+    // explainAndOrderResult 'decimal_sum_sub_const_precision_2',  """ select sum(d_id - 2.2) from sr """
+
+    // explainAndOrderResult 'decimal_sum_sub_const_precision_3',  """ select not_null_id, sum(d_id - 2) from sr group by not_null_id """
+
+    // explainAndOrderResult 'decimal_sum_sub_const_precision_4',  """ select not_null_id, sum(d_id - 2.223) from sr group by not_null_id """
+
+    sql "DROP TABLE IF EXISTS sr_double_rounding"
+    sql """
+        CREATE TABLE sr_double_rounding (
+            id INT NOT NULL,
+            x DOUBLE NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql "INSERT INTO sr_double_rounding VALUES (1, 1e16), (2, -1e16)"
+
+    def doubleResults = sql """
+        SELECT CAST(SUM(x + 1.0) AS STRING), CAST(SUM(x + 2.0) AS STRING)
+        FROM sr_double_rounding
+    """
+    assertEquals(1, doubleResults.size())
+    assertEquals("0", doubleResults[0][0])
+    assertEquals("4", doubleResults[0][1])
+
+    explain {
+        sql """
+            SELECT SUM(x + 1.0), SUM(x + 2.0)
+            FROM sr_double_rounding
+        """
+        notContains "count("
+    }
+}

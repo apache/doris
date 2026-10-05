@@ -1,0 +1,165 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.common.util;
+
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableTest;
+import org.apache.doris.common.MetaNotFoundException;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+public class MetaLockUtilsTest {
+
+    List<Table> tableList = ImmutableList.of(TableTest.newOlapTable(0, "test1", 0),
+            TableTest.newOlapTable(1, "test2", 0));
+
+    @Test
+    public void testReadLockDatabases() {
+        List<Database> databaseList = Lists.newArrayList(new Database(), new Database());
+        MetaLockUtils.readLockDatabases(databaseList);
+        Assertions.assertFalse(databaseList.get(0).tryWriteLock(1, TimeUnit.MILLISECONDS));
+        Assertions.assertFalse(databaseList.get(1).tryWriteLock(1, TimeUnit.MILLISECONDS));
+        MetaLockUtils.readUnlockDatabases(databaseList);
+        Assertions.assertTrue(databaseList.get(0).tryWriteLock(1, TimeUnit.MILLISECONDS));
+        Assertions.assertTrue(databaseList.get(1).tryWriteLock(1, TimeUnit.MILLISECONDS));
+        databaseList.get(0).writeUnlock();
+        databaseList.get(1).writeUnlock();
+    }
+
+    @Test
+    public void testReadLockTables() {
+        MetaLockUtils.readLockTables(tableList);
+        Assertions.assertFalse(tableList.get(0).tryWriteLock(1, TimeUnit.MILLISECONDS));
+        Assertions.assertFalse(tableList.get(1).tryWriteLock(1, TimeUnit.MILLISECONDS));
+        MetaLockUtils.readUnlockTables(tableList);
+        Assertions.assertTrue(tableList.get(0).tryWriteLock(1, TimeUnit.MILLISECONDS));
+        Assertions.assertTrue(tableList.get(1).tryWriteLock(1, TimeUnit.MILLISECONDS));
+        tableList.get(0).writeUnlock();
+        tableList.get(1).writeUnlock();
+    }
+
+    /**
+     * The read batch gives back what it took when a later table stays busy, so the caller holds nothing
+     * while it decides what to do. Probed the same way as the tests above: a read lock still held would
+     * block the write lock of the table that was acquired first.
+     */
+    @Test
+    public void testTryReadLockTablesReleasesWhatItTookWhenALaterTableIsBusy() throws Exception {
+        List<Table> tables = ImmutableList.of(TableTest.newOlapTable(0, "readable", 0),
+                TableTest.newOlapTable(1, "busy", 0));
+        Table busy = tables.get(1);
+        // Another thread has to hold the write lock: the same thread could take a read lock underneath
+        // its own write lock (that direction is allowed), which is not the case under test. Both
+        // acquisitions are bounded and the holder is asserted to end, so a failure cannot strand it.
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch released = new CountDownLatch(1);
+        Thread holder = new Thread(() -> {
+            Assertions.assertTrue(busy.tryWriteLock(30, TimeUnit.SECONDS));
+            locked.countDown();
+            try {
+                released.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                busy.writeUnlock();
+            }
+        });
+        holder.start();
+        try {
+            Assertions.assertTrue(locked.await(30, TimeUnit.SECONDS));
+            Assertions.assertFalse(MetaLockUtils.tryReadLockTables(tables, 100, TimeUnit.MILLISECONDS),
+                    "a busy table must fail the batch");
+            Assertions.assertTrue(tables.get(0).tryWriteLock(100, TimeUnit.MILLISECONDS),
+                    "the read lock taken for the first table must have been released");
+            tables.get(0).writeUnlock();
+        } finally {
+            released.countDown();
+            holder.join(TimeUnit.SECONDS.toMillis(30));
+        }
+        Assertions.assertFalse(holder.isAlive(), "the holder should have released the table");
+    }
+
+    @Test
+    public void testWriteLockTables() throws MetaNotFoundException {
+        MetaLockUtils.writeLockTables(tableList);
+        Assertions.assertTrue(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assertions.assertTrue(tableList.get(1).isWriteLockHeldByCurrentThread());
+        MetaLockUtils.writeUnlockTables(tableList);
+        Assertions.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assertions.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
+        Assertions.assertTrue(MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 1, TimeUnit.MILLISECONDS));
+        Assertions.assertTrue(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assertions.assertTrue(tableList.get(1).isWriteLockHeldByCurrentThread());
+        MetaLockUtils.writeUnlockTables(tableList);
+        tableList.get(1).readLock();
+        Assertions.assertFalse(MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 1, TimeUnit.MILLISECONDS));
+        Assertions.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assertions.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
+        tableList.get(1).readUnlock();
+    }
+
+    @Test
+    public void testWriteLockTablesWithMetaNotFoundException() throws MetaNotFoundException {
+        MetaLockUtils.writeLockTablesOrMetaException(tableList);
+        Assertions.assertTrue(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assertions.assertTrue(tableList.get(1).isWriteLockHeldByCurrentThread());
+        MetaLockUtils.writeUnlockTables(tableList);
+        Assertions.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assertions.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
+        tableList.get(1).markDropped();
+        MetaNotFoundException e = Assertions.assertThrows(MetaNotFoundException.class, () -> {
+            try {
+                MetaLockUtils.writeLockTablesOrMetaException(tableList);
+            } finally {
+                Assertions.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
+                Assertions.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
+            }
+        });
+        Assertions.assertTrue(e.getMessage().contains("errCode = 7, detailMessage = unknown table, tableName=test2"),
+                "unexpected message: " + e.getMessage());
+    }
+
+    @Test
+    public void testTryWriteLockTablesWithMetaNotFoundException() throws MetaNotFoundException {
+        MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 1000, TimeUnit.MILLISECONDS);
+        Assertions.assertTrue(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assertions.assertTrue(tableList.get(1).isWriteLockHeldByCurrentThread());
+        MetaLockUtils.writeUnlockTables(tableList);
+        Assertions.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
+        Assertions.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
+        tableList.get(1).markDropped();
+        MetaNotFoundException e = Assertions.assertThrows(MetaNotFoundException.class, () -> {
+            try {
+                MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 1000, TimeUnit.MILLISECONDS);
+            } finally {
+                Assertions.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
+                Assertions.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
+            }
+        });
+        Assertions.assertTrue(e.getMessage().contains("errCode = 7, detailMessage = unknown table, tableName=test2"),
+                "unexpected message: " + e.getMessage());
+    }
+}

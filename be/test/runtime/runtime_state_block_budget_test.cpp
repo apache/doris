@@ -1,0 +1,313 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <gtest/gtest.h>
+
+#include "common/config.h"
+#include "exec/pipeline/report_exec_status_size.h"
+#include "runtime/runtime_state.h"
+#include "testutil/mock/mock_runtime_state.h"
+#include "util/block_budget.h"
+
+namespace doris {
+
+TEST(RuntimeStateIcebergCommitDataTest, RejectsMetadataBeforeItCanExceedTheThriftLimit) {
+    RuntimeState state;
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 128;
+    TIcebergCommitData commit_data;
+    commit_data.__set_file_path(std::string(256, 'x'));
+
+    Status status = state.add_iceberg_commit_datas(commit_data);
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_FALSE(status.ok());
+    std::vector<TIcebergCommitData> collected;
+    state.append_iceberg_commit_datas(&collected);
+    EXPECT_TRUE(collected.empty());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetAcrossParallelTasks) {
+    RuntimeState first;
+    RuntimeState second;
+    auto budget = std::make_shared<ExternalFileReportState>();
+    first.set_external_file_report_state(budget);
+    second.set_external_file_report_state(budget);
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 1024 * 1024 + 512;
+    TIcebergCommitData commit_data;
+    commit_data.__set_file_path(std::string(300, 'x'));
+
+    Status first_status = first.add_iceberg_commit_datas(commit_data);
+    Status second_status = second.add_iceberg_commit_datas(commit_data);
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_TRUE(first_status.ok()) << first_status;
+    EXPECT_FALSE(second_status.ok());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetWithOpaqueConnectorData) {
+    RuntimeState iceberg_state;
+    RuntimeState connector_state;
+    auto budget = std::make_shared<ExternalFileReportState>();
+    iceberg_state.set_external_file_report_state(budget);
+    connector_state.set_external_file_report_state(budget);
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 1024 * 1024 + 512;
+    TIcebergCommitData iceberg_data;
+    iceberg_data.__set_file_path(std::string(300, 'x'));
+
+    Status first_status = iceberg_state.add_iceberg_commit_datas(iceberg_data);
+    Status second_status = connector_state.add_connector_commit_data(std::string(300, 'y'));
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_TRUE(first_status.ok()) << first_status;
+    EXPECT_FALSE(second_status.ok());
+    std::vector<std::string> collected;
+    connector_state.append_connector_commit_data(&collected);
+    EXPECT_TRUE(collected.empty());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, UsesTheSmallerCoordinatorThriftLimit) {
+    RuntimeState state;
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 4 * 1024 * 1024;
+    state._query_options.__set_coordinator_thrift_max_message_size(1024 * 1024 + 128);
+    TIcebergCommitData commit_data;
+    commit_data.__set_file_path(std::string(256, 'x'));
+
+    Status status = state.add_iceberg_commit_datas(commit_data);
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_FALSE(status.ok());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, ValidatesTheCompleteReportEnvelope) {
+    TReportExecStatusParams params;
+    params.__set_error_log({std::string(2 * 1024 * 1024, 'x')});
+
+    EXPECT_FALSE(validate_report_exec_status_size(params, 1024 * 1024).ok());
+    EXPECT_TRUE(validate_report_exec_status_size(params, 3 * 1024 * 1024).ok());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, PeriodicReportOmitsExternalCommitData) {
+    RuntimeState state;
+    THivePartitionUpdate hive_update;
+    state.add_hive_partition_updates(hive_update);
+    TIcebergCommitData iceberg_data;
+    iceberg_data.__set_file_path("data.parquet");
+    ASSERT_TRUE(state.add_iceberg_commit_datas(iceberg_data).ok());
+    TMCCommitData mc_data;
+    state.add_mc_commit_datas(mc_data);
+    ASSERT_TRUE(state.add_connector_commit_data("opaque-fragment").ok());
+    TReportExecStatusParams periodic_params;
+
+    state.append_external_file_commit_data(&periodic_params, false);
+
+    EXPECT_FALSE(periodic_params.__isset.hive_partition_updates);
+    EXPECT_FALSE(periodic_params.__isset.iceberg_commit_datas);
+    EXPECT_FALSE(periodic_params.__isset.mc_commit_datas);
+    EXPECT_FALSE(periodic_params.__isset.connector_commit_data);
+
+    TReportExecStatusParams final_params;
+    state.append_external_file_commit_data(&final_params, true);
+    EXPECT_TRUE(final_params.__isset.hive_partition_updates);
+    EXPECT_TRUE(final_params.__isset.iceberg_commit_datas);
+    EXPECT_TRUE(final_params.__isset.mc_commit_datas);
+    ASSERT_TRUE(final_params.__isset.connector_commit_data);
+    ASSERT_EQ(1, final_params.connector_commit_data.size());
+    EXPECT_EQ("opaque-fragment", final_params.connector_commit_data[0]);
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, RetainsFileCleanupUntilReportAcknowledgement) {
+    RuntimeState coordinator_state;
+    RuntimeState task_state;
+    auto report_state = std::make_shared<ExternalFileReportState>();
+    coordinator_state.set_external_file_report_state(report_state);
+    task_state.set_external_file_report_state(report_state);
+    int cleanup_count = 0;
+    task_state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
+
+    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+
+    EXPECT_EQ(1, cleanup_count);
+
+    task_state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
+    coordinator_state.finalize_external_file_report_cleanup(
+            ExternalFileReportOutcome::ACKNOWLEDGED);
+    EXPECT_EQ(1, cleanup_count);
+
+    task_state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
+    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::AMBIGUOUS);
+    EXPECT_EQ(1, cleanup_count);
+    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+    EXPECT_EQ(1, cleanup_count);
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, AmbiguousOwnershipCannotBecomeRejected) {
+    RuntimeState state;
+    int cleanup_count = 0;
+    state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
+
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::AMBIGUOUS);
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+
+    EXPECT_EQ(0, cleanup_count);
+}
+
+// ---------------------------------------------------------------------------
+// RuntimeState::batch_size()
+// ---------------------------------------------------------------------------
+
+class RuntimeStateBatchSizeTest : public ::testing::Test {
+protected:
+    RuntimeState state;
+};
+
+TEST_F(RuntimeStateBatchSizeTest, DefaultWhenUnset) {
+    EXPECT_EQ(state.batch_size(), 4062);
+}
+
+TEST_F(RuntimeStateBatchSizeTest, NormalValue) {
+    state._query_options.__set_batch_size(4096);
+    EXPECT_EQ(state.batch_size(), 4096);
+}
+
+TEST_F(RuntimeStateBatchSizeTest, ClampToMin) {
+    state._query_options.__set_batch_size(0);
+    EXPECT_EQ(state.batch_size(), 1);
+
+    state._query_options.__set_batch_size(-100);
+    EXPECT_EQ(state.batch_size(), 1);
+}
+
+TEST_F(RuntimeStateBatchSizeTest, ClampToMax) {
+    state._query_options.__set_batch_size(100000);
+    EXPECT_EQ(state.batch_size(), 65535);
+}
+
+TEST_F(RuntimeStateBatchSizeTest, ExactBoundaries) {
+    state._query_options.__set_batch_size(1);
+    EXPECT_EQ(state.batch_size(), 1);
+
+    state._query_options.__set_batch_size(65535);
+    EXPECT_EQ(state.batch_size(), 65535);
+}
+
+TEST_F(RuntimeStateBatchSizeTest, ConstructedBlockBudgetUsesBatchSizeRows) {
+    state._query_options.__set_batch_size(4096);
+    EXPECT_EQ(BlockBudget(state.batch_size(), state.preferred_block_size_bytes()).max_rows, 4096UL);
+}
+
+// ---------------------------------------------------------------------------
+// RuntimeState::preferred_block_size_bytes()
+// ---------------------------------------------------------------------------
+
+class RuntimeStateAdaptiveBatchSizeTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        _saved_enable_adaptive = config::enable_adaptive_batch_size;
+        config::enable_adaptive_batch_size = true;
+    }
+
+    void TearDown() override { config::enable_adaptive_batch_size = _saved_enable_adaptive; }
+
+    bool _saved_enable_adaptive = false;
+};
+
+class RuntimeStateBlockSizeBytesTest : public RuntimeStateAdaptiveBatchSizeTest {
+protected:
+    RuntimeState state;
+};
+
+TEST_F(RuntimeStateBlockSizeBytesTest, DefaultWhenUnset) {
+    // Field not set → default 8MB.
+    EXPECT_EQ(state.preferred_block_size_bytes(), 8388608UL);
+}
+
+TEST_F(RuntimeStateBlockSizeBytesTest, NormalValue) {
+    state._query_options.__set_preferred_block_size_bytes(4194304L); // 4MB
+    EXPECT_EQ(state.preferred_block_size_bytes(), 4194304UL);
+}
+
+TEST_F(RuntimeStateBlockSizeBytesTest, ZeroClampsToMin) {
+    // FE rejects 0, but BE still clamps direct thrift / mixed-version inputs defensively.
+    state._query_options.__set_preferred_block_size_bytes(0);
+    EXPECT_EQ(state.preferred_block_size_bytes(), 1048576UL);
+}
+
+TEST_F(RuntimeStateBlockSizeBytesTest, ClampToMin) {
+    // Non-zero values below 1MB should be clamped to 1MB.
+    state._query_options.__set_preferred_block_size_bytes(50);
+    EXPECT_EQ(state.preferred_block_size_bytes(), 1048576UL); // 1MB
+}
+
+TEST_F(RuntimeStateBlockSizeBytesTest, ClampToMax) {
+    // Values above 512MB should be clamped to 512MB.
+    state._query_options.__set_preferred_block_size_bytes(1073741824L); // 1GB
+    EXPECT_EQ(state.preferred_block_size_bytes(), 536870912UL);         // 512MB
+}
+
+TEST_F(RuntimeStateBlockSizeBytesTest, ExactBoundaries) {
+    state._query_options.__set_preferred_block_size_bytes(1048576L); // 1MB
+    EXPECT_EQ(state.preferred_block_size_bytes(), 1048576UL);
+
+    state._query_options.__set_preferred_block_size_bytes(536870912L); // 512MB
+    EXPECT_EQ(state.preferred_block_size_bytes(), 536870912UL);
+}
+
+TEST_F(RuntimeStateBlockSizeBytesTest, DisabledWhenConfigOff) {
+    config::enable_adaptive_batch_size = false;
+    state._query_options.__set_preferred_block_size_bytes(8388608L);
+    EXPECT_EQ(state.preferred_block_size_bytes(), 536870912UL);
+    EXPECT_EQ(BlockBudget(state.batch_size(), state.preferred_block_size_bytes()).max_bytes,
+              536870912UL);
+}
+
+// ---------------------------------------------------------------------------
+// MockRuntimeState: verify the test override bypasses clamping
+// ---------------------------------------------------------------------------
+
+class MockRuntimeStateBlockBudgetTest : public RuntimeStateAdaptiveBatchSizeTest {
+protected:
+    MockRuntimeState state;
+};
+
+TEST_F(MockRuntimeStateBlockBudgetTest, PreferredBlockSizeBypassesClamping) {
+    state._query_options.__set_preferred_block_size_bytes(50);
+    EXPECT_EQ(state.preferred_block_size_bytes(), 50UL);
+}
+
+TEST_F(MockRuntimeStateBlockBudgetTest, PreferredBlockSizeDefaultFallback) {
+    // When not set, falls back to base class default (8MB).
+    EXPECT_EQ(state.preferred_block_size_bytes(), 8388608UL);
+}
+
+TEST_F(MockRuntimeStateBlockBudgetTest, BatchSizeOverride) {
+    // MockRuntimeState returns _batch_size member directly.
+    state._batch_size = 256;
+    EXPECT_EQ(state.batch_size(), 256);
+}
+
+TEST_F(MockRuntimeStateBlockBudgetTest, ConfigOffStillDisablesAdaptiveBytes) {
+    config::enable_adaptive_batch_size = false;
+    state._query_options.__set_preferred_block_size_bytes(50);
+    EXPECT_EQ(state.preferred_block_size_bytes(), 536870912UL);
+}
+
+} // namespace doris

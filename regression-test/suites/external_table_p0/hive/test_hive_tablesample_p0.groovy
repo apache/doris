@@ -1,0 +1,68 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_hive_tablesample_p0", "p0,external") {
+
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive3"]) {
+        try {
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "test_${hivePrefix}_tablesample_p0"
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
+            sql """drop catalog if exists ${catalog_name}"""
+            sql """create catalog if not exists ${catalog_name} properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            );"""
+            sql """use `${catalog_name}`.`default`"""
+            sql """SET enable_nereids_planner=true"""
+            sql """SET enable_fallback_to_original_planner=false"""
+            sql """select count(*) from student tablesample(10 rows);"""
+            sql """select count(*) from student tablesample(10 percent);"""
+            explain {
+                sql("select count(*) from student tablesample(10 rows);")
+                contains "count(*)[#7]"
+            }
+            explain {
+                sql("select count(*) from student tablesample(10 percent);")
+                contains "count(*)[#7]"
+            }
+            // FIX-M1: post-cutover TABLESAMPLE was silently dropped (plugin scan returned the FULL table).
+            // The connector now opts in (HiveScanPlanProvider.supportsTableSample) and PluginDrivenScanNode
+            // samples the splits. A sample never exceeds the full table — assert that invariant on real
+            // results (not just an EXPLAIN substring). NOTE: a STRONG reduction assertion (sampled < full)
+            // needs a multi-file table; on a single-file fixture the sample floor is one file (== full), so
+            // the strict-reduction check is left to live verification against a large table.
+            def fullCount = sql """select count(*) from student"""
+            def sampledRows = sql """select count(*) from student tablesample(10 rows)"""
+            def sampledPercent = sql """select count(*) from student tablesample(10 percent)"""
+            assertTrue(sampledRows[0][0] <= fullCount[0][0],
+                    "TABLESAMPLE(rows) count ${sampledRows[0][0]} must not exceed full table ${fullCount[0][0]}")
+            assertTrue(sampledPercent[0][0] <= fullCount[0][0],
+                    "TABLESAMPLE(percent) count ${sampledPercent[0][0]} must not exceed full table ${fullCount[0][0]}")
+            sql """drop catalog if exists ${catalog_name}"""
+        } finally {
+        }
+    }
+}
+

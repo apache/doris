@@ -1,0 +1,308 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.postprocess;
+
+import org.apache.doris.nereids.processor.post.CommonSubExpressionCollector;
+import org.apache.doris.nereids.processor.post.CommonSubExpressionOpt;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VarcharType;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
+    @Test
+    public void testExtractCommonExpr() {
+        List<NamedExpression> exprs = parseProjections("a+b, a+b+1, abs(a+b+1), a");
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        exprs.forEach(expr -> collector.visit(expr, null));
+        Assertions.assertEquals(2, collector.commonExprByDepth.size());
+        List<Expression> l1 = new ArrayList<>(collector.commonExprByDepth.get(1));
+        List<Expression> l2 = new ArrayList<>(collector.commonExprByDepth.get(2));
+        Assertions.assertEquals(1, l1.size());
+        assertExpression(l1.get(0), "a+b");
+        Assertions.assertEquals(1, l2.size());
+        assertExpression(l2.get(0), "a+b+1");
+    }
+
+    @Test
+    void testLambdaExpression() {
+        ArrayItemReference ref = new ArrayItemReference("x", new SlotReference(new ExprId(1), "y",
+                ArrayType.of(IntegerType.INSTANCE), true, ImmutableList.of()));
+        Expression add = new Add(ref.toSlot(), Literal.of(1));
+        Expression and = new And(add, add);
+        ArrayMap arrayMap = new ArrayMap(new Lambda(ImmutableList.of("x"), and, ImmutableList.of(ref)));
+        List<NamedExpression> exprs = Lists.newArrayList(
+                new Alias(new ExprId(10000), arrayMap, "c1"),
+                new Alias(new ExprId(10001), arrayMap, "c2")
+        );
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        exprs.forEach(expr -> collector.visit(expr, false));
+        Assertions.assertEquals(1, collector.commonExprByDepth.size());
+        Assertions.assertEquals(1, collector.commonExprByDepth.get(4).size());
+        Assertions.assertEquals(arrayMap, collector.commonExprByDepth.get(4).iterator().next());
+    }
+
+    @Test
+    public void testMultiLayers() throws Exception {
+        List<NamedExpression> exprs = parseProjections("a, a+b, a+b+1, abs(a+b+1), a");
+        Set<Slot> inputSlots = exprs.get(0).getInputSlots();
+        CommonSubExpressionOpt opt = new CommonSubExpressionOpt();
+        Method computeMultLayerProjectionsMethod = CommonSubExpressionOpt.class
+                .getDeclaredMethod("computeMultiLayerProjections", Set.class, List.class);
+        computeMultLayerProjectionsMethod.setAccessible(true);
+        List<List<NamedExpression>> multiLayers = (List<List<NamedExpression>>) computeMultLayerProjectionsMethod
+                .invoke(opt, inputSlots, exprs);
+        Assertions.assertEquals(3, multiLayers.size());
+        List<NamedExpression> l0 = multiLayers.get(0);
+        Assertions.assertEquals(2, l0.size());
+        Assertions.assertTrue(l0.contains(ExprParser.INSTANCE.parseExpression("a")));
+        Assertions.assertInstanceOf(Alias.class, l0.get(1));
+        assertExpression(l0.get(1).child(0), "a+b");
+        Assertions.assertEquals(3, multiLayers.get(1).size());
+        Assertions.assertEquals(5, multiLayers.get(2).size());
+        List<NamedExpression> l2 = multiLayers.get(2);
+        for (int i = 0; i < 5; i++) {
+            Assertions.assertEquals(exprs.get(i).getExprId().asInt(), l2.get(i).getExprId().asInt());
+        }
+
+    }
+
+    @Test
+    public void testGuardDoesNotReuseUnguardedRoot() {
+        Slot platform = new SlotReference("platform", VarcharType.createVarcharType(65533));
+        Expression coalesce = new Coalesce(platform, new StringLiteral(""));
+        SessionVarGuardExpr guard = new SessionVarGuardExpr(coalesce,
+                ImmutableMap.of("enable_decimal256", "false"));
+        Alias unguarded = new Alias(coalesce, "unguarded");
+
+        // Even an available alias for the root cannot replace the protected computation.
+        Assertions.assertEquals(guard, guard.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE,
+                ImmutableMap.of(coalesce, unguarded)));
+
+        SessionVarGuardExpr otherGuard = new SessionVarGuardExpr(coalesce,
+                ImmutableMap.of("enable_decimal256", "true"));
+        Assertions.assertEquals(guard, guard.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE,
+                ImmutableMap.of(otherGuard, new Alias(otherGuard, "other_session"))));
+    }
+
+    @Test
+    public void testReuseWholeGuardAndGuardedArgument() {
+        Slot platform = new SlotReference("platform", VarcharType.createVarcharType(65533));
+        Map<String, String> sessionVars = ImmutableMap.of("enable_decimal256", "false");
+        SessionVarGuardExpr inner = new SessionVarGuardExpr(
+                new Coalesce(platform, new StringLiteral("")), sessionVars);
+        Alias computed = new Alias(inner, "computed");
+        Map<Expression, Alias> aliases = ImmutableMap.of(inner, computed);
+
+        Assertions.assertEquals(computed.toSlot(),
+                inner.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE, aliases));
+
+        SessionVarGuardExpr outer = new SessionVarGuardExpr(
+                new If(new EqualTo(inner, new StringLiteral("")), NullLiteral.INSTANCE, inner), sessionVars);
+        Expression expected = new SessionVarGuardExpr(
+                new If(new EqualTo(computed.toSlot(), new StringLiteral("")),
+                        NullLiteral.INSTANCE, computed.toSlot()), sessionVars);
+        Assertions.assertEquals(expected,
+                outer.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE, aliases));
+    }
+
+    @Test
+    public void testGuardCseProjectionDependencies() throws Exception {
+        Slot platform = new SlotReference("platform", VarcharType.createVarcharType(65533));
+        Expression coalesce = new Coalesce(platform, new StringLiteral(""));
+        Map<String, String> sessionVars = ImmutableMap.of("enable_decimal256", "false");
+        SessionVarGuardExpr guardedCoalesce = new SessionVarGuardExpr(coalesce, sessionVars);
+        Expression guardedIf = new SessionVarGuardExpr(new If(
+                new EqualTo(guardedCoalesce, new StringLiteral("")), NullLiteral.INSTANCE, guardedCoalesce),
+                sessionVars);
+        Alias x = new Alias(coalesce, "x");
+        Alias y = new Alias(coalesce, "y");
+        Alias z = new Alias(guardedIf, "z");
+        Method method = CommonSubExpressionOpt.class
+                .getDeclaredMethod("computeMultiLayerProjections", Set.class, List.class);
+        method.setAccessible(true);
+
+        // Use the expanded alias-function reproducer in both projection orders.
+        for (List<NamedExpression> projects : ImmutableList.of(
+                ImmutableList.<NamedExpression>of(x, y, z), ImmutableList.<NamedExpression>of(z, x, y))) {
+            List<List<NamedExpression>> layers = (List<List<NamedExpression>>) method.invoke(
+                    new CommonSubExpressionOpt(), coalesce.getInputSlots(), projects);
+            Assertions.assertEquals(2, layers.size());
+            Map<Expression, Alias> extracted = new HashMap<>();
+            for (NamedExpression expression : layers.get(0)) {
+                if (expression instanceof Alias) {
+                    extracted.put(expression.child(0), (Alias) expression);
+                }
+            }
+            Assertions.assertEquals(2, extracted.size());
+            Assertions.assertTrue(extracted.containsKey(coalesce));
+            Assertions.assertTrue(extracted.containsKey(guardedCoalesce));
+
+            // Check the entire layer before making any of its outputs available.
+            Set<Slot> inputs = new HashSet<>(coalesce.getInputSlots());
+            for (List<NamedExpression> layer : layers) {
+                Set<Slot> outputs = new HashSet<>();
+                for (NamedExpression expression : layer) {
+                    Assertions.assertTrue(inputs.containsAll(expression.getInputSlots()),
+                            "Projection references an unavailable input: " + expression);
+                    outputs.add(expression.toSlot());
+                }
+                inputs = outputs;
+            }
+            Slot guardedSlot = extracted.get(guardedCoalesce).toSlot();
+            Expression expectedIf = new SessionVarGuardExpr(new If(
+                    new EqualTo(guardedSlot, new StringLiteral("")), NullLiteral.INSTANCE, guardedSlot), sessionVars);
+            Map<ExprId, Expression> expected = ImmutableMap.of(
+                    x.getExprId(), extracted.get(coalesce).toSlot(),
+                    y.getExprId(), extracted.get(coalesce).toSlot(), z.getExprId(), expectedIf);
+            for (int i = 0; i < projects.size(); i++) {
+                NamedExpression output = layers.get(1).get(i);
+                Assertions.assertEquals(projects.get(i).getExprId(), output.getExprId());
+                Assertions.assertEquals(projects.get(i).getName(), output.getName());
+                Assertions.assertEquals(expected.get(output.getExprId()), output.child(0));
+            }
+        }
+    }
+
+    private void assertExpression(Expression expr, String str) {
+        Assertions.assertEquals(ExprParser.INSTANCE.parseExpression(str), expr);
+    }
+
+    private List<NamedExpression> parseProjections(String exprList) {
+        List<NamedExpression> result = new ArrayList<>();
+        String[] exprArray = exprList.split(",");
+        for (String item : exprArray) {
+            Expression expr = ExprParser.INSTANCE.parseExpression(item);
+            if (expr instanceof NamedExpression) {
+                result.add((NamedExpression) expr);
+            } else {
+                result.add(new Alias(expr));
+            }
+        }
+        return result;
+    }
+
+    public static class ExprParser {
+        public static ExprParser INSTANCE = new ExprParser();
+        HashMap<String, SlotReference> slotMap = new HashMap<>();
+
+        public Expression parseExpression(String str) {
+            Expression expr = PARSER.parseExpression(str);
+            return expr.accept(DataTypeAssignor.INSTANCE, slotMap);
+        }
+    }
+
+    public static class DataTypeAssignor extends DefaultExpressionRewriter<Map<String, SlotReference>> {
+        public static DataTypeAssignor INSTANCE = new DataTypeAssignor();
+
+        @Override
+        public Expression visitSlot(Slot slot, Map<String, SlotReference> slotMap) {
+            SlotReference exitsSlot = slotMap.get(slot.getName());
+            if (exitsSlot != null) {
+                return exitsSlot;
+            } else {
+                SlotReference slotReference = new SlotReference(slot.getName(), IntegerType.INSTANCE);
+                slotMap.put(slot.getName(), slotReference);
+                return slotReference;
+            }
+        }
+    }
+
+    @Test
+    public void testCaseWhenSubExprExtracted() {
+        // a+b appears 4 times inside CASE WHEN, should be collected as common sub-expression
+        // WhenClause itself should NOT be collected
+        List<NamedExpression> exprs = parseProjections(
+                "CASE WHEN (a+b > 10) THEN (a+b) WHEN (a+b > 5) THEN (a+b) ELSE 0 END");
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        exprs.forEach(expr -> collector.collect(expr));
+
+        // a+b is at depth 1 and appears multiple times → should be in commonExprByDepth
+        Assertions.assertFalse(collector.commonExprByDepth.isEmpty(),
+                "a+b should be collected as common sub-expression");
+        Set<Expression> depth1 = collector.commonExprByDepth.get(1);
+        Assertions.assertNotNull(depth1, "common expressions at depth 1 should exist");
+        Assertions.assertEquals(1, depth1.size());
+        assertExpression(depth1.iterator().next(), "a+b");
+
+        // no WhenClause should appear in commonExprByDepth at any depth
+        for (Set<Expression> exprsAtDepth : collector.commonExprByDepth.values()) {
+            for (Expression e : exprsAtDepth) {
+                Assertions.assertFalse(e instanceof org.apache.doris.nereids.trees.expressions.WhenClause,
+                        "WhenClause should not be collected as common sub-expression");
+            }
+        }
+    }
+
+    @Test
+    public void testEmptyLayerWhenOnlyWhenClauseIsCommon() throws Exception {
+        // two identical WhenClause(false, null), no slot references
+        List<NamedExpression> exprs = parseProjections(
+                "CASE WHEN false THEN null WHEN false THEN null ELSE 1 END");
+        Set<Slot> inputSlots = new HashSet<>();
+
+        CommonSubExpressionOpt opt = new CommonSubExpressionOpt();
+        Method method = CommonSubExpressionOpt.class
+                .getDeclaredMethod("computeMultiLayerProjections", Set.class, List.class);
+        method.setAccessible(true);
+
+        List<List<NamedExpression>> multiLayers =
+                (List<List<NamedExpression>>) method.invoke(opt, inputSlots, exprs);
+
+        // Bug: multiLayers = [[], [CASE...]]  — l0 is empty
+        // Expected: either multiLayers is empty (no useful CSE),
+        //           or every layer is non-empty
+        for (List<NamedExpression> layer : multiLayers) {
+            Assertions.assertFalse(layer.isEmpty(),
+                    "intermediate layer should not be empty");
+        }
+    }
+}

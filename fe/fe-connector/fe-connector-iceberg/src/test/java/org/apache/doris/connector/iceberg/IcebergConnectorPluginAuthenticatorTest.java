@@ -1,0 +1,206 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.iceberg;
+
+import org.apache.doris.kerberos.HadoopAuthenticator;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.iceberg.hive.CachedClientPool;
+import org.apache.iceberg.hive.HiveCatalog;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Unit tests for Iceberg's separate storage and HMS authenticator resolution.
+ *
+ * <p>The load-bearing case is <b>HMS-metastore Kerberos with simple (non-Kerberos) storage</b>
+ * (e.g. a Kerberized Hive Metastore over S3). Before the fe-core iceberg property cluster is deleted
+ * that login was served fe-core-side by
+ * {@code IcebergHMSMetaStoreProperties -> HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator())}
+ * and delivered via {@code DefaultConnectorContext}; the connector must own it once that cluster is gone.
+ * These tests pin that the connector resolves both Kerberos and SIMPLE identities for the HMS client-pool
+ * boundary without replacing the storage authenticator used by FileIO.
+ *
+ * <p>The actual keytab login is lazy (on first {@code doAs}), so these assertions never touch a KDC.
+ */
+public class IcebergConnectorPluginAuthenticatorTest {
+
+    private static Map<String, String> props(String... kv) {
+        Map<String, String> m = new HashMap<>();
+        for (int i = 0; i < kv.length; i += 2) {
+            m.put(kv[i], kv[i + 1]);
+        }
+        return m;
+    }
+
+    /** Storage-level Kerberos (raw hadoop.security.authentication) — unchanged prior behavior. */
+    @Test
+    public void storageKerberosBuildsAuthenticator() {
+        HadoopAuthenticator auth = IcebergConnector.buildPluginAuthenticator(
+                props("iceberg.catalog.type", "hadoop",
+                        "hadoop.security.authentication", "kerberos",
+                        "hadoop.kerberos.principal", "doris@EXAMPLE.COM",
+                        "hadoop.kerberos.keytab", "/etc/security/doris.keytab"),
+                new HashMap<>());
+        Assertions.assertNotNull(auth, "storage kerberos must yield a plugin authenticator");
+    }
+
+    /**
+     * THE CUT-1 GAP: a Kerberized HMS whose data storage is simple. Storage auth is unset, so the storage
+     * gate is off; the connector must fall back to the HMS client-principal/keytab facts and still build a
+     * plugin authenticator (mirroring the fe-core HMS authenticator it replaces).
+     */
+    @Test
+    public void hmsMetastoreKerberosWithSimpleStorageBuildsAuthenticator() {
+        HadoopAuthenticator auth = IcebergConnector.buildHmsAuthenticator(
+                props("iceberg.catalog.type", "hms",
+                        "hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "kerberos",
+                        "hive.metastore.client.principal", "doris@EXAMPLE.COM",
+                        "hive.metastore.client.keytab", "/etc/security/doris.keytab"),
+                new HashMap<>());
+        Assertions.assertNotNull(auth,
+                "HMS-metastore kerberos with simple storage must yield a plugin authenticator");
+    }
+
+    /** HMS auth is resolved separately so it can be applied only at the HMS client-pool boundary. */
+    @Test
+    public void hmsSimpleAuthUsesConfiguredUser() throws Exception {
+        HadoopAuthenticator auth = IcebergConnector.buildHmsAuthenticator(
+                props("iceberg.catalog.type", "hms",
+                        "hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "simple",
+                        "hive.metastore.username", "iceberg-hms-user"),
+                new HashMap<>());
+        Assertions.assertEquals("iceberg-hms-user", auth.getUGI().getUserName());
+    }
+
+    @Test
+    public void explicitSimpleHmsKeepsItsUserWithKerberosStorage() throws Exception {
+        HadoopAuthenticator auth = IcebergConnector.buildHmsAuthenticator(
+                props("iceberg.catalog.type", "hms",
+                        "hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "simple",
+                        "hive.metastore.username", "iceberg-hms-user",
+                        "hadoop.security.authentication", "kerberos",
+                        "hadoop.kerberos.principal", "storage@EXAMPLE.COM",
+                        "hadoop.kerberos.keytab", "/etc/security/storage.keytab"),
+                new HashMap<>());
+        Assertions.assertEquals("iceberg-hms-user", auth.getUGI().getUserName());
+    }
+
+    @Test
+    public void hmsIdentitiesAreIncludedInClientPoolCacheKey() {
+        Assertions.assertEquals(
+                "ugi,conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
+                IcebergConnector.appendHmsCacheKeys("ugi"));
+        Assertions.assertEquals(
+                "conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
+                IcebergConnector.appendHmsCacheKeys("conf:hadoop.username"));
+    }
+
+    @Test
+    public void hmsCacheKeyPreservesCaseSensitiveConfigurationNames() {
+        Assertions.assertEquals(
+                "conf:HADOOP.USERNAME,conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
+                IcebergConnector.appendHmsCacheKeys("conf:HADOOP.USERNAME"));
+    }
+
+    @Test
+    public void transportChangesProduceDifferentSdkPoolKeys() throws Exception {
+        Configuration first = poolConf("service-a/_HOST@REALM", false);
+        Assertions.assertNotEquals(icebergPoolKey(first),
+                icebergPoolKey(poolConf("service-b/_HOST@REALM", false)));
+        Assertions.assertNotEquals(icebergPoolKey(first),
+                icebergPoolKey(poolConf("service-a/_HOST@REALM", true)));
+    }
+
+    private static Configuration poolConf(String servicePrincipal, boolean sasl) {
+        Configuration conf = new Configuration(false);
+        conf.set("hive.metastore.uris", "thrift://hms:9083");
+        conf.set("hive.metastore.kerberos.principal", servicePrincipal);
+        conf.setBoolean("hive.metastore.sasl.enabled", sasl);
+        return conf;
+    }
+
+    private static Object icebergPoolKey(Configuration conf) throws Exception {
+        Method extractKey = CachedClientPool.class.getDeclaredMethod(
+                "extractKey", String.class, Configuration.class);
+        extractKey.setAccessible(true);
+        return extractKey.invoke(null, IcebergConnector.appendHmsCacheKeys(null), conf);
+    }
+
+    @Test
+    public void defaultTableOwnerIsResolvedUnderHmsIdentityOnly() throws Exception {
+        HadoopAuthenticator hmsAuth = IcebergConnector.buildHmsAuthenticator(
+                props("iceberg.catalog.type", "hms",
+                        "hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "simple",
+                        "hive.metastore.username", "iceberg-hms-user"),
+                new HashMap<>());
+        Configuration storageConf = new Configuration(false);
+        storageConf.set("hadoop.username", "iceberg-storage-user");
+        HadoopAuthenticator storageAuth = HadoopAuthenticator.getHadoopAuthenticator(
+                org.apache.doris.kerberos.AuthenticationConfig.getSimpleAuthenticationConfig(storageConf));
+        Map<String, String> options = new HashMap<>();
+
+        storageAuth.doAs(() -> {
+            IcebergConnector.applyHmsTableOwner(options, hmsAuth);
+            Assertions.assertEquals("iceberg-storage-user",
+                    UserGroupInformation.getCurrentUser().getUserName());
+            return null;
+        });
+
+        Assertions.assertEquals("iceberg-hms-user", options.get(HiveCatalog.HMS_TABLE_OWNER));
+    }
+
+    /** A non-HMS flavor with no storage Kerberos builds no authenticator. */
+    @Test
+    public void nonHmsFlavorWithoutStorageKerberosReturnsNull() {
+        HadoopAuthenticator auth = IcebergConnector.buildPluginAuthenticator(
+                props("iceberg.catalog.type", "rest",
+                        "uri", "http://rest:8181"),
+                new HashMap<>());
+        Assertions.assertNull(auth, "rest flavor without storage kerberos must not build an authenticator");
+    }
+
+    /**
+     * HMS declares kerberos auth-type but the client principal/keytab are blank — the {@code hasCredentials}
+     * guard must reject it (an authenticator with no login pair would fail obscurely at first doAs).
+     */
+    @Test
+    public void hmsKerberosWithBlankCredsReturnsNull() {
+        HadoopAuthenticator auth = IcebergConnector.buildHmsAuthenticator(
+                props("iceberg.catalog.type", "hms",
+                        "hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "kerberos"),
+                new HashMap<>());
+        Assertions.assertNull(auth, "kerberos HMS without a client principal/keytab pair must not build one");
+    }
+}

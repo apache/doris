@@ -1,0 +1,192 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands.info;
+
+import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+
+import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * BuildIndexOp
+ */
+public class BuildIndexOp extends AlterTableOp {
+    // index definition class
+    private IndexDefinition indexDef;
+    // when alter = true, clause like: alter table add index xxxx
+    // when alter = false, clause like: create index xx on table xxxx
+    private final boolean alter;
+    // index internal class
+    private Index index;
+    // index name
+    private String indexName;
+    // partition names info
+    private final PartitionNamesInfo partitionNamesInfo;
+
+    public BuildIndexOp(TableNameInfo tableName, String indexName, PartitionNamesInfo partitionNamesInfo,
+                        boolean alter) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.tableName = tableName;
+        this.indexName = indexName;
+        this.partitionNamesInfo = partitionNamesInfo;
+        this.alter = alter;
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return Maps.newHashMap();
+    }
+
+    public Index getIndex() {
+        return index;
+    }
+
+    public IndexDefinition getIndexDef() {
+        return indexDef;
+    }
+
+    public boolean isAlter() {
+        return alter;
+    }
+
+    @Override
+    public void validate(ConnectContext ctx) throws UserException {
+        tableName.analyze(ctx.getNameSpaceContext());
+        DatabaseIf<Table> db = Env.getCurrentEnv().getCatalogMgr().getInternalCatalog()
+                .getDb(tableName.getDb()).orElse(null);
+        if (db == null) {
+            throw new AnalysisException("Database[" + tableName.getDb() + "] is not exist");
+        }
+
+        TableIf table = db.getTable(tableName.getTbl()).orElse(null);
+        if (table == null) {
+            throw new AnalysisException("Table[" + tableName.getTbl() + "] is not exist");
+        }
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException("Only olap table support build index");
+        }
+
+        if (Config.isCloudMode()) {
+            if (!StringUtils.isEmpty(indexName)) {
+                throw new AnalysisException("Not support specify index name in cloud mode");
+            }
+
+            for (Index index : table.getTableIndexes().getIndexes()) {
+                if (!index.isLightIndexChangeSupported()) {
+                    throw new AnalysisException("BUILD INDEX operation failed, " + index.getIndexName()
+                            + " of type " + index.getIndexType()
+                            + " does not support lightweight index changes. ");
+                }
+                indexName = index.getIndexName();
+            }
+
+        } else {
+            if (StringUtils.isEmpty(indexName)) {
+                throw new AnalysisException(" index name should be specified.");
+            }
+        }
+
+        Index existedIdx = null;
+        for (Index index : table.getTableIndexes().getIndexes()) {
+            if (index.getIndexName().equalsIgnoreCase(indexName)) {
+                existedIdx = index;
+                if (!existedIdx.isLightIndexChangeSupported()) {
+                    throw new AnalysisException("BUILD INDEX operation failed: The index "
+                            + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
+                            + " does not support lightweight index changes.");
+                }
+                break;
+            }
+        }
+        if (existedIdx == null) {
+            throw new AnalysisException("Index[" + indexName + "] is not exist in table[" + tableName.getTbl() + "]");
+        }
+
+        IndexType indexType = existedIdx.getIndexType();
+        OlapTable olapTable = (OlapTable) table;
+        // A parsed inverted index normally needs no explicit build in cloud mode, because adding it
+        // is not a light change there and the resulting job already indexes every existing rowset.
+        // SNII backfills historical rowsets through the index-change flow instead, so its parsed
+        // indexes must reach that flow rather than being filtered out here.
+        boolean isSniiInvertedIndex = indexType == IndexType.INVERTED
+                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.SNII;
+        if ((Config.isNotCloudMode() && indexType == IndexType.NGRAM_BF)
+                || indexType == IndexType.BLOOMFILTER
+                || (Config.isCloudMode()
+                && indexType == IndexType.INVERTED && !existedIdx.isInvertedIndexParserNone()
+                && !isSniiInvertedIndex)) {
+            throw new AnalysisException(indexType + " index is not needed to build.");
+        }
+
+        if (indexType == IndexType.ANN) {
+            List<String> columns = existedIdx.getColumns();
+            Map<String, String> properties = existedIdx.getProperties();
+            String comment = existedIdx.getComment();
+            indexDef = new IndexDefinition(indexName, false, columns, "ANN", properties, comment);
+        } else {
+            indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);
+        }
+
+        if (!table.isPartitionedTable()) {
+            List<String> specifiedPartitions = indexDef.getPartitionNames();
+            if (!specifiedPartitions.isEmpty()) {
+                throw new AnalysisException("table " + table.getName()
+                        + " is not partitioned, cannot build index with partitions.");
+            }
+        }
+
+        indexDef.validate();
+        this.index = existedIdx.clone();
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return true;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
+    }
+
+    @Override
+    public String toSql() {
+        if (alter) {
+            return indexDef.toSql();
+        } else {
+            return "BUILD " + indexDef.toSql(tableName.toSql());
+        }
+    }
+}

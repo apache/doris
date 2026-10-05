@@ -1,0 +1,161 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.analyzer;
+
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.UserException;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.dictionary.Dictionary;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * Create unbound table sink
+ */
+public class UnboundTableSinkCreator {
+
+    /**
+     * create unbound sink without DML command
+     */
+    public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
+                List<String> colNames, List<String> hints, List<String> partitions, Plan query)
+            throws UserException {
+        String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
+        CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (curCatalog instanceof InternalCatalog) {
+            return new UnboundTableSink<>(nameParts, colNames, hints, partitions, query);
+        } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
+            // #66112: this overload is the CTAS seam -- CreateTableCommand calls it BEFORE publishing the
+            // table metadata precisely so an unsupported destination is rejected while nothing has been
+            // created yet. A connector that declares no INSERT is such a destination, and the generic
+            // plugin sink cannot tell on its own (every PluginDrivenExternalCatalog builds the same
+            // UnboundConnectorTableSink), so the refusal that PhysicalPlanTranslator would otherwise raise
+            // at translation time -- long after the remote table exists -- is raised here instead. Without
+            // it, CTAS falls back to dropping the just-created table BY NAME, which cannot tell this
+            // statement's table from a concurrent creator's table of the same name.
+            // The connector-level (table-free) provider is the only one available here: the CTAS target
+            // does not exist yet, so there is no handle to ask the per-table overload with. A
+            // heterogeneous gateway still answers it (its connector-level provider is non-null), so this
+            // only rejects connectors with no write path at all (paimon / es / hudi / trino).
+            ConnectorWritePlanProvider writeProvider =
+                    ((PluginDrivenExternalCatalog) curCatalog).getConnector().getWritePlanProvider();
+            if (writeProvider == null || !writeProvider.supportedOperations().contains(WriteOperation.INSERT)) {
+                throw new UserException("Connector '" + curCatalog.getName() + "' (type: "
+                        + curCatalog.getType() + ") does not support INSERT operations");
+            }
+            return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions, query);
+        }
+        throw new UserException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
+    }
+
+    /**
+     * create unbound sink for DML plan
+     */
+    public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
+                List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
+                boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+                DMLCommandType dmlCommandType, LogicalPlan plan) {
+        return createUnboundTableSink(nameParts, colNames, hints, temporaryPartition, partitions,
+                isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, plan, null);
+    }
+
+    /**
+     * create unbound sink for DML plan with static partition support for Iceberg / Hive / MaxCompute.
+     */
+    public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
+            List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
+            boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+            DMLCommandType dmlCommandType, LogicalPlan plan,
+            Map<String, Expression> staticPartitionKeyValues) {
+        String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
+        CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (curCatalog instanceof InternalCatalog || curCatalog instanceof RemoteDorisExternalCatalog) {
+            return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
+                    isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
+                    Optional.empty(), plan);
+        } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
+            return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
+        }
+        throw new RuntimeException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
+    }
+
+    /**
+     * create unbound sink for DML plan with auto detect overwrite partition enable
+     * and static partition support for Iceberg / Hive / MaxCompute.
+     */
+    public static LogicalSink<? extends Plan> createUnboundTableSinkMaybeOverwrite(List<String> nameParts,
+            List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
+            boolean isAutoDetectPartition, boolean isOverwrite, boolean isPartialUpdate,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy, DMLCommandType dmlCommandType,
+            LogicalPlan plan, Map<String, Expression> staticPartitionKeyValues) {
+        if (isAutoDetectPartition) { // partitions is null
+            if (!isOverwrite) {
+                throw new ParseException("ASTERISK is only supported in overwrite partition for OLAP table");
+            }
+            temporaryPartition = false;
+            partitions = ImmutableList.of();
+        }
+
+        String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
+        CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (curCatalog instanceof InternalCatalog || curCatalog instanceof RemoteDorisExternalCatalog) {
+            return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
+                    isAutoDetectPartition,
+                    isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
+                    Optional.empty(), plan);
+        } else if (curCatalog instanceof PluginDrivenExternalCatalog && !isAutoDetectPartition) {
+            return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
+        }
+
+        throw new AnalysisException(
+                (isOverwrite ? "insert overwrite" : "insert") + " data to " + curCatalog.getClass().getSimpleName()
+                        + " is not supported."
+                        + (isAutoDetectPartition
+                        ? " PARTITION(*) is only supported in overwrite partition for OLAP table" : ""));
+    }
+
+    /**
+     * create unbound sink for dictionary sink
+     */
+    public static UnboundDictionarySink<? extends Plan> createUnboundDictionarySink(Database database,
+            Dictionary dictionary, LogicalPlan child, boolean adaptiveLoad) {
+        return new UnboundDictionarySink<>(database, dictionary, child, adaptiveLoad);
+    }
+}

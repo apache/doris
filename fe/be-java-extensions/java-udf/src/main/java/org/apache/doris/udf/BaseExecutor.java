@@ -1,0 +1,454 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.udf;
+
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.jni.spi.ThreadContextClassLoader;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.vec.VectorTable;
+import org.apache.doris.thrift.TFunction;
+import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
+import org.apache.doris.thrift.TPrimitiveType;
+
+import com.esotericsoftware.reflectasm.MethodAccess;
+import com.google.common.base.Strings;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TException;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.FileNotFoundException;
+import java.lang.reflect.Constructor;
+import java.net.MalformedURLException;
+import java.net.URLClassLoader;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+
+public abstract class BaseExecutor {
+    // Object to deserialize ctor params from BE.
+    protected static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
+    private static final Logger LOG = LoggerFactory.getLogger(BaseExecutor.class);
+    protected Object udf;
+    // setup by init() and cleared by close()
+    protected URLClassLoader classLoader;
+    protected UdfClassCache objCache;
+    protected TFunction fn;
+    protected boolean isStaticLoad = false;
+    protected VectorTable outputTable = null;
+    String className;
+
+    /**
+     * Create a UdfExecutor, using parameters from a serialized thrift object. Used
+     * by
+     * the backend.
+     */
+
+    public BaseExecutor(byte[] thriftParams) throws Exception {
+        TJavaUdfExecutorCtorParams request = new TJavaUdfExecutorCtorParams();
+        TDeserializer deserializer = new TDeserializer(PROTOCOL_FACTORY);
+        try {
+            deserializer.deserialize(request, thriftParams);
+        } catch (TException e) {
+            throw new InternalException(e.getMessage());
+        }
+        Type[] parameterTypes = new Type[request.fn.arg_types.size()];
+        for (int i = 0; i < request.fn.arg_types.size(); ++i) {
+            parameterTypes[i] = Type.fromThrift(request.fn.arg_types.get(i));
+        }
+        fn = request.fn;
+        String jarFile = request.location;
+        Type funcRetType = Type.fromThrift(request.fn.ret_type);
+        if (request.fn.is_udtf_function) {
+            funcRetType = ArrayType.create(funcRetType, true);
+        }
+        init(request, jarFile, funcRetType, parameterTypes);
+    }
+
+    public String debugString() {
+        StringBuilder res = new StringBuilder();
+        for (JavaUdfDataType type : objCache.argTypes) {
+            res.append(type.toString());
+        }
+        res.append(" return type: ").append(objCache.retType.toString());
+        res.append(" methodAccess: ").append(objCache.methodAccess.toString());
+        res.append(" fn.toString(): ").append(fn.toString());
+        return res.toString();
+    }
+
+    protected void init(TJavaUdfExecutorCtorParams request, String jarPath,
+            Type funcRetType, Type... parameterTypes) throws UdfRuntimeException {
+        try {
+            isStaticLoad = request.getFn().isSetIsStaticLoad() && request.getFn().is_static_load;
+            objCache = getClassCache(jarPath, request.getFn().isSetId() ? request.getFn().getId() : 0L,
+                    request.getFn().getSignature(), funcRetType, parameterTypes);
+            Constructor<?> ctor = objCache.udfClass.getConstructor();
+            try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
+                udf = ctor.newInstance();
+            }
+        } catch (MalformedURLException e) {
+            throw new UdfRuntimeException("Unable to load jar.", e);
+        } catch (SecurityException e) {
+            throw new UdfRuntimeException("Unable to load function.", e);
+        } catch (ClassNotFoundException e) {
+            throw new UdfRuntimeException("Unable to find class.", e);
+        } catch (NoSuchMethodException e) {
+            throw new UdfRuntimeException(
+                    "Unable to find constructor with no arguments.", e);
+        } catch (IllegalArgumentException e) {
+            throw new UdfRuntimeException(
+                    "Unable to call UDF constructor with no arguments.", e);
+        } catch (Exception e) {
+            throw new UdfRuntimeException("Unable to call create UDF instance.", e);
+        }
+    }
+
+
+    public UdfClassCache getClassCache(String jarPath, long functionId, String functionSignature,
+            Type funcRetType, Type... parameterTypes)
+            throws MalformedURLException, FileNotFoundException, ClassNotFoundException, InternalException,
+            UdfRuntimeException {
+        // Keyed by the function's id rather than by its signature - see
+        // UdfClassCacheRegistry#cacheKey for what the signature cannot tell apart.
+        String functionKey = UdfClassCacheRegistry.cacheKey(functionId, functionSignature);
+        UdfClassCache cache = null;
+        if (isStaticLoad) {
+            cache = UdfClassCacheRegistry.get(functionKey);
+            if (cache != null) {
+                // Reuse the cached classLoader to ensure dependent classes can be loaded.
+                // NOTE: cache.classLoader may be null when the function was loaded from the
+                // pre-installed directories rather than from a jar of its own; see
+                // UdfClassCache#classLoader. A null value here is a valid cached state and
+                // must NOT trigger a rebuild — only an actual cache miss does.
+                classLoader = cache.classLoader;
+            }
+        }
+        if (cache == null) {
+            ClassLoader loader;
+            if (Strings.isNullOrEmpty(jarPath)) {
+                // No jar of its own: the class is expected in plugins/java_extensions or in the
+                // deprecated custom_lib. That loader is shared by every such function, so it is
+                // deliberately not stored in the cache below - nothing may close it.
+                loader = UserFunctionLoaders.preinstalled();
+            } else {
+                classLoader = UserFunctionLoaders.forJar(jarPath);
+                loader = classLoader;
+            }
+            cache = new UdfClassCache();
+            cache.allMethods = new HashMap<>();
+            cache.udfClass = Class.forName(className, true, loader);
+            cache.methodAccess = MethodAccess.get(cache.udfClass);
+            cache.classLoader = classLoader;
+            checkAndCacheUdfClass(cache, funcRetType, parameterTypes);
+            if (isStaticLoad) {
+                UdfClassCache effective = UdfClassCacheRegistry.publish(functionKey, functionSignature, cache);
+                if (effective != cache) {
+                    // Another thread won the publish race. Our locally-built cache (and its
+                    // URLClassLoader) was already closed inside publish(); switch to the
+                    // published one so we share its live classLoader.
+                    cache = effective;
+                    classLoader = cache.classLoader;
+                }
+            }
+        }
+        return cache;
+    }
+
+    /**
+     * The classloader the user function was loaded from, to be installed as the thread context
+     * classloader around anything that runs user code.
+     *
+     * <p>BE's threads carry whatever context classloader they were created with, which is BE's
+     * system classpath - a place a user function has nothing to find. Anything the function does
+     * reflectively, or any library it calls that resolves through the context classloader, has to
+     * see the jar the function came from instead. The SPI base classes install the plugin's
+     * classloader at every scanner and writer entry point for the same reason; executors have no
+     * base class in the SPI, so each entry point below does it itself.
+     */
+    protected ClassLoader udfClassLoader() {
+        return objCache.udfClass.getClassLoader();
+    }
+
+    protected abstract void checkAndCacheUdfClass(UdfClassCache cache, Type funcRetType, Type... parameterTypes)
+            throws InternalException, UdfRuntimeException;
+
+    /**
+     * Close the class loader we may have created.
+     */
+    public void close() {
+        // Close the output table if it exists.
+        if (outputTable != null) {
+            outputTable.close();
+        }
+        if (!isStaticLoad) {
+            // close classLoader via UdfClassCache.close() if not in static load mode.
+            // In static load mode, the classLoader is cached and should not be closed here.
+            objCache.close();
+            objCache.methodAccess = null;
+            classLoader = null;
+        }
+    }
+
+    protected ColumnValueConverter getInputConverter(TPrimitiveType primitiveType, Class clz)
+            throws UdfRuntimeException {
+        switch (primitiveType) {
+            case DATE:
+            case DATEV2: {
+                if (java.util.Date.class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        Object[] result = new java.util.Date[columnData.length];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                LocalDate v = (LocalDate) columnData[i];
+                                result[i] = new java.util.Date(v.getYear() - 1900, v.getMonthValue() - 1,
+                                        v.getDayOfMonth());
+                            }
+                        }
+                        return result;
+                    };
+                } else if (org.joda.time.LocalDate.class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        Object[] result = new org.joda.time.LocalDate[columnData.length];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                LocalDate v = (LocalDate) columnData[i];
+                                result[i] = new org.joda.time.LocalDate(v.getYear(), v.getMonthValue(),
+                                        v.getDayOfMonth());
+                            }
+                        }
+                        return result;
+                    };
+                } else if (!LocalDate.class.equals(clz)) {
+                    throw new UdfRuntimeException("Unsupported date type: " + clz.getCanonicalName());
+                }
+                break;
+            }
+            case DATETIME:
+            case DATETIMEV2:
+            case TIMESTAMP_NS: {
+                if (org.joda.time.DateTime.class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        Object[] result = new org.joda.time.DateTime[columnData.length];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                LocalDateTime v = (LocalDateTime) columnData[i];
+                                result[i] = new org.joda.time.DateTime(v.getYear(), v.getMonthValue(),
+                                        v.getDayOfMonth(), v.getHour(),
+                                        v.getMinute(), v.getSecond(), v.getNano() / 1000000);
+                            }
+                        }
+                        return result;
+                    };
+                } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        Object[] result = new org.joda.time.LocalDateTime[columnData.length];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                LocalDateTime v = (LocalDateTime) columnData[i];
+                                result[i] = new org.joda.time.LocalDateTime(v.getYear(), v.getMonthValue(),
+                                        v.getDayOfMonth(), v.getHour(),
+                                        v.getMinute(), v.getSecond(), v.getNano() / 1000000);
+                            }
+                        }
+                        return result;
+                    };
+                } else if (!LocalDateTime.class.equals(clz)) {
+                    throw new UdfRuntimeException("Unsupported date type: " + clz.getCanonicalName());
+                }
+                break;
+            }
+            case STRUCT: {
+                return (Object[] columnData) -> {
+                    Object[] result = new ArrayList[columnData.length];
+                    for (int i = 0; i < columnData.length; ++i) {
+                        if (columnData[i] != null) {
+                            HashMap<String, Object> value = (HashMap<String, Object>) columnData[i];
+                            ArrayList<Object> elements = new ArrayList<>();
+                            for (Entry<String, Object> entry : value.entrySet()) {
+                                elements.add(entry.getValue());
+                            }
+                            result[i] = elements;
+                        }
+                    }
+                    return result;
+                };
+            }
+            case VARBINARY: {
+                // Support Byte[] parameter for VARBINARY by boxing from byte[]
+                if (Byte[].class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        Byte[][] result = new Byte[columnData.length][];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                byte[] v = (byte[]) columnData[i];
+                                Byte[] boxed = new Byte[v.length];
+                                for (int k = 0; k < v.length; ++k) {
+                                    boxed[k] = v[k];
+                                }
+                                result[i] = boxed;
+                            }
+                        }
+                        return result;
+                    };
+                } else if (!byte[].class.equals(clz)) {
+                    throw new UdfRuntimeException("Unsupported varbinary type: " + clz.getCanonicalName());
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        return null;
+    }
+
+    protected ColumnValueConverter getOutputConverter(JavaUdfDataType returnType, Class clz)
+            throws UdfRuntimeException {
+        switch (returnType.getPrimitiveType()) {
+            case DATE:
+            case DATEV2: {
+                if (java.util.Date.class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        Object[] result = new LocalDate[columnData.length];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                java.util.Date v = (java.util.Date) columnData[i];
+                                result[i] = LocalDate.of(v.getYear() + 1900, v.getMonth() + 1, v.getDate());
+                            }
+                        }
+                        return result;
+                    };
+                } else if (org.joda.time.LocalDate.class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        Object[] result = new LocalDate[columnData.length];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                org.joda.time.LocalDate v = (org.joda.time.LocalDate) columnData[i];
+                                result[i] = LocalDate.of(v.getYear(), v.getMonthOfYear(), v.getDayOfMonth());
+                            }
+                        }
+                        return result;
+                    };
+                } else if (!LocalDate.class.equals(clz)) {
+                    throw new UdfRuntimeException("Unsupported date type: " + clz.getCanonicalName());
+                }
+                break;
+            }
+            case DATETIME:
+            case DATETIMEV2:
+            case TIMESTAMP_NS: {
+                if (org.joda.time.DateTime.class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        Object[] result = new LocalDateTime[columnData.length];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                org.joda.time.DateTime v = (org.joda.time.DateTime) columnData[i];
+                                result[i] = LocalDateTime.of(v.getYear(), v.getMonthOfYear(), v.getDayOfMonth(),
+                                        v.getHourOfDay(),
+                                        v.getMinuteOfHour(), v.getSecondOfMinute(), v.getMillisOfSecond() * 1000000);
+                            }
+                        }
+                        return result;
+                    };
+                } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        Object[] result = new LocalDateTime[columnData.length];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                org.joda.time.LocalDateTime v = (org.joda.time.LocalDateTime) columnData[i];
+                                result[i] = LocalDateTime.of(v.getYear(), v.getMonthOfYear(), v.getDayOfMonth(),
+                                        v.getHourOfDay(),
+                                        v.getMinuteOfHour(), v.getSecondOfMinute(), v.getMillisOfSecond() * 1000000);
+                            }
+                        }
+                        return result;
+                    };
+                } else if (!LocalDateTime.class.equals(clz)) {
+                    throw new RuntimeException("Unsupported date type: " + clz.getCanonicalName());
+                }
+                break;
+            }
+            case STRUCT: {
+                return (Object[] columnData) -> {
+                    Object[] result = (HashMap<String, Object>[]) new HashMap<?, ?>[columnData.length];
+                    ArrayList<String> names = ((JavaUdfStructType) returnType).getFieldNames();
+                    for (int i = 0; i < columnData.length; ++i) {
+                        HashMap<String, Object> elements = new HashMap<String, Object>();
+                        if (columnData[i] != null) {
+                            ArrayList<Object> v = (ArrayList<Object>) columnData[i];
+                            for (int k = 0; k < v.size(); ++k) {
+                                elements.put(names.get(k), v.get(k));
+                            }
+                            result[i] = elements;
+                        }
+                    }
+                    return result;
+                };
+            }
+            case VARBINARY: {
+                // Support Byte[] return for VARBINARY by unboxing to byte[] for storage
+                if (Byte[].class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        byte[][] result = new byte[columnData.length][];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                Byte[] v = (Byte[]) columnData[i];
+                                byte[] unboxed = new byte[v.length];
+                                for (int k = 0; k < v.length; ++k) {
+                                    unboxed[k] = v[k];
+                                }
+                                result[i] = unboxed;
+                            }
+                        }
+                        return result;
+                    };
+                } else if (!byte[].class.equals(clz)) {
+                    throw new UdfRuntimeException("Unsupported varbinary type: " + clz.getCanonicalName());
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        return null;
+    }
+
+    // Add unified converter methods
+    protected Map<Integer, ColumnValueConverter> getInputConverters(int numColumns, boolean isUdaf)
+            throws UdfRuntimeException {
+        Map<Integer, ColumnValueConverter> converters = new HashMap<>();
+        for (int j = 0; j < numColumns; ++j) {
+            // For UDAF, we need to offset by 1 since first arg is state
+            int argIndex = isUdaf ? j + 1 : j;
+            ColumnValueConverter converter = getInputConverter(objCache.argTypes[j].getPrimitiveType(),
+                    objCache.argClass[argIndex]);
+            if (converter != null) {
+                converters.put(j, converter);
+            }
+        }
+        return converters;
+    }
+
+    protected ColumnValueConverter getOutputConverter() throws UdfRuntimeException {
+        return getOutputConverter(objCache.retType, objCache.retClass);
+    }
+}

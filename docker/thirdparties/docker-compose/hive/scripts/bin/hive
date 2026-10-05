@@ -1,0 +1,54 @@
+#!/bin/bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# Drop-in replacement for the `hive` CLI that routes `hive -f <file>` and
+# `hive -e <sql>` through beeline + HiveServer2. This avoids paying the
+# ~3-5s JVM cold-start cost per invocation that the real Hive CLI incurs,
+# which is by far the dominant cost when loading many tiny DDL scripts.
+#
+# Everything else is delegated to the real Hive CLI so the shim stays
+# transparent for unexpected callers.
+#
+# Configuration:
+#   DORIS_HS2_URL  JDBC URL to HiveServer2 (default: jdbc:hive2://localhost:${HS_PORT:-10000}/default)
+#   DORIS_HS2_USER Username passed to beeline (default: root)
+
+set -eo pipefail
+
+REAL_HIVE="${REAL_HIVE:-/opt/hive/bin/hive}"
+HS2_URL="${DORIS_HS2_URL:-jdbc:hive2://localhost:${HS_PORT:-10000}/default}"
+HS2_USER="${DORIS_HS2_USER:-root}"
+
+# Fast path: `hive -f <file>` or `hive -e <sql>`; all data/ run.sh callers
+# use only these two forms today.
+if [[ "$#" -ge 2 && ( "$1" == "-f" || "$1" == "-e" ) ]]; then
+    mode="$1"
+    arg="$2"
+    shift 2
+    exec beeline \
+        -u "${HS2_URL}" \
+        -n "${HS2_USER}" \
+        --silent=false \
+        --showHeader=false \
+        --outputformat=tsv2 \
+        "${mode}" "${arg}" \
+        "$@"
+fi
+
+# Fallback: something we don't translate (interactive shell, stdin, etc.)
+exec "${REAL_HIVE}" "$@"

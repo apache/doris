@@ -1,0 +1,114 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <type_traits>
+
+#include "common/compiler_util.h"
+#include "core/data_type/primitive_type.h"
+#include "core/string_ref.h"
+#include "exec/common/hash_table/hash.h"
+#include "exprs/bloom_filter_func_adaptor.h"
+
+namespace doris {
+struct fixed_len_to_uint32_v2 {
+    template <typename T>
+    uint32_t operator()(const T& value) {
+        if constexpr (sizeof(T) <= sizeof(uint32_t)) {
+            if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
+                return (uint32_t)value.to_date_int_val();
+            } else if constexpr (IsDecimalNumber<T>) {
+                return (uint32_t)value.value;
+            } else {
+                return (uint32_t)value;
+            }
+        } else {
+            if constexpr (std::is_same_v<DecimalV2Value, T> ||
+                          std::is_same_v<VecDateTimeValue, T>) {
+                return uint32_t(std::hash<T>()(value));
+            } else if constexpr (std::is_same_v<T, DateV2Value<DateTimeV2ValueType>>) {
+                return uint32_t(HashCRC32<DateV2Value<DateTimeV2ValueType>::underlying_value>()(
+                        value.to_date_int_val()));
+            } else if constexpr (std::is_same_v<T, TimestampTzValue>) {
+                return uint32_t(HashCRC32<typename T::underlying_value>()(value.to_date_int_val()));
+            } else if constexpr (IsDecimalNumber<T>) {
+                return uint32_t(HashCRC32<typename T::NativeType>()(value.value));
+            } else {
+                return uint32_t(HashCRC32<T>()(value));
+            }
+        }
+    }
+};
+
+// Per-row probe driver. `read(idx)` yields the row value (T or StringRef).
+template <typename fixed_len_to_uint32_method, typename Accessor>
+inline ALWAYS_INLINE uint16_t find_batch_olap_impl(const BloomFilterAdaptor& bloom_filter,
+                                                   Accessor read, const uint8_t* nullmap,
+                                                   uint16_t* offsets, int number,
+                                                   const bool is_parse_column) {
+    uint16_t new_size = 0;
+    if (is_parse_column) {
+        if (nullmap == nullptr) {
+            for (uint16_t i = 0; i < number; i++) {
+                uint16_t idx = offsets[i];
+                if (!bloom_filter.test_element<fixed_len_to_uint32_method>(read(idx))) {
+                    continue;
+                }
+                offsets[new_size++] = idx;
+            }
+        } else {
+            for (uint16_t i = 0; i < number; i++) {
+                uint16_t idx = offsets[i];
+                if (nullmap[idx]) {
+                    if (!bloom_filter.contain_null()) {
+                        continue;
+                    }
+                } else {
+                    if (!bloom_filter.test_element<fixed_len_to_uint32_method>(read(idx))) {
+                        continue;
+                    }
+                }
+                offsets[new_size++] = idx;
+            }
+        }
+    } else {
+        if (nullmap == nullptr) {
+            for (uint16_t i = 0; i < number; i++) {
+                if (!bloom_filter.test_element<fixed_len_to_uint32_method>(read(i))) {
+                    continue;
+                }
+                offsets[new_size++] = i;
+            }
+        } else {
+            for (uint16_t i = 0; i < number; i++) {
+                if (nullmap[i]) {
+                    if (!bloom_filter.contain_null()) {
+                        continue;
+                    }
+                } else {
+                    if (!bloom_filter.test_element<fixed_len_to_uint32_method>(read(i))) {
+                        continue;
+                    }
+                }
+                offsets[new_size++] = i;
+            }
+        }
+    }
+    return new_size;
+}
+} // namespace doris

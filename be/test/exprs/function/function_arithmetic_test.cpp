@@ -1,0 +1,212 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <stdint.h>
+
+#include <iomanip>
+#include <limits>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/types.h"
+#include "exprs/function/function_test_util.h"
+#include "gtest/gtest_pred_impl.h"
+#include "testutil/any_type.h"
+
+namespace doris {
+
+TEST(function_arithmetic_test, add_mixed_nullable_arguments_test) {
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_INT},
+                                Notnull {PrimitiveType::TYPE_INT}};
+    DataSet data_set = {{{int32_t {1}, int32_t {2}}, int32_t {3}}, {{Null(), int32_t {4}}, Null()}};
+
+    static_cast<void>(check_function<DataTypeInt32, true>("add", input_types, data_set));
+}
+
+TEST(function_arithmetic_test, function_arithmetic_mod_test) {
+    std::string func_name = "mod";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {{{10, 1}, 0}, {{10, -2}, 0}, {{1234, 33}, 13}, {{1234, 0}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_arithmetic_test, function_arithmetic_divide_test) {
+    std::string func_name = "divide";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {{{1234.1, 34.6}, 35.667630057803464}, {{1234.34, 0.0}, Null()}};
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_arithmetic_test, function_arithmetic_int_divide_min_signed_by_minus_one_test) {
+    std::string func_name = "int_divide";
+    const auto min_int8 = std::numeric_limits<int8_t>::min();
+    const auto min_int16 = std::numeric_limits<int16_t>::min();
+    const auto min_int32 = std::numeric_limits<int32_t>::min();
+    const auto min_int64 = std::numeric_limits<int64_t>::min();
+    const auto min_int128 = std::numeric_limits<Int128>::min();
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_TINYINT};
+        DataSet data_set = {{{int8_t {1}, int8_t {-1}}, int8_t {-1}},
+                            {{min_int8, int8_t {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_SMALLINT};
+        DataSet data_set = {{{int16_t {1}, int16_t {-1}}, int16_t {-1}},
+                            {{min_int16, int16_t {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
+        DataSet data_set = {{{int32_t {1}, int32_t {-1}}, int32_t {-1}},
+                            {{min_int32, int32_t {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_BIGINT},
+                                    Consted {PrimitiveType::TYPE_BIGINT}};
+        DataSet data_set = {{{min_int64, int64_t {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT,
+                                    Consted {PrimitiveType::TYPE_BIGINT}};
+        DataSet data_set = {{{min_int64, int64_t {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_BIGINT},
+                                    PrimitiveType::TYPE_BIGINT};
+        DataSet data_set = {{{min_int64, int64_t {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_BIGINT};
+        DataSet data_set = {{{int64_t {1}, int64_t {-1}}, int64_t {-1}},
+                            {{min_int64, int64_t {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_LARGEINT},
+                                    Consted {PrimitiveType::TYPE_LARGEINT}};
+        DataSet data_set = {{{min_int128, Int128 {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT,
+                                    Consted {PrimitiveType::TYPE_LARGEINT}};
+        DataSet data_set = {{{min_int128, Int128 {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_LARGEINT},
+                                    PrimitiveType::TYPE_LARGEINT};
+        DataSet data_set = {{{min_int128, Int128 {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_LARGEINT};
+        DataSet data_set = {{{Int128 {1}, Int128 {-1}}, Int128 {-1}},
+                            {{min_int128, Int128 {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_arithmetic_test, bitnot_test) {
+    std::string func_name = "bitnot";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {{{(int32_t)30}, ~(int32_t)30},
+                            {{(int32_t)0}, ~(int32_t)0},
+                            {{(int32_t)-10}, ~(int32_t)-10},
+                            {{(int32_t)-10.44}, ~(int32_t)-10},
+                            {{(int32_t)-999.888}, ~(int32_t)-999}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_arithmetic_test, bitand_test) {
+    std::string func_name = "bitand";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {{{(int32_t)30, (int32_t)12}, 30 & 12},
+                            {{(int32_t)0, (int32_t)12}, 0 & 12},
+                            {{(int32_t)-10, (int32_t)111}, -10 & 111},
+                            {{(int32_t)-999, (int32_t)888}, -999 & 888}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_arithmetic_test, bitor_test) {
+    std::string func_name = "bitor";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {{{(int32_t)30, (int32_t)12}, 30 | 12},
+                            {{(int32_t)0, (int32_t)12}, 0 | 12},
+                            {{(int32_t)-10, (int32_t)111}, -10 | 111},
+                            {{(int32_t)-999, (int32_t)888}, -999 | 888}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_arithmetic_test, bitxor_test) {
+    std::string func_name = "bitxor";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {{{(int32_t)30, (int32_t)12}, 30 ^ 12},
+                            {{(int32_t)0, (int32_t)12}, 0 ^ 12},
+                            {{(int32_t)-10, (int32_t)111}, -10 ^ 111},
+                            {{(int32_t)-999, (int32_t)888}, -999 ^ 888}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+}
+
+} // namespace doris

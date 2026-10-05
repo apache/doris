@@ -1,0 +1,223 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_workload_sched_policy") {
+
+    def forComputeGroupStr = ""
+    def currentCgName = ""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        currentCgName = "${validCluster}.";
+        forComputeGroupStr = " for  $validCluster "
+    }
+
+    sql "drop workload policy if exists test_cancel_policy;"
+    sql "drop workload policy if exists be_policy;"
+    sql "drop workload policy if exists be_scan_row_policy;"
+    sql "drop workload policy if exists be_scan_bytes_policy;"
+    sql "drop workload policy if exists query_be_memory_used;"
+
+    // 1 create cancel policy
+    sql "create workload policy test_cancel_policy " +
+            " conditions(query_time > 10) " +
+            " actions(cancel_query) properties('enabled'='false'); "
+
+    // 2 create policy run in be
+    sql "create workload policy be_policy " +
+            "conditions(query_time > 10) " +
+            "actions(cancel_query) " +
+            "properties( " +
+            "'enabled' = 'false', " +
+            "'priority'='10' " +
+            ");"
+
+    qt_select_policy_tvf "select name,condition,action,priority,enabled,version from information_schema.workload_policy where name in('be_policy','test_cancel_policy') order by name;"
+
+    // test_alter
+    sql "alter workload policy be_policy properties('priority'='2', 'enabled'='false');"
+
+    // create failed check
+    test {
+        sql "create workload policy failed_policy " +
+                "conditions(abc > 123) actions(cancel_query);"
+
+        exception "invalid metric name"
+    }
+
+    test {
+        sql "create workload policy failed_policy " +
+                "conditions(query_time > 123) actions(abc);"
+
+        exception "invalid action type"
+    }
+
+    test {
+        sql "alter workload policy be_policy properties('priority'='abc');"
+
+        exception "invalid priority property value"
+    }
+
+    test {
+        sql "alter workload policy be_policy properties('enabled'='abc');"
+
+        exception "invalid enabled property value"
+    }
+
+    test {
+        sql "alter workload policy be_policy properties('priority'='10000');"
+
+        exception "priority can only between"
+    }
+
+    test {
+        sql "create workload policy conflict_policy " +
+                "conditions (query_time > 0) " +
+                "actions(cancel_query, cancel_query);"
+
+        exception "duplicate action in one policy"
+    }
+
+    test {
+        sql "create workload policy invalid_set_session_policy " +
+                "conditions (username = 'root') " +
+                "actions(set_session_variable 'workload_group=normal');"
+
+        exception "invalid action type set_session_variable"
+    }
+
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(query_be_memory_bytes > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(query_time > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(be_scan_rows > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    test {
+        sql "create workload policy invalid_metric_value_policy conditions(be_scan_bytes > '-1') actions(cancel_query);"
+        exception "invalid"
+    }
+
+    sql "create workload policy be_scan_row_policy conditions(be_scan_rows > 1) actions(cancel_query) properties('enabled'='false');"
+    sql "create workload policy be_scan_bytes_policy conditions(be_scan_bytes > 1) actions(cancel_query) properties('enabled'='false');"
+    sql "create workload policy query_be_memory_used conditions(query_be_memory_bytes > 1) actions(cancel_query) properties('enabled'='false');"
+
+    // drop
+    sql "drop workload policy test_cancel_policy;"
+    sql "drop workload policy be_policy;"
+    sql "drop workload policy be_scan_row_policy;"
+    sql "drop workload policy be_scan_bytes_policy;"
+    sql "drop workload policy query_be_memory_used;"
+
+    qt_select_policy_tvf_after_drop "select name,condition,action,priority,enabled,version from information_schema.workload_policy where name in('be_policy','test_cancel_policy') order by name;"
+
+    sql "drop user if exists test_policy_user"
+    sql "drop workload policy if exists test_cancel_query_policy"
+    sql "drop workload policy if exists test_cancel_query_policy2"
+    sql "drop workload group if exists policy_group $forComputeGroupStr;"
+    sql "CREATE USER 'test_policy_user'@'%' IDENTIFIED BY '12345';"
+    sql """grant SELECT_PRIV on *.*.* to test_policy_user;"""
+    sql "create workload group if not exists policy_group $forComputeGroupStr properties ('min_cpu_percent'='0');"
+    sql "create workload group if not exists policy_group2 $forComputeGroupStr properties ('min_cpu_percent'='0');"
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'policy_group' TO 'test_policy_user'@'%';"
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'policy_group2' TO 'test_policy_user'@'%';"
+    sql "create workload policy test_cancel_query_policy conditions(query_time > 1000) actions(cancel_query) properties('workload_group'='${currentCgName}policy_group')"
+    sql "create workload policy test_cancel_query_policy2 conditions(query_time > 0, be_scan_rows>1) actions(cancel_query) properties('workload_group'='${currentCgName}policy_group')"
+
+    test {
+        sql "drop workload group policy_group $forComputeGroupStr;"
+        exception "because it has related policy"
+    }
+
+    test {
+        sql "alter workload policy test_cancel_query_policy properties('workload_group'='${currentCgName}invalid_gorup');"
+        exception "Can not find workload group"
+    }
+
+    // test alter policy property
+    sql "drop user if exists test_alter_policy_user"
+    sql "CREATE USER 'test_alter_policy_user'@'%' IDENTIFIED BY '12345';"
+    sql "drop workload policy if exists test_alter_policy;"
+    sql "create workload policy test_alter_policy conditions(username='test_alter_policy_user') actions(cancel_query) properties('workload_group'='${currentCgName}normal');"
+    qt_select_alter_1 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_policy where name='test_alter_policy'"
+
+    sql "alter workload policy test_alter_policy properties('workload_group'='');"
+    qt_select_alter_2 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_policy where name='test_alter_policy'"
+
+    sql "alter workload policy test_alter_policy properties('enabled'='false');"
+    qt_select_alter_3 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_policy where name='test_alter_policy'"
+
+    sql "alter workload policy test_alter_policy properties('priority'='9');"
+    qt_select_alter_4 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_policy where name='test_alter_policy'"
+
+    sql "alter workload policy test_alter_policy properties('workload_group'='${currentCgName}normal');"
+    qt_select_alter_5 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_policy where name='test_alter_policy'"
+
+    sql "drop user test_alter_policy_user"
+    sql "drop workload policy test_alter_policy"
+
+    // ============================================================================
+    // Test policy creation with username (shared metric) and query_time (BE metric)
+    // ============================================================================
+
+    // 1. Create a user
+    sql "DROP USER IF EXISTS 'test_policy_user_be'"
+    sql "CREATE USER 'test_policy_user_be'@'%' IDENTIFIED BY '12345'"
+    sql "GRANT SELECT_PRIV ON *.* TO 'test_policy_user_be'@'%'"
+
+    // 2. Create a workload group
+    sql "DROP WORKLOAD GROUP IF EXISTS policy_group_be $forComputeGroupStr"
+    sql "CREATE WORKLOAD GROUP policy_group_be $forComputeGroupStr PROPERTIES ('max_cpu_percent'='100')"
+    sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'policy_group_be' TO 'test_policy_user_be'@'%'"
+
+    // 3. Create a policy with both username (shared metric) and query_time (BE metric)
+    sql "DROP WORKLOAD POLICY IF EXISTS test_mixed_policy"
+
+    sql """
+        CREATE WORKLOAD POLICY test_mixed_policy
+        CONDITIONS(username='test_policy_user_be', query_time > 1000)
+        ACTIONS(cancel_query)
+        PROPERTIES('workload_group'='${currentCgName}policy_group_be')
+    """
+
+    // 4. Verify policy creation
+    def policy = sql "SELECT * FROM information_schema.workload_policy WHERE name='test_mixed_policy'"
+    assertTrue(policy.size() > 0, "Policy should be created successfully")
+
+    // 5. Smoke check the test user can run in the workload group. This is not intended to trigger
+    //    cancel_query; the policy creation above is the behavior covered by this case.
+    connect('test_policy_user_be', '12345', context.config.jdbcUrl) {
+        sql "set workload_group = 'policy_group_be'"
+        sql "SELECT 1"
+    }
+
+    // Cleanup
+    sql "DROP WORKLOAD POLICY IF EXISTS test_mixed_policy"
+    sql "DROP WORKLOAD GROUP IF EXISTS policy_group_be $forComputeGroupStr"
+    sql "DROP USER IF EXISTS 'test_policy_user_be'"
+}

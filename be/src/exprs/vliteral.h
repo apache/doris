@@ -1,0 +1,94 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <memory>
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type_serde/data_type_serde.h"
+#include "core/field.h"
+#include "exprs/vexpr.h"
+
+namespace doris {
+class TExprNode;
+
+class Block;
+class VExprContext;
+
+class VLiteral : public VExpr {
+    ENABLE_FACTORY_CREATOR(VLiteral);
+
+public:
+    VLiteral(const TExprNode& node, bool should_init = true)
+            : VExpr(node), _expr_name(_data_type->get_name()) {
+        if (should_init) {
+            Field field;
+            field = _data_type->get_field(node);
+            _column_ptr = _data_type->create_column_const(1, field);
+        }
+    }
+
+    VLiteral(const DataTypePtr& type, const Field& field) : VExpr(type, false) {
+        _data_type = type;
+        _column_ptr = _data_type->create_column_const(1, field);
+        _node_type = TExprNodeType::LITERAL;
+        _expr_name = _data_type->get_name();
+    }
+
+#ifdef BE_TEST
+    VLiteral() = default;
+    MOCK_FUNCTION std::string value() const;
+#endif
+
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
+
+    const std::string& expr_name() const override { return _expr_name; }
+    std::string debug_string() const override;
+
+    double execute_cost() const override { return 0.0; }
+
+    MOCK_FUNCTION std::string value(const DataTypeSerDe::FormatOptions& options) const;
+
+    const ColumnPtr& get_column_ptr() const { return _column_ptr; }
+    const DataTypePtr& get_data_type() const { return _data_type; }
+
+    bool is_literal() const override { return true; }
+
+    bool equals(const VExpr& other) override;
+
+    uint64_t get_digest(uint64_t seed) const override;
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        Field field;
+        _column_ptr->get(0, field);
+        *cloned_expr = VLiteral::create_shared(_data_type, field);
+        return Status::OK();
+    }
+
+protected:
+    VLiteral(const DataTypePtr& type) : VExpr(type, false) {}
+    ColumnPtr _column_ptr;
+    std::string _expr_name;
+};
+
+} // namespace doris

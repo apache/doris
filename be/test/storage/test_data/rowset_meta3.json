@@ -1,0 +1,22 @@
+{
+    "rowset_id": 10002,
+    "partition_id": 10001,
+    "tablet_id": 12046,
+    "tablet_schema_hash": 365187263,
+    "rowset_type": "BETA_ROWSET",
+    "rowset_state": "COMMITTED",
+    "start_version": 0,
+    "end_version": 1,
+    "num_rows": 0,
+    "total_disk_size": 0,
+    "data_disk_size": 0,
+    "index_disk_size": 0,
+    "empty": true,
+    "creation_time": 1552911435,
+    "tablet_uid": {
+        "hi": 10,
+        "lo": 10
+    },
+    "num_segments": 1,
+    "has_variant_type_in_schema": false
+}

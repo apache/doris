@@ -1,0 +1,1258 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+import java.text.SimpleDateFormat
+
+suite("test_date_function") {
+    def tableName = "test_date_function"
+
+    sql """ DROP TABLE IF EXISTS test_date_function """
+    sql """
+            CREATE TABLE IF NOT EXISTS test_date_function (
+                test_datetime datetime NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(test_datetime)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(test_datetime) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+            )
+        """
+    sql """ insert into test_date_function values ("2019-08-01 13:21:03") """
+    // convert_tz
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'America/Los_Angeles') result from test_date_function; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/SHANGHAI', 'america/Los_angeles') result from test_date_function; """
+    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/Los_Angeles') result from test_date_function; """
+
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'Europe/London') result from test_date_function; """
+    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'Europe/London') result from test_date_function; """
+
+    test {
+        sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/London') result from test_date_function; """
+        exception "invalid timezone"
+    }
+
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'Asia/Shanghai', 'UTC'); """
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'Asia/Shanghai', 'UTc'); """
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'America/Los_Angeles', 'CST'); """
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'America/Los_Angeles', 'cSt'); """
+
+    // some invalid date
+    qt_sql """ SELECT convert_tz('2022-2-29 13:21:03', '+08:00', 'America/London') result; """
+    qt_sql """ SELECT convert_tz('2022-02-29 13:21:03', '+08:00', 'America/London') result; """
+    qt_sql """ SELECT convert_tz('1900-00-00 13:21:03', '+08:00', 'America/London') result; """
+    test {
+        sql """ select convert_tz('0000-01-01 00:00:00', '+08:00', '-02:00'); """
+        exception "Cannot convert"
+    }
+    qt_lower_bound """ select convert_tz('0000-01-01 00:00:00', '+08:00', '+08:00'); """
+
+    // bug fix
+    sql """ insert into test_date_function values 
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03");
+    """
+    qt_sql_convert_tz_null """ SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/ convert_tz(test_datetime, cast(null as varchar), cast(null as varchar)) result from test_date_function; """
+
+    sql """ truncate table ${tableName} """
+
+    // test convert_tz for datetimev2
+    def tableScale6 = "dtv2s6"
+    sql """ DROP TABLE IF EXISTS ${tableScale6} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableScale6} (
+                k1 datetimev2(6) NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(k1)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(k1) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+            )
+        """
+    sql """ insert into ${tableScale6} values ("2019-08-01 13:21:03.000123"),("2019-08-01 13:21:03.123") """
+    qt_sql """ SELECT * from ${tableScale6} order by k1 """
+    // convert_tz
+    qt_sql """ SELECT k1, convert_tz(k1, 'Asia/Shanghai', 'America/Los_Angeles') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, '+08:00', 'America/Los_Angeles') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, 'Asia/Shanghai', 'Europe/London') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, '+08:00', 'Europe/London') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT convert_tz('2019-08-01 01:01:02.123' , '+00:00', '+07:00') """
+
+    sql """ DROP TABLE IF EXISTS test_convert_tz_with_timezone_cache """
+    sql """
+        CREATE TABLE test_convert_tz_with_timezone_cache (
+            id int,
+            test_datetime datetime NULL COMMENT "",
+            origin_tz VARCHAR(255),
+            target_tz VARCHAR(255)
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+        )
+    """
+
+    sql """
+        INSERT INTO test_convert_tz_with_timezone_cache VALUES
+            (1, "2019-08-01 13:21:03", "Asia/Shanghai", "Asia/Shanghai"),
+            (2, "2019-08-01 13:21:03", "Asia/Singapore", "Asia/Shanghai"),
+            (3, "2019-08-01 13:21:03", "Asia/Taipei", "Asia/Shanghai"),
+            (4, "2019-08-02 13:21:03", "Australia/Melbourne", "Asia/Shanghai"),
+            (5, "2019-08-02 13:21:03", "Australia/Lindeman", "Asia/Shanghai"),
+            (6, "2019-08-03 13:21:03", "America/Aruba", "Asia/Shanghai"),
+            (7, "2019-08-03 13:21:03", "America/Blanc-Sablon", "Asia/Shanghai"),
+            (8, "2019-08-04 13:21:03", "America/Dawson", "Africa/Lusaka"),
+            (9, "2019-08-04 13:21:03", "America/Creston", "Africa/Lusaka"),
+            (10, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Shanghai"),
+            (11, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Singapore"),
+            (12, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Taipei"),
+            (13, "2019-08-06 13:21:03", "Asia/Shanghai", "Australia/Melbourne"),
+            (14, "2019-08-06 13:21:03", "Asia/Shanghai", "Australia/Lindeman"),
+            (15, "2019-08-07 13:21:03", "Asia/Shanghai", "America/Aruba"),
+            (16, "2019-08-07 13:21:03", "Asia/Shanghai", "America/Blanc-Sablon"),
+            (17, "2019-08-08 13:21:03", "Africa/Lusaka", "America/Dawson"),
+            (18, "2019-08-08 13:21:03", "Africa/Lusaka", "America/Creston")
+    """
+
+    sql "set parallel_pipeline_task_num = 8"
+
+    qt_sql0 """
+        select convert_tz('2000-12-03 00:00:00', `origin_tz`, `target_tz`)
+        from test_convert_tz_with_timezone_cache order by 1;
+    """
+
+    qt_sql00 " select convert_tz(test_datetime, 'a', NULL) from test_convert_tz_with_timezone_cache; "
+
+    qt_sql1 """
+        SELECT
+            `id`, `test_datetime`, `origin_tz`, `target_tz`, convert_tz(`test_datetime`, `origin_tz`, `target_tz`)
+        FROM
+            test_convert_tz_with_timezone_cache
+        ORDER BY `id`
+    """
+    qt_sql2 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "Asia/Singapore", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
+        FROM
+            test_convert_tz_with_timezone_cache
+        WHERE
+            id = 2;
+    """
+    qt_sql3 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "Australia/Melbourne", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
+        FROM
+            test_convert_tz_with_timezone_cache
+        WHERE
+            id = 4;
+    """
+    qt_sql4 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "America/Dawson", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Africa/Lusaka")
+        FROM
+            test_convert_tz_with_timezone_cache
+        WHERE
+            id = 8;
+    """
+
+    qt_sql_vec1 """
+        SELECT
+            `id`, `test_datetime`, `origin_tz`, `target_tz`, convert_tz(`test_datetime`, `origin_tz`, `target_tz`)
+        FROM
+            test_convert_tz_with_timezone_cache
+        ORDER BY `id`
+    """
+    qt_sql_vec2 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "Asia/Singapore", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
+        FROM
+            test_convert_tz_with_timezone_cache
+        WHERE
+            id = 2;
+    """
+    qt_sql_vec3 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "Australia/Melbourne", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
+        FROM
+            test_convert_tz_with_timezone_cache
+        WHERE
+            id = 4;
+    """
+    qt_sql_vec4 """
+        SELECT
+            convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
+            convert_tz(`test_datetime`, "America/Dawson", `target_tz`),
+            convert_tz(`test_datetime`, `origin_tz`, "Africa/Lusaka")
+        FROM
+            test_convert_tz_with_timezone_cache
+        WHERE
+            id = 8;
+    """
+
+    // curdate,current_date
+    String curdate_str = new SimpleDateFormat("yyyy-MM-dd").format(new Date())
+    def curdate_result = sql """ SELECT CURDATE() """
+    def curdate_date_result = sql """ SELECT CURRENT_DATE() """
+    assertTrue(curdate_str == curdate_result[0][0].toString())
+    assertTrue(curdate_str == curdate_date_result[0][0].toString())
+
+    // DATETIME CURRENT_TIMESTAMP()
+    def current_timestamp_result = """ SELECT current_timestamp() """
+    assertTrue(current_timestamp_result[0].size() == 1)
+
+    // TIME CURTIME()
+    def curtime_result = sql """ SELECT CURTIME() """
+    assertTrue(curtime_result[0].size() == 1)
+    def curtime_with_arg = sql """ SELECT CAST(CURTIME(3) AS STRING) """
+    assertTrue(curtime_with_arg[0].size() == 1)
+    assertTrue(curtime_with_arg[0][0].contains('.'))
+
+    curtime_with_arg = sql """ SELECT CAST(CURTIME(0) AS STRING) """
+    assertTrue(curtime_with_arg[0].size() == 1)
+    assertFalse(curtime_with_arg[0][0].contains('.'))
+
+    test {
+        sql """ SELECT CURTIME(114514);"""
+        exception "Can not find the compatibility function signature: current_time(INT)"
+    }
+    test {
+        sql """ SELECT CURTIME(7); """
+        exception "The precision must be between 0 and 6"
+    }
+
+    sql """ insert into ${tableName} values ("2010-11-30 23:59:59") """
+    // DATE_ADD
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 YEAR) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 MONTH) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 DAY) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 HOUR) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 MINUTE) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL 2 SECOND) result from ${tableName}; """
+    qt_sql """ select date_add(test_datetime, INTERVAL '1 00:00:01' DAY_SECOND) result from ${tableName}; """
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_add('2024-01-16',INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= adddate('2024-01-16',INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_add('2024-01-16',1);"""
+        contains "2024-02-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_add('2024-01-16',1);"""
+        contains "2025-01-16"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_sub('2024-01-16',INTERVAL 1 day);"""
+        contains "2024-01-15"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_sub('2024-02-16',1);"""
+        contains "2024-01-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_sub('2024-01-16',1);"""
+        contains "2023-01-16"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_add(cast('2024-01-16' as DATE),INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= adddate(cast('2024-01-16' as DATE),INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_add(cast('2024-01-16' as DATE),1);"""
+        contains "2024-02-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_add(cast('2024-01-16' as DATE),1);"""
+        contains "2025-01-16"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_sub(cast('2024-01-16' as DATE),INTERVAL 1 day);"""
+        contains "2024-01-15"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_sub(cast('2024-02-16' as DATE),1);"""
+        contains "2024-01-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_sub(cast('2024-01-16' as DATE),1);"""
+        contains "2023-01-16"
+    }
+
+    // DATE_FORMAT
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2009-10-04 22:23:00") """
+    def resArray = ["Sunday October 2009", "星期日 十月 2009"]
+    def res = sql  """ select date_format(test_datetime, '%W %M %Y') from ${tableName}; """
+    assertTrue(resArray.contains(res[0][0]))
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2007-10-04 22:23:00") """
+    qt_sql """ select date_format(test_datetime, '%H:%i:%s') from ${tableName};"""
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("1900-10-04 22:23:00") """
+    qt_sql """ select date_format(test_datetime, '%D %y %a %d %m %b %j') from ${tableName}; """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("1997-10-04 22:23:00") """
+    qt_sql """ select date_format(test_datetime, '%H %k %I %r %T %S %w') from ${tableName}; """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("1999-01-01 00:00:00") """
+    qt_sql """ select date_format(test_datetime, '%X %V') from ${tableName}; """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2006-06-01") """
+    qt_sql """ select date_format(test_datetime, '%d') from ${tableName}; """
+    qt_sql """ select date_format(test_datetime, '%%%d') from ${tableName}; """
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2009-10-04 22:23:00") """
+    qt_sql """ select date_format(test_datetime, 'yyyy-MM-dd') from ${tableName}; """
+    sql """ truncate table ${tableName} """
+
+    sql """ insert into ${tableName} values ("2010-11-30 23:59:59") """
+    // DATE_SUB
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 YEAR) from ${tableName};"""
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 MONTH) from ${tableName};"""
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 DAY) from ${tableName};"""
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 HOUR) from ${tableName};"""
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 MINUTE) from ${tableName};"""
+    qt_sql """ select date_sub(test_datetime, INTERVAL 2 SECOND) from ${tableName};"""
+
+
+    // DATEDIFF
+    qt_sql """ select datediff(CAST('2007-12-31 23:59:59' AS DATETIME), CAST('2007-12-30' AS DATETIME)) """
+    qt_sql """ select datediff(CAST('2010-11-30 23:59:59' AS DATETIME), CAST('2010-12-31' AS DATETIME)) """
+    qt_sql """ select datediff('2010-10-31', '2010-10-15') """
+
+    // DAY
+    qt_sql """ select day('1987-01-31') """
+    qt_sql """ select day('2004-02-29') """
+
+    // DAYNAME
+    qt_sql """ select dayname('2007-02-03 00:00:00') """
+
+    // DAYOFMONTH
+    qt_sql """ select dayofmonth('1987-01-31') """
+
+    // DAYOFWEEK
+    qt_sql """ select dayofweek('2019-06-25') """
+    qt_sql """ select dayofweek(cast(20190625 as date)) """
+
+    // DAYOFYEAR
+    qt_sql """ select dayofyear('2007-02-03 10:00:00') """
+    qt_sql """ select dayofyear('2007-02-03') """
+
+    // FROM_DAYS
+    // 通过距离0000-01-01日的天数计算出哪一天
+    qt_sql """ select from_days(730669) """
+    qt_sql """ select from_days(1) """
+
+    // FROM_UNIXTIME
+    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219) """
+    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
+    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, '%Y-%m-%d') """
+    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
+    test {
+        sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+        exception "is invalid"
+    }
+
+    // HOUR
+    qt_sql """ select hour('2018-12-31 23:59:59') """
+    qt_sql """ select hour('2018-12-31') """
+
+    // MAKEDATE
+    test {
+        sql """ select makedate(2021,0) """
+        exception "out of range"
+    }
+    qt_sql """ select makedate(2021,1), makedate(2021,100), makedate(2021,400) """
+
+    // MINUTE
+    qt_sql """ select minute('2018-12-31 23:59:59') """
+    qt_sql """ select minute('2018-12-31') """
+
+    // MONTH
+    qt_sql """ select month('1987-01-01 23:59:59') """
+    qt_sql """ select month('1987-01-01') """
+
+    // MONTHNAME
+    qt_sql """ select monthname('2008-02-03 00:00:00') """
+    qt_sql """ select monthname('2008-02-03') """
+
+    // NOW
+    def now_result = sql """ select now() """
+    assertTrue(now_result[0].size() == 1)
+    def now_null_result = sql """ select now(null) """
+    assertTrue(now_null_result[0].size() == 1)
+
+    // SECOND
+    qt_sql """ select second('2018-12-31 23:59:59') """
+    qt_sql """ select second('2018-12-31 00:00:00') """
+    // Test SECOND function with time strings containing microseconds
+    qt_sql_second_time_with_micro1 """ select second('12:00:01.12') """
+    qt_sql_second_time_with_micro2 """ select second('23:59:59.999999') """
+    qt_sql_second_time_with_micro3 """ select second('00:00:00.000001') """
+    qt_sql_second_time_with_micro4 """ select second('15:30:45.5') """
+    
+    // MICROSECOND
+    qt_sql """ select microsecond(cast('1999-01-02 10:11:12.767890' as datetimev2(6))) """
+    // Test MICROSECOND function with time strings containing microseconds
+    qt_sql_microsecond_special_format """ select microsecond('120000.12') """
+    qt_sql_microsecond_time_with_micro1 """ select microsecond('12:00:00.123456') """
+    qt_sql_microsecond_time_with_micro2 """ select microsecond('23:59:59.999999') """
+    qt_sql_microsecond_time_with_micro3 """ select microsecond('00:00:00.000001') """
+    qt_sql_microsecond_time_with_micro4 """ select microsecond('15:30:45.5') """
+    qt_sql_microsecond_time_with_micro5 """ select microsecond('12:34:56.789') """
+
+    // STR_TO_DATE
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
+    qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
+    qt_sql """ select str_to_date("", "%Y-%m-%d %H:%i:%s"); """
+    qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
+    qt_sql """ select str_to_date('11.09.2011 11:09:30', '%m.%d.%Y %h:%i:%s'); """
+    qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
+    qt_sql """ select str_to_date('2023-07-05T02:09:55.880Z','%Y-%m-%dT%H:%i:%s.%fZ') """
+    qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
+    // %f with 6 digits
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.000000', '%Y-%m-%d %T.%f') """
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.123456', '%Y-%m-%d %T.%f') """
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.123456', '%Y-%m-%d %H:%i:%s.%f') """
+    // %f with 3 digits
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.123', '%Y-%m-%d %T.%f') """
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.100', '%Y-%m-%d %T.%f') """
+    // %f with >6 digits (should truncate or parse first 6)
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.1234567', '%Y-%m-%d %T.%f') """
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.123456789', '%Y-%m-%d %T.%f') """
+    // %T without %f (0-digit fractional)
+    qt_sql """ select str_to_date('2026-01-28 11:32:47', '%Y-%m-%d %T') """
+    // verify FE constant folding, BE constant folding, and BE execution all produce consistent results for %f
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.000000', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.123456', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.123456', '%Y-%m-%d %H:%i:%s.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.789000', '%Y-%m-%d %T.%f')")
+    // 3-digit, >6-digit, 0-digit consistency checks
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.123', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.100', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.1234567', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.123456789', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47', '%Y-%m-%d %T')")
+    testFoldConst("select str_to_date('2024-01-01', concat('%Y-%m', '-%d'))")
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2020-09-01")  """
+    qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""
+
+    // TIME_ROUND
+    qt_sql_year_floor """ select year_floor(cast('2023-04-28' as date)); """
+    qt_sql """ SELECT YEAR_FLOOR('20200202000000') """
+    qt_sql """ SELECT MONTH_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), 3) """
+    qt_sql """ SELECT WEEK_CEIL('2020-02-02 13:09:20', '2020-01-06') """
+    qt_sql """ SELECT MONTH_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), 3, CAST('1970-01-09 00:00:00' AS DATETIME)) """
+
+    // TIMEDIFF
+    qt_sql """ SELECT TIMEDIFF('2019-07-11 16:59:30','2019-07-11 16:59:21') """
+    qt_sql """ SELECT TIMEDIFF('2019-01-01 00:00:00', NULL) """
+
+    // TIMESTAMPADD
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2019-01-02") ; """
+    qt_sql """ SELECT TIMESTAMPADD(YEAR,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(MONTH,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(WEEK,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(DAY,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(HOUR,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(MINUTE,1,test_datetime) from ${tableName}; """
+    qt_sql """ SELECT TIMESTAMPADD(SECOND,1,test_datetime) from ${tableName}; """
+
+    // TIMESTAMPDIFF
+    qt_sql """ SELECT TIMESTAMPDIFF(MONTH,'2003-02-01','2003-05-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(YEAR,'2002-05-01','2001-01-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(MINUTE,'2003-02-01','2003-05-01 12:05:55') """
+    qt_sql """ SELECT TIMESTAMPDIFF(SECOND,'2003-02-01','2003-05-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(HOUR,'2003-02-01','2003-05-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(DAY,'2003-02-01','2003-05-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(WEEK,'2003-02-01','2003-05-01') """
+
+    sql "set debug_skip_fold_constant = true"
+    // TIMESTAMPDIFF with QUARTER unit - comprehensive test cases
+    // Normal cases within same year
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01','2023-04-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-15','2023-07-20') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-03-31','2023-12-31') """
+    // Cross year cases
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2022-12-01','2023-03-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2022-10-15','2024-01-15') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2020-01-01','2023-01-01') """
+    // Negative differences (end date before start date)
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-07-01','2023-01-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2024-12-31','2023-03-01') """
+    // Same date (should return 0)
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-06-15','2023-06-15') """
+    // Quarter boundary test cases
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01','2023-03-31') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-04-01','2023-06-30') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-07-01','2023-09-30') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-10-01','2023-12-31') """
+    // Edge cases with leap year
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2024-01-01','2024-12-31') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2024-02-29','2024-05-29') """
+    // Test with datetime including time components
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01 00:00:00','2023-10-01 23:59:59') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-03-31 12:30:45','2023-07-01 08:15:20') """
+    // Large date ranges
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2000-01-01','2023-12-31') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'1990-06-15','2024-06-15') """
+    // Test with null values
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,NULL,'2023-01-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01',NULL) """
+    // Test constant folding with testFoldConst
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01','2023-10-01')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2022-12-01','2023-03-01')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2024-02-29','2024-11-30')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2023-06-15','2023-06-15')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2025-01-01','2020-01-01')")
+
+    // QUARTERS_DIFF - comprehensive test cases
+    // Normal cases within same year
+    qt_sql """ SELECT quarters_diff('2023-04-01','2023-01-01') """
+    qt_sql """ SELECT quarters_diff('2023-07-20','2023-01-15') """
+    qt_sql """ SELECT quarters_diff('2023-12-31','2023-03-31') """
+    // Cross year cases
+    qt_sql """ SELECT quarters_diff('2023-03-01','2022-12-01') """
+    qt_sql """ SELECT quarters_diff('2024-01-15','2022-10-15') """
+    qt_sql """ SELECT quarters_diff('2023-01-01','2020-01-01') """
+    // Negative differences (end date before start date)
+    qt_sql """ SELECT quarters_diff('2023-01-01','2023-07-01') """
+    qt_sql """ SELECT quarters_diff('2023-03-01','2024-12-31') """
+    // Same date (should return 0)
+    qt_sql """ SELECT quarters_diff('2023-06-15','2023-06-15') """
+    // Quarter boundary test cases
+    qt_sql """ SELECT quarters_diff('2023-03-31','2023-01-01') """
+    qt_sql """ SELECT quarters_diff('2023-06-30','2023-04-01') """
+    qt_sql """ SELECT quarters_diff('2023-09-30','2023-07-01') """
+    qt_sql """ SELECT quarters_diff('2023-12-31','2023-10-01') """
+    // Edge cases with leap year
+    qt_sql """ SELECT quarters_diff('2024-12-31','2024-01-01') """
+    qt_sql """ SELECT quarters_diff('2024-05-29','2024-02-29') """
+    // Test with datetime including time components
+    qt_sql """ SELECT quarters_diff('2023-10-01 23:59:59','2023-01-01 00:00:00') """
+    qt_sql """ SELECT quarters_diff('2023-07-01 08:15:20','2023-03-31 12:30:45') """
+    // Large date ranges
+    qt_sql """ SELECT quarters_diff('2023-12-31','2000-01-01') """
+    qt_sql """ SELECT quarters_diff('2024-06-15','1990-06-15') """
+    // Test with null values
+    qt_sql """ SELECT quarters_diff('2023-01-01',NULL) """
+    qt_sql """ SELECT quarters_diff(NULL,'2023-01-01') """
+    // Test constant folding with testFoldConst
+    testFoldConst("SELECT quarters_diff('2023-10-01','2023-01-01')")
+    testFoldConst("SELECT quarters_diff('2023-03-01','2022-12-01')")
+    testFoldConst("SELECT quarters_diff('2024-11-30','2024-02-29')")
+    testFoldConst("SELECT quarters_diff('2023-06-15','2023-06-15')")
+    testFoldConst("SELECT quarters_diff('2020-01-01','2025-01-01')")
+    sql "set debug_skip_fold_constant = false"
+
+    // TO_DAYS
+    qt_sql """ select to_days('2007-10-07') """
+    qt_sql """ select to_days('2050-10-07') """
+
+    // UNIX_TIMESTAMP
+    def unin_timestamp_str = """ select unix_timestamp() """
+    assertTrue(unin_timestamp_str[0].size() == 1)
+    sql """set DEBUG_SKIP_FOLD_CONSTANT = true;"""
+    qt_sql_ustamp1 """ select unix_timestamp('2007-11-30 10:30:19') """
+    qt_sql_ustamp2 """ select unix_timestamp('2007-11-30 10:30-19', '%Y-%m-%d %H:%i-%s') """
+    qt_sql_ustamp3 """ select unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s') """
+    qt_sql_ustamp4 """ select unix_timestamp('1969-01-01 00:00:00') """
+    qt_sql_ustamp5 """ select unix_timestamp('2007-11-30 10:30:19.123456') """
+    qt_sql_ustamp6 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(3))) """
+    qt_sql_ustamp7 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(4))) """
+    qt_sql_ustamp8 """ select cast(unix_timestamp("2024-01-01",'yyyy-MM-dd') as bigint) """
+    qt_sql_ustamp9 """ SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59'); """
+    qt_sql_ustamp10 """ select UNIX_TIMESTAMP('2015-11-13 10:20:19.000010'); """
+    qt_sql_ustamp11 """ select UNIX_TIMESTAMP(cast('2015-11-13 10:20:19.012' as datetime(6))); """
+    check_fold_consistency(" UNIX_TIMESTAMP('9999-12-30 23:59:59.999')")
+    check_fold_consistency(" UNIX_TIMESTAMP('9999-12-30 23:59:59')")
+    check_fold_consistency(" UNIX_TIMESTAMP('2015-11-13 10:20:19.000010')")
+    check_fold_consistency(" UNIX_TIMESTAMP(cast('2015-11-13 10:20:19.000' as datetime(6)))")
+    check_fold_consistency(" UNIX_TIMESTAMP(cast('2015-11-13 10:20:19.012' as datetime(6)))")
+    // these two functions may return different value if we call it in different time. so dont use testFoldConst here
+    sql "set debug_skip_fold_constant=true;"
+    sql "SELECT UNIX_TIMESTAMP(current_timestamp()) AS unix_timestamp;"
+    sql "SELECT UNIX_TIMESTAMP(localtimestamp()) AS unix_timestamp;"
+    sql "set debug_skip_fold_constant=false;"
+    sql "SELECT UNIX_TIMESTAMP(current_timestamp()) AS unix_timestamp;"
+    sql "SELECT UNIX_TIMESTAMP(localtimestamp()) AS unix_timestamp;"
+    sql """set DEBUG_SKIP_FOLD_CONSTANT = false;"""
+    // UTC_TIMESTAMP
+    def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """
+    assertTrue(utc_timestamp_str[0].size() == 2)
+    sql "select utc_timestamp() from ${tableName}"
+    sql "select /*+SET_VAR(debug_skip_fold_constant=true)*/ utc_timestamp(),utc_timestamp() + 1;"
+    utc_timestamp_str = sql """ select utc_timestamp(6), utc_timestamp(6) + 1 """
+    assertTrue(utc_timestamp_str[0].size() == 2)
+    sql """ select utc_timestamp(7) """
+    test {
+        sql """ SELECT UTC_TIMESTAMP(NULL); """
+        exception "UTC_TIMESTAMP argument cannot be NULL."
+    }
+
+    // UTC_TIME
+    def utc_time_str = sql """ select utc_time(),utc_time() + 1 """
+    assertTrue(utc_time_str[0].size() == 2)
+    utc_time_str = sql """ select utc_time(6), utc_time(6) + 1 """
+    assertTrue(utc_time_str[0].size() == 2)
+    test {
+        sql """ select utc_time(7) """
+        exception "scale must be between 0 and 6"
+    }
+    test {
+        sql """ SELECT UTC_TIME(NULL); """
+        exception "UTC_TIME argument cannot be NULL."
+    }
+
+    def utc_date_str = sql """ select utc_date(),utc_date() + 1 """
+    assertTrue(utc_date_str[0].size() == 2)
+
+    // WEEK
+    qt_sql """ select week('2020-1-1') """
+    qt_sql """ select week('2020-7-1',1) """
+
+    // WEEKDAY
+    qt_sql """ select weekday('2019-06-25'); """
+    qt_sql """ select weekday(cast(20190625 as date)); """
+
+    // WEEKOFYEAR
+    qt_sql """ select weekofyear('2008-02-20 00:00:00') """
+
+    sql """ truncate table ${tableName} """
+    sql "set enable_insert_strict = false"
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03"), ("9999-08-01 13:21:03"),("0-08-01 13:21:03")"""
+    sql "set enable_insert_strict = true"
+
+    // YEAR
+    qt_sql """ select year('1987-01-01') """
+    qt_sql """ select year('2050-01-01') """
+    qt_sql """ select test_datetime, year(test_datetime) from ${tableName} order by test_datetime """
+
+    // CENTURY
+    qt_sql """ select century('1900-01-01') """
+    qt_sql """ select century('1901-01-01') """
+    qt_sql """ select century('2000-01-01') """
+    qt_sql """ select century('2001-01-01') """
+    qt_sql """ select century('2023-12-31') """
+    qt_sql """ select century('0001-01-01') """
+    qt_sql """ select century('9999-12-31') """
+    qt_sql """ select century('1999-12-31 23:59:59') """
+    qt_sql """ select century(cast('2000-01-01' as date)) """
+    qt_sql """ select century(cast('2000-01-01 12:00:00' as datetime)) """
+    
+    // Test century with different date formats
+    qt_sql """ select century('1900-12-31') """  // 19th century
+    qt_sql """ select century('1899-12-31') """  // 19th century
+    qt_sql """ select century('2000-12-31') """  // 20th century
+    qt_sql """ select century('2001-01-01') """  // 21st century
+    qt_sql """ select century('2100-01-01') """  // 21st century
+    qt_sql """ select century('2101-01-01') """  // 22nd century
+    
+    // Test century with NULL values
+    qt_sql """ select century(NULL) """
+    
+    // Test century with invalid dates
+    qt_sql """ select century('0000-00-00') """
+    qt_sql """ select century('2023-13-45') """
+
+    // YEAROFWEEK
+    qt_sql """ select year_of_week('1987-01-01') """
+    qt_sql """ select year_of_week('2050-01-01') """
+    qt_sql """ select test_datetime, year_of_week(test_datetime) from ${tableName} order by test_datetime """
+
+    qt_sql """ select yow('1987-01-01') """
+
+    qt_sql "select year_of_week('2005-01-01')" // 2004-W53-6 
+    qt_sql "select year_of_week('2005-01-02')" // 2004-W53-7 
+    qt_sql "select year_of_week('2005-12-31')" // 2005-W52-6 
+    qt_sql "select year_of_week('2007-01-01')" // 2007-W01-1 
+    qt_sql "select year_of_week('2007-12-30')" // 2007-W52-7 
+    qt_sql "select year_of_week('2007-12-31')" // 2008-W01-1 
+    qt_sql "select year_of_week('2008-01-01')" // 2008-W01-2 
+    qt_sql "select year_of_week('2008-12-28')" // 2008-W52-7 
+    qt_sql "select year_of_week('2008-12-29')" // 2009-W01-1 
+    qt_sql "select year_of_week('2008-12-30')" // 2009-W01-2 
+    qt_sql "select year_of_week('2008-12-31')" // 2009-W01-3 
+    qt_sql "select year_of_week('2009-01-01')" // 2009-W01-4 
+    qt_sql "select year_of_week('2009-12-31')" // 2009-W53-4 
+    qt_sql "select year_of_week('2010-01-01')" // 2009-W53-5 
+    qt_sql "select year_of_week('2010-01-02')" // 2009-W53-6 
+    qt_sql "select year_of_week('2010-01-03')" // 2009-W53-7 
+
+    // YEARWEEK
+    qt_sql """ select yearweek('2021-1-1') """
+    qt_sql """ select yearweek('2020-7-1') """
+    qt_sql """ select yearweek('1989-03-21', 0) """
+    qt_sql """ select yearweek('1989-03-21', 1) """
+    qt_sql """ select yearweek('1989-03-21', 2) """
+    qt_sql """ select yearweek('1989-03-21', 3) """
+    qt_sql """ select yearweek('1989-03-21', 4) """
+    qt_sql """ select yearweek('1989-03-21', 5) """
+    qt_sql """ select yearweek('1989-03-21', 6) """
+    qt_sql """ select yearweek('1989-03-21', 7) """
+
+    qt_sql """ select count(*) from (select * from numbers("number" = "200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
+
+    // microsecond
+    tableName = "test_microsecond"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+           CREATE TABLE IF NOT EXISTS ${tableName} (k1 datetimev2(6)) duplicate key(k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');
+        """
+    sql """ insert into ${tableName} values('1999-01-02 10:11:12.767891') """
+    sql """ insert into ${tableName} values('2023-05-15 08:30:45.123456') """
+    sql """ insert into ${tableName} values('2024-01-01 00:00:00.000001') """
+    sql """ insert into ${tableName} values('2024-12-31 23:59:59.999999') """
+
+    qt_sql """ select microsecond(k1) from ${tableName} order by k1; """
+    qt_sql_ms_use_date "select microsecond(cast(k1 as date)) from ${tableName};"
+    
+    // Test microsecond extraction from different datetime formats
+    qt_sql """ select microsecond(k1), k1 from ${tableName} where microsecond(k1) > 500000 order by k1; """
+    qt_sql """ select microsecond(k1), k1 from ${tableName} where microsecond(k1) < 100000 order by k1; """
+
+    // Simple tests for basic functionality
+    qt_sql_second_simple """ select second('12:34:56') """
+    // qt_sql_microsecond_simple """ select microsecond('12:34:56.123456') """
+    
+    // Test with datetime values
+    qt_sql_second_datetime_with_micro """ select second('2024-01-01 12:34:56.789') """
+    qt_sql_microsecond_datetime_with_micro """ select microsecond('2024-01-01 12:34:56.789123') """
+
+    // Test SECOND and MICROSECOND functions with table containing time_str column
+    tableName = "test_time_str_functions"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                `id` INT NOT NULL COMMENT "ID",
+                `time_str` VARCHAR(50) NOT NULL COMMENT "时间字符串"
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES("replication_num" = "1");
+        """
+    
+    // Insert key test data
+    sql """ insert into ${tableName} values 
+            (1, '120000.12'),
+            (2, '12:00:01.12'),
+            (3, '23:59:59.999999'),
+            (4, '2024-01-01 12:34:56.789123');
+        """
+    
+    // Test SECOND function with time_str column
+    qt_sql_table_second_all """ select second(time_str) from ${tableName} order by id; """
+    
+    // Test MICROSECOND function with time_str column  
+    qt_sql_table_microsecond_all """ select microsecond(time_str) from ${tableName} order by id; """
+
+    tableName = "test_from_unixtime"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                `id` INT NOT NULL COMMENT "用户id",
+                `update_time` INT NOT NULL COMMENT "数据灌入日期时间"
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`)
+            PROPERTIES("replication_num" = "1");
+        """
+    sql """ insert into ${tableName} values (1, 1659344431) """
+    sql """ insert into ${tableName} values (2, 1659283200) """
+    sql """ insert into ${tableName} values (3, 1659283199) """
+    sql """ insert into ${tableName} values (4, 1659283201) """
+
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") = '2022-08-01' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") > '2022-08-01' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") < '2022-08-01' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") >= '2022-08-01' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") <= '2022-08-01' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d") LIKE '2022-08-01' ORDER BY id; """
+
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") = '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") > '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") < '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") >= '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") <= '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") LIKE '2022-08-01 00:00:00' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") = '2022-08-01 17:00:31' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,null) FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") = '2022-08-01 17:00:31' ORDER BY id; """
+    test {
+        sql """ SELECT id,FROM_UNIXTIME(update_time,'%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b') FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") = '2022-08-01 17:00:31' ORDER BY id; """
+        exception "is invalid"
+    }
+
+    qt_sql """SELECT CURDATE() = CURRENT_DATE();"""
+    qt_sql """SELECT unix_timestamp(CURDATE()) = unix_timestamp(CURRENT_DATE());"""
+
+    qt_sql """ select date_format('1999-01-01', '%X %V'); """
+    qt_sql """ select date_format('2025-01-01', '%X %V'); """
+    qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
+    qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
+    qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
+    qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """
+
+    sql " drop table if exists dtfmt "
+    sql """
+        create table dtfmt(
+        k0 datetime(3) null
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+    sql """insert into dtfmt select "2024-06-10 12:34:56.789" from numbers("number"="5000");"""
+    sql "select date_format(k0, '%Y-%m-%d') from dtfmt;"
+
+    qt_sql """ select length(cast(now() as string)), length(cast(now(0) as string)), length(cast(now(1) as string)),
+                      length(cast(now(2) as string)), length(cast(now(3) as string)), length(cast(now(4) as string)),
+                      length(cast(now(5) as string)), length(cast(now(6) as string)); """
+    qt_sql """ select length(cast(current_timestamp() as string)), length(cast(current_timestamp(0) as string)),
+                      length(cast(current_timestamp(1) as string)), length(cast(current_timestamp(2) as string)),
+                      length(cast(current_timestamp(3) as string)), length(cast(current_timestamp(4) as string)),
+                      length(cast(current_timestamp(5) as string)), length(cast(current_timestamp(6) as string)); """
+
+
+   tableName = "test_time_add_sub_function"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                test_time datetime NULL COMMENT "",
+                test_time1 datetimev2(3) NULL COMMENT "",
+                test_time2 datetimev2(6) NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(test_time)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(test_time) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+            )
+        """
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03", "2019-08-01 13:21:03.111", "2019-08-01 13:21:03.111111") """
+    //years_add
+    qt_sql """ select years_add(test_time,1) result from ${tableName}; """
+    //months_add
+    qt_sql """ select months_add(test_time,1) result from ${tableName}; """
+    //weeks_add
+    qt_sql """ select weeks_add(test_time,1) result from ${tableName}; """
+    //days_add
+    qt_sql """ select days_add(test_time,1) result from ${tableName}; """
+    //hours_add
+    qt_sql """ select hours_add(test_time,1) result from ${tableName}; """
+    //minutes_add
+    qt_sql """ select minutes_add(test_time,1) result from ${tableName}; """
+    //seconds_add
+    qt_sql """ select seconds_add(test_time,1) result from ${tableName}; """
+
+    //years_sub
+    qt_sql """ select years_sub(test_time,1) result from ${tableName}; """
+    //months_sub
+    qt_sql """ select months_sub(test_time,1) result from ${tableName}; """
+    //weeks_sub
+    qt_sql """ select weeks_sub(test_time,1) result from ${tableName}; """
+    //days_sub
+    qt_sql """ select days_sub(test_time,1) result from ${tableName}; """
+    //hours_sub
+    qt_sql """ select hours_sub(test_time,1) result from ${tableName}; """
+    //minutes_sub
+    qt_sql """ select minutes_sub(test_time,1) result from ${tableName}; """
+    //seconds_sub
+    qt_sql """ select seconds_sub(test_time,1) result from ${tableName}; """
+
+    qt_sql """ select date_add(NULL, INTERVAL 1 month); """
+    qt_sql """ select date_add(NULL, INTERVAL 1 day); """
+
+    //years_add
+    qt_sql """ select years_add(test_time1,1) result from ${tableName}; """
+    //months_add
+    qt_sql """ select months_add(test_time1,1) result from ${tableName}; """
+    //weeks_add
+    qt_sql """ select weeks_add(test_time1,1) result from ${tableName}; """
+    //days_add
+    qt_sql """ select days_add(test_time1,1) result from ${tableName}; """
+    //hours_add
+    qt_sql """ select hours_add(test_time1,1) result from ${tableName}; """
+    //minutes_add
+    qt_sql """ select minutes_add(test_time1,1) result from ${tableName}; """
+    //seconds_add
+    qt_sql """ select seconds_add(test_time1,1) result from ${tableName}; """
+
+    //years_sub
+    qt_sql """ select years_sub(test_time1,1) result from ${tableName}; """
+    //months_sub
+    qt_sql """ select months_sub(test_time1,1) result from ${tableName}; """
+    //weeks_sub
+    qt_sql """ select weeks_sub(test_time1,1) result from ${tableName}; """
+    //days_sub
+    qt_sql """ select days_sub(test_time1,1) result from ${tableName}; """
+    //hours_sub
+    qt_sql """ select hours_sub(test_time1,1) result from ${tableName}; """
+    //minutes_sub
+    qt_sql """ select minutes_sub(test_time1,1) result from ${tableName}; """
+    //seconds_sub
+    qt_sql """ select seconds_sub(test_time1,1) result from ${tableName}; """
+
+    //years_add
+    qt_sql """ select years_add(test_time2,1) result from ${tableName}; """
+    //months_add
+    qt_sql """ select months_add(test_time2,1) result from ${tableName}; """
+    //weeks_add
+    qt_sql """ select weeks_add(test_time2,1) result from ${tableName}; """
+    //days_add
+    qt_sql """ select days_add(test_time2,1) result from ${tableName}; """
+    //hours_add
+    qt_sql """ select hours_add(test_time2,1) result from ${tableName}; """
+    //minutes_add
+    qt_sql """ select minutes_add(test_time2,1) result from ${tableName}; """
+    //seconds_add
+    qt_sql """ select seconds_add(test_time2,1) result from ${tableName}; """
+
+    //years_sub
+    qt_sql """ select years_sub(test_time2,1) result from ${tableName}; """
+    //months_sub
+    qt_sql """ select months_sub(test_time2,1) result from ${tableName}; """
+    //weeks_sub
+    qt_sql """ select weeks_sub(test_time2,1) result from ${tableName}; """
+    //days_sub
+    qt_sql """ select days_sub(test_time2,1) result from ${tableName}; """
+    //hours_sub
+    qt_sql """ select hours_sub(test_time2,1) result from ${tableName}; """
+    //minutes_sub
+    qt_sql """ select minutes_sub(test_time2,1) result from ${tableName}; """
+    //seconds_sub
+    qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
+    //datediff
+    qt_sql """ select datediff(test_time2, STR_TO_DATE('2022-08-01 00:00:00','%Y-%m-%d')) from ${tableName}; """
+
+    // test last_day for vec
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth date,    
+                birth1 datev2, 
+                birth2 datetime, 
+                birth3 datetimev2)
+            UNIQUE KEY(birth, birth1, birth2, birth3)
+            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+    sql """
+        insert into ${tableName} values 
+        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
+        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
+        ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
+        ('2022-02-28', '2022-02-28', '2022-02-28T23:59:59', '2022-02-28T23:59:59');"""
+    qt_sql """
+        select last_day(birth), last_day(birth1), 
+                last_day(birth2), last_day(birth3) 
+                from ${tableName};
+    """
+
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth date,    
+                birth1 datetime)
+            UNIQUE KEY(birth, birth1)
+            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+    sql """
+        insert into ${tableName} values 
+        ('2022-01-01', '2022-01-01 00:00:00'), 
+        ('2000-02-01', '2000-02-01 00:00:00'), 
+        ('2022-02-27', '2022-02-27 00:00:00'),
+        ('2022-02-28', '2022-02-28 23:59:59');"""
+    qt_sql """
+        select last_day(birth), last_day(birth1) from ${tableName};
+    """
+
+    // test to_monday
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth date,    
+                birth1 datev2, 
+                birth2 datetime, 
+                birth3 datetimev2)
+            UNIQUE KEY(birth, birth1, birth2, birth3)
+            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+
+    String explainResult
+    explainResult = sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
+    assertFalse(explainResult.contains("timestamp"))
+
+    explainResult = sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
+    assertFalse(explainResult.contains("timestamp"))
+
+    sql """
+        insert into ${tableName} values 
+        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
+        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
+        ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
+        ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59'),
+        ('1970-01-02', '1970-01-02', '1970-01-02 01:02:03', '1970-01-02 02:03:04');"""
+    qt_sql """
+        select to_monday(birth), to_monday(birth1), 
+                to_monday(birth2), to_monday(birth3) 
+                from ${tableName};
+    """
+
+    // Test dow and doy
+    qt_sql """
+        select extract(dow from birth), extract(dow from birth1), extract(dow from birth2), extract(dow from birth3),
+               extract(dayofweek from birth), extract(dayofweek from birth1), extract(dayofweek from birth2), extract(dayofweek from birth3),
+               extract(doy from birth), extract(doy from birth1), extract(doy from birth2), extract(doy from birth3),
+               extract(dayofyear from birth), extract(dayofyear from birth1), extract(dayofyear from birth2), extract(dayofyear from birth3)
+               from ${tableName};
+    """
+
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+
+    // test date_sub(datetime,dayofmonth)
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth1 datetime,
+                birth2 datetimev2)
+            UNIQUE KEY(birth1,birth2)
+            DISTRIBUTED BY HASH (birth1,birth2) BUCKETS 1
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+    sql """
+        insert into ${tableName} values
+        ('2022-01-20 00:00:00', '2023-01-20 00:00:00.123');"""
+    qt_sql """
+        select *  from
+          ${tableName}
+        where
+          birth1 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
+    """
+        qt_sql """
+            select *  from
+              ${tableName}
+            where
+              birth2 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
+        """
+    test {
+        sql """select current_timestamp(10);"""
+        exception "Precision of NOW must be between 0 and 9. Precision was set to: 10"
+    }
+    
+    test {
+        sql "select cast('20230631' as date), cast('20230632' as date)"
+        result([[null, null]])
+    }
+    
+    res = sql "explain select date_trunc('2022-04-24', 'day'), date_trunc('1999-03-12 00:31:23', 'hour')"
+    assertFalse(res.contains("date_trunc"))
+
+    qt_sql """ select date_add("2023-08-17T01:41:18Z", interval 8 hour) """
+
+    qt_sql """
+        SELECT
+            UNIX_TIMESTAMP(a, '%Y-%c-%d %H:%i:%s') AS a,
+            UNIX_TIMESTAMP(a, 'yyyy-MM-dd HH:mm:ss') as b
+        FROM
+           (
+            SELECT FROM_UNIXTIME(UNIX_TIMESTAMP('20230918', '%Y%m%d'), 'yyyy-MM-dd HH:mm:ss') AS `a`
+           )t """
+
+    sql """ drop table if exists date_varchar """
+    sql """
+        create table date_varchar(
+            dt varchar null,
+            fmt varchar null
+        )
+        DISTRIBUTED BY HASH(`dt`) BUCKETS 1
+        properties("replication_num" = "1");
+    """
+    sql """ insert into date_varchar values ("2020-12-12", "%Y-%m-%d"), ("20201111", "%Y%m%d"), ("202012-13", "%Y%m-%d"),
+    ("0000-01-01", "%Y-%m-%d"),("9999-12-31 23:59:59", "%Y-%m-%d %H:%i:%s"),
+    ("9999-12-31 23:59:59.999999", "%Y-%m-%d %H:%i:%s.%f"), ("9999-12-31 23:59:59.9999999", "%Y-%m-%d %H:%i:%s.%f"),
+    ("1999-12-31 23:59:59.9999999", "%Y-%m-%d %H:%i:%s.%f"); """
+    qt_sql_varchar1 """ select dt, fmt, unix_timestamp(dt, fmt) as k1 from date_varchar order by k1,dt,fmt; """
+    // qt_sql_varchar1 """ select dt, unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1,dt,fmt; """
+    // qt_sql_varchar1 """ select fmt, unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1,dt,fmt; """
+
+    def test_simplify = {
+        test {
+            sql "select months_add(dt, 1) = date '2024-02-29' from (select date '2024-01-31' as dt)a"
+            result([[true]])
+        }
+        test {
+            sql "select years_add(dt, 1) = date '2025-02-28' from (select date '2024-02-29' as dt)a"
+            result([[true]])
+        }
+    }()
+
+    sql """ DROP TABLE IF EXISTS dt_null; """
+
+    sql """
+     CREATE TABLE IF NOT EXISTS dt_null(
+            `k1` INT NOT NULL,
+            `dtv24` datetimev2(4) NOT NULL,
+            `dtv20n` datetimev2(0) NULL,
+            `dv2` datev2 NOT NULL,
+            `dv2n` datev2 NULL,
+            `str` VARCHAR NULL
+            )
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+            properties("replication_num" = "1"); """
+    sql """ insert into dt_null values ('1', '2020-12-12', '2020-12-12', '2020-12-12', '2020-12-12', '2020-12-12'),
+            ('2', '2020-12-12 12:12:12', '2020-12-12 12:12:12', '2020-12-12 12:12:12', '2020-12-12 12:12:12', '2020-12-12 12:12:12'),
+            ('3', '2020-12-12 12:12:12.0', '2020-12-12 12:12:12.0', '2020-12-12 12:12:12.0', '2020-12-12 12:12:12.0', '2020-12-12 12:12:12.0'),
+            ('4', '2020-12-12 12:12:12.123', '2020-12-12 12:12:12.123', '2020-12-12 12:12:12.123', '2020-12-12 12:12:12.123', '2020-12-12 12:12:12.123'),
+            ('5', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666'); """
+
+    qt_sql_dt_null_1 """ select unix_timestamp(dtv24), unix_timestamp(dtv20n), unix_timestamp(dv2), unix_timestamp(dv2n), unix_timestamp(str) from dt_null order by k1; """
+
+    sql """ DROP TABLE IF EXISTS dt_timenull; """
+
+    sql """
+     CREATE TABLE IF NOT EXISTS dt_timenull(
+            `k1` INT NOT NULL,
+            `k2` BIGINT NOT NULL
+            )
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+            properties("replication_num" = "1");
+    """
+    
+    sql """ insert into dt_timenull values (1, 0),(2, 100),(3, 123),(4, 219837),(5, -8923),(6, -29313),(7, 2131321231),(8, -21312313),(9,1112345);"""
+
+    qt_sql_time_value """ select k1 , cast(k2 as time) , hour(cast(k2 as time)) , minute(cast(k2 as time)), second(cast(k2 as time)) from dt_timenull order by k1;"""
+
+
+    qt_sql_time_value """ select  cast(4562632 as time),  hour(cast(4562632 as time)) ,  minute(cast(4562632 as time)) , second(cast(4562632 as time)); """
+
+    sql """ DROP TABLE IF EXISTS test_period_union; """
+    sql """ CREATE TABLE test_period_union (
+            id INT,
+            period_1 BIGINT,
+            month BIGINT,
+            period_2 BIGINT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ( 'replication_num' = '1' ); """
+    sql """ INSERT INTO test_period_union VALUES
+            (1, 200803, 2, 200804),
+            (2, 200809, 5, 0308),
+            (3, 0803, 2, 0804),
+            (4, 6910, 3, 7001),
+            (5, 7001, 1, 6908),
+            (6, 12345611, 123456, 123456114512),
+            (7, NULL, 10, NULL),
+            (8, 202510, NULL, 202511),
+            (9, 9223372036854775807, 1, 1),
+            (10, 2510, 123456789, NULL); """
+    qt_period_add_1 """ SELECT PERIOD_ADD(period_1, month), PERIOD_DIFF(period_1, period_2) FROM test_period_union ORDER BY id; """
+    qt_period_add_2 """ SELECT PERIOD_ADD(2511, month), PERIOD_DIFF(2511, period_2) FROM test_period_union ORDER BY id; """
+    qt_period_add_3 """ SELECT PERIOD_ADD(period_1, 10), PERIOD_DIFF(period_1, 202512) FROM test_period_union ORDER BY id; """
+    qt_period_add_4 """ SELECT PERIOD_ADD(NULL, month), PERIOD_DIFF(NULL, period_2) FROM test_period_union ORDER BY id; """
+    qt_period_add_5 """ SELECT PERIOD_ADD(period_1, NULL), PERIOD_DIFF(period_1, NULL) FROM test_period_union ORDER BY id; """
+    testFoldConst("SELECT PERIOD_ADD(200803, 2)")
+    testFoldConst("SELECT PERIOD_ADD(200809, 5)")
+    testFoldConst("SELECT PERIOD_ADD(9223372036854775807, 1);")
+    testFoldConst("SELECT PERIOD_DIFF(200803, 200804)")
+    testFoldConst("SELECT PERIOD_DIFF(200804, 0803)")
+    testFoldConst("SELECT PERIOD_DIFF(9223372036854775807, 101);")
+
+    sql """ DROP TABLE IF EXISTS test_period_union; """
+
+    sql "drop table if exists date_add_test123"
+    sql """
+    CREATE TABLE date_add_test123(
+        id INT,
+        date_col DATE,
+        days_col INT,
+        months_col INT,
+        years_col INT,
+        datetime_col DATETIME,
+        invalid_col VARCHAR(50)
+    ) ENGINE = OLAP DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 10 PROPERTIES ("replication_num" = "1");
+    """
+    sql """
+    INSERT INTO date_add_test123
+    VALUES (1,'2023-05-15',10,2,1,'2023-05-15 12:00:00','invalid'    ),
+    (2,'2023-12-31',-5,-1,0,'2023-12-31 23:59:59','2023-13-40'    ),
+    (3, NULL, NULL, NULL, NULL, NULL, NULL),
+    (4,'2023-01-01',366,12,100,'2023-01-01 00:00:00','2023-01-01'    );
+"""
+
+    order_qt_sql1 """ SELECT 
+    DATE_ADD(invalid_col, INTERVAL '1+2' DAY)
+    FROM date_add_test123; """
+
+    order_qt_sql2 """ SELECT invalid_col,     DATE_ADD(invalid_col, INTERVAL 1+2 DAY)     FROM date_add_test123 """
+
+}

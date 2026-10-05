@@ -1,0 +1,365 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands.insert;
+
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.loadv2.InsertLoadJob;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.LoadEtlTask;
+import org.apache.doris.thrift.TQueryType;
+import org.apache.doris.thrift.TStatusCode;
+
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+/**
+ * Abstract insert executor.
+ * The derived class should implement the abstract method for certain type of target table
+ */
+public abstract class AbstractInsertExecutor {
+    public static final String DEBUG_POINT_IVM_RPC_FAILURE =
+            "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure";
+    public static final String DEBUG_POINT_IVM_RPC_FAILURE_FILTER =
+            "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure.filter";
+    protected static final long INVALID_TXN_ID = -1L;
+    private static final Logger LOG = LogManager.getLogger(AbstractInsertExecutor.class);
+
+    protected long jobId;
+    protected final ConnectContext ctx;
+    protected final Coordinator coordinator;
+    protected InsertLoadJob insertLoadJob;
+    protected String labelName;
+    protected final DatabaseIf database;
+    protected final TableIf table;
+    protected final long createTime = System.currentTimeMillis();
+    protected long loadedRows = 0;
+    protected int filteredRows = 0;
+
+    protected String errMsg = "";
+    protected Optional<InsertCommandContext> insertCtx;
+    protected final boolean emptyInsert;
+    protected long txnId = INVALID_TXN_ID;
+    protected List<TableStreamUpdateInfo> streamUpdateInfos = Collections.emptyList();
+
+    /**
+     * Insert executor listener
+     */
+    public interface InsertExecutorListener {
+        /**
+         * Called before insert execution begins
+         */
+
+        default void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
+                throws Exception {
+        }
+
+        default void afterComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
+                throws Exception {
+        }
+    }
+
+    private List<InsertExecutorListener> listeners = new CopyOnWriteArrayList<>();
+
+    /**
+     * constructor
+     */
+    public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
+        this(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId, false);
+    }
+
+    /**
+     * constructor
+     */
+    public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId, boolean needRegister) {
+        this(ctx, table.getDatabase(), table, labelName, planner, insertCtx, emptyInsert, jobId, needRegister);
+    }
+
+    /**
+     * Dictionary loads must retain the owner resolved before a concurrent database drop.
+     */
+    public AbstractInsertExecutor(ConnectContext ctx, DatabaseIf<?> database, TableIf table, String labelName,
+            NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId,
+            boolean needRegister) {
+        this.ctx = ctx;
+        this.database = Objects.requireNonNull(database, "database should not be null");
+        this.insertLoadJob = new InsertLoadJob(database.getId(), labelName, jobId);
+        if (needRegister) {
+            ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
+        }
+        this.coordinator = EnvFactory.getInstance().createCoordinator(
+                ctx, planner, ctx.getStatsErrorEstimator(), insertLoadJob.getId());
+        this.labelName = labelName;
+        this.table = table;
+        this.insertCtx = insertCtx;
+        this.emptyInsert = emptyInsert;
+        this.jobId = jobId;
+    }
+
+    public void registerListener(InsertExecutorListener listener) {
+        listeners.add(listener);
+    }
+
+    public void unregisterListener(InsertExecutorListener listener) {
+        listeners.remove(listener);
+    }
+
+    protected void handleAfterCompleteFailure(Exception e) throws Exception {
+        throw e;
+    }
+
+    public Coordinator getCoordinator() {
+        return coordinator;
+    }
+
+    public DatabaseIf getDatabase() {
+        return database;
+    }
+
+    public TableIf getTable() {
+        return table;
+    }
+
+    public String getLabelName() {
+        return labelName;
+    }
+
+    public long getTxnId() {
+        return txnId;
+    }
+
+    /**
+     * begin transaction if necessary
+     */
+    public abstract void beginTransaction();
+
+    /**
+     * finalize sink to complete enough info for sink execution
+     */
+    protected abstract void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink);
+
+    /**
+     * Do something before exec
+     */
+    protected abstract void beforeExec() throws UserException;
+
+    /**
+     * Do something after exec finished
+     */
+    protected abstract void onComplete() throws UserException;
+
+    /**
+     * Do something when exec throw exception
+     */
+    protected abstract void onFail(Throwable t);
+
+    /**
+     * Do something after exec
+     */
+    protected abstract void afterExec(StmtExecutor executor);
+
+    protected final void execImpl(StmtExecutor executor) throws Exception {
+        String queryId = DebugUtil.printId(ctx.queryId());
+        coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
+        coordinator.setQueryType(TQueryType.LOAD);
+        coordinator.setIsProfileSafeStmt(executor.isProfileSafeStmt());
+        executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
+        QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
+        QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
+        executor.updateProfile(false);
+        coordinator.exec();
+        executor.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
+        executor.getSummaryProfile().setTempStartTime();
+        int execTimeout = ctx.getExecTimeoutS();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("insert [{}] with query id {} execution timeout is {}", labelName, queryId, execTimeout);
+        }
+        boolean notTimeout = coordinator.join(execTimeout);
+        executor.getSummaryProfile().freshFetchResultConsumeTime();
+        executor.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
+        if (!coordinator.isDone()) {
+            coordinator.cancel(new Status(TStatusCode.CANCELLED, "insert timeout"));
+            if (notTimeout) {
+                errMsg = coordinator.getExecStatus().getErrorMsg();
+                ErrorReport.reportDdlException("%s", ErrorCode.ERR_FAILED_WHEN_INSERT,
+                        "there exists unhealthy backend. " + errMsg);
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
+            }
+        }
+        if (!coordinator.getExecStatus().ok()) {
+            errMsg = coordinator.getExecStatus().getErrorMsg();
+            LOG.warn("insert [{}] with query id {} failed, {}", labelName, queryId, errMsg);
+            ErrorReport.reportDdlException("%s", ErrorCode.ERR_FAILED_WHEN_INSERT, errMsg);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("insert [{}] with query id {} delta files is {}",
+                    labelName, queryId, coordinator.getDeltaUrls());
+        }
+        if (coordinator.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
+            loadedRows = Long.parseLong(coordinator.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
+        }
+        if (coordinator.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
+            filteredRows = Integer.parseInt(coordinator.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
+        }
+        if (insertLoadJob != null) {
+            insertLoadJob.getLoadStatistic().setFilteredRows(filteredRows);
+        }
+    }
+
+    private void checkStrictModeAndFilterRatio() throws Exception {
+        // if in strict mode, insert will fail if there are filtered rows
+        if (ctx.getSessionVariable().getEnableInsertStrict()) {
+            if (filteredRows > 0) {
+                ErrorReport.reportDdlException("Insert has filtered data in strict mode",
+                        ErrorCode.ERR_FAILED_WHEN_INSERT);
+            }
+        } else {
+            if (filteredRows > ctx.getSessionVariable().getInsertMaxFilterRatio() * (filteredRows + loadedRows)) {
+                ErrorReport.reportDdlException("Insert has too many filtered data %d/%d insert_max_filter_ratio is %f",
+                        ErrorCode.ERR_FAILED_WHEN_INSERT, filteredRows, filteredRows + loadedRows,
+                        ctx.getSessionVariable().getInsertMaxFilterRatio());
+            }
+        }
+    }
+
+    /**
+     * execute insert txn for insert into select command.
+     */
+    public void executeSingleInsert(StmtExecutor executor) throws Exception {
+        try {
+            // Every statement-owned insert coordinator is published at the common execution boundary.
+            // Cancellation retained during planning is replayed before any executor-specific setup or dispatch.
+            executor.setCoord(coordinator);
+            // Publication synchronously replays any cancellation retained during planning. Fence on that
+            // terminal status before executor-specific setup runs, so a later setup failure cannot mask the
+            // original timeout/cancel reason.
+            Status execStatus = coordinator.getExecStatus();
+            if (!execStatus.ok()) {
+                throw new UserException(execStatus.getErrorMsg());
+            }
+            // Pre-execution work may register external resources, so it must share the transaction cleanup scope.
+            beforeExec();
+            executor.updateProfile(false);
+            if (!emptyInsert) {
+                if (isIvmRpcFailureDebugPointEnabled()) {
+                    throw new RpcException("ivm", "debug point: " + DEBUG_POINT_IVM_RPC_FAILURE);
+                }
+                execImpl(executor);
+            }
+            checkStrictModeAndFilterRatio();
+            for (InsertExecutorListener listener : listeners) {
+                listener.beforeComplete(this, executor, jobId);
+            }
+            // Every transaction-owning executor commits inside onComplete(). Re-fence the first terminal
+            // status here so a cancellation/TIMEOUT that landed after execImpl()'s last status read cannot
+            // be committed by a path such as row-level UPDATE/DELETE/MERGE, which has no command-level
+            // cancellation listener of its own.
+            Status preCommitStatus = coordinator.getExecStatus();
+            if (!preCommitStatus.ok()) {
+                throw new UserException(preCommitStatus.getErrorMsg());
+            }
+            onComplete();
+            for (InsertExecutorListener listener : listeners) {
+                try {
+                    listener.afterComplete(this, executor, jobId);
+                } catch (Exception e) {
+                    handleAfterCompleteFailure(e);
+                }
+            }
+        } catch (Throwable t) {
+            onFail(t);
+            if (ctx.getStatementContext().isIvmMTMVRewrite()) {
+                for (Throwable cause : ExceptionUtils.getThrowableList(t)) {
+                    if (cause instanceof RpcException) {
+                        throw (RpcException) cause;
+                    }
+                }
+            }
+            // retry insert into from select when meet "need re-plan error" or no scan node in cloud
+            if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
+                throw t;
+            }
+            return;
+        } finally {
+            coordinator.close();
+            executor.updateProfile(true);
+            QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
+        }
+        afterExec(executor);
+    }
+
+    private boolean isIvmRpcFailureDebugPointEnabled() {
+        if (!ctx.getStatementContext().isIvmMTMVRewrite()) {
+            return false;
+        }
+        String mvName = ctx.getStatementContext().getIvmRewriteContext().get().getMtmv().getName();
+        String targetMvName = DebugPointUtil.getDebugParamOrDefault(
+                DEBUG_POINT_IVM_RPC_FAILURE_FILTER, "mv_name", "");
+        return mvName.equals(targetMvName) && DebugPointUtil.isEnable(DEBUG_POINT_IVM_RPC_FAILURE);
+    }
+
+    public boolean isEmptyInsert() {
+        return emptyInsert;
+    }
+
+    /**
+     * Return whether this insert needs its transaction lifecycle. A Table Stream offset update
+     * must be committed even when optimization proves that the target receives no rows.
+     */
+    public boolean requiresTransaction() {
+        return !emptyInsert || !streamUpdateInfos.isEmpty();
+    }
+
+    public void setStreamUpdateInfos(List<TableStreamUpdateInfo> streamUpdateInfos) {
+        this.streamUpdateInfos = streamUpdateInfos;
+    }
+
+    public List<TableStreamUpdateInfo> getStreamUpdateInfos() {
+        return streamUpdateInfos;
+    }
+}

@@ -1,0 +1,137 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.jdbc;
+
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.zaxxer.hikari.HikariDataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+
+public class JdbcDataSource {
+    private static final Logger LOG = LoggerFactory.getLogger(JdbcDataSource.class);
+    private static final ThreadFactory THREAD_FACTORY = new ThreadFactoryBuilder()
+            .setDaemon(true)
+            .setNameFormat("jdbc-datasource-cleanup-%d")
+            .build();
+    private static final JdbcDataSource jdbcDataSource = new JdbcDataSource();
+    private final Map<String, HikariDataSource> sourcesMap = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastAccessTimeMap = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(THREAD_FACTORY);
+    private long cleanupInterval = 8 * 60 * 60 * 1000; // 8 hours
+    private ScheduledFuture<?> cleanupTask = null;
+
+    private JdbcDataSource() {
+        startCleanupTask();
+    }
+
+    public static JdbcDataSource getDataSource() {
+        return jdbcDataSource;
+    }
+
+    public HikariDataSource getSource(String cacheKey) {
+        lastAccessTimeMap.put(cacheKey, System.currentTimeMillis());
+        return sourcesMap.get(cacheKey);
+    }
+
+    public void putSource(String cacheKey, HikariDataSource ds) {
+        sourcesMap.put(cacheKey, ds);
+        lastAccessTimeMap.put(cacheKey, System.currentTimeMillis());
+    }
+
+    public Map<String, HikariDataSource> getSourcesMap() {
+        return sourcesMap;
+    }
+
+    public void setCleanupInterval(long interval) {
+        if (this.cleanupInterval != interval * 1000L) {
+            this.cleanupInterval = interval * 1000L;
+            restartCleanupTask();
+        }
+    }
+
+    private synchronized void restartCleanupTask() {
+        if (cleanupTask != null && !cleanupTask.isCancelled()) {
+            cleanupTask.cancel(false);
+        }
+        cleanupTask = executor.scheduleAtFixedRate(() -> {
+            try {
+                long now = System.currentTimeMillis();
+                int cleanedCount = 0;
+                Iterator<Map.Entry<String, Long>> iterator = lastAccessTimeMap.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Map.Entry<String, Long> entry = iterator.next();
+                    String key = entry.getKey();
+                    long lastAccessTime = entry.getValue();
+                    if (now - lastAccessTime > cleanupInterval) {
+                        HikariDataSource ds = sourcesMap.remove(key);
+                        if (ds != null) {
+                            ds.close();
+                        }
+                        iterator.remove();
+                        cleanedCount++;
+                        LOG.info("remove jdbc data source: " + key.split("jdbc")[0]);
+                    }
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("jdbc datasource cleanup task executed, cleaned: " + cleanedCount
+                            + ", remaining: " + sourcesMap.size());
+                }
+            } catch (Exception e) {
+                LOG.warn("failed to cleanup jdbc data source", e);
+            }
+        }, cleanupInterval, cleanupInterval, TimeUnit.MILLISECONDS);
+        LOG.info("jdbc datasource cleanup task started, interval: " + cleanupInterval + "ms");
+    }
+
+    private synchronized void startCleanupTask() {
+        if (cleanupTask == null || cleanupTask.isCancelled()) {
+            restartCleanupTask();
+        }
+    }
+
+    /**
+     * Create a cache key for connection pool lookup.
+     * The key includes all connection parameters so that any change
+     * (e.g. password via ALTER RESOURCE) results in a new pool.
+     *
+     * <p>The driver checksum is one of them. A pool owns the Driver instance it was created with,
+     * so a jar replaced in place and re-declared with ALTER CATALOG ... driver_checksum gets a
+     * fresh classloader from JdbcDriverUtils and then, without this, the SAME pool - which keeps
+     * handing out connections from the old driver until the pool idles out or BE restarts. A new
+     * checksum is a new pool; the old one is left to the cleanup task, since its connections may
+     * still be in use.
+     */
+    public static String createCacheKey(long catalogId, String jdbcUrl, String jdbcUser,
+            String jdbcPassword, String jdbcDriverUrl, String jdbcDriverClass,
+            String jdbcDriverChecksum, int connectionPoolMinSize, int connectionPoolMaxSize,
+            int connectionPoolMaxLifeTime, int connectionPoolMaxWaitTime,
+            boolean connectionPoolKeepAlive) {
+        return catalogId + jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass
+                + jdbcDriverChecksum + connectionPoolMinSize + connectionPoolMaxSize
+                + connectionPoolMaxLifeTime + connectionPoolMaxWaitTime + connectionPoolKeepAlive;
+    }
+}

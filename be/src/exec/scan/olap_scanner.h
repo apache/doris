@@ -1,0 +1,142 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <gen_cpp/PaloInternalService_types.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "common/factory_creator.h"
+#include "common/status.h"
+#include "core/data_type/data_type.h"
+#include "exec/scan/scanner.h"
+#include "runtime/runtime_state.h"
+#include "storage/data_dir.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/rowset/rowset_reader.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_reader.h"
+#include "storage/tablet/tablet_schema.h"
+
+namespace doris {
+
+struct OlapScanRange;
+class RuntimeProfile;
+class RuntimeState;
+class TPaloScanRange;
+class ScanLocalStateBase;
+struct FilterPredicates;
+#ifndef NDEBUG
+struct OlapReaderStatistics;
+#endif
+
+namespace io {
+struct FileCacheStatistics;
+struct IOContext;
+} // namespace io
+
+class Block;
+
+io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
+                                                        int64_t expiration_time,
+                                                        io::FileCacheStatistics* file_cache_stats);
+
+class OlapScanner : public Scanner {
+    ENABLE_FACTORY_CREATOR(OlapScanner);
+
+public:
+    struct Params {
+        RuntimeState* state = nullptr;
+        RuntimeProfile* profile = nullptr;
+        std::vector<OlapScanRange*> key_ranges;
+        BaseTabletSPtr tablet;
+        int64_t version;
+        TabletReadSource read_source;
+        io::FileCacheStatistics initial_file_cache_stats;
+        int64_t limit;
+        bool aggregation;
+        bool read_row_binlog = false;
+        TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        int32_t bucket_seq = 0;
+        int32_t bucket_num = 0;
+        std::optional<int64_t> start_tso;
+        std::optional<int64_t> end_tso;
+    };
+
+    OlapScanner(ScanLocalStateBase* parent, Params&& params);
+
+    Status _prepare_impl() override;
+
+    Status _open_impl(RuntimeState* state) override;
+
+    Status close(RuntimeState* state) override;
+
+    doris::TabletStorageType get_storage_type() override;
+
+    bool is_pruned_by_runtime_filter() const override;
+
+    void release_unopened_resources() override;
+
+    void update_realtime_counters() override;
+
+protected:
+    Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
+    void _collect_profile_before_close() override;
+
+private:
+    Status _init_tablet_reader_params(
+            const std::vector<OlapScanRange*>& key_ranges,
+            const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                    predicates);
+
+    [[nodiscard]] Status _init_tso_predicates();
+    [[nodiscard]] Status _init_read_schema();
+    [[nodiscard]] Status _init_variant_columns();
+#ifndef NDEBUG
+    Status _check_ann_cache_hit_debug_points(const OlapReaderStatistics& stats);
+#endif
+
+    std::vector<OlapScanRange*> _key_ranges;
+
+    TabletReader::ReaderParams _tablet_reader_params;
+    std::unique_ptr<TabletReader> _tablet_reader;
+    std::optional<int64_t> _start_tso;
+    std::optional<int64_t> _end_tso;
+    int32_t _bucket_seq;
+    int32_t _bucket_num;
+
+public:
+    io::FileCacheStatistics _initial_file_cache_stats;
+
+    // ColumnId of virtual column to its expr context
+    std::map<ColumnId, VExprContextSPtr> _virtual_column_exprs;
+    std::shared_ptr<ScoreRuntime> _score_runtime;
+
+    std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;
+
+    VectorSearchUserParams _vector_search_params;
+};
+} // namespace doris

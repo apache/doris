@@ -1,0 +1,81 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <cpp/token_bucket_rate_limiter.h>
+#include <gen_cpp/cloud.pb.h>
+
+#include "meta-service/txn_lazy_committer.h"
+#include "meta-store/txn_kv.h"
+
+namespace doris::cloud {
+
+class Recycler;
+class Checker;
+struct RecyclerThreadPoolGroup;
+class TxnLazyCommitter;
+
+class RecyclerServiceImpl : public cloud::RecyclerService {
+public:
+    RecyclerServiceImpl(std::shared_ptr<TxnKv> txn_kv, Recycler* recycler, Checker* checker,
+                        std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
+    ~RecyclerServiceImpl() override;
+
+    void recycle_instance(::google::protobuf::RpcController* controller,
+                          const ::doris::cloud::RecycleInstanceRequest* request,
+                          ::doris::cloud::RecycleInstanceResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
+    void http(::google::protobuf::RpcController* controller,
+              const ::doris::cloud::MetaServiceHttpRequest* request,
+              ::doris::cloud::MetaServiceHttpResponse* response,
+              ::google::protobuf::Closure* done) override;
+
+    void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code, std::string& msg);
+
+    void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
+
+    std::pair<MetaServiceCode, std::string> skip_instance_data_cleanup(
+            const std::string& instance_id);
+
+    std::shared_ptr<TxnKv> txn_kv() { return txn_kv_; }
+    Recycler* recycler() { return recycler_; }
+    Checker* checker() { return checker_; }
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer() { return txn_lazy_committer_; }
+
+private:
+    std::shared_ptr<TxnKv> txn_kv_;
+    Recycler* recycler_; // Ref
+    Checker* checker_;   // Ref
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+};
+
+extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
+                                 size_t limit);
+
+void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                       MetaServiceCode& code, std::string& msg,
+                       RecyclerThreadPoolGroup thread_pool_group,
+                       std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
+void recycle_job_info(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                      std::string_view key, MetaServiceCode& code, std::string& msg);
+void check_meta(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                const std::string& host, const std::string& port, const std::string& user,
+                const std::string& password, std::string& msg);
+
+} // namespace doris::cloud

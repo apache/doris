@@ -1,0 +1,533 @@
+#!/bin/bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+
+# the fe query port for mysql.
+FE_QUERY_PORT=${FE_QUERY_PORT:-9030}
+# timeout for probe fe master.
+PROBE_TIMEOUT=60
+# interval time to probe fe.
+PROBE_INTERVAL=2
+# rpc port for fe communicate with be.
+HEARTBEAT_PORT=9050
+# timeout for fqdn ready check.
+DNS_READY_TIMEOUT=${DNS_READY_TIMEOUT:-120}
+# interval for fqdn ready check.
+DNS_READY_INTERVAL=${DNS_READY_INTERVAL:-2}
+# fqdn or ip
+MY_SELF=
+MY_IP=${POD_IP:-$(hostname -I | awk '{print $1}')}
+MY_HOSTNAME=`hostname -f`
+DORIS_ROOT=${DORIS_ROOT:-"/opt/apache-doris"}
+# if config secret for basic auth about operate node of doris, the path must be `/etc/basic_auth`. This is set by operator and the key of password must be `password`.
+AUTH_PATH="/etc/basic_auth"
+DORIS_HOME=${DORIS_ROOT}/be
+BE_CONFIG=$DORIS_HOME/conf/be.conf
+
+DB_ADMIN_USER=${USER:-"root"}
+
+DB_ADMIN_PASSWD=$PASSWD
+
+ENABLE_WORKLOAD_GROUP=${ENABLE_WORKLOAD_GROUP:-false}
+
+# enable_tls specify use tls connection or not.
+ENABLE_TLS=
+
+# tls_private_key_path specify the client private key
+TLS_PRIVATE_KEY_PATH=
+
+# tls_certificate_path specify the path of public crt.
+TLS_CERTIFICATE_PATH=
+
+#tls_ca_certificate_path specify the path of root ca.
+TLS_CA_CERTIFICATE_PATH=
+WORKLOAD_GROUP_PATH="/sys/fs/cgroup/cpu/doris"
+
+log_stderr()
+{
+    echo "[`date`] $@" >&2
+}
+
+function add_workloadgroup_config()
+{
+    echo "" >> ${DORIS_HOME}/conf/be.conf
+    if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
+          echo "doris_cgroup_cpu_path = $WORKLOAD_GROUP_PATH" >> ${DORIS_HOME}/conf/be.conf
+    fi
+}
+
+# add cpu limit config from environment variable BE_CPU_LIMIT(pod`s cpu limit)
+function add_cpu_limit_config()
+{
+    if [[ -n "${BE_CPU_LIMIT}" ]]; then
+        echo "# num_cores setting"
+        echo "num_cores = ${BE_CPU_LIMIT}" >> ${DORIS_HOME}/conf/be.conf
+    fi
+}
+
+update_conf_from_configmap()
+{
+    if [[ "x$CONFIGMAP_MOUNT_PATH" == "x" ]] ; then
+        log_stderr '[info] Empty $CONFIGMAP_MOUNT_PATH env var, skip it!'
+        return 0
+    fi
+    if ! test -d $CONFIGMAP_MOUNT_PATH ; then
+        log_stderr "[info] $CONFIGMAP_MOUNT_PATH not exist or not a directory, ignore ..."
+        return 0
+    fi
+    local tgtconfdir=$DORIS_HOME/conf
+    for conffile in `ls $CONFIGMAP_MOUNT_PATH`
+    do
+        log_stderr "[info] Process conf file $conffile ..."
+        local tgt=$tgtconfdir/$conffile
+        if test -e $tgt ; then
+            # make a backup
+            mv -f $tgt ${tgt}.bak
+        fi
+        if [[ "$conffile" == "be.conf" ]]; then
+             cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$file
+             continue
+        fi
+        ln -sfT $CONFIGMAP_MOUNT_PATH/$conffile $tgt
+    done
+}
+
+mount_kerberos_config()
+{
+    if [[ ! -n "$KRB5_MOUNT_PATH" ]]; then
+        return
+    fi
+
+    KRB5_CONFIG_DIR=$(dirname "$KRB5_CONFIG")
+    # If the krb5 directory does not exist, need to create it.
+    if [[ ! -d "$KRB5_CONFIG_DIR" ]]; then
+        log_stderr "[info] Creating krb5 directory: $KRB5_CONFIG_DIR"
+        mkdir -p "$KRB5_CONFIG_DIR"
+    fi
+
+    log_stderr "[info] Creating krb5 symlinks for each file from $KRB5_MOUNT_PATH to $KRB5_CONFIG_DIR"
+    # The files under KRB5_MONT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KRB5_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating krb5 symlink for $filename"
+            ln -sf "$file" "$KRB5_CONFIG_DIR/$filename"
+        fi
+    done
+
+    if [[ "$KEYTAB_MOUNT_PATH" == "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] KEYTAB_MOUNT_PATH is same as KEYTAB_FINAL_USED_PATH, skip creating symlinks"
+        return
+    fi
+
+    # If the keytab directory does not exist, need to create it.
+    if [[ ! -d "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] Creating keytab directory: $KEYTAB_FINAL_USED_PATH"
+        mkdir -p "$KEYTAB_FINAL_USED_PATH"
+    fi
+
+    log_stderr "[info] Creating keytab symlinks for each file from $KEYTAB_MOUNT_PATH to $KEYTAB_FINAL_USED_PATH"
+    # The files under KEYTAB_MOUNT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KEYTAB_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating keytab symlink for $filename"
+            ln -sf "$file" "$KEYTAB_FINAL_USED_PATH/$filename"
+        fi
+    done
+}
+
+# resolve password for root
+resolve_password_from_secret()
+{
+    if [[ -f "$AUTH_PATH/password" ]]; then
+        DB_ADMIN_PASSWD=`cat $AUTH_PATH/password`
+    fi
+    if [[ -f "$AUTH_PATH/username" ]]; then
+        DB_ADMIN_USER=`cat $AUTH_PATH/username`
+    fi
+}
+
+# get all backends info to check self exist or not.
+show_backends(){
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        show_backends_with_tls $1
+    else
+        show_backends_with_no_tls $1
+    fi
+}
+
+show_backends_with_no_tls(){
+    local svc=$1
+    backends=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
+    log_stderr "[info] [NO-TLS] show backends result $backends ."
+    if echo $backends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and password that configured to show backends."
+        backends=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BACKENDS;'`
+    fi
+
+    echo "$backends"
+}
+
+show_backends_with_tls(){
+    local svc=$1
+    backends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
+    log_stderr "[info] [TLS] show backends result $backends ."
+    if echo $backends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and password that configured to show backends."
+        backends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BACKENDS;'`
+    fi
+
+    echo "$backends"
+}
+
+# get all registered fe in cluster, for check the fe have `MASTER`.
+function show_frontends()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        show_frontends_with_tls $1
+    else
+        show_frontends_with_no_tls $1
+    fi
+}
+
+show_frontends_with_no_tls()
+{
+    local addr=$1
+    frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    log_stderr "[info] [NO-TLS] show frontends result $frontends ."
+    if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and passwore that configured to show frontends."
+        frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'`
+    fi
+
+    echo "$frontends"
+}
+
+show_frontends_with_tls()
+{
+    local addr=$1
+    frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    log_stderr "[info] [TLS] show frontends result $frontends ."
+    if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and password that configured to show frontends."
+        frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'`
+    fi
+
+    echo "$frontends"
+}
+
+#parse the `$BE_CONFIG` file, passing the key need resolve as parameter.
+parse_confval_from_conf()
+{
+    local confkey=$1
+
+    esc_key=$(printf '%s\n' "$confkey" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    local confvalue=$(
+        grep -v '^[[:space:]]*#' "$BE_CONFIG" |
+        grep -E "^[[:space:]]*${esc_key}[[:space:]]*=" |
+        tail -n1 |
+        sed -E 's/^[[:space:]]*[^=]+[[:space:]]*=[[:space:]]*//' |
+        sed -E 's/[[:space:]]*#.*$//' |
+        sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
+    )
+    log_stderr "[info] read 'be.conf' config [ $confkey: $confvalue]"
+    echo "$confvalue"
+}
+
+collect_env_info()
+{
+    # heartbeat_port from conf file
+    local heartbeat_port=`parse_confval_from_conf "heartbeat_service_port"`
+    if [[ "x$heartbeat_port" != "x" ]] ; then
+        HEARTBEAT_PORT=$heartbeat_port
+    fi
+
+    if [[ "x$HOST_TYPE" == "xIP" ]] ; then
+        MY_SELF=$MY_IP
+    else
+        MY_SELF=$MY_HOSTNAME
+    fi
+}
+
+wait_for_fqdn_ready()
+{
+    if [[ "x$HOST_TYPE" == "xIP" ]] ; then
+        return 0
+    fi
+
+    local fqdn=$MY_HOSTNAME
+    local start=`date +%s`
+    while true
+    do
+        if getent hosts "$fqdn" >/dev/null 2>&1 || nslookup "$fqdn" >/dev/null 2>&1 ; then
+            log_stderr "[info] fqdn $fqdn is ready."
+            return 0
+        fi
+
+        local now=`date +%s`
+        let "expire=start+DNS_READY_TIMEOUT"
+        if [[ $expire -le $now ]] ; then
+            log_stderr "[error] timeout waiting fqdn ready: $fqdn"
+            return 1
+        fi
+
+        log_stderr "[info] fqdn $fqdn not ready, sleep ${DNS_READY_INTERVAL}s ..."
+        sleep $DNS_READY_INTERVAL
+    done
+}
+
+parse_tls_connection_variables()
+{
+    ENABLE_TLS=$(parse_confval_from_conf "enable_tls")
+    TLS_PRIVATE_KEY_PATH=$(parse_confval_from_conf "tls_private_key_path")
+    TLS_CERTIFICATE_PATH=$(parse_confval_from_conf "tls_certificate_path")
+    TLS_CA_CERTIFICATE_PATH=$(parse_confval_from_conf "tls_ca_certificate_path")
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        log_stderr "[info] [TLS] TLS is ENABLED, ca=$TLS_CA_CERTIFICATE_PATH, cert=$TLS_CERTIFICATE_PATH, key=$TLS_PRIVATE_KEY_PATH"
+    else
+        log_stderr "[info] [NO-TLS] TLS is DISABLED (enable_tls='$ENABLE_TLS')"
+    fi
+}
+
+add_self_as_backend()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        add_self_as_backend_with_tls $1
+    else
+        add_self_as_backend_with_no_tls $1
+    fi
+}
+
+add_self_as_backend_with_no_tls()
+{
+    local svc=$1
+    local add_sql="ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
+    log_stderr "[info] add backend sql: $add_sql"
+    add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
+    add_status=$?
+    if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql" 2>&1`
+        add_status=$?
+    fi
+    log_stderr "[info] add backend result: $add_result"
+    if [[ $add_status -ne 0 ]]; then
+        log_stderr "[error] add backend failed with status $add_status."
+        return $add_status
+    fi
+}
+
+add_self_as_backend_with_tls()
+{
+    local svc=$1
+    local add_sql="ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
+    log_stderr "[info] add backend sql: $add_sql"
+    add_result=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
+    add_status=$?
+    if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        add_result=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql" 2>&1`
+        add_status=$?
+    fi
+    log_stderr "[info] add backend result: $add_result"
+    if [[ $add_status -ne 0 ]]; then
+        log_stderr "[error] add backend failed with status $add_status."
+        return $add_status
+    fi
+}
+
+add_self()
+{
+    local svc=$1
+    start=`date +%s`
+    local timeout=$PROBE_TIMEOUT
+
+    while true
+    do
+        memlist=`show_backends $svc`
+        if echo "$memlist" | grep -q -w "$MY_SELF" &>/dev/null ; then
+            log_stderr "[info] Check myself ($MY_SELF:$HEARTBEAT_PORT) exist in FE, start be directly ..."
+            break;
+        fi
+
+        # check fe cluster have master, if fe have not master wait.
+        fe_memlist=`show_frontends $svc`
+        local pos=`echo "$fe_memlist" | grep '\<IsMaster\>' | awk -F '\t' '{for(i=1;i<NF;i++) {if ($i == "IsMaster") print i}}'`
+        local leader=`echo "$fe_memlist" | grep '\<FOLLOWER\>' | awk -v p="$pos" -F '\t' '{if ($p=="true") print $2}'`
+        log_stderr "'IsMaster' sequence in columns is $pos master=$leader ."
+
+        if [[ "x$leader" == "x" ]]; then
+            log_stderr "[info] resolve the eighth column for finding master !"
+            leader=`echo "$fe_memlist" | grep '\<FOLLOWER\>' | awk -F '\t' '{if ($8=="true") print $2}'`
+        fi
+        if [[ "x$leader" == "x" ]]; then
+            # compatible 2.1.0
+            log_stderr "[info] resoluve the ninth column for finding master!"
+            leader=`echo "$fe_memlist" | grep '\<FOLLOWER\>' | awk -F '\t' '{if ($9=="true") print $2}'`
+        fi
+
+        if [[ "x$leader" != "x" ]]; then
+            create_account $leader
+            log_stderr "[info] myself ($MY_SELF:$HEARTBEAT_PORT)  not exist in FE and fe have leader register myself into fe."
+            add_self_as_backend $svc
+            if [[ "$?" -ne 0 ]]; then
+                return 1
+            fi
+
+            let "expire=start+timeout"
+            now=`date +%s`
+            if [[ $expire -le $now ]] ; then
+                log_stderr "[error]  exit probe master for probing timeout."
+                return 0
+            fi
+        else
+            log_stderr "[info] not have leader wait fe cluster elect a master, sleep 2s..."
+            sleep $PROBE_INTERVAL
+        fi
+    done
+}
+
+function create_account()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        create_account_with_tls $1
+    else
+        create_account_with_no_tls $1
+    fi
+}
+
+create_account_with_no_tls()
+{
+    master=$1
+    users=`mysql --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "the 'root' account have set password! not need auto create management account."
+        return 0
+    fi
+    if echo $users | awk '{print $1}' | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exist in doris."
+       return 0
+    fi
+    mysql --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
+    log_stderr "[NO-TLS] created new account and grant NODE_PRIV!"
+}
+
+create_account_with_tls()
+{
+    master=$1
+    users=`mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "the 'root' account have set password! not need auto create management account."
+        return 0
+    fi
+    if echo $users | awk '{print $1}' | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exist in doris."
+       return 0
+    fi
+    mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
+    log_stderr "[TLS] created new account and grant NODE_PRIV!"
+}
+
+# check be exist or not, if exist return 0, or register self in fe cluster. when all fe address failed exit script.
+# `xxx1:port,xxx2:port` as parameter to function.
+function check_and_register()
+{
+    addrs=$1
+    local addrArr=(${addrs//,/ })
+    for addr in ${addrArr[@]}
+    do
+        if add_self $addr; then
+            return 0
+        fi
+    done
+
+    log_stderr  "not find master in fe cluster, please use mysql connect to fe for verfing the master exist and verify domain connectivity with two pods in different node. "
+    return 1
+}
+
+function make_dir_for_workloadgroup() {
+    output=$(cat /proc/filesystems | grep cgroup)
+    if [ -z "$output" ]; then
+        log_stderr "[error] The host machine does not have cgroup installed, so the workload group function will be limited."
+        exit 1
+    fi
+
+    mkdir -p /sys/fs/cgroup/cpu/doris
+    chmod 770 /sys/fs/cgroup/cpu/doris
+    chown -R root:root /sys/fs/cgroup/cpu/doris
+
+    if [[ -f "/sys/fs/cgroup/cgroup.controllers" ]]; then
+        log_stderr "[info] The host machine cgroup version: v2."
+        chmod a+w /sys/fs/cgroup/cgroup.procs
+    else
+        log_stderr "[info] The host machine cgroup version: v1."
+    fi
+}
+
+function post_exit() {
+    local log_dir=`parse_confval_from_conf "LOG_DIR"`
+    if [[ x"$log_dir" == "x" ]]; then
+        log_dir="/opt/apache-doris/be/log"
+    fi
+
+    if ls | grep "core"  &>/dev/null; then
+        local log_replace_var_dir=`eval echo ${log_dir}`
+        `ls $log_replace_var_dir | grep "core" | xargs -I {} rm $log_replace_var_dir/{}`
+        `ls /opt/apache-doris/ | grep "core" | xargs -I {} mv {} $log_replace_var_dir`
+    fi
+}
+
+fe_addrs=$1
+if [[ "x$fe_addrs" == "x" ]]; then
+    echo "need fe address as paramter!"
+    echo "  Example $0 <fe_addr>"
+    exit 1
+fi
+
+if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
+      log_stderr '[info] Enable workload group !'
+      make_dir_for_workloadgroup
+fi
+
+
+# pre check for starting
+if cat /proc/cpuinfo | grep -q "avx2" &>/dev/null; then
+    log_stderr "[info] the host machine support avx2 instruction set."
+else
+    log_stderr "[info] the host machine not support avx2 instruction set."
+fi
+
+update_conf_from_configmap
+add_workloadgroup_config
+add_cpu_limit_config
+mount_kerberos_config
+# resolve password for root to manage nodes in doris.
+resolve_password_from_secret
+# parse tls connection variables, if config `enable_tls=true`, use tls connection to manage node.
+parse_tls_connection_variables
+collect_env_info
+wait_for_fqdn_ready || exit 1
+#add_self $fe_addr || exit $?
+check_and_register $fe_addrs || exit 1
+./doris-debug --component be
+log_stderr "run start_be.sh"
+#allow create core file
+ulimit -c unlimited
+# the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal
+$DORIS_HOME/bin/start_be.sh --console
+log_stderr "run post_exit"
+post_exit

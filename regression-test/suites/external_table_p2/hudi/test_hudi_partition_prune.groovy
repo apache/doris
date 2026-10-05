@@ -1,0 +1,438 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_hudi_partition_prune", "p2,external") {
+    String enabled = context.config.otherConfigs.get("enableHudiTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable hudi test")
+        return
+    }
+
+    String catalog_name = "test_hudi_partition_prune"
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String hudiHmsPort = context.config.otherConfigs.get("hudiHmsPort")
+    String hudiMinioPort = context.config.otherConfigs.get("hudiMinioPort")
+    String hudiMinioAccessKey = context.config.otherConfigs.get("hudiMinioAccessKey")
+    String hudiMinioSecretKey = context.config.otherConfigs.get("hudiMinioSecretKey")
+    
+    sql """drop catalog if exists ${catalog_name};"""
+    
+    for (String  use_hive_sync_partition : ['true','false']) {
+
+        sql """
+            create catalog if not exists ${catalog_name} properties (
+                'type'='hms',
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hudiHmsPort}',
+                's3.endpoint' = 'http://${externalEnvIp}:${hudiMinioPort}',
+                's3.access_key' = '${hudiMinioAccessKey}',
+                's3.secret_key' = '${hudiMinioSecretKey}',
+                's3.region' = 'us-east-1',
+                'use_path_style' = 'true',
+                'use_hive_sync_partition' = '${use_hive_sync_partition}'
+            );
+        """
+
+        sql """ switch ${catalog_name};"""
+        sql """ use regression_hudi;""" 
+        sql """ set enable_fallback_to_original_planner=false """
+        
+        // Function to get commit timestamps dynamically from the _hoodie_commit_time meta column
+        def getCommitTimestamps = { table_name ->
+            def result = sql """
+                SELECT DISTINCT _hoodie_commit_time
+                FROM ${catalog_name}.regression_hudi.${table_name}
+                ORDER BY _hoodie_commit_time
+            """
+            return result.collect { it[0] }
+        }
+        
+        // Get commit timestamps for two_partition_tb (used in time travel queries)
+        def timestamps_two_partition = getCommitTimestamps("two_partition_tb")
+
+
+
+        def one_partition_1_1 = """SELECT id,name,part1  FROM one_partition_tb WHERE part1 = 2024 ORDER BY id;"""
+        def one_partition_2_1 = """SELECT id,name,part1  FROM one_partition_tb WHERE part1 = 2025 ORDER BY id;"""
+        def one_partition_3_all = """SELECT id,name,part1  FROM one_partition_tb ORDER BY id;"""
+        def one_partition_4_all = """SELECT id,name,part1  FROM one_partition_tb WHERE id = 5 ORDER BY id;"""
+        def one_partition_5_1 = """SELECT id,name,part1  FROM one_partition_tb WHERE part1 = 2024 AND id >= 3 ORDER BY id;"""
+
+        def two_partition_1_1 = """SELECT id,name,part1,part2  FROM two_partition_tb WHERE part1 = 'US' AND part2 = 1 ORDER BY id;"""
+        def two_partition_2_1 = """SELECT id,name,part1,part2  FROM two_partition_tb WHERE part1 = 'EU' AND part2 = 2 ORDER BY id;"""
+        def two_partition_3_2 = """SELECT id,name,part1,part2  FROM two_partition_tb WHERE part1 = 'US' ORDER BY id;"""
+        def two_partition_4_all = """SELECT id,name,part1,part2  FROM two_partition_tb ORDER BY id;"""
+        def two_partition_5_1 = """SELECT id,name,part1,part2  FROM two_partition_tb WHERE part1 = 'US' AND part2 = 2 AND id > 5 ORDER BY id;"""
+        def two_partition_6_1 = """SELECT id,name,part1,part2  FROM two_partition_tb WHERE part1 = 'EU' AND part2 = 2 ORDER BY id;"""
+
+        def three_partition_1_1 = """SELECT id,name,part1,part2,part3  FROM three_partition_tb WHERE part1 = 'US' AND part2 = 2024 AND part3 = 'Q1' ORDER BY id;"""
+        def three_partition_2_1 = """SELECT id,name,part1,part2,part3  FROM three_partition_tb WHERE part1 = 'EU' AND part2 = 2025 AND part3 = 'Q2' ORDER BY id;"""
+        def three_partition_3_3 = """SELECT id,name,part1,part2,part3  FROM three_partition_tb WHERE part1 = 'AS' AND part2 = 2025 ORDER BY id;"""
+        def three_partition_4_2 = """SELECT id,name,part1,part2,part3  FROM three_partition_tb WHERE part1 = 'US' AND part3 = 'Q1' ORDER BY id;"""
+        def three_partition_5_all = """SELECT id,name,part1,part2,part3  FROM three_partition_tb ORDER BY id;"""
+        def three_partition_6_1 = """SELECT id,name,part1,part2,part3  FROM three_partition_tb WHERE part1 = 'EU' AND part2 = 2024 AND part3 = 'Q1' ORDER BY id;"""
+        def three_partition_7_7 = """SELECT id,name,part1,part2,part3  FROM three_partition_tb WHERE part2 = 2025 ORDER BY id;"""
+        def three_partition_8_2 = """SELECT id,name,part1,part2,part3  FROM three_partition_tb WHERE part1 = 'US' AND part3 = 'Q2' AND id BETWEEN 6 AND 10 ORDER BY id;"""
+
+        def one_partition_boolean = """SELECT id,name,part1  FROM boolean_partition_tb WHERE part1 = true ORDER BY id;"""
+        def one_partition_tinyint = """SELECT id,name,part1  FROM tinyint_partition_tb WHERE part1 = 1 ORDER BY id;"""
+        def one_partition_smallint = """SELECT id,name,part1  FROM smallint_partition_tb WHERE part1 = 10 ORDER BY id;"""
+        def one_partition_int = """SELECT id,name,part1  FROM int_partition_tb WHERE part1 = 100 ORDER BY id;"""
+        def one_partition_bigint = """SELECT id,name,part1  FROM bigint_partition_tb WHERE part1 = 1234567890 ORDER BY id;"""
+        def one_partition_string = """SELECT id,name,part1  FROM string_partition_tb WHERE part1 = 'RegionA' ORDER BY id;"""
+        def one_partition_date = """SELECT id,name,part1  FROM date_partition_tb WHERE part1 = '2023-12-01' ORDER BY id;"""
+        def one_partition_timestamp = """SELECT id,name,part1  FROM timestamp_partition_tb WHERE part1 = '2023-12-01 08:00:00' ORDER BY id;"""
+
+
+
+        qt_one_partition_1_1 one_partition_1_1
+        explain {
+            sql("${one_partition_1_1}")
+            contains "partition=1/2"
+        }
+
+        qt_one_partition_2_1 one_partition_2_1
+        explain {
+            sql("${one_partition_2_1}")
+            contains "partition=1/2"
+        }
+
+        qt_one_partition_3_all one_partition_3_all
+        explain {
+            sql("${one_partition_3_all}")
+            contains "partition=2/2"
+        }
+
+        qt_one_partition_4_all one_partition_4_all
+        explain {
+            sql("${one_partition_4_all}")
+            contains "partition=2/2"
+        }
+
+        qt_one_partition_5_1 one_partition_5_1
+        explain {
+            sql("${one_partition_5_1}")
+            contains "partition=1/2"
+        }
+
+
+        qt_two_partition_1_1 two_partition_1_1
+        explain {
+            sql("${two_partition_1_1}")
+            contains "partition=1/4"
+        }
+
+        qt_two_partition_2_1 two_partition_2_1
+        explain {
+            sql("${two_partition_2_1}")
+            contains "partition=1/4"
+        }
+
+        qt_two_partition_3_2 two_partition_3_2
+        explain {
+            sql("${two_partition_3_2}")
+            contains "partition=2/4"
+        }
+
+        qt_two_partition_4_all two_partition_4_all
+        explain {
+            sql("${two_partition_4_all}")
+            contains "partition=4/4"
+        }
+
+        qt_two_partition_5_1 two_partition_5_1
+        explain {
+            sql("${two_partition_5_1}")
+            contains "partition=1/4"
+        }
+
+        qt_two_partition_6_1 two_partition_6_1
+        explain {
+            sql("${two_partition_6_1}")
+            contains "partition=1/4"
+        }
+
+
+
+        qt_three_partition_1_1 three_partition_1_1
+        explain {
+            sql("${three_partition_1_1}")
+            contains "partition=1/10"
+        }
+
+        qt_three_partition_2_1 three_partition_2_1
+        explain {
+            sql("${three_partition_2_1}")
+            contains "partition=1/10"
+        }
+
+        qt_three_partition_3_3 three_partition_3_3
+        explain {
+            sql("${three_partition_3_3}")
+            contains "partition=3/10"
+        }
+
+        qt_three_partition_4_2 three_partition_4_2
+        explain {
+            sql("${three_partition_4_2}")
+            contains "partition=2/10"
+        }
+
+        qt_three_partition_5_all three_partition_5_all
+        explain {
+            sql("${three_partition_5_all}")
+            contains "partition=10/10"
+        }
+
+        qt_three_partition_6_1 three_partition_6_1
+        explain {
+            sql("${three_partition_6_1}")
+            contains "partition=1/10"
+        }
+
+        qt_three_partition_7_7 three_partition_7_7
+        explain {
+            sql("${three_partition_7_7}")
+            contains "partition=7/10"
+        }
+
+        qt_three_partition_8_2 three_partition_8_2
+        explain {
+            sql("${three_partition_8_2}")
+            contains "partition=2/10"
+        }
+
+
+        // 0 partitions
+        def one_partition_6_0 = """SELECT id,name,part1  FROM one_partition_tb WHERE part1 = 2023 ORDER BY id;"""
+        qt_one_partition_6_0 one_partition_6_0
+        explain {
+            sql("${one_partition_6_0}")
+            contains "partition=0/2"
+        }
+
+        def two_partition_7_0 = """SELECT id,name,part1  FROM two_partition_tb WHERE part1 = 'CN' AND part2 = 1 ORDER BY id;"""
+        qt_two_partition_7_0 two_partition_7_0
+        explain {
+            sql("${two_partition_7_0}")
+            contains "partition=0/4"
+        }
+
+        def two_partition_8_0 = """SELECT id,name,part1  FROM two_partition_tb WHERE part1 = 'US' AND part2 = 3 ORDER BY id;"""
+        qt_two_partition_8_0 two_partition_8_0
+        explain {
+            sql("${two_partition_8_0}")
+            contains "partition=0/4"
+        }
+
+        def three_partition_9_0 = """SELECT id,name,part1  FROM three_partition_tb WHERE part1 = 'US' AND part2 = 2023 AND part3 = 'Q1' ORDER BY id;"""
+        qt_three_partition_9_0 three_partition_9_0
+        explain {
+            sql("${three_partition_9_0}")
+            contains "partition=0/10"
+        }
+
+        def three_partition_10_0 = """SELECT id,name,part1  FROM three_partition_tb WHERE part1 = 'EU' AND part2 = 2024 AND part3 = 'Q4' ORDER BY id;"""
+        qt_three_partition_10_0 three_partition_10_0
+        explain {
+            sql("${three_partition_10_0}")
+            contains "partition=0/10"
+        }
+
+        def three_partition_11_0 = """SELECT id,name,part1  FROM three_partition_tb WHERE part1 = 'AS' AND part2 = 2025 AND part3 = 'Q4' ORDER BY id;"""
+        qt_three_partition_11_0 three_partition_11_0
+        explain {
+            sql("${three_partition_11_0}")
+            contains "partition=0/10"
+        }
+
+
+        // What EXPLAIN reports for a PINNED scan is not the same in both halves of this loop, so the
+        // assertions below cannot be.
+        //
+        // use_hive_sync_partition=false lists partitions from hudi's metadata table, which can
+        // enumerate the ones that held data AT the instant. The connector says so
+        // (HudiConnectorMetadata.listsPartitionsAtSnapshot), fe-core lists the pinned universe, and
+        // both the pruning and the partition=N/M it prints are truthful.
+        //
+        // use_hive_sync_partition=true lists from HMS, which knows nothing about instants: it holds
+        // what is synced NOW and collectPartitions can only subtract from that, so its answer is a
+        // SUBSET of the pinned universe. Pruning against a subset would silently drop rows a
+        // FOR TIME AS OF query has to read - a partition that held data at the pin and was dropped
+        // and unsynced afterwards is simply not in it. So the connector answers false, fe-core keeps
+        // the pinned partition map empty (PluginDrivenMvccExternalTable), and the scan node reports
+        // partition=0/0 while reading every partition. Coarse, never short - which is why the ROWS
+        // are asserted unconditionally by the qt_ tags and only these counts are mode-aware.
+        def pinnedPartitions = { String snapshotExact ->
+            use_hive_sync_partition == 'false' ? snapshotExact : "partition=0/0"
+        }
+
+        //time travel - use dynamic commit timestamps
+        // Note: two_partition_tb has 10 INSERT statements, creating 10 commits
+        // Final partitions: (US,1), (US,2), (EU,1), (EU,2) = 4 partitions total
+        // Asserted rather than guarded, for the same reason as dropped_partition_tb below: the six
+        // mode-aware pinnedPartitions() assertions in here ARE the evidence that pruning is
+        // snapshot-exact in one mode and deliberately coarse in the other. Behind a silent `if` a
+        // half-installed fixture skips all six and two qt_ tags, and the suite still passes.
+        assertTrue(timestamps_two_partition.size() >= 10,
+                "two_partition_tb has ${timestamps_two_partition.size()} commit timestamps, not the 10 "
+                + "its 10 INSERTs produce; the FOR TIME AS OF assertions below cannot run")
+
+        // Use the last commit timestamp (all 10 records, 4 partitions)
+        def last_commit = timestamps_two_partition[9]
+        def time_travel_two_partition_1_4 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' order by id;"
+        def time_travel_two_partition_2_2 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part1='US' order by id;"
+        def time_travel_two_partition_3_2 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part2=2 order by id;"
+        def time_travel_two_partition_4_0 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part2=10 order by id;"
+
+        qt_time_travel_two_partition_1_4 time_travel_two_partition_1_4
+        explain {
+            sql("${time_travel_two_partition_1_4}")
+            contains(pinnedPartitions("partition=4/4"))
+        }
+
+        qt_time_travel_two_partition_2_2 time_travel_two_partition_2_2
+        explain {
+            sql("${time_travel_two_partition_2_2}")
+            contains(pinnedPartitions("partition=2/4"))
+        }
+
+        qt_time_travel_two_partition_3_2 time_travel_two_partition_3_2
+        explain {
+            sql("${time_travel_two_partition_3_2}")
+            contains(pinnedPartitions("partition=2/4"))
+        }
+
+        qt_time_travel_two_partition_4_0 time_travel_two_partition_4_0
+        explain {
+            sql("${time_travel_two_partition_4_0}")
+            contains(pinnedPartitions("partition=0/4"))
+        }
+
+        // Use the first commit (after first INSERT: 1 record in partition US,1)
+        def first_commit = timestamps_two_partition[0]
+        def time_travel_two_partition_5_1 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${first_commit}' order by id;"
+        qt_time_travel_two_partition_5_1 time_travel_two_partition_5_1
+        explain {
+            sql("${time_travel_two_partition_5_1}")
+            // First commit should have 1 record in partition (US, part2=1)
+            contains(pinnedPartitions("partition=1/1"))
+        }
+
+        // Use a middle commit (after 3 inserts: 3 records in partition US,1)
+        def middle_commit = timestamps_two_partition[2]
+        def time_travel_two_partition_6_1 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${middle_commit}' order by id;"
+        qt_time_travel_two_partition_6_1 time_travel_two_partition_6_1
+        explain {
+            sql("${time_travel_two_partition_6_1}")
+            // After 3 inserts, should have 1 partition (US, part2=1) with 3 records
+            contains(pinnedPartitions("partition=1/1"))
+        }
+
+        // all types as partition
+        qt_one_partition_boolean one_partition_boolean
+        explain {
+            sql("${one_partition_boolean}")
+            contains "partition=1/2"
+        }
+        qt_one_partition_tinyint one_partition_tinyint
+        explain {
+            sql("${one_partition_tinyint}")
+            contains "partition=1/2"
+        }
+        qt_one_partition_smallint one_partition_smallint
+        explain {
+            sql("${one_partition_smallint}")
+            contains "partition=1/2"
+        }
+        qt_one_partition_int one_partition_int
+        explain {
+            sql("${one_partition_int}")
+            contains "partition=1/2"
+        }
+        qt_one_partition_bigint one_partition_bigint
+        explain {
+            sql("${one_partition_bigint}")
+            contains "partition=1/2"
+        }
+        qt_one_partition_string one_partition_string
+        explain {
+            sql("${one_partition_string}")
+            contains "partition=1/2"
+        }
+        qt_one_partition_date one_partition_date
+        explain {
+            sql("${one_partition_date}")
+            contains "partition=1/2"
+        }
+        qt_one_partition_timestamp one_partition_timestamp
+        explain {
+            sql("${one_partition_timestamp}")
+            contains "partition=1/2"
+        }
+
+        // A partition that was dropped after the instant being read.
+        //
+        // Every other table here only ever gains partitions, so "the partitions now" and "the
+        // partitions at that instant" are the same set and a listing that ignores the pin still
+        // looks right. This one loses a partition: dropped_partition_tb is written once into KEEP
+        // and GONE, then GONE is dropped, which also unsyncs it from HMS. Reading at the insert
+        // commit must therefore still return the GONE row - a listing that starts from what HMS
+        // holds NOW can only subtract from it, so claiming such a listing is snapshot-exact prunes
+        // that partition away and the query silently comes back short, with a normal EXPLAIN.
+        //
+        // Asserted on the rows rather than on partition=N/M on purpose: the two values of
+        // use_hive_sync_partition reach the same rows through different partition universes (an
+        // exact set vs. an empty one, which means scan-all), and it is the rows that must not differ.
+        def dropped_partition_latest = "SELECT id,name,part1 FROM dropped_partition_tb ORDER BY id;"
+        qt_dropped_partition_latest dropped_partition_latest
+
+        // Asserted rather than guarded: the whole point of this case is the read AT the insert
+        // commit, so a table whose timeline came back empty has to fail here instead of quietly
+        // skipping the one query that proves the pruning is snapshot-exact.
+        def timestamps_dropped_partition = getCommitTimestamps("dropped_partition_tb")
+        assertTrue(timestamps_dropped_partition.size() >= 1,
+                "dropped_partition_tb has no commit timestamps, so the FOR TIME AS OF read below "
+                + "cannot run - the docker fixture did not create the table this case needs")
+        def insert_commit = timestamps_dropped_partition[0]
+        def dropped_partition_at_insert = "SELECT id,name,part1 FROM dropped_partition_tb " +
+                "FOR TIME AS OF '${insert_commit}' ORDER BY id;"
+        qt_dropped_partition_at_insert dropped_partition_at_insert
+
+        // The same reads with a partition named in the predicate. That reaches a second pruning,
+        // the connector's own (applyFilter), which chooses the universe it prunes: on a hive-sync
+        // catalog that is HMS for a latest read, and HMS no longer knows GONE - so at the latest
+        // instant the empty answer below is the right one, but pruned against HMS at the pin the
+        // predicate would keep nothing, the scan would get zero paths and the query would return
+        // zero rows with a perfectly normal EXPLAIN. At the pin the connector must prune the Hudi
+        // metadata listing instead. KEEP is asked for as well, to show the pruning still prunes
+        // rather than having been skipped.
+        def dropped_partition_latest_gone = "SELECT id,name,part1 FROM dropped_partition_tb " +
+                "WHERE part1 = 'GONE' ORDER BY id;"
+        qt_dropped_partition_latest_gone dropped_partition_latest_gone
+        def dropped_partition_at_insert_gone = "SELECT id,name,part1 FROM dropped_partition_tb " +
+                "FOR TIME AS OF '${insert_commit}' WHERE part1 = 'GONE' ORDER BY id;"
+        qt_dropped_partition_at_insert_gone dropped_partition_at_insert_gone
+        def dropped_partition_at_insert_keep = "SELECT id,name,part1 FROM dropped_partition_tb " +
+                "FOR TIME AS OF '${insert_commit}' WHERE part1 = 'KEEP' ORDER BY id;"
+        qt_dropped_partition_at_insert_keep dropped_partition_at_insert_keep
+
+        sql """drop catalog if exists ${catalog_name};"""
+
+
+    }
+    
+}

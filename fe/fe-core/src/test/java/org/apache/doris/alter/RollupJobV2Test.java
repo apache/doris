@@ -1,0 +1,554 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.alter;
+
+import org.apache.doris.alter.AlterJobV2.JobState;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FakeEditLog;
+import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.FakeTransactionIDGenerator;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
+
+import com.google.common.collect.Lists;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+public class RollupJobV2Test {
+    private static String fileName = "./RollupJobV2Test";
+
+    private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
+    private static GlobalTransactionMgrIface masterTransMgr;
+    private static GlobalTransactionMgrIface slaveTransMgr;
+    private static Env masterEnv;
+    private static Env slaveEnv;
+
+    private static String transactionSource = "localfe";
+    private static AddRollupOp op;
+    private static AddRollupOp op2;
+
+    private FakeEnv fakeEnv;
+    private FakeEditLog fakeEditLog;
+    private MockedStatic<AgentTaskExecutor> agentTaskExecutorMock;
+
+    @BeforeEach
+    public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
+            InvocationTargetException, NoSuchMethodException, SecurityException, UserException {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
+        masterEnv = CatalogTestUtil.createTestCatalog();
+        slaveEnv = CatalogTestUtil.createTestCatalog();
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+        masterTransMgr = masterEnv.getGlobalTransactionMgr();
+        masterTransMgr.setEditLog(masterEnv.getEditLog());
+
+        slaveTransMgr = slaveEnv.getGlobalTransactionMgr();
+        slaveTransMgr.setEditLog(slaveEnv.getEditLog());
+        op = new AddRollupOp(CatalogTestUtil.testRollupIndex2, Lists.newArrayList("k1", "v"), null,
+                CatalogTestUtil.testIndex1, null);
+        op.validate(new ConnectContext());
+
+        op2 = new AddRollupOp(CatalogTestUtil.testRollupIndex3, Lists.newArrayList("k1", "v"), null,
+                CatalogTestUtil.testIndex1, null);
+        op2.validate(new ConnectContext());
+
+        FeConstants.runningUnitTest = true;
+        AgentTaskQueue.clearAllTasks();
+
+        FakeEnv.setEnv(masterEnv);
+        agentTaskExecutorMock = Mockito.mockStatic(AgentTaskExecutor.class);
+        agentTaskExecutorMock.when(() -> AgentTaskExecutor.submit(Mockito.any(AgentBatchTask.class)))
+                .thenAnswer(invocation -> null);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        File file = new File(fileName);
+        file.delete();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        if (fakeTransactionIDGenerator != null) {
+            fakeTransactionIDGenerator.close();
+        }
+        if (agentTaskExecutorMock != null) {
+            agentTaskExecutorMock.close();
+        }
+    }
+
+    @Test
+    public void testCommitWhileAbortingPreviousLoad() throws Exception {
+        long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1), "commit_during_rollup_abort",
+                new TxnCoordinator(TxnSourceType.FE, 0, "missing", 0), LoadJobSourceType.FRONTEND, 60);
+        TransactionState txn = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        MaterializedViewHandler handler = masterEnv.getMaterializedViewHandler();
+        handler.process(Lists.newArrayList(op), db, table);
+        RollupJobV2 job = (RollupJobV2) handler.getAlterJobsV2().values().iterator().next();
+        job.jobState = JobState.WAITING_TXN;
+        job.watershedTxnId = txnId + 1;
+
+        try (MockedStatic<GlobalTransactionMgr> mocked = Mockito.mockStatic(
+                GlobalTransactionMgr.class, Mockito.CALLS_REAL_METHODS)) {
+            mocked.when(() -> GlobalTransactionMgr.checkFailedTxns(Mockito.anyList())).thenAnswer(invocation -> {
+                List<TransactionState> failed = (List<TransactionState>) invocation.callRealMethod();
+                Assertions.assertEquals(List.of(txn), failed);
+                txn.setTransactionStatus(TransactionStatus.COMMITTED);
+                return failed;
+            });
+            job.runWaitingTxnJob();
+            Assertions.assertEquals(JobState.WAITING_TXN, job.getJobState());
+            Assertions.assertEquals(TransactionStatus.COMMITTED, txn.getTransactionStatus());
+        }
+        Assertions.assertFalse(job.checkFailedPreviousLoadAndAbort());
+        txn.setTransactionStatus(TransactionStatus.VISIBLE);
+        Assertions.assertTrue(job.checkFailedPreviousLoadAndAbort());
+    }
+
+    @Test
+    public void testRunRollupJobConcurrentLimit() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        alterOps.add(op2);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
+
+        materializedViewHandler.runAfterCatalogReady();
+
+        Assertions.assertEquals(Config.max_running_rollup_job_num_per_table, materializedViewHandler.getTableRunningJobMap().get(CatalogTestUtil.testTableId1).size());
+        Assertions.assertEquals(2, alterJobsV2.size());
+        Assertions.assertEquals(OlapTableState.ROLLUP, olapTable.getState());
+    }
+
+    @Test
+    public void testAddSchemaChange() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, alterJobsV2.size());
+        Assertions.assertEquals(OlapTableState.ROLLUP, olapTable.getState());
+    }
+
+    @Test
+    public void testCancelRollupWithEmptyJobIdList() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDb1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, alterJobsV2.size());
+
+        RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
+        CancelAlterTableCommand cancelAlterTableCommand = new CancelAlterTableCommand(
+                new TableNameInfo(db.getFullName(), olapTable.getName()),
+                CancelAlterTableCommand.AlterType.ROLLUP,
+                Lists.newArrayList());
+        materializedViewHandler.cancel(cancelAlterTableCommand);
+
+        Assertions.assertEquals(JobState.CANCELLED, rollupJob.getJobState());
+    }
+
+    // start a schema change, then finished
+    @Test
+    public void testSchemaChange1() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        // add a rollup job
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, alterJobsV2.size());
+        RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
+
+        // runPendingJob
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+        Assertions.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
+        Assertions.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.VISIBLE).size());
+        Assertions.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
+
+        // runWaitingTxnJob
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.RUNNING, rollupJob.getJobState());
+
+        // runWaitingTxnJob, task not finished
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.RUNNING, rollupJob.getJobState());
+
+        // finish all tasks
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assertions.assertEquals(3, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+        MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
+        for (Tablet shadowTablet : shadowIndex.getTablets()) {
+            for (Replica shadowReplica : shadowTablet.getReplicas()) {
+                shadowReplica.updateVersion(testPartition.getVisibleVersion());
+            }
+        }
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.FINISHED, rollupJob.getJobState());
+    }
+
+    @Test
+    public void testSchemaChangeCancelWhenRollupTasksFailed() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, alterJobsV2.size());
+        RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.RUNNING, rollupJob.getJobState());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assertions.assertEquals(3, tasks.size());
+        long failedTabletId = tasks.get(0).getTabletId();
+        int failedTaskCount = 0;
+        for (AgentTask agentTask : tasks) {
+            if (agentTask.getTabletId() == failedTabletId) {
+                agentTask.failedWithMsg("backend " + agentTask.getBackendId() + " is not alive");
+                failedTaskCount++;
+            }
+            if (failedTaskCount == 2) {
+                break;
+            }
+        }
+        Assertions.assertEquals(2, failedTaskCount);
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.CANCELLED, rollupJob.getJobState());
+    }
+
+    @Test
+    public void testSchemaChangeWhileTabletNotStable() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        // add a rollup job
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, alterJobsV2.size());
+        RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
+
+        MaterializedIndex baseIndex = testPartition.getBaseIndex();
+        Assertions.assertEquals(MaterializedIndex.IndexState.NORMAL, baseIndex.getState());
+        Assertions.assertEquals(Partition.PartitionState.NORMAL, testPartition.getState());
+        Assertions.assertEquals(OlapTableState.ROLLUP, olapTable.getState());
+
+        Tablet baseTablet = baseIndex.getTablets().get(0);
+        List<Replica> replicas = baseTablet.getReplicas();
+        Replica replica1 = replicas.get(0);
+        Replica replica2 = replicas.get(1);
+        Replica replica3 = replicas.get(2);
+
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
+        Assertions.assertEquals(-1, replica1.getLastFailedVersion());
+        Assertions.assertEquals(-1, replica2.getLastFailedVersion());
+        Assertions.assertEquals(-1, replica3.getLastFailedVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
+
+        // runPendingJob
+        replica1.setState(Replica.ReplicaState.DECOMMISSION);
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.PENDING, rollupJob.getJobState());
+
+        // table is stable, runPendingJob again
+        replica1.setState(Replica.ReplicaState.NORMAL);
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+        Assertions.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
+        Assertions.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.VISIBLE).size());
+        Assertions.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
+
+        // runWaitingTxnJob
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.RUNNING, rollupJob.getJobState());
+
+        // runWaitingTxnJob, task not finished
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.RUNNING, rollupJob.getJobState());
+
+        // finish all tasks
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assertions.assertEquals(3, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+        MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
+        for (Tablet shadowTablet : shadowIndex.getTablets()) {
+            for (Replica shadowReplica : shadowTablet.getReplicas()) {
+                shadowReplica.updateVersion(testPartition.getVisibleVersion());
+            }
+        }
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.FINISHED, rollupJob.getJobState());
+    }
+
+
+    @Test
+    public void testSerializeOfRollupJob()
+            throws IOException, AnalysisException {
+        // prepare file
+        File file = new File(fileName);
+        file.createNewFile();
+        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+
+        short keysCount = 1;
+        List<Column> columns = Lists.newArrayList();
+        String mvColumnName = "to_bitmap_" + "c1";
+        Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
+        columns.add(column);
+
+        RollupJobV2 rollupJobV2 = AlterJobV2Factory.createRollupJobV2(
+                "", 1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, null, 1, 1,
+                KeysType.AGG_KEYS, keysCount,
+                new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
+                        0), null);
+        rollupJobV2.setStorageFormat(TStorageFormat.V2);
+
+        // write rollup job
+        rollupJobV2.write(out);
+        out.flush();
+        out.close();
+
+        // read objects from file
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        RollupJobV2 result = (RollupJobV2) AlterJobV2.read(in);
+        Assertions.assertEquals(TStorageFormat.V2, Deencapsulation.getField(result, "storageFormat"));
+        List<Column> resultColumns = Deencapsulation.getField(result, "rollupSchema");
+        Assertions.assertEquals(1, resultColumns.size());
+        Column resultColumn1 = resultColumns.get(0);
+        Assertions.assertEquals(mvColumnName,
+                resultColumn1.getName());
+    }
+
+    @Test
+    public void testDeserializeOldRollupJobWithoutOrigStmt() {
+        String oldJson = "{"
+                + "\"clazz\":\"RollupJobV2\","
+                + "\"type\":\"ROLLUP\","
+                + "\"jobId\":1,"
+                + "\"jobState\":\"FINISHED\","
+                + "\"dbId\":1,"
+                + "\"tableId\":1,"
+                + "\"tableName\":\"test\","
+                + "\"errMsg\":\"\","
+                + "\"createTimeMs\":1,"
+                + "\"finishedTimeMs\":2,"
+                + "\"timeoutMs\":3,"
+                + "\"rawSql\":\"\","
+                + "\"watershedTxnId\":4,"
+                + "\"failedTabletBackends\":{},"
+                + "\"partitionIdToBaseRollupTabletIdMap\":{},"
+                + "\"partitionIdToRollupIndex\":{},"
+                + "\"baseIndexId\":1,"
+                + "\"rollupIndexId\":2,"
+                + "\"baseIndexName\":\"base\","
+                + "\"rollupIndexName\":\"rollup\","
+                + "\"rollupSchema\":[],"
+                + "\"baseSchemaHash\":1,"
+                + "\"rollupSchemaHash\":2,"
+                + "\"rollupKeysType\":\"AGG_KEYS\","
+                + "\"rollupShortKeyColumnCount\":1,"
+                + "\"storageFormat\":\"V2\","
+                + "\"sv\":{}"
+                + "}";
+
+        RollupJobV2 result = (RollupJobV2) GsonUtils.GSON.fromJson(oldJson, AlterJobV2.class);
+        Assertions.assertEquals(JobState.FINISHED, Deencapsulation.getField(result, "showJobState"));
+    }
+
+    @Test
+    public void testAddRollupForDupTable() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+
+        AddRollupOp addRollupOp = new AddRollupOp("r1", Lists.newArrayList("k1", "v1", "v2"), null, CatalogTestUtil.testIndex2, null);
+
+        List<Column> columns = materializedViewHandler.checkAndPrepareMaterializedView(addRollupOp, olapTable, CatalogTestUtil.testIndexId2, false);
+        for (Column column : columns) {
+            if (column.nameEquals("v1", true)) {
+                Assertions.assertNull(column.getAggregationType());
+                break;
+            }
+        }
+    }
+}

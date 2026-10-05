@@ -1,0 +1,609 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
+import org.apache.doris.catalog.TableAttributes;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIndexes;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TTableDescriptor;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Strings;
+import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.NotImplementedException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * External table represent tables that are not self-managed by Doris.
+ * Such as tables from hive, iceberg, es, etc.
+ */
+public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(ExternalTable.class);
+
+    @SerializedName(value = "id")
+    protected long id;
+    @SerializedName(value = "name")
+    protected String name;
+    @SerializedName(value = "remoteName")
+    protected String remoteName;
+    @SerializedName(value = "type")
+    protected TableType type = null;
+    @SerializedName(value = "timestamp")
+    protected long timestamp;
+    // dbName is temporarily retained and will be deleted later. To use dbName, please use db.getFullName()
+    @SerializedName(value = "dbName")
+    protected String dbName;
+    @Deprecated
+    @SerializedName(value = "ta")
+    private final TableAttributes tableAttributes = new TableAttributes();
+
+    // record the table update time, like insert/alter/delete
+    protected volatile long updateTime = 0;
+
+    protected long dbId;
+    protected boolean objectCreated;
+    protected ExternalCatalog catalog;
+    protected ExternalDatabase db;
+    // Used to save the mapping between local and remote names.
+    // prebuild it for performance.
+    protected NameMapping nameMapping;
+
+    /**
+     * No args constructor for persist.
+     */
+    public ExternalTable() {
+        this.objectCreated = false;
+    }
+
+    /**
+     * Create external table.
+     *
+     * @param id Table id.
+     * @param name Table name.
+     * @param remoteName Remote table name.
+     * @param catalog ExternalCatalog this table belongs to.
+     * @param db ExternalDatabase this table belongs to.
+     * @param type Table type.
+     */
+    public ExternalTable(long id, String name, String remoteName, ExternalCatalog catalog, ExternalDatabase db,
+            TableType type) {
+        this.id = id;
+        this.name = name;
+        this.remoteName = remoteName;
+        this.catalog = catalog;
+        this.db = db;
+        this.dbName = db.getFullName();
+        this.type = type;
+        this.objectCreated = false;
+        this.nameMapping = new NameMapping(catalog.getId(), dbName, name, db.getRemoteName(), getRemoteName());
+    }
+
+    public void setCatalog(ExternalCatalog catalog) {
+        this.catalog = catalog;
+    }
+
+    public void setDb(ExternalDatabase db) {
+        this.db = db;
+    }
+
+    public void setRemoteName(String remoteName) {
+        this.remoteName = remoteName;
+    }
+
+    public boolean isView() {
+        return false;
+    }
+
+    protected synchronized void makeSureInitialized() {
+        try {
+            // getDbOrAnalysisException will call makeSureInitialized in ExternalCatalog.
+            ExternalDatabase db = catalog.getDbOrAnalysisException(dbName);
+            dbId = db.getId();
+            db.makeSureInitialized();
+        } catch (AnalysisException e) {
+            Util.logAndThrowRuntimeException(LOG, String.format("Exception to get db %s", dbName), e);
+        }
+    }
+
+    @Override
+    public long getId() {
+        return id;
+    }
+
+    @Override
+    public String getName() {
+        return name;
+    }
+
+    public String getRemoteName() {
+        return Strings.isNullOrEmpty(remoteName)  ? name : remoteName;
+    }
+
+    @Override
+    public TableType getType() {
+        return type;
+    }
+
+    @Override
+    public List<Column> getFullSchema() {
+        // NOT getFullSchema(Optional.empty()): an empty snapshot means "this reference has no pin" (=>
+        // latest), whereas the no-arg form means "I have no reference, resolve from the ambient context".
+        // Collapsing the two would strip the ambient resolution from every statement-global caller.
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+    }
+
+    /**
+     * The full schema AS OF {@code snapshot}. See {@link #getSchemaCacheValue(Optional)} for why the plan
+     * path must pass the reference's pin rather than relying on the ambient lookup.
+     */
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue(snapshot);
+        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+    }
+
+    protected boolean needInternalHiddenColumns() {
+        return false;
+    }
+
+    @Override
+    public List<Column> getBaseSchema() {
+        boolean showHidden = Util.showHiddenColumns();
+        if (!showHidden && needInternalHiddenColumns()) {
+            showHidden = true;
+        }
+        return getBaseSchema(showHidden);
+    }
+
+    @Override
+    public List<Column> getBaseSchema(boolean full) {
+        List<Column> schema = getFullSchema();
+        if (schema == null) {
+            return null;
+        }
+        if (full) {
+            return schema;
+        }
+        return schema.stream().filter(Column::isVisible).collect(Collectors.toList());
+    }
+
+    @Override
+    public void setNewFullSchema(List<Column> newSchema) {
+    }
+
+    @Override
+    public Column getColumn(String name) {
+        List<Column> schema = getFullSchema();
+        for (Column column : schema) {
+            if (name.equalsIgnoreCase(column.getName())) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public String getEngine() {
+        return getType().toEngineName();
+    }
+
+    public String getHiveParquetTimeZone() throws UserException {
+        if (catalog == null || !("hms".equalsIgnoreCase(catalog.getType())
+                || "hudi".equalsIgnoreCase(catalog.getType()))) {
+            return "";
+        }
+        return getConfiguredHiveParquetTimeZone();
+    }
+
+    public String getConfiguredHiveParquetTimeZone() throws UserException {
+        if (catalog == null) {
+            return "";
+        }
+        String value = catalog.getProperties().get(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE);
+        return value == null ? "" : FileFormatUtils.parseHiveParquetTimeZone(value);
+    }
+
+    @Override
+    public String getMysqlType() {
+        return getType().toMysqlType();
+    }
+
+    @Override
+    public long getRowCount() {
+        // Return -1 if makeSureInitialized throw exception.
+        // For example, init hive table may throw NotSupportedException.
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            LOG.warn("Failed to initialize table {}.{}.{}", catalog.getName(), dbName, name, e);
+            return TableIf.UNKNOWN_ROW_COUNT;
+        }
+        // All external table should get external row count from cache.
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache()
+                .getCachedRowCount(catalog.getId(), dbId, id, true);
+    }
+
+    @Override
+    public long getCachedRowCount() {
+        // Return -1 if uninitialized.
+        // Before this, for uninitialized tables, we would call makeSureInitialized(), just like the implementation of
+        // ExternalTable.getRowCount(), but this is not very meaningful and time-consuming.
+        // The getCachedRowCount() function is only used when `show table` and querying `information_schema.tables`.
+        if (!isObjectCreated()) {
+            return -1;
+        }
+        // getExtMetaCacheMgr().getRowCountCache().getCachedRowCount() is an asynchronous non-blocking operation.
+        // For tables that are not in the cache, it will load asynchronously and return -1.
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache()
+                .getCachedRowCount(catalog.getId(), dbId, id, false);
+    }
+
+    @Override
+    /**
+     * Default return -1. Subclass need to implement this interface.
+     * This is called by ExternalRowCountCache to load row count cache.
+     */
+    public long fetchRowCount() {
+        return UNKNOWN_ROW_COUNT;
+    }
+
+    /**
+     * Fetch row count, and allow the load path to fill external metadata cache if supported.
+     */
+    public long fetchRowCountWithMetaCache(boolean fillMetaCache) {
+        return fetchRowCount();
+    }
+
+    @Override
+    public long getAvgRowLength() {
+        return 0;
+    }
+
+    @Override
+    public long getDataLength() {
+        return 0;
+    }
+
+    @Override
+    public long getIndexLength() {
+        return 0;
+    }
+
+    @Override
+    public long getCreateTime() {
+        return 0;
+    }
+
+    @Override
+    // Returns the table update time, tracking when the table was last modified
+    // (for example, by insert, alter, or refresh operations).
+    public long getUpdateTime() {
+        return updateTime;
+    }
+
+    public void setUpdateTime(long updateTime) {
+        this.updateTime = updateTime;
+    }
+
+    @Override
+    public long getLastCheckTime() {
+        return 0;
+    }
+
+    @Override
+    public String getComment() {
+        return "";
+    }
+
+    @Override
+    public String getComment(boolean escapeQuota) {
+        return "";
+    }
+
+    public TTableDescriptor toThrift() {
+        return null;
+    }
+
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
+        throw new NotImplementedException("createAnalysisTask not implemented");
+    }
+
+    @Override
+    public DatabaseIf getDatabase() {
+        return this.db;
+    }
+
+    @Override
+    public List<Column> getColumns() {
+        return getFullSchema();
+    }
+
+    @Override
+    public boolean autoAnalyzeEnabled() {
+        makeSureInitialized();
+        String policy = catalog.getTableAutoAnalyzePolicy().get(Pair.of(dbName, name));
+        if (policy == null) {
+            return catalog.enableAutoAnalyze();
+        }
+        return policy.equalsIgnoreCase(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY);
+    }
+
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        return Optional.empty();
+    }
+
+    /**
+     * Should only be called in ExternalCatalog's getSchema(),
+     * which is called from schema cache.
+     * If you want to get schema of this table, use getFullSchema()
+     *
+     * @return
+     */
+    public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
+        setUpdateTime(System.currentTimeMillis());
+        return initSchema(key);
+    }
+
+    public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
+        return initSchema();
+    }
+
+    public Optional<SchemaCacheValue> initSchema() {
+        throw new NotImplementedException("implement in sub class");
+    }
+
+    public void unsetObjectCreated() {
+        this.objectCreated = false;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    public static ExternalTable read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ExternalTable.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        objectCreated = false;
+    }
+
+    @Override
+    public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        Set<Pair<String, String>> ret = Sets.newHashSet();
+        for (String column : columns) {
+            Column col = getColumn(column);
+            if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
+                continue;
+            }
+            // External table put table name as index name.
+            ret.add(Pair.of(String.valueOf(name), column));
+        }
+        return ret;
+    }
+
+    @Override
+    public List<Long> getChunkSizes() {
+        throw new NotImplementedException("getChunkSized not implemented");
+    }
+
+    public Optional<SchemaCacheValue> getSchemaCacheValue() {
+        SchemaCacheKey key = new SchemaCacheKey(getOrBuildNameMapping());
+        if (catalog.shouldBypassSchemaCache(SessionContext.current())) {
+            // session=user + delegated credential: the remote loadTable returns PER-USER schema and authorizes
+            // per user, so the shared name-keyed schema cache must be bypassed (mirror the db/table-name-cache
+            // bypass) — read schema live under the current session's credential. This is exactly what the cache
+            // miss-loader would do (initSchemaAndUpdateTime); calling it directly just skips the shared cache so
+            // one user's schema is never served to another who could list but not load the table.
+            return initSchemaAndUpdateTime(key);
+        }
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCacheValue(this, key);
+    }
+
+    /**
+     * The schema AS OF {@code snapshot}, for a caller that knows WHICH table reference it is resolving for
+     * (the reference's {@code @branch}/{@code @tag}/FOR-TIME selector already resolved to a pin). A table
+     * whose schema cannot vary by version ignores {@code snapshot} — only an MVCC table overrides this.
+     *
+     * <p>Prefer this over the no-arg {@link #getSchemaCacheValue()} in the PLAN path: the no-arg form
+     * resolves the pin from the ambient {@code ConnectContext} WITHOUT knowing the reference, so a statement
+     * pinning one table at two versions cannot be disambiguated there and degrades to the LATEST schema —
+     * a schema no reference asked for. The no-arg form remains correct for statement-global callers (MTMV
+     * refresh, preload, the write sink) that have no per-reference version to pass.
+     *
+     * @param snapshot the pin resolved for THIS reference, or empty for a caller with no reference
+     */
+    public Optional<SchemaCacheValue> getSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        return getSchemaCacheValue();
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
+    }
+
+    /**
+     * Retrieve all partitions and initialize SelectedPartitions
+     *
+     * @param snapshot if not support mvcc, ignore this
+     * @return
+     */
+    public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
+        if (!supportInternalPartitionPruned()) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        if (CollectionUtils.isEmpty(this.getPartitionColumns(snapshot))) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        Map<String, PartitionItem> nameToPartitionItems = getNameToPartitionItems(snapshot);
+        return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
+    }
+
+    /**
+     * get partition map
+     * If partition related operations are supported, this method needs to be implemented in the subclass
+     *
+     * @param snapshot if not support mvcc, ignore this
+     * @return partitionName ==> PartitionItem
+     */
+    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+        return Collections.emptyMap();
+    }
+
+    /**
+     * get partition column list
+     * If partition related operations are supported, this method needs to be implemented in the subclass
+     *
+     * @param snapshot if not support mvcc, ignore this
+     * @return
+     */
+    public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Does it support Internal partition pruned, If so, this method needs to be overridden in subclasses
+     * Internal partition pruned : Implement partition pruning logic without relying on external APIs.
+     *
+     * @return
+     */
+    public boolean supportInternalPartitionPruned() {
+        return false;
+    }
+
+    /**
+     * Cross-query cache of the pre-built {@link SortedPartitionRanges} for binary-search partition
+     * pruning. Tables that implement {@link SupportBinarySearchFilteringPartitions} (external MVCC:
+     * iceberg/paimon) route through the shared {@link NereidsSortedPartitionsCacheManager}, keyed by the
+     * pinned connector snapshot; others return empty (the caller falls back to building ranges fresh).
+     *
+     * @param scan the catalog relation
+     * @return sorted partition ranges, or empty if not supported
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
+        if (!(this instanceof SupportBinarySearchFilteringPartitions)) {
+            return Optional.empty();
+        }
+        Optional<SortedPartitionRanges<?>> cached = Env.getCurrentEnv().getSortedPartitionsCacheManager()
+                .get((SupportBinarySearchFilteringPartitions) this, scan);
+        return (Optional) cached;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ExternalTable)) {
+            return false;
+        }
+        ExternalTable that = (ExternalTable) o;
+        return Objects.equal(name, that.name) && Objects.equal(db, that.db);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name, db);
+    }
+
+    public long getDbId() {
+        return dbId;
+    }
+
+    public boolean isObjectCreated() {
+        return objectCreated;
+    }
+
+    public ExternalCatalog getCatalog() {
+        return catalog;
+    }
+
+    public ExternalDatabase getDb() {
+        return db;
+    }
+
+    public long getTimestamp() {
+        return timestamp;
+    }
+
+    public String getDbName() {
+        return dbName;
+    }
+
+    public String getRemoteDbName() {
+        return db.getRemoteName();
+    }
+
+    /**
+     * @deprecated Use ConstraintManager for constraint access.
+     *             This method will be removed in a future version.
+     */
+    @Deprecated
+    public TableAttributes getTableAttributes() {
+        return tableAttributes;
+    }
+
+    public NameMapping getOrBuildNameMapping() {
+        return nameMapping;
+    }
+}

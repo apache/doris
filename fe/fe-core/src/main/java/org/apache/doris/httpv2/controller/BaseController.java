@@ -1,0 +1,482 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.httpv2.controller;
+
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.auth.certificate.CertificateAuthDecision;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.AuthenticationException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.HttpAuthManager;
+import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FrontendOptions;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.base64.Base64;
+import io.netty.util.CharsetUtil;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.nio.ByteBuffer;
+import java.security.cert.X509Certificate;
+import java.util.List;
+import java.util.UUID;
+
+
+public class BaseController {
+
+    private static final Logger LOG = LogManager.getLogger(BaseController.class);
+    private static final CertificateRuntimeAuthService CERT_RUNTIME_AUTH_SERVICE =
+            CertificateRuntimeAuthFactory.getInstance();
+
+    public static final String PALO_SESSION_ID = "PALO_SESSION_ID";
+    private static final int PALO_SESSION_EXPIRED_TIME = 3600 * 24; // one day
+
+    public void checkAuthWithCookie(HttpServletRequest request, HttpServletResponse response) {
+        checkWithCookie(request, response, true);
+    }
+
+    /**
+     * Authenticate browser-facing UI APIs with the existing opaque session cookie.
+     * Basic Authorization is deliberately not accepted on this boundary.
+     */
+    public SessionValue requireCookieSession(HttpServletRequest request, HttpServletResponse response) {
+        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
+            throw new UnauthorizedException("Cookie authentication is required");
+        }
+
+        List<String> sessionIds = getCookieValues(request, PALO_SESSION_ID, response);
+        SessionValue sessionValue = HttpAuthManager.getInstance().getSessionValue(sessionIds);
+        if (sessionValue == null) {
+            throw new UnauthorizedException("Cookie is invalid");
+        }
+
+        if (Config.isCloudMode() && !sessionValue.currentUser.isRootUser()
+                && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
+                == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            throw new UnauthorizedException("The warehouse is overdue!");
+        }
+
+        updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
+        setConnectContext(request, sessionValue);
+        return sessionValue;
+    }
+
+    public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request,
+            HttpServletResponse response, boolean checkAuth) {
+        // First we check if the request has Authorization header.
+        String encodedAuthString = request.getHeader("Authorization");
+        if (encodedAuthString != null) {
+            // If has Authorization header, check auth info
+            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+            UserIdentity currentUser = checkPassword(authInfo, request);
+            // Callers do privilege checks on the returned authInfo, so the resolved identity must be
+            // carried back out. Leaving it null makes every such check throw NPE.
+            authInfo.userIdentity = currentUser;
+
+            // Built before the check, not after it, for the same reason checkCookie below builds it early: the
+            // check reaches the authorization source, and a source that looks at the circumstances of a
+            // request would otherwise be handed whatever the previous request on this pooled Jetty thread left
+            // behind - another client's address rather than none. Handed to the check explicitly, so nothing
+            // is put on the thread until this request is through.
+            ConnectContext ctx = new ConnectContext();
+            ctx.setRemoteIP(authInfo.remoteIp);
+            ctx.setCurrentUserIdentity(currentUser);
+            ctx.setEnv(Env.getCurrentEnv());
+
+            // The cookie branch below requires ADMIN_OR_NODE whenever checkAuth is set, in every deployment
+            // mode, so this branch must as well: which of the two ways a caller authenticates must not change
+            // what it is allowed to reach. Only the overdue fence is specific to cloud mode.
+            if (checkAuth) {
+                checkInstanceOverdueIfCloud(currentUser);
+                checkGlobalAuth(ctx, PrivPredicate.ADMIN_OR_NODE);
+            }
+
+            SessionValue value = new SessionValue();
+            value.currentUser = currentUser;
+            value.password = authInfo.password;
+            addSession(request, response, value);
+
+            ctx.setThreadLocalInfo();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("check auth without cookie success for user: {}, thread: {}",
+                        currentUser, Thread.currentThread().getId());
+            }
+            return authInfo;
+        }
+
+        // No Authorization header, check cookie
+        ActionAuthorizationInfo authInfo = checkCookie(request, response, checkAuth);
+        if (authInfo == null) {
+            throw new UnauthorizedException("Cookie is invalid");
+        }
+        return authInfo;
+    }
+
+    protected void addSession(HttpServletRequest request, HttpServletResponse response, SessionValue value) {
+        String key = UUID.randomUUID().toString();
+        Cookie cookie = new Cookie(PALO_SESSION_ID, key);
+        if (Config.enable_https) {
+            cookie.setSecure(true);
+        } else {
+            cookie.setSecure(false);
+        }
+        cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
+        cookie.setPath("/");
+        cookie.setHttpOnly(true);
+        cookie.setAttribute("SameSite", "Lax");
+        response.addCookie(cookie);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("add session cookie: {} {}", PALO_SESSION_ID, key);
+        }
+        HttpAuthManager.getInstance().addSessionValue(key, value);
+    }
+
+    private ActionAuthorizationInfo checkCookie(HttpServletRequest request, HttpServletResponse response,
+            boolean checkAuth) {
+        List<String> sessionIds = getCookieValues(request, PALO_SESSION_ID, response);
+        if (sessionIds.isEmpty()) {
+            return null;
+        }
+
+        HttpAuthManager authMgr = HttpAuthManager.getInstance();
+        SessionValue sessionValue = authMgr.getSessionValue(sessionIds);
+        if (sessionValue == null) {
+            return null;
+        }
+
+        // Built before the check, not after it: the check reaches the authorization source, and a source that
+        // looks at the circumstances of a request would otherwise be handed whatever the previous request on
+        // this pooled thread left behind - another client's address rather than none.
+        ConnectContext ctx = buildConnectContext(request, sessionValue);
+
+        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx,
+                PrivPredicate.ADMIN_OR_NODE)) {
+            // need to check auth and check auth failed
+            return null;
+        }
+
+        if (Config.isCloudMode() && checkAuth && !sessionValue.currentUser.isRootUser()
+                && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
+                == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            return null;
+        }
+
+
+        updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
+
+        setConnectContext(ctx, sessionValue);
+        ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
+        authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
+        authInfo.remoteIp = request.getRemoteAddr();
+        authInfo.password = sessionValue.password;
+        authInfo.userIdentity = sessionValue.currentUser;
+        return authInfo;
+    }
+
+    private ConnectContext buildConnectContext(HttpServletRequest request, SessionValue sessionValue) {
+        ConnectContext ctx = new ConnectContext();
+        // getRemoteAddr, not getRemoteHost: this value reaches a plugin as the client address a policy
+        // may be written against, and getRemoteHost may answer with a resolved host name instead - so a
+        // policy matching on an address would behave differently depending on which of the two
+        // authentication branches the client came through. The Authorization header branch above has
+        // always used getRemoteAddr.
+        ctx.setRemoteIP(request.getRemoteAddr());
+        ctx.setCurrentUserIdentity(sessionValue.currentUser);
+        ctx.setEnv(Env.getCurrentEnv());
+        return ctx;
+    }
+
+    private void setConnectContext(HttpServletRequest request, SessionValue sessionValue) {
+        setConnectContext(buildConnectContext(request, sessionValue), sessionValue);
+    }
+
+    private void setConnectContext(ConnectContext ctx, SessionValue sessionValue) {
+        ctx.setThreadLocalInfo();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("check cookie success for user: {}, thread: {}",
+                    sessionValue.currentUser, Thread.currentThread().getId());
+        }
+    }
+
+    public List<String> getCookieValues(HttpServletRequest request, String cookieName, HttpServletResponse response) {
+        Cookie[] cookies = request.getCookies();
+        List<String> sessionIds = Lists.newArrayList();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (cookie.getName() != null && cookie.getName().equals(cookieName)) {
+                    String sessionId = cookie.getValue();
+                    sessionIds.add(sessionId);
+                }
+            }
+        }
+        return sessionIds;
+    }
+
+    public void updateCookieAge(HttpServletRequest request, String cookieName, int age, HttpServletResponse response) {
+        Cookie[] cookies = request.getCookies();
+        for (Cookie cookie : cookies) {
+            if (cookie.getName() != null && cookie.getName().equals(cookieName)) {
+                cookie.setMaxAge(age);
+                cookie.setPath("/");
+                cookie.setHttpOnly(true);
+                cookie.setAttribute("SameSite", "Lax");
+                if (Config.enable_https) {
+                    cookie.setSecure(true);
+                } else {
+                    cookie.setSecure(false);
+                }
+                response.addCookie(cookie);
+            }
+        }
+    }
+
+    public static class ActionAuthorizationInfo {
+        public String fullUserName;
+        public String remoteIp;
+        public String password;
+        public String cluster;
+        public UserIdentity userIdentity;  // Add this field for convenient parameter passing
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("user: ").append(fullUserName).append(", remote ip: ").append(remoteIp);
+            sb.append(", password: ").append("********").append(", cluster: ").append(cluster);
+            return sb.toString();
+        }
+    }
+
+    /**
+     * The overdue-warehouse fence for handlers that call checkWithCookie(.., false).
+     *
+     * checkWithCookie's `checkAuth` flag gates two unrelated things at once: the global
+     * ADMIN_OR_NODE requirement and, in cloud mode, the overdue check. A handler that passes false
+     * is saying "I do my own, narrower authorization" -- it is not saying "serve this from an
+     * overdue warehouse". Such a handler calls this to get the fence back without the ADMIN
+     * requirement.
+     *
+     * This is deliberately opt-in per handler rather than unconditional inside checkWithCookie:
+     * /api/query also passes false, but it hands the statement to a real JDBC session that
+     * enforces the overdue state itself and reports it as a common error. Moving that rejection
+     * up to this layer would silently change that endpoint's response from COMMON_ERROR to
+     * UNAUTHORIZED.
+     */
+    protected void checkInstanceOverdueIfCloud(UserIdentity currentUser) {
+        if (Config.isCloudMode()) {
+            checkInstanceOverdue(currentUser);
+        }
+    }
+
+    protected void checkInstanceOverdue(UserIdentity currentUsr) {
+        Cloud.InstanceInfoPB.Status s = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus();
+        if (!currentUsr.isRootUser()
+                && s == Cloud.InstanceInfoPB.Status.OVERDUE) {
+            LOG.warn("this warehouse is overdue root:{}, status:{}", currentUsr.isRootUser(), s);
+            throw new UnauthorizedException("The warehouse is overdue!");
+        }
+    }
+
+    protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser, predicate)) {
+            throw new UnauthorizedException("Access denied; you need (at least one of) the "
+                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+        }
+    }
+
+    /**
+     * The same check against the context of this request rather than the one left on the thread.
+     *
+     * <p>The identity-only overload falls back to whatever {@code ConnectContext} the thread carries, which on
+     * a pooled Jetty thread is the previous request's. An authorization source reading the circumstances of a
+     * request - the client address above all - is then answering about another client's.
+     */
+    protected void checkGlobalAuth(ConnectContext ctx, PrivPredicate predicate) throws UnauthorizedException {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, predicate)) {
+            throw new UnauthorizedException("Access denied; you need (at least one of) the "
+                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+        }
+    }
+
+    protected void checkDbAuth(UserIdentity currentUser, String db, PrivPredicate predicate)
+            throws UnauthorizedException {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, db, predicate)) {
+            throw new UnauthorizedException("Access denied; you need (at least one of) the "
+                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+        }
+    }
+
+    protected void checkTblAuth(UserIdentity currentUser, String db, String tbl, PrivPredicate predicate)
+            throws UnauthorizedException {
+        checkTblAuth(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, db, tbl, predicate);
+    }
+
+    protected void checkTblAuth(UserIdentity currentUser, String catalog, String db, String tbl,
+            PrivPredicate predicate)
+            throws UnauthorizedException {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(currentUser, catalog, db, tbl, predicate)) {
+            throw new UnauthorizedException("Access denied; you need (at least one of) the "
+                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+        }
+    }
+
+    // return currentUserIdentity from Doris auth
+    protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo, HttpServletRequest request)
+            throws UnauthorizedException {
+        CertificateAuthDecision certDecision = tryCertificateAuth(authInfo, request);
+        if (certDecision.shouldSkipPasswordVerification()) {
+            return certDecision.getUserIdentity();
+        }
+
+        List<UserIdentity> currentUser = Lists.newArrayList();
+        try {
+            if (certDecision.isVerified()) {
+                Env.getCurrentEnv().getAuth().checkPlainPasswordForUserIdentity(
+                        certDecision.getUserIdentity(), authInfo.password, currentUser);
+            } else {
+                Env.getCurrentEnv().getAuth().checkPlainPassword(authInfo.fullUserName,
+                        authInfo.remoteIp, authInfo.password, currentUser);
+            }
+        } catch (AuthenticationException e) {
+            throw new UnauthorizedException(e.formatErrMsg());
+        }
+        Preconditions.checkState(currentUser.size() == 1);
+        return currentUser.get(0);
+    }
+
+    public ActionAuthorizationInfo getAuthorizationInfo(HttpServletRequest request)
+            throws UnauthorizedException {
+        ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
+        if (!parseAuthInfo(request, authInfo)) {
+            // Never log the Authorization header itself: it carries base64(user:password),
+            // which is trivially decodable. Only record whether it was absent or malformed.
+            LOG.info("parse auth info failed, Authorization header is {}, url {}",
+                    Strings.isNullOrEmpty(request.getHeader("Authorization")) ? "absent" : "malformed",
+                    request.getRequestURI());
+            throw new UnauthorizedException("Need auth information.");
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get auth info: {}", authInfo);
+        }
+        return authInfo;
+    }
+
+    private boolean parseAuthInfo(HttpServletRequest request, ActionAuthorizationInfo authInfo) {
+        String encodedAuthString = request.getHeader("Authorization");
+        if (Strings.isNullOrEmpty(encodedAuthString)) {
+            return false;
+        }
+        String[] parts = encodedAuthString.split("\\s+");
+        if (parts.length != 2) {
+            return false;
+        }
+        encodedAuthString = parts[1];
+        ByteBuf buf = null;
+        ByteBuf decodeBuf = null;
+        try {
+            buf = Unpooled.copiedBuffer(ByteBuffer.wrap(encodedAuthString.getBytes()));
+
+            // The authString is a string connecting user-name and password with
+            // a colon(':')
+            decodeBuf = Base64.decode(buf);
+            String authString = decodeBuf.toString(CharsetUtil.UTF_8);
+            // Note that password may contain colon, so can not simply use a
+            // colon to split.
+            int index = authString.indexOf(":");
+            authInfo.fullUserName = authString.substring(0, index);
+            final String[] elements = authInfo.fullUserName.split("@");
+            if (elements != null && elements.length == 2) {
+                authInfo.fullUserName = elements[0];
+            }
+            authInfo.password = authString.substring(index + 1);
+            authInfo.remoteIp = request.getRemoteAddr();
+        } finally {
+            // release the buf and decode buf after using Unpooled.copiedBuffer
+            // or it will get memory leak
+            if (buf != null) {
+                buf.release();
+            }
+
+            if (decodeBuf != null) {
+                decodeBuf.release();
+            }
+        }
+        return true;
+    }
+
+    protected CertificateAuthDecision tryCertificateAuth(ActionAuthorizationInfo authInfo, HttpServletRequest request)
+            throws UnauthorizedException {
+        CertificateAuthDecision decision = CERT_RUNTIME_AUTH_SERVICE.authenticateLive(
+                authInfo.fullUserName, authInfo.remoteIp, getClientCertificate(request));
+        if (decision.isReject()) {
+            throw new UnauthorizedException(
+                    decision.getErrorMessage() == null ? "TLS certificate verification failed"
+                            : decision.getErrorMessage());
+        }
+        return decision;
+    }
+
+    protected X509Certificate getClientCertificate(HttpServletRequest request) {
+        Object value = request.getAttribute("jakarta.servlet.request.X509Certificate");
+        if (!(value instanceof X509Certificate[])) {
+            value = request.getAttribute("javax.servlet.request.X509Certificate");
+        }
+        if (!(value instanceof X509Certificate[])) {
+            return null;
+        }
+        X509Certificate[] certs = (X509Certificate[]) value;
+        return certs.length == 0 ? null : certs[0];
+    }
+
+    protected int checkIntParam(String strParam) {
+        return Integer.parseInt(strParam);
+    }
+
+    protected long checkLongParam(String strParam) {
+        return Long.parseLong(strParam);
+    }
+
+    protected String getCurrentFrontendURL() {
+        if (Config.enable_https) {
+            // this could be the result of redirection.
+            return "https://" + NetUtils
+                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.https_port);
+        } else {
+            return "http://" + NetUtils
+                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.http_port);
+        }
+    }
+}

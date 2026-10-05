@@ -1,0 +1,25 @@
+#!/bin/bash
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+set -ex
+
+# The jars are fetched on the host into docker-compose/ranger/cache and bind
+# mounted here, so this container never needs to reach the network.
+ARTIFACTS=/opt/doris-ranger-artifacts
+PLUGIN_DIR="${RANGER_HOME}/ews/webapp/WEB-INF/classes/ranger-plugins/doris"
+
+mkdir -p "${PLUGIN_DIR}"
+cp "${ARTIFACTS}/mysql-connector-java-8.0.25.jar" "${PLUGIN_DIR}/"
+cp "${ARTIFACTS}/ranger-doris-plugin-3.0.0-SNAPSHOT.jar" "${PLUGIN_DIR}/"

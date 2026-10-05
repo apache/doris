@@ -1,0 +1,241 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.distribute.worker;
+
+import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.Reference;
+import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SimpleScheduler;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
+import org.apache.doris.resource.computegroup.ComputeGroup;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TNetworkAddress;
+
+import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
+
+/** BackendWorkerManager */
+public class BackendDistributedPlanWorkerManager implements DistributedPlanWorkerManager {
+    private static final Logger LOG = LogManager.getLogger(BackendDistributedPlanWorkerManager.class);
+
+    private static final Backend DUMMY_BACKEND;
+
+    static {
+        DUMMY_BACKEND = new Backend(-1, "dummy", -1);
+        DUMMY_BACKEND.setAlive(true);
+    }
+
+    private final Map<Long, Supplier<ImmutableMap<Long, Backend>>> allClusterBackends = Maps.newHashMap();
+
+    private final Map<Long, ImmutableMap<Long, Backend>> currentClusterBackends;
+    private final ConnectContext selectionContext;
+    private final boolean useLoadBackendSelection;
+
+    /**
+     * Constructor
+     */
+    public BackendDistributedPlanWorkerManager(
+            ConnectContext context, boolean notNeedBackend, boolean isLoadJob) throws UserException {
+        this(context, notNeedBackend, isLoadJob, isLoadJob);
+    }
+
+    /** Constructor with an independent load backend selection flag. */
+    public BackendDistributedPlanWorkerManager(
+            ConnectContext context, boolean notNeedBackend, boolean isLoadJob,
+            boolean useLoadBackendSelection) throws UserException {
+        this.selectionContext = context;
+        this.useLoadBackendSelection = useLoadBackendSelection;
+        this.currentClusterBackends = Maps.newHashMap();
+        ImmutableMap<Long, Backend> internalBackends = checkAndInitClusterBackends(context, notNeedBackend, isLoadJob);
+        this.currentClusterBackends.put(Env.getCurrentInternalCatalog().getId(), internalBackends);
+        allClusterBackends.put(Env.getCurrentInternalCatalog().getId(),
+                Suppliers.memoize(() -> {
+                    try {
+                        return Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+                    } catch (Exception t) {
+                        throw new NereidsException("Can not get backends: " + t, t);
+                    }
+                }));
+    }
+
+    private ImmutableMap<Long, Backend> checkAndInitClusterBackends(
+            ConnectContext context, boolean noNeedBackend, boolean isLoadJob) throws UserException {
+        if (noNeedBackend) {
+            // `select 1` will not need backend
+            return ImmutableMap.of(-1L, DUMMY_BACKEND);
+        } else if (!Config.isCloudMode()) {
+            return Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
+        }
+
+        // if is load, the ConnectContext.get() would be null, then we can skip check cluster
+        if (isLoadJob) {
+            context = ConnectContext.get();
+        }
+
+        if (context == null) {
+            throw new AnalysisException("connect context is null");
+        }
+
+        // 1 get compute group
+        ComputeGroup cg = context.getComputeGroup();
+
+        // 2 check priv
+        try {
+            ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cg.getName());
+        } catch (Exception e) {
+            LOG.warn("cluster priv check failed", e);
+            throw new UserException(
+                    "cluster priv check failed, user is " + ConnectContext.get().getCurrentUserIdentity().toString()
+                            + ", cluster is " + cg.getName(), e);
+        }
+
+        // 3 return be list
+        List<Backend> beList = cg.getBackendList();
+        if (beList.isEmpty()) {
+            LOG.warn("no available backends, compute group is {}", cg.toString());
+            String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(cg.getName());
+            throw new UserException(computeGroupHints);
+        }
+
+        Map<Long, Backend> idToBeMap = Maps.newHashMap();
+        for (Backend be : beList) {
+            idToBeMap.put(be.getId(), be);
+        }
+        return ImmutableMap.copyOf(idToBeMap);
+    }
+
+    @Override
+    public void addBackends(long catalogId, ImmutableMap<Long, Backend> backends) {
+        if (!currentClusterBackends.containsKey(catalogId)) {
+            currentClusterBackends.put(catalogId, backends);
+        }
+        if (!allClusterBackends.containsKey(catalogId)) {
+            allClusterBackends.put(catalogId, Suppliers.ofInstance(backends));
+        }
+    }
+
+    @Override
+    public DistributedPlanWorker getWorker(long catalogId, long backendId) {
+        ImmutableMap<Long, Backend> backends = this.allClusterBackends.get(catalogId).get();
+        Backend backend = backends.get(backendId);
+        if (backend == null) {
+            throw new IllegalStateException("Backend " + backendId + " is not exist");
+        }
+        return new BackendWorker(catalogId, backend);
+    }
+
+    @Override
+    public DistributedPlanWorker getWorker(long catalogId, Backend backend) {
+        return new BackendWorker(catalogId, backend);
+    }
+
+    @Override
+    public DistributedPlanWorker randomAvailableWorker(long catalogId) {
+        try {
+            Reference<Long> selectedBackendId = new Reference<>();
+            ImmutableMap<Long, Backend> backends = this.currentClusterBackends.get(catalogId);
+            Backend selectedBackend = chooseLoadBackend(backends.values());
+            if (selectedBackend != null) {
+                return new BackendWorker(catalogId, selectedBackend);
+            }
+            SimpleScheduler.getHost(backends, selectedBackendId);
+            Backend selctedBackend = backends.get(selectedBackendId.getRef());
+            return new BackendWorker(catalogId, selctedBackend);
+        } catch (Exception t) {
+            String message = t.getMessage();
+            boolean suppressStack = message != null
+                    && message.contains(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
+            throw new NereidsException(t, suppressStack);
+        }
+    }
+
+    @Override
+    public long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID) {
+        if (useLoadBackendSelection) {
+            List<Backend> candidates = Lists.newArrayList();
+            for (Long backendId : addressToBackendID.values()) {
+                for (Supplier<ImmutableMap<Long, Backend>> backends : allClusterBackends.values()) {
+                    Backend backend = backends.get().get(backendId);
+                    if (backend != null) {
+                        candidates.add(backend);
+                        break;
+                    }
+                }
+            }
+            Backend selectedBackend = chooseLoadBackend(candidates);
+            if (selectedBackend != null) {
+                return selectedBackend.getId();
+            }
+        }
+        TNetworkAddress backend = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
+        return addressToBackendID.get(backend);
+    }
+
+    private Backend chooseLoadBackend(Iterable<Backend> candidates) {
+        if (!useLoadBackendSelection) {
+            return null;
+        }
+        List<Backend> candidateList = Lists.newArrayList(candidates);
+        Collections.shuffle(candidateList);
+        Backend selectedBackend;
+        try {
+            selectedBackend = BackendSelectionManager.chooseFirstPreferredLoadBackend(
+                    selectionContext, candidateList, SimpleScheduler::isAvailable);
+        } catch (UserException e) {
+            throw new NereidsException(e, false);
+        }
+        if (selectedBackend != null) {
+            BackendSelection.SelectionHint hint = BackendSelectionManager.resolveLoadSelectionHint(selectionContext);
+            selectionContext.getBackendSelectionProfile().recordLoadCoordinator(hint, selectedBackend);
+        }
+        return selectedBackend;
+    }
+
+    @Override
+    public List<Backend> getAllBackends(long catalogId, boolean needAlive) {
+        List<Backend> backends = null;
+        if (needAlive) {
+            backends = Lists.newArrayList();
+            for (Map.Entry<Long, Backend> entry : this.allClusterBackends.get(catalogId).get().entrySet()) {
+                if (entry.getValue().isQueryAvailable()) {
+                    backends.add(entry.getValue());
+                }
+            }
+        } else {
+            backends = Lists.newArrayList(this.allClusterBackends.get(catalogId).get().values());
+        }
+        return backends;
+    }
+}

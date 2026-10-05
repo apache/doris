@@ -1,0 +1,150 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_single_hive_kerberos", "p0,external") {
+    def command = "sudo docker ps"
+    def process = command.execute()
+    process.waitFor()
+
+    def output = process.in.text
+
+    def keytab_root_dir = "/keytabs"
+
+    println "Docker containers:"
+    println output
+    String enabled = context.config.otherConfigs.get("enableKerberosTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String hms_catalog_name = "test_single_hive_kerberos"
+        sql """drop catalog if exists hms_kerberos;"""
+        sql """
+            CREATE CATALOG IF NOT EXISTS hms_kerberos
+            PROPERTIES (
+                "type" = "hms",
+                "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
+                "dfs.client.use.datanode.hostname" = "true",
+                "hadoop.security.token.service.use_ip" = "false",
+                "dfs.data.transfer.protection" = "authentication",
+                "hadoop.security.authentication" = "kerberos",
+                "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab",
+                "hadoop.security.auth_to_local" = "RULE:[2:\$1@\$0](.*@LABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
+                                   DEFAULT",
+                "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM"
+            );
+        """
+        sql """ switch hms_kerberos """
+        sql """ CREATE DATABASE IF NOT EXISTS test_single_krb_hive_db """
+        sql """ USE test_single_krb_hive_db """
+        sql """ DROP TABLE IF EXISTS test_krb_hive_tbl """
+        sql """
+            CREATE TABLE test_krb_hive_tbl (
+                id_key INT,
+                string_key STRING,
+                rate_val DOUBLE,
+                comment STRING
+            ) ENGINE = hive
+            PROPERTIES ("file_format" = "parquet")
+        """
+        sql """
+            INSERT INTO test_krb_hive_tbl VALUES
+                (1, 'a', 3.16, 'cc0'),
+                (2, 'b', 41.2, 'cc1'),
+                (3, 'c', 6.2, 'cc2'),
+                (4, 'd', 1.4, 'cc3')
+        """
+        sql """ show databases """
+        order_qt_q01 """ select * from hms_kerberos.test_single_krb_hive_db.test_krb_hive_tbl """
+        sql """drop catalog hms_kerberos;"""
+
+        sql """drop catalog if exists hms_kerberos_hadoop_err1;"""
+        sql """
+            CREATE CATALOG IF NOT EXISTS hms_kerberos_hadoop_err1
+            PROPERTIES (
+                "type" = "hms",
+                "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "hadoop.security.authentication" = "kerberos",
+                "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
+                               RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+                               RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
+                               DEFAULT",
+                "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab"
+            );
+        """
+        sql """ switch hms_kerberos_hadoop_err1 """
+        test {
+            sql """ show databases """
+            exception "thrift.transport.TTransportException"
+        }
+
+        sql """drop catalog if exists hms_kerberos_hadoop_err2;"""
+        sql """
+            CREATE CATALOG IF NOT EXISTS hms_kerberos_hadoop_err2
+            PROPERTIES (
+                "type" = "hms",
+                "hive.metastore.sasl.enabled " = "true",
+                "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+                "hadoop.security.authentication" = "kerberos",
+                "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab",
+                "hive.metastore.kerberos.principal" = "hive/invalid-host@LABS.TERADATA.COM"
+            );
+        """
+        sql """ switch hms_kerberos_hadoop_err2 """
+        test {
+            sql """ show databases """
+            exception "GSS initiate failed"
+        }
+
+        //        try {
+        //            sql """
+        //                CREATE CATALOG IF NOT EXISTS hms_keberos_ccache
+        //                PROPERTIES (
+        //                    "type" = "hms",
+        //                    "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+        //                    "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
+        //                    "hadoop.security.authentication" = "kerberos",
+        //                    "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
+        //                    "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab",
+        //                    "hive.metastore.thrift.impersonation.enabled" = true"
+        //                    "hive.metastore.client.credential-cache.location" = "hive-presto-master-krbcc"
+        //                );
+        //            """
+        //            sql """ switch hms_keberos_ccache """
+        //            sql """ show databases """
+        //        } catch (Exception e) {
+        //            logger.error(e.message)
+        //        }
+        
+        // test information_schema.backend_kerberos_ticket_cache
+        // switch to a normal catalog
+        // sql "switch internal";
+        // List<List<Object>> backends = sql "show backends"
+        // int beNum = backends.size();
+        // test {
+        //     sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/presto-server.keytab";"""
+        //     rowNum beNum
+        // } 
+    }
+}

@@ -1,0 +1,57 @@
+From a479a271d669c4f1410f65b6e11ffaf193067aca Mon Sep 17 00:00:00 2001
+From: HappenLee <happenlee@hotmail.com>
+Date: Mon, 11 Mar 2024 15:23:09 +0800
+Subject: [PATCH] change interface of the code
+
+---
+ include/libbase64.h | 4 ++--
+ lib/lib.c           | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/include/libbase64.h b/include/libbase64.h
+index c590897..6fa24bd 100644
+--- a/include/libbase64.h
++++ b/include/libbase64.h
+@@ -66,7 +66,7 @@ struct base64_state {
+  * to *out without trailing zero. Output length in bytes is written to *outlen.
+  * The buffer in `out` has been allocated by the caller and is at least 4/3 the
+  * size of the input. See above for `flags`; set to 0 for default operation: */
+-void BASE64_EXPORT base64_encode
++void BASE64_EXPORT do_base64_encode
+ 	( const char		*src
+ 	, size_t		 srclen
+ 	, char			*out
+@@ -108,7 +108,7 @@ void BASE64_EXPORT base64_stream_encode_final
+  * to *out without trailing zero. Output length in bytes is written to *outlen.
+  * The buffer in `out` has been allocated by the caller and is at least 3/4 the
+  * size of the input. See above for `flags`, set to 0 for default operation: */
+-int BASE64_EXPORT base64_decode
++int BASE64_EXPORT do_base64_decode
+ 	( const char		*src
+ 	, size_t		 srclen
+ 	, char			*out
+diff --git a/lib/lib.c b/lib/lib.c
+index 053931a..ba6286a 100644
+--- a/lib/lib.c
++++ b/lib/lib.c
+@@ -100,7 +100,7 @@ base64_stream_decode
+ #endif
+ 
+ void
+-base64_encode
++do_base64_encode
+ 	( const char	*src
+ 	, size_t	 srclen
+ 	, char		*out
+@@ -133,7 +133,7 @@ base64_encode
+ }
+ 
+ int
+-base64_decode
++do_base64_decode
+ 	( const char	*src
+ 	, size_t	 srclen
+ 	, char		*out
+-- 
+2.31.1
+

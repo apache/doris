@@ -1,0 +1,67 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.load.loadv2;
+
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.Optional;
+import java.util.Set;
+
+public class InsertLoadJobTest {
+
+    @Test
+    public void testGetTableNames() throws MetaNotFoundException {
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+            Database database = Mockito.mock(Database.class);
+            Table table = Mockito.mock(Table.class);
+
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            UserIdentity userInfo = new UserIdentity("root", "localhost");
+            Mockito.when(catalog.getDbOrMetaException(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(database.getFullName()).thenReturn("db1");
+            Mockito.when(database.getTableOrMetaException(Mockito.anyLong())).thenReturn(table);
+            InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "", "", userInfo);
+            String tableName = "table1";
+
+            Mockito.when(catalog.getDb(Mockito.anyLong())).thenReturn(Optional.of(database));
+            Mockito.when(database.getTable(Mockito.anyLong())).thenReturn(Optional.of(table));
+            Mockito.when(table.getName()).thenReturn(tableName);
+
+            Set<String> tableNames = insertLoadJob.getTableNamesForShow();
+            Assertions.assertEquals(1, tableNames.size());
+            Assertions.assertTrue(tableNames.contains(tableName));
+            Assertions.assertEquals(JobState.FINISHED, insertLoadJob.getState());
+            Assertions.assertEquals(Integer.valueOf(100), Deencapsulation.getField(insertLoadJob, "progress"));
+        }
+    }
+}

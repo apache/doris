@@ -1,0 +1,947 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands.insert;
+
+import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.profile.ProfileManager.ProfileType;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.scan.FileScanNode;
+import org.apache.doris.dictionary.Dictionary;
+import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.lineage.LineageInfoExtractor;
+import org.apache.doris.nereids.lineage.LineageUtils;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.Explainable;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.LocalExchangeNode;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
+import org.apache.doris.transaction.TransactionState;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.awaitility.Awaitility;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+
+/**
+ * insert into select command implementation
+ * insert into select command support the grammar: explain? insert into table columns? partitions? hints? query
+ * InsertIntoTableCommand is a command to represent insert the answer of a query into a table.
+ * class structure's:
+ * InsertIntoTableCommand(Query())
+ * ExplainCommand(Query())
+ */
+public class InsertIntoTableCommand extends Command
+        implements NeedAuditEncryption, ForwardWithSync, Explainable, CancelableCommand {
+
+    public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
+
+    private final AtomicBoolean isCancelled = new AtomicBoolean(false);
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
+
+    private LogicalPlan originLogicalQuery;
+    private Optional<LogicalPlan> logicalQuery;
+    private Optional<String> labelName;
+    private Optional<String> branchName;
+    private Optional<Plan> parsedPlan;
+    private Optional<Plan> lineagePlan = Optional.empty();
+    /**
+     * When source it's from job scheduler,it will be set.
+     */
+    private long jobId;
+
+    // default is empty. only for OlapInsertExecutor#finalizeSink will construct one for check allow auto partition
+    private final Optional<InsertCommandContext> insertCtx;
+    private final Optional<LogicalPlan> cte;
+    private final boolean needNormalizePlan;
+
+    private InsertExecutorListener insertExecutorListener;
+
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+            Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
+        this(PlanType.INSERT_INTO_TABLE_COMMAND, logicalQuery, labelName, insertCtx, cte, true, Optional.empty());
+    }
+
+    /**
+     * constructor
+     */
+    public InsertIntoTableCommand(PlanType planType, LogicalPlan logicalQuery, Optional<String> labelName,
+                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
+                                  boolean needNormalizePlan, Optional<String> branchName) {
+        super(planType);
+        this.originLogicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
+        this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
+        this.logicalQuery = Optional.empty();
+        this.insertCtx = insertCtx;
+        this.cte = cte;
+        this.needNormalizePlan = needNormalizePlan;
+        this.branchName = branchName;
+        if (Env.getCurrentEnv().isMaster()) {
+            this.jobId = Env.getCurrentEnv().getNextId();
+        } else {
+            this.jobId = -1;
+        }
+    }
+
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+            Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
+            boolean needNormalizePlan, Optional<String> branchName) {
+        this(PlanType.INSERT_INTO_TABLE_COMMAND, logicalQuery, labelName, insertCtx, cte,
+                needNormalizePlan, branchName);
+    }
+
+    /**
+     * constructor for derived class
+     */
+    public InsertIntoTableCommand(InsertIntoTableCommand command, PlanType planType) {
+        super(planType);
+        this.originLogicalQuery = command.originLogicalQuery;
+        this.labelName = command.labelName;
+        this.logicalQuery = command.logicalQuery;
+        this.insertCtx = command.insertCtx;
+        this.cte = command.cte;
+        this.jobId = command.jobId;
+        this.needNormalizePlan = true;
+        this.branchName = command.branchName;
+    }
+
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery.orElse(originLogicalQuery);
+    }
+
+    public Optional<Plan> getParsedPlan() {
+        return parsedPlan;
+    }
+
+    public Optional<Plan> getLineagePlan() {
+        return lineagePlan;
+    }
+
+    protected void setLogicalQuery(LogicalPlan logicalQuery) {
+        this.logicalQuery = Optional.of(logicalQuery);
+    }
+
+    protected void setOriginLogicalQuery(LogicalPlan logicalQuery) {
+        this.originLogicalQuery = logicalQuery;
+    }
+
+    public Optional<String> getLabelName() {
+        return labelName;
+    }
+
+    public void setLabelName(Optional<String> labelName) {
+        this.labelName = labelName;
+    }
+
+    public long getJobId() {
+        return jobId;
+    }
+
+    public void setJobId(long jobId) {
+        this.jobId = jobId;
+    }
+
+    public void setInsertExecutorListener(InsertExecutorListener insertExecutorListener) {
+        this.insertExecutorListener = insertExecutorListener;
+    }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        runWithUpdateInfo(ctx, executor, null);
+    }
+
+    @Override
+    public void cancel() {
+        isCancelled.set(true);
+    }
+
+    @Override
+    public void waitNotRunning() {
+        long waitMaxTimeSecond = 10L;
+        try {
+            Awaitility.await().atMost(waitMaxTimeSecond, TimeUnit.SECONDS).untilFalse(isRunning);
+        } catch (Exception e) {
+            LOG.warn("waiting time exceeds {} second, stop wait, labelName: {}",
+                    waitMaxTimeSecond, labelName.orElse(""), e);
+        }
+    }
+
+    /**
+     * Shared execution entrypoint for both direct statements and scheduled insert tasks
+     * (see InsertTask). The running flag and the pending-cancellation state live here so
+     * cancellation handling (KILL / waitNotRunning) is identical on both paths.
+     */
+    public void runWithUpdateInfo(ConnectContext ctx, StmtExecutor executor,
+                                  LoadStatistic loadStatistic) throws Exception {
+        // Consume a cancellation that arrived while this invocation was queued
+        // (cancel-before-run) and reset the flag, so a reused command instance
+        // (server-side prepared INSERT) can execute again after a cancelled run.
+        if (isCancelled.getAndSet(false)) {
+            LOG.info("insert is cancelled before execution, queryId: {}",
+                    ctx.getQueryIdentifier());
+            return;
+        }
+        isRunning.set(true);
+        try {
+            // TODO: add coordinator statistic
+            runInternal(ctx, executor);
+        } finally {
+            isRunning.set(false);
+        }
+    }
+
+    // may be overridden
+    protected TableIf getTargetTableIf(
+            ConnectContext ctx, List<String> qualifiedTargetTableName) {
+        return RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv(), Optional.empty());
+    }
+
+    protected DatabaseIf<?> getTargetDatabase(TableIf targetTable) {
+        return targetTable.getDatabase();
+    }
+
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        return initPlan(ctx, executor, true);
+    }
+
+    /**
+     * This function is used to generate the plan for Nereids.
+     * There are some load functions that only need to the plan, such as stream_load.
+     * Therefore, this section will be presented separately.
+     * @param needBeginTransaction whether to start a transaction.
+     *       For external uses such as creating a job, only basic analysis is needed without starting a transaction,
+     *       in which case this can be set to false.
+     */
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor stmtExecutor,
+                                           boolean needBeginTransaction) throws Exception {
+        List<String> qualifiedTargetTableName = InsertUtils.getTargetTableQualified(originLogicalQuery, ctx);
+
+        AbstractInsertExecutor insertExecutor;
+        int retryTimes = 0;
+        ctx.getStatementContext().setIsInsert(true);
+        while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
+            // Each internal attempt must repin connector metadata; retaining the previous writer schema can
+            // plan defaults and partition fields against the table version that triggered the retry.
+            ctx.getStatementContext().resetConnectorStatementScope();
+            TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
+            DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
+            // check auth
+            if (needAuthCheck(targetTableIf) && !Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), targetDatabase.getCatalog().getName(),
+                            targetDatabase.getFullName(), targetTableIf.getName(),
+                            PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                        targetDatabase.getFullName()
+                                + "." + Util.getTempTableDisplayName(targetTableIf.getName()));
+            }
+            BuildInsertExecutorResult buildResult;
+            try {
+                // use originLogicalQuery to build logicalQuery again.
+                buildResult = initPlanOnce(ctx, stmtExecutor, targetTableIf);
+            } catch (Throwable e) {
+                Throwables.throwIfInstanceOf(e, RuntimeException.class);
+                throw new IllegalStateException(e.getMessage(), e);
+            }
+            insertExecutor = buildResult.executor;
+            parsedPlan = Optional.ofNullable(buildResult.planner.getParsedPlan());
+            Plan analyzedPlan = buildResult.planner.getAnalyzedPlan();
+            lineagePlan = Optional.ofNullable(analyzedPlan);
+            // Fast INSERT INTO VALUES does not retain an analyzed plan and cannot contain table stream scans.
+            if (analyzedPlan != null && !ctx.getStatementContext().isIvmMTMVRewrite()) {
+                for (LogicalOlapTableStreamScan streamScan : analyzedPlan
+                        .<LogicalOlapTableStreamScan>collectToList(LogicalOlapTableStreamScan.class::isInstance)) {
+                    OlapTableStreamWrapper wrapper = streamScan.getTable();
+                    if (wrapper.getName().startsWith(IvmUtil.IVM_STREAM_PREFIX)) {
+                        throw new AnalysisException("IVM internal table stream cannot be used in INSERT INTO: "
+                                + wrapper.getName());
+                    }
+                }
+            }
+            if (!needBeginTransaction) {
+                return insertExecutor;
+            }
+
+            List<TableStreamUpdateInfo> infos = StreamConsumptionInfoExtractor.extract(analyzedPlan);
+            if (!infos.isEmpty()) {
+                if (!Config.enable_feature_binlog) {
+                    throw new AnalysisException("Insert plan with Table stream failed."
+                            + " should enable binlog feature in FE config.");
+                }
+                // put offset into executor
+                insertExecutor.setStreamUpdateInfos(infos);
+                if (Config.isCloudMode()) {
+                    checkCloudTableStreamTarget(ctx, insertExecutor, targetTableIf);
+                    checkCloudTableStreamPartitionLimit(infos);
+                } else {
+                    insertExecutor.registerListener(new InsertExecutorListener() {
+                        @Override
+                        public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor,
+                                                   long jobId) throws Exception {
+                            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                                    .getTransactionState(insertExecutor.getDatabase().getId(),
+                                            insertExecutor.getTxnId());
+                            transactionState.setStreamUpdateInfos(insertExecutor.getStreamUpdateInfos());
+                        }
+                    });
+                }
+            }
+
+            // lock after plan and check does table's schema changed to ensure we lock table order by id.
+            TableIf newestTargetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
+            try {
+                newestTargetTableIf.readLock();
+                try {
+                    if (targetTableIf.getId() != newestTargetTableIf.getId()) {
+                        LOG.warn("insert plan failed {} times. query id is {}. table id changed from {} to {}",
+                                retryTimes, DebugUtil.printId(ctx.queryId()),
+                                targetTableIf.getId(), newestTargetTableIf.getId());
+                        continue;
+                    }
+                    // Use the schema saved during planning as the schema of the original target table.
+                    if (!ctx.getStatementContext().getInsertTargetSchema()
+                            .equals(newestTargetTableIf.getFullSchema())) {
+                        LOG.warn("insert plan failed {} times. query id is {}. table schema changed from {} to {}",
+                                retryTimes, DebugUtil.printId(ctx.queryId()),
+                                ctx.getStatementContext().getInsertTargetSchema(),
+                                newestTargetTableIf.getFullSchema());
+                        continue;
+                    }
+                    if (insertExecutor.requiresTransaction()) {
+                        if (isCancelled.get()) {
+                            LOG.info("insert is cancelled before beginTransaction, queryId: {}",
+                                    ctx.getQueryIdentifier());
+                            throw new IllegalStateException("insert is cancelled");
+                        }
+                        insertExecutor.beginTransaction();
+                        insertExecutor.finalizeSink(
+                                buildResult.planner.getFragments().get(0), buildResult.dataSink,
+                                buildResult.physicalSink
+                        );
+                    }
+                } finally {
+                    // Single owner of the read lock: the retry-loop `continue` branches and the
+                    // cancellation throw above must not unlock again (a second unlock would raise
+                    // IllegalMonitorStateException and mask the original error before onFail runs).
+                    newestTargetTableIf.readUnlock();
+                }
+            } catch (Throwable e) {
+                // the abortTxn in onFail need to acquire table write lock; the read lock is
+                // already released by the finally above
+                if (insertExecutor != null) {
+                    insertExecutor.onFail(e);
+                }
+                Throwables.throwIfInstanceOf(e, RuntimeException.class);
+                throw new IllegalStateException(e.getMessage(), e);
+            }
+            stmtExecutor.setProfileType(ProfileType.LOAD);
+            // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
+            // so executeSingleInsert publishes the coordinator at its common execution boundary.
+            insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
+            if (needsExternalDmlAuditBarrier(insertExecutor)) {
+                // The resolved executor is the invariant that distinguishes an external write;
+                // logical sink roots are rewritten and are not a stable audit classification.
+                stmtExecutor.setExternalDmlAuditCoordinator(insertExecutor.getCoordinator());
+            }
+            return insertExecutor;
+        }
+        LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
+        throw new AnalysisException("Insert plan failed. Could not get target table lock.");
+    }
+
+    static boolean needsExternalDmlAuditBarrier(AbstractInsertExecutor insertExecutor) {
+        return insertExecutor instanceof BaseExternalTableInsertExecutor
+                || insertExecutor instanceof RemoteOlapInsertExecutor;
+    }
+
+    /**
+     * Hook method to determine if auth check is needed.
+     * Subclasses can override this to skip auth check, e.g., WarmupSelectCommand.
+     * @param targetTableIf the target table
+     * @return true if auth check is needed, false otherwise
+     */
+    protected boolean needAuthCheck(TableIf targetTableIf) {
+        return true;
+    }
+
+    private BuildInsertExecutorResult initPlanOnce(ConnectContext ctx,
+            StmtExecutor stmtExecutor, TableIf targetTableIf) throws Throwable {
+        targetTableIf.readLock();
+        try {
+            Optional<CascadesContext> analyzeContext = Optional.of(
+                    CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
+            );
+            InsertUtils.pinConnectorWriteSchema(
+                    ctx.getStatementContext(), targetTableIf, originLogicalQuery, branchName);
+            if (!(this instanceof InsertIntoDictionaryCommand)) {
+                // process inline table (default values, empty values)
+                if (needNormalizePlan) {
+                    this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(originLogicalQuery,
+                            targetTableIf, analyzeContext, insertCtx));
+                } else {
+                    this.logicalQuery = Optional.of(originLogicalQuery);
+                }
+            }
+            if (cte.isPresent()) {
+                this.logicalQuery = Optional.of((LogicalPlan) cte.get().withChildren(logicalQuery.get()));
+            }
+            OlapGroupCommitInsertExecutor.analyzeGroupCommit(
+                    ctx, targetTableIf, this.logicalQuery.get(), this.insertCtx);
+
+            LogicalPlanAdapter logicalPlanAdapter
+                    = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
+            return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
+        } finally {
+            targetTableIf.readUnlock();
+        }
+    }
+
+    static void checkCloudTableStreamPartitionLimit(List<TableStreamUpdateInfo> infos) {
+        int partitionCount = infos.stream()
+                .map(TableStreamUpdateInfo::getUpdate)
+                .filter(CloudOlapTableStreamUpdate.class::isInstance)
+                .map(CloudOlapTableStreamUpdate.class::cast)
+                .mapToInt(update -> update.getPartitionUpdates().size())
+                .sum();
+        if (partitionCount > Config.cloud_table_stream_max_partitions_per_insert) {
+            throw new AnalysisException("Cloud Table Stream consumes " + partitionCount
+                    + " partitions, exceeding cloud_table_stream_max_partitions_per_insert="
+                    + Config.cloud_table_stream_max_partitions_per_insert
+                    + ". Use stream PARTITION (...) and consume it in batches.");
+        }
+    }
+
+    static void checkCloudTableStreamTarget(ConnectContext ctx, AbstractInsertExecutor insertExecutor,
+            TableIf targetTable) {
+        if (!(targetTable instanceof OlapTable) || ctx.isTxnModel() || ctx.isGroupCommit()
+                || !(insertExecutor instanceof OlapInsertExecutor)
+                || insertExecutor instanceof OlapTxnInsertExecutor
+                || insertExecutor instanceof OlapGroupCommitInsertExecutor
+                || insertExecutor instanceof RemoteOlapInsertExecutor) {
+            throw new AnalysisException("Cloud Table Stream consumption only supports a normal INSERT "
+                    + "into a local OLAP table");
+        }
+    }
+
+    // we should select the factory type first, but we can not initial InsertExecutor at this time,
+    // because Nereids's DistributePlan are not gernerated, so we return factory and after the
+    // DistributePlan have been generated, we can create InsertExecutor
+    ExecutorFactory selectInsertExecutorFactory(
+            NereidsPlanner planner, ConnectContext ctx, StmtExecutor stmtExecutor, TableIf targetTableIf) {
+        try {
+            stmtExecutor.setPlanner(planner);
+            stmtExecutor.checkBlockRules();
+            Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
+                    .<PhysicalSink<?>>collect(PhysicalSink.class::isInstance)).stream()
+                    .findAny();
+            Preconditions.checkArgument(plan.isPresent(), "insert into command must contain target table");
+            PhysicalSink<?> physicalSink = plan.get();
+            DataSink dataSink = planner.getFragments().get(0).getSink();
+            // Transaction insert should reuse the label in the transaction.
+            String label = this.labelName.orElse(
+                    ctx.isTxnModel() ? null : String.format("label%s_%x_%x",
+                            (targetTableIf instanceof RemoteDorisExternalTable) ? "_remote_"
+                                    + Env.getCurrentEnv().getClusterId() : "", ctx.queryId().hi, ctx.queryId().lo));
+
+            // check branch: only iceberg supports INSERT INTO a named branch. An iceberg table is
+            // plugin-driven (generic sink), so admit it via the connector's supportsWriteBranch()
+            // capability — without which the branch would be silently dropped and the write would land
+            // on the table's default ref.
+            if (branchName.isPresent() && !connectorSupportsWriteBranch(targetTableIf)) {
+                throw new AnalysisException("Only support insert data into iceberg table's branch");
+            }
+
+            if (physicalSink instanceof PhysicalOlapTableSink) {
+                OlapTable olapTable;
+                if (targetTableIf instanceof RemoteDorisExternalTable) {
+                    if (((RemoteDorisExternalTable) targetTableIf).useArrowFlight()) {
+                        throw new AnalysisException("insert remote doris only support"
+                                + " when catalog use_arrow_flight is false");
+                    }
+                    olapTable = ((RemoteDorisExternalTable) targetTableIf).getOlapTable();
+                } else {
+                    olapTable = (OlapTable) targetTableIf;
+                }
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                ExecutorFactory executorFactory;
+                // the insertCtx contains some variables to adjust SinkNode
+                if (ctx.isTxnModel()) {
+                    if (targetTableIf instanceof RemoteDorisExternalTable) {
+                        throw new AnalysisException("remote olap table do not support txn model");
+                    }
+                    executorFactory = ExecutorFactory.from(
+                            planner,
+                            dataSink,
+                            physicalSink,
+                            () -> new OlapTxnInsertExecutor(
+                                    ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId)
+                    );
+                } else if (ctx.isGroupCommit()) {
+                    if (targetTableIf instanceof RemoteDorisExternalTable) {
+                        throw new AnalysisException("remote olap table do not support group commit");
+                    }
+                    Backend groupCommitBackend = Env.getCurrentEnv()
+                            .getGroupCommitManager()
+                            .selectBackendForGroupCommit(targetTableIf.getId(), ctx);
+                    // set groupCommitBackend for Nereids's DistributePlanner
+                    planner.getCascadesContext().getStatementContext().setGroupCommitMergeBackend(groupCommitBackend);
+                    executorFactory = ExecutorFactory.from(
+                            planner,
+                            dataSink,
+                            physicalSink,
+                            () -> new OlapGroupCommitInsertExecutor(
+                                    ctx, olapTable, label, planner, insertCtx, emptyInsert, groupCommitBackend, -1
+                            )
+                    );
+                } else {
+                    // Do not register insert into value to LoadManager.
+                    if (getLogicalQuery().containsType(InlineTable.class)) {
+                        jobId = -1;
+                    }
+                    // Do not register internal group commit loads to LoadManager.
+                    // Internal group commit is identified by DMLCommandType.GROUP_COMMIT, which is set
+                    // by the parser when the target table is specified via tableId (doris_internal_table_id).
+                    // The actual commit is managed by BE group commit mechanism, so these jobs will
+                    // never transition to a completed state through FE, causing a memory leak if registered.
+                    if (((PhysicalOlapTableSink<?>) physicalSink).getDmlCommandType() == DMLCommandType.GROUP_COMMIT) {
+                        jobId = -1;
+                    }
+                    if (targetTableIf instanceof RemoteDorisExternalTable) {
+                        executorFactory = ExecutorFactory.from(
+                                planner,
+                                dataSink,
+                                physicalSink,
+                                () -> new RemoteOlapInsertExecutor(
+                                        ctx, (RemoteOlapTable) olapTable, label, planner, insertCtx, emptyInsert,
+                                        jobId)
+                        );
+                    } else {
+                        executorFactory = ExecutorFactory.from(
+                                planner,
+                                dataSink,
+                                physicalSink,
+                                () -> new OlapInsertExecutor(
+                                        ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId, jobId != -1)
+                        );
+                    }
+                }
+
+                return executorFactory.onCreate(executor -> {
+                    Coordinator coordinator = executor.getCoordinator();
+                    boolean isEnableMemtableOnSinkNode = olapTable.getTableProperty().getUseSchemaLightChange()
+                                    && coordinator.getQueryOptions().isEnableMemtableOnSinkNode();
+                    coordinator.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+                });
+            } else if (physicalSink instanceof PhysicalConnectorTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                ExternalTable externalTable = (ExternalTable) targetTableIf;
+                PluginDrivenInsertCommandContext pluginCtx = insertCtx
+                        .map(insertCommandContext -> (PluginDrivenInsertCommandContext) insertCommandContext)
+                        .orElseGet(PluginDrivenInsertCommandContext::new);
+                // Thread the @branch target onto the generic write context so the connector points the
+                // commit at the branch (iceberg validates it in beginWrite). The guard above already
+                // rejected @branch for connectors without supportsWriteBranch().
+                branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
+                if (pluginCtx.getStaticPartitionSpec().isEmpty()
+                        && originLogicalQuery instanceof UnboundConnectorTableSink) {
+                    UnboundConnectorTableSink<?> pluginSink =
+                            (UnboundConnectorTableSink<?>) originLogicalQuery;
+                    if (pluginSink.hasStaticPartition()) {
+                        Map<String, String> staticSpec = Maps.newHashMap();
+                        for (Map.Entry<String, Expression> e
+                                : pluginSink.getStaticPartitionKeyValues().entrySet()) {
+                            if (e.getValue() instanceof Literal) {
+                                staticSpec.put(e.getKey(),
+                                        ((Literal) e.getValue()).getStringValue());
+                            }
+                        }
+                        pluginCtx.setStaticPartitionSpec(staticSpec);
+                    }
+                }
+                return ExecutorFactory.from(planner, dataSink, physicalSink,
+                        () -> new PluginDrivenInsertExecutor(ctx, externalTable, label, planner,
+                                Optional.of(pluginCtx),
+                                emptyInsert, jobId)
+                );
+            } else if (physicalSink instanceof PhysicalDictionarySink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                Dictionary dictionary = (Dictionary) targetTableIf;
+                DatabaseIf<?> database = getTargetDatabase(dictionary);
+                // insertCtx is not useful for dictionary. so keep it empty is ok.
+                return ExecutorFactory.from(planner, dataSink, physicalSink,
+                        () -> new DictionaryInsertExecutor(
+                                ctx, database, dictionary, label, planner, insertCtx, emptyInsert, jobId));
+            } else if (physicalSink instanceof PhysicalBlackholeSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                // insertCtx is not useful for blackhole. so keep it empty is ok.
+                return ExecutorFactory.from(planner, dataSink, physicalSink,
+                        () -> new BlackholeInsertExecutor(
+                                ctx, targetTableIf, label, planner, insertCtx, emptyInsert, jobId));
+            } else {
+                // TODO: support other table types
+                throw new AnalysisException(
+                        "insert into command only support [olap, remoteOlap, dictionary, hive, iceberg, jdbc] table");
+            }
+        } catch (Throwable t) {
+            Throwables.propagateIfInstanceOf(t, RuntimeException.class);
+            throw new IllegalStateException(t.getMessage(), t);
+        }
+    }
+
+    private BuildInsertExecutorResult planInsertExecutor(
+            ConnectContext ctx, StmtExecutor stmtExecutor,
+            LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf) throws Throwable {
+        LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+
+        boolean supportFastInsertIntoValues = InsertUtils.supportFastInsertIntoValues(logicalPlan, targetTableIf, ctx);
+        // the key logical when use new coordinator:
+        // 1. use NereidsPlanner to generate PhysicalPlan
+        // 2. use PhysicalPlan to select InsertExecutorFactory, some InsertExecutors want to control
+        //    which backend should be used, for example, OlapGroupCommitInsertExecutor need select
+        //    a backend to do group commit.
+        //    Note: we can not initialize InsertExecutor at this time, because the DistributePlans
+        //    have not been generated, so the NereidsSqlCoordinator can not initial too,
+        // 3. NereidsPlanner use PhysicalPlan and the provided backend to generate DistributePlan
+        // 4. ExecutorFactory use the DistributePlan to generate the NereidsSqlCoordinator and InsertExecutor
+
+        AtomicReference<ExecutorFactory> executorFactoryRef = new AtomicReference<>();
+        FastInsertIntoValuesPlanner planner = new FastInsertIntoValuesPlanner(
+                ctx.getStatementContext(), supportFastInsertIntoValues) {
+            @Override
+            protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
+                // when enter this method, the step 1 already executed
+
+                // step 2
+                executorFactoryRef.set(
+                        selectInsertExecutorFactory(this, ctx, stmtExecutor, targetTableIf)
+                );
+                // step 3
+                super.doDistribute(canUseNereidsDistributePlanner, explainLevel);
+            }
+        };
+
+        LineageInfoExtractor.registerAnalyzePlanHook(ctx.getStatementContext(), planner);
+        // step 1, 2, 3
+        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("insert into plan for query_id: {} is: {}.", DebugUtil.printId(ctx.queryId()),
+                    planner.getPhysicalPlan().treeString());
+        }
+
+        // step 4
+        BuildInsertExecutorResult build = executorFactoryRef.get().build();
+
+        // apply insert plan Statistic
+        applyInsertPlanStatistic(planner);
+        return build;
+    }
+
+    private void applyInsertPlanStatistic(FastInsertIntoValuesPlanner planner) {
+        LoadJob loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(getJobId());
+        if (loadJob == null) {
+            return;
+        }
+        for (PlanFragment fragment : planner.getFragments()) {
+            // The FE local-shuffle planner may wrap the fragment root with one or more
+            // LocalExchangeNodes (e.g. a PASSTHROUGH fan-out above a serial FileScanNode).
+            // Peel those off before checking the actual operator, otherwise streaming /
+            // S3 INSERTs leave LoadStatistic.fileNum and totalFileSizeB at 0 and tests
+            // like job_p0.streaming_job.test_streaming_insert_job that inspect
+            // loadStatistic.fileNumber / fileSize fail.
+            PlanNode root = fragment.getPlanRoot();
+            while (root instanceof LocalExchangeNode && !root.getChildren().isEmpty()) {
+                root = root.getChild(0);
+            }
+            if (root instanceof FileScanNode) {
+                FileScanNode fileScanNode = (FileScanNode) root;
+                // Prefer distinct file count; fall back to split count for batch-mode scans.
+                int fileNum = fileScanNode.getSelectedFileNum() >= 0
+                        ? fileScanNode.getSelectedFileNum()
+                        : (int) fileScanNode.getSelectedSplitNum();
+                Env.getCurrentEnv().getLoadManager().getLoadJob(getJobId())
+                        .addLoadFileInfo(fileNum, fileScanNode.getTotalFileSize());
+            }
+        }
+    }
+
+    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (isCancelled.get()) {
+            LOG.info("insert is cancelled before execution, queryId: {}",
+                    ctx.getQueryIdentifier());
+            return;
+        }
+        AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
+        // An empty Table Stream read still needs to commit its offset update atomically.
+        if (!insertExecutor.requiresTransaction()) {
+            return;
+        }
+        if (insertExecutorListener != null) {
+            insertExecutor.registerListener(insertExecutorListener);
+        }
+        // Abort the transaction if cancellation arrives after execution but before commit.
+        insertExecutor.registerListener(new InsertExecutorListener() {
+            @Override
+            public void beforeComplete(AbstractInsertExecutor executor, StmtExecutor stmtExecutor, long jobId)
+                    throws Exception {
+                if (isCancelled.get()) {
+                    LOG.info("insert is cancelled before commit, queryId: {}",
+                            ctx.getQueryIdentifier());
+                    throw new IllegalStateException("insert is cancelled before commit");
+                }
+            }
+        });
+        insertExecutor.executeSingleInsert(executor);
+        LineageUtils.submitLineageEventIfNeeded(executor, lineagePlan, getLogicalQuery(), getClass());
+    }
+
+    /**
+     * get the target table of the insert command
+     */
+    public TableIf getTable(ConnectContext ctx) throws Exception {
+        TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
+                        targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
+                        PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    targetTableIf.getDatabase().getFullName() + "."
+                            + Util.getTempTableDisplayName(targetTableIf.getName()));
+        }
+        return targetTableIf;
+    }
+
+    /**
+     * get the target columns of the insert command
+     */
+    public List<String> getTargetColumns() {
+        if (originLogicalQuery instanceof UnboundTableSink) {
+            UnboundLogicalSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) originLogicalQuery;
+            return CollectionUtils.isEmpty(unboundTableSink.getColNames()) ? null : unboundTableSink.getColNames();
+        } else {
+            throw new AnalysisException(
+                    "the root of plan should be [UnboundTableSink], but it is " + originLogicalQuery.getType());
+        }
+    }
+
+    public List<UnboundTVFRelation> getAllTVFRelation() {
+        return getLogicalQuery().collectToList(UnboundTVFRelation.class::isInstance);
+    }
+
+    @Override
+    public Plan getExplainPlan(ConnectContext ctx) {
+        Optional<CascadesContext> analyzeContext = Optional.of(
+                CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
+        );
+        Plan plan = InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery(), branchName);
+        if (cte.isPresent()) {
+            plan = cte.get().withChildren(plan);
+        }
+        return plan;
+    }
+
+    @Override
+    public Optional<NereidsPlanner> getExplainPlanner(LogicalPlan logicalPlan, StatementContext ctx) {
+        ConnectContext connectContext = ctx.getConnectContext();
+        TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, connectContext);
+        boolean supportFastInsertIntoValues
+                = InsertUtils.supportFastInsertIntoValues(logicalPlan, targetTableIf, connectContext);
+        return Optional.of(new FastInsertIntoValuesPlanner(ctx, supportFastInsertIntoValues));
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitInsertIntoTableCommand(this, context);
+    }
+
+    private boolean childIsEmptyRelation(PhysicalSink sink) {
+        if (sink.children() != null && sink.children().size() == 1
+                && sink.child(0) instanceof PhysicalEmptyRelation) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * A plugin-driven (SPI connector) table accepts an {@code INSERT INTO t@branch(name)} only if its
+     * connector declares {@code supportsWriteBranch()}. Connectors with no branch concept must be
+     * rejected here (fail loud) instead of reaching the generic sink, which would silently drop the
+     * branch and write to the table's default ref. Mirrors {@code allowInsertOverwrite}'s connector
+     * capability probe.
+     */
+    private static boolean connectorSupportsWriteBranch(TableIf targetTable) {
+        if (!(targetTable instanceof PluginDrivenExternalTable)) {
+            return false;
+        }
+        // Per-handle: a heterogeneous gateway supports write-to-branch for its iceberg tables but not its hive.
+        return ((PluginDrivenExternalTable) targetTable).connectorSupportsWriteBranch();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        if (ConnectContext.get().isGroupCommit()) {
+            return RedirectStatus.NO_FORWARD;
+        } else {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return originLogicalQuery.anyMatch(node -> node instanceof TVFRelation);
+    }
+
+    /**
+     * this factory is used to delay create the AbstractInsertExecutor until the DistributePlan is generated
+     * by NereidsPlanner
+     */
+    private static class ExecutorFactory {
+        public final NereidsPlanner planner;
+        public final DataSink dataSink;
+        public final PhysicalSink<?> physicalSink;
+        public final Supplier<AbstractInsertExecutor> executorSupplier;
+        private List<Consumer<AbstractInsertExecutor>> createCallback;
+
+        private ExecutorFactory(NereidsPlanner planner, DataSink dataSink, PhysicalSink<?> physicalSink,
+                Supplier<AbstractInsertExecutor> executorSupplier) {
+            this.planner = planner;
+            this.dataSink = dataSink;
+            this.physicalSink = physicalSink;
+            this.executorSupplier = executorSupplier;
+            this.createCallback = Lists.newArrayList();
+        }
+
+        public static ExecutorFactory from(
+                 NereidsPlanner planner, DataSink dataSink, PhysicalSink<?> physicalSink,
+                Supplier<AbstractInsertExecutor> executorSupplier) {
+            return new ExecutorFactory(planner, dataSink, physicalSink, executorSupplier);
+        }
+
+        public ExecutorFactory onCreate(Consumer<AbstractInsertExecutor> onCreate) {
+            this.createCallback.add(onCreate);
+            return this;
+        }
+
+        public BuildInsertExecutorResult build() {
+            AbstractInsertExecutor executor = executorSupplier.get();
+            for (Consumer<AbstractInsertExecutor> callback : createCallback) {
+                callback.accept(executor);
+            }
+            return new BuildInsertExecutorResult(planner, executor, dataSink, physicalSink);
+        }
+    }
+
+    private static class BuildInsertExecutorResult {
+        private final NereidsPlanner planner;
+        private final AbstractInsertExecutor executor;
+        private final DataSink dataSink;
+        private final PhysicalSink<?> physicalSink;
+
+        public BuildInsertExecutorResult(NereidsPlanner planner, AbstractInsertExecutor executor, DataSink dataSink,
+                PhysicalSink<?> physicalSink) {
+            this.planner = planner;
+            this.executor = executor;
+            this.dataSink = dataSink;
+            this.physicalSink = physicalSink;
+        }
+    }
+
+    @Override
+    public String toDigest() {
+        // if with cte, query will be print twice
+        StringBuilder sb = new StringBuilder();
+        sb.append(originLogicalQuery.toDigest());
+        if (cte.isPresent()) {
+            sb.append(" ").append(cte.get().toDigest());
+        }
+        return sb.toString();
+    }
+}

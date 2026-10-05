@@ -1,0 +1,139 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <butil/macros.h>
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "io/fs/path.h"
+#include "util/profile_collector.h"
+#include "util/slice.h"
+
+namespace butil {
+class IOBuf;
+}
+
+namespace doris {
+
+namespace io {
+
+class FileSystem;
+struct IOContext;
+
+enum class FileCachePolicy : uint8_t {
+    NO_CACHE,
+    FILE_BLOCK_CACHE,
+};
+
+enum class CacheAlignMode : uint8_t {
+    ALIGN_TO_BLOCK,
+    UNALIGNED,
+};
+
+enum class CacheWriteMode : uint8_t {
+    DEFAULT,
+    NO_WRITE,
+    SYNC_WRITE,
+    ASYNC_WRITE,
+};
+
+inline FileCachePolicy cache_type_from_string(std::string_view type) {
+    if (type == "file_block_cache") {
+        return FileCachePolicy::FILE_BLOCK_CACHE;
+    } else {
+        return FileCachePolicy::NO_CACHE;
+    }
+}
+
+// Only affects remote file readers
+struct FileReaderOptions {
+    FileCachePolicy cache_type {FileCachePolicy::NO_CACHE};
+    CacheAlignMode align_mode {CacheAlignMode::ALIGN_TO_BLOCK};
+    CacheWriteMode cache_write_mode {CacheWriteMode::DEFAULT};
+    bool is_doris_table = false;
+    std::string cache_base_path;
+    // Length of the file in bytes, -1 means unset.
+    // If the file length is not set, the file length will be fetched from the file system.
+    int64_t file_size = -1;
+    // Use modification time to determine whether the file is changed
+    int64_t mtime = 0;
+    // Used to query the location of the file cache
+    int64_t tablet_id = -1;
+    // Storage resource id of the remote file system. Used by peer fill to reconstruct
+    // the source file system without scanning tablet rowsets on the peer.
+    std::string storage_resource_id;
+
+    static const FileReaderOptions DEFAULT;
+};
+
+inline const FileReaderOptions FileReaderOptions::DEFAULT;
+
+class FileReader : public doris::ProfileCollector {
+public:
+    FileReader() = default;
+    virtual ~FileReader() = default;
+
+    FileReader(const FileReader&) = delete;
+    const FileReader& operator=(const FileReader&) = delete;
+
+    static const std::string VIRTUAL_REMOTE_DATA_DIR;
+
+    /// If io_ctx is not null,
+    /// the caller must ensure that the IOContext exists during the left cycle of read_at()
+    Status read_at(size_t offset, Slice result, size_t* bytes_read,
+                   const IOContext* io_ctx = nullptr);
+    /// Read up to bytes_req bytes from offset and append them to out.
+    /// bytes_read is always set to the actual number of bytes appended on success; reading past
+    /// EOF is clamped to the file size and returns OK with fewer bytes. out and bytes_read must be
+    /// non-null. Readers that do not override the IOBuf path return NotSupported.
+    Status read_at_iobuf(size_t offset, size_t bytes_req, butil::IOBuf* out, size_t* bytes_read,
+                         const IOContext* io_ctx = nullptr);
+
+    virtual Status close() = 0;
+
+    virtual const Path& path() const = 0;
+
+    virtual size_t size() const = 0;
+
+    virtual bool closed() const = 0;
+
+    virtual const std::string& get_data_dir_path() { return VIRTUAL_REMOTE_DATA_DIR; }
+
+    // File modification time (seconds since epoch). Default to 0 meaning unknown.
+    virtual int64_t mtime() const = 0;
+
+protected:
+    virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                const IOContext* io_ctx) = 0;
+    // Default implementation returns NotSupported. Override this in readers that can
+    // fill iobuf directly.
+    virtual Status read_at_iobuf_impl(size_t offset, size_t bytes_req, butil::IOBuf* out,
+                                      size_t* bytes_read, const IOContext* io_ctx);
+};
+
+using FileReaderSPtr = std::shared_ptr<FileReader>;
+
+Result<FileReaderSPtr> create_cached_file_reader(FileReaderSPtr raw_reader,
+                                                 const FileReaderOptions& opts);
+
+} // namespace io
+} // namespace doris

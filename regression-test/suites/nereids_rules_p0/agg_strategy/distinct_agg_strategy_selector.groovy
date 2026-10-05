@@ -1,0 +1,104 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("distinct_agg_strategy_selector") {
+    sql "set parallel_pipeline_task_num=2"
+    multi_sql"""
+    SET ignore_shape_nodes='PhysicalProject';
+    set runtime_filter_mode=OFF;
+    set enable_parallel_result_sink=false;
+    set be_number_for_test=1;
+    set enable_bucketed_hash_agg = false;
+    """
+    multi_sql """
+    analyze table t1000 with sync;
+    """
+    explain {
+        sql """
+            shape plan
+            select count(distinct a_1) , count(distinct b_5),count(distinct c_10), count(distinct d_20) from t1000;"""
+        contains "PhysicalCteAnchor ( cteId=CTEId#0 )"
+    }
+
+    qt_should_use_multi_distinct """explain shape plan
+    select count(distinct a_1) , count(distinct b_5) from t1000;"""
+    qt_should_use_cte_with_group_by """
+    explain shape plan
+    select count(distinct a_1) , count(distinct b_5) from t1000 group by d_20;"""
+    qt_should_use_multi_distinct_with_group_by """explain shape plan
+    select count(distinct d_20) , count(distinct b_5) from t1000 group by a_1;"""
+    sql "drop stats t1000"
+    qt_no_stats_should_use_cte """explain shape plan
+    select count(distinct a_1) , count(distinct b_5) from t1000;"""
+    qt_no_stats_should_use_multi_distinct """explain shape plan
+    select count(distinct d_20) , count(distinct b_5) from t1000 group by a_1;"""
+
+    test {
+        sql "select count(distinct d_20,b_5) , count(distinct b_5) from t1000 group by grouping sets ((d_20, b_5),())"
+        exception "Unsupported query"
+    }
+    // multi_distinct_strategy = 2 means use cte, but it will be ignored because agg with source repeat should not use cte split
+    sql "set multi_distinct_strategy=2"
+    explain {
+        sql "logical plan select count(distinct d_20) , count(distinct b_5) from t1000 group by grouping sets ((d_20, b_5),())"
+        contains "multi_distinct_count"
+    }
+    sql "set multi_distinct_strategy=0 "
+
+    // test
+    order_qt_count_distinct_group "select count(distinct a_1,b_5), count(distinct b_5,a_1) from t1000;"
+    order_qt_count_distinct_group_with_gby "select count(distinct a_1,b_5), count(distinct b_5,a_1) from t1000 group by c_10;"
+
+    multi_sql """
+    SET enable_nereids_planner = true;
+    
+    DROP VIEW IF EXISTS v_distinct_guard_repro;
+    DROP TABLE IF EXISTS t_distinct_guard_repro;
+    
+    CREATE TABLE t_distinct_guard_repro (
+        id INT,
+        a DECIMAL(20, 2),
+        b INT
+    )
+    ENGINE = OLAP
+    DUPLICATE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES (
+        "replication_num" = "1"
+    );
+    
+    INSERT INTO t_distinct_guard_repro VALUES
+        (1, 1.00, 10),
+        (2, 1.00, 10),
+        (3, 2.00, 20),
+        (4, 3.00, 30);
+    """
+    sql "SET enable_decimal256 = false;"
+
+    sql """CREATE VIEW v_distinct_guard_repro AS
+    SELECT
+        SUM(DISTINCT a) AS distinct_sum_a,
+        ARRAY_AGG(DISTINCT b) AS distinct_b_values
+    FROM t_distinct_guard_repro;"""
+
+    sql "SET enable_decimal256 = true;"
+
+    sql """SELECT
+        distinct_sum_a,
+        array_sort(distinct_b_values)
+    FROM v_distinct_guard_repro;"""
+}

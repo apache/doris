@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS test_load_ddl_unavaliable_column;

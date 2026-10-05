@@ -1,0 +1,1448 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest.h>
+
+#include <chrono>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "common/config.h"
+#include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "cpp/sync_point.h"
+#include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
+#include "storage/data_dir.h"
+#include "storage/row_cursor.h"
+#include "storage/rowset/beta_rowset_reader.h"
+#include "storage/rowset/beta_rowset_writer.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_reader_context.h"
+#include "storage/rowset/rowset_writer.h"
+#include "storage/rowset/rowset_writer_context.h"
+#include "storage/schema.h"
+#include "storage/segment/vertical_segment_writer.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
+#include "testutil/variant_util.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
+#include "util/slice.h"
+
+namespace doris {
+using namespace ErrorCode;
+
+static const uint32_t MAX_PATH_LEN = 1024;
+static StorageEngine* l_engine = nullptr;
+static const std::string lTestDir = "./data_test/data/segcompaction_test";
+constexpr static std::string_view tmp_dir = "./data_test/tmp";
+
+class SegCompactionTest : public testing::Test {
+public:
+    SegCompactionTest() = default;
+
+    void SetUp() {
+        config::enable_segcompaction = true;
+        config::tablet_map_shard_size = 1;
+        config::txn_map_shard_size = 1;
+        config::txn_shard_size = 1;
+        config::inverted_index_fd_number_limit_percent = 0;
+
+        char buffer[MAX_PATH_LEN];
+        EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+        config::storage_root_path = std::string(buffer) + "/data_test";
+
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+
+        std::vector<StorePath> paths;
+        paths.emplace_back(config::storage_root_path, -1);
+
+        // tmp dir
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(tmp_dir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(tmp_dir).ok());
+        paths.emplace_back(std::string(tmp_dir), 1024000000);
+        auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+        EXPECT_TRUE(tmp_file_dirs->init().ok());
+        ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
+
+        // use memory limit
+        int64_t inverted_index_cache_limit = 0;
+        _inverted_index_searcher_cache = std::unique_ptr<segment_v2::InvertedIndexSearcherCache>(
+                InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit,
+                                                                   256));
+
+        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(
+                _inverted_index_searcher_cache.get());
+
+        doris::EngineOptions options;
+        options.store_paths = paths;
+
+        auto engine = std::make_unique<StorageEngine>(options);
+        Status s = engine->open();
+        EXPECT_TRUE(s.ok()) << s.to_string();
+
+        l_engine = engine.get();
+        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+
+        s = ThreadPoolBuilder("SegCompactionTaskThreadPool")
+                    .set_min_threads(config::segcompaction_num_threads)
+                    .set_max_threads(config::segcompaction_num_threads)
+                    .build(&l_engine->_seg_compaction_thread_pool);
+        EXPECT_TRUE(s.ok()) << s.to_string();
+
+        _data_dir = std::make_unique<DataDir>(*l_engine, lTestDir);
+        static_cast<void>(_data_dir->update_capacity());
+
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
+    }
+
+    void TearDown() {
+        auto* sync_point = SyncPoint::get_instance();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+        sync_point->clear_trace();
+        config::enable_segcompaction = false;
+        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        l_engine = nullptr;
+        exec_env->set_storage_engine(nullptr);
+        exec_env->set_inverted_index_searcher_cache(nullptr);
+    }
+
+protected:
+    OlapReaderStatistics _stats;
+
+    Status add_block_with_columns(RowsetWriter* rowset_writer, Block* block,
+                                  MutableColumns* columns) {
+        block->set_columns(std::move(*columns));
+        auto st = rowset_writer->add_block(block);
+        *columns = std::move(*block).mutate_columns();
+        return st;
+    }
+
+    bool check_dir(std::vector<std::string>& vec) {
+        std::vector<std::string> result;
+        for (const auto& entry : std::filesystem::directory_iterator(lTestDir)) {
+            result.push_back(std::filesystem::path(entry.path()).filename());
+        }
+
+        LOG(INFO) << "expected ls:" << std::endl;
+        for (auto& i : vec) {
+            LOG(INFO) << i;
+        }
+        LOG(INFO) << "acutal ls:" << std::endl;
+        for (auto& i : result) {
+            LOG(INFO) << i;
+        }
+
+        if (result.size() != vec.size()) {
+            return false;
+        } else {
+            for (auto& i : vec) {
+                if (std::find(result.begin(), result.end(), i) == result.end()) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // (k1 int, k2 varchar(20), k3 int) keys (k1, k2)
+    void create_tablet_schema(TabletSchemaSPtr tablet_schema, KeysType keystype,
+                              int num_value_col = 1) {
+        TabletSchemaPB tablet_schema_pb;
+        tablet_schema_pb.set_keys_type(keystype);
+        tablet_schema_pb.set_num_short_key_columns(2);
+        tablet_schema_pb.set_num_rows_per_row_block(1024);
+        tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+        tablet_schema_pb.set_next_column_unique_id(4);
+        tablet_schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+
+        ColumnPB* column_1 = tablet_schema_pb.add_column();
+        column_1->set_unique_id(1);
+        column_1->set_name("k1");
+        column_1->set_type("INT");
+        column_1->set_is_key(true);
+        column_1->set_length(4);
+        column_1->set_index_length(4);
+        column_1->set_is_nullable(true);
+        column_1->set_is_bf_column(false);
+        auto tablet_index_1 = tablet_schema_pb.add_index();
+        tablet_index_1->set_index_id(1);
+        tablet_index_1->set_index_name("column_1");
+        tablet_index_1->set_index_type(IndexType::INVERTED);
+        tablet_index_1->add_col_unique_id(1);
+
+        ColumnPB* column_2 = tablet_schema_pb.add_column();
+        column_2->set_unique_id(2);
+        column_2->set_name("k2");
+        column_2->set_type(
+                "INT"); // TODO change to varchar(20) when dict encoding for string is supported
+        column_2->set_length(4);
+        column_2->set_index_length(4);
+        column_2->set_is_nullable(true);
+        column_2->set_is_key(true);
+        column_2->set_is_nullable(true);
+        column_2->set_is_bf_column(false);
+        auto tablet_index_2 = tablet_schema_pb.add_index();
+        tablet_index_2->set_index_id(2);
+        tablet_index_2->set_index_name("column_2");
+        tablet_index_2->set_index_type(IndexType::INVERTED);
+        tablet_index_2->add_col_unique_id(2);
+
+        for (int i = 1; i <= num_value_col; i++) {
+            ColumnPB* v_column = tablet_schema_pb.add_column();
+            v_column->set_unique_id(2 + i);
+            v_column->set_name(fmt::format("v{}", i));
+            v_column->set_type("INT");
+            v_column->set_length(4);
+            v_column->set_is_key(false);
+            v_column->set_is_nullable(false);
+            v_column->set_is_bf_column(false);
+            v_column->set_default_value(std::to_string(i * 10));
+            v_column->set_aggregation("SUM");
+        }
+
+        tablet_schema->init_from_pb(tablet_schema_pb);
+    }
+
+    void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, int64_t index_id,
+                          const std::string& index_name, int32_t col_unique_id,
+                          const std::string& column_type, const std::string& column_name,
+                          bool parser = false) {
+        column_pb->set_unique_id(col_unique_id);
+        column_pb->set_name(column_name);
+        column_pb->set_type(column_type);
+        column_pb->set_is_key(false);
+        column_pb->set_is_nullable(true);
+        tablet_index->set_index_id(index_id);
+        tablet_index->set_index_name(index_name);
+        tablet_index->set_index_type(IndexType::INVERTED);
+        tablet_index->add_col_unique_id(col_unique_id);
+        if (parser) {
+            auto* properties = tablet_index->mutable_properties();
+            (*properties)[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_UNICODE;
+        }
+    }
+    // use different id to avoid conflict
+    void create_rowset_writer_context(int64_t id, TabletSchemaSPtr tablet_schema,
+                                      RowsetWriterContext* rowset_writer_context) {
+        RowsetId rowset_id;
+        rowset_id.init(id);
+        // rowset_writer_context->data_dir = _data_dir.get();
+        rowset_writer_context->rowset_id = rowset_id;
+        rowset_writer_context->tablet_id = 12345;
+        rowset_writer_context->tablet_schema_hash = 1111;
+        rowset_writer_context->partition_id = 10;
+        rowset_writer_context->rowset_type = BETA_ROWSET;
+        rowset_writer_context->tablet_path = lTestDir;
+        rowset_writer_context->rowset_state = VISIBLE;
+        rowset_writer_context->tablet_schema = tablet_schema;
+        rowset_writer_context->version.first = 10;
+        rowset_writer_context->version.second = 10;
+
+#if 0
+        RuntimeProfile profile("CreateTablet");
+        TCreateTabletReq req;
+        req.table_id =
+        req.tablet_id =
+        req.tablet_scheme =
+        req.partition_id =
+        l_engine->create_tablet(req, &profile);
+        rowset_writer_context->tablet = l_engine->tablet_manager()->get_tablet(TTabletId tablet_id);
+#endif
+        TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->_tablet_id = 1;
+        static_cast<void>(tablet_meta->set_partition_id(10000));
+        tablet_meta->_schema = tablet_schema;
+        auto tablet = std::make_shared<Tablet>(*l_engine, tablet_meta, _data_dir.get(), "test_str");
+        // tablet->key
+        rowset_writer_context->tablet = tablet;
+        rowset_writer_context->enable_segcompaction = true;
+    }
+
+    void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context,
+                                       RowsetReaderSharedPtr* result) {
+        auto s = rowset->create_reader(result);
+        EXPECT_EQ(Status::OK(), s);
+        EXPECT_TRUE(*result != nullptr);
+
+        s = (*result)->init(&context);
+        EXPECT_EQ(Status::OK(), s);
+    }
+
+    // ---- variant / segment-compaction interaction ----
+
+    static constexpr int kVariantSegments = 12;
+    static constexpr int kVariantRowsPerSegment = 200;
+
+    // Each segment carries a key of its own ("s<seg>") on top of the shared ones, so a merge
+    // would have to re-split subcolumns and sparse paths rather than copy the input layout.
+    static std::string variant_json(int segment, int rid) {
+        return fmt::format(R"({{"a":{},"b":"mark_{}_{}","s{}":{}}})", rid, segment, rid, segment,
+                           rid * 7);
+    }
+
+    // (c1 INT key, v VARIANT or INT). The variant flavour is the one BetaRowsetWriter opts out
+    // of segment compaction.
+    TabletSchemaSPtr create_variant_tablet_schema(bool with_variant) {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_num_short_key_columns(1);
+        schema_pb.set_num_rows_per_row_block(1024);
+        schema_pb.set_compress_kind(COMPRESS_NONE);
+        schema_pb.set_next_column_unique_id(3);
+
+        ColumnPB* key = schema_pb.add_column();
+        key->set_unique_id(1);
+        key->set_name("c1");
+        key->set_type("INT");
+        key->set_is_key(true);
+        key->set_length(4);
+        key->set_index_length(4);
+        key->set_is_nullable(false);
+
+        ColumnPB* value = schema_pb.add_column();
+        value->set_unique_id(2);
+        value->set_name("v");
+        value->set_is_key(false);
+        value->set_is_nullable(true);
+        if (with_variant) {
+            value->set_type("VARIANT");
+            // Small enough that only some paths stay extracted; the rest go to the sparse column.
+            value->set_variant_max_subcolumns_count(3);
+            value->set_variant_max_sparse_column_statistics_size(10000);
+            value->set_variant_sparse_hash_shard_count(1);
+        } else {
+            value->set_type("INT");
+            value->set_length(4);
+        }
+
+        auto tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->init_from_pb(schema_pb);
+        return tablet_schema;
+    }
+
+    // `wait_for_segcompaction` sleeps between flushes so the async worker gets to start:
+    // BetaRowsetWriter::_close_file_writers cancels a task that has not started yet, which would
+    // leave a rowset uncompacted for timing reasons rather than for the reason under test.
+    void write_variant_rowset(int64_t id, const TabletSchemaSPtr& tablet_schema,
+                              bool wait_for_segcompaction, RowsetSharedPtr* rowset) {
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(id, tablet_schema, &writer_context);
+        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+        ASSERT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+
+        const bool with_variant =
+                tablet_schema->column(1).type() == FieldType::OLAP_FIELD_TYPE_VARIANT;
+        for (int seg = 0; seg < kVariantSegments; ++seg) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            auto raw_json = ColumnString::create();
+            auto* nullable = assert_cast<ColumnNullable*>(columns[1].get());
+            for (int rid = 0; rid < kVariantRowsPerSegment; ++rid) {
+                int32_t c1 = seg * kVariantRowsPerSegment + rid;
+                columns[0]->insert_data(reinterpret_cast<const char*>(&c1), sizeof(c1));
+                if (with_variant) {
+                    std::string json = variant_json(seg, rid);
+                    raw_json->insert_data(json.data(), json.size());
+                } else {
+                    nullable->get_nested_column().insert_data(reinterpret_cast<const char*>(&c1),
+                                                              sizeof(c1));
+                }
+                nullable->get_null_map_data().push_back(0);
+            }
+            if (with_variant) {
+                VariantUtil::insert_json_rows(
+                        assert_cast<ColumnVariantV2&>(nullable->get_nested_column()), *raw_json);
+            }
+            ASSERT_TRUE(add_block_with_columns(rowset_writer.get(), &block, &columns).ok());
+            ASSERT_TRUE(rowset_writer->flush().ok());
+            if (wait_for_segcompaction) {
+                sleep(1);
+            }
+        }
+        ASSERT_EQ(Status::OK(), rowset_writer->build(*rowset));
+    }
+
+    // (c1, stringified value) for every row, ordered by c1.
+    void read_all_rows(const RowsetSharedPtr& rowset, const TabletSchemaSPtr& tablet_schema,
+                       std::vector<std::pair<int32_t, std::string>>* rows) {
+        RowsetReaderContext reader_context;
+        reader_context.reader_type = ReaderType::READER_QUERY;
+        reader_context.need_ordered_result = true;
+        std::vector<uint32_t> return_columns = {0, 1};
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+        reader_context.read_schema = read_schema;
+        ASSERT_TRUE(read_schema
+                            ->init_from_tablet_schema(*tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
+        reader_context.stats = &_stats;
+
+        RowsetReaderSharedPtr rowset_reader;
+        create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+
+        while (true) {
+            auto block = read_schema->create_read_block();
+            auto st = rowset_reader->next_batch(&block);
+            if (!st.ok()) {
+                ASSERT_TRUE(st.is<END_OF_FILE>()) << st;
+                break;
+            }
+            const auto& value_col = block.get_by_position(1);
+            const auto& keys = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+            for (size_t i = 0; i < block.rows(); ++i) {
+                rows->emplace_back(keys.get_data()[i],
+                                   value_col.type->to_string(*value_col.column, i));
+            }
+        }
+        std::sort(rows->begin(), rows->end(),
+                  [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+    }
+
+private:
+    std::unique_ptr<DataDir> _data_dir;
+    std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
+};
+
+// A segcompaction failure that is not one of the retryable ones (out of memory, reader or
+// writer init) terminates the write job, and build() must surface that instead of returning
+// a rowset built on top of a failed compaction. The row-count check is the cheapest fatal
+// failure to provoke: SegcompactionWorker::_check_correctness reports CHECK_LINES_ERROR,
+// which falls through to the fatal branch of SegcompactionWorker::compact_segments.
+//
+// build() reports SEGCOMPACTION_FAILED rather than CHECK_LINES_ERROR because the worker
+// hands the writer a bare error code, losing the original status. That is existing
+// behavior; this test pins the failure reaching build(), not the code it arrives as.
+TEST_F(SegCompactionTest, FatalSegcompactionFailsBuild) {
+    config::segcompaction_candidate_max_rows = 10;
+    config::segcompaction_batch_size = 2;
+
+    const auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("SegcompactionWorker._check_correctness_wrong_sum_src_row");
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove("SegcompactionWorker._check_correctness_wrong_sum_src_row");
+        config::enable_debug_points = origin_enable_debug_points;
+    });
+
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, DUP_KEYS);
+
+    RowsetWriterContext writer_context;
+    create_rowset_writer_context(10046, tablet_schema, &writer_context);
+    auto writer_result = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+    ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+    auto rowset_writer = std::move(writer_result).value();
+
+    for (int segment_id = 0; segment_id < 3; ++segment_id) {
+        Block block = tablet_schema->create_storage_block();
+        auto columns = std::move(block).mutate_columns();
+        for (uint32_t column_id = 0; column_id < columns.size(); ++column_id) {
+            const uint32_t value = segment_id + column_id;
+            columns[column_id]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+        }
+        ASSERT_TRUE(add_block_with_columns(rowset_writer.get(), &block, &columns).ok());
+        ASSERT_TRUE(rowset_writer->flush().ok());
+    }
+
+    RowsetSharedPtr rowset;
+    // build() waits for the inflight segcompaction, so the failure is visible by the time it
+    // returns; no polling is needed.
+    const auto status = rowset_writer->build(rowset);
+    EXPECT_FALSE(status.ok()) << "expected the fatal segcompaction to fail the build";
+    EXPECT_EQ(status.code(), SEGCOMPACTION_FAILED) << status;
+}
+
+TEST_F(SegCompactionTest, SegCompactionThenRead) {
+    config::enable_segcompaction = true;
+    Status s;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, DUP_KEYS);
+
+    RowsetSharedPtr rowset;
+    const int num_segments = 15;
+    const uint32_t rows_per_segment = 4096;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
+    config::segcompaction_batch_size = 10;
+    { // write `num_segments * rows_per_segment` rows to rowset
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10047, tablet_schema, &writer_context);
+
+        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+        EXPECT_EQ(Status::OK(), s);
+
+        // for segment "i", row "rid"
+        // k1 := rid*10 + i
+        // k2 := k1 * 10
+        // k3 := rid
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+            sleep(1);
+        }
+
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
+        std::vector<std::string> ls;
+        ls.push_back("10047_0.dat");
+        ls.push_back("10047_1.dat");
+        ls.push_back("10047_2.dat");
+        ls.push_back("10047_3.dat");
+        ls.push_back("10047_4.dat");
+        ls.push_back("10047_5.dat");
+        ls.push_back("10047_6.dat");
+        ls.push_back("10047_0.idx");
+        ls.push_back("10047_1.idx");
+        ls.push_back("10047_2.idx");
+        ls.push_back("10047_3.idx");
+        ls.push_back("10047_4.idx");
+        ls.push_back("10047_5.idx");
+        ls.push_back("10047_6.idx");
+        EXPECT_TRUE(check_dir(ls));
+    }
+
+    { // read
+        RowsetReaderContext reader_context;
+        // use this type to avoid cache from other ut
+        reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
+        reader_context.need_ordered_result = true;
+        std::vector<uint32_t> return_columns = {0, 1, 2};
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+        reader_context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
+        reader_context.stats = &_stats;
+
+        // without predicates
+        {
+            RowsetReaderSharedPtr rowset_reader;
+            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+
+            uint32_t num_rows_read = 0;
+            bool eof = false;
+            while (!eof) {
+                auto output_block = std::make_shared<Block>(read_schema->create_read_block());
+                std::vector<bool> row_is_same;
+                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
+                                                      .same_bit = row_is_same};
+                s = rowset_reader->next_batch(&block_with_same_bit);
+                if (s != Status::OK()) {
+                    eof = true;
+                }
+                EXPECT_GT(output_block->rows(), 0);
+                EXPECT_EQ(return_columns.size(), output_block->columns());
+                for (int i = 0; i < output_block->rows(); ++i) {
+                    ColumnPtr col0 = output_block->get_by_position(0).column;
+                    ColumnPtr col1 = output_block->get_by_position(1).column;
+                    ColumnPtr col2 = output_block->get_by_position(2).column;
+                    auto field1 = (*col0)[i];
+                    auto field2 = (*col1)[i];
+                    auto field3 = (*col2)[i];
+                    uint32_t k1 = *reinterpret_cast<uint32_t*>((char*)(&field1));
+                    uint32_t k2 = *reinterpret_cast<uint32_t*>((char*)(&field2));
+                    uint32_t v3 = *reinterpret_cast<uint32_t*>((char*)(&field3));
+                    EXPECT_EQ(100 * v3 + k2, k1);
+                    num_rows_read++;
+                }
+                output_block->clear();
+            }
+            EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
+            EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
+            EXPECT_EQ(num_rows_read, num_segments * rows_per_segment);
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            std::vector<uint32_t> segment_num_rows;
+            OlapReaderStatistics stats;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, false, &stats).ok());
+            size_t total_num_rows = 0;
+            for (const auto& i : segment_num_rows) {
+                total_num_rows += i;
+            }
+            EXPECT_EQ(total_num_rows, num_rows_read);
+        }
+    }
+}
+
+TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
+    config::enable_segcompaction = true;
+    Status s;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, DUP_KEYS);
+
+    RowsetSharedPtr rowset;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
+    { // write `num_segments * rows_per_segment` rows to rowset
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10048, tablet_schema, &writer_context);
+
+        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+        EXPECT_EQ(Status::OK(), s);
+
+        // for segment "i", row "rid"
+        // k1 := rid*10 + i
+        // k2 := k1 * 10
+        // k3 := 4096 * i + rid
+        int num_segments = 4;
+        uint32_t rows_per_segment = 4096;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 2;
+        rows_per_segment = 6400;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 1;
+        rows_per_segment = 4096;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 1;
+        rows_per_segment = 6400;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 8;
+        rows_per_segment = 4096;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+            sleep(1);
+        }
+        num_segments = 1;
+        rows_per_segment = 6400;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+            sleep(1);
+        }
+
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
+        std::vector<std::string> ls;
+        // ooooOOoOooooooooO
+        ls.push_back("10048_0.dat"); // oooo
+        ls.push_back("10048_1.dat"); // O
+        ls.push_back("10048_2.dat"); // O
+        ls.push_back("10048_3.dat"); // o
+        ls.push_back("10048_4.dat"); // O
+        ls.push_back("10048_5.dat"); // oooooooo
+        ls.push_back("10048_6.dat"); // O
+        ls.push_back("10048_0.idx"); // oooo
+        ls.push_back("10048_1.idx"); // O
+        ls.push_back("10048_2.idx"); // O
+        ls.push_back("10048_3.idx"); // o
+        ls.push_back("10048_4.idx"); // O
+        ls.push_back("10048_5.idx"); // oooooooo
+        ls.push_back("10048_6.idx"); // O
+        EXPECT_TRUE(check_dir(ls));
+    }
+}
+
+TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
+    config::enable_segcompaction = true;
+    Status s;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, DUP_KEYS);
+
+    RowsetSharedPtr rowset;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+    config::segcompaction_batch_size = 5;
+    { // write `num_segments * rows_per_segment` rows to rowset
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10049, tablet_schema, &writer_context);
+
+        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+        EXPECT_EQ(Status::OK(), s);
+
+        // for segment "i", row "rid"
+        // k1 := rid*10 + i
+        // k2 := k1 * 10
+        // k3 := 4096 * i + rid
+        int num_segments = 1;
+        uint32_t rows_per_segment = 6400;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 1;
+        rows_per_segment = 4096;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 1;
+        rows_per_segment = 6400;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 1;
+        rows_per_segment = 4096;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 1;
+        rows_per_segment = 6400;
+        for (int i = 0; i < num_segments; ++i) {
+            Block block = tablet_schema->create_storage_block();
+            auto columns = std::move(block).mutate_columns();
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                columns[0]->insert_data((const char*)&k1, sizeof(k1));
+                columns[1]->insert_data((const char*)&k2, sizeof(k2));
+                columns[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+            sleep(1);
+        }
+
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
+        std::vector<std::string> ls;
+        ls.push_back("10049_0.dat"); // O
+        ls.push_back("10049_1.dat"); // o
+        ls.push_back("10049_2.dat"); // O
+        ls.push_back("10049_3.dat"); // o
+        ls.push_back("10049_4.dat"); // O
+        ls.push_back("10049_0.idx"); // O
+        ls.push_back("10049_1.idx"); // o
+        ls.push_back("10049_2.idx"); // O
+        ls.push_back("10049_3.idx"); // o
+        ls.push_back("10049_4.idx"); // O
+        EXPECT_TRUE(check_dir(ls));
+    }
+}
+
+TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
+    config::enable_segcompaction = true;
+    Status s;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, UNIQUE_KEYS);
+
+    RowsetSharedPtr rowset;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
+    config::segcompaction_batch_size = 3;
+    { // write `num_segments * rows_per_segment` rows to rowset
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10051, tablet_schema, &writer_context);
+
+        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+        EXPECT_EQ(Status::OK(), s);
+
+        uint32_t k1 = 0;
+        uint32_t k2 = 0;
+        uint32_t k3 = 0;
+
+        Block block = tablet_schema->create_storage_block();
+        auto columns = std::move(block).mutate_columns();
+        // segment#0
+        k1 = k2 = 1;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 4;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 6;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+        // segment#1
+        k1 = k2 = 2;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 4;
+        k3 = 2;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 6;
+        k3 = 2;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#2
+        k1 = k2 = 3;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 6;
+        k3 = 3;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 9;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#3
+        k1 = k2 = 4;
+        k3 = 3;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 9;
+        k3 = 2;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 12;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#4
+        k1 = k2 = 25;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#5
+        k1 = k2 = 26;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
+        std::vector<std::string> ls;
+        ls.push_back("10051_0.dat");
+        ls.push_back("10051_1.dat");
+        ls.push_back("10051_2.dat");
+        ls.push_back("10051_3.dat");
+        ls.push_back("10051_0.idx");
+        ls.push_back("10051_1.idx");
+        ls.push_back("10051_2.idx");
+        ls.push_back("10051_3.idx");
+        EXPECT_TRUE(check_dir(ls));
+    }
+
+    { // read
+        RowsetReaderContext reader_context;
+        // use this type to avoid cache from other ut
+        reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
+        reader_context.need_ordered_result = true;
+        std::vector<uint32_t> return_columns = {0, 1, 2};
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+        reader_context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
+        reader_context.stats = &_stats;
+        reader_context.is_unique = true;
+
+        // without predicates
+        {
+            RowsetReaderSharedPtr rowset_reader;
+            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+
+            uint32_t num_rows_read = 0;
+            bool eof = false;
+            while (!eof) {
+                auto output_block = std::make_shared<Block>(read_schema->create_read_block());
+                std::vector<bool> row_is_same;
+                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
+                                                      .same_bit = row_is_same};
+                s = rowset_reader->next_batch(&block_with_same_bit);
+                if (s != Status::OK()) {
+                    eof = true;
+                }
+                EXPECT_GT(output_block->rows(), 0);
+                EXPECT_EQ(return_columns.size(), output_block->columns());
+                for (int i = 0; i < output_block->rows(); ++i) {
+                    ColumnPtr col0 = output_block->get_by_position(0).column;
+                    ColumnPtr col1 = output_block->get_by_position(1).column;
+                    ColumnPtr col2 = output_block->get_by_position(2).column;
+                    auto field1 = (*col0)[i];
+                    auto field2 = (*col1)[i];
+                    auto field3 = (*col2)[i];
+                    uint32_t k1 = *reinterpret_cast<uint32_t*>((char*)(&field1));
+                    uint32_t k2 = *reinterpret_cast<uint32_t*>((char*)(&field2));
+                    uint32_t v3 = *reinterpret_cast<uint32_t*>((char*)(&field3));
+                    std::cout << "k1 k2 k3: " << k1 << " " << k2 << " " << v3 << std::endl;
+                    num_rows_read++;
+                }
+                output_block->clear();
+            }
+            EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
+            // duplicated keys between segments are counted duplicately
+            // so actual read by rowset reader is less or equal to it
+            EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            std::vector<uint32_t> segment_num_rows;
+            OlapReaderStatistics stats;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, false, &stats).ok());
+            size_t total_num_rows = 0;
+            for (const auto& i : segment_num_rows) {
+                total_num_rows += i;
+            }
+            EXPECT_GE(total_num_rows, num_rows_read);
+        }
+    }
+}
+
+TEST_F(SegCompactionTest, CreateSegCompactionWriter) {
+    config::enable_segcompaction = true;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "key_index", 0, "INT",
+                     "key");
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001, "v1_index", 1, "STRING",
+                     "v1");
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10002, "v2_index", 2, "STRING",
+                     "v2", true);
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10003, "v3_index", 3, "INT",
+                     "v3");
+
+    tablet_schema.reset(new TabletSchema);
+    tablet_schema->init_from_pb(schema_pb);
+    RowsetSharedPtr rowset;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+    // rows_per_segment
+    config::segcompaction_batch_size = 3;
+    {
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10052, tablet_schema, &writer_context);
+        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+        auto beta_rowset_writer = dynamic_cast<BetaRowsetWriter*>(rowset_writer.get());
+        EXPECT_TRUE(beta_rowset_writer != nullptr);
+        std::unique_ptr<segment_v2::VerticalSegmentWriter> writer = nullptr;
+        auto status = beta_rowset_writer->create_segment_writer_for_segcompaction(&writer, 0, 1);
+        EXPECT_TRUE(beta_rowset_writer != nullptr);
+        EXPECT_TRUE(status == Status::OK());
+        int64_t inverted_index_file_size = 0;
+        status = writer->close_inverted_index(&inverted_index_file_size);
+        EXPECT_TRUE(status == Status::OK());
+        EXPECT_TRUE(inverted_index_file_size == 0);
+    }
+}
+
+TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
+    config::enable_segcompaction = true;
+    Status s;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema, AGG_KEYS);
+
+    RowsetSharedPtr rowset;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+                                                     // rows_per_segment
+    config::segcompaction_batch_size = 3;
+    { // write `num_segments * rows_per_segment` rows to rowset
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10052, tablet_schema, &writer_context);
+
+        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+        EXPECT_EQ(Status::OK(), s);
+
+        uint32_t k1 = 0;
+        uint32_t k2 = 0;
+        uint32_t k3 = 0;
+
+        Block block = tablet_schema->create_storage_block();
+        auto columns = std::move(block).mutate_columns();
+
+        // segment#0
+        k1 = k2 = 1;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 4;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 6;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+        // segment#1
+        k1 = k2 = 2;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 4;
+        k3 = 2;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 6;
+        k3 = 2;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#2
+        k1 = k2 = 3;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 6;
+        k3 = 3;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 9;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#3
+        k1 = k2 = 4;
+        k3 = 3;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 9;
+        k3 = 2;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        k1 = k2 = 12;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#4
+        k1 = k2 = 25;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        // segment#5
+        k1 = k2 = 26;
+        k3 = 1;
+        columns[0]->insert_data((const char*)&k1, sizeof(k1));
+        columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        columns[2]->insert_data((const char*)&k3, sizeof(k3));
+
+        s = add_block_with_columns(rowset_writer.get(), &block, &columns);
+        EXPECT_TRUE(s.ok());
+        s = rowset_writer->flush();
+        EXPECT_EQ(Status::OK(), s);
+        sleep(1);
+
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
+        std::vector<std::string> ls;
+        ls.push_back("10052_0.dat");
+        ls.push_back("10052_1.dat");
+        ls.push_back("10052_2.dat");
+        ls.push_back("10052_3.dat");
+        ls.push_back("10052_0.idx");
+        ls.push_back("10052_1.idx");
+        ls.push_back("10052_2.idx");
+        ls.push_back("10052_3.idx");
+        EXPECT_TRUE(check_dir(ls));
+    }
+
+    { // read
+        RowsetReaderContext reader_context;
+        // use this type to avoid cache from other ut
+        reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
+        reader_context.need_ordered_result = true;
+        std::vector<uint32_t> return_columns = {0, 1, 2};
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+        reader_context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
+        reader_context.stats = &_stats;
+        // reader_context.is_unique = true;
+
+        // without predicates
+        {
+            RowsetReaderSharedPtr rowset_reader;
+            create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
+
+            uint32_t num_rows_read = 0;
+            bool eof = false;
+            while (!eof) {
+                auto output_block = std::make_shared<Block>(read_schema->create_read_block());
+                std::vector<bool> row_is_same;
+                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
+                                                      .same_bit = row_is_same};
+                s = rowset_reader->next_batch(&block_with_same_bit);
+                if (s != Status::OK()) {
+                    eof = true;
+                }
+                EXPECT_GT(output_block->rows(), 0);
+                EXPECT_EQ(return_columns.size(), output_block->columns());
+                for (int i = 0; i < output_block->rows(); ++i) {
+                    ColumnPtr col0 = output_block->get_by_position(0).column;
+                    ColumnPtr col1 = output_block->get_by_position(1).column;
+                    ColumnPtr col2 = output_block->get_by_position(2).column;
+                    auto field1 = (*col0)[i];
+                    auto field2 = (*col1)[i];
+                    auto field3 = (*col2)[i];
+                    uint32_t k1 = *reinterpret_cast<uint32_t*>((char*)(&field1));
+                    uint32_t k2 = *reinterpret_cast<uint32_t*>((char*)(&field2));
+                    uint32_t v3 = *reinterpret_cast<uint32_t*>((char*)(&field3));
+                    // dup keys may exist between segments, but not in single segment
+                    std::cout << "k1 k2 k3: " << k1 << " " << k2 << " " << v3 << std::endl;
+                    num_rows_read++;
+                }
+                output_block->clear();
+            }
+            EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
+            // duplicated keys between segments are counted duplicately
+            // so actual read by rowset reader is less or equal to it
+            EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            std::vector<uint32_t> segment_num_rows;
+            OlapReaderStatistics stats;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, false, &stats).ok());
+            size_t total_num_rows = 0;
+            for (const auto& i : segment_num_rows) {
+                total_num_rows += i;
+            }
+            EXPECT_GE(total_num_rows, num_rows_read);
+        }
+    }
+}
+
+// BetaRowsetWriter::_segcompaction_if_necessary opts a rowset out of segment compaction as soon
+// as its schema has a variant column, so a variant rowset keeps every segment it flushed. The
+// variant-free rowset is the control: same rows, same thresholds, and that one does get merged.
+TEST_F(SegCompactionTest, VariantRowsetIsNeverSegmentCompacted) {
+    const auto saved_candidate_max_rows = config::segcompaction_candidate_max_rows;
+    const auto saved_batch_size = config::segcompaction_batch_size;
+    Defer restore_config([&] {
+        config::segcompaction_candidate_max_rows = saved_candidate_max_rows;
+        config::segcompaction_batch_size = saved_batch_size;
+    });
+    config::enable_segcompaction = true;
+    config::segcompaction_candidate_max_rows = kVariantRowsPerSegment * 2;
+    config::segcompaction_batch_size = 5;
+
+    RowsetSharedPtr plain_rowset;
+    ASSERT_NO_FATAL_FAILURE(write_variant_rowset(10060, create_variant_tablet_schema(false),
+                                                 /*wait_for_segcompaction=*/true, &plain_rowset));
+    ASSERT_NE(plain_rowset, nullptr);
+    EXPECT_LT(plain_rowset->rowset_meta()->num_segments(), kVariantSegments);
+    EXPECT_EQ(kVariantSegments * kVariantRowsPerSegment, plain_rowset->rowset_meta()->num_rows());
+
+    // No task is ever submitted for the variant rowset, so there is nothing to wait for.
+    auto variant_schema = create_variant_tablet_schema(true);
+    RowsetSharedPtr variant_rowset;
+    ASSERT_NO_FATAL_FAILURE(write_variant_rowset(10061, variant_schema,
+                                                 /*wait_for_segcompaction=*/false,
+                                                 &variant_rowset));
+    ASSERT_NE(variant_rowset, nullptr);
+    EXPECT_EQ(kVariantSegments, variant_rowset->rowset_meta()->num_segments());
+    EXPECT_EQ(kVariantSegments * kVariantRowsPerSegment, variant_rowset->rowset_meta()->num_rows());
+
+    std::vector<std::pair<int32_t, std::string>> rows;
+    ASSERT_NO_FATAL_FAILURE(read_all_rows(variant_rowset, variant_schema, &rows));
+    ASSERT_EQ(kVariantSegments * kVariantRowsPerSegment, rows.size());
+    for (size_t i = 0; i < rows.size(); ++i) {
+        ASSERT_EQ(static_cast<int32_t>(i), rows[i].first) << "row " << i;
+        EXPECT_NE(rows[i].second.find(fmt::format("mark_{}_{}", i / kVariantRowsPerSegment,
+                                                  i % kVariantRowsPerSegment)),
+                  std::string::npos)
+                << "row " << i << ": " << rows[i].second;
+    }
+}
+
+} // namespace doris
+
+// @brief Test Stub

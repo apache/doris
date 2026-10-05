@@ -1,0 +1,1 @@
+DELETE FROM part where p_partkey >= 0;

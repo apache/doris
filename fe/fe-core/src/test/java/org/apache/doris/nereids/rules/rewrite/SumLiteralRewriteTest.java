@@ -1,0 +1,257 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.rewrite;
+
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+
+class SumLiteralRewriteTest implements MemoPatternMatchSupported {
+    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+
+    @Test
+    void testSimpleSum() {
+        Slot slot1 = scan1.getOutput().get(0);
+        Alias add1 = new Alias(new Sum(new Add(slot1, Literal.of(1))));
+        Alias add2 = new Alias(new Sum(new Add(slot1, Literal.of(2))));
+        Alias sub1 = new Alias(new Sum(new Subtract(slot1, Literal.of(1))));
+        Alias sub2 = new Alias(new Sum(new Subtract(slot1, Literal.of(2))));
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 2));
+
+        Alias sum = new Alias(new Sum(slot1));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sum, add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 2));
+    }
+
+    @Test
+    void testSumNullable() {
+        Slot slot1 = scan1.getOutput().get(0);
+        Alias add1 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(1))));
+        Alias add2 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(2))));
+        Alias sub1 = new Alias(new Sum(false, true, new Subtract(slot1, Literal.of(1))));
+        Alias sub2 = new Alias(new Sum(false, true, new Subtract(slot1, Literal.of(2))));
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 2));
+
+        Alias sum = new Alias(new Sum(false, true, slot1));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sum, add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 2));
+    }
+
+    @Test
+    void testSumDistinct() {
+        Slot slot1 = scan1.getOutput().get(0);
+        Alias add1 = new Alias(new Sum(true, true, new Add(slot1, Literal.of(1))));
+        Alias add2 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(2))));
+        Alias sub1 = new Alias(new Sum(true, true, new Subtract(slot1, Literal.of(1))));
+        Alias sub2 = new Alias(new Sum(false, true, new Subtract(slot1, Literal.of(2))));
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 4));
+
+        Alias sumDistinct = new Alias(new Sum(true, true, slot1));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sumDistinct, add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 4));
+
+        Alias sum = new Alias(new Sum(false, true, slot1));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sumDistinct, sum, add1, add2, sub1, sub2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 4));
+    }
+
+    @Test
+    void testSumOnce() {
+        Slot slot1 = scan1.getOutput().get(0);
+        // Create the independent slot before PlanChecker initializes a new statement ID scope.
+        Slot slot2 = new Alias(scan1.getOutput().get(0)).toSlot();
+        Alias add1 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(1))));
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 1));
+
+        Alias add2 = new Alias(new Sum(false, true, new Add(slot2, Literal.of(2))));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 2));
+
+        Alias add3 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(3))));
+        Alias add4 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(4))));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, add3, add4), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                .matches(logicalAggregate().when(p -> p.getOutputs().size() == 3));
+
+    }
+
+    @Test
+    void testOnlyRewriteIntegerArithmetic() {
+        Slot integerSlot = scan1.getOutput().get(0);
+        LogicalAggregate<?> integerAgg = new LogicalAggregate<>(
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new Alias(new Sum(new Add(integerSlot, Literal.of(1)))),
+                        new Alias(new Sum(new Add(integerSlot, Literal.of(2))))),
+                scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), integerAgg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .matchesFromRoot(logicalProject(logicalAggregate()));
+
+        assertSumLiteralNotRewritten(
+                new SlotReference("float_slot", FloatType.INSTANCE),
+                new FloatLiteral(1.0F), new FloatLiteral(2.0F));
+        assertSumLiteralNotRewritten(
+                new SlotReference("double_slot", DoubleType.INSTANCE),
+                new DoubleLiteral(1.0), new DoubleLiteral(2.0));
+
+        DecimalV3Literal decimalOne = new DecimalV3Literal(new BigDecimal("1.0"));
+        DecimalV3Literal decimalTwo = new DecimalV3Literal(new BigDecimal("2.0"));
+        assertSumLiteralNotRewritten(
+                new SlotReference("decimal_slot", decimalOne.getDataType()), decimalOne, decimalTwo);
+
+        // Also reject a non-integer input if an uncoerced integer literal reaches this rule.
+        assertSumLiteralNotRewritten(
+                new SlotReference("mixed_slot", DoubleType.INSTANCE), Literal.of(1), Literal.of(2));
+    }
+
+    private void assertSumLiteralNotRewritten(Slot slot, Literal first, Literal second) {
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(),
+                ImmutableList.of(
+                        new Alias(new Sum(new Add(slot, first))),
+                        new Alias(new Sum(new Add(slot, second)))),
+                scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .matchesFromRoot(logicalAggregate());
+    }
+
+    @Test
+    void testStripWideningIntegerCast() {
+        Slot slot1 = scan1.getOutput().get(0);
+        // Simulate type coercion's implicit widening cast: CAST(int_col AS BIGINT)
+        Cast castSlot = new Cast(slot1, BigIntType.INSTANCE);
+        Alias add1 = new Alias(new Sum(new Add(castSlot, Literal.of(1))));
+        Alias add2 = new Alias(new Sum(new Add(castSlot, Literal.of(2))));
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(), ImmutableList.of(add1, add2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                // After stripping the implicit widening cast, Sum and Count should use
+                // slot1 directly (not Cast(slot1 AS BIGINT)), so no Cast in aggregate outputs
+                .matches(logicalAggregate().when(a ->
+                        a.getOutputExpressions().stream().noneMatch(
+                                e -> e.anyMatch(expr -> expr instanceof Cast))));
+
+        // Verify explicit cast is NOT stripped
+        Cast explicitCast = new Cast(slot1, BigIntType.INSTANCE, true);
+        Alias addExplicit1 = new Alias(new Sum(new Add(explicitCast, Literal.of(1))));
+        Alias addExplicit2 = new Alias(new Sum(new Add(explicitCast, Literal.of(2))));
+        agg = new LogicalAggregate<>(
+                ImmutableList.of(), ImmutableList.of(addExplicit1, addExplicit2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                // Explicit cast should be preserved — aggregate outputs should still contain Cast
+                .matches(logicalAggregate().when(a ->
+                        a.getOutputExpressions().stream().anyMatch(
+                                e -> e.anyMatch(expr -> expr instanceof Cast))));
+    }
+
+    @Test
+    void testStripWideningCastWithExistingSum() {
+        // Simulates ClickBench Q29: SELECT SUM(col), SUM(col+1), SUM(col+2)
+        // where col is a narrow integer type and type coercion introduces implicit widening cast.
+        Slot slot1 = scan1.getOutput().get(0);
+        // Pre-existing plain SUM(slot) — no cast, no literal
+        Alias sum = new Alias(new Sum(slot1));
+        // Simulate type coercion widening: SUM(CAST(int_col AS BIGINT) + 1) etc.
+        Cast castSlot = new Cast(slot1, BigIntType.INSTANCE);
+        Alias add1 = new Alias(new Sum(new Add(castSlot, Literal.of(1))));
+        Alias add2 = new Alias(new Sum(new Add(castSlot, Literal.of(2))));
+        LogicalAggregate<?> agg = new LogicalAggregate<>(
+                ImmutableList.of(), ImmutableList.of(sum, add1, add2), scan1);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
+                .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
+                .printlnTree()
+                // After stripping widening cast, the base expr of SUM(CAST(slot AS BIGINT) + n)
+                // becomes slot — matching the pre-existing SUM(slot). Rewrite reuses it and only
+                // adds COUNT(slot). Aggregate outputs: sum(slot) + count(slot) = 2.
+                .matches(logicalAggregate().when(a ->
+                        a.getOutputExpressions().size() == 2
+                        && a.getOutputExpressions().stream().noneMatch(
+                                e -> e.anyMatch(expr -> expr instanceof Cast))));
+    }
+}

@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS routine_load_dup_tbl_basic;

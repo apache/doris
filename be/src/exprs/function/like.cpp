@@ -1,0 +1,1181 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "exprs/function/like.h"
+
+#include <fmt/format.h>
+#include <hs/hs_compile.h>
+
+#include <cstddef>
+#include <ostream>
+#include <utility>
+#include <vector>
+
+#include "common/config.h"
+#include "common/exception.h"
+#include "common/logging.h"
+#include "core/block/block.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/column/column.h"
+#include "core/column/column_const.h"
+#include "core/column/column_vector.h"
+#include "core/field.h"
+#include "core/string_ref.h"
+#include "exprs/function/simple_function_factory.h"
+#include "exprs/vexpr.h"
+#include "exprs/vliteral.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/inverted/inverted_index_reader.h"
+#include "util/hyperscan_util.h"
+
+namespace doris {
+
+// A regex to match any regex pattern is equivalent to a substring search.
+static const RE2 SUBSTRING_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
+
+// A regex to match any regex pattern which is equivalent to matching a constant string
+// at the end of the string values.
+static const RE2 ENDS_WITH_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)\$)");
+
+// A regex to match any regex pattern which is equivalent to matching a constant string
+// at the end of the string values.
+static const RE2 STARTS_WITH_RE(R"(\^([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
+
+// A regex to match any regex pattern which is equivalent to a constant string match.
+static const RE2 EQUALS_RE(R"(\^([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)\$)");
+// A regex to match .*
+static const RE2 ALLPASS_RE(R"((\.\*)+)");
+
+// Like patterns
+static const re2::RE2 LIKE_SUBSTRING_RE(R"((?:%+)(((\\_)|([^%_\\]))+)(?:%+))");
+static const re2::RE2 LIKE_ENDS_WITH_RE("(?:%+)(((\\\\_)|([^%_]))+)");
+static const re2::RE2 LIKE_STARTS_WITH_RE(R"((((\\%)|(\\_)|([^%_\\]))+)(?:%+))");
+static const re2::RE2 LIKE_EQUALS_RE("(((\\\\_)|([^%_]))+)");
+static const re2::RE2 LIKE_ALLPASS_RE("%+");
+
+struct VectorAllpassSearchState : public VectorPatternSearchState {
+    VectorAllpassSearchState() : VectorPatternSearchState(FunctionLikeBase::vector_allpass_fn) {}
+
+    ~VectorAllpassSearchState() override = default;
+
+    void like_pattern_match(const std::string& pattern_str) override {
+        if (!pattern_str.empty() && RE2::FullMatch(pattern_str, LIKE_ALLPASS_RE)) {
+            _search_strings->insert_default();
+        } else {
+            _pattern_matched = false;
+        }
+    }
+
+    void regexp_pattern_match(const std::string& pattern_str) override {
+        if (RE2::FullMatch(pattern_str, ALLPASS_RE)) {
+            _search_strings->insert_default();
+        } else {
+            _pattern_matched = false;
+        }
+    }
+};
+
+struct VectorEqualSearchState : public VectorPatternSearchState {
+    VectorEqualSearchState() : VectorPatternSearchState(FunctionLikeBase::vector_equals_fn) {}
+
+    ~VectorEqualSearchState() override = default;
+
+    void like_pattern_match(const std::string& pattern_str) override {
+        _search_string.clear();
+        if (pattern_str.empty() || RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &_search_string)) {
+            FunctionLike::remove_escape_character(&_search_string);
+            _search_strings->insert_data(_search_string.c_str(), _search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
+
+    void regexp_pattern_match(const std::string& pattern_str) override {
+        _search_string.clear();
+        if (RE2::FullMatch(pattern_str, EQUALS_RE, &_search_string)) {
+            _search_strings->insert_data(_search_string.c_str(), _search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
+};
+
+struct VectorSubStringSearchState : public VectorPatternSearchState {
+    VectorSubStringSearchState()
+            : VectorPatternSearchState(FunctionLikeBase::vector_substring_fn) {}
+
+    ~VectorSubStringSearchState() override = default;
+
+    void like_pattern_match(const std::string& pattern_str) override {
+        _search_string.clear();
+        if (RE2::FullMatch(pattern_str, LIKE_SUBSTRING_RE, &_search_string)) {
+            FunctionLike::remove_escape_character(&_search_string);
+            _search_strings->insert_data(_search_string.c_str(), _search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
+
+    void regexp_pattern_match(const std::string& pattern_str) override {
+        _search_string.clear();
+        if (RE2::FullMatch(pattern_str, SUBSTRING_RE, &_search_string)) {
+            _search_strings->insert_data(_search_string.c_str(), _search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
+};
+
+struct VectorStartsWithSearchState : public VectorPatternSearchState {
+    VectorStartsWithSearchState()
+            : VectorPatternSearchState(FunctionLikeBase::vector_starts_with_fn) {}
+
+    ~VectorStartsWithSearchState() override = default;
+
+    void like_pattern_match(const std::string& pattern_str) override {
+        _search_string.clear();
+        if (RE2::FullMatch(pattern_str, LIKE_STARTS_WITH_RE, &_search_string)) {
+            FunctionLike::remove_escape_character(&_search_string);
+            _search_strings->insert_data(_search_string.c_str(), _search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
+
+    void regexp_pattern_match(const std::string& pattern_str) override {
+        _search_string.clear();
+        if (RE2::FullMatch(pattern_str, STARTS_WITH_RE, &_search_string)) {
+            _search_strings->insert_data(_search_string.c_str(), _search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
+};
+
+struct VectorEndsWithSearchState : public VectorPatternSearchState {
+    VectorEndsWithSearchState() : VectorPatternSearchState(FunctionLikeBase::vector_ends_with_fn) {}
+
+    ~VectorEndsWithSearchState() override = default;
+
+    void like_pattern_match(const std::string& pattern_str) override {
+        _search_string.clear();
+        if (RE2::FullMatch(pattern_str, LIKE_ENDS_WITH_RE, &_search_string)) {
+            FunctionLike::remove_escape_character(&_search_string);
+            _search_strings->insert_data(_search_string.c_str(), _search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
+
+    void regexp_pattern_match(const std::string& pattern_str) override {
+        _search_string.clear();
+        if (RE2::FullMatch(pattern_str, ENDS_WITH_RE, &_search_string)) {
+            _search_strings->insert_data(_search_string.c_str(), _search_string.size());
+        } else {
+            _pattern_matched = false;
+        }
+    }
+};
+
+Status LikeSearchState::clone(LikeSearchState& cloned) const {
+    cloned.set_search_string(search_string);
+    cloned.enable_hyperscan_fallback = enable_hyperscan_fallback;
+    cloned.enable_extended_regex = enable_extended_regex;
+
+    std::string re_pattern;
+    FunctionLike::convert_like_pattern(this, pattern_str, &re_pattern);
+    if (hs_database) { // use hyperscan
+        hs_database_t* database = nullptr;
+        hs_scratch_t* scratch = nullptr;
+        RETURN_IF_ERROR(FunctionLike::hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch));
+
+        cloned.hs_database.reset(database);
+        cloned.hs_scratch.reset(scratch);
+    } else { // fallback to re2
+        cloned.hs_database.reset();
+        cloned.hs_scratch.reset();
+
+        RE2::Options opts;
+        opts.set_never_nl(false);
+        opts.set_dot_nl(true);
+        cloned.regex = std::make_unique<RE2>(re_pattern, opts);
+        if (!cloned.regex->ok()) {
+            return Status::InternalError("Invalid regex expression: {}", re_pattern);
+        }
+    }
+
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_allpass_fn(const LikeSearchState* state, const ColumnString& vals,
+                                             const StringRef& pattern,
+                                             ColumnUInt8::Container& result) {
+    memset(result.data(), 1, vals.size());
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_allpass_fn_scalar(const LikeSearchState* state,
+                                                    const StringRef& val, const StringRef& pattern,
+                                                    unsigned char* result) {
+    *result = 1;
+    return Status::OK();
+}
+
+Status FunctionLikeBase::vector_allpass_fn(const ColumnString& vals,
+                                           const ColumnString& search_strings,
+                                           ColumnUInt8::Container& result) {
+    DCHECK(vals.size() == search_strings.size());
+    DCHECK(vals.size() == result.size());
+    memset(result.data(), 1, vals.size());
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_starts_with_fn(const LikeSearchState* state,
+                                                 const ColumnString& val, const StringRef& pattern,
+                                                 ColumnUInt8::Container& result) {
+    auto sz = val.size();
+    for (size_t i = 0; i < sz; i++) {
+        const auto& str_ref = val.get_data_at(i);
+        result[i] = (str_ref.size >= state->search_string_sv.size) &&
+                    str_ref.start_with(state->search_string_sv);
+    }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_starts_with_fn_scalar(const LikeSearchState* state,
+                                                        const StringRef& val,
+                                                        const StringRef& pattern,
+                                                        unsigned char* result) {
+    *result = (val.size >= state->search_string_sv.size) &&
+              (state->search_string_sv == val.substring(0, state->search_string_sv.size));
+    return Status::OK();
+}
+
+Status FunctionLikeBase::vector_starts_with_fn(const ColumnString& vals,
+                                               const ColumnString& search_strings,
+                                               ColumnUInt8::Container& result) {
+    DCHECK(vals.size() == search_strings.size());
+    DCHECK(vals.size() == result.size());
+    auto sz = vals.size();
+    for (size_t i = 0; i < sz; ++i) {
+        const auto& str_sv = vals.get_data_at(i);
+        const auto& search_string_sv = search_strings.get_data_at(i);
+        result[i] = (str_sv.size >= search_string_sv.size) && str_sv.start_with(search_string_sv);
+    }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_ends_with_fn(const LikeSearchState* state,
+                                               const ColumnString& val, const StringRef& pattern,
+                                               ColumnUInt8::Container& result) {
+    auto sz = val.size();
+    for (size_t i = 0; i < sz; i++) {
+        const auto& str_ref = val.get_data_at(i);
+        result[i] = (str_ref.size >= state->search_string_sv.size) &&
+                    str_ref.end_with(state->search_string_sv);
+    }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_ends_with_fn_scalar(const LikeSearchState* state,
+                                                      const StringRef& val,
+                                                      const StringRef& pattern,
+                                                      unsigned char* result) {
+    *result = (val.size >= state->search_string_sv.size) &&
+              (state->search_string_sv == val.substring(val.size - state->search_string_sv.size,
+                                                        state->search_string_sv.size));
+    return Status::OK();
+}
+
+Status FunctionLikeBase::vector_ends_with_fn(const ColumnString& vals,
+                                             const ColumnString& search_strings,
+                                             ColumnUInt8::Container& result) {
+    DCHECK(vals.size() == search_strings.size());
+    DCHECK(vals.size() == result.size());
+    auto sz = vals.size();
+    for (size_t i = 0; i < sz; ++i) {
+        const auto& str_sv = vals.get_data_at(i);
+        const auto& search_string_sv = search_strings.get_data_at(i);
+        result[i] = (str_sv.size >= search_string_sv.size) && str_sv.end_with(search_string_sv);
+    }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_equals_fn(const LikeSearchState* state, const ColumnString& val,
+                                            const StringRef& pattern,
+                                            ColumnUInt8::Container& result) {
+    auto sz = val.size();
+    for (size_t i = 0; i < sz; i++) {
+        result[i] = (val.get_data_at(i) == state->search_string_sv);
+    }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_equals_fn_scalar(const LikeSearchState* state,
+                                                   const StringRef& val, const StringRef& pattern,
+                                                   unsigned char* result) {
+    *result = (val == state->search_string_sv);
+    return Status::OK();
+}
+
+Status FunctionLikeBase::vector_equals_fn(const ColumnString& vals,
+                                          const ColumnString& search_strings,
+                                          ColumnUInt8::Container& result) {
+    DCHECK(vals.size() == search_strings.size());
+    DCHECK(vals.size() == result.size());
+    auto sz = vals.size();
+    for (size_t i = 0; i < sz; ++i) {
+        const auto& str_sv = vals.get_data_at(i);
+        const auto& search_string_sv = search_strings.get_data_at(i);
+        result[i] = str_sv == search_string_sv;
+    }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_substring_fn(const LikeSearchState* state,
+                                               const ColumnString& val, const StringRef& pattern,
+                                               ColumnUInt8::Container& result) {
+    size_t needle_size = state->search_string_sv.size;
+    if (needle_size == 0) {
+        memset(result.data(), 1, result.size());
+        return Status::OK();
+    }
+
+    const auto& values = val.get_chars();
+    const auto& value_offsets = val.get_offsets();
+    // treat continuous multi string data as a long string data
+    const UInt8* begin = values.data();
+    const UInt8* end = begin + values.size();
+    const UInt8* pos = begin;
+
+    /// Current index in the array of strings.
+    size_t i = 0;
+
+    /// We will search for the next occurrence in all strings at once.
+    while (pos < end) {
+        // search return matched substring start offset
+        pos = (UInt8*)state->substring_pattern.search((char*)pos, end - pos);
+        if (pos >= end) {
+            break;
+        }
+
+        /// Determine which index it refers to.
+        /// begin + value_offsets[i] is the start offset of string at i+1
+        while (i < value_offsets.size() && begin + value_offsets[i] < pos) {
+            ++i;
+        }
+
+        /// We check that the entry does not pass through the boundaries of strings.
+        if (pos + needle_size <= begin + value_offsets[i]) {
+            result[i] = 1;
+        }
+
+        // move to next string offset
+        pos = begin + value_offsets[i];
+        ++i;
+    }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_substring_fn_scalar(const LikeSearchState* state,
+                                                      const StringRef& val,
+                                                      const StringRef& pattern,
+                                                      unsigned char* result) {
+    if (state->search_string_sv.size == 0) {
+        *result = true;
+        return Status::OK();
+    }
+    *result = state->substring_pattern.search(val) != -1;
+    return Status::OK();
+}
+
+Status FunctionLikeBase::vector_substring_fn(const ColumnString& vals,
+                                             const ColumnString& search_strings,
+                                             ColumnUInt8::Container& result) {
+    DCHECK(vals.size() == search_strings.size());
+    DCHECK(vals.size() == result.size());
+    auto sz = vals.size();
+    for (size_t i = 0; i < sz; ++i) {
+        const auto& str_sv = vals.get_data_at(i);
+        const auto& search_string_sv = search_strings.get_data_at(i);
+        if (search_string_sv.size == 0) {
+            result[i] = true;
+            continue;
+        }
+        doris::StringSearch substring_search(&search_string_sv);
+        result[i] = substring_search.search(str_sv) != -1;
+    }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_regex_fn_scalar(const LikeSearchState* state,
+                                                  const StringRef& val, const StringRef& pattern,
+                                                  unsigned char* result) {
+    if (state->hs_database) { // use hyperscan
+        auto ret = hs_scan(state->hs_database.get(), val.data, (int)val.size, 0,
+                           state->hs_scratch.get(), doris::LikeSearchState::hs_match_handler,
+                           (void*)result);
+        if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
+            return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
+        }
+    } else { // re2, or boost::regex for advanced features
+        RETURN_IF_ERROR(regex_search(state->regex.get(), state->boost_regex.get(), val, result));
+    }
+
+    return Status::OK();
+}
+
+Status FunctionLikeBase::regexp_fn_scalar(const LikeSearchState* state, const StringRef& val,
+                                          const StringRef& pattern, unsigned char* result) {
+    std::unique_ptr<re2::RE2> regex;
+    std::unique_ptr<boost::regex> boost_regex;
+    RETURN_IF_ERROR(compile_regex(std::string_view(pattern.data, pattern.size),
+                                  state->enable_extended_regex, &regex, &boost_regex));
+    RETURN_IF_ERROR(regex_search(regex.get(), boost_regex.get(), val, result));
+
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_regex_fn(const LikeSearchState* state, const ColumnString& val,
+                                           const StringRef& pattern,
+                                           ColumnUInt8::Container& result) {
+    auto sz = val.size();
+    if (state->hs_database) { // use hyperscan
+        for (size_t i = 0; i < sz; i++) {
+            const auto& str_ref = val.get_data_at(i);
+            auto ret = hs_scan(state->hs_database.get(), str_ref.data, (int)str_ref.size, 0,
+                               state->hs_scratch.get(), doris::LikeSearchState::hs_match_handler,
+                               (void*)(result.data() + i));
+            if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
+                return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
+            }
+        }
+    } else { // re2, or boost::regex for advanced features
+        for (size_t i = 0; i < sz; i++) {
+            RETURN_IF_ERROR(regex_search(state->regex.get(), state->boost_regex.get(),
+                                         val.get_data_at(i), result.data() + i));
+        }
+    }
+
+    return Status::OK();
+}
+
+Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnString& val,
+                                   const StringRef& pattern, ColumnUInt8::Container& result) {
+    std::string re_pattern(pattern.data, pattern.size);
+
+    hs_database_t* database = nullptr;
+    hs_scratch_t* scratch = nullptr;
+    auto hs_status = hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch);
+    if (hs_status.ok()) { // use hyperscan
+        auto sz = val.size();
+        for (size_t i = 0; i < sz; i++) {
+            const auto& str_ref = val.get_data_at(i);
+            auto ret =
+                    hs_scan(database, str_ref.data, (int)str_ref.size, 0, scratch,
+                            doris::LikeSearchState::hs_match_handler, (void*)(result.data() + i));
+            if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
+                return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
+            }
+        }
+
+        hs_free_scratch(scratch);
+        hs_free_database(database);
+    } else { // fallback to re2, then boost::regex for advanced features
+        if (!state->enable_hyperscan_fallback) {
+            return hs_status;
+        }
+        std::unique_ptr<re2::RE2> regex;
+        std::unique_ptr<boost::regex> boost_regex;
+        RETURN_IF_ERROR(
+                compile_regex(re_pattern, state->enable_extended_regex, &regex, &boost_regex));
+        auto sz = val.size();
+        for (size_t i = 0; i < sz; i++) {
+            RETURN_IF_ERROR(regex_search(regex.get(), boost_regex.get(), val.get_data_at(i),
+                                         result.data() + i));
+        }
+    }
+
+    return Status::OK();
+}
+
+Status FunctionLikeBase::compile_regex(std::string_view pattern, bool enable_extended_regex,
+                                       std::unique_ptr<re2::RE2>* regex,
+                                       std::unique_ptr<boost::regex>* boost_regex) {
+    RE2::Options opts;
+    opts.set_never_nl(false);
+    opts.set_dot_nl(true);
+    // A rejected pattern is reported through the returned Status (or handed to Boost.Regex), and
+    // non-constant patterns are compiled once per row, so keep RE2 from logging every rejection.
+    opts.set_log_errors(false);
+    *regex = std::make_unique<RE2>(re2::StringPiece(pattern.data(), pattern.size()), opts);
+    if ((*regex)->ok()) {
+        return Status::OK();
+    }
+    if (!enable_extended_regex) {
+        return Status::InternalError(
+                "Invalid regex expression: {}. Error: {}. If you need advanced regex features, "
+                "try setting enable_extended_regex=true",
+                pattern, (*regex)->error());
+    }
+
+    // RE2 failed, fallback to Boost.Regex
+    // This handles advanced regex features like zero-width assertions
+    regex->reset();
+    try {
+        *boost_regex =
+                std::make_unique<boost::regex>(pattern.data(), pattern.data() + pattern.size());
+    } catch (const boost::regex_error& e) {
+        return Status::InternalError("Invalid regex expression: {}. Error: {}", pattern, e.what());
+    }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::regex_search(const re2::RE2* regex, const boost::regex* boost_regex,
+                                      const StringRef& val, unsigned char* result) {
+    if (boost_regex != nullptr) {
+        try {
+            *result = boost::regex_search(val.data, val.data + val.size, *boost_regex);
+        } catch (const boost::regex_error& e) {
+            return Status::InternalError("Failed to match regex expression: {}. Error: {}",
+                                         boost_regex->str(), e.what());
+        }
+        return Status::OK();
+    }
+    *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), *regex);
+    return Status::OK();
+}
+
+// hyperscan compile expression to database and allocate scratch space
+bool FunctionLikeBase::should_fallback_to_re2(std::string_view regexp) {
+    return is_hyperscan_regexp_expensive(regexp);
+}
+
+Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
+                                    hs_database_t** database, hs_scratch_t** scratch) {
+    if (should_fallback_to_re2(expression)) {
+        *database = nullptr;
+        *scratch = nullptr;
+        // Callers either fall back to RE2 or return this status based on the session variable.
+        return Status::RuntimeError<false>(HYPERSCAN_BOUNDED_REPEAT_ERROR);
+    }
+
+    hs_compile_error_t* compile_err;
+    auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
+                          HS_MODE_BLOCK, nullptr, database, &compile_err);
+
+    if (res != HS_SUCCESS) {
+        *database = nullptr;
+        std::string error_message = compile_err->message;
+        hs_free_compile_error(compile_err);
+        // Callers either fall back to RE2 or return this status based on the session variable.
+        return Status::RuntimeError<false>("hs_compile regex pattern error:" + error_message);
+    }
+    hs_free_compile_error(compile_err);
+
+    if (hs_alloc_scratch(*database, scratch) != HS_SUCCESS) {
+        hs_free_database(*database);
+        *database = nullptr;
+        *scratch = nullptr;
+        // Callers either fall back to RE2 or return this status based on the session variable.
+        return Status::RuntimeError<false>("hs_alloc_scratch allocate scratch space error");
+    }
+
+    return Status::OK();
+}
+
+Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
+                                      const ColumnNumbers& arguments, uint32_t result,
+                                      size_t input_rows_count) const {
+    const auto values_col =
+            block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+    const auto* values = check_and_get_column<ColumnString>(values_col.get());
+
+    if (!values) {
+        return Status::InternalError("Not supported input arguments types");
+    }
+    // result column
+    auto res = ColumnUInt8::create();
+    ColumnUInt8::Container& vec_res = res->get_data();
+    // set default value to 0, and match functions only need to set 1/true
+    vec_res.resize_fill(input_rows_count);
+    auto* state = reinterpret_cast<LikeState*>(
+            context->get_function_state(FunctionContext::THREAD_LOCAL));
+    const auto pattern_col = block.get_by_position(arguments[1]).column;
+    if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
+        RETURN_IF_ERROR(vector_non_const(*values, *str_patterns, vec_res, state, input_rows_count));
+    } else if (const auto* const_patterns = check_and_get_column<ColumnConst>(pattern_col.get())) {
+        const auto& pattern_val = const_patterns->get_data_at(0);
+        RETURN_IF_ERROR(vector_const(*values, &pattern_val, vec_res, state->function,
+                                     &state->search_state));
+    } else {
+        return Status::InternalError("Not supported input arguments types");
+    }
+    block.replace_by_position(result, std::move(res));
+    return Status::OK();
+}
+
+Status FunctionLikeBase::vector_const(const ColumnString& values, const StringRef* pattern_val,
+                                      ColumnUInt8::Container& result, const LikeFn& function,
+                                      LikeSearchState* search_state) const {
+    RETURN_IF_ERROR((function)(search_state, values,
+                               *reinterpret_cast<const StringRef*>(pattern_val), result));
+    return Status::OK();
+}
+
+template <bool LIKE_PATTERN>
+VPatternSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnString& patterns) {
+    VPatternSearchStateSPtr allpass_state = std::make_shared<VectorAllpassSearchState>();
+    VPatternSearchStateSPtr equal_state = std::make_shared<VectorEqualSearchState>();
+    VPatternSearchStateSPtr substring_state = std::make_shared<VectorSubStringSearchState>();
+    VPatternSearchStateSPtr starts_with_state = std::make_shared<VectorStartsWithSearchState>();
+    VPatternSearchStateSPtr ends_with_state = std::make_shared<VectorEndsWithSearchState>();
+    size_t size = patterns.size();
+
+    for (size_t i = 0; i < size; ++i) {
+        if (!allpass_state->_pattern_matched && !equal_state->_pattern_matched &&
+            !substring_state->_pattern_matched && !starts_with_state->_pattern_matched &&
+            !ends_with_state->_pattern_matched) {
+            return nullptr;
+        }
+        std::string pattern_str = patterns.get_data_at(i).to_string();
+        if (allpass_state->_pattern_matched) {
+            if constexpr (LIKE_PATTERN) {
+                allpass_state->like_pattern_match(pattern_str);
+            } else {
+                allpass_state->regexp_pattern_match(pattern_str);
+            }
+        }
+        if (equal_state->_pattern_matched) {
+            if constexpr (LIKE_PATTERN) {
+                equal_state->like_pattern_match(pattern_str);
+            } else {
+                equal_state->regexp_pattern_match(pattern_str);
+            }
+        }
+        if (substring_state->_pattern_matched) {
+            if constexpr (LIKE_PATTERN) {
+                substring_state->like_pattern_match(pattern_str);
+            } else {
+                substring_state->regexp_pattern_match(pattern_str);
+            }
+        }
+        if (starts_with_state->_pattern_matched) {
+            if constexpr (LIKE_PATTERN) {
+                starts_with_state->like_pattern_match(pattern_str);
+            } else {
+                starts_with_state->regexp_pattern_match(pattern_str);
+            }
+        }
+        if (ends_with_state->_pattern_matched) {
+            if constexpr (LIKE_PATTERN) {
+                ends_with_state->like_pattern_match(pattern_str);
+            } else {
+                ends_with_state->regexp_pattern_match(pattern_str);
+            }
+        }
+    }
+
+    if (allpass_state->_pattern_matched) {
+        return allpass_state;
+    } else if (equal_state->_pattern_matched) {
+        return equal_state;
+    } else if (substring_state->_pattern_matched) {
+        return substring_state;
+    } else if (starts_with_state->_pattern_matched) {
+        return starts_with_state;
+    } else if (ends_with_state->_pattern_matched) {
+        return ends_with_state;
+    } else {
+        return nullptr;
+    }
+}
+
+Status FunctionLikeBase::vector_non_const(const ColumnString& values, const ColumnString& patterns,
+                                          ColumnUInt8::Container& result, LikeState* state,
+                                          size_t input_rows_count) const {
+    ColumnString::MutablePtr replaced_patterns;
+    VPatternSearchStateSPtr vector_search_state;
+    if (state->is_like_pattern) {
+        if (state->has_custom_escape) {
+            replaced_patterns = ColumnString::create();
+            for (int i = 0; i < input_rows_count; ++i) {
+                std::string val =
+                        replace_pattern_by_escape(patterns.get_data_at(i), state->escape_char);
+                replaced_patterns->insert_data(val.c_str(), val.size());
+            }
+            vector_search_state = pattern_type_recognition<true>(*replaced_patterns);
+        } else {
+            vector_search_state = pattern_type_recognition<true>(patterns);
+        }
+    } else {
+        vector_search_state = pattern_type_recognition<false>(patterns);
+    }
+
+    const ColumnString& real_pattern = state->has_custom_escape ? *replaced_patterns : patterns;
+
+    if (vector_search_state == nullptr) {
+        // pattern type recognition failed, use default case
+        for (int i = 0; i < input_rows_count; ++i) {
+            const auto pattern_val = real_pattern.get_data_at(i);
+            const auto value_val = values.get_data_at(i);
+            RETURN_IF_ERROR((state->scalar_function)(&state->search_state, value_val, pattern_val,
+                                                     &result[i]));
+        }
+        return Status::OK();
+    }
+    const auto* search_strings =
+            static_cast<const ColumnString*>(vector_search_state->_search_strings.get());
+    return (vector_search_state->_vector_function)(values, *search_strings, result);
+}
+
+Status FunctionLike::like_fn(const LikeSearchState* state, const ColumnString& val,
+                             const StringRef& pattern, ColumnUInt8::Container& result) {
+    std::string re_pattern;
+    convert_like_pattern(state, std::string(pattern.data, pattern.size), &re_pattern);
+    return regexp_fn(state, val, {re_pattern.c_str(), re_pattern.size()}, result);
+}
+
+Status FunctionLike::like_fn_scalar(const LikeSearchState* state, const StringRef& val,
+                                    const StringRef& pattern, unsigned char* result) {
+    // Try to use fast path to avoid regex compilation
+    std::string search_string;
+    LikeFastPath fast_path = extract_like_fast_path(pattern.data, pattern.size, search_string);
+
+    switch (fast_path) {
+    case LikeFastPath::ALLPASS:
+        *result = 1;
+        return Status::OK();
+    case LikeFastPath::EQUALS:
+        *result = (val.size == search_string.size() &&
+                   (search_string.empty() ||
+                    memcmp(val.data, search_string.data(), search_string.size()) == 0));
+        return Status::OK();
+    case LikeFastPath::STARTS_WITH:
+        *result = (val.size >= search_string.size() &&
+                   memcmp(val.data, search_string.data(), search_string.size()) == 0);
+        return Status::OK();
+    case LikeFastPath::ENDS_WITH:
+        *result = (val.size >= search_string.size() &&
+                   memcmp(val.data + val.size - search_string.size(), search_string.data(),
+                          search_string.size()) == 0);
+        return Status::OK();
+    case LikeFastPath::SUBSTRING:
+        if (search_string.empty()) {
+            *result = 1;
+        } else {
+            // Use memmem for substring search
+            *result = (memmem(val.data, val.size, search_string.data(), search_string.size()) !=
+                       nullptr);
+        }
+        return Status::OK();
+    case LikeFastPath::REGEX:
+    default:
+        // Fall back to regex matching
+        std::string re_pattern;
+        convert_like_pattern(state, std::string(pattern.data, pattern.size), &re_pattern);
+        return regexp_fn_scalar(state, StringRef(val.data, val.size),
+                                {re_pattern.c_str(), re_pattern.size()}, result);
+    }
+}
+
+void FunctionLike::convert_like_pattern(const LikeSearchState* state, const std::string& pattern,
+                                        std::string* re_pattern) {
+    re_pattern->clear();
+
+    if (pattern.empty()) {
+        // `\z` is the end of the value in both Hyperscan and RE2
+        re_pattern->append("^\\z");
+        return;
+    }
+
+    // add ^ to pattern head to match line head
+    if (!pattern.empty() && pattern[0] != '%') {
+        re_pattern->append("^");
+    }
+
+    // expect % and _, all chars should keep it literal mean.
+    for (size_t i = 0; i < pattern.size(); i++) {
+        char c = pattern[i];
+        if (c == '\\' && i + 1 < pattern.size()) {
+            char next_c = pattern[i + 1];
+            if (next_c == '%' || next_c == '_') {
+                // convert "\%" and "\_" to literal "%" and "_"
+                re_pattern->append(1, next_c);
+                i++;
+                continue;
+            } else if (next_c == '\\') {
+                // keep valid escape "\\"
+                re_pattern->append("\\\\");
+                i++;
+                continue;
+            }
+        }
+
+        if (c == '%') {
+            if (i + 1 == pattern.size()) {
+                // a trailing `%` matches anything, and so does appending nothing
+                return;
+            }
+            re_pattern->append(".*");
+        } else if (c == '_') {
+            re_pattern->append(".");
+        } else {
+            // special for hyperscan: [, ], (, ), {, }, -, *, +, \, |, /, :, ^, ., $, ?
+            if (c == '[' || c == ']' || c == '(' || c == ')' || c == '{' || c == '}' || c == '-' ||
+                c == '*' || c == '+' || c == '\\' || c == '|' || c == '/' || c == ':' || c == '^' ||
+                c == '.' || c == '$' || c == '?') {
+                re_pattern->append(1, '\\');
+            }
+            re_pattern->append(1, c);
+        }
+    }
+
+    // `\z` is the end of the value in both Hyperscan and RE2
+    re_pattern->append("\\z");
+}
+
+void FunctionLike::remove_escape_character(std::string* search_string) {
+    std::string tmp_search_string;
+    tmp_search_string.swap(*search_string);
+    int64_t len = tmp_search_string.length();
+    // sometime 'like' may allowed converted to 'equals/start_with/end_with/sub_with'
+    // so we need to remove escape from pattern to construct search string and use to do 'equals/start_with/end_with/sub_with'
+    for (int i = 0; i < len;) {
+        if (tmp_search_string[i] == '\\' && i + 1 < len &&
+            (tmp_search_string[i + 1] == '%' || tmp_search_string[i + 1] == '_' ||
+             tmp_search_string[i + 1] == '\\')) {
+            search_string->append(1, tmp_search_string[i + 1]);
+            i += 2;
+        } else {
+            search_string->append(1, tmp_search_string[i]);
+            i++;
+        }
+    }
+}
+
+bool re2_full_match(const std::string& str, const RE2& re, std::vector<std::string>& results) {
+    if (!re.ok()) {
+        return false;
+    }
+
+    std::vector<RE2::Arg> arguments;
+    std::vector<RE2::Arg*> arguments_ptrs;
+    std::size_t args_count = re.NumberOfCapturingGroups();
+    arguments.resize(args_count);
+    arguments_ptrs.resize(args_count);
+    results.resize(args_count);
+    for (std::size_t i = 0; i < args_count; ++i) {
+        arguments[i] = &results[i];
+        arguments_ptrs[i] = &arguments[i];
+    }
+
+    return RE2::FullMatchN(str, re, arguments_ptrs.data(), (int)args_count);
+}
+
+void verbose_log_match(const std::string& str, const std::string& pattern_name, const RE2& re) {
+    std::vector<std::string> results;
+    VLOG_DEBUG << "arg str: " << str << ", size: " << str.size() << ", pattern " << pattern_name
+               << ": " << re.pattern() << ", size: " << re.pattern().size();
+    if (re2_full_match(str, re, results)) {
+        for (int i = 0; i < results.size(); ++i) {
+            VLOG_DEBUG << "match " << i << ": " << results[i] << ", size: " << results[i].size();
+        }
+    } else {
+        VLOG_DEBUG << "no match";
+    }
+}
+
+Status FunctionLike::construct_like_const_state(FunctionContext* context, const StringRef& pattern,
+                                                std::shared_ptr<LikeState>& state,
+                                                bool try_hyperscan) {
+    std::string pattern_str;
+    if (state->has_custom_escape) {
+        pattern_str = replace_pattern_by_escape(pattern, state->escape_char);
+    } else {
+        pattern_str = pattern.to_string();
+    }
+    state->search_state.pattern_str = pattern_str;
+    std::string search_string;
+
+    if (!pattern_str.empty() && RE2::FullMatch(pattern_str, LIKE_ALLPASS_RE)) {
+        state->search_state.set_search_string("");
+        state->function = constant_allpass_fn;
+        state->scalar_function = constant_allpass_fn_scalar;
+    } else if (pattern_str.empty() || RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &search_string)) {
+        if (VLOG_DEBUG_IS_ON) {
+            verbose_log_match(pattern_str, "LIKE_EQUALS_RE", LIKE_EQUALS_RE);
+            VLOG_DEBUG << "search_string : " << search_string << ", size: " << search_string.size();
+        }
+        remove_escape_character(&search_string);
+        if (VLOG_DEBUG_IS_ON) {
+            VLOG_DEBUG << "search_string escape removed: " << search_string
+                       << ", size: " << search_string.size();
+        }
+        state->search_state.set_search_string(search_string);
+        state->function = constant_equals_fn;
+        state->scalar_function = constant_equals_fn_scalar;
+    } else if (RE2::FullMatch(pattern_str, LIKE_STARTS_WITH_RE, &search_string)) {
+        if (VLOG_DEBUG_IS_ON) {
+            verbose_log_match(pattern_str, "LIKE_STARTS_WITH_RE", LIKE_STARTS_WITH_RE);
+            VLOG_DEBUG << "search_string : " << search_string << ", size: " << search_string.size();
+        }
+        remove_escape_character(&search_string);
+        if (VLOG_DEBUG_IS_ON) {
+            VLOG_DEBUG << "search_string escape removed: " << search_string
+                       << ", size: " << search_string.size();
+        }
+        state->search_state.set_search_string(search_string);
+        state->function = constant_starts_with_fn;
+        state->scalar_function = constant_starts_with_fn_scalar;
+    } else if (RE2::FullMatch(pattern_str, LIKE_ENDS_WITH_RE, &search_string)) {
+        if (VLOG_DEBUG_IS_ON) {
+            verbose_log_match(pattern_str, "LIKE_ENDS_WITH_RE", LIKE_ENDS_WITH_RE);
+            VLOG_DEBUG << "search_string : " << search_string << ", size: " << search_string.size();
+        }
+        remove_escape_character(&search_string);
+        if (VLOG_DEBUG_IS_ON) {
+            VLOG_DEBUG << "search_string escape removed: " << search_string
+                       << ", size: " << search_string.size();
+        }
+        state->search_state.set_search_string(search_string);
+        state->function = constant_ends_with_fn;
+        state->scalar_function = constant_ends_with_fn_scalar;
+    } else if (RE2::FullMatch(pattern_str, LIKE_SUBSTRING_RE, &search_string)) {
+        if (VLOG_DEBUG_IS_ON) {
+            verbose_log_match(pattern_str, "LIKE_SUBSTRING_RE", LIKE_SUBSTRING_RE);
+            VLOG_DEBUG << "search_string : " << search_string << ", size: " << search_string.size();
+        }
+        remove_escape_character(&search_string);
+        if (VLOG_DEBUG_IS_ON) {
+            VLOG_DEBUG << "search_string escape removed: " << search_string
+                       << ", size: " << search_string.size();
+        }
+        state->search_state.set_search_string(search_string);
+        state->function = constant_substring_fn;
+        state->scalar_function = constant_substring_fn_scalar;
+    } else {
+        std::string re_pattern;
+        convert_like_pattern(&state->search_state, pattern_str, &re_pattern);
+        if (VLOG_DEBUG_IS_ON) {
+            VLOG_DEBUG << "hyperscan, pattern str: " << pattern_str
+                       << ", size: " << pattern_str.size() << ", re pattern: " << re_pattern
+                       << ", size: " << re_pattern.size();
+        }
+
+        hs_database_t* database = nullptr;
+        hs_scratch_t* scratch = nullptr;
+        Status hs_status;
+        if (try_hyperscan) {
+            hs_status = hs_prepare(context, re_pattern.c_str(), &database, &scratch);
+        }
+        if (try_hyperscan && hs_status.ok()) {
+            // use hyperscan
+            state->search_state.hs_database.reset(database);
+            state->search_state.hs_scratch.reset(scratch);
+        } else {
+            // fallback to re2
+            if (try_hyperscan && !state->search_state.enable_hyperscan_fallback) {
+                return hs_status;
+            }
+            // reset hs_database to nullptr to indicate not use hyperscan
+            state->search_state.hs_database.reset();
+            state->search_state.hs_scratch.reset();
+
+            RE2::Options opts;
+            opts.set_never_nl(false);
+            opts.set_dot_nl(true);
+            state->search_state.regex = std::make_unique<RE2>(re_pattern, opts);
+            if (!state->search_state.regex->ok()) {
+                return Status::InternalError("Invalid regex expression: {}(origin: {})", re_pattern,
+                                             pattern_str);
+            }
+        }
+
+        state->function = constant_regex_fn;
+        state->scalar_function = constant_regex_fn_scalar;
+    }
+    return Status::OK();
+}
+
+Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    if (scope != FunctionContext::THREAD_LOCAL) {
+        return Status::OK();
+    }
+    std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
+    state->is_like_pattern = true;
+    state->search_state.enable_hyperscan_fallback =
+            context->state()->query_options().enable_hyperscan_fallback;
+    state->function = like_fn;
+    state->scalar_function = like_fn_scalar;
+    if (context->is_col_constant(2)) {
+        state->has_custom_escape = true;
+        const auto escape_col = context->get_constant_col(2)->column_ptr;
+        const auto& escape = escape_col->get_data_at(0);
+        if (escape.size != 1) {
+            return Status::InternalError("Escape character must be a single character, got: {}",
+                                         escape.to_string());
+        }
+        state->escape_char = escape.data[0];
+    }
+    if (context->is_col_constant(1)) {
+        const auto pattern_col = context->get_constant_col(1)->column_ptr;
+        const auto& pattern = pattern_col->get_data_at(0);
+        RETURN_IF_ERROR(construct_like_const_state(context, pattern, state));
+    }
+    context->set_function_state(scope, state);
+
+    return Status::OK();
+}
+
+Status FunctionRegexpLike::open(FunctionContext* context,
+                                FunctionContext::FunctionStateScope scope) {
+    if (scope != FunctionContext::THREAD_LOCAL) {
+        return Status::OK();
+    }
+    std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
+    context->set_function_state(scope, state);
+    state->is_like_pattern = false;
+    state->search_state.enable_hyperscan_fallback =
+            context->state()->query_options().enable_hyperscan_fallback;
+    state->search_state.enable_extended_regex = context->state()->enable_extended_regex();
+    state->function = regexp_fn;
+    state->scalar_function = regexp_fn_scalar;
+    if (context->is_col_constant(1)) {
+        const auto pattern_col = context->get_constant_col(1)->column_ptr;
+        const auto& pattern = pattern_col->get_data_at(0);
+
+        std::string pattern_str = pattern.to_string();
+        std::string search_string;
+        if (RE2::FullMatch(pattern_str, ALLPASS_RE)) {
+            state->search_state.set_search_string("");
+            state->function = constant_allpass_fn;
+            state->scalar_function = constant_allpass_fn_scalar;
+        } else if (RE2::FullMatch(pattern_str, EQUALS_RE, &search_string)) {
+            state->search_state.set_search_string(search_string);
+            state->function = constant_equals_fn;
+            state->scalar_function = constant_equals_fn_scalar;
+        } else if (RE2::FullMatch(pattern_str, STARTS_WITH_RE, &search_string)) {
+            state->search_state.set_search_string(search_string);
+            state->function = constant_starts_with_fn;
+            state->scalar_function = constant_starts_with_fn_scalar;
+        } else if (RE2::FullMatch(pattern_str, ENDS_WITH_RE, &search_string)) {
+            state->search_state.set_search_string(search_string);
+            state->function = constant_ends_with_fn;
+            state->scalar_function = constant_ends_with_fn_scalar;
+        } else if (RE2::FullMatch(pattern_str, SUBSTRING_RE, &search_string)) {
+            state->search_state.set_search_string(search_string);
+            state->function = constant_substring_fn;
+            state->scalar_function = constant_substring_fn_scalar;
+        } else {
+            hs_database_t* database = nullptr;
+            hs_scratch_t* scratch = nullptr;
+            auto hs_status = hs_prepare(context, pattern_str.c_str(), &database, &scratch);
+            if (hs_status.ok()) {
+                // use hyperscan
+                state->search_state.hs_database.reset(database);
+                state->search_state.hs_scratch.reset(scratch);
+            } else {
+                // fallback to re2
+                if (!state->search_state.enable_hyperscan_fallback) {
+                    return hs_status;
+                }
+                // reset hs_database to nullptr to indicate not use hyperscan
+                state->search_state.hs_database.reset();
+                state->search_state.hs_scratch.reset();
+                RETURN_IF_ERROR(compile_regex(
+                        pattern_str, state->search_state.enable_extended_regex,
+                        &state->search_state.regex, &state->search_state.boost_regex));
+            }
+            state->function = constant_regex_fn;
+            state->scalar_function = constant_regex_fn_scalar;
+        }
+    }
+    return Status::OK();
+}
+
+// R8 (unity build): file-scope helpers use a namespace private to this file.
+namespace like_gram_index_detail {
+
+// A declined index leaves the rows to the predicate; the scan decides every other index status.
+Status dispatch_query(bool is_like, const std::string& pattern, segment_v2::IndexIterator* iter,
+                      const IndexFieldNameAndTypePair& data_type_with_name, uint32_t num_rows,
+                      segment_v2::InvertedIndexResultBitmap* bitmap_result) {
+    segment_v2::InvertedIndexParam param;
+    param.column_name = data_type_with_name.first;
+    param.column_type = data_type_with_name.second;
+    param.query_value = Field::create_field<TYPE_STRING>(pattern);
+    param.query_type = is_like ? segment_v2::InvertedIndexQueryType::LIKE_GRAM_QUERY
+                               : segment_v2::InvertedIndexQueryType::REGEXP_GRAM_QUERY;
+    param.num_rows = num_rows;
+    param.roaring = std::make_shared<roaring::Roaring>();
+
+    Status query_status = iter->read_from_index(&param);
+    if (!query_status.ok()) {
+        if (query_status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>() ||
+            query_status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) {
+            return Status::OK();
+        }
+        return query_status;
+    }
+
+    segment_v2::InvertedIndexResultBitmap result(param.roaring, nullptr);
+    result.set_approximate(true);
+    *bitmap_result = result;
+    return Status::OK();
+}
+
+} // namespace like_gram_index_detail
+
+Status FunctionLikeBase::evaluate_gram_index(
+        GramCompileKind kind, const ColumnsWithTypeAndName& arguments,
+        const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
+        std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+        segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+    const bool is_like = (kind == GramCompileKind::LIKE);
+    if (!config::enable_gram_index_regexp) {
+        return Status::OK();
+    }
+    // VExpr binds whatever children it finds -- one entry per indexed column, one per literal
+    // -- so the shape reaching here is not guaranteed. Answer only the shape this compiler
+    // understands: a single indexed column and a single constant pattern. `LIKE ... ESCAPE`
+    // arrives with a second literal and would otherwise be compiled with the default escaping,
+    // which is not what the query asked for.
+    if (iterators.size() != 1 || data_type_with_names.size() != 1 || arguments.size() != 1 ||
+        !is_column_const(*arguments[0].column)) {
+        return Status::OK();
+    }
+    Field pattern_field;
+    arguments[0].column->get(0, pattern_field);
+    if (pattern_field.is_null()) {
+        return Status::OK();
+    }
+    const auto& pattern = pattern_field.get<TYPE_STRING>();
+
+    return like_gram_index_detail::dispatch_query(
+            is_like, pattern, iterators[0], data_type_with_names[0], num_rows, &bitmap_result);
+}
+
+void register_function_like(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionLike>();
+}
+
+void register_function_regexp(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionRegexpLike>();
+    factory.register_alias(FunctionRegexpLike::name, FunctionRegexpLike::alias);
+}
+} // namespace doris

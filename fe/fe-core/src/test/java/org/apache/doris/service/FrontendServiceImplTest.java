@@ -1,0 +1,990 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.service;
+
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.AuthenticationException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.BackendsTableValuedFunction;
+import org.apache.doris.thrift.TBackendsMetadataParams;
+import org.apache.doris.thrift.TCheckAuthRequest;
+import org.apache.doris.thrift.TCheckAuthResult;
+import org.apache.doris.thrift.TCommitTxnRequest;
+import org.apache.doris.thrift.TCreatePartitionRequest;
+import org.apache.doris.thrift.TCreatePartitionResult;
+import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
+import org.apache.doris.thrift.TFetchSchemaTableDataResult;
+import org.apache.doris.thrift.TGetDbsParams;
+import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetTablesParams;
+import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TLoadTxnCommitRequest;
+import org.apache.doris.thrift.TLoadTxnRollbackRequest;
+import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
+import org.apache.doris.thrift.TMaxComputeBlockIdResult;
+import org.apache.doris.thrift.TMetadataTableRequestParams;
+import org.apache.doris.thrift.TMetadataType;
+import org.apache.doris.thrift.TNullableStringLiteral;
+import org.apache.doris.thrift.TPrivilegeCtrl;
+import org.apache.doris.thrift.TPrivilegeHier;
+import org.apache.doris.thrift.TPrivilegeType;
+import org.apache.doris.thrift.TRollbackTxnRequest;
+import org.apache.doris.thrift.TSchemaTableName;
+import org.apache.doris.thrift.TSchemaTableRequestParams;
+import org.apache.doris.thrift.TShowProcessListRequest;
+import org.apache.doris.thrift.TShowUserRequest;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TTabletLocation;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
+import org.apache.doris.utframe.TestWithFeService;
+
+import com.google.common.collect.Sets;
+import org.apache.logging.log4j.Level;
+import org.apache.thrift.TException;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+
+public class FrontendServiceImplTest extends TestWithFeService {
+
+    private ExecuteEnv exeEnv = Mockito.mock(ExecuteEnv.class);
+
+    @Override
+    protected void beforeCreatingConnectContext() throws Exception {
+        FeConstants.runningUnitTest = true;
+        FeConstants.default_scheduler_interval_millisecond = 100;
+        Config.dynamic_partition_enable = true;
+        Config.dynamic_partition_check_interval_seconds = 1;
+    }
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
+    }
+
+    private void executeCommand(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof Command) {
+            ((Command) parsed).run(connectContext, stmtExecutor);
+            return;
+        }
+        throw new IllegalArgumentException("Unsupported command in test: " + sql);
+    }
+
+    private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    @Test
+    public void testCheckAuthDoesNotLogPassword() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TPrivilegeCtrl privilegeCtrl = new TPrivilegeCtrl();
+        privilegeCtrl.setPrivHier(TPrivilegeHier.GLOBAL);
+        TCheckAuthRequest request = new TCheckAuthRequest();
+        request.setUser("root");
+        request.setPasswd("plain_text_secret");
+        request.setUserIp("127.0.0.1");
+        request.setPrivCtrl(privilegeCtrl);
+        request.setPrivType(TPrivilegeType.LOAD);
+
+        try (TestLogAppender appender = TestLogAppender.attach(FrontendServiceImpl.class)) {
+            TCheckAuthResult result = impl.checkAuth(request);
+
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertTrue(appender.contains(Level.DEBUG,
+                    "receive auth request: TCheckAuthRequest"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "user:root"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "passwd:***MASKED***"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "user_ip:127.0.0.1"));
+            Assertions.assertTrue(appender.contains(Level.DEBUG, "priv_hier:GLOBAL"));
+            Assertions.assertFalse(appender.contains(Level.DEBUG, "plain_text_secret"));
+        }
+    }
+
+    public void testShowProcessListRejectsMissingUserIdentity() {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TShowProcessListRequest request = new TShowProcessListRequest();
+
+        TException exception = Assertions.assertThrows(TException.class, () -> impl.showProcessList(request));
+        Assertions.assertEquals("Current user identity is not set", exception.getMessage());
+    }
+
+    /**
+     * A {@code checkAuth} request has to name what its hierarchy is about, and for everything below a catalog
+     * that includes the catalog.
+     *
+     * <p>Every name in {@code TPrivilegeCtrl} is optional in the IDL, and the names below a catalog end up in
+     * {@code AuthorizedResource}, whose constructors require them. Only the {@code COLUMNS} branch is
+     * exempt - it hard-codes the internal catalog and never reads the one the request carries. The in-repo BE
+     * only ever sends {@code GLOBAL}, so what this pins is what an external client gets: a refusal naming
+     * what it left out, rather than a thrift-level failure out of a null name deep inside.
+     */
+    @Test
+    public void testCheckAuthRefusesARequestThatNamesNoCatalog() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+
+        for (TPrivilegeHier hier : new TPrivilegeHier[] {TPrivilegeHier.DATABASE, TPrivilegeHier.TABLE}) {
+            TPrivilegeCtrl unnamed = new TPrivilegeCtrl();
+            unnamed.setPrivHier(hier);
+            unnamed.setDb("test");
+            unnamed.setTbl("whatever");
+
+            TStatus refused = impl.checkAuth(rootCheckAuthRequest(unnamed)).getStatus();
+
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, refused.getStatusCode(),
+                    "a " + hier + " check naming no catalog was answered rather than refused");
+            Assertions.assertTrue(String.valueOf(refused.getErrorMsgs()).contains("must name the catalog"),
+                    "a " + hier + " check naming no catalog failed on something other than the missing name: "
+                            + refused.getErrorMsgs());
+        }
+
+        // The same request with the catalog named is answered, so what the assertions above pin is the
+        // missing name and not the hierarchy being unsupported.
+        TPrivilegeCtrl named = new TPrivilegeCtrl();
+        named.setPrivHier(TPrivilegeHier.DATABASE);
+        named.setCtl(InternalCatalog.INTERNAL_CATALOG_NAME);
+        named.setDb("test");
+
+        TStatus answered = impl.checkAuth(rootCheckAuthRequest(named)).getStatus();
+
+        Assertions.assertEquals(TStatusCode.OK, answered.getStatusCode(),
+                "root was refused LOAD on a database it holds it on: " + answered.getErrorMsgs());
+    }
+
+    private static TCheckAuthRequest rootCheckAuthRequest(TPrivilegeCtrl privilegeCtrl) {
+        TCheckAuthRequest request = new TCheckAuthRequest();
+        request.setUser("root");
+        request.setPasswd("");
+        request.setUserIp("127.0.0.1");
+        request.setPrivCtrl(privilegeCtrl);
+        request.setPrivType(TPrivilegeType.LOAD);
+        return request;
+    }
+
+    @Test
+    public void testGetTableNamesWithSysTablePattern() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TGetTablesParams params = new TGetTablesParams();
+        params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+        params.setDb("test");
+        params.setPattern("test_dropped_partition_field$partitions");
+        params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+        TGetTablesResult result = impl.getTableNames(params);
+        Assertions.assertTrue(result.getTables().isEmpty());
+    }
+
+    @Test
+    public void testListTableStatusPrunesUnrequestedExpensiveColumns() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_status_columns(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_status_columns");
+        OlapTable spyTable = Mockito.spy(table);
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_status_columns");
+            params.setRequiredColumns(Collections.singleton("UPDATE_TIME"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assertions.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assertions.assertTrue(status.isSetUpdateTime());
+            Assertions.assertFalse(status.isSetRows());
+            Assertions.assertFalse(status.isSetDataLength());
+            Assertions.assertFalse(status.isSetAvgRowLength());
+            Assertions.assertFalse(status.isSetIndexLength());
+            Mockito.verify(spyTable, Mockito.never()).getCachedRowCount();
+            Mockito.verify(spyTable, Mockito.never()).getDataLength();
+            Mockito.verify(spyTable, Mockito.never()).getAvgRowLength();
+            Mockito.verify(spyTable, Mockito.never()).getIndexLength();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusSetsLastCheckTimeForCheckTimeProjection() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_check_time_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_check_time_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn(10_000L).when(spyTable).getLastCheckTime();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_check_time_status_column");
+            params.setRequiredColumns(Collections.singleton("CHECK_TIME"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assertions.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assertions.assertTrue(status.isSetLastCheckTime());
+            Assertions.assertEquals(10L, status.getLastCheckTime());
+            Assertions.assertTrue(status.isSetCheckTime());
+            Assertions.assertEquals(10L, status.getCheckTime());
+            Assertions.assertFalse(status.isSetUpdateTime());
+            Assertions.assertFalse(status.isSetRows());
+            Mockito.verify(spyTable, Mockito.never()).getTableStatusStats();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusPrunesAllOptionalColumnsWhenRequiredColumnsIsEmpty() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_all_optional_status_columns(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_all_optional_status_columns");
+        OlapTable spyTable = Mockito.spy(table);
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_all_optional_status_columns");
+            params.setRequiredColumns(Collections.emptySet());
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assertions.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assertions.assertFalse(status.isSetEngine());
+            Assertions.assertFalse(status.isSetUpdateTime());
+            Assertions.assertFalse(status.isSetRows());
+            Assertions.assertFalse(status.isSetDataLength());
+            Assertions.assertFalse(status.isSetAvgRowLength());
+            Assertions.assertFalse(status.isSetIndexLength());
+            Mockito.verify(spyTable, Mockito.never()).getTableStatusStats();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusUsesCombinedStatsForExpensiveColumns() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.combined_status_stats(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("combined_status_stats");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn(new TableIf.TableStatusStats(10L, 20L, 2L, 30L))
+                .when(spyTable).getTableStatusStats();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("combined_status_stats");
+            params.setRequiredColumns(Sets.newHashSet("table_rows", "Data_Length", "avg_row_length",
+                    "INDEX_LENGTH"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assertions.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assertions.assertEquals(10L, status.getRows());
+            Assertions.assertEquals(20L, status.getDataLength());
+            Assertions.assertEquals(2L, status.getAvgRowLength());
+            Assertions.assertEquals(30L, status.getIndexLength());
+            Mockito.verify(spyTable).getTableStatusStats();
+            Mockito.verify(spyTable, Mockito.never()).getCachedRowCount();
+            Mockito.verify(spyTable, Mockito.never()).getDataLength();
+            Mockito.verify(spyTable, Mockito.never()).getAvgRowLength();
+            Mockito.verify(spyTable, Mockito.never()).getIndexLength();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+
+    @Test
+    public void testCreatePartitionRange() throws Exception {
+        String createOlapTblStmt = new String("CREATE TABLE test.partition_range(\n"
+                + "    event_day DATETIME NOT NULL,\n"
+                + "    site_id INT DEFAULT '10',\n"
+                + "    city_code VARCHAR(100)\n"
+                + ")\n"
+                + "DUPLICATE KEY(event_day, site_id, city_code)\n"
+                + "AUTO PARTITION BY range (date_trunc( event_day,'day')) (\n"
+                + "\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");");
+
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range");
+
+        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+        List<TNullableStringLiteral> values = new ArrayList<>();
+
+        TNullableStringLiteral start = new TNullableStringLiteral();
+        start.setValue("2023-08-07 00:00:00");
+        values.add(start);
+
+        partitionValues.add(values);
+
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(partitionValues);
+        TCreatePartitionResult partition = impl.createPartition(request);
+
+        Assertions.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
+        Partition p20230807 = table.getPartition("p20230807000000");
+        Assertions.assertNotNull(p20230807);
+    }
+
+    @Test
+    public void testCreatePartitionWithRowBinlog() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.partition_range_with_row_binlog(\n"
+                + "    event_day DATETIME NOT NULL,\n"
+                + "    site_id INT,\n"
+                + "    city_code VARCHAR(100)\n"
+                + ")\n"
+                + "DUPLICATE KEY(event_day, site_id, city_code)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
+                + "PROPERTIES(\"replication_num\" = \"1\", \"binlog.enable\" = \"true\", "
+                + "\"binlog.format\" = \"ROW\");";
+        createTableWithRowBinlog(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_with_row_binlog");
+        TNullableStringLiteral start = new TNullableStringLiteral();
+        start.setValue("2023-08-09 00:00:00");
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(Collections.singletonList(Collections.singletonList(start)));
+
+        TCreatePartitionResult result = new FrontendServiceImpl(exeEnv).createPartition(request);
+
+        Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+        Assertions.assertEquals(1, result.getPartitionsSize());
+        Assertions.assertEquals(table.getIndexNumber(), result.getPartitions().get(0).getIndexesSize());
+
+        Partition createdPartition = table.getPartition("p20230809000000");
+        Assertions.assertNotNull(createdPartition);
+        MaterializedIndex rowBinlogIndex = createdPartition
+                .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true).stream()
+                .filter(MaterializedIndex::isRowBinlog)
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals(createdPartition.getBaseIndex().getTablets().size() * 2,
+                result.getTabletsSize());
+        for (Tablet rowBinlogTablet : rowBinlogIndex.getTablets()) {
+            TTabletLocation location = result.getTablets().stream()
+                    .filter(tablet -> tablet.getTabletId() == rowBinlogTablet.getId())
+                    .findFirst()
+                    .orElseThrow();
+            Assertions.assertTrue(location.isSetBaseTabletId());
+            Assertions.assertEquals(rowBinlogTablet.getRowBinlogBaseTabletId(), location.getBaseTabletId());
+        }
+    }
+
+    @Test
+    public void testCreatePartitionReturnsRetryErrorWhenResultPartitionIsMissing() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.partition_dropped_before_result_snapshot(\n"
+                + "    event_day DATETIME NOT NULL,\n"
+                + "    site_id INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(event_day, site_id)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(event_day) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_dropped_before_result_snapshot");
+        OlapTable spyTable = Mockito.spy(table);
+        String partitionName = "p20230808000000";
+        AtomicBoolean hideResultPartition = new AtomicBoolean(true);
+        Mockito.doAnswer(invocation -> {
+            Partition partition = (Partition) invocation.callRealMethod();
+            // Model the lookup result after a concurrent retention drop without timing-dependent test threads.
+            if (partition != null && hideResultPartition.compareAndSet(true, false)) {
+                return null;
+            }
+            return partition;
+        }).when(spyTable).getPartition(partitionName);
+
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            TNullableStringLiteral start = new TNullableStringLiteral();
+            start.setValue("2023-08-08 00:00:00");
+            TCreatePartitionRequest request = new TCreatePartitionRequest();
+            request.setDbId(db.getId());
+            request.setTableId(spyTable.getId());
+            request.setPartitionValues(Collections.singletonList(Collections.singletonList(start)));
+
+            TCreatePartitionResult result = new FrontendServiceImpl(exeEnv).createPartition(request);
+
+            Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0)
+                    .contains("was dropped concurrently while building auto partition result, please retry"));
+            Assertions.assertFalse(hideResultPartition.get());
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testCreatePartitionList() throws Exception {
+        String createOlapTblStmt = new String("CREATE TABLE test.partition_list(\n"
+                + "    event_day DATETIME,\n"
+                + "    site_id INT DEFAULT '10',\n"
+                + "    city_code VARCHAR(100) NOT NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(event_day, site_id, city_code)\n"
+                + "AUTO PARTITION BY list (city_code) (\n"
+                + "\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");");
+
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list");
+
+        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+        List<TNullableStringLiteral> values = new ArrayList<>();
+
+        TNullableStringLiteral start = new TNullableStringLiteral();
+        start.setValue("BEIJING");
+        values.add(start);
+
+        partitionValues.add(values);
+
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(partitionValues);
+        TCreatePartitionResult partition = impl.createPartition(request);
+
+        Assertions.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
+        List<Partition> pbs = (List<Partition>) table.getAllPartitions();
+        Assertions.assertEquals(pbs.size(), 1);
+    }
+
+    @Test
+    public void testGetDBNames() throws Exception {
+        // create database
+        String createDbStmtStr = "create database `test_`;";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
+
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TGetDbsParams params = new TGetDbsParams();
+        params.setPattern("tes%");
+        params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+        TGetDbsResult dbNames = impl.getDbNames(params);
+
+        Assertions.assertEquals(dbNames.getDbs().size(), 2);
+        List<String> expected = Arrays.asList("test", "test_");
+        dbNames.getDbs().sort(String::compareTo);
+        expected.sort(String::compareTo);
+        Assertions.assertEquals(dbNames.getDbs(), expected);
+    }
+
+    @Test
+    public void fetchSchemaTableData() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+
+        TFetchSchemaTableDataRequest request = new TFetchSchemaTableDataRequest();
+        request.setSchemaTableName(TSchemaTableName.METADATA_TABLE);
+
+        TFetchSchemaTableDataResult result = impl.fetchSchemaTableData(request);
+        Assertions.assertEquals(result.getStatus().getStatusCode(), TStatusCode.INTERNAL_ERROR);
+        Assertions.assertEquals(result.getStatus().getErrorMsgs().get(0), "Metadata table params is not set. ");
+
+        TMetadataTableRequestParams params = new TMetadataTableRequestParams();
+        request.setMetadaTableParams(params);
+        result = impl.fetchSchemaTableData(request);
+        Assertions.assertEquals(result.getStatus().getStatusCode(), TStatusCode.INTERNAL_ERROR);
+        Assertions.assertEquals(result.getStatus().getErrorMsgs().get(0), "Metadata table params is not set. ");
+
+        params.setMetadataType(TMetadataType.BACKENDS);
+        request.setMetadaTableParams(params);
+        result = impl.fetchSchemaTableData(request);
+        Assertions.assertEquals(result.getStatus().getStatusCode(), TStatusCode.INTERNAL_ERROR);
+        Assertions.assertEquals(result.getStatus().getErrorMsgs().get(0), "backends metadata param is not set.");
+
+        params.setMetadataType(TMetadataType.BACKENDS);
+        TBackendsMetadataParams backendsMetadataParams = new TBackendsMetadataParams();
+        backendsMetadataParams.setClusterName("");
+        params.setBackendsMetadataParams(backendsMetadataParams);
+        params.setColumnsName((new BackendsTableValuedFunction(new HashMap<String, String>())).getTableColumns()
+                .stream().map(c -> c.getName()).collect(Collectors.toList()));
+        request.setMetadaTableParams(params);
+        result = impl.fetchSchemaTableData(request);
+        Assertions.assertEquals(result.getStatus().getStatusCode(), TStatusCode.OK);
+        Assertions.assertEquals(result.getDataBatchSize(), 1);
+    }
+
+    @Test
+    public void testShowUser() throws Exception {
+        // Column indexes in the mysql.user row layout that carry password-derived material.
+        final int authStringIdx = 23;   // authentication_string
+        final int historyPwIdx = 27;    // password_policy.history_passwords
+        final int userNameIdx = 1;      // User
+
+        addUser("show_user_a", true);
+        addUser("show_user_b", true);
+
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+
+        // A role administrator (root has ADMIN_PRIV) sees every account, but the password-derived
+        // columns are always masked, even for accounts with an empty password.
+        TShowUserRequest adminRequest = new TShowUserRequest();
+        adminRequest.setCurrentUserIdent(UserIdentity.ROOT.toThrift());
+        List<List<String>> adminRows = impl.showUser(adminRequest).getUserinfoList();
+        Assertions.assertTrue(adminRows.size() >= 2, "admin should see all accounts");
+        Assertions.assertTrue(adminRows.stream().anyMatch(r -> "show_user_a".equals(r.get(userNameIdx))));
+        Assertions.assertTrue(adminRows.stream().anyMatch(r -> "show_user_b".equals(r.get(userNameIdx))));
+        for (List<String> row : adminRows) {
+            Assertions.assertEquals("***", row.get(authStringIdx));
+            Assertions.assertEquals("***", row.get(historyPwIdx));
+        }
+
+        // A non-privileged user only sees their own row, with the password columns masked, so
+        // mysql.user does not leak the cluster's account list or privilege topology.
+        TShowUserRequest userRequest = new TShowUserRequest();
+        userRequest.setCurrentUserIdent(
+                UserIdentity.createAnalyzedUserIdentWithIp("show_user_a", "%").toThrift());
+        List<List<String>> userRows = impl.showUser(userRequest).getUserinfoList();
+        Assertions.assertEquals(1, userRows.size());
+        Assertions.assertEquals("show_user_a", userRows.get(0).get(userNameIdx));
+        Assertions.assertEquals("***", userRows.get(0).get(authStringIdx));
+        Assertions.assertEquals("***", userRows.get(0).get(historyPwIdx));
+
+        // Same name, different host are distinct accounts: a non-privileged caller must see only
+        // its exact user@host row, not the same-named account bound to another host.
+        executeCommand("create user 'dup_host_user'@'192.168.0.1'");
+        executeCommand("create user 'dup_host_user'@'10.0.0.1'");
+        TShowUserRequest dupRequest = new TShowUserRequest();
+        dupRequest.setCurrentUserIdent(
+                UserIdentity.createAnalyzedUserIdentWithIp("dup_host_user", "192.168.0.1").toThrift());
+        List<List<String>> dupRows = impl.showUser(dupRequest).getUserinfoList();
+        Assertions.assertEquals(1, dupRows.size());
+        Assertions.assertEquals("dup_host_user", dupRows.get(0).get(userNameIdx));
+        Assertions.assertEquals("192.168.0.1", dupRows.get(0).get(0));
+
+        // Fail closed: a request without a caller identity (e.g. a pre-upgrade BE that does not
+        // set the field) exposes no rows rather than leaking every account.
+        Assertions.assertTrue(impl.showUser(new TShowUserRequest()).getUserinfoList().isEmpty());
+    }
+
+    @Test
+    public void testGetMaxComputeBlockIdRange() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        long txnId = Env.getCurrentEnv().getNextId();
+        // The block-id RPC gates on the narrow WriteBlockAllocatingTransaction type (instanceof) and then
+        // calls allocateWriteBlockRange; the live impl is PluginDrivenTransactionManager's write-block
+        // wrapper. Mock the narrow interface to pin the RPC's allocate-and-return contract.
+        WriteBlockAllocatingTransaction transaction = Mockito.mock(WriteBlockAllocatingTransaction.class);
+        Mockito.when(transaction.allocateWriteBlockRange("session-1", 1L)).thenReturn(0L, 1L);
+        Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().putTxnById(txnId, transaction);
+
+        try {
+            TMaxComputeBlockIdRequest request = new TMaxComputeBlockIdRequest();
+            request.setTxnId(txnId);
+            request.setWriteSessionId("session-1");
+            request.setLength(1);
+
+            TMaxComputeBlockIdResult first = impl.getMaxComputeBlockIdRange(request);
+            Assertions.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+            Assertions.assertEquals(0L, first.getStart());
+            Assertions.assertEquals(1L, first.getLength());
+
+            TMaxComputeBlockIdResult second = impl.getMaxComputeBlockIdRange(request);
+            Assertions.assertEquals(TStatusCode.OK, second.getStatus().getStatusCode());
+            Assertions.assertEquals(1L, second.getStart());
+            Assertions.assertEquals(1L, second.getLength());
+        } finally {
+            Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().removeTxnById(txnId);
+        }
+    }
+
+    @Test
+    public void testFetchAuthenticationIntegrationsSchemaTableData() throws Exception {
+        String integrationName = "test_authentication_integration";
+        Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+
+        LinkedHashMap<String, String> properties = new LinkedHashMap<>();
+        properties.put("type", "ldap");
+        properties.put("server", "ldap://127.0.0.1:389");
+        properties.put("bind_password", "plain_secret");
+        properties.put("secret.endpoint", "masked_by_prefix");
+        Env.getCurrentEnv().getAuthenticationIntegrationMgr()
+                .createAuthenticationIntegration(
+                        integrationName, false, properties, "ldap comment", connectContext.getQualifiedUser());
+
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TFetchSchemaTableDataRequest request = new TFetchSchemaTableDataRequest();
+            request.setSchemaTableName(TSchemaTableName.AUTHENTICATION_INTEGRATIONS);
+            TSchemaTableRequestParams params = new TSchemaTableRequestParams();
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+            request.setSchemaTableParams(params);
+
+            TFetchSchemaTableDataResult result = impl.fetchSchemaTableData(request);
+            Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+
+            List<String> rowValues = result.getDataBatch().stream()
+                    .filter(row -> integrationName.equals(row.getColumnValue().get(0).getStringVal()))
+                    .map(row -> row.getColumnValue().stream()
+                            .map(cell -> cell.isSetStringVal() ? cell.getStringVal() : null)
+                            .collect(Collectors.toList()))
+                    .findFirst()
+                    .orElseThrow(() -> new java.lang.AssertionError("authentication integration row not found"));
+
+            Assertions.assertEquals(integrationName, rowValues.get(0));
+            Assertions.assertEquals("ldap", rowValues.get(1));
+            Assertions.assertTrue(rowValues.get(2).contains("\"server\" = \"ldap://127.0.0.1:389\""));
+            Assertions.assertTrue(rowValues.get(2).contains(
+                    "\"bind_password\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+            Assertions.assertTrue(rowValues.get(2).contains(
+                    "\"secret.endpoint\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+            Assertions.assertFalse(rowValues.get(2).contains("plain_secret"));
+            Assertions.assertFalse(rowValues.get(2).contains("masked_by_prefix"));
+            Assertions.assertEquals("ldap comment", rowValues.get(3));
+            Assertions.assertEquals(connectContext.getQualifiedUser(), rowValues.get(4));
+            Assertions.assertNotNull(rowValues.get(5));
+            Assertions.assertFalse(rowValues.get(5).isEmpty());
+            Assertions.assertEquals(connectContext.getQualifiedUser(), rowValues.get(6));
+            Assertions.assertEquals(rowValues.get(5), rowValues.get(7));
+        } finally {
+            Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+        }
+    }
+
+    @Test
+    public void testFetchRoleMappingsSchemaTableData() throws Exception {
+        String mappingName = "test_role_mapping_system_table";
+        String integrationName = "test_role_mapping_system_table_ldap";
+        String readerRole = "test_role_mapping_reader";
+        String financeReaderRole = "test_role_mapping_fin_reader";
+        String financeWriterRole = "test_role_mapping_fin_writer";
+        String expectedRules = "RULE (USING CEL 'has_group(\"analyst\")' GRANT ROLE " + readerRole + "); "
+                + "RULE (USING CEL 'attr(\"department\") == \"finance\"' GRANT ROLE "
+                + financeReaderRole + ", " + financeWriterRole + ")";
+
+        executeCommand("DROP ROLE MAPPING IF EXISTS " + mappingName);
+        Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+        executeCommand("DROP ROLE IF EXISTS " + financeWriterRole);
+        executeCommand("DROP ROLE IF EXISTS " + financeReaderRole);
+        executeCommand("DROP ROLE IF EXISTS " + readerRole);
+
+        try {
+            executeCommand("CREATE ROLE " + readerRole);
+            executeCommand("CREATE ROLE " + financeReaderRole);
+            executeCommand("CREATE ROLE " + financeWriterRole);
+            executeCommand("CREATE AUTHENTICATION INTEGRATION " + integrationName
+                    + " PROPERTIES ('type'='ldap', 'ldap.server'='ldap://127.0.0.1:389') "
+                    + "COMMENT 'role mapping auth'");
+            executeCommand("CREATE ROLE MAPPING " + mappingName
+                    + " ON AUTHENTICATION INTEGRATION " + integrationName
+                    + " RULE (USING CEL 'has_group(\"analyst\")' GRANT ROLE " + readerRole + ")"
+                    + ", RULE (USING CEL 'attr(\"department\") == \"finance\"' GRANT ROLE "
+                    + financeReaderRole + ", " + financeWriterRole + ")"
+                    + " COMMENT 'role mapping comment'");
+
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TFetchSchemaTableDataRequest request = new TFetchSchemaTableDataRequest();
+            request.setSchemaTableName(TSchemaTableName.ROLE_MAPPINGS);
+            TSchemaTableRequestParams params = new TSchemaTableRequestParams();
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+            request.setSchemaTableParams(params);
+
+            TFetchSchemaTableDataResult result = impl.fetchSchemaTableData(request);
+            Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+
+            List<String> rowValues = result.getDataBatch().stream()
+                    .filter(row -> mappingName.equals(row.getColumnValue().get(0).getStringVal()))
+                    .map(row -> row.getColumnValue().stream()
+                            .map(cell -> cell.isSetStringVal() ? cell.getStringVal() : null)
+                            .collect(Collectors.toList()))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("role mapping row not found"));
+
+            Assertions.assertEquals(mappingName, rowValues.get(0));
+            Assertions.assertEquals(integrationName, rowValues.get(1));
+            Assertions.assertEquals(expectedRules, rowValues.get(2));
+            Assertions.assertEquals("role mapping comment", rowValues.get(3));
+            Assertions.assertEquals(connectContext.getQualifiedUser(), rowValues.get(4));
+            Assertions.assertNotNull(rowValues.get(5));
+            Assertions.assertFalse(rowValues.get(5).isEmpty());
+            Assertions.assertEquals(connectContext.getQualifiedUser(), rowValues.get(6));
+            Assertions.assertEquals(rowValues.get(5), rowValues.get(7));
+        } finally {
+            executeCommand("DROP ROLE MAPPING IF EXISTS " + mappingName);
+            Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+            executeCommand("DROP ROLE IF EXISTS " + financeWriterRole);
+            executeCommand("DROP ROLE IF EXISTS " + financeReaderRole);
+            executeCommand("DROP ROLE IF EXISTS " + readerRole);
+        }
+    }
+
+    @Test
+    public void testFetchRoleMappingsSchemaTableDataWithoutAdmin() throws Exception {
+        String mappingName = "test_role_mapping_non_admin_system_table";
+        String integrationName = "test_role_mapping_non_admin_system_table_ldap";
+        String readerRole = "test_role_mapping_non_admin_reader";
+        String normalUser = "test_role_mapping_non_admin_user";
+
+        executeCommand("DROP ROLE MAPPING IF EXISTS " + mappingName);
+        Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+        executeCommand("DROP USER IF EXISTS " + normalUser);
+        executeCommand("DROP ROLE IF EXISTS " + readerRole);
+
+        try {
+            executeCommand("CREATE ROLE " + readerRole);
+            executeCommand("CREATE USER " + normalUser);
+            executeCommand("CREATE AUTHENTICATION INTEGRATION " + integrationName
+                    + " PROPERTIES ('type'='ldap', 'ldap.server'='ldap://127.0.0.1:389') "
+                    + "COMMENT 'role mapping auth'");
+            executeCommand("CREATE ROLE MAPPING " + mappingName
+                    + " ON AUTHENTICATION INTEGRATION " + integrationName
+                    + " RULE (USING CEL 'has_group(\"analyst\")' GRANT ROLE " + readerRole + ")"
+                    + " COMMENT 'role mapping comment'");
+
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TFetchSchemaTableDataRequest request = new TFetchSchemaTableDataRequest();
+            request.setSchemaTableName(TSchemaTableName.ROLE_MAPPINGS);
+            TSchemaTableRequestParams params = new TSchemaTableRequestParams();
+            params.setCurrentUserIdent(UserIdentity.createAnalyzedUserIdentWithIp(normalUser, "%").toThrift());
+            request.setSchemaTableParams(params);
+
+            TFetchSchemaTableDataResult result = impl.fetchSchemaTableData(request);
+            Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertEquals(1, result.getStatus().getErrorMsgsSize());
+            Assertions.assertEquals(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN"),
+                    result.getStatus().getErrorMsgs().get(0));
+        } finally {
+            executeCommand("DROP ROLE MAPPING IF EXISTS " + mappingName);
+            Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+            executeCommand("DROP USER IF EXISTS " + normalUser);
+            executeCommand("DROP ROLE IF EXISTS " + readerRole);
+        }
+    }
+
+    @Test
+    public void testLoadTxnCommitRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TLoadTxnCommitRequest request = new TLoadTxnCommitRequest();
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        assertInvalidToken(impl, "loadTxnCommitImpl", request);
+    }
+
+    @Test
+    public void testLoadTxnRollbackRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TLoadTxnRollbackRequest request = new TLoadTxnRollbackRequest();
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        assertInvalidToken(impl, "loadTxnRollbackImpl", request);
+    }
+
+    @Test
+    public void testCommitTxnRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TCommitTxnRequest request = new TCommitTxnRequest();
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test");
+        request.setTxnId(100L);
+        request.setCommitInfos(Collections.emptyList());
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        mockTransactionForTokenValidation(100L);
+        try {
+            assertInvalidToken(impl, "commitTxnImpl", request);
+        } finally {
+            closeTransactionValidationMock();
+        }
+    }
+
+    @Test
+    public void testRollbackTxnRejectsInvalidToken() {
+        FrontendServiceImpl impl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+        TRollbackTxnRequest request = new TRollbackTxnRequest();
+        request.setUser("root");
+        request.setPasswd("");
+        request.setDb("test");
+        request.setTxnId(100L);
+        request.setToken("bad-token");
+        Mockito.doReturn(false).when(impl).checkToken("bad-token");
+
+        mockTransactionForTokenValidation(100L);
+        try {
+            assertInvalidToken(impl, "rollbackTxnImpl", request);
+        } finally {
+            closeTransactionValidationMock();
+        }
+    }
+
+    private MockedStatic<Env> transactionValidationEnvMock;
+
+    private void mockTransactionForTokenValidation(long txnId) {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        TransactionState transactionState = Mockito.mock(TransactionState.class);
+        GlobalTransactionMgrIface globalTransactionMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        List<Long> tableIds = Collections.singletonList(10L);
+
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable("test")).thenReturn(db);
+        Mockito.when(db.getId()).thenReturn(1L);
+        Mockito.when(globalTransactionMgr.getTransactionState(1L, txnId)).thenReturn(transactionState);
+        Mockito.when(transactionState.getTableIdList()).thenReturn(tableIds);
+        try {
+            Mockito.doReturn(Collections.emptyList()).when(db).getTablesOnIdOrderOrThrowException(tableIds);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+
+        transactionValidationEnvMock = Mockito.mockStatic(Env.class);
+        transactionValidationEnvMock.when(Env::getCurrentEnv).thenReturn(env);
+        transactionValidationEnvMock.when(Env::getCurrentGlobalTransactionMgr).thenReturn(globalTransactionMgr);
+    }
+
+    private void closeTransactionValidationMock() {
+        if (transactionValidationEnvMock != null) {
+            transactionValidationEnvMock.close();
+            transactionValidationEnvMock = null;
+        }
+    }
+
+    private void assertInvalidToken(FrontendServiceImpl impl, String methodName, Object request) {
+        try {
+            Method method = FrontendServiceImpl.class.getDeclaredMethod(methodName, request.getClass());
+            method.setAccessible(true);
+            method.invoke(impl, request);
+            Assertions.fail("expected invalid token");
+        } catch (InvocationTargetException e) {
+            Assertions.assertTrue(e.getCause() instanceof AuthenticationException);
+            Assertions.assertTrue(e.getCause().getMessage().contains("Invalid token"));
+            Assertions.assertFalse(e.getCause().getMessage().contains("bad-token"));
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
+    }
+}

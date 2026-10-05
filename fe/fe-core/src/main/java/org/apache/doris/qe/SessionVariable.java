@@ -1,0 +1,6692 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.qe;
+
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.VariableAnnotation;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.Dialect;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
+import org.apache.doris.planner.GroupCommitBlockSink;
+import org.apache.doris.qe.VarAttrDef.VarAttr;
+import org.apache.doris.resource.BackendSelectionManager;
+import org.apache.doris.thrift.TGroupCommitMode;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
+import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.thrift.TSerdeDialect;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TConfiguration;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.io.Serializable;
+import java.lang.reflect.Field;
+import java.security.InvalidParameterException;
+import java.security.SecureRandom;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.Arrays;
+import java.util.BitSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
+
+/**
+ * System variable.
+ **/
+public class SessionVariable implements Serializable, Writable {
+    public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
+
+    public static final List<Field> affectQueryResultFields;
+    public static final List<Field> affectQueryResultInPlanFields;
+    public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String MAX_SCAN_MEM_RATIO = "max_scan_mem_ratio";
+    public static final String ENABLE_ADAPTIVE_SCAN = "enable_adaptive_scan";
+    public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
+    public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
+    public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
+    public static final String MAX_FILE_SCANNERS_CONCURRENCY = "max_file_scanners_concurrency";
+    public static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
+    public static final String MIN_SCANNERS_CONCURRENCY = "min_scanners_concurrency";
+    public static final String MIN_FILE_SCANNERS_CONCURRENCY = "min_file_scanners_concurrency";
+    public static final String MIN_SCAN_SCHEDULER_CONCURRENCY = "min_scan_scheduler_concurrency";
+    public static final String QUERY_TIMEOUT = "query_timeout";
+    public static final String ANALYZE_TIMEOUT = "analyze_timeout";
+
+    public static final String INTERNAL_CACHE_HOT_SPOT_TIMEOUT = "cache_hot_spot_insert_timeout_second";
+
+    public static final String MAX_EXECUTION_TIME = "max_execution_time";
+    public static final String INSERT_TIMEOUT = "insert_timeout";
+    public static final String ENABLE_PROFILE = "enable_profile";
+    public static final String RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT = "rpc_verbose_profile_max_instance_count";
+    public static final String AUTO_PROFILE_THRESHOLD_MS = "auto_profile_threshold_ms";
+    public static final String SQL_MODE = "sql_mode";
+    public static final String WORKLOAD_VARIABLE = "workload_group";
+    public static final String RESOURCE_VARIABLE = "resource_group";
+    public static final String PREFERRED_BACKEND_SELECTION_KEY = "preferred_backend_selection_key";
+    public static final String BACKEND_SELECTION_MODE = "backend_selection_mode";
+    public static final String ENABLE_LOAD_BACKEND_SELECTION = "enable_load_backend_selection";
+    public static final String AUTO_COMMIT = "autocommit";
+    public static final String TX_ISOLATION = "tx_isolation";
+    public static final String TX_READ_ONLY = "tx_read_only";
+    public static final String TRANSACTION_READ_ONLY = "transaction_read_only";
+    public static final String TRANSACTION_ISOLATION = "transaction_isolation";
+    public static final String CHARACTER_SET_CLIENT = "character_set_client";
+    public static final String CHARACTER_SET_CONNNECTION = "character_set_connection";
+    public static final String CHARACTER_SET_RESULTS = "character_set_results";
+    public static final String CHARACTER_SET_SERVER = "character_set_server";
+    public static final String COLLATION_CONNECTION = "collation_connection";
+    public static final String COLLATION_DATABASE = "collation_database";
+    public static final String COLLATION_SERVER = "collation_server";
+    public static final String SQL_AUTO_IS_NULL = "sql_auto_is_null";
+    public static final String SQL_SELECT_LIMIT = "sql_select_limit";
+    public static final String MAX_ALLOWED_PACKET = "max_allowed_packet";
+    public static final String AUTO_INCREMENT_INCREMENT = "auto_increment_increment";
+    public static final String QUERY_CACHE_TYPE = "query_cache_type";
+    public static final String INTERACTIVE_TIMTOUT = "interactive_timeout";
+    public static final String WAIT_TIMEOUT = "wait_timeout";
+    public static final String NET_WRITE_TIMEOUT = "net_write_timeout";
+    public static final String NET_READ_TIMEOUT = "net_read_timeout";
+    public static final String TIME_ZONE = "time_zone";
+    public static final String LC_TIME_NAMES = "lc_time_names";
+    private static final ImmutableSet<String> SUPPORTED_LC_TIME_NAMES = ImmutableSet.of(
+            "ar_AE", "ar_BH", "ar_JO", "ar_SA", "ar_SY", "be_BY",
+            "bg_BG", "ca_ES", "cs_CZ", "da_DK", "de_AT", "de_DE",
+            "en_US", "es_ES", "et_EE", "eu_ES", "fi_FI", "fo_FO",
+            "fr_FR", "gl_ES", "gu_IN", "he_IL", "hi_IN", "hr_HR",
+            "hu_HU", "id_ID", "is_IS", "it_CH", "ja_JP", "ko_KR",
+            "lt_LT", "lv_LV", "mk_MK", "mn_MN", "ms_MY", "nb_NO",
+            "nl_NL", "pl_PL", "pt_BR", "pt_PT", "ro_RO", "ru_RU",
+            "ru_UA", "sk_SK", "sl_SI", "sq_AL", "sr_RS", "sv_SE",
+            "ta_IN", "te_IN", "th_TH", "tr_TR", "uk_UA", "ur_PK",
+            "vi_VN", "zh_CN", "zh_TW", "ar_DZ", "ar_EG", "ar_IN",
+            "ar_IQ", "ar_KW", "ar_LB", "ar_LY", "ar_MA", "ar_OM",
+            "ar_QA", "ar_SD", "ar_TN", "ar_YE", "de_BE", "de_CH",
+            "de_LU", "en_AU", "en_CA", "en_GB", "en_IN", "en_NZ",
+            "en_PH", "en_ZA", "en_ZW", "es_AR", "es_BO", "es_CL",
+            "es_CO", "es_CR", "es_DO", "es_EC", "es_GT", "es_HN",
+            "es_MX", "es_NI", "es_PA", "es_PE", "es_PR", "es_PY",
+            "es_SV", "es_US", "es_UY", "es_VE", "fr_BE", "fr_CA",
+            "fr_CH", "fr_LU", "it_IT", "nl_BE", "no_NO", "sv_FI",
+            "zh_HK", "el_GR", "rm_CH"
+    );
+
+    public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
+    public static final String NET_BUFFER_LENGTH = "net_buffer_length";
+    public static final String HAVE_QUERY_CACHE =  "have_query_cache";
+    public static final String SERVER_IDENTITY = "server_identity";
+    public static final String APACHE_DORIS_SERVER_IDENTITY = "apache_doris";
+    // mem limit can't smaller than bufferpool's default page size
+    public static final int MIN_EXEC_MEM_LIMIT = 2097152;
+    public static final String BATCH_SIZE = "batch_size";
+    public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
+    public static final String PREFERRED_BLOCK_SIZE_BYTES = "preferred_block_size_bytes";
+    public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
+    public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
+    public static final String ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH =
+            "enable_streaming_agg_hash_join_force_passthrough";
+    public static final String ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH =
+            "enable_distinct_streaming_agg_force_passthrough";
+    public static final String ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH = "enable_broadcast_join_force_passthrough";
+    public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_AGG = "enable_local_exchange_before_agg";
+    public static final String ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG =
+            "enable_local_exchange_before_streaming_agg";
+    public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
+    public static final String COLOCATE_MAX_PARALLEL_NUM = "colocate_max_parallel_num";
+    public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
+    public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
+    public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
+    public static final String PROFILE_LEVEL = "profile_level";
+    public static final String MAX_INSTANCE_NUM = "max_instance_num";
+    public static final String DML_PLAN_RETRY_TIMES = "DML_PLAN_RETRY_TIMES";
+    public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
+    public static final String ENABLE_INSERT_VALUE_AUTO_CAST = "enable_insert_value_auto_cast";
+    public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
+
+    public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
+    public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
+    public static final String ENABLE_GROUP_COMMIT_FULL_PREPARE = "enable_group_commit_full_prepare";
+    public static final String PREFER_JOIN_METHOD = "prefer_join_method";
+
+    public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
+    public static final String DEBUG_SKIP_FOLD_CONSTANT = "debug_skip_fold_constant";
+
+    public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
+    public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
+    public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
+    public static final String CACHE_SORTED_PARTITION_INTERVAL_SECOND = "cache_sorted_partition_interval_second";
+    public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
+    public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
+    public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
+    public static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
+    public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
+    public static final String ENABLE_QUERY_CACHE_INCREMENTAL = "enable_query_cache_incremental";
+    public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
+    public static final String QUERY_CACHE_ENTRY_MAX_BYTES = "query_cache_entry_max_bytes";
+    public static final String QUERY_CACHE_ENTRY_MAX_ROWS = "query_cache_entry_max_rows";
+    public static final String ENABLE_CONDITION_CACHE = "enable_condition_cache";
+
+    public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
+
+    // if set to true, some of stmt will be forwarded to master FE to get result
+    public static final String FORWARD_TO_MASTER = "forward_to_master";
+    // if set to true, all queries of this session will be forwarded to master FE
+    public static final String FORCE_FORWARD_ALL_QUERIES = "force_forward_all_queries";
+    // user can set instance num after exchange, no need to be equal to nums of before exchange
+    public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
+    public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
+    public static final String EVENT_SCHEDULER = "event_scheduler";
+    public static final String STORAGE_ENGINE = "storage_engine";
+    // Compatible with datagrip mysql
+    public static final String DEFAULT_STORAGE_ENGINE = "default_storage_engine";
+    public static final String DEFAULT_TMP_STORAGE_ENGINE = "default_tmp_storage_engine";
+
+    // Compatible with  mysql
+    public static final String PROFILLING = "profiling";
+
+    // Report index/key metadata the way MySQL does, so that MySQL ODBC/JDBC clients
+    // and BI tools can discover the primary key of a table.
+    public static final String ENABLE_MYSQL_COMPATIBLE_INDEX_METADATA
+            = "enable_mysql_compatible_index_metadata";
+
+    public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
+
+    // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
+    public static final String MAX_SCAN_KEY_NUM = "max_scan_key_num";
+    public static final String MAX_PUSHDOWN_CONDITIONS_PER_COLUMN = "max_pushdown_conditions_per_column";
+
+    // when true, the partition column must be set to NOT NULL.
+    public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
+
+    public static final String FORCE_SORT_ALGORITHM = "force_sort_algorithm";
+    public static final String FULL_SORT_MAX_BUFFERED_BYTES = "full_sort_max_buffered_bytes";
+
+    // runtime filter run mode
+    public static final String RUNTIME_FILTER_MODE = "runtime_filter_mode";
+    // Size in bytes of Bloom Filters used for runtime filters. Actual size of filter will
+    // be rounded up to the nearest power of two.
+    public static final String RUNTIME_BLOOM_FILTER_SIZE = "runtime_bloom_filter_size";
+    // Minimum runtime bloom filter size, in bytes
+    public static final String RUNTIME_BLOOM_FILTER_MIN_SIZE = "runtime_bloom_filter_min_size";
+    // Maximum runtime bloom filter size, in bytes
+    public static final String RUNTIME_BLOOM_FILTER_MAX_SIZE = "runtime_bloom_filter_max_size";
+    public static final String USE_RF_DEFAULT = "use_rf_default";
+    // Time in ms to wait until runtime filters are delivered.
+    public static final String RUNTIME_FILTER_WAIT_TIME_MS = "runtime_filter_wait_time_ms";
+    public static final String runtime_filter_wait_infinitely = "runtime_filter_wait_infinitely";
+
+    // Maximum number of bloom runtime filters allowed per query
+    // Runtime filter type used, For testing, Corresponds to TRuntimeFilterType
+    public static final String RUNTIME_FILTER_TYPE = "runtime_filter_type";
+    // if the right table is greater than this value in the hash join,  we will ignore IN filter
+    public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
+
+    public static final String RUNTIME_FILTER_BROADCAST_JOIN_PRODUCER_NUM =
+            "runtime_filter_broadcast_join_producer_num";
+
+    public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
+    public static final String RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES =
+            "runtime_filter_tree_publish_max_send_bytes";
+
+    public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
+
+    public static final String HIVE_TEXT_COMPRESSION = "hive_text_compression";
+
+    public static final String READ_CSV_EMPTY_LINE_AS_NULL = "read_csv_empty_line_as_null";
+
+    public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
+
+    // max ms to wait transaction publish finish when exec insert stmt.
+    public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE = "insert_visible_timeout_return_mode";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED = "committed";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR = "error";
+
+    // Keep the mode enum for business logic while storing the session value as a string.
+    public enum InsertVisibleTimeoutReturnMode {
+        COMMITTED(INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED),
+        ERROR(INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR);
+
+        private final String option;
+
+        InsertVisibleTimeoutReturnMode(String option) {
+            this.option = option;
+        }
+
+        public String getOption() {
+            return option;
+        }
+
+        @Override
+        public String toString() {
+            return option;
+        }
+    }
+
+    // change scan consistency and wait options.
+    public static final String ENABLE_EVENTUAL_CONSISTENT_CHANGE = "enable_eventual_consistent_change";
+    public static final String CHANGE_VISIBLE_TIMEOUT_MS = "change_visible_timeout_ms";
+
+    public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
+
+    // set the default parallelism for send batch when execute InsertStmt operation,
+    // if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config,
+    // then the coordinator be will use the value of `max_send_batch_parallelism_per_job`
+    public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+
+    // turn off all automatic join reorder algorithms
+    public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
+
+    public static final String MAX_JOIN_NUMBER_OF_REORDER = "max_join_number_of_reorder";
+
+    public static final String ENABLE_NEREIDS_DML = "enable_nereids_dml";
+    public static final String ENABLE_NEREIDS_DML_WITH_PIPELINE = "enable_nereids_dml_with_pipeline";
+    public static final String ENABLE_STRICT_CONSISTENCY_DML = "enable_strict_consistency_dml";
+
+    public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
+
+    public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
+    public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
+    public static final String PARTITION_TOPN_MAX_PARTITIONS = "partition_topn_max_partitions";
+    public static final String PARTITION_TOPN_PER_PARTITION_ROWS = "partition_topn_pre_partition_rows";
+
+    public static final String GLOBAL_PARTITION_TOPN_THRESHOLD = "global_partition_topn_threshold";
+
+    public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 60_000;
+    public static final long DEFAULT_CHANGE_VISIBLE_TIMEOUT_MS = 10_000;
+
+    // If user set a very small value, use this value instead.
+    public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
+    public static final long MIN_CHANGE_VISIBLE_TIMEOUT_MS = 1000;
+
+    public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
+
+    public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
+
+    public static final String ENABLE_SHARED_SCAN = "enable_shared_scan";
+
+    public static final String ENABLE_LEFT_SEMI_DIRECT_RETURN_OPT = "enable_left_semi_direct_return_opt";
+
+    public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
+
+    public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
+
+    public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
+    public static final String ENABLE_AGGREGATE_FUNCTION_NULL_V2 = "enable_aggregate_function_null_v2";
+
+    public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
+
+    // Force the number of scanners to equal the number of segments in OLAP scan when parallel scan is enabled.
+    public static final String OPTIMIZE_INDEX_SCAN_PARALLELISM =
+            "optimize_index_scan_parallelism";
+
+    // Limit the max count of scanners to prevent generate too many scanners.
+    public static final String PARALLEL_SCAN_MAX_SCANNERS_COUNT = "parallel_scan_max_scanners_count";
+
+    // Avoid splitting small segments, each scanner should scan `parallel_scan_min_rows_per_scanner` rows.
+    public static final String PARALLEL_SCAN_MIN_ROWS_PER_SCANNER = "parallel_scan_min_rows_per_scanner";
+
+    public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
+
+    public static final String ENABLE_LOCAL_SHUFFLE_PLANNER = "enable_local_shuffle_planner";
+
+    public static final String LOCAL_SHUFFLE_BUCKET_UPGRADE_RATIO = "local_shuffle_bucket_upgrade_ratio";
+
+    public static final String BUCKET_SHUFFLE_DOWNGRADE_RATIO = "bucket_shuffle_downgrade_ratio";
+
+    public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
+
+    public static final String ENABLE_LOCAL_MERGE_SORT = "enable_local_merge_sort";
+
+    public static final String ENABLE_SHARED_EXCHANGE_SINK_BUFFER = "enable_shared_exchange_sink_buffer";
+
+    public static final String ENABLE_AGG_STATE = "enable_agg_state";
+
+    public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
+
+    public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
+
+    public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
+
+    public static final String CLOUD_ENABLE_MULTI_CLUSTER_SYNC_LOAD = "enable_multi_cluster_sync_load";
+
+    public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
+
+    public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
+
+    public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
+
+    public static final String BLOCK_ENCRYPTION_MODE = "block_encryption_mode";
+
+    public static final String PARALLEL_PREPARE_THRESHOLD = "parallel_prepare_threshold";
+
+    public static final String ENABLE_PROJECTION = "enable_projection";
+
+    public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_query";
+
+    public static final String ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE
+                    = "enable_short_circuit_query_access_column_store";
+
+    public static final String CHECK_OVERFLOW_FOR_DECIMAL = "check_overflow_for_decimal";
+
+    public static final String DECIMAL_OVERFLOW_SCALE = "decimal_overflow_scale";
+
+    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
+            = "trim_tailing_spaces_for_external_table_query";
+
+    public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
+    public static final String DPHYPER_LIMIT = "dphyper_limit";
+    public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
+    public static final String ENABLE_HBO_OPTIMIZATION = "enable_hbo_optimization";
+    public static final String ENABLE_HBO_INFO_COLLECTION = "enable_hbo_info_collection";
+    public static final String ENABLE_HBO_NONSTRICT_MATCHING_MODE = "enable_hbo_nonstrict_matching_mode";
+    public static final String HBO_RFSAFE_THRESHOLD = "hbo_rfsafe_threshold";
+    public static final String HBO_ROW_MATCHING_THRESHOLD = "hbo_row_matching_threshold";
+    public static final String HBO_SKEW_RATIO_THRESHOLD = "hbo_skew_ratio_threshold";
+    public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
+    public static final String REQUIRED_GROUP_IDS = "required_group_ids";
+
+    public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+    public static final String ENABLE_PRELOAD_EXTERNAL_METADATA = "enable_preload_external_metadata";
+    public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
+    public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
+    public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
+    public static final String ENABLE_VISITOR_REWRITER_DEPTH_THRESHOLD = "enable_visitor_rewriter_depth_threshold";
+    public static final String DISABLE_NEREIDS_EXPRESSION_RULES = "disable_nereids_expression_rules";
+    public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
+    public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
+    public static final String NEREIDS_TIMEOUT_SECOND = "nereids_timeout_second";
+
+    public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
+    public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
+    public static final String LEFT_SEMI_OR_ANTI_PROBE_FACTOR = "left_semi_or_anti_probe_factor";
+    public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
+
+    // percentage of EXEC_MEM_LIMIT
+    public static final String BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE = "broadcast_hashtable_mem_limit_percentage";
+
+    public static final String REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = "rewrite_or_to_in_predicate_threshold";
+
+    public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
+    public static final String ENABLE_EXPR_TRACE = "enable_expr_trace";
+
+    public static final String ENABLE_DPHYP_TRACE = "enable_dphyp_trace";
+
+    public static final String ENABLE_FOLD_NONDETERMINISTIC_FN = "enable_fold_nondeterministic_fn";
+
+    public static final String ENABLE_RUNTIME_FILTER_PRUNE =
+            "enable_runtime_filter_prune";
+
+    public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE =
+            "enable_runtime_filter_partition_prune";
+
+    public static final String ENABLE_RUNTIME_FILTER_BUCKET_PRUNE =
+            "enable_runtime_filter_bucket_prune";
+
+    public static final String ENABLE_PRUNE_NESTED_COLUMN = "enable_prune_nested_column";
+
+    static final String SESSION_CONTEXT = "session_context";
+
+    public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
+
+
+    public static final String ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES = "enable_fast_analyze_into_values";
+
+    public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
+
+    public static final String ENABLE_EXT_FUNC_PRED_PUSHDOWN = "enable_ext_func_pred_pushdown";
+
+    public static final String ENABLE_SEGMENT_LIMIT_PUSHDOWN = "enable_segment_limit_pushdown";
+
+    public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
+
+    public static final String ENABLE_LOCAL_EXCHANGE = "enable_local_exchange";
+
+    public static final String SKIP_STORAGE_ENGINE_MERGE = "skip_storage_engine_merge";
+
+    public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
+
+    public static final String SKIP_DELETE_SIGN = "skip_delete_sign";
+
+    public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
+
+    public static final String SKIP_MISSING_VERSION = "skip_missing_version";
+
+    public static final String SKIP_BAD_TABLET = "skip_bad_tablet";
+
+    public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
+
+    public static final String ENABLE_SAVE_STATISTICS_SYNC_JOB = "enable_save_statistics_sync_job";
+
+    public static final String PARTITION_PRUNING_EXPAND_THRESHOLD = "partition_pruning_expand_threshold";
+
+    public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
+            = "enable_share_hash_table_for_broadcast_join";
+
+    // support unicode in label, table, column, common name check
+    public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
+
+    public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
+    public static final String USE_ONE_PHASE_AGG_FOR_GROUP_CONCAT_WITH_ORDER
+            = "use_one_phase_agg_for_group_concat_with_order";
+
+    public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
+    public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
+    public static final String TOPN_FILTER_RATIO = "topn_filter_ratio";
+    public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
+
+    public static final String ENABLE_FILE_CACHE = "enable_file_cache";
+
+    public static final String DISABLE_FILE_CACHE = "disable_file_cache";
+
+    public static final String ENABLE_TOPN_LAZY_MAT_PHASE2_NO_WRITE_FILE_CACHE
+            = "enable_topn_lazy_mat_phase2_no_write_file_cache";
+
+    public static final String FILE_CACHE_QUERY_LIMIT_PERCENT = "file_cache_query_limit_percent";
+
+    public static final String FILE_CACHE_QUERY_LIMIT_BYTES =
+            "file_cache_query_limit_bytes";
+
+    public static final String INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE =
+            "inverted_index_snii_read_no_write_file_cache";
+
+    public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
+
+    public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
+
+    public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
+    public static final String ENABLE_NO_NEED_READ_DATA_OPT = "enable_no_need_read_data_opt";
+
+    public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
+
+    public static final String MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER = "max_table_count_use_cascades_join_reorder";
+    public static final int MIN_JOIN_REORDER_TABLE_COUNT = 2;
+
+    public static final String JOIN_REORDER_TIME_LIMIT = "join_order_time_limit";
+    public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
+
+    public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
+    public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
+
+    public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
+
+    public static final String MEMO_LOGICAL_ROW_COUNT_AGGREGATION_POLICY = "memo_logical_row_count_aggregation_policy";
+
+    // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
+    public static final String USE_FIX_REPLICA = "use_fix_replica";
+
+    public static final String DRY_RUN_QUERY = "dry_run_query";
+
+    // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
+    public static final String FILE_SPLIT_SIZE = "file_split_size";
+
+    public static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
+
+    public static final String MAX_FILE_SPLIT_SIZE = "max_file_split_size";
+
+    public static final String MAX_INITIAL_FILE_SPLIT_NUM = "max_initial_file_split_num";
+
+    public static final String MAX_FILE_SPLIT_NUM = "max_file_split_num";
+
+    // Target file size in bytes for Iceberg write operations
+    public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
+    public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
+
+    public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
+
+    public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
+
+    public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
+
+    /**
+     * use insert stmt as the unified backend for all loads
+     */
+    public static final String ENABLE_UNIFIED_LOAD = "enable_unified_load";
+
+    public static final String ENABLE_ORDERED_SCAN_RANGE_LOCATIONS = "enable_ordered_scan_range_locations";
+
+    public static final String ENABLE_PARQUET_LAZY_MAT = "enable_parquet_lazy_materialization";
+
+    public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
+
+    public static final String ORC_TINY_STRIPE_THRESHOLD_BYTES = "orc_tiny_stripe_threshold_bytes";
+
+    public static final String ORC_ONCE_MAX_READ_BYTES = "orc_once_max_read_bytes";
+
+    public static final String ORC_MAX_MERGE_DISTANCE_BYTES = "orc_max_merge_distance_bytes";
+
+    public static final String ENABLE_PARQUET_FILTER_BY_MIN_MAX = "enable_parquet_filter_by_min_max";
+
+    public static final String ENABLE_PARQUET_FILTER_BY_BLOOM_FILTER = "enable_parquet_filter_by_bloom_filter";
+
+    public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
+
+    public static final String ENABLE_EXPR_ZONEMAP_FILTER = "enable_expr_zonemap_filter";
+
+    public static final String CHECK_ORC_INIT_SARGS_SUCCESS = "check_orc_init_sargs_success";
+
+    public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
+
+    public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
+
+    public static final String CTE_INLINE_MODE = "cte_inline_mode";
+
+    public static final String ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN = "enable_analyze_complex_type_column";
+
+    public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
+
+    public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
+
+    public static final String GROUP_COMMIT = "group_commit";
+
+    public static final String ENABLE_PREPARED_STMT_AUDIT_LOG = "enable_prepared_stmt_audit_log";
+
+    public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
+
+    public static final String TRUNCATE_CHAR_OR_VARCHAR_COLUMNS = "truncate_char_or_varchar_columns";
+
+    public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
+
+    public static final String CBO_MEM_WEIGHT = "cbo_mem_weight";
+
+    public static final String CBO_NET_WEIGHT = "cbo_net_weight";
+
+    public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
+
+    public static final String JDBC_CLICKHOUSE_QUERY_FINAL = "jdbc_clickhouse_query_final";
+
+    public static final String ENABLE_JDBC_ORACLE_NULL_PREDICATE_PUSH_DOWN
+            = "enable_jdbc_oracle_null_predicate_push_down";
+
+    public static final String ENABLE_JDBC_CAST_PREDICATE_PUSH_DOWN = "enable_jdbc_cast_predicate_push_down";
+
+    public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
+            "enable_memtable_on_sink_node";
+
+    public static final String LOAD_STREAM_PER_NODE = "load_stream_per_node";
+
+    public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
+
+    public static final String PARTIAL_UPDATE_NEW_KEY_BEHAVIOR = "partial_update_new_key_behavior";
+
+    public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
+    public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
+
+    public static final String INVERTED_INDEX_SKIP_THRESHOLD = "inverted_index_skip_threshold";
+    // compatible read for inverted index between x86 and arm,
+    // used for cross-platform (x86/arm) inverted index compatibility
+    // may removed in the future
+    public static final String INVERTED_INDEX_COMPATIBLE_READ = "inverted_index_compatible_read";
+    public static final String ENABLE_INVERTED_INDEX_WAND_QUERY = "enable_inverted_index_wand_query";
+
+    public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
+
+    public static final String AUTO_ANALYZE_END_TIME = "auto_analyze_end_time";
+
+    public static final String SQL_DIALECT = "sql_dialect";
+
+    public static final String RETRY_ORIGIN_SQL_ON_CONVERT_FAIL = "retry_origin_sql_on_convert_fail";
+
+    public static final String SERDE_DIALECT = "serde_dialect";
+
+    public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
+
+    public static final String ENABLE_DECOUPLED_RUNTIME_FILTER = "enable_decoupled_runtime_filter";
+
+    public static final String DECOUPLED_RF_NDV_RATIO_THRESHOLD = "decoupled_rf_ndv_ratio_threshold";
+
+    public static final String MIN_DECOUPLED_RF_TARGET_ROWS = "min_decoupled_rf_target_rows";
+
+    public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
+
+    public static final String FORCE_SAMPLE_ANALYZE = "force_sample_analyze";
+
+    public static final String ENABLE_AUTO_ANALYZE_INTERNAL_CATALOG = "enable_auto_analyze_internal_catalog";
+
+    public static final String ENABLE_PARTITION_ANALYZE = "enable_partition_analyze";
+
+    public static final String AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = "auto_analyze_table_width_threshold";
+
+    public static final String ENABLE_DECIMAL256 = "enable_decimal256";
+
+    public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
+
+    public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
+    public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
+    public static final String PARTITION_SAMPLE_COUNT = "partition_sample_count";
+    public static final String PARTITION_SAMPLE_ROW_COUNT = "partition_sample_row_count";
+    public static final String FETCH_HIVE_ROW_COUNT_SYNC = "fetch_hive_row_count_sync";
+
+    // for spill to disk
+    public static final String ENABLE_SPILL = "enable_spill";
+    public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
+    public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
+    public static final String SPILL_MIN_REVOCABLE_MEM = "spill_min_revocable_mem";
+    public static final String SPILL_AGGREGATION_PARTITION_COUNT = "spill_aggregation_partition_count";
+    public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
+    public static final String SPILL_HASH_JOIN_PARTITION_COUNT = "spill_hash_join_partition_count";
+    public static final String SPILL_REPARTITION_MAX_DEPTH = "spill_repartition_max_depth";
+    public static final String SPILL_BUFFER_SIZE_BYTES = "spill_buffer_size_bytes";
+    public static final String SPILL_JOIN_BUILD_SINK_MEM_LIMIT_BYTES =
+            "spill_join_build_sink_mem_limit_bytes";
+    public static final String SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES =
+            "spill_aggregation_sink_mem_limit_bytes";
+    public static final String SPILL_SORT_SINK_MEM_LIMIT_BYTES =
+            "spill_sort_sink_mem_limit_bytes";
+    public static final String SPILL_SORT_MERGE_MEM_LIMIT_BYTES =
+            "spill_sort_merge_mem_limit_bytes";
+    public static final String SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT =
+            "spill_revocable_memory_high_watermark_percent";
+    public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
+    public static final String LOW_MEMORY_MODE_BUFFER_LIMIT = "low_memory_mode_buffer_limit";
+    public static final String DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED = "dump_heap_profile_when_mem_limit_exceeded";
+
+    public static final String ENABLE_FUZZY_BLOCKABLE_TASK = "enable_fuzzy_blockable_task";
+
+    public static final String ENABLE_USE_HYBRID_SORT = "enable_use_hybrid_sort";
+
+    public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
+
+    public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
+            = "huge_table_auto_analyze_interval_in_millis";
+
+    public static final String EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
+            = "external_table_auto_analyze_interval_in_millis";
+
+    public static final String TABLE_STATS_HEALTH_THRESHOLD
+            = "table_stats_health_threshold";
+
+    public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
+            = "enable_materialized_view_rewrite";
+
+    public static final String PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY
+            = "pre_materialized_view_rewrite_strategy";
+
+    public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE
+            = "enable_dml_materialized_view_rewrite";
+
+    public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS
+            = "enable_dml_materialized_view_rewrite_when_base_table_unawareness";
+
+    public static final String ALLOW_MODIFY_MATERIALIZED_VIEW_DATA
+            = "allow_modify_materialized_view_data";
+
+    public static final String ENABLE_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS
+            = "materialized_view_rewrite_enable_contain_external_table";
+
+    public static final String MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM
+            = "materialized_view_rewrite_success_candidate_num";
+
+    public static final String ENABLE_MATERIALIZED_VIEW_UNION_REWRITE
+            = "enable_materialized_view_union_rewrite";
+
+    public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
+            = "enable_materialized_view_nest_rewrite";
+
+    public static final String MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS
+            = "materialized_view_rewrite_duration_threshold_ms";
+
+    public static final String MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT
+            = "materialized_view_relation_mapping_max_count";
+
+    public static final String CREATE_TABLE_PARTITION_MAX_NUM
+            = "create_table_partition_max_num";
+
+    public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
+
+    public static final String HIVE_PARQUET_USE_COLUMN_NAMES = "hive_parquet_use_column_names";
+
+    public static final String HIVE_ORC_USE_COLUMN_NAMES = "hive_orc_use_column_names";
+
+    public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
+
+    public static final String FORCE_PUSHDOWN_ZONEMAP_MINMAX = "force_pushdown_zonemap_minmax";
+
+    public static final String ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES
+            = "enable_mor_value_predicate_pushdown_tables";
+
+    public static final String READ_MOR_AS_DUP_TABLES = "read_mor_as_dup_tables";
+
+    // When set use fix replica = true, the fixed replica maybe bad, try to use the health one if
+    // this session variable is set to true.
+    public static final String FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT = "fallback_other_replica_when_fixed_corrupt";
+
+    public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
+
+    public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
+    public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
+
+    public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
+
+    public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
+
+    public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
+
+    public static final String QUERY_SLOT_COUNT = "query_slot_count";
+
+    public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
+
+    public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
+
+    public static final String ENABLE_ES_PARALLEL_SCROLL = "enable_es_parallel_scroll";
+
+    public static final String EXCHANGE_MULTI_BLOCKS_BYTE_SIZE = "exchange_multi_blocks_byte_size";
+
+    public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
+    public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
+
+    public static final String ENABLE_HYPERSCAN_FALLBACK = "enable_hyperscan_fallback";
+
+    public static final String CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION =
+            "cloud_partitions_table_use_cached_visible_version";
+
+    public static final String SHORT_CIRCUIT_EVALUATION = "short_circuit_evaluation";
+
+    // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
+    //       and set affectQueryResult=true
+    public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
+            DRY_RUN_QUERY,
+            SKIP_DELETE_PREDICATE,
+            SKIP_DELETE_BITMAP,
+            SKIP_DELETE_SIGN,
+            SKIP_STORAGE_ENGINE_MERGE,
+            SKIP_MISSING_VERSION,
+            SKIP_BAD_TABLET,
+            SHOW_HIDDEN_COLUMNS
+    );
+
+    public static final String ENABLE_STATS = "enable_stats";
+    public static final String ENABLE_LOW_CONFIDENCE_EQ_JOIN_REMAINING_CONDITION_DECAY
+            = "enable_low_confidence_eq_join_remaining_condition_decay";
+
+    public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
+
+    public static final String MAX_FETCH_REMOTE_TABLET_COUNT = "max_fetch_remote_schema_tablet_count";
+
+    // Deprecated legacy switch for flatten-nested variant behavior.
+    // It is distinct from variant_enable_nested_group.
+    // Default is false, which means do not flatten nested when create table.
+    @Deprecated
+    public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
+    public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST = "enable_variant_schema_auto_cast";
+
+    // CLOUD_VARIABLES_BEGIN
+    public static final String CLOUD_CLUSTER = "cloud_cluster";
+    public static final String COMPUTE_GROUP = "compute_group";
+    public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
+    public static final String CLOUD_FORCE_SYNC_VERSION = "cloud_force_sync_version";
+    public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
+            "cloud_partition_version_cache_ttl_ms";
+    public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
+            "cloud_table_version_cache_ttl_ms";
+    public static final String CLOUD_FORCE_SYNC_TABLET_STATS = "cloud_force_sync_tablet_stats";
+    // CLOUD_VARIABLES_BEGIN
+
+    public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
+    public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
+    public static final String ENABLE_INVERTED_INDEX_SEARCHER_CACHE = "enable_inverted_index_searcher_cache";
+    public static final String ENABLE_INVERTED_INDEX_QUERY_CACHE = "enable_inverted_index_query_cache";
+    public static final String ENABLE_ANN_INDEX_RESULT_CACHE = "enable_ann_index_result_cache";
+
+    public static final String IN_LIST_VALUE_COUNT_THRESHOLD = "in_list_value_count_threshold";
+
+    public static final String ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
+                                    "enable_adaptive_pipeline_task_serial_read_on_limit";
+    public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
+                                    "adaptive_pipeline_task_serial_read_on_limit";
+    public static final String REQUIRE_SEQUENCE_IN_INSERT = "require_sequence_in_insert";
+
+    public static final String MINIMUM_OPERATOR_MEMORY_REQUIRED_KB = "minimum_operator_memory_required_kb";
+
+    public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
+            "enable_cooldown_replica_affinity";
+
+    public static final String READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
+
+    public static final String CTE_MAX_RECURSION_DEPTH = "cte_max_recursion_depth";
+
+    /**
+     * Inserting overwrite for auto partition table allows creating partition for
+     * datas which cannot find partition to overwrite.
+     */
+    public static final String ENABLE_AUTO_CREATE_WHEN_OVERWRITE = "enable_auto_create_when_overwrite";
+
+    public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
+
+    public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
+
+    public static final String ENABLE_SCHEMA_SCAN_FROM_MASTER_FE = "enable_schema_scan_from_master_fe";
+
+    public static final String SHOW_COLUMN_COMMENT_IN_DESCRIBE = "show_column_comment_in_describe";
+
+    public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
+
+    public static final String PREFER_UDF_OVER_BUILTIN = "prefer_udf_over_builtin";
+    public static final String ENABLE_ADD_INDEX_FOR_NEW_DATA = "enable_add_index_for_new_data";
+
+    public static final String SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR = "skew_rewrite_join_salt_explode_factor";
+
+    public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
+    public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
+    public static final String DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP
+            = "decompose_repeat_shuffle_index_in_max_group";
+    public static final String ENABLE_SHUFFLE_KEY_PRUNE = "enable_shuffle_key_prune";
+
+    public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
+    @VarAttrDef.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
+                description = "When collecting column statistics, collect the top values ranked by their "
+                        + "proportion as hot values, up to HOT_VALUE_COLLECT_COUNT.")
+    public int hotValueCollectCount = 10; // Select the values that account for at least 10% of the column
+
+    @VarAttrDef.VarAttr(name = ENABLE_INVERTED_INDEX_WAND_QUERY,
+            description = "Whether to enable inverted index WAND query optimization")
+    public boolean enableInvertedIndexWandQuery = true;
+
+    public void setHotValueCollectCount(int count) {
+        this.hotValueCollectCount = count;
+    }
+
+    public static int getHotValueCollectCount() {
+        if (ConnectContext.get() != null) {
+            if (ConnectContext.get().getState().isInternal()) {
+                return 0;
+            } else {
+                return ConnectContext.get().getSessionVariable().hotValueCollectCount;
+            }
+        } else {
+            return Integer.parseInt(VariableMgr.getDefaultValue(HOT_VALUE_COLLECT_COUNT));
+        }
+    }
+
+    public static final String SKEW_VALUE_THRESHOLD = "skew_value_threshold";
+
+    @VarAttrDef.VarAttr(name = SKEW_VALUE_THRESHOLD, needForward = true,
+                description = "When the occurrence of a value in a column is greater than "
+                        + "skewValueThreshold tmies of average occurences "
+                        + "(occurrences >= skewValueThreshold * rowCount / ndv), "
+                        + "the value is regarded as hot value")
+    private double skewValueThreshold = 10;
+
+    public void setSkewValueThreshold(int threshold) {
+        this.skewValueThreshold = threshold;
+    }
+
+    public static double getSkewValueThreshold() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().skewValueThreshold;
+        } else {
+            return Double.parseDouble(VariableMgr.getDefaultValue(SKEW_VALUE_THRESHOLD));
+        }
+    }
+
+    public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
+    @VarAttrDef.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
+            description = "The minimum ratio of occurrences of a hot value in a column")
+    private double hotValueThreshold = 0.10d;
+
+    public void setHotValueThreshold(double threshold) {
+        this.hotValueThreshold = threshold;
+    }
+
+    public static double getHotValueThreshold() {
+        if (ConnectContext.get() != null) {
+            if (ConnectContext.get().getState().isInternal()) {
+                return 0.1;
+            } else {
+                return ConnectContext.get().getSessionVariable().hotValueThreshold;
+            }
+        } else {
+            return Double.parseDouble(VariableMgr.getDefaultValue(HOT_VALUE_THRESHOLD));
+        }
+    }
+
+    public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
+
+    public static final String DEFAULT_AI_RESOURCE = "default_ai_resource";
+    public static final String FILE_PRESIGNED_URL_TTL_SECONDS = "file_presigned_url_ttl_seconds";
+    public static final String EMBED_MAX_BATCH_SIZE = "embed_max_batch_size";
+    public static final String AI_CONTEXT_WINDOW_SIZE = "ai_context_window_size";
+    public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
+    public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
+    public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
+    public static final String IVF_NPROBE = "ivf_nprobe";
+    public static final String ANN_INDEX_CANDIDATE_ROWS_THRESHOLD =
+            "ann_index_candidate_rows_threshold";
+    public static final String ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD =
+            "ann_index_candidate_rows_percent_threshold";
+
+    public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
+
+    public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "default_variant_enable_typed_paths_to_sparse";
+
+    public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+                                                            "default_variant_max_sparse_column_statistics_size";
+    public static final String DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = "default_variant_sparse_hash_shard_count";
+
+    public static final String DEFAULT_VARIANT_ENABLE_DOC_MODE = "default_variant_enable_doc_mode";
+
+    public static final String DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "default_variant_doc_materialization_min_rows";
+
+    public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
+
+    public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
+
+    public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
+    public static final String AGG_PHASE = "agg_phase";
+    public static final String ENABLE_BUCKETED_HASH_AGG = "enable_bucketed_hash_agg";
+    public static final String BUCKETED_AGG_MIN_INPUT_ROWS = "bucketed_agg_min_input_rows";
+    public static final String BUCKETED_AGG_MAX_GROUP_KEYS = "bucketed_agg_max_group_keys";
+    public static final String BUCKETED_AGG_HIGH_CARD_THRESHOLD = "bucketed_agg_high_card_threshold";
+
+    public static final String MERGE_IO_READ_SLICE_SIZE_BYTES = "merge_io_read_slice_size_bytes";
+
+    public static final String ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
+    public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
+
+    static {
+        ImmutableList.Builder<Field> builderForAll = ImmutableList.builder();
+        ImmutableList.Builder<Field> builderForPlan = ImmutableList.builder();
+        Field[] fields = SessionVariable.class.getDeclaredFields();
+        for (Field f : fields) {
+            VarAttr varAttr = f.getAnnotation(VarAttr.class);
+            if (varAttr == null || VariableAnnotation.DEPRECATED.equals(
+                    varAttr.varType()) || VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                continue;
+            }
+            f.setAccessible(true);
+            if (varAttr.affectQueryResultInPlan()) {
+                builderForPlan.add(f);
+                builderForAll.add(f);
+            } else if (varAttr.affectQueryResultInExecution()) {
+                builderForAll.add(f);
+            }
+        }
+        affectQueryResultInPlanFields = builderForPlan.build();
+        affectQueryResultFields = builderForAll.build();
+    }
+
+    /**
+     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
+     */
+    @VarAttrDef.VarAttr(name = ENABLE_STATS)
+    public boolean enableStats = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_LOW_CONFIDENCE_EQ_JOIN_REMAINING_CONDITION_DECAY, needForward = true,
+            description = "Whether to continue decaying remaining low-confidence equality join conditions after "
+                    + "applying the minimum ratio when all equality predicates are untrustworthy")
+    public boolean enableLowConfidenceEqJoinRemainingConditionDecay = true;
+
+    // session origin value
+    public Map<SessionVariableField, String> sessionOriginValue = new HashMap<>();
+    // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
+    // if it is setStmt, we needn't collect session origin value
+    public boolean isSingleSetVar = false;
+
+    @VarAttrDef.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
+    public boolean expandRuntimeFilterByInnerJoin = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_DECOUPLED_RUNTIME_FILTER,
+            description = "Enable decoupled runtime filter: allow RF producer and predicate source "
+                    + "to be on different join nodes")
+    public boolean enableDecoupledRuntimeFilter = true;
+
+    @VarAttrDef.VarAttr(name = DECOUPLED_RF_NDV_RATIO_THRESHOLD,
+            description = "NDV ratio threshold for decoupled RF. When probe_ndv/build_ndv < threshold, "
+                    + "prefer decoupled RF and remove standard RF; otherwise keep standard RF "
+                    + "and make decoupled RF non-blocking")
+    public double decoupledRfNdvRatioThreshold = 0.5;
+
+    @VarAttrDef.VarAttr(name = MIN_DECOUPLED_RF_TARGET_ROWS,
+            description = "Minimum row count for the target scan of a decoupled RF. "
+                    + "Skip generating decoupled RF when the target scan has fewer rows "
+                    + "(small scans complete too quickly for the RF to arrive in time)")
+    public long minDecoupledRfTargetRows = 5_000_000;
+
+    @VarAttrDef.VarAttr(name = "enable_aggregate_cse", needForward = true)
+    public boolean enableAggregateCse = true;
+
+    // Experimental: enable pushing down virtual slots (common sub-expressions) into OlapScan.
+    // When false (default), the optimizer rule PushDownVirtualColumnsIntoOlapScan will not apply.
+    @VarAttrDef.VarAttr(name = "enable_virtual_slot_for_cse", needForward = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Enable pushing common sub-expressions as virtual columns into OlapScan (experimental)")
+    public boolean experimentalEnableVirtualSlotForCse = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
+    public boolean enableNewShffleHashMethod = true;
+
+    @VarAttrDef.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL, needForward = true,
+            description = "Whether to add the FINAL keyword to the query SQL when querying ClickHouse JDBC external "
+                    + "tables.")
+    public boolean jdbcClickhouseQueryFinal = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_JDBC_ORACLE_NULL_PREDICATE_PUSH_DOWN, needForward = true,
+            description = "Whether to allow NULL predicates to be pushed down to Oracle JDBC external tables.")
+    public boolean enableJdbcOracleNullPredicatePushDown = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_JDBC_CAST_PREDICATE_PUSH_DOWN, needForward = true,
+            description = "Whether to allow predicates with CAST expressions to be pushed down to JDBC external tables."
+            )
+    public boolean enableJdbcCastPredicatePushDown = true;
+
+    @VarAttrDef.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
+    public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
+
+    // Control whether publish timeout keeps the committed response or returns an explicit error.
+    @VarAttrDef.VarAttr(name = INSERT_VISIBLE_TIMEOUT_RETURN_MODE, needForward = true,
+            checker = "checkInsertVisibleTimeoutReturnMode", setter = "setInsertVisibleTimeoutReturnMode",
+            description = "Controls the status returned to the client when a normal internal-table INSERT times out "
+                    + "while waiting for publish visibility.",
+            options = {INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED, INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR})
+    public String insertVisibleTimeoutReturnMode = INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED;
+
+    @VarAttrDef.VarAttr(name = ENABLE_EVENTUAL_CONSISTENT_CHANGE, needForward = true,
+            description = "Whether to allow eventual consistent semantics for time-based CHANGES/snapshot queries. "
+                    + "If true, query may return results without waiting committed txns to be visible.")
+    public boolean enableEventualConsistentChange = false;
+
+    @VarAttrDef.VarAttr(name = CHANGE_VISIBLE_TIMEOUT_MS, needForward = true,
+            description = "Max time in ms to wait committed txns become visible for time-based CHANGES/snapshot "
+                    + "queries.")
+    public long changeVisibleTimeoutMs = DEFAULT_CHANGE_VISIBLE_TIMEOUT_MS;
+
+    // max memory used on every backend. Default value to 100G.
+    @VarAttrDef.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
+    public long maxExecMemByte = 100147483648L;
+    @VarAttrDef.VarAttr(name = MAX_SCAN_MEM_RATIO, needForward = true)
+    public double maxScanMemRatio = 0.3;
+    @VarAttrDef.VarAttr(name = ENABLE_ADAPTIVE_SCAN, needForward = true)
+    public boolean enableAdaptiveScan = true;
+
+    @VarAttrDef.VarAttr(name = SCAN_QUEUE_MEM_LIMIT, needForward = true,
+            description = "How many bytes of block can be saved in the block queue of each Scan Instance")
+    // 100MB
+    public long maxScanQueueMemByte = 2147483648L / 20;
+
+    @VarAttrDef.VarAttr(name = MAX_SCANNERS_CONCURRENCY, needForward = true, description = "The max threads to read "
+            + "data of ScanNode, default 4")
+    public int maxScannersConcurrency = 4;
+
+    @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = "The max threads to "
+            + "read data of FileScanNode, default 16")
+    public int maxFileScannersConcurrency = 16;
+
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = "When enabled, "
+            + "FileScanNode uses FileScannerV2 for supported query scans. Enabled by default.")
+    public boolean enableFileScannerV2 = true;
+
+    @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
+    public int localExchangeFreeBlocksLimit = 4;
+
+    @VarAttrDef.VarAttr(name = MIN_SCANNERS_CONCURRENCY, needForward = true, description = "The min concurrency of "
+            + "Scanner, default 1")
+    public int minScannersConcurrency = 1;
+
+    @VarAttrDef.VarAttr(name = MIN_FILE_SCANNERS_CONCURRENCY, needForward = true, description = "The min concurrency "
+            + "of Remote Scanner, default 1")
+    public int minFileScannersConcurrency = 1;
+
+    @VarAttrDef.VarAttr(name = MIN_SCAN_SCHEDULER_CONCURRENCY, needForward = true, description = "The min concurrency "
+            + "of ScanScheduler, "
+            + "default 0 means use twice the number of Scan thread pool threads",
+            varType = VariableAnnotation.DEPRECATED)
+    public int minScanSchedulerConcurrency = 0;
+
+    @VarAttrDef.VarAttr(name = CTE_MAX_RECURSION_DEPTH, needForward = true, description = "The maximum depth of CTE "
+            + "recursion. Default is 100")
+    public int cteMaxRecursionDepth = 100;
+
+    // By default, the number of Limit items after OrderBy is changed from 65535 items
+    // before v1.2.0 (not included), to return all items by default
+    @VarAttrDef.VarAttr(name = DEFAULT_ORDER_BY_LIMIT, affectQueryResultInExecution = true)
+    private long defaultOrderByLimit = -1;
+
+    // query timeout in second.
+    @VarAttrDef.VarAttr(name = QUERY_TIMEOUT, needForward = true,
+            checker = "checkQueryTimeoutValid", setter = "setQueryTimeoutS")
+    private int queryTimeoutS = 900;
+
+    // query timeout in second.
+    @VarAttrDef.VarAttr(name = ANALYZE_TIMEOUT, flag = VarAttrDef.GLOBAL, needForward = true)
+    public int analyzeTimeoutS = 43200;
+
+    // insert timeout in second
+    @VarAttrDef.VarAttr(name = INTERNAL_CACHE_HOT_SPOT_TIMEOUT, flag = VarAttrDef.GLOBAL, needForward = true)
+    public int cacheHotSpotTimeoutS = 300;
+
+    // The global max_execution_time value provides the default for the session value for new connections.
+    // The session value applies to SELECT executions executed within the session that include
+    // no MAX_EXECUTION_TIME(N) optimizer hint or for which N is 0.
+    // https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html
+    // So that it is == query timeout in doris
+    @VarAttrDef.VarAttr(name = MAX_EXECUTION_TIME, checker = "checkMaxExecutionTimeMSValid",
+                        setter = "setMaxExecutionTimeMS")
+    public int maxExecutionTimeMS = 900000;
+
+    @VarAttrDef.VarAttr(name = INSERT_TIMEOUT, needForward = true)
+    public int insertTimeoutS = 14400;
+
+    // if true, need report to coordinator when plan fragment execute successfully.
+    @VarAttrDef.VarAttr(name = ENABLE_PROFILE, needForward = true)
+    public boolean enableProfile = false;
+
+    @VarAttrDef.VarAttr(name = RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT, needForward = true)
+    public int rpcVerboseProfileMaxInstanceCount = 5;
+
+    // When enable_profile is true, profile of queries that costs more than autoProfileThresholdMs
+    // will be stored to disk.
+    @VarAttrDef.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
+    public int autoProfileThresholdMs = -1;
+
+    @VarAttrDef.VarAttr(name = "runtime_filter_prune_for_external", fuzzy = true)
+    public boolean runtimeFilterPruneForExternal = false;
+
+    @VarAttrDef.VarAttr(name = "runtime_filter_jump_threshold")
+    public int runtimeFilterJumpThreshold = 2;
+
+    // using hashset instead of group by + count can improve performance
+    //        but may cause rpc failed when cluster has less BE
+    // Whether this switch is turned on depends on the BE number
+    @VarAttrDef.VarAttr(name = ENABLE_SINGLE_DISTINCT_COLUMN_OPT)
+    public boolean enableSingleDistinctColumnOpt = false;
+
+    // Set sqlMode to empty string
+    @VarAttrDef.VarAttr(name = SQL_MODE, needForward = true, affectQueryResultInPlan = true)
+    public long sqlMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+
+    @VarAttrDef.VarAttr(name = WORKLOAD_VARIABLE, needForward = true)
+    public String workloadGroup = "";
+
+    @VarAttrDef.VarAttr(name = BYPASS_WORKLOAD_GROUP, needForward = true, description = "whether bypass workload "
+            + "group's limitation, currently only support bypass query queue")
+    public boolean bypassWorkloadGroup = false;
+
+    @VarAttrDef.VarAttr(name = QUERY_SLOT_COUNT, needForward = true, checker = "checkQuerySlotCount",
+            description = "Number of slots occupied by each query, the total number of query slots "
+                    + "of the workload group equals the maximum number of concurrent requests")
+    public int wgQuerySlotCount = 1;
+
+    public void checkQuerySlotCount(String slotCnt) {
+        Long slotCount = Long.valueOf(slotCnt);
+        if (slotCount < 1 || slotCount > 1025) {
+            throw new InvalidParameterException("query_slot_count should be between 1 and 1024)");
+        }
+    }
+
+    @VarAttrDef.VarAttr(name = MAX_COLUMN_READER_NUM)
+    public int maxColumnReaderNum = 20000;
+
+    @VarAttrDef.VarAttr(name = RESOURCE_VARIABLE)
+    public String resourceGroup = "";
+
+    @VarAttrDef.VarAttr(name = PREFERRED_BACKEND_SELECTION_KEY, needForward = true,
+            checker = "checkPreferredBackendSelectionKey",
+            description = "The preferred backend selection key for the current session. The default empty string "
+                    + "means no selection preference is provided.")
+    public String preferredBackendSelectionKey = "";
+
+    @VarAttrDef.VarAttr(name = BACKEND_SELECTION_MODE, needForward = true,
+            checker = "checkBackendSelectionMode",
+            setter = "setBackendSelectionMode",
+            options = {"prefer", "require", "default"},
+            description = "Backend selection mode for optional policies. The default policy is a no-op and does "
+                    + "not change replica or backend selection behavior. `require` is available only when the "
+                    + "extension declares support. Supported values are `prefer`, `require`, and `default`.")
+    public String backendSelectionMode = "prefer";
+
+    @VarAttrDef.VarAttr(name = ENABLE_LOAD_BACKEND_SELECTION, needForward = true,
+            description = "Whether optional backend selection policies may participate in load scheduling. "
+                    + "The default policy is a no-op and does not change load behavior.")
+    public boolean enableLoadBackendSelection = false;
+
+    // this is used to make mysql client happy
+    // autocommit is actually a boolean value, but @@autocommit is type of BIGINT.
+    // So we need to set convertBoolToLongMethod to make "select @@autocommit" happy.
+    @VarAttrDef.VarAttr(name = AUTO_COMMIT, convertBoolToLongMethod = "convertBoolToLong")
+    public boolean autoCommit = true;
+
+    // this is used to make c3p0 library happy
+    @VarAttrDef.VarAttr(name = TX_ISOLATION)
+    public String txIsolation = "REPEATABLE-READ";
+
+    // this is used to make mysql client happy
+    @VarAttrDef.VarAttr(name = TX_READ_ONLY)
+    public boolean txReadonly = false;
+
+    // this is used to make mysql client happy
+    @VarAttrDef.VarAttr(name = TRANSACTION_READ_ONLY)
+    public boolean transactionReadonly = false;
+
+    // this is used to make mysql client happy
+    @VarAttrDef.VarAttr(name = TRANSACTION_ISOLATION)
+    public String transactionIsolation = "REPEATABLE-READ";
+
+    // this is used to make c3p0 library happy
+    @VarAttrDef.VarAttr(name = CHARACTER_SET_CLIENT)
+    public String charsetClient = "utf8mb4";
+    @VarAttrDef.VarAttr(name = CHARACTER_SET_CONNNECTION)
+    public String charsetConnection = "utf8mb4";
+    @VarAttrDef.VarAttr(name = CHARACTER_SET_RESULTS)
+    public String charsetResults = "utf8mb4";
+    @VarAttrDef.VarAttr(name = CHARACTER_SET_SERVER)
+    public String charsetServer = "utf8mb4";
+    @VarAttrDef.VarAttr(name = COLLATION_CONNECTION)
+    public String collationConnection = "utf8mb4_0900_bin";
+    @VarAttrDef.VarAttr(name = COLLATION_DATABASE)
+    public String collationDatabase = "utf8mb4_0900_bin";
+
+    @VarAttrDef.VarAttr(name = COLLATION_SERVER)
+    public String collationServer = "utf8mb4_0900_bin";
+
+    // this is used to make c3p0 library happy
+    @VarAttrDef.VarAttr(name = SQL_AUTO_IS_NULL)
+    public boolean sqlAutoIsNull = false;
+
+    @VarAttrDef.VarAttr(name = SQL_SELECT_LIMIT, needForward = true, affectQueryResultInExecution = true)
+    private long sqlSelectLimit = Long.MAX_VALUE;
+
+    // this is used to make c3p0 library happy
+    @VarAttrDef.VarAttr(name = MAX_ALLOWED_PACKET)
+    public int maxAllowedPacket = 16777216;
+
+    @VarAttrDef.VarAttr(name = AUTO_INCREMENT_INCREMENT)
+    public int autoIncrementIncrement = 1;
+
+    // this is used to make c3p0 library happy
+    @VarAttrDef.VarAttr(name = QUERY_CACHE_TYPE)
+    public int queryCacheType = 0;
+
+    // The number of seconds the server waits for activity on an interactive connection before closing it
+    @VarAttrDef.VarAttr(name = INTERACTIVE_TIMTOUT)
+    public int interactiveTimeout = 3600;
+
+    // The number of seconds the server waits for activity on a noninteractive connection before closing it.
+    @VarAttrDef.VarAttr(name = WAIT_TIMEOUT)
+    public int waitTimeoutS = 28800;
+
+    // The number of seconds to wait for a block to be written to a connection before aborting the write
+    @VarAttrDef.VarAttr(name = NET_WRITE_TIMEOUT)
+    public int netWriteTimeout = 600;
+
+    // The number of seconds to wait for a block to be written to a connection before aborting the write
+    @VarAttrDef.VarAttr(name = NET_READ_TIMEOUT)
+    public int netReadTimeout = 600;
+
+    // The current time zone
+    @VarAttrDef.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInExecution = true)
+    public String timeZone = TimeUtils.getSystemTimeZone().getID();
+
+    @VarAttrDef.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResultInExecution = true,
+            setter = "setLcTimeNames")
+    public String lcTimeNames = "en_US";
+
+    @VarAttrDef.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
+    public int exchangeInstanceParallel = 256;
+
+    @VarAttrDef.VarAttr(name = SQL_SAFE_UPDATES)
+    public int sqlSafeUpdates = 0;
+
+    // only
+    @VarAttrDef.VarAttr(name = NET_BUFFER_LENGTH, flag = VarAttrDef.READ_ONLY)
+    public int netBufferLength = 16384;
+
+    @VarAttrDef.VarAttr(name = HAVE_QUERY_CACHE, flag = VarAttrDef.READ_ONLY)
+    public boolean haveQueryCache = false;
+
+    @VarAttrDef.VarAttr(name = SERVER_IDENTITY, flag = VarAttrDef.READ_ONLY)
+    public String serverIdentity = APACHE_DORIS_SERVER_IDENTITY;
+
+    // 8192 minus 16 + 16 bytes padding that in padding pod array.
+    // This remains the row cap for output blocks even when adaptive byte budgeting is enabled.
+    @VarAttrDef.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize", needForward = true)
+    public int batchSize = 8160;
+
+    // 16352 + 16 + 16 = 16384
+    @VarAttrDef.VarAttr(name = BROKER_LOAD_BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
+    public int brokerLoadBatchSize = 16352;
+
+    // Target output block size in bytes for adaptive batch size.
+    // Valid range: [1MB, 512MB]. Default 8MB.
+    @VarAttrDef.VarAttr(name = PREFERRED_BLOCK_SIZE_BYTES, needForward = true,
+            checker = "checkPreferredBlockSizeBytes",
+            description = "Target output block size in bytes for adaptive batch size. "
+                    + "Range [1MB, 512MB]. Default 8MB.")
+    public long preferredBlockSizeBytes = 8388608L; // 8MB
+
+    @VarAttrDef.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
+    public boolean disableStreamPreaggregations = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, fuzzy = true)
+    public boolean enableDistinctStreamingAggregation = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
+    public boolean enableStreamingAggHashJoinForcePassthrough = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, fuzzy = true)
+    public boolean enableLocalExchangeBeforeAgg = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, fuzzy = true)
+    public boolean enableLocalExchangeBeforeStreamingAgg = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
+    public boolean enableDistinctStreamingAggForcePassthrough = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
+    public boolean enableBroadcastJoinForcePassthrough = false;
+
+    @VarAttrDef.VarAttr(name = DISABLE_COLOCATE_PLAN)
+    public boolean disableColocatePlan = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
+    public boolean enableBucketShuffleJoin = true;
+
+    /**
+     * explode function row count enlarge factor.
+     */
+    @VarAttrDef.VarAttr(name = GENERATE_STATS_FACTOR, checker = "checkGenerateStatsFactor",
+            setter = "setGenerateStatsFactor")
+    public int generateStatsFactor = 5;
+
+    @VarAttrDef.VarAttr(name = PREFER_JOIN_METHOD)
+    public String preferJoinMethod = "broadcast";
+
+    @VarAttrDef.VarAttr(name = FRAGMENT_TRANSMISSION_COMPRESSION_CODEC)
+    public String fragmentTransmissionCompressionCodec = "none";
+
+    // whether sync load to other cluster
+    @VarAttrDef.VarAttr(name = CLOUD_ENABLE_MULTI_CLUSTER_SYNC_LOAD, needForward = true)
+    public static boolean cloudEnableMultiClusterSyncLoad = false;
+
+    /*
+     * the parallel exec instance num for one Fragment in one BE
+     * 1 means disable this feature
+     */
+    @VarAttrDef.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = false,
+                        setter = "setFragmentInstanceNum", varType = VariableAnnotation.DEPRECATED)
+    public int parallelExecInstanceNum = 8;
+
+    @VarAttrDef.VarAttr(name = COLOCATE_MAX_PARALLEL_NUM, needForward = true, fuzzy = false)
+    public int colocateMaxParallelNum = 128;
+
+    @VarAttrDef.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
+                        setter = "setPipelineTaskNum")
+    public int parallelPipelineTaskNum = 0;
+
+    public enum IgnoreSplitType {
+        NONE,
+        IGNORE_JNI,
+        IGNORE_NATIVE,
+        // Deprecated compatibility value. It behaves like NONE because no C++ splits are emitted.
+        IGNORE_PAIMON_CPP
+    }
+
+    public static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
+    @VarAttrDef.VarAttr(name = IGNORE_SPLIT_TYPE,
+            checker = "checkIgnoreSplitType",
+            options = {"NONE", "IGNORE_JNI", "IGNORE_NATIVE", "IGNORE_PAIMON_CPP"},
+            description = "Ignore splits of the specified type")
+    public String ignoreSplitType = IgnoreSplitType.NONE.toString();
+
+    public static final String USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN = "use_consistent_hash_for_external_scan";
+    @VarAttrDef.VarAttr(name = USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN,
+            description = "Use consistent hashing to split the appearance for external scan")
+    public boolean useConsistentHashForExternalScan = false;
+
+    @VarAttrDef.VarAttr(name = PROFILE_LEVEL, fuzzy = false, needForward = true,
+            setter = "setProfileLevel", checker = "checkProfileLevel",
+            description = "The level of query profile, "
+                    + "1 means only collect Counter of MergedProfile, 2 means print detailed information,"
+                    + " 3 means open some Counters that may cause performance degradation")
+    public int profileLevel = 2;
+
+    @VarAttrDef.VarAttr(name = MAX_INSTANCE_NUM)
+    public int maxInstanceNum = 64;
+
+    @VarAttrDef.VarAttr(name = DML_PLAN_RETRY_TIMES, needForward = true, description = "Maximum retry attempts for "
+            + "write planning. To avoid deadlocks, "
+            + "phased locking is adopted during write planning. "
+            + "When changes occur to the table structure between two locking phases, "
+            + "re-planning will be attempted. "
+            + "This variable limits the maximum number of retry attempts for re-planning.")
+    public int dmlPlanRetryTimes = 3;
+
+    @VarAttrDef.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
+    public boolean enableInsertStrict = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_INSERT_VALUE_AUTO_CAST, needForward = true, description = "INSERT VALUE "
+            + "statement whether to automatically type cast. Only use for truncate long string. "
+            + "ON by default.")
+    public boolean enableInsertValueAutoCast = true;
+
+    @VarAttrDef.VarAttr(name = INSERT_MAX_FILTER_RATIO, needForward = true)
+    public double insertMaxFilterRatio = 1.0;
+
+    @VarAttrDef.VarAttr(name = ENABLE_ODBC_TRANSCATION)
+    public boolean enableOdbcTransaction = false;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS,
+            fuzzy = true,
+            description = "Whether to allow use binary search algorithm to filter partitions. ON by default."
+    )
+    public boolean enableBinarySearchFilteringPartitions = true;
+
+    @VarAttrDef.VarAttr(
+            name = CACHE_SORTED_PARTITION_INTERVAL_SECOND,
+            fuzzy = false,
+            description = "After updating table data, within how many seconds can "
+                    + "binary search partitioning and pruning not be used."
+    )
+    public int cacheSortedPartitionIntervalSecond = 10;
+
+    @VarAttrDef.VarAttr(name = SKIP_PRUNE_PREDICATE, fuzzy = true,
+            description = "Skips the removal of always-true predicates after partition pruning. "
+                    + "Defaults to OFF (optimization is active)."
+    )
+    public boolean skipPrunePredicate = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
+    public boolean enableSqlCache = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_HIVE_SQL_CACHE, fuzzy = false)
+    public boolean enableHiveSqlCache = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_EXTERNAL_SCAN_TASK_REUSE, needForward = true,
+            description = "Whether to reuse equivalent external table scan splits within one statement.")
+    public boolean enableExternalScanTaskReuse = true;
+
+    // Forwarded because query cache normalization runs wherever the statement is
+    // planned: a forwarded statement is planned by the master in a fresh
+    // ConnectContext, which starts from the master's global value and then sees
+    // only what getForwardVariables() sends, so without this a session-level
+    // setting (or a SET_VAR hint) never reaches the planner: the cache follows
+    // the master's global instead, and enable_query_cache_incremental, which
+    // requires this switch, would arrive alone and never take effect.
+    @VarAttrDef.VarAttr(name = ENABLE_QUERY_CACHE, fuzzy = true, needForward = true)
+    public boolean enableQueryCache = false;
+
+    // Allow BE to reuse a stale query cache entry by scanning only the delta
+    // rowsets since the cached version and merging them with the cached partial
+    // aggregation blocks. Only takes effect when the cache point aggregation is
+    // non-finalize (its output is merged again upstream) and the selected index
+    // is append-only: DUP_KEYS, or merge-on-write UNIQUE_KEYS whose delta did
+    // not rewrite pre-existing keys (BE checks the delete bitmap per tablet);
+    // BE falls back to a full recompute whenever the delta cannot be captured
+    // (compacted away), contains delete predicates or rewrites history rows.
+    // Experimental: shown as `experimental_enable_query_cache_incremental` and
+    // settable with or without the prefix; to be promoted to EXPERIMENTAL_ONLINE
+    // once it graduates.
+    @VarAttrDef.VarAttr(name = ENABLE_QUERY_CACHE_INCREMENTAL,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true,
+            description = "Whether BE may reuse a stale query cache entry by incremental merge: scan only"
+                    + " the delta rowsets since the cached version and emit them together with the"
+                    + " cached partial aggregation blocks for the upstream merge. Only takes effect"
+                    + " when the cache point is a non-finalize aggregation directly over the scan"
+                    + " and the selected index is append-only: DUP_KEYS, or merge-on-write"
+                    + " UNIQUE_KEYS whose delta did not rewrite pre-existing keys (BE checks the"
+                    + " delete bitmap per tablet); falls back to a full recompute whenever the"
+                    + " delta cannot be captured (e.g. compacted away), contains delete predicates"
+                    + " or rewrites history rows. Requires enable_query_cache.")
+    public boolean enableQueryCacheIncremental = false;
+
+    // Forwarded for the same reason as enable_query_cache: the master builds
+    // the query cache param when it plans a forwarded statement, so without
+    // this a forwarded statement would silently ignore a forced refresh and
+    // size the entries by the master's defaults instead of the session's.
+    @VarAttrDef.VarAttr(name = QUERY_CACHE_FORCE_REFRESH, needForward = true)
+    private boolean queryCacheForceRefresh = false;
+
+    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_BYTES, needForward = true)
+    private long queryCacheEntryMaxBytes = 5242880;
+
+    @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_ROWS, needForward = true)
+    private long queryCacheEntryMaxRows = 500000;
+
+    @VarAttrDef.VarAttr(name = ENABLE_CONDITION_CACHE)
+    public boolean enableConditionCache = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_LEFT_SEMI_DIRECT_RETURN_OPT)
+    public boolean enableLeftSemiDirectReturnOpt = true;
+
+    @VarAttrDef.VarAttr(name = FORWARD_TO_MASTER)
+    public boolean forwardToMaster = true;
+
+    @VarAttrDef.VarAttr(name = FORCE_FORWARD_ALL_QUERIES)
+    public boolean forceForwardAllQueries = false;
+
+    // compatible with some mysql client connect, say DataGrip of JetBrains
+    @VarAttrDef.VarAttr(name = EVENT_SCHEDULER)
+    public String eventScheduler = "OFF";
+    @VarAttrDef.VarAttr(name = STORAGE_ENGINE)
+    public String storageEngine = "olap";
+    @VarAttrDef.VarAttr(name = DEFAULT_STORAGE_ENGINE)
+    public String defaultStorageEngine = "olap";
+    @VarAttrDef.VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE)
+    public String defaultTmpStorageEngine = "olap";
+
+    @VarAttrDef.VarAttr(name = ENABLE_MYSQL_COMPATIBLE_INDEX_METADATA,
+            description = "Report index and key metadata the way MySQL does. When ON, SHOW KEYS|INDEX returns "
+                    + "one row per indexed column and exposes the UNIQUE/AGGREGATE key of a table as an index "
+                    + "named PRIMARY, which is what MySQL ODBC/JDBC drivers and BI tools look for. OFF by "
+                    + "default, which keeps the legacy output that only lists secondary indexes. Set it "
+                    + "globally to turn it on for every client of the cluster.")
+    public boolean enableMysqlCompatibleIndexMetadata = false;
+
+    @VarAttrDef.VarAttr(name = MAX_SCAN_KEY_NUM)
+    public int maxScanKeyNum = 48;
+    @VarAttrDef.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
+    public int maxPushdownConditionsPerColumn = 1024;
+    @VarAttrDef.VarAttr(
+            name = SHOW_HIDDEN_COLUMNS,
+            flag = VarAttrDef.SESSION_ONLY,
+            needForward = true,
+            affectQueryResultInPlan = true
+    )
+    public boolean showHiddenColumns = false;
+
+    @VarAttrDef.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE, description = "Whether to allow NULLABLE columns as "
+            + "PARTITION columns. When ON, RANGE PARTITION allows "
+            + "NULLABLE PARTITION columns (LIST PARTITION is not supported currently). ON by default.")
+    public boolean allowPartitionColumnNullable = true;
+
+    @VarAttrDef.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
+    public boolean deleteWithoutPartition = false;
+
+    @VarAttrDef.VarAttr(name = SEND_BATCH_PARALLELISM, needForward = true)
+    public int sendBatchParallelism = 1;
+
+    @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_DML, varType = VariableAnnotation.REMOVED)
+    public boolean enableNereidsDML = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_DML_WITH_PIPELINE,
+            varType = VariableAnnotation.REMOVED, description = "execute DML with pipeline engine in Nereids")
+    public boolean enableNereidsDmlWithPipeline = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
+    public boolean enableStrictConsistencyDml = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = false, needForward = true,
+            varType = VariableAnnotation.REMOVED, setter = "setEnablePipelineEngine")
+    private boolean enablePipelineEngine = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.REMOVED,
+            setter = "setEnablePipelineXEngine")
+    private boolean enablePipelineXEngine = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
+    private boolean enableSharedScan = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
+    private boolean enableParallelScan = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_AGGREGATE_FUNCTION_NULL_V2, fuzzy = true, needForward = true)
+    private boolean enableAggregateFunctionNullV2 = true;
+
+    @VarAttrDef.VarAttr(name = OPTIMIZE_INDEX_SCAN_PARALLELISM,
+            needForward = true,
+            description = "Optimize the Scan parallelism when indexing, this optimization only works for ann topn "
+                    + "queries.")
+    private boolean optimizeIndexScanParallelism = true;
+
+    @VarAttrDef.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private int parallelScanMaxScannersCount = 0;
+
+    @VarAttrDef.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private long parallelScanMinRowsPerScanner = 2097152; // 2M
+
+    @VarAttrDef.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private boolean ignoreStorageDataDistribution = true;
+
+    @VarAttrDef.VarAttr(name = USE_SERIAL_EXCHANGE, fuzzy = true,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private boolean useSerialExchange = false;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Whether to enable local shuffle on pipelineX engine.", needForward = true)
+    private boolean enableLocalShuffle = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_LOCAL_SHUFFLE_PLANNER, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Whether to plan local shuffle in frontend", needForward = true)
+    private boolean enableLocalShufflePlanner = true;
+
+    @VarAttrDef.VarAttr(
+                name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+                description = "Whether to force to local shuffle on pipelineX engine.")
+    private boolean forceToLocalShuffle = false;
+
+    @VarAttrDef.VarAttr(
+            name = LOCAL_SHUFFLE_BUCKET_UPGRADE_RATIO, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = "When FE plans local shuffle and a pooled bucket join fragment has more instances"
+                    + " per BE than (buckets-with-data per BE) * this ratio, re-distribute both join"
+                    + " sides with local hash instead of bucket hash so join parallelism is no longer"
+                    + " capped at bucket count. Only takes effect when > 1; values <= 1 (including 0"
+                    + " and negatives) disable the upgrade.", needForward = true)
+    private double localShuffleBucketUpgradeRatio = 1.5;
+
+    @VarAttrDef.VarAttr(
+            name = BUCKET_SHUFFLE_DOWNGRADE_RATIO, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Downgrade bucket shuffle join to shuffle join when the base table side's total"
+                    + " bucket count is less than total instance count times this ratio. Values <= 0"
+                    + " never downgrade. Default 0.8 keeps the original behavior.", needForward = true)
+    private double bucketShuffleDowngradeRatio = 0.8;
+
+    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_MERGE_SORT)
+    private boolean enableLocalMergeSort = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SHARED_EXCHANGE_SINK_BUFFER, fuzzy = true)
+    private boolean enableSharedExchangeSinkBuffer = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
+    public boolean enableAggState = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
+    public boolean enableParallelOutfile = false;
+
+    @VarAttrDef.VarAttr(name = CPU_RESOURCE_LIMIT)
+    public int cpuResourceLimit = -1;
+
+    @VarAttrDef.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
+    public boolean sqlQuoteShowCreate = true;
+
+    @VarAttrDef.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
+    public boolean trimTailingSpacesForExternalTableQuery = false;
+
+    @VarAttrDef.VarAttr(name = PARALLEL_PREPARE_THRESHOLD, fuzzy = true)
+    public int parallelPrepareThreshold = 32;
+
+    @VarAttrDef.VarAttr(name = READ_HIVE_JSON_IN_ONE_COLUMN,
+            description = "When reading hive json, we will report an error by default because there are some "
+                    + "unsupported "
+                    + "json formats. In order to provide users with a better experience, when this variable is true,"
+                    + "a whole line of json is read into the first column. Users can choose to process a whole line"
+                    + "of json, such as JSON_PARSE. The data type of the first column of the table needs to"
+                    + "be string.")
+    private boolean readHiveJsonInOneColumn = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
+    private boolean enableJoinReorderBasedCost = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
+    public boolean enableFoldConstantByBe = false;
+    @VarAttrDef.VarAttr(name = DEBUG_SKIP_FOLD_CONSTANT)
+    public boolean debugSkipFoldConstant = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
+    private boolean enableRewriteElementAtToSlot = true;
+
+    @VarAttrDef.VarAttr(name = FORCE_SORT_ALGORITHM, needForward = true, description = "Force the sort algorithm of "
+            + "SortNode to be specified")
+    public String forceSortAlgorithm = "";
+
+    @VarAttrDef.VarAttr(name = FULL_SORT_MAX_BUFFERED_BYTES, needForward = true,
+            setter = "setFullSortMaxBufferedBytes")
+    public long fullSortMaxBufferedBytes = 64L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = "ignore_runtime_filter_error",
+            needForward = true, description = "Ignore the rf when it encounters an error")
+    public boolean ignoreRuntimeFilterError = false;
+
+    @VarAttrDef.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
+    private String runtimeFilterMode = "GLOBAL";
+
+    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE, needForward = true)
+    private int runtimeBloomFilterSize = 2097152;
+
+    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
+    private int runtimeBloomFilterMinSize = 1048576;
+
+    @VarAttrDef.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
+    private int runtimeBloomFilterMaxSize = 67108864;
+
+    @VarAttrDef.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
+    private int runtimeFilterWaitTimeMs = 1000;
+
+    @VarAttrDef.VarAttr(name = runtime_filter_wait_infinitely, fuzzy = true, needForward = true)
+    public boolean runtimeFilterWaitInfinitely = false;
+
+    // Set runtimeFilterType to IN_OR_BLOOM filter
+    @VarAttrDef.VarAttr(name = RUNTIME_FILTER_TYPE, fuzzy = true, needForward = true)
+    private int runtimeFilterType = 12;
+
+    @VarAttrDef.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM, needForward = true, fuzzy = true)
+    private int runtimeFilterMaxInNum = 40960;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true, fuzzy = true)
+    private boolean enableSyncRuntimeFilterSize = true;
+
+    @VarAttrDef.VarAttr(name = RUNTIME_FILTER_BROADCAST_JOIN_PRODUCER_NUM, needForward = true,
+            description = "Controls the number of producer BEs for each broadcast join runtime filter in "
+                    + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
+                    + "The legacy Coordinator path keeps the existing behavior.")
+    private int runtimeFilterBroadcastJoinProducerNum = 3;
+
+    @VarAttrDef.VarAttr(name = RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES, needForward = true, fuzzy = true,
+            checker = "checkRuntimeFilterTreePublishMaxSendBytes")
+    private long runtimeFilterTreePublishMaxSendBytes = 256L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = "runtime_filter_max_build_row_count", needForward = true, fuzzy = false)
+    public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
+    private boolean enableParallelResultSink = true;
+
+    @VarAttrDef.VarAttr(name = "sort_phase_num", fuzzy = true, needForward = true,
+            description = "set the number of sort phases 1 or 2. if set other value, let cbo decide the sort type")
+    public int sortPhaseNum = 0;
+
+    @VarAttrDef.VarAttr(name = HIVE_TEXT_COMPRESSION, fuzzy = true, needForward = true)
+    private String hiveTextCompression = "plain";
+
+    @VarAttrDef.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
+            description = "Determine whether to read empty rows in CSV files as NULL when reading CSV files.")
+    public boolean readCsvEmptyLineAsNull = false;
+
+    @VarAttrDef.VarAttr(name = USE_RF_DEFAULT)
+    public boolean useRuntimeFilterDefaultSize = false;
+
+    @VarAttrDef.VarAttr(name = "topn_lazy_materialization_threshold", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public int topNLazyMaterializationThreshold = 1024;
+
+    @VarAttrDef.VarAttr(name = "topn_lazy_materialization_using_index", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public boolean topNLazyMaterializationUsingIndex = false;
+
+    @VarAttrDef.VarAttr(name = "enable_topn_expr_pullup", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Whether to pull up non-trivial expressions from Project below TopN, "
+                    + "to expand lazy materialization scope")
+    public boolean enableTopnExprPullup = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PRUNE_NESTED_COLUMN, needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Whether to prune the type of map/struct"
+    )
+    public boolean enablePruneNestedColumns = true;
+
+    public boolean enableTopnLazyMaterialization() {
+        return ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold > 0;
+    }
+
+    public static int getTopNLazyMaterializationThreshold() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationThreshold;
+        }
+    }
+
+    public static boolean getTopNLazyMaterializationUsingIndex() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().topNLazyMaterializationUsingIndex;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationUsingIndex;
+        }
+    }
+
+    @Deprecated
+    @VarAttrDef.VarAttr(name = ENABLE_VARIANT_FLATTEN_NESTED, needForward = true)
+    private boolean enableVariantFlattenNested = false;
+
+    public int getBeNumberForTest() {
+        return beNumberForTest;
+    }
+
+    @VarAttrDef.VarAttr(name = DESCRIBE_EXTEND_VARIANT_COLUMN, needForward = true)
+    public boolean enableDescribeExtendVariantColumn = false;
+
+    @VarAttrDef.VarAttr(name = PROFILLING)
+    public boolean profiling = false;
+
+    public void setBeNumberForTest(int beNumberForTest) {
+        this.beNumberForTest = beNumberForTest;
+    }
+
+    @VarAttrDef.VarAttr(name = BE_NUMBER_FOR_TEST)
+    private int beNumberForTest = -1;
+
+    public double getCboCpuWeight() {
+        return cboCpuWeight;
+    }
+
+    public void setCboCpuWeight(double cboCpuWeight) {
+        this.cboCpuWeight = cboCpuWeight;
+    }
+
+    public double getCboMemWeight() {
+        return cboMemWeight;
+    }
+
+    public void setCboMemWeight(double cboMemWeight) {
+        this.cboMemWeight = cboMemWeight;
+    }
+
+    public double getCboNetWeight() {
+        return cboNetWeight;
+    }
+
+    public void setCboNetWeight(double cboNetWeight) {
+        this.cboNetWeight = cboNetWeight;
+    }
+
+    @VarAttrDef.VarAttr(name = "enable_init_join_order")
+    public boolean enableInitJoinOrder = true;
+
+    @VarAttrDef.VarAttr(name = CBO_CPU_WEIGHT)
+    private double cboCpuWeight = 1.0;
+
+    @VarAttrDef.VarAttr(name = CBO_MEM_WEIGHT)
+    private double cboMemWeight = 1.0;
+
+    @VarAttrDef.VarAttr(name = CBO_NET_WEIGHT)
+    private double cboNetWeight = 1.5;
+
+    @VarAttrDef.VarAttr(name = DISABLE_JOIN_REORDER)
+    private boolean disableJoinReorder = false;
+
+    @VarAttrDef.VarAttr(name = MAX_JOIN_NUMBER_OF_REORDER)
+    private int maxJoinNumberOfReorder = 63;
+
+    @VarAttrDef.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
+    private boolean enableBushyTree = false;
+
+    public int getMaxJoinNumBushyTree() {
+        return maxJoinNumBushyTree;
+    }
+
+    public void setMaxJoinNumBushyTree(int maxJoinNumBushyTree) {
+        this.maxJoinNumBushyTree = maxJoinNumBushyTree;
+    }
+
+    public int getMaxJoinNumberOfReorder() {
+        return maxJoinNumberOfReorder;
+    }
+
+    public void setMaxJoinNumberOfReorder(int maxJoinNumberOfReorder) {
+        this.maxJoinNumberOfReorder = maxJoinNumberOfReorder;
+    }
+
+    @VarAttrDef.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
+    private int maxJoinNumBushyTree = 9;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARTITION_TOPN)
+    private boolean enablePartitionTopN = true;
+
+    @VarAttrDef.VarAttr(name = PARTITION_TOPN_MAX_PARTITIONS, needForward = true, description = "This threshold "
+            + "determines how many partitions will be allocated for window function get topn."
+            + " if this threshold is exceeded and input rows less than the estimated total rows, the remaining"
+            + " data will be pass through to other node directly.")
+    private int partitionTopNMaxPartitions = 1024;
+
+    @VarAttrDef.VarAttr(name = PARTITION_TOPN_PER_PARTITION_ROWS, needForward = true, description = "This value is "
+            + "used for partition_topn to estimate the number of rows in each partition, to calculate "
+            + " the estimated total amount of data for all partitions, and to determine whether the next operator "
+            + " can be passed transparently.")
+    private int partitionTopNPerPartitionRows = 1000;
+
+    @VarAttrDef.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
+    private double globalPartitionTopNThreshold = 100;
+
+    // Forwarded to the BE as a query option and read by the MySQL result writer: when it is false
+    // the object types (HLL / BITMAP / QUANTILE_STATE) are serialized as NULL instead of their raw
+    // bytes. It therefore changes the result rows the sql cache stores, and must take part in the
+    // cache key, otherwise a session that turns it on replays the NULLs cached by a session that
+    // had it off. It only affects execution, not the plan, so it does not force forwarding.
+    @VarAttrDef.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY, affectQueryResultInExecution = true)
+    private boolean returnObjectDataAsBinary = false;
+
+    @VarAttrDef.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResultInPlan = true)
+    private String blockEncryptionMode = "";
+
+    @VarAttrDef.VarAttr(name = ENABLE_PROJECTION)
+    private boolean enableProjection = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY)
+    private boolean enableShortCircuitQuery = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
+    private boolean enableShortCircuitQueryAcessColumnStore = true;
+
+    @VarAttrDef.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL, affectQueryResultInExecution = true)
+    private boolean checkOverflowForDecimal = true;
+
+    @VarAttrDef.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, affectQueryResultInPlan = true,
+            description = "When the precision of the result of"
+                    + " a decimal numerical calculation overflows,"
+                    + "the maximum number of decimal scale that the result can be retained"
+    )
+    public int decimalOverflowScale = 6;
+
+    @VarAttrDef.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
+    public boolean enableDPHypOptimizer = false;
+
+    @VarAttrDef.VarAttr(name = SHORT_CIRCUIT_EVALUATION, fuzzy = true, description = "Whether to enable short-circuit "
+            + "evaluation")
+    public boolean shortCircuitEvaluation = false;
+
+    /**
+     * This variable is used to select n-th optimized plan in memo.
+     * It can allow us select different plans for the same SQL statement
+     * and these plans can be used to evaluate the cost model.
+     */
+    @VarAttrDef.VarAttr(name = NTH_OPTIMIZED_PLAN)
+    private int nthOptimizedPlan = 1;
+
+    @VarAttrDef.VarAttr(name = REQUIRED_GROUP_IDS,
+            description = "Force the optimizer to choose a physical plan containing these Group IDs "
+                    + "(comma-separated integer list)")
+    public String requiredGroupIds = "";
+
+    public boolean isEnableLeftZigZag() {
+        return enableLeftZigZag;
+    }
+
+    public void setEnableLeftZigZag(boolean enableLeftZigZag) {
+        this.enableLeftZigZag = enableLeftZigZag;
+    }
+
+    @VarAttrDef.VarAttr(name = ENABLE_LEFT_ZIG_ZAG)
+    private boolean enableLeftZigZag = false;
+
+    public boolean isEnableHboOptimization() {
+        return enableHboOptimization;
+    }
+
+    public double getHboRfSafeThreshold() {
+        return hboRfSafeThreshold;
+    }
+
+    public double getHboRowMatchingThreshold() {
+        return hboRowMatchingThreshold;
+    }
+
+    public int getHboSkewRatioThreshold() {
+        return hboSkewRatioThreshold;
+    }
+
+    @VarAttrDef.VarAttr(name = ENABLE_HBO_OPTIMIZATION)
+    private boolean enableHboOptimization = false;
+
+    public boolean isEnableHboInfoCollection() {
+        return enableHboInfoCollection;
+    }
+
+    public boolean isEnableHboNonStrictMatchingMode() {
+        return enableHboNonStrictMatchingMode;
+    }
+
+    @VarAttrDef.VarAttr(name = ENABLE_HBO_INFO_COLLECTION, flag = VarAttrDef.GLOBAL)
+    private boolean enableHboInfoCollection = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_HBO_NONSTRICT_MATCHING_MODE)
+    private boolean enableHboNonStrictMatchingMode = false;
+
+    @VarAttrDef.VarAttr(name = HBO_RFSAFE_THRESHOLD, needForward = true)
+    private double hboRfSafeThreshold = 0.5;
+
+    @VarAttrDef.VarAttr(name = HBO_ROW_MATCHING_THRESHOLD, needForward = true)
+    private double hboRowMatchingThreshold = 0.1;
+
+    @VarAttrDef.VarAttr(name = HBO_SKEW_RATIO_THRESHOLD, needForward = true)
+    private int hboSkewRatioThreshold = 5;
+
+    /**
+     * as the new optimizer is not mature yet, use this var
+     * to control whether to use new optimizer, remove it when
+     * the new optimizer is fully developed. I hope that day
+     * would be coming soon.
+     */
+    @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, varType = VariableAnnotation.REMOVED)
+    private boolean enableNereidsPlanner = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PRELOAD_EXTERNAL_METADATA,
+            needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Whether to preload Hive/Hudi/Iceberg/Paimon/JDBC external table metadata before internal "
+                    + "table "
+                    + "plan-time read locks are acquired")
+    private boolean enablePreloadExternalMetadata = false;
+
+    @VarAttrDef.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
+    private String disableNereidsRules = "";
+
+    @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true)
+    public String enableNereidsRules = "";
+
+    @VarAttrDef.VarAttr(name = ENABLE_VISITOR_REWRITER_DEPTH_THRESHOLD, needForward = true, description = "When the "
+            + "depth of the query plan is less than or equal to this threshold, use visitor rewriter to "
+            + "speed up rewriting, otherwise use stack rewriter to rewrite to prevent StackOverflowError")
+    public int enableVisitorRewriterDepthThreshold = 100;
+
+    @VarAttrDef.VarAttr(name = DISABLE_NEREIDS_EXPRESSION_RULES, needForward = true,
+            setter = "setDisableNereidsExpressionRules")
+    private String disableNereidsExpressionRules = "";
+
+    private BitSet disableNereidsExpressionRuleSet = new BitSet();
+
+    @VarAttrDef.VarAttr(name = "filter_cost_factor", needForward = true)
+    public double filterCostFactor = 0.0001;
+
+    @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_DISTRIBUTE_PLANNER, needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = "The switch to use new DistributedPlanner of nereids, this planner can planning some "
+                    + "more efficient query plans, e.g. in certain situations, shuffle left side to "
+                    + "right side to do bucket shuffle join"
+    )
+    private boolean enableNereidsDistributePlanner = true;
+
+    @VarAttrDef.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
+    private int rewriteOrToInPredicateThreshold = 2;
+
+    @VarAttrDef.VarAttr(name = "push_topn_to_agg", fuzzy = false, needForward = true)
+    public boolean pushTopnToAgg = true;
+
+    @VarAttrDef.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR, needForward = true)
+    private double nereidsCboPenaltyFactor = 0.7;
+
+    @VarAttrDef.VarAttr(name = ENABLE_EXPR_TRACE)
+    private boolean enableExprTrace = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_DPHYP_TRACE, needForward = true)
+    public boolean enableDpHypTrace = false;
+
+    @VarAttrDef.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
+    private double broadcastRightTableScaleFactor = 0.0;
+
+    @VarAttrDef.VarAttr(name = LEFT_SEMI_OR_ANTI_PROBE_FACTOR)
+    private double leftSemiOrAntiProbeFactor = 0.05;
+
+    @VarAttrDef.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
+    private double broadcastRowCountLimit = 30_000_000;
+
+    @VarAttrDef.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE, needForward = true)
+    private double broadcastHashtableMemLimitPercentage = 0.2;
+
+    @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true, fuzzy = true)
+    public boolean enableRuntimeFilterPrune = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE,
+            description = "Controls runtime-filter partition pruning in scanners that honor this variable. "
+                    + "File Scanner V2 always enables safe partition pruning. "
+                    + "The default value is true.",
+            needForward = true,
+            fuzzy = true)
+    public boolean enableRuntimeFilterPartitionPrune = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_RUNTIME_FILTER_BUCKET_PRUNE, needForward = true, fuzzy = true)
+    public boolean enableRuntimeFilterBucketPrune = true;
+
+    /**
+     * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
+     * For example, trace_id can be passed to trace the query request sent by the user.
+     * set session_context="trace_id:1234565678";
+     */
+    @VarAttrDef.VarAttr(name = SESSION_CONTEXT, needForward = true)
+    public String sessionContext = "";
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES, fuzzy = true,
+            description = "Skip most optimization rules and quickly analyze insert into values statements"
+    )
+    private boolean enableFastAnalyzeInsertIntoValues = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN, fuzzy = true)
+    public boolean enableFunctionPushdown = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_EXT_FUNC_PRED_PUSHDOWN, needForward = true,
+            description = "Enable function pushdown for predicates in queries to external tables "
+                    + "(such as tables accessed via ODBC or JDBC)")
+    public boolean enableExtFuncPredPushdown = true;
+
+    @VarAttrDef.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
+    public boolean forbidUnknownColStats = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SEGMENT_LIMIT_PUSHDOWN, fuzzy = true, needForward = true,
+            description = "Set whether to push down LIMIT into SegmentIterator.")
+    public boolean enableSegmentLimitPushdown = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = false, flag = VarAttrDef.INVISIBLE,
+            varType = VariableAnnotation.DEPRECATED)
+    public boolean enableLocalExchange = true;
+
+    /**
+     * For debug purpose, don't merge unique key and agg key when reading data.
+     */
+    @VarAttrDef.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE, needForward = true,
+            affectQueryResultInPlan = true, affectQueryResultInExecution = true)
+    public boolean skipStorageEngineMerge = false;
+
+    /**
+     * For debug purpose, skip delete predicate when reading data.
+     */
+    @VarAttrDef.VarAttr(name = SKIP_DELETE_PREDICATE, needForward = true, affectQueryResultInExecution = true)
+    public boolean skipDeletePredicate = false;
+
+    /**
+     * For debug purpose, skip delete sign when reading data.
+     */
+    @VarAttrDef.VarAttr(name = SKIP_DELETE_SIGN, needForward = true, affectQueryResultInPlan = true)
+    public boolean skipDeleteSign = false;
+
+    /**
+     * For debug purpose, skip delete bitmap when reading data.
+     */
+    @VarAttrDef.VarAttr(name = SKIP_DELETE_BITMAP, needForward = true,
+            affectQueryResultInPlan = true, affectQueryResultInExecution = true)
+    public boolean skipDeleteBitmap = false;
+
+    // This variable replace the original FE config `recover_with_skip_missing_version`.
+    // In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover.
+    // This config can control the behavior of query. When it is set to `true`, the query will ignore the
+    // visible version recorded in FE partition, use the replica version. If the replica on BE has missing versions,
+    // the query will directly skip this missing version, and only return the data of the existing versions.
+    // Besides, the query will always try to select the one with the highest lastSuccessVersion among all surviving
+    // BE replicas, so as to recover as much data as possible.
+    // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
+    // This variable conflicts with the use_fix_replica variable, when the use_fix_replica variable is not -1,
+    // this variable will not work.
+    @VarAttrDef.VarAttr(name = SKIP_MISSING_VERSION, affectQueryResultInPlan = true,
+            affectQueryResultInExecution = true)
+    public boolean skipMissingVersion = false;
+
+    // This variable is used to control whether to skip the bad tablet.
+    // In some scenarios, user has a huge amount of data and only a single replica was specified when creating
+    // the table, if one of the tablet is damaged, the table will not be able to be select. If the user does not care
+    // about the integrity of the data, they can use this variable to temporarily skip the bad tablet for querying and
+    // load the remaining data into a new table.
+    @VarAttrDef.VarAttr(name = SKIP_BAD_TABLET,  affectQueryResultInPlan = true,
+            affectQueryResultInExecution = true)
+    public boolean skipBadTablet = false;
+
+    // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
+    // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
+    // in nereids for some mistaken modification. You should set it on the
+    @VarAttrDef.VarAttr(name = ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, varType = VariableAnnotation.REMOVED)
+    public boolean enableFallbackToOriginalPlanner = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
+    public boolean enableNereidsTimeout = true;
+
+    @VarAttrDef.VarAttr(name = NEREIDS_TIMEOUT_SECOND, needForward = true)
+    public int nereidsTimeoutSecond = 30;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
+    public boolean enablePushDownNoGroupAgg = true;
+
+    /**
+     * The current statistics are only used for CBO test,
+     * and are not available to users. (work in progress)
+     */
+
+    @VarAttrDef.VarAttr(name = PARTITION_PRUNING_EXPAND_THRESHOLD, fuzzy = true)
+    public int partitionPruningExpandThreshold = 10;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
+    public boolean enableShareHashTableForBroadcastJoin = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
+    public boolean enableUnicodeNameSupport = true;
+
+    @VarAttrDef.VarAttr(name = GROUP_CONCAT_MAX_LEN)
+    public long groupConcatMaxLen = 2147483646;
+
+    @VarAttrDef.VarAttr(
+            name = USE_ONE_PHASE_AGG_FOR_GROUP_CONCAT_WITH_ORDER,
+            needForward = true,
+            fuzzy = true,
+            description = "Enable to use one stage aggregation to execute the group_concat function with order"
+    )
+    public boolean useOnePhaseAggForGroupConcatWithOrder = false;
+
+    // Whether enable two phase read optimization
+    // 1. read related rowids along with necessary column data
+    // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
+    @VarAttrDef.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true, varType = VariableAnnotation.REMOVED,
+            description = "Replaced by topn_lazy_materialization_threshold. The two-stage read optimization "
+                    + "is disabled when topn_lazy_materialization_threshold = -1.")
+    public boolean enableTwoPhaseReadOpt = true;
+    @VarAttrDef.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
+    public long topnOptLimitThreshold = 1024;
+    @VarAttrDef.VarAttr(name = TOPN_FILTER_RATIO)
+    public double topnFilterRatio = 0.5;
+    @VarAttrDef.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
+    public boolean enableSnapshotPointQuery = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = "Set whether "
+            + "to enable server side prepared statement.")
+    public boolean enableServeSidePreparedStatement = true;
+
+    @VarAttrDef.VarAttr(name = MAX_PREPARED_STMT_COUNT,  flag = VarAttrDef.GLOBAL,
+            needForward = true, description = "the maximum prepared statements server holds.")
+    public int maxPreparedStmtCount = 100000;
+
+    @VarAttrDef.VarAttr(name = ENABLE_GROUP_COMMIT_FULL_PREPARE)
+    public boolean enableGroupCommitFullPrepare = true;
+
+    // Default value is false, which means the group by and having clause
+    // should first use column name not alias. According to mysql.
+    @VarAttrDef.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST, varType = VariableAnnotation.DEPRECATED)
+    public boolean groupByAndHavingUseAliasFirst = false;
+
+    // Whether disable block file cache. Block cache only works when FE's query options sets disableFileCache false
+    // along with BE's config `enable_file_cache` true
+    @VarAttrDef.VarAttr(name = DISABLE_FILE_CACHE, needForward = true)
+    public boolean disableFileCache = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_TOPN_LAZY_MAT_PHASE2_NO_WRITE_FILE_CACHE, needForward = true,
+            description = "When enabled, TopN lazy materialization phase-2 reads go remote-only on "
+                    + "file-cache miss and do not write the missed range back to file cache.")
+    public boolean enableTopnLazyMatPhase2NoWriteFileCache = false;
+
+    // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = "Set wether to use file cache. "
+            + "This variable takes effect only if the BE config enable_file_cache=true. "
+            + "The cache is not used when BE config enable_file_cache=false.")
+    public boolean enableFileCache = false;
+
+    // Specify base path for file cache, or chose a random path.
+    @VarAttrDef.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = "Specify the storage path of "
+            + "the block file cache on BE, default 'random', "
+            + "and randomly select the storage path configured by BE.")
+    public String fileCacheBasePath = "random";
+
+    // Whether enable query with inverted index.
+    @VarAttrDef.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY, needForward = true, description = "Set whether to use "
+            + "inverted index query.")
+    public boolean enableInvertedIndexQuery = true;
+
+    // Whether enable pushdown count agg to scan node when using inverted index match.
+    @VarAttrDef.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = "Set whether to "
+            + "pushdown count_on_index.")
+    public boolean enablePushDownCountOnIndex = true;
+
+    // Whether enable no need read data opt in segment_iterator.
+    @VarAttrDef.VarAttr(name = ENABLE_NO_NEED_READ_DATA_OPT, needForward = true, description = "Set whether to enable "
+            + "no_need_read_data opt.")
+    public boolean enableNoNeedReadDataOpt = true;
+
+    // Whether enable pushdown minmax to scan node of unique table.
+    @VarAttrDef.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = "Set whether to "
+            + "pushdown minmax on unique table.")
+    public boolean enablePushDownMinMaxOnUnique = false;
+
+    // Whether to force MIN/MAX onto the zone map when its bound is not a value the data holds now:
+    // a cut string bound, or one covering rows a delete predicate removed. The alias is the old
+    // name, from when this only governed string bounds.
+    @VarAttrDef.VarAttr(name = FORCE_PUSHDOWN_ZONEMAP_MINMAX, alias = {"enable_pushdown_string_minmax"},
+            needForward = true, description = "Set whether to force a pushed down minmax onto the zone map when its "
+            + "bound is a cut string prefix, or still covers rows a delete predicate removed.")
+    public boolean forcePushDownZonemapMinMax = false;
+
+    // Comma-separated list of MOR tables to enable value predicate pushdown.
+    @VarAttrDef.VarAttr(name = ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES, needForward = true, description = "Comma-sep"
+            + "arated list of MOR tables to enable value predicate pushdown. "
+            + "Format: db1.tbl1,db2.tbl2 or * for all MOR tables.")
+    public String enableMorValuePredicatePushdownTables = "";
+
+    // Comma-separated list of MOR tables to read as DUP (skip merge, skip delete sign filter).
+    @VarAttrDef.VarAttr(name = READ_MOR_AS_DUP_TABLES, needForward = true,
+            affectQueryResultInPlan = true,
+            description = "Comma-separated list of MOR tables to read as DUP (skip merge, skip delete sign filter). "
+                    + "Format: db1.tbl1,db2.tbl2 or * for all MOR tables.")
+    public String readMorAsDupTables = "";
+
+    @VarAttrDef.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, needForward = true)
+    public int maxTableCountUseCascadesJoinReorder = 10;
+
+    @VarAttrDef.VarAttr(name = JOIN_REORDER_TIME_LIMIT, needForward = true)
+    public long joinReorderTimeLimit = 1000;
+
+    // If this is true, the result of `show roles` will return all user default role
+    @VarAttrDef.VarAttr(name = SHOW_USER_DEFAULT_ROLE, needForward = true)
+    public boolean showUserDefaultRole = false;
+
+    // Default value is -1, which means not fix replica
+    @VarAttrDef.VarAttr(name = USE_FIX_REPLICA, needForward = true)
+    public int useFixReplica = -1;
+
+    @VarAttrDef.VarAttr(name = DUMP_NEREIDS_MEMO)
+    public boolean dumpNereidsMemo = false;
+
+    @VarAttrDef.VarAttr(name = MEMO_LOGICAL_ROW_COUNT_AGGREGATION_POLICY, needForward = true,
+            checker = "checkMemoLogicalRowCountAggregationPolicy", setter = "setMemoLogicalRowCountAggregationPolicy",
+            options = {"trust_join_count", "average", "median", "min" },
+            description = "Controls how MemoStatsAndCostRecomputer aggregates group row count across multiple logical "
+                    + "statistics candidates. Supported values: trust_join_count, average, median, min.",
+                            affectQueryResultInPlan = true)
+    public String memoLogicalRowCountAggregationPolicy = "median";
+
+    @VarAttrDef.VarAttr(name = "memo_max_group_expression_size")
+    public int memoMaxGroupExpressionSize = 10000;
+
+    // 2600 is an empirical value proven favorable for TPC-DS tests
+    @VarAttrDef.VarAttr(name = DPHYPER_LIMIT)
+    public int dphyperLimit = 2600;
+
+    @VarAttrDef.VarAttr(name = "eager_aggregation_mode", needForward = true,
+            description = "0: Determine eager aggregation by statistics, "
+                    + "1: force eager aggregation, "
+                    + "-1: Prohibit eager aggregation "
+    )
+    private int eagerAggregationMode = 0;
+
+    @VarAttrDef.VarAttr(name = "force_eager_agg_hint", needForward = true, setter = "setForceEagerAggHint",
+            description = "Test/debug hint for eager aggregation push-down. "
+                    + "Format: `<func>:<qualifier.column | *>=<push|nopush>`, "
+                    + "with multiple entries separated by `;`. "
+                    + "Example: `sum:t1.a=push; sum:t2.a=nopush; count:*=push`. "
+                    + "Note: entries are matched per aggregate-function key, but the effect "
+                    + "is applied at the current candidate push-down branch/subtree rather "
+                    + "than to one function independently. If any matched entry in the branch "
+                    + "is `nopush`, push-down is disabled for that branch; otherwise, if any "
+                    + "matched entry is `push`, push-down may be forced for that branch, and "
+                    + "the other aggregates in the same branch follow that branch-level decision.")
+    public String forceEagerAggHint = "";
+    private Map<String, Action> forceEagerAggHintMap = ImmutableMap.of();
+
+    @VarAttrDef.VarAttr(name = "eager_agg_broadcast_row_count", needForward = true)
+    public int eagerAggBroadcastRowCount = 250_000;
+
+    @VarAttrDef.VarAttr(name = "eager_aggregation_on_broadcast_join", needForward = true)
+    public boolean eagerAggregationOnBroadcastJoin = true;
+
+    public static int getEagerAggregationMode() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().eagerAggregationMode;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().eagerAggregationMode;
+        }
+    }
+
+    public void setEagerAggregationMode(int mode) {
+        this.eagerAggregationMode = mode;
+    }
+
+    public void setForceEagerAggHint(String forceEagerAggHint) throws DdlException {
+        try {
+            this.forceEagerAggHintMap = EagerAggHints.parse(forceEagerAggHint);
+            this.forceEagerAggHint = forceEagerAggHint;
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    public Map<String, Action> getForceEagerAggHintMap() {
+        return forceEagerAggHintMap;
+    }
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_PAGE_CACHE,
+            description = "Controls whether to use page cache. "
+                    + "The default value is true.",
+            needForward = true)
+    public boolean enablePageCache = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_PARQUET_FILE_PAGE_CACHE,
+            description = "Controls whether to use Parquet file page cache. The default is true.",
+            needForward = true)
+    public boolean enableParquetFilePageCache = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
+    public boolean enableFoldNondeterministicFn = false;
+
+    // If set to true, all query will be executed without returning result
+    @VarAttrDef.VarAttr(name = DRY_RUN_QUERY, needForward = true)
+    public boolean dryRunQuery = false;
+
+    @VarAttrDef.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
+    public long fileSplitSize = 0;
+
+    @VarAttrDef.VarAttr(
+            name = MAX_INITIAL_FILE_SPLIT_SIZE,
+            description = "For each table scan, The maximum initial file split size. "
+                    + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
+                    + " and once MAX_INITIAL_FILE_SPLIT_NUM is exceeded, use MAX_FILE_SPLIT_SIZE instead.",
+            needForward = true)
+    public long maxInitialSplitSize = 32L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(
+            name = MAX_FILE_SPLIT_SIZE,
+            description = "For each table scan, the maximum initial file split size. "
+                    + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
+                    + " and once MAX_INITIAL_FILE_SPLIT_NUM is exceeded, use MAX_FILE_SPLIT_SIZE instead.",
+            needForward = true)
+    public long maxSplitSize = 64L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(
+            name = MAX_INITIAL_FILE_SPLIT_NUM,
+            description = "For each table scan, the maximum initial file split number. "
+                    + "Initialize using MAX_INITIAL_FILE_SPLIT_SIZE,"
+                    + " and once MAX_INITIAL_FILE_SPLIT_NUM is exceeded, use MAX_FILE_SPLIT_SIZE instead.",
+            needForward = true)
+    public int maxInitialSplitNum = 200;
+
+    @VarAttrDef.VarAttr(
+            name = MAX_FILE_SPLIT_NUM,
+            description = "In non-batch mode, the maximum number of splits allowed per table scan to avoid OOM.",
+            needForward = true)
+    public int maxFileSplitNum = 100000;
+
+    // Target file size for Iceberg write operations
+    // Default 0 means use config::iceberg_sink_max_file_size
+    @VarAttrDef.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
+    public long icebergWriteTargetFileSizeBytes = 0L;
+
+    @VarAttrDef.VarAttr(
+            name = NUM_PARTITIONS_IN_BATCH_MODE,
+            fuzzy = true,
+            description = "If the number of partitions exceeds the threshold, scan ranges will be got through batch "
+                    + "mode.",
+            needForward = true)
+    public int numPartitionsInBatchMode = 1024;
+
+    @VarAttrDef.VarAttr(
+            name = NUM_FILES_IN_BATCH_MODE,
+            fuzzy = true,
+            description = "If the number of files exceeds the threshold, scan ranges will be got through batch mode.",
+            needForward = true)
+    public int numFilesInBatchMode = 1024;
+
+    @VarAttrDef.VarAttr(
+            name = FETCH_SPLITS_MAX_WAIT_TIME,
+            description = "The max wait time of getting splits in batch mode.",
+            needForward = true)
+    public long fetchSplitsMaxWaitTime = 1000;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_PARQUET_LAZY_MAT,
+            fuzzy = true,
+            description = "Controls whether to use lazy materialization technology in parquet reader. "
+                    + "The default value is true.",
+            needForward = true)
+    public boolean enableParquetLazyMat = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_ORC_LAZY_MAT,
+            fuzzy = true,
+            description = "Controls whether to use lazy materialization technology in orc reader. "
+                    + "The default value is true.",
+            needForward = true)
+    public boolean enableOrcLazyMat = true;
+
+    @VarAttrDef.VarAttr(
+            name = ORC_TINY_STRIPE_THRESHOLD_BYTES,
+            fuzzy = true,
+            description = "In an orc file, if the byte size of a stripe is less than `orc_tiny_stripe_threshold`,"
+                    + "we consider the stripe to be a tiny stripe. For multiple consecutive tiny stripes,"
+                    + "we will perform read optimization, that is, read multiple tiny stripes at a time."
+                    + "If you do not want to use this optimization, you can set this value to 0."
+                    + "The default is 8M.",
+            needForward = true,
+            setter = "setOrcTinyStripeThresholdBytes")
+    public long orcTinyStripeThresholdBytes  = 8L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(
+            name = ORC_ONCE_MAX_READ_BYTES,
+            fuzzy = true,
+            description = "When using tiny stripe read optimization, multiple tiny stripes will be merged into one IO."
+                    + "This parameter is used to control the maximum byte size of each IO request."
+                    + "You should not set the value less than `orc_tiny_stripe_threshold`."
+                    + "The default is 8M.",
+            needForward = true,
+            setter = "setOrcOnceMaxReadBytes")
+    public long orcOnceMaxReadBytes = 8L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(
+            name = ORC_MAX_MERGE_DISTANCE_BYTES,
+            fuzzy = true,
+            description = "When using tiny stripe read optimization, since tiny stripes are not necessarily continuous,"
+                    + "when the distance between two tiny stripes is greater than this parameter,"
+                    + "we will not merge them into one IO. The default value is 1M.",
+            needForward = true,
+            setter = "setOrcMaxMergeDistanceBytes")
+    public long orcMaxMergeDistanceBytes = 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_PARQUET_FILTER_BY_MIN_MAX,
+            fuzzy = true,
+            description = "Controls whether to filter by min-max values in parquet reader. "
+                    + "The default value is true.",
+            needForward = true)
+    public boolean enableParquetFilterByMinMax = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_PARQUET_FILTER_BY_BLOOM_FILTER,
+            fuzzy = true,
+            description = "Controls whether to filter by bloom filter in parquet reader. "
+                    + "The default value is true.",
+            needForward = true)
+    public boolean enableParquetFilterByBloomFilter = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_ORC_FILTER_BY_MIN_MAX,
+            description = "Controls whether to filter by min-max values in orc reader. "
+                    + "The default value is true.",
+            needForward = true)
+    public boolean enableOrcFilterByMinMax = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_EXPR_ZONEMAP_FILTER,
+            fuzzy = true,
+            description = "Controls expression ZoneMap filtering in scanners that honor this variable. "
+                    + "File Scanner V2 always enables safe expression ZoneMap filtering. "
+                    + "The default value is true.",
+            needForward = true)
+    public boolean enableExprZonemapFilter = true;
+
+    @VarAttrDef.VarAttr(
+            name = CHECK_ORC_INIT_SARGS_SUCCESS,
+            description = "Whether to check whether orc init sargs is successful. "
+                    + "The default value is false.",
+            needForward = true)
+    public boolean checkOrcInitSargsSuccess = false;
+
+    @VarAttrDef.VarAttr(
+            name = EXTERNAL_TABLE_ANALYZE_PART_NUM,
+            description = "Number of sample partition for collecting external table line number, "
+                    + "default -1 means all partitions",
+            needForward = false)
+    public int externalTableAnalyzePartNum = -1;
+
+    @VarAttrDef.VarAttr(name = INLINE_CTE_REFERENCED_THRESHOLD)
+    public int inlineCTEReferencedThreshold = 1;
+
+    @VarAttrDef.VarAttr(name = ENABLE_CTE_MATERIALIZE)
+    public boolean enableCTEMaterialize = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_ORDERED_SCAN_RANGE_LOCATIONS)
+    public boolean enableOrderedScanRangeLocations = false;
+
+    @VarAttrDef.VarAttr(name = CTE_INLINE_MODE, description = "CTE inline mode. <0: disable; =0: only inline when CTE "
+            + "body contains UNION ALL "
+            + "and consumer filters can eliminate some union branches; "
+            + ">=1: both materialized and inlined alternatives are added to Memo for CBO.")
+    public int cteInlineMode = 0;
+
+    @VarAttrDef.VarAttr(name = ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN)
+    public boolean enableAnalyzeComplexTypeColumn = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_STRONG_CONSISTENCY, description = "Used to enable strong consistent reading. By "
+            + "default, Doris supports strong consistency "
+            + "within the same session, that is, changes to data within the same session are visible in "
+            + "real time. If you want strong consistent reads between sessions, set this variable to true. ")
+    public boolean enableStrongConsistencyRead = false;
+
+    @VarAttrDef.VarAttr(name = PARALLEL_SYNC_ANALYZE_TASK_NUM)
+    public int parallelSyncAnalyzeTaskNum = 2;
+
+    @VarAttrDef.VarAttr(name = TRUNCATE_CHAR_OR_VARCHAR_COLUMNS,
+            description = "Whether to truncate char or varchar columns according to the table's schema. "
+                    + "The default is true.\n"
+                    + "Because the maximum length of the char or varchar column in the schema of the table"
+                    + " is inconsistent with the schema in the underlying parquet or orc file."
+                    + " At this time, if the option is turned on, it will be truncated according to the maximum length"
+                    + " in the schema of the table.",
+            needForward = true)
+    public boolean truncateCharOrVarcharColumns = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
+    public boolean enableMemtableOnSinkNode = true;
+
+    @VarAttrDef.VarAttr(name = LOAD_STREAM_PER_NODE)
+    public int loadStreamPerNode = 2;
+
+    @VarAttrDef.VarAttr(name = GROUP_COMMIT, needForward = true)
+    public String groupCommit = "off_mode";
+
+    @VarAttrDef.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
+    public boolean enablePreparedStmtAuditLog = false;
+
+    @VarAttrDef.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
+            description = "When intersecting multiple inverted indexes in match_all,"
+                    + " if the maximum total count of the largest inverted index"
+                    + " is a multiple of the minimum total count of the smallest inverted index,"
+                    + " use a skiplist to optimize the intersection.")
+    public int invertedIndexConjunctionOptThreshold = 1000;
+
+    @VarAttrDef.VarAttr(name = INVERTED_INDEX_MAX_EXPANSIONS,
+            affectQueryResultInExecution = true,
+            description = "This parameter is used to limit the number of term expansions during a query,"
+                    + " thereby controlling query performance")
+    public int invertedIndexMaxExpansions = 50;
+
+    @VarAttrDef.VarAttr(name = INVERTED_INDEX_SKIP_THRESHOLD,
+            description = "In the inverted index,"
+                    + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
+                    + " then skip the index and proceed directly to matching.")
+    public int invertedIndexSkipThreshold = 50;
+
+    @VarAttrDef.VarAttr(name = INVERTED_INDEX_COMPATIBLE_READ,
+            description = "Compatible read for inverted index between x86 and arm, "
+                    + "used to read old version index file from x86 in arm cluster"
+                    + "or read old version index file from arm in x86 cluster")
+    public boolean invertedIndexCompatibleRead = false;
+
+    @VarAttrDef.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
+            description = "The dialect used to parse sql.",
+            affectQueryResultInPlan = true
+    )
+    public String sqlDialect = "doris";
+
+    @VarAttrDef.VarAttr(name = RETRY_ORIGIN_SQL_ON_CONVERT_FAIL, needForward = true,
+            description = "Enable retrying original SQL when converted SQL parsing fails.")
+    public boolean retryOriginSqlOnConvertFail = false;
+
+    @VarAttrDef.VarAttr(name = SERDE_DIALECT, needForward = true, checker = "checkSerdeDialect",
+            description = "The output format dialect of each data type returned to the MySQL client.",
+            options = {"doris", "presto", "trino"},
+            affectQueryResultInPlan = true, affectQueryResultInExecution = true
+    )
+    public String serdeDialect = "doris";
+
+    @VarAttrDef.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
+    public boolean enableUniqueKeyPartialUpdate = false;
+
+    @VarAttrDef.VarAttr(name = PARTIAL_UPDATE_NEW_KEY_BEHAVIOR, needForward = true, description = "Used to set the "
+            + "behavior for newly inserted rows in partial update.",
+            checker = "checkPartialUpdateNewKeyBehavior", options = {"APPEND", "ERROR"})
+    public String partialUpdateNewKeyPolicy = "APPEND";
+
+    @VarAttrDef.VarAttr(name = ENABLE_AUTO_ANALYZE,
+            description = "Set false to disable auto analyze",
+            flag = VarAttrDef.GLOBAL)
+    public volatile boolean enableAutoAnalyze = true;
+
+    @VarAttrDef.VarAttr(name = FORCE_SAMPLE_ANALYZE, needForward = true,
+            description = "Set true to force sample analyze",
+            flag = VarAttrDef.GLOBAL)
+    public boolean forceSampleAnalyze = Config.force_sample_analyze;
+
+    @VarAttrDef.VarAttr(name = ENABLE_AUTO_ANALYZE_INTERNAL_CATALOG,
+            description = "Temp variable, enable to auto collect all OlapTable.",
+            flag = VarAttrDef.GLOBAL)
+    public boolean enableAutoAnalyzeInternalCatalog = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARTITION_ANALYZE,
+            description = "Temp variable, enable to collect partition level statistics.",
+            flag = VarAttrDef.GLOBAL)
+    public boolean enablePartitionAnalyze = false;
+
+    @VarAttrDef.VarAttr(name = AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
+            description = "Maximum table width to enable auto analyze, "
+                    + "table with more columns than this value will not be auto analyzed.",
+            flag = VarAttrDef.GLOBAL)
+    public int autoAnalyzeTableWidthThreshold = 300;
+
+    @VarAttrDef.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = "This parameter defines the start time for the automatic ANALYZE routine.",
+            flag = VarAttrDef.GLOBAL)
+    public String autoAnalyzeStartTime = "00:00:00";
+
+    @VarAttrDef.VarAttr(name = AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
+            description = "This parameter defines the end time for the automatic ANALYZE routine.",
+            flag = VarAttrDef.GLOBAL)
+    public String autoAnalyzeEndTime = "23:59:59";
+
+    @VarAttrDef.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
+            description = "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated")
+
+    public String ignoreRuntimeFilterIds = "";
+
+    @VarAttrDef.VarAttr(name = STATS_INSERT_MERGE_ITEM_COUNT, flag = VarAttrDef.GLOBAL, description = "Controls the "
+            + "batch size for stats INSERT merging."
+    )
+    public int statsInsertMergeItemCount = 200;
+
+    @VarAttrDef.VarAttr(name = HUGE_TABLE_DEFAULT_SAMPLE_ROWS, flag = VarAttrDef.GLOBAL, description = "This defines "
+            + "the number of sample percent for large tables when automatic sampling for"
+            + "large tables is enabled")
+    public long hugeTableDefaultSampleRows = 4194304;
+
+    @VarAttrDef.VarAttr(name = HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES, flag = VarAttrDef.GLOBAL,
+            description = "This defines the lower size bound for large tables. "
+                    + "When enable_auto_sample is enabled, tables"
+                    + "larger than this value will automatically collect "
+                    + "statistics through sampling")
+    public long hugeTableLowerBoundSizeInBytes = 0;
+
+    @VarAttrDef.VarAttr(name = HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VarAttrDef.GLOBAL,
+            description = "This controls the minimum time interval for automatic ANALYZE on large tables."
+                    + "Within this interval,"
+                    + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once.")
+    public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(0);
+
+    @VarAttrDef.VarAttr(name = EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VarAttrDef.GLOBAL,
+            description = "This controls the minimum time interval for automatic ANALYZE on external tables."
+                    + "Within this interval, external tables are analyzed only once.")
+    public long externalTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(24);
+
+    @VarAttrDef.VarAttr(name = TABLE_STATS_HEALTH_THRESHOLD, flag = VarAttrDef.GLOBAL,
+            description = "The value should be between 0 and 100. When the data update quantity "
+                    + "exceeds (100 - table_stats_health_threshold)% since the last "
+                    + "statistics collection operation, the statistics for this table are"
+                    + "considered outdated.")
+    public int tableStatsHealthThreshold = 90;
+
+    @VarAttrDef.VarAttr(name = PARTITION_SAMPLE_COUNT, flag = VarAttrDef.GLOBAL,
+            description = "The upper limit of the number of partitions for sampling large partitioned tables.\n")
+    public int partitionSampleCount = 30;
+
+    @VarAttrDef.VarAttr(name = PARTITION_SAMPLE_ROW_COUNT, flag = VarAttrDef.GLOBAL,
+            description = "The upper limit of the number of rows for sampling large partitioned tables.\n")
+    public long partitionSampleRowCount = 3_000_000_000L;
+
+    @VarAttrDef.VarAttr(name = FETCH_HIVE_ROW_COUNT_SYNC,
+            fuzzy = true,
+            description = "Fetch Hive external table row count synchronously")
+    public boolean fetchHiveRowCountSync = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
+            description = "Whether to enable materialized view rewriting based on struct info")
+    public boolean enableMaterializedViewRewrite = true;
+
+    @VarAttrDef.VarAttr(name = PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY, needForward = true, fuzzy = true,
+            description = "Whether to enable pre materialized view rewriting based on struct info,"
+                    + "FORCE_IN_RBO : Force transparent rewriting in the RBO phase,"
+                    + "TRY_IN_RBO : Attempt transparent rewriting in the RBO phase "
+                    + "if rules in NEED_PRE_REWRITE_RULE_TYPES, "
+                    + "NOT_IN_RBO : Do not attempt rewriting in the RBO phase; apply only during the CBO phase")
+    public String preMaterializedViewRewriteStrategy = "TRY_IN_RBO";
+
+    @VarAttrDef.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,
+            description = "Is it allowed to modify the data of the materialized view")
+    public boolean allowModifyMaterializedViewData = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS,
+            needForward = true,
+            description = "")
+    public boolean enableMaterializedViewRewriteWhenBaseTableUnawareness = false;
+    @VarAttrDef.VarAttr(name = MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM, needForward = true,
+            description = "The max candidate num which participate in CBO when using asynchronous materialized views")
+    public int materializedViewRewriteSuccessCandidateNum = 3;
+
+    @VarAttrDef.VarAttr(name = ENABLE_DML_MATERIALIZED_VIEW_REWRITE, needForward = true,
+            description = "Whether to enable materialized view rewriting based on struct info")
+    public boolean enableDmlMaterializedViewRewrite = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_DML_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS,
+            needForward = true,
+            description = "")
+    public boolean enableDmlMaterializedViewRewriteWhenBaseTableUnawareness = false;
+
+    @VarAttrDef.VarAttr(name = MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT, needForward = true,
+            description = "During transparent rewriting, relation mapping specifies the maximum allowed number. "
+                    + "If the number exceeds the allowed number, the number is intercepted")
+    public int materializedViewRelationMappingMaxCount = 8;
+
+    @VarAttrDef.VarAttr(name = ENABLE_MATERIALIZED_VIEW_UNION_REWRITE, needForward = true,
+            description = "When the materialized view is not enough to provide all the data for the query, "
+                    + "whether to allow the union of the base table and the materialized view to "
+                    + "respond to the query", varType = VariableAnnotation.REMOVED)
+    public boolean enableMaterializedViewUnionRewrite = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
+            description = "Whether enable materialized view nest rewrite")
+    public boolean enableMaterializedViewNestRewrite = false;
+
+    @VarAttrDef.VarAttr(name = MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS, needForward = true,
+            description = "The maximum duration allowed for transparent rewriting of materialized views; "
+                    + "if this duration is exceeded, transparent rewriting will no longer be performed.")
+    public long materializedViewRewriteDurationThresholdMs = 1000L;
+
+    @VarAttrDef.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
+            description = "The maximum number of partitions created during table creation")
+    public int createTablePartitionMaxNum = 10000;
+
+    @VarAttrDef.VarAttr(name = HIVE_PARQUET_USE_COLUMN_NAMES, affectQueryResultInExecution = true,
+            description = "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                    + "by their ordinal position in the Hive table definition.")
+    public boolean hiveParquetUseColumnNames = true;
+
+    @VarAttrDef.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES, affectQueryResultInExecution = true,
+            description = "By default, columns are accessed based on their ordinal position in the Hive table "
+                    + "definition."
+                    + " Set this property to `true` to access ORC columns by name.")
+    public boolean hiveOrcUseColumnNames = false;
+
+    @VarAttrDef.VarAttr(name = KEEP_CARRIAGE_RETURN,
+            description = "When processing both \\n and \\r\\n as CSV line separators, should \\r be retained?")
+    public boolean keepCarriageReturn = false;
+
+    @VarAttrDef.VarAttr(name = EXCHANGE_MULTI_BLOCKS_BYTE_SIZE,
+            description = "Enable exchange to send multiple blocks in one RPC. Default is 256KB. A negative"
+                    + " value disables multi-block exchange.")
+    public int exchangeMultiBlocksByteSize = 256 * 1024;
+
+    @VarAttrDef.VarAttr(name = FORCE_JNI_SCANNER,
+            fuzzy = true,
+            description = "Force the use of jni mode to read external table")
+    private boolean forceJniScanner = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
+            fuzzy = true,
+            description = "enable count(*) pushdown optimization for external table")
+    private boolean enableCountPushDownForExternalTable = true;
+
+    public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
+
+    @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,
+            checker = "checkFlussUnionReadMode",
+            options = {"", "auto", "required", "disabled"},
+            description = "For this statement, how a fluss table's scan combines the lake with the log: "
+                    + "auto reads the lake when it has a readable snapshot and reads fluss alone when it "
+                    + "does not, required fails instead of reading fluss alone, disabled always reads fluss "
+                    + "alone. The default, empty, follows the catalog's fluss.union_read.mode property. "
+                    + "The value set belongs to the fluss connector, which rejects anything else")
+    public String flussUnionReadMode = "";
+
+    @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
+            description = "The minimum memory required to be used by an operator, if not meet, the operator will not "
+                    + "run")
+    public int minimumOperatorMemoryRequiredKB = 32000;
+
+    public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
+
+    public static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+
+    public static final String ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION = "enable_mc_limit_split_optimization";
+    @VarAttrDef.VarAttr(
+            name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
+            fuzzy = true,
+            description = "Enable the batch mode function of the external table.",
+            needForward = true)
+    public boolean enableExternalTableBatchMode = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION,
+            fuzzy = true,
+            description = "Enable split optimization for LIMIT queries on MaxCompute tables. "
+                    + "When the query contains only partition equality predicates with LIMIT, "
+                    + "use row_offset strategy to reduce split count for faster query execution.",
+            needForward = true)
+    public boolean enableMcLimitSplitOptimization = false;
+
+    @VarAttrDef.VarAttr(name = SKEW_REWRITE_AGG_BUCKET_NUM, needForward = true,
+            description = "The bucketNum parameter controls data distribution for skew optimization "
+                    + "in count(distinct) queries. Determines how distinct values "
+                    + "are distributed across workers to avoid data skew. "
+                    + "Larger values better handle extreme skew but increase shuffle overhead. "
+                    + "Smaller values reduce network traffic but may not fully resolve skew. ",
+                    checker = "checkSkewRewriteAggBucketNum")
+    public int skewRewriteAggBucketNum = 1024;
+
+    @VarAttrDef.VarAttr(name = AGG_SHUFFLE_USE_PARENT_KEY, description = "Whether to use the parent node's grouping "
+            + "key for shuffling during the aggregation operator", needForward = false)
+    public boolean aggShuffleUseParentKey = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SHUFFLE_KEY_PRUNE)
+    public boolean enableShuffleKeyPrune = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
+            description = "Whether to enable prefer cached rowset feature")
+    public boolean enablePreferCachedRowset = false;
+
+    @VarAttrDef.VarAttr(name = QUERY_FRESHNESS_TOLERANCE_MS, needForward = false)
+    public long queryFreshnessToleranceMs = -1;
+
+    public void setSkewRewriteAggBucketNum(int num) {
+        this.skewRewriteAggBucketNum = num;
+    }
+
+    @VarAttrDef.VarAttr(name = ENABLE_STRICT_CAST,
+            description = "Use strict mode for cast", affectQueryResultInPlan = true)
+    public boolean enableStrictCast = false;
+
+    @VarAttrDef.VarAttr(name = MULTI_DISTINCT_STRATEGY, description = "Used to control the execution strategy used in "
+            + "SQL queries containing multiple DISTINCT "
+            + "functions. The default value is 0, which means that the system automatically selects "
+            + "the optimal strategy; setting it to 1 means forcing the use of MultiDistinct processing;"
+            + " setting it to 2 means forcing the use of CTE splitting execution",
+            checker = "checkMultiDistinctStrategy")
+    public int multiDistinctStrategy = 0;
+
+    @VarAttrDef.VarAttr(name = AGG_PHASE, description = "Controls the execution phase strategy for aggregate queries. "
+            + "The default value is 0,"
+            + "which means the system automatically selects the optimal execution phase. Setting this value"
+            + "between 1 and 4 forces the use of phases 1 to 4 for aggregate calculations.",
+            checker = "checkAggPhase")
+    public int aggPhase = 0;
+
+    @VarAttrDef.VarAttr(name = ENABLE_BUCKETED_HASH_AGG, needForward = true, description = "Whether to enable bucketed "
+            + "hash aggregation optimization. This optimization fuses two-phase "
+            + "aggregation into a single operator on single-BE deployments, eliminating exchange overhead "
+            + "and serialization/deserialization costs. Enabled by default.")
+    public boolean enableBucketedHashAgg = true;
+
+    @VarAttrDef.VarAttr(name = BUCKETED_AGG_MIN_INPUT_ROWS, fuzzy = true, needForward = true, description = "Minimum "
+            + "estimated input rows required for bucketed hash aggregation. When estimated input "
+            + "rows are below this threshold, the data volume is too small for the 256-bucket two-level "
+            + "hash table overhead to be worthwhile. Set to 0 to disable this check. Default 100000.")
+    public long bucketedAggMinInputRows = 100000;
+
+    @VarAttrDef.VarAttr(name = BUCKETED_AGG_MAX_GROUP_KEYS, needForward = true, description = "Maximum estimated "
+            + "number of group keys for bucketed hash aggregation. When the estimated "
+            + "number of groups exceeds this threshold, the merge phase cost of combining large numbers "
+            + "of keys outweighs the benefit. Similar to ClickHouse's group_by_two_level_threshold. "
+            + "Set to 0 to disable this check. Default 0.")
+    public long bucketedAggMaxGroupKeys = 0;
+
+    @VarAttrDef.VarAttr(name = BUCKETED_AGG_HIGH_CARD_THRESHOLD, needForward = true, description = "High-cardinality "
+            + "ratio threshold for bucketed hash aggregation. When any GROUP BY key's NDV "
+            + "exceeds input rows * threshold, or aggregation output rows exceed input rows * threshold, "
+            + "bucketed agg is skipped. Range (0, 1.0]. Default 0.3.")
+    public double bucketedAggHighCardThreshold = 0.3;
+
+    @VarAttrDef.VarAttr(name = MERGE_IO_READ_SLICE_SIZE_BYTES, description = "Make the READ_SLICE_SIZE variable "
+            + "configurable to reduce the impact caused by read amplification.")
+    public int mergeReadSliceSizeBytes = 8388608;
+
+    @VarAttrDef.VarAttr(name = FILE_CACHE_QUERY_LIMIT_PERCENT, needForward = true,
+            checker = "checkFileCacheQueryLimitPercent",
+            description = "Limit the FILE_CACHE percent that a single query of a user can use "
+                    + "(set by user via session variables, range: 1 to Config.file_cache_query_limit_max_percent).")
+    public int fileCacheQueryLimitPercent = -1;
+
+    public void checkFileCacheQueryLimitPercent(String fileCacheQueryLimitPercentStr) {
+        int fileCacheQueryLimitPct = Integer.valueOf(fileCacheQueryLimitPercentStr);
+        if (fileCacheQueryLimitPct < 1 || fileCacheQueryLimitPct > Config.file_cache_query_limit_max_percent) {
+            throw new InvalidParameterException(
+                String.format("file_cache_query_limit_percent should be between 1 and %d",
+                Config.file_cache_query_limit_max_percent));
+        }
+    }
+
+    @VarAttrDef.VarAttr(name = FILE_CACHE_QUERY_LIMIT_BYTES, needForward = true,
+            description = "Maximum remote scan bytes allowed to write file cache per query on each BE. "
+                    + "< 0 disables it, = 0 disables file cache writes from query start, "
+                    + "> 0 disables file cache writes after the threshold is reached.")
+    public long fileCacheQueryLimitBytes = -1;
+
+    @VarAttrDef.VarAttr(name = INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE, needForward = true,
+            description = "SNII inverted index reads take the remote-only-on-miss file cache "
+                    + "policy: hits are still served from cache, but a miss reads the "
+                    + "remote object directly without writing back into the file cache. "
+                    + "Data (.dat) and segment-meta reads are unaffected, and so are "
+                    + "CLucene (V1/V2/V3) index reads. "
+                    + "Intended for one-shot / ad-hoc cold queries.")
+    public boolean invertedIndexSniiReadNoWriteFileCache = false;
+
+    @VarAttrDef.VarAttr(name = "enable_join_reorder_before_eager_agg", needForward = true)
+    public boolean enableJoinReorderBeforeEagerAgg = true;
+
+    public void setAggPhase(int phase) {
+        aggPhase = phase;
+    }
+
+    public Set<Integer> getIgnoredRuntimeFilterIds() {
+        Set<Integer> ids = Sets.newLinkedHashSet();
+        if (ignoreRuntimeFilterIds.isEmpty()) {
+            return ImmutableSet.of();
+        }
+        for (String v : ignoreRuntimeFilterIds.split(",[\\s]*")) {
+            int res = -1;
+            if (!v.isEmpty()) {
+                boolean isNumber = true;
+                for (int i = 0; i < v.length(); ++i) {
+                    char c = v.charAt(i);
+                    if (c < '0' || c > '9') {
+                        isNumber = false;
+                        break;
+                    }
+                }
+                if (isNumber) {
+                    try {
+                        res = Integer.parseInt(v);
+                    } catch (Throwable t) {
+                        // ignore
+                    }
+                }
+
+            }
+            ids.add(res);
+        }
+        return ids;
+    }
+
+    public Set<Integer> getRequiredGroupIds() {
+        Set<Integer> ids = Sets.newLinkedHashSet();
+        if (requiredGroupIds.isEmpty()) {
+            return ImmutableSet.of();
+        }
+        for (String v : requiredGroupIds.split(",[\\s]*")) {
+            if (!v.isEmpty()) {
+                boolean isNumber = true;
+                for (int i = 0; i < v.length(); ++i) {
+                    char c = v.charAt(i);
+                    if (c < '0' || c > '9') {
+                        isNumber = false;
+                        break;
+                    }
+                }
+                if (isNumber) {
+                    try {
+                        ids.add(Integer.parseInt(v));
+                    } catch (Throwable t) {
+                        // ignore
+                    }
+                }
+            }
+        }
+        return ids;
+    }
+
+    public void setIgnoreRuntimeFilterIds(String ignoreRuntimeFilterIds) {
+        this.ignoreRuntimeFilterIds = ignoreRuntimeFilterIds;
+    }
+
+    public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
+
+    public static final String ENABLE_EXPLAIN_NONE = "enable_explain_none";
+
+    public static final String DETAIL_SHAPE_NODES = "detail_shape_nodes";
+
+    public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
+
+    public Set<String> getIgnoreShapePlanNodes() {
+        return Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*")).collect(ImmutableSet.toImmutableSet());
+    }
+
+    public void setIgnoreShapePlanNodes(String ignoreShapePlanNodes) {
+        this.ignoreShapePlanNodes = ignoreShapePlanNodes;
+    }
+
+    @VarAttrDef.VarAttr(name = IGNORE_SHAPE_NODE,
+            description = "the plan node type which is ignored in 'explain shape plan' command")
+    public String ignoreShapePlanNodes = "";
+
+    @VarAttrDef.VarAttr(name = DETAIL_SHAPE_NODES, needForward = true, setter = "setDetailShapePlanNodes",
+            description = "the plan node type show detail in 'explain shape plan' command")
+    public String detailShapePlanNodes = "";
+
+    @VarAttrDef.VarAttr(name = ENABLE_EXPLAIN_NONE, needForward = true, description = "execute explain command and "
+            + "return nothing")
+    public boolean enableExplainNone = false;
+
+    private Set<String> detailShapePlanNodesSet = ImmutableSet.of();
+
+    public Set<String> getDetailShapePlanNodesSet() {
+        return detailShapePlanNodesSet;
+    }
+
+    public void setDetailShapePlanNodes(String detailShapePlanNodes) {
+        this.detailShapePlanNodesSet = Arrays.stream(detailShapePlanNodes.split(",[\\s]*"))
+                .collect(ImmutableSet.toImmutableSet());
+        this.detailShapePlanNodes = detailShapePlanNodes;
+    }
+
+    @VarAttrDef.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = "Set to true to enable Decimal256 "
+            + "type", affectQueryResultInPlan = true)
+    public boolean enableDecimal256 = false;
+
+    @VarAttrDef.VarAttr(name = FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
+            description = "use other health replica when the use_fix_replica meet error")
+    public boolean fallbackOtherReplicaWhenFixedCorrupt = false;
+
+    public static final String FE_DEBUG = "fe_debug";
+    @VarAttrDef.VarAttr(name = FE_DEBUG, needForward = true, fuzzy = true,
+            description = "when set true, FE will throw exceptions instead swallow them. This is used for test")
+    public boolean feDebug = false;
+
+    @VarAttrDef.VarAttr(name = FETCH_ALL_FE_FOR_SYSTEM_TABLE,
+            description = "When the variable is true, some system tables retrieve data from all fe")
+    public boolean fetchAllFeForSystemTable = true;
+
+    @VarAttrDef.VarAttr(name = MAX_MSG_SIZE_OF_RESULT_RECEIVER,
+            description = "Max message size during result deserialization, change this if you meet error"
+                    + " like \"MaxMessageSize reached\"")
+    public int maxMsgSizeOfResultReceiver = TConfiguration.DEFAULT_MAX_MESSAGE_SIZE;
+
+    // CLOUD_VARIABLES_BEGIN
+    @VarAttrDef.VarAttr(name = CLOUD_CLUSTER, alias = {COMPUTE_GROUP})
+    public String cloudCluster = "";
+    @VarAttrDef.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
+    public boolean disableEmptyPartitionPrune = false;
+    @VarAttrDef.VarAttr(name = CLOUD_FORCE_SYNC_TABLET_STATS, needForward = true)
+    public boolean cloudForceSyncTabletStats = false;
+    @VarAttrDef.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
+    public long cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
+    @VarAttrDef.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
+    public long cloudTableVersionCacheTtlMs = Long.MAX_VALUE;
+    @VarAttrDef.VarAttr(name = CLOUD_FORCE_SYNC_VERSION, needForward = true)
+    public boolean cloudForceSyncVersion = false;
+    // CLOUD_VARIABLES_END
+
+    // fetch remote schema rpc timeout
+    @VarAttrDef.VarAttr(name = FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS, fuzzy = true)
+    public long fetchRemoteSchemaTimeoutSeconds = 120;
+    // max tablet count for fetch remote schema
+    @VarAttrDef.VarAttr(name = MAX_FETCH_REMOTE_TABLET_COUNT, fuzzy = true)
+    public int maxFetchRemoteTabletCount = 512;
+
+    @VarAttrDef.VarAttr(
+            name = "enable_compress_materialize",
+            description = "enable compress-materialize. ",
+            needForward = true, fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL
+    )
+    public boolean enableCompressMaterialize = false;
+
+    @VarAttrDef.VarAttr(
+            name = DATA_QUEUE_MAX_BLOCKS,
+            description = "Max blocks in DataQueue.",
+            needForward = true, fuzzy = true)
+    public long dataQueueMaxBlocks = 1;
+
+    // for spill to disk
+    @VarAttrDef.VarAttr(
+            name = ENABLE_SPILL,
+            description = "Controls whether to enable spill to disk for query. "
+                    + "The default value is false.",
+            needForward = true, fuzzy = true)
+    public boolean enableSpill = false;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_FORCE_SPILL,
+            description = "Controls whether enable force spill.",
+            needForward = true, fuzzy = false
+    )
+    public boolean enableForceSpill = false;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_RESERVE_MEMORY,
+            description = "Controls whether to enable reserve memory before allocating memory. "
+                    + "The default value is true.",
+            needForward = true, fuzzy = true)
+    public boolean enableReserveMemory = true;
+
+    @VarAttrDef.VarAttr(name = SPILL_MIN_REVOCABLE_MEM, fuzzy = true)
+    public long spillMinRevocableMem = 4 * 1024 * 1024;
+
+    @VarAttrDef.VarAttr(name = SPILL_BUFFER_SIZE_BYTES, fuzzy = true, needForward = true,
+            description = "Maximum block size for spill writes (in bytes). Blocks larger than this threshold are "
+                    + "split before writing to disk. Also controls per-file read buffer size during merge sort. "
+                    + "Default is 8MB.")
+    public long spillBufferSizeBytes = 8L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, fuzzy = true)
+    public int spillAggregationPartitionCount = 4;
+
+    @VarAttrDef.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, fuzzy = false)
+    public long lowMemoryModeBufferLimit = 33554432;
+
+    // The memory limit of streaming agg when spilling is enabled
+    // NOTE: streaming agg operator will not spill to disk.
+    @VarAttrDef.VarAttr(name = SPILL_STREAMING_AGG_MEM_LIMIT, fuzzy = false)
+    public long spillStreamingAggMemLimit = 268435456; //256MB
+
+    @VarAttrDef.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, fuzzy = true)
+    public int spillHashJoinPartitionCount = 4;
+
+    @VarAttrDef.VarAttr(name = SPILL_REPARTITION_MAX_DEPTH, fuzzy = true, needForward = true,
+            description = "Maximum depth for repartition recursion. When exceeded, repartitioning will stop. Default "
+                    + "is 8.")
+    public int spillRepartitionMaxDepth = 8;
+
+    @VarAttrDef.VarAttr(name = SPILL_JOIN_BUILD_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+            description = "After spill is triggered, join build sink will proactively spill when revocable memory "
+                    + "exceeds this threshold (in bytes). Default is 64MB.")
+    public long spillJoinBuildSinkMemLimitBytes = 64L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+            description = "After spill is triggered, aggregation sink will proactively spill when revocable memory "
+                    + "exceeds this threshold (in bytes). Default is 64GB.")
+    public long spillAggregationSinkMemLimitBytes = 64L * 1024L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = SPILL_SORT_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+            description = "After spill is triggered, sort sink will proactively spill when revocable memory "
+                    + "exceeds this threshold (in bytes). Default is 64MB.")
+    public long spillSortSinkMemLimitBytes = 64L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = SPILL_SORT_MERGE_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+            description = "After spill is triggered, total memory budget for the sort merge phase (in bytes). "
+                    + "Divided by spill_buffer_size_bytes gives the number of files that can be merged "
+                    + "in parallel. Default is 64MB.")
+    public long spillSortMergeMemLimitBytes = 64L * 1024L * 1024L;
+
+    @VarAttrDef.VarAttr(name = SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
+    public int spillRevocableMemoryHighWatermarkPercent = -1;
+
+    @VarAttrDef.VarAttr(
+            name = DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED,
+            description = "Whether to dump heap profile to log file when query is canceled becuase of memory not "
+                    + "enough. "
+                    + "The default value is false.",
+            needForward = true)
+    public boolean dumpHeapProfileWhenMemLimitExceeded = false;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_FUZZY_BLOCKABLE_TASK, fuzzy = true)
+    public boolean enableFuzzyBlockableTask = false;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_USE_HYBRID_SORT,
+            description = "Enable hybrid sorting: dynamically selects between PdqSort and TimSort "
+                    + "based on runtime profiling to choose the most efficient algorithm "
+                    + "for the data pattern. The default value is true.",
+            needForward = true, fuzzy = true)
+    public boolean enableUseHybridSort = true;
+
+    @VarAttrDef.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = "In CTAS (Create "
+            + "Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
+            + " whether to set the length of such a column to MAX, which is 65533. The default is true.")
+    public boolean useMaxLengthOfVarcharInCtas = true;
+
+    // Whether enable segment cache. Segment cache only works when FE's query options sets enableSegmentCache true
+    // along with BE's config `disable_segment_cache` false
+    @VarAttrDef.VarAttr(name = ENABLE_SEGMENT_CACHE, needForward = true)
+    public boolean enableSegmentCache = true;
+
+    /**
+     * When enabling shard scroll, FE will plan scan ranges by shards of ES indices.
+     * Otherwise, FE will plan a single query to ES.
+     */
+    @VarAttrDef.VarAttr(name = ENABLE_ES_PARALLEL_SCROLL, description = "Whether to enable shard-level parallel scroll "
+            + "requests for ES catalog, enabled by default.")
+    public boolean enableESParallelScroll = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_MATCH_WITHOUT_INVERTED_INDEX, description = "Enable no-index match query "
+            + "functionality."
+            + " it is recommended to keep this enabled in the production environment.")
+    public boolean enableMatchWithoutInvertedIndex = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX, description = "After enabling, it will "
+            + "directly query and report an error if no index is found."
+            + " It is recommended to keep this enabled in the production environment.")
+    public boolean enableFallbackOnMissingInvertedIndex = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_INVERTED_INDEX_SEARCHER_CACHE, description = "Enabling this will cache the "
+            + "inverted index searcher.")
+    public boolean enableInvertedIndexSearcherCache = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY_CACHE, description = "Enabling this will cache the results "
+            + "of inverted index queries.")
+    public boolean enableInvertedIndexQueryCache = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_ANN_INDEX_RESULT_CACHE, needForward = true, description = "Enabling this will "
+            + "cache the results of ANN index queries.")
+    public boolean enableAnnIndexResultCache = true;
+
+    @VarAttrDef.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = "When the number of values in the IN "
+            + "condition exceeds this threshold,"
+            + " fast_execute will not be used.", affectQueryResultInExecution = true)
+    public int inListValueCountThreshold = 10;
+
+    @VarAttrDef.VarAttr(name = ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT, needForward = true, description = "W"
+            + "hen enabled, the pipeline task concurrency will be adjusted automatically. When the scan node has no "
+            + "filter "
+            + "conditions and the limit parameter is less than the number of rows specified in "
+            + "adaptive_pipeline_task_serial_read_on_limit, the parallelism of the scan will be set to 1.")
+    public boolean enableAdaptivePipelineTaskSerialReadOnLimit = true;
+
+    @VarAttrDef.VarAttr(name = ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT, needForward = true, description = "When "
+            + "enable_adaptive_pipeline_task_serial_read_on_limit is enabled, "
+            + "the number of rows at which the parallelism of the scan will be set to 1.")
+    public int adaptivePipelineTaskSerialReadOnLimit = 10000;
+
+    @VarAttrDef.VarAttr(name = "enable_adjust_conjunct_order_by_cost", needForward = true)
+    public boolean enableAdjustConjunctOrderByCost = true;
+
+    @VarAttrDef.VarAttr(name = REQUIRE_SEQUENCE_IN_INSERT, needForward = true, description = "This variable controls "
+            + "whether the INSERT INTO operation on unique key tables with a sequence"
+            + " column requires a sequence column to be provided for each row")
+    public boolean requireSequenceInInsert = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_COOLDOWN_REPLICA_AFFINITY, needForward = true)
+    public boolean enableCooldownReplicaAffinity = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_AUTO_CREATE_WHEN_OVERWRITE, needForward = true, description = "The insert "
+            + "overwrite operation on an auto-partitioned table will create partitions for inserted data"
+            + " for which no partition is found according to the auto-partitioning rules, which is turned off"
+            + " by default.")
+    public boolean enableAutoCreateWhenOverwrite = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_TEXT_VALIDATE_UTF8, needForward = true, description = "For text type file "
+            + "reading, whether to enable utf8 encoding check."
+            + "non-utf8 characters will be displayed as garbled characters.")
+    public boolean enableTextValidateUtf8 = true;
+
+    @VarAttrDef.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, affectQueryResultInPlan = true,
+            description = "Skip checking transactional hive version file '_orc_acid_version.'"
+    )
+    public boolean skipCheckingAcidVersionFile = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SQL_CONVERTOR_FEATURES, needForward = true,
+            checker = "checkSqlConvertorFeatures",
+            description = "enable SQL convertor features. Multiple features are separated by commas")
+    public String enableSqlConvertorFeatures = "";
+
+    // The default value is true,
+    // which throughs reducing rpc call from follower node to meta service to improve query performance
+    // for getting version is memory operation in master node,
+    // but it will slightly increase the pressure on the FE master.
+    @VarAttrDef.VarAttr(name = ENABLE_SCHEMA_SCAN_FROM_MASTER_FE, description = "Whether to allow scanning "
+            + "information_schema.tables from the master node")
+    public boolean enableSchemaScanFromMasterFe = true;
+
+    @VarAttrDef.VarAttr(name = SHOW_COLUMN_COMMENT_IN_DESCRIBE, needForward = true,
+            description = "whether to show column comments in DESCRIBE TABLE statement")
+    public boolean showColumnCommentInDescribe = false;
+
+    @VarAttrDef.VarAttr(name = SQL_CONVERTOR_CONFIG, needForward = true,
+            description = "SQL convertor config, use Json format. The root element is {}")
+    public String sqlConvertorConfig = "{}";
+
+    @VarAttrDef.VarAttr(name = PREFER_UDF_OVER_BUILTIN, needForward = true,
+            description = "Whether to prefer UDF over builtin functions")
+    public boolean preferUdfOverBuiltin = false;
+
+    @VarAttrDef.VarAttr(name = SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR, description = "ExplodeFactor: The expansion "
+            + "factor for join skew optimization. "
+            + "For specified skewed values, it generates random values between 0 and ExplodeFactor-1 "
+            + "on the skewed side, while replicating the expanded side into ExplodeFactor copies,"
+            + "ensuring even load distribution after hash shuffling. "
+            + "Configurable range: 0-65535 (0=auto-adapt based on BEs and CPU cores;"
+            + "1-65535=manual expansion multiplier)", checker = "checkSkewRewriteJoinSaltExplodeFactor")
+    public int skewRewriteJoinSaltExplodeFactor = 0;
+
+    @VarAttrDef.VarAttr(name = DEFAULT_AI_RESOURCE, needForward = true,
+            description = "Defines the default AI resource to be used when no specific AI resource is specified "
+                    + "in the function arguments.")
+    public String defaultAIResource = "";
+
+    @VarAttrDef.VarAttr(name = FILE_PRESIGNED_URL_TTL_SECONDS, needForward = true,
+            description = "Expiration time in seconds for S3 presigned URL used by multimodal EMBED.")
+    public long filePresignedUrlTtlSeconds = 3600;
+
+    @VarAttrDef.VarAttr(name = EMBED_MAX_BATCH_SIZE, needForward = true,
+            checker = "checkEmbedMaxBatchSize",
+            description = "Maximum number of inputs allowed in one EMBED batch request for both text and multimodal.")
+    public int embedMaxBatchSize = 5;
+
+    @VarAttrDef.VarAttr(name = AI_CONTEXT_WINDOW_SIZE, needForward = true,
+            checker = "checkAiContextWindowSize",
+            description = "Context window size in bytes for AI function batching.")
+    public long aiContextWindowSize = 128 * 1024;
+
+    public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
+        this.enableESParallelScroll = enableESParallelScroll;
+    }
+
+    public boolean isEnableESParallelScroll() {
+        return enableESParallelScroll;
+    }
+
+    @VarAttrDef.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, needForward = true, description = "Whether to enable add "
+            + "index mode that only affects new data, "
+            + "when enabled new indexes only affect subsequently written data, "
+            + "when disabled rebuild indexes for all data")
+    public boolean enableAddIndexForNewData = false;
+
+    @VarAttrDef.VarAttr(name = HNSW_EF_SEARCH, needForward = true,
+            checker = "checkHnswEfSearch",
+            description = "HNSW index EF search parameter, controls the precision and speed of the search")
+    public int hnswEFSearch = 32;
+
+    @VarAttrDef.VarAttr(name = HNSW_CHECK_RELATIVE_DISTANCE, needForward = true,
+            description = "Enable relative distance checking to improve HNSW search accuracy")
+    public boolean hnswCheckRelativeDistance = true;
+
+    @VarAttrDef.VarAttr(name = HNSW_BOUNDED_QUEUE, needForward = true,
+            description = "Whether to use a bounded priority queue to optimize HNSW search performance")
+    public boolean hnswBoundedQueue = true;
+
+    @VarAttrDef.VarAttr(name = IVF_NPROBE, needForward = true,
+            checker = "checkIvfNprobe",
+            description = "IVF index nprobe parameter, controls the number of clusters to search")
+    public int ivfNprobe = 32;
+
+    @VarAttrDef.VarAttr(name = ANN_INDEX_CANDIDATE_ROWS_THRESHOLD, needForward = true,
+            checker = "checkAnnIndexCandidateRowsThreshold",
+            description = "Skip ANN index when candidate rows before ANN search are less "
+                    + "than this threshold. 0 disables the absolute row threshold")
+    public long annIndexCandidateRowsThreshold = 0;
+
+    @VarAttrDef.VarAttr(name = ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD, needForward = true,
+            checker = "checkAnnIndexCandidateRowsPercentThreshold",
+            description = "Skip ANN index when candidate row ratio before ANN search is less "
+                    + "than this threshold")
+    public double annIndexCandidateRowsPercentThreshold = 0.3;
+
+    public void checkAnnIndexCandidateRowsThreshold(String value) {
+        long threshold = Long.parseLong(value);
+        if (threshold < 0) {
+            throw new InvalidParameterException(
+                    ANN_INDEX_CANDIDATE_ROWS_THRESHOLD + " should be greater than or equal to 0");
+        }
+    }
+
+    public void checkAnnIndexCandidateRowsPercentThreshold(String value) {
+        double threshold = Double.parseDouble(value);
+        if (Double.isNaN(threshold) || Double.isInfinite(threshold) || threshold < 0 || threshold > 1) {
+            throw new InvalidParameterException(
+                    ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD + " should be between 0 and 1");
+        }
+    }
+
+    @VarAttrDef.VarAttr(
+            name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
+            needForward = true,
+            checker = "checkDefaultVariantMaxSubcolumnsCount",
+            fuzzy = true
+    )
+    public int defaultVariantMaxSubcolumnsCount = 2048;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_VARIANT_SCHEMA_AUTO_CAST,
+            needForward = true,
+            affectQueryResultInExecution = true,
+            description = "Whether to enable schema-template-based auto cast for variant expressions. "
+                    + "The default is true."
+    )
+    public boolean enableVariantSchemaAutoCast = true;
+
+    @VarAttrDef.VarAttr(
+            name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean defaultEnableTypedPathsToSparse = false;
+
+    @VarAttrDef.VarAttr(
+            name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+            needForward = true,
+            checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
+            fuzzy = true
+    )
+    public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
+
+    @VarAttrDef.VarAttr(name = ENABLE_EXTENDED_REGEX, needForward = true, affectQueryResultInExecution = true,
+            description = "Enable extended regular expressions, support look-around zero-width assertions")
+    public boolean enableExtendedRegex = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_HYPERSCAN_FALLBACK, needForward = true, affectQueryResultInExecution = true,
+            description = "Whether to fall back to RE2 when Hyperscan cannot compile a regular expression")
+    public boolean enableHyperscanFallback = true;
+
+    @VarAttrDef.VarAttr(
+            name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
+            needForward = true,
+            fuzzy = true
+    )
+    public int defaultVariantSparseHashShardCount = 0;
+
+    @VarAttrDef.VarAttr(name = CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION, needForward = false,
+            description = "Whether cache is used for the visible_version column"
+                    + "in the partitions system table on cloud mode")
+    public boolean cloudPartitionsTableUseCachedVisibleVersion = true;
+
+    @VarAttrDef.VarAttr(
+            name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean defaultVariantEnableDocMode = false;
+
+    @VarAttrDef.VarAttr(
+            name = DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+            needForward = true,
+            fuzzy = true
+    )
+    public long defaultVariantDocMaterializationMinRows = 0L;
+
+    @VarAttrDef.VarAttr(
+            name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
+            needForward = true,
+            fuzzy = true
+    )
+    public int defaultVariantDocHashShardCount = 64;
+
+    @VarAttrDef.VarAttr(
+            name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean defaultVariantEnableNestedGroup = false;
+
+    @VarAttrDef.VarAttr(
+            name = "use_v3_storage_format",
+            fuzzy = true,
+            description = "In fuzzy tests, randomly use V3 storage_format (ext_meta) for some tables."
+    )
+    public boolean useV3StorageFormat = false;
+
+    @VarAttrDef.VarAttr(name = DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP)
+    public int decomposeRepeatShuffleIndexInMaxGroup = -1;
+
+    public static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
+    @VarAttrDef.VarAttr(name = IGNORE_ICEBERG_DANGLING_DELETE,
+            description = "Whether Iceberg metadata COUNT(*) may subtract position-delete record counts from "
+                    + "current data-manifest rows. This improves performance but can be inaccurate for dangling "
+                    + "delete entries. Equality deletes always disable metadata COUNT(*).")
+    public boolean ignoreIcebergDanglingDelete = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_ICEBERG_MERGE_PARTITIONING,
+            description = "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
+                    + "DELETE by row_id).")
+    public boolean enableIcebergMergePartitioning = true;
+    // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
+    // not the default value set in the code.
+
+    @SuppressWarnings("checkstyle:Indentation")
+    public void initFuzzyModeVariables() {
+        Random random = new SecureRandom();
+        this.feDebug = true;
+        this.enableConditionCache = Config.pull_request_id % 2 == 0;
+        this.parallelPipelineTaskNum = random.nextInt(8);
+        this.parallelPrepareThreshold = random.nextInt(32) + 1;
+        this.enableSegmentLimitPushdown = random.nextBoolean();
+        this.enableLocalExchange = random.nextBoolean();
+        this.enableSharedExchangeSinkBuffer = random.nextBoolean();
+        this.useSerialExchange = random.nextBoolean();
+        // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
+        // compatibility cases can still select the legacy scanner explicitly after initialization.
+        this.enableFileScannerV2 = true;
+        this.disableStreamPreaggregations = random.nextBoolean();
+        this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
+        this.enableLocalExchangeBeforeAgg = random.nextBoolean();
+        this.enableLocalExchangeBeforeStreamingAgg = random.nextBoolean();
+        this.enableDistinctStreamingAggForcePassthrough = random.nextBoolean();
+        this.enableBroadcastJoinForcePassthrough = random.nextBoolean();
+        this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
+        this.shortCircuitEvaluation = random.nextBoolean();
+
+        // 4KB = 4 * 1024 bytes
+        int minBytes = 4 * 1024;
+        // 10MB = 10 * 1024 * 1024 bytes
+        int maxBytes = 10 * 1024 * 1024;
+        this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
+        this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
+        this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
+        this.useV3StorageFormat = random.nextBoolean();
+        this.defaultVariantEnableDocMode = random.nextBoolean();
+        this.defaultVariantDocHashShardCount = random.nextInt(5);
+        boolean zeroOrOne = random.nextBoolean();
+        this.defaultVariantDocMaterializationMinRows = zeroOrOne ? 0 : random.nextInt(20);
+        if (this.defaultVariantEnableDocMode) {
+            this.defaultVariantMaxSubcolumnsCount = 0;
+            this.defaultEnableTypedPathsToSparse = false;
+        } else {
+            this.defaultVariantDocMaterializationMinRows = 0L;
+            this.defaultVariantDocHashShardCount = 0;
+        }
+        int randomInt = random.nextInt(4);
+        if (randomInt % 2 == 0) {
+            this.rewriteOrToInPredicateThreshold = 100000;
+            this.enableFunctionPushdown = false;
+            this.enableSyncRuntimeFilterSize = true;
+            this.bucketedAggMinInputRows = 0;
+        } else {
+            this.rewriteOrToInPredicateThreshold = 2;
+            this.enableFunctionPushdown = true;
+            this.enableSyncRuntimeFilterSize = false;
+        }
+
+        switch (random.nextInt(4)) {
+            case 0:
+                this.runtimeFilterType = TRuntimeFilterType.IN.getValue();
+                break;
+            case 1:
+                this.runtimeFilterType = TRuntimeFilterType.BLOOM.getValue();
+                break;
+            case 2:
+                this.runtimeFilterType = TRuntimeFilterType.IN_OR_BLOOM.getValue();
+                break;
+            case 3:
+                break;
+            default:
+                break;
+        }
+
+        if (random.nextBoolean()) {
+            this.runtimeFilterType |= TRuntimeFilterType.MIN_MAX.getValue();
+        }
+
+        switch (random.nextInt(3)) {
+            case 0:
+                this.fragmentTransmissionCompressionCodec = "snappy";
+                this.runtimeFilterWaitTimeMs = 10;
+                break;
+            case 1:
+                this.fragmentTransmissionCompressionCodec = "lz4";
+                break;
+            default:
+                this.fragmentTransmissionCompressionCodec = "none";
+        }
+
+        this.enableParallelScan = random.nextInt(2) == 0;
+        this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
+        this.enableRuntimeFilterPartitionPrune = (randomInt % 2) == 0;
+        this.enableRuntimeFilterBucketPrune = (randomInt % 2) == 0;
+        this.runtimeFilterTreePublishMaxSendBytes =
+                Util.getRandomLong(0, 64L * 1024L * 1024L, 128L * 1024L * 1024L,
+                        256L * 1024L * 1024L);
+
+        switch (randomInt) {
+            case 0:
+                this.parallelScanMaxScannersCount = 32;
+                this.parallelScanMinRowsPerScanner = 64;
+                this.runtimeFilterMaxInNum = 10;
+                break;
+            case 1:
+                this.parallelScanMaxScannersCount = 16;
+                this.parallelScanMinRowsPerScanner = 128;
+                this.runtimeFilterMaxInNum = 0;
+                break;
+            case 2:
+                this.parallelScanMaxScannersCount = 8;
+                this.parallelScanMinRowsPerScanner = 256;
+                break;
+            case 3:
+            default:
+                break;
+        }
+
+        if (Config.fuzzy_test_type.equals("p0")) {
+            if (random.nextInt(2) == 1) {
+                this.batchSize = 4064;
+                this.enableFoldConstantByBe = true;
+            } else {
+                this.batchSize = 1024;
+                this.enableFoldConstantByBe = false;
+            }
+            this.enableFuzzyBlockableTask = random.nextBoolean();
+        }
+        this.runtimeFilterWaitInfinitely = random.nextBoolean();
+
+        // set random 101, 100, 1000, 10000, should be greater than 100, because small limit may lead
+        // some test case failed, e.g. topN with limit 100 may not hit the LimitAggToTopNAgg rule
+        // optimization when fuzzy
+        int randomLimitThreshold = (int) Math.pow(10, random.nextInt(5));
+        this.topnOptLimitThreshold = randomLimitThreshold <= 100 ? 101 : randomLimitThreshold;
+
+        // for spill to disk
+        if (Config.fuzzy_test_type.equals("p0")) {
+            switch (randomInt % 4) {
+                case 0:
+                    this.spillMinRevocableMem = 0;
+                    break;
+                case 1:
+                    this.spillMinRevocableMem = 1;
+                    break;
+                case 2:
+                    this.spillMinRevocableMem = 1024 * 1024;
+                    break;
+                case 3:
+                default:
+                    this.spillMinRevocableMem = 100L * 1024 * 1024;
+                    break;
+            }
+
+            randomInt = random.nextInt(99);
+            this.enableSpill = randomInt % 4 != 0;
+            this.enableForceSpill = randomInt % 3 == 0;
+            this.enableReserveMemory = randomInt % 5 != 0;
+
+            randomInt = random.nextInt(99);
+            this.enableUseHybridSort = randomInt % 3 != 0;
+        }
+
+        setFuzzyForCatalog(random);
+    }
+
+    private void setFuzzyForCatalog(Random random) {
+        if (!Config.fuzzy_test_type.equals("external")) {
+            return;
+        }
+        // parquet
+        this.enableParquetFilterByMinMax = random.nextBoolean();
+        this.enableParquetFilterByBloomFilter = random.nextBoolean();
+        this.enableParquetLazyMat = random.nextBoolean();
+
+        // orc
+        this.enableOrcLazyMat = random.nextBoolean();
+        this.orcTinyStripeThresholdBytes = Util.getRandomLong(0, 8L * 1024L * 1024L);
+        this.orcOnceMaxReadBytes = Util.getRandomLong(0, 8L * 1024L * 1024L, 16L * 1024L * 1024L);
+        this.orcMaxMergeDistanceBytes = Util.getRandomLong(0, 1L * 1024L * 1024L, 10L * 1024L * 1024L);
+
+        // jni
+        this.forceJniScanner = random.nextBoolean();
+        // statistics
+        this.fetchHiveRowCountSync = random.nextBoolean();
+
+        // hive
+        this.hiveTextCompression = Util.getRandomString(
+                "gzip", "defalte", "bzip2", "zstd", "lz4", "lzo", "snappy", "plain");
+
+        // batch mode
+        this.enableExternalTableBatchMode = random.nextBoolean();
+        if (this.enableExternalTableBatchMode) {
+            this.numPartitionsInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
+            this.numFilesInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
+        }
+
+        // common
+        this.enableCountPushDownForExternalTable = random.nextBoolean();
+    }
+
+    public String printFuzzyVariables() {
+        if (!Config.use_fuzzy_session_variable) {
+            return "";
+        }
+        List<String> res = Lists.newArrayList();
+        for (Field field : SessionVariable.class.getDeclaredFields()) {
+            VarAttr attr = field.getAnnotation(VarAttr.class);
+            if (attr == null || !attr.fuzzy()) {
+                continue;
+            }
+            field.setAccessible(true);
+            try {
+                Object val = field.get(this);
+                res.add(attr.name() + "=" + val.toString());
+            } catch (IllegalAccessException e) {
+                LOG.warn("failed to get fuzzy session variable {}", attr.name(), e);
+            }
+        }
+        return Joiner.on(",").join(res);
+    }
+
+    public boolean isInDebugMode() {
+        return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge
+                || skipMissingVersion || skipBadTablet;
+    }
+
+    public String printDebugModeVariables() {
+        List<String> res = Lists.newArrayList();
+        for (Field field : SessionVariable.class.getDeclaredFields()) {
+            VarAttr attr = field.getAnnotation(VarAttr.class);
+            if (attr == null) {
+                continue;
+            }
+            boolean shouldPrint = false;
+            for (String debugVariable : DEBUG_VARIABLES) {
+                if (attr.name().equalsIgnoreCase(debugVariable)) {
+                    shouldPrint = true;
+                    break;
+                }
+            }
+            if (shouldPrint) {
+                field.setAccessible(true);
+                try {
+                    Object val = field.get(this);
+                    res.add(attr.name() + "=" + val.toString());
+                } catch (IllegalAccessException e) {
+                    LOG.warn("failed to get debug mode session variable {}", attr.name(), e);
+                }
+            }
+        }
+        return Joiner.on(",").join(res);
+    }
+
+    public String getBlockEncryptionMode() {
+        return blockEncryptionMode;
+    }
+
+    public void setBlockEncryptionMode(String blockEncryptionMode) {
+        this.blockEncryptionMode = blockEncryptionMode;
+    }
+
+    public void setRewriteOrToInPredicateThreshold(int threshold) {
+        this.rewriteOrToInPredicateThreshold = threshold;
+    }
+
+    public int getRewriteOrToInPredicateThreshold() {
+        return rewriteOrToInPredicateThreshold;
+    }
+
+    public long getMaxExecMemByte() {
+        return maxExecMemByte;
+    }
+
+    public long getMaxScanQueueExecMemByte() {
+        return maxScanQueueMemByte;
+    }
+
+    public int getMaxScannersConcurrency() {
+        return maxScannersConcurrency;
+    }
+
+    public int getQueryTimeoutS() {
+        return queryTimeoutS;
+    }
+
+    public void setEnableTwoPhaseReadOpt(boolean enable) {
+        enableTwoPhaseReadOpt = enable;
+    }
+
+    public int getMaxExecutionTimeMS() {
+        return maxExecutionTimeMS;
+    }
+
+    public int getInsertTimeoutS() {
+        return insertTimeoutS;
+    }
+
+    public void setInsertTimeoutS(int insertTimeoutS) {
+        this.insertTimeoutS = insertTimeoutS;
+    }
+
+    public boolean enableProfile() {
+        return enableProfile;
+    }
+
+    public int getAutoProfileThresholdMs() {
+        return this.autoProfileThresholdMs;
+    }
+
+    public boolean enableSingleDistinctColumnOpt() {
+        return enableSingleDistinctColumnOpt;
+    }
+
+    public int getWaitTimeoutS() {
+        return waitTimeoutS;
+    }
+
+    public long getSqlMode() {
+        return sqlMode;
+    }
+
+    public void setSqlMode(long sqlMode) {
+        this.sqlMode = sqlMode;
+    }
+
+    public boolean isEnableJoinReorderBasedCost() {
+        return enableJoinReorderBasedCost;
+    }
+
+    public boolean isEnableLowConfidenceEqJoinRemainingConditionDecay() {
+        return enableLowConfidenceEqJoinRemainingConditionDecay;
+    }
+
+    public boolean enableMultiClusterSyncLoad() {
+        return cloudEnableMultiClusterSyncLoad;
+    }
+
+    public void setEnableMultiClusterSyncLoad(boolean cloudEnableMultiClusterSyncLoad) {
+        this.cloudEnableMultiClusterSyncLoad = cloudEnableMultiClusterSyncLoad;
+    }
+
+    public boolean isTxReadonly() {
+        return txReadonly;
+    }
+
+    public boolean isTransactionReadonly() {
+        return transactionReadonly;
+    }
+
+    public String getTransactionIsolation() {
+        return transactionIsolation;
+    }
+
+    public String getCharsetClient() {
+        return charsetClient;
+    }
+
+    public String getCharsetConnection() {
+        return charsetConnection;
+    }
+
+    public String getCharsetResults() {
+        return charsetResults;
+    }
+
+    public String getCharsetServer() {
+        return charsetServer;
+    }
+
+    public String getCollationConnection() {
+        return collationConnection;
+    }
+
+    public String getCollationDatabase() {
+        return collationDatabase;
+    }
+
+    public String getCollationServer() {
+        return collationServer;
+    }
+
+    public boolean isSqlAutoIsNull() {
+        return sqlAutoIsNull;
+    }
+
+    public long getSqlSelectLimit() {
+        if (sqlSelectLimit < 0 || sqlSelectLimit >= Long.MAX_VALUE) {
+            return -1;
+        }
+        return sqlSelectLimit;
+    }
+
+    public long getDefaultOrderByLimit() {
+        return defaultOrderByLimit;
+    }
+
+    public int getMaxAllowedPacket() {
+        return maxAllowedPacket;
+    }
+
+    public int getAutoIncrementIncrement() {
+        return autoIncrementIncrement;
+    }
+
+    public int getQueryCacheType() {
+        return queryCacheType;
+    }
+
+    public int getInteractiveTimeout() {
+        return interactiveTimeout;
+    }
+
+    public int getNetWriteTimeout() {
+        return netWriteTimeout;
+    }
+
+    public int getNetReadTimeout() {
+        return netReadTimeout;
+    }
+
+    public String getTimeZone() {
+        return timeZone;
+    }
+
+    public void setTimeZone(String timeZone) {
+        this.timeZone = timeZone;
+    }
+
+    private static String standarlizeLcTimeNames(String value) {
+        if (value.isEmpty()) {
+            throw new InvalidParameterException("lc_time_names value is empty");
+        }
+        String[] segments = value.split("_");
+        if (segments.length != 2) {
+            throw new InvalidParameterException(
+                    "lc_time_names value must be in language_COUNTRY form: " + value);
+        }
+
+        return segments[0].toLowerCase() + "_" + segments[1].toUpperCase();
+    }
+
+    public void setLcTimeNames(String lcTimeNames) {
+        String standardLcTimeNames = standarlizeLcTimeNames(lcTimeNames);
+        if (!SUPPORTED_LC_TIME_NAMES.contains(standardLcTimeNames)) {
+            String supportedList = String.join(", ", SUPPORTED_LC_TIME_NAMES);
+            throw new InvalidParameterException("Unsupported lc_time_names value: " + lcTimeNames
+                + ". Supported values are: " + supportedList);
+        }
+        this.lcTimeNames = standardLcTimeNames;
+    }
+
+    public String getLcTimeNames() {
+        return lcTimeNames;
+    }
+
+    public int getSqlSafeUpdates() {
+        return sqlSafeUpdates;
+    }
+
+    public int getNetBufferLength() {
+        return netBufferLength;
+    }
+
+    public boolean getHaveQueryCache() {
+        return haveQueryCache;
+    }
+
+    /**
+     * setMaxExecMemByte.
+     **/
+    public void setMaxExecMemByte(long maxExecMemByte) {
+        if (maxExecMemByte < MIN_EXEC_MEM_LIMIT) {
+            this.maxExecMemByte = MIN_EXEC_MEM_LIMIT;
+        } else {
+            this.maxExecMemByte = maxExecMemByte;
+        }
+    }
+
+    public void setMaxScanQueueMemByte(long scanQueueMemByte) {
+        this.maxScanQueueMemByte = scanQueueMemByte;
+    }
+
+    public void setMaxScannersConcurrency(int maxScannersConcurrency) {
+        this.maxScannersConcurrency = maxScannersConcurrency;
+    }
+
+    public boolean isSqlQuoteShowCreate() {
+        return sqlQuoteShowCreate;
+    }
+
+    public void setSqlQuoteShowCreate(boolean sqlQuoteShowCreate) {
+        this.sqlQuoteShowCreate = sqlQuoteShowCreate;
+    }
+
+    public void setQueryTimeoutS(int queryTimeoutS) {
+        if (queryTimeoutS <= 0) {
+            LOG.warn("Setting invalid query timeout", new RuntimeException(""));
+        }
+        this.queryTimeoutS = queryTimeoutS;
+    }
+
+    // This method will be called by VariableMgr.replayGlobalVariableV2
+    // We dont want any potential exception is thrown during replay oplog
+    // so we do not check its validation. Here potential excaption
+    // will become real in cases where user set global query timeout 0 before
+    // upgrading to this version.
+    public void setQueryTimeoutS(String queryTimeoutS) {
+        int newQueryTimeoutS = Integer.valueOf(queryTimeoutS);
+        if (newQueryTimeoutS <= 0) {
+            LOG.warn("Invalid query timeout: {}", newQueryTimeoutS, new RuntimeException(""));
+        }
+        this.queryTimeoutS = newQueryTimeoutS;
+    }
+
+    public void setAnalyzeTimeoutS(int analyzeTimeoutS) {
+        this.analyzeTimeoutS = analyzeTimeoutS;
+    }
+
+    public void setMaxExecutionTimeMS(int maxExecutionTimeMS) {
+        this.maxExecutionTimeMS = maxExecutionTimeMS;
+        this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+        if (queryTimeoutS <= 0) {
+            LOG.warn("Invalid query timeout: {}", queryTimeoutS, new RuntimeException(""));
+        }
+    }
+
+    public void setMaxExecutionTimeMS(String maxExecutionTimeMS) {
+        this.maxExecutionTimeMS = Integer.valueOf(maxExecutionTimeMS);
+        this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+        if (queryTimeoutS <= 0) {
+            LOG.warn("Invalid query timeout: {}", queryTimeoutS, new RuntimeException(""));
+        }
+    }
+
+    public void setPipelineTaskNum(String value) throws Exception {
+        int val = checkFieldValue(PARALLEL_PIPELINE_TASK_NUM, 0, value);
+        this.parallelPipelineTaskNum = val;
+    }
+
+    public void setEnablePipelineEngine(String value) throws Exception {
+        if (value.equalsIgnoreCase("ON")
+                || value.equalsIgnoreCase("TRUE")
+                || value.equalsIgnoreCase("1")) {
+            this.enablePipelineEngine = true;
+        } else if (value.equalsIgnoreCase("OFF")
+                || value.equalsIgnoreCase("FALSE")
+                || value.equalsIgnoreCase("0")) {
+            throw new Exception(
+                    "You cannot disable pipeline engine, because it is the only execution engine now.");
+        } else {
+            throw new IllegalAccessException(value + " can not be parsed to boolean");
+        }
+    }
+
+    public void setEnablePipelineXEngine(String value) throws Exception {
+        if (value.equalsIgnoreCase("ON")
+                || value.equalsIgnoreCase("TRUE")
+                || value.equalsIgnoreCase("1")) {
+            this.enablePipelineXEngine = true;
+        } else if (value.equalsIgnoreCase("OFF")
+                || value.equalsIgnoreCase("FALSE")
+                || value.equalsIgnoreCase("0")) {
+            throw new Exception(
+                    "You cannot disable pipeline engine, because it is the only execution engine now.");
+        } else {
+            throw new IllegalAccessException(value + " can not be parsed to boolean");
+        }
+    }
+
+    public void setFragmentInstanceNum(String value) {}
+
+    public void setOrcTinyStripeThresholdBytes(String value) throws Exception {
+        long val = checkFieldLongValue(ORC_TINY_STRIPE_THRESHOLD_BYTES, 0, value);
+        this.orcTinyStripeThresholdBytes = val;
+    }
+
+    public void setOrcOnceMaxReadBytes(String value)  throws Exception {
+        long val = checkFieldLongValue(ORC_ONCE_MAX_READ_BYTES, 0, value);
+        this.orcOnceMaxReadBytes = val;
+    }
+
+    public void setOrcMaxMergeDistanceBytes(String value)  throws Exception {
+        long val = checkFieldLongValue(ORC_MAX_MERGE_DISTANCE_BYTES, 0, value);
+        this.orcMaxMergeDistanceBytes = val;
+    }
+
+    public void setFullSortMaxBufferedBytes(String value) throws Exception {
+        long val = Long.parseLong(value);
+        if (val < 16L * 1024L * 1024L || val > 1024L * 1024L * 1024L) {
+            throw new Exception(
+                    FULL_SORT_MAX_BUFFERED_BYTES + " value should between 16MB and 1GB , you set value is: " + value);
+        }
+        this.fullSortMaxBufferedBytes = val;
+    }
+
+    private long checkFieldLongValue(String variableName, long minValue, String value) throws Exception {
+        long val = Long.parseLong(value);
+        if (val < minValue) {
+            throw new Exception(
+                    variableName + " value should greater than or equal " + String.valueOf(minValue)
+                            + ", you set value is: " + value);
+        }
+        return val;
+    }
+
+    private int checkFieldValue(String variableName, int minValue, String value) throws Exception {
+        int val = Integer.valueOf(value);
+        if (val < minValue) {
+            throw new Exception(
+                    variableName + " value should greater than or equal " + String.valueOf(minValue)
+                            + ", you set value is: " + value);
+        }
+        return val;
+    }
+
+    public String getWorkloadGroup() {
+        return workloadGroup;
+    }
+
+    public void setWorkloadGroup(String workloadGroup) {
+        this.workloadGroup = workloadGroup;
+    }
+
+    public boolean getBypassWorkloadGroup() {
+        return this.bypassWorkloadGroup;
+    }
+
+    public int getMaxColumnReaderNum() {
+        return this.maxColumnReaderNum;
+    }
+
+    public String getResourceGroup() {
+        return resourceGroup;
+    }
+
+    public String getPreferredBackendSelectionKey() {
+        return preferredBackendSelectionKey;
+    }
+
+    public String getBackendSelectionMode() {
+        return backendSelectionMode;
+    }
+
+    public boolean isEnableLoadBackendSelection() {
+        return enableLoadBackendSelection;
+    }
+
+    public void setResourceGroup(String resourceGroup) {
+        this.resourceGroup = resourceGroup;
+    }
+
+    public void checkPreferredBackendSelectionKey(String preferredBackendSelectionKey) {
+        if (Strings.isNullOrEmpty(preferredBackendSelectionKey)) {
+            return;
+        }
+        try {
+            FeNameFormat.checkCommonName(PREFERRED_BACKEND_SELECTION_KEY, preferredBackendSelectionKey);
+        } catch (Exception e) {
+            LOG.warn("preferred_backend_selection_key value is invalid, the invalid value is {}",
+                    preferredBackendSelectionKey, e);
+            throw new UnsupportedOperationException(
+                    "preferred_backend_selection_key value is invalid, the invalid value is "
+                            + preferredBackendSelectionKey);
+        }
+    }
+
+    public void checkBackendSelectionMode(String backendSelectionMode) {
+        String normalized = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
+        if (!"prefer".equals(normalized)
+                && !"require".equals(normalized)
+                && !"default".equals(normalized)) {
+            LOG.warn("backend_selection_mode value is invalid, the invalid value is {}",
+                    backendSelectionMode);
+            throw new UnsupportedOperationException(
+                    "backend_selection_mode value is invalid, the invalid value is "
+                            + backendSelectionMode
+                            + ", supported values are prefer, require and default");
+        }
+        if ("require".equals(normalized) && Config.isCloudMode()) {
+            throw new UnsupportedOperationException(
+                    "Required backend selection is not supported in cloud mode");
+        }
+        if ("require".equals(normalized) && !BackendSelectionManager.supportsRequiredSelection()) {
+            throw new UnsupportedOperationException(
+                    "Backend selection provider does not support required backend selection");
+        }
+    }
+
+    public void checkFlussUnionReadMode(String mode) {
+        String normalized = Strings.nullToEmpty(mode).trim().toLowerCase(Locale.ROOT);
+        if (!normalized.isEmpty() && !"auto".equals(normalized)
+                && !"required".equals(normalized) && !"disabled".equals(normalized)) {
+            throw new UnsupportedOperationException(
+                    "fluss_union_read_mode value is invalid: " + mode
+                            + "; expected auto, required, disabled, or empty");
+        }
+    }
+
+    public void setBackendSelectionMode(String backendSelectionMode) {
+        this.backendSelectionMode = Strings.nullToEmpty(backendSelectionMode).toLowerCase(Locale.ROOT);
+    }
+
+    public boolean isDisableFileCache() {
+        return Config.isCloudMode() ? disableFileCache : false;
+    }
+
+    public void setDisableFileCache(boolean disableFileCache) {
+        this.disableFileCache = disableFileCache;
+    }
+
+    public boolean isDisableColocatePlan() {
+        return disableColocatePlan;
+    }
+
+    public boolean isEnableBucketShuffleJoin() {
+        return enableBucketShuffleJoin;
+    }
+
+    public boolean isEnableOdbcTransaction() {
+        return enableOdbcTransaction;
+    }
+
+    public String getPreferJoinMethod() {
+        return preferJoinMethod;
+    }
+
+    public void setPreferJoinMethod(String preferJoinMethod) {
+        this.preferJoinMethod = preferJoinMethod;
+    }
+
+    public boolean isEnableFoldConstantByBe() {
+        return enableFoldConstantByBe;
+    }
+
+    public boolean isDebugSkipFoldConstant() {
+        return debugSkipFoldConstant;
+    }
+
+    public boolean isEnableRewriteElementAtToSlot() {
+        return enableRewriteElementAtToSlot;
+    }
+
+    public void setEnableRewriteElementAtToSlot(boolean rewriteElementAtToSlot) {
+        enableRewriteElementAtToSlot = rewriteElementAtToSlot;
+    }
+
+    public void setEnableFoldConstantByBe(boolean foldConstantByBe) {
+        this.enableFoldConstantByBe = foldConstantByBe;
+    }
+
+    public void setDebugSkipFoldConstant(boolean debugSkipFoldConstant) {
+        this.debugSkipFoldConstant = debugSkipFoldConstant;
+    }
+
+    public int getParallelExecInstanceNum(String clusterName) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
+            int userParallelExecInstanceNum = connectContext.getEnv().getAuth()
+                    .getParallelFragmentExecInstanceNum(connectContext.getQualifiedUser());
+            if (userParallelExecInstanceNum > 0) {
+                return userParallelExecInstanceNum;
+            }
+        }
+        String resolvedClusterName = clusterName;
+        if (Config.isCloudMode() && Strings.isNullOrEmpty(resolvedClusterName)) {
+            resolvedClusterName = resolveCloudClusterName(connectContext);
+        }
+        if (parallelPipelineTaskNum == 0) {
+            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize(resolvedClusterName);
+            int autoInstance = (size + 1) / 2;
+            return Math.min(autoInstance, maxInstanceNum);
+        } else {
+            return parallelPipelineTaskNum;
+        }
+    }
+
+    public String resolveCloudClusterName() {
+        return resolveCloudClusterName(ConnectContext.get());
+    }
+
+    public String resolveCloudClusterName(ConnectContext connectContext) {
+        if (!Config.isCloudMode()) {
+            return "";
+        }
+        if (!Strings.isNullOrEmpty(cloudCluster)) {
+            return cloudCluster;
+        }
+        if (connectContext == null) {
+            return "";
+        }
+        try {
+            String clusterName = connectContext.getCloudCluster(false);
+            return clusterName == null ? "" : clusterName;
+        } catch (ComputeGroupException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("failed to resolve cloud cluster for parallel instance num", e);
+            }
+            return "";
+        }
+    }
+
+    public boolean getEnablePreferCachedRowset() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
+            boolean userEnablePreferCachedRowset = connectContext.getEnv().getAuth()
+                    .getEnablePreferCachedRowset(connectContext.getQualifiedUser());
+            if (userEnablePreferCachedRowset) {
+                return userEnablePreferCachedRowset;
+            }
+        }
+        return enablePreferCachedRowset;
+    }
+
+    public long getQueryFreshnessToleranceMs() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
+            long userQueryFreshnessToleranceMs = connectContext.getEnv().getAuth()
+                    .getQueryFreshnessToleranceMs(connectContext.getQualifiedUser());
+            if (userQueryFreshnessToleranceMs > 0) {
+                return userQueryFreshnessToleranceMs;
+            }
+        }
+        return queryFreshnessToleranceMs;
+    }
+
+    public int getExchangeInstanceParallel() {
+        return exchangeInstanceParallel;
+    }
+
+    public boolean getEnableInsertStrict() {
+        return enableInsertStrict;
+    }
+
+    public void setEnableInsertStrict(boolean enableInsertStrict) {
+        this.enableInsertStrict = enableInsertStrict;
+    }
+
+    public boolean getEnableInsertValueAutoCast() {
+        return enableInsertValueAutoCast;
+    }
+
+    public double getInsertMaxFilterRatio() {
+        return insertMaxFilterRatio;
+    }
+
+    public void setInsertMaxFilterRatio(double maxFilterRatio) {
+        this.insertMaxFilterRatio = maxFilterRatio;
+    }
+
+    public boolean isEnableSqlCache() {
+        return enableSqlCache;
+    }
+
+    public boolean isEnablePreloadExternalMetadata() {
+        return enablePreloadExternalMetadata;
+    }
+
+    public void setEnablePreloadExternalMetadata(boolean enablePreload) {
+        this.enablePreloadExternalMetadata = enablePreload;
+    }
+
+    public void setEnableSqlCache(boolean enableSqlCache) {
+        this.enableSqlCache = enableSqlCache;
+    }
+
+    public boolean isEnableHiveSqlCache() {
+        return enableHiveSqlCache;
+    }
+
+    public void setEnableHiveSqlCache(boolean enableHiveSqlCache) {
+        this.enableHiveSqlCache = enableHiveSqlCache;
+    }
+
+    public boolean getEnableQueryCache() {
+        return enableQueryCache;
+    }
+
+    public void setEnableQueryCache(boolean enableQueryCache) {
+        this.enableQueryCache = enableQueryCache;
+    }
+
+    public boolean getEnableQueryCacheIncremental() {
+        return enableQueryCacheIncremental;
+    }
+
+    public void setEnableQueryCacheIncremental(boolean enableQueryCacheIncremental) {
+        this.enableQueryCacheIncremental = enableQueryCacheIncremental;
+    }
+
+    public boolean isQueryCacheForceRefresh() {
+        return queryCacheForceRefresh;
+    }
+
+    public void setQueryCacheForceRefresh(boolean queryCacheForceRefresh) {
+        this.queryCacheForceRefresh = queryCacheForceRefresh;
+    }
+
+    public long getQueryCacheEntryMaxBytes() {
+        return queryCacheEntryMaxBytes;
+    }
+
+    public void setQueryCacheEntryMaxBytes(long queryCacheEntryMaxBytes) {
+        this.queryCacheEntryMaxBytes = queryCacheEntryMaxBytes;
+    }
+
+    public long getQueryCacheEntryMaxRows() {
+        return queryCacheEntryMaxRows;
+    }
+
+    public void setQueryCacheEntryMaxRows(long queryCacheEntryMaxRows) {
+        this.queryCacheEntryMaxRows = queryCacheEntryMaxRows;
+    }
+
+    // Serialize to thrift object
+    public boolean getForwardToMaster() {
+        return forwardToMaster;
+    }
+
+    public boolean isForceForwardAllQueries() {
+        return forceForwardAllQueries;
+    }
+
+    // for unit test
+
+    public String getEventScheduler() {
+        return eventScheduler;
+    }
+
+    public void setEventScheduler(String eventScheduler) {
+        this.eventScheduler = eventScheduler;
+    }
+
+    public String getStorageEngine() {
+        return storageEngine;
+    }
+
+    public void setStorageEngine(String storageEngine) {
+        this.storageEngine = storageEngine;
+    }
+
+    public int getMaxPushdownConditionsPerColumn() {
+        return maxPushdownConditionsPerColumn;
+    }
+
+    public void setMaxPushdownConditionsPerColumn(int maxPushdownConditionsPerColumn) {
+        this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
+    }
+
+    public double getBroadcastRightTableScaleFactor() {
+        return broadcastRightTableScaleFactor;
+    }
+
+    public void setBroadcastRightTableScaleFactor(double broadcastRightTableScaleFactor) {
+        this.broadcastRightTableScaleFactor = broadcastRightTableScaleFactor;
+    }
+
+    public double getLeftSemiOrAntiProbeFactor() {
+        return leftSemiOrAntiProbeFactor;
+    }
+
+    public void setLeftSemiOrAntiProbeFactor(double leftSemiOrAntiProbeFactor) {
+        this.leftSemiOrAntiProbeFactor = leftSemiOrAntiProbeFactor;
+    }
+
+    public double getBroadcastRowCountLimit() {
+        return broadcastRowCountLimit;
+    }
+
+    public void setBroadcastRowCountLimit(double broadcastRowCountLimit) {
+        this.broadcastRowCountLimit = broadcastRowCountLimit;
+    }
+
+    public double getBroadcastHashtableMemLimitPercentage() {
+        return broadcastHashtableMemLimitPercentage;
+    }
+
+    public void setBroadcastHashtableMemLimitPercentage(double broadcastHashtableMemLimitPercentage) {
+        this.broadcastHashtableMemLimitPercentage = broadcastHashtableMemLimitPercentage;
+    }
+
+    public boolean showHiddenColumns() {
+        return showHiddenColumns;
+    }
+
+    public void setShowHiddenColumns(boolean showHiddenColumns) {
+        this.showHiddenColumns = showHiddenColumns;
+    }
+
+    public boolean enableMysqlCompatibleIndexMetadata() {
+        return enableMysqlCompatibleIndexMetadata;
+    }
+
+    public void setEnableMysqlCompatibleIndexMetadata(boolean enableMysqlCompatibleIndexMetadata) {
+        this.enableMysqlCompatibleIndexMetadata = enableMysqlCompatibleIndexMetadata;
+    }
+
+    public boolean skipStorageEngineMerge() {
+        return skipStorageEngineMerge;
+    }
+
+    public boolean skipDeleteSign() {
+        return skipDeleteSign;
+    }
+
+    public boolean isAllowPartitionColumnNullable() {
+        return allowPartitionColumnNullable;
+    }
+
+    public String getRuntimeFilterMode() {
+        return runtimeFilterMode;
+    }
+
+    public void setRuntimeFilterMode(String runtimeFilterMode) {
+        this.runtimeFilterMode = runtimeFilterMode;
+    }
+
+    public int getRuntimeBloomFilterSize() {
+        return runtimeBloomFilterSize;
+    }
+
+    public void setRuntimeBloomFilterSize(int runtimeBloomFilterSize) {
+        this.runtimeBloomFilterSize = runtimeBloomFilterSize;
+    }
+
+    public int getRuntimeBloomFilterMinSize() {
+        return runtimeBloomFilterMinSize;
+    }
+
+    public void setRuntimeBloomFilterMinSize(int runtimeBloomFilterMinSize) {
+        this.runtimeBloomFilterMinSize = runtimeBloomFilterMinSize;
+    }
+
+    public int getRuntimeBloomFilterMaxSize() {
+        return runtimeBloomFilterMaxSize;
+    }
+
+    public void setRuntimeBloomFilterMaxSize(int runtimeBloomFilterMaxSize) {
+        this.runtimeBloomFilterMaxSize = runtimeBloomFilterMaxSize;
+    }
+
+    public int getRuntimeFilterWaitTimeMs() {
+        return runtimeFilterWaitTimeMs;
+    }
+
+    public void setRuntimeFilterWaitTimeMs(int runtimeFilterWaitTimeMs) {
+        this.runtimeFilterWaitTimeMs = runtimeFilterWaitTimeMs;
+    }
+
+    public int getRuntimeFilterType() {
+        return runtimeFilterType;
+    }
+
+    public boolean allowedRuntimeFilterType(TRuntimeFilterType type) {
+        return RuntimeFilterTypeHelper.allowedRuntimeFilterType(runtimeFilterType, type);
+    }
+
+    public void setRuntimeFilterType(int runtimeFilterType) {
+        this.runtimeFilterType = (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(runtimeFilterType);
+    }
+
+    public int getRuntimeFilterMaxInNum() {
+        return runtimeFilterMaxInNum;
+    }
+
+    public void setRuntimeFilterMaxInNum(int runtimeFilterMaxInNum) {
+        this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
+    }
+
+    public int getRuntimeFilterBroadcastJoinProducerNum() {
+        return runtimeFilterBroadcastJoinProducerNum;
+    }
+
+    public void setRuntimeFilterBroadcastJoinProducerNum(int runtimeFilterBroadcastJoinProducerNum) {
+        this.runtimeFilterBroadcastJoinProducerNum = runtimeFilterBroadcastJoinProducerNum;
+    }
+
+    public long getRuntimeFilterTreePublishMaxSendBytes() {
+        return runtimeFilterTreePublishMaxSendBytes;
+    }
+
+    public void setEnableLocalShuffle(boolean enableLocalShuffle) {
+        this.enableLocalShuffle = enableLocalShuffle;
+    }
+
+    public boolean isEnableLocalShuffle() {
+        return enableLocalShuffle;
+    }
+
+    public boolean isEnableLocalShufflePlanner() {
+        return enableLocalShufflePlanner;
+    }
+
+    public void setEnableLocalShufflePlanner(boolean enableLocalShufflePlanner) {
+        this.enableLocalShufflePlanner = enableLocalShufflePlanner;
+    }
+
+    public double getLocalShuffleBucketUpgradeRatio() {
+        return localShuffleBucketUpgradeRatio;
+    }
+
+    public void setLocalShuffleBucketUpgradeRatio(double localShuffleBucketUpgradeRatio) {
+        this.localShuffleBucketUpgradeRatio = localShuffleBucketUpgradeRatio;
+    }
+
+    public double getBucketShuffleDowngradeRatio() {
+        return bucketShuffleDowngradeRatio;
+    }
+
+    public void setBucketShuffleDowngradeRatio(double bucketShuffleDowngradeRatio) {
+        this.bucketShuffleDowngradeRatio = bucketShuffleDowngradeRatio;
+    }
+
+    public boolean enablePushDownNoGroupAgg() {
+        return enablePushDownNoGroupAgg;
+    }
+
+    public boolean getEnableFunctionPushdown() {
+        return this.enableFunctionPushdown;
+    }
+
+    public boolean getForbidUnknownColStats() {
+        return forbidUnknownColStats;
+    }
+
+    public void setForbidUnknownColStats(boolean forbid) {
+        forbidUnknownColStats = forbid;
+    }
+
+    public boolean getEnableLocalExchange() {
+        return enableLocalExchange;
+    }
+
+    public long getFileSplitSize() {
+        return fileSplitSize;
+    }
+
+    public void setFileSplitSize(long fileSplitSize) {
+        this.fileSplitSize = fileSplitSize;
+    }
+
+    public long getMaxInitialSplitSize() {
+        return maxInitialSplitSize;
+    }
+
+    public void setMaxInitialSplitSize(long maxInitialSplitSize) {
+        this.maxInitialSplitSize = maxInitialSplitSize;
+    }
+
+    public long getMaxSplitSize() {
+        return maxSplitSize;
+    }
+
+    public void setMaxSplitSize(long maxSplitSize) {
+        this.maxSplitSize = maxSplitSize;
+    }
+
+    public int getMaxInitialSplitNum() {
+        return maxInitialSplitNum;
+    }
+
+    public void setMaxInitialSplitNum(int maxInitialSplitNum) {
+        this.maxInitialSplitNum = maxInitialSplitNum;
+    }
+
+    public int getMaxFileSplitNum() {
+        return maxFileSplitNum;
+    }
+
+    public void setMaxFileSplitNum(int maxFileSplitNum) {
+        this.maxFileSplitNum = maxFileSplitNum;
+    }
+
+    public long getIcebergWriteTargetFileSizeBytes() {
+        return icebergWriteTargetFileSizeBytes;
+    }
+
+    public void setIcebergWriteTargetFileSizeBytes(long icebergWriteTargetFileSizeBytes) {
+        this.icebergWriteTargetFileSizeBytes = icebergWriteTargetFileSizeBytes;
+    }
+
+    public boolean isEnableIcebergMergePartitioning() {
+        return enableIcebergMergePartitioning;
+    }
+
+    public int getNumPartitionsInBatchMode() {
+        return numPartitionsInBatchMode;
+    }
+
+    public int getNumFilesInBatchMode() {
+        return numFilesInBatchMode;
+    }
+
+    public long getFetchSplitsMaxWaitTime() {
+        return fetchSplitsMaxWaitTime;
+    }
+
+    public void setFetchSplitsMaxWaitTime(long fetchSplitsMaxWaitTime) {
+        this.fetchSplitsMaxWaitTime = fetchSplitsMaxWaitTime;
+    }
+
+    public boolean isEnableOrcLazyMat() {
+        return enableOrcLazyMat;
+    }
+
+    public void setEnableOrcLazyMat(boolean enableOrcLazyMat) {
+        this.enableOrcLazyMat = enableOrcLazyMat;
+    }
+
+    public boolean isEnableOrcFilterByMinMax() {
+        return enableOrcFilterByMinMax;
+    }
+
+    public void setEnableOrcFilterByMinMax(boolean enableOrcFilterByMinMax) {
+        this.enableOrcFilterByMinMax = enableOrcFilterByMinMax;
+    }
+
+    public boolean isEnableExprZonemapFilter() {
+        return enableExprZonemapFilter;
+    }
+
+    public void setEnableExprZonemapFilter(boolean enableExprZonemapFilter) {
+        this.enableExprZonemapFilter = enableExprZonemapFilter;
+    }
+
+    public boolean isCheckOrcInitSargsSuccess() {
+        return checkOrcInitSargsSuccess;
+    }
+
+    public void setCheckOrcInitSargsSuccess(boolean checkOrcInitSargsSuccess) {
+        this.checkOrcInitSargsSuccess = checkOrcInitSargsSuccess;
+    }
+
+    public String getSqlDialect() {
+        return sqlDialect;
+    }
+
+    public boolean isRetryOriginSqlOnConvertFail() {
+        return retryOriginSqlOnConvertFail;
+    }
+
+    public String getSqlConvertorConfig() {
+        return sqlConvertorConfig;
+    }
+
+    public String[] getSqlConvertorFeatures() {
+        return enableSqlConvertorFeatures.split(",");
+    }
+
+    public Dialect getSqlParseDialect() {
+        return Dialect.getByName(sqlDialect);
+    }
+
+    public void setSqlDialect(String sqlDialect) {
+        this.sqlDialect = sqlDialect == null ? null : sqlDialect.toLowerCase();
+    }
+
+    /**
+     * getInsertVisibleTimeoutMs.
+     **/
+    public long getInsertVisibleTimeoutMs() {
+        if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
+            return MIN_INSERT_VISIBLE_TIMEOUT_MS;
+        } else {
+            return insertVisibleTimeoutMs;
+        }
+    }
+
+    /**
+     * setInsertVisibleTimeoutMs.
+     **/
+    public void setInsertVisibleTimeoutMs(long insertVisibleTimeoutMs) {
+        if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
+            this.insertVisibleTimeoutMs = MIN_INSERT_VISIBLE_TIMEOUT_MS;
+        } else {
+            this.insertVisibleTimeoutMs = insertVisibleTimeoutMs;
+        }
+    }
+
+    public String getInsertVisibleTimeoutReturnMode() {
+        return getInsertVisibleTimeoutReturnModeEnum().getOption();
+    }
+
+    public InsertVisibleTimeoutReturnMode getInsertVisibleTimeoutReturnModeEnum() {
+        return parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
+    }
+
+    public boolean isInsertVisibleTimeoutReturnError() {
+        return getInsertVisibleTimeoutReturnModeEnum() == InsertVisibleTimeoutReturnMode.ERROR;
+    }
+
+    public void setInsertVisibleTimeoutReturnMode(String insertVisibleTimeoutReturnMode) {
+        this.insertVisibleTimeoutReturnMode = parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode)
+                .getOption();
+    }
+
+    public boolean isEnableEventualConsistentChange() {
+        return enableEventualConsistentChange;
+    }
+
+    public void setEnableEventualConsistentChange(boolean enableEventualConsistentChange) {
+        this.enableEventualConsistentChange = enableEventualConsistentChange;
+    }
+
+    public long getChangeVisibleTimeoutMs() {
+        if (changeVisibleTimeoutMs < MIN_CHANGE_VISIBLE_TIMEOUT_MS) {
+            return MIN_CHANGE_VISIBLE_TIMEOUT_MS;
+        } else {
+            return changeVisibleTimeoutMs;
+        }
+    }
+
+    public void setChangeVisibleTimeoutMs(long changeVisibleTimeoutMs) {
+        if (changeVisibleTimeoutMs < MIN_CHANGE_VISIBLE_TIMEOUT_MS) {
+            this.changeVisibleTimeoutMs = MIN_CHANGE_VISIBLE_TIMEOUT_MS;
+        } else {
+            this.changeVisibleTimeoutMs = changeVisibleTimeoutMs;
+        }
+    }
+
+    public boolean getIsSingleSetVar() {
+        return isSingleSetVar;
+    }
+
+    public void setIsSingleSetVar(boolean issinglesetvar) {
+        this.isSingleSetVar = issinglesetvar;
+    }
+
+    public Map<SessionVariableField, String> getSessionOriginValue() {
+        return sessionOriginValue;
+    }
+
+    public void addSessionOriginValue(SessionVariableField key, String value) {
+        if (sessionOriginValue.containsKey(key)) {
+            // If we already set the origin value, just skip the reset.
+            return;
+        }
+        sessionOriginValue.put(key, value);
+    }
+
+    public void clearSessionOriginValue() {
+        sessionOriginValue.clear();
+    }
+
+    public boolean isDeleteWithoutPartition() {
+        return deleteWithoutPartition;
+    }
+
+    public boolean isGroupByAndHavingUseAliasFirst() {
+        return groupByAndHavingUseAliasFirst;
+    }
+
+    public int getCpuResourceLimit() {
+        return cpuResourceLimit;
+    }
+
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
+    }
+
+    public boolean isEnableParallelOutfile() {
+        return enableParallelOutfile;
+    }
+
+    public boolean isDisableJoinReorder() {
+        return disableJoinReorder;
+    }
+
+    public boolean isEnableBushyTree() {
+        return enableBushyTree;
+    }
+
+    public void setEnableBushyTree(boolean enableBushyTree) {
+        this.enableBushyTree = enableBushyTree;
+    }
+
+    public boolean isEnablePartitionTopN() {
+        return enablePartitionTopN;
+    }
+
+    public void setEnablePartitionTopN(boolean enablePartitionTopN) {
+        this.enablePartitionTopN = enablePartitionTopN;
+    }
+
+    public double getGlobalPartitionTopNThreshold() {
+        return globalPartitionTopNThreshold;
+    }
+
+    public void setGlobalPartitionTopnThreshold(int threshold) {
+        this.globalPartitionTopNThreshold = threshold;
+    }
+
+    public boolean isEnableFoldNondeterministicFn() {
+        return enableFoldNondeterministicFn;
+    }
+
+    public void setEnableFoldNondeterministicFn(boolean enableFoldNondeterministicFn) {
+        this.enableFoldNondeterministicFn = enableFoldNondeterministicFn;
+    }
+
+    public boolean isReturnObjectDataAsBinary() {
+        return returnObjectDataAsBinary;
+    }
+
+    public void setReturnObjectDataAsBinary(boolean returnObjectDataAsBinary) {
+        this.returnObjectDataAsBinary = returnObjectDataAsBinary;
+    }
+
+    public boolean isEnableProjection() {
+        return enableProjection;
+    }
+
+    public boolean isEnableShortCircuitQuery() {
+        return enableShortCircuitQuery;
+    }
+
+    public boolean checkOverflowForDecimal() {
+        return checkOverflowForDecimal;
+    }
+
+    public boolean isTrimTailingSpacesForExternalTableQuery() {
+        return trimTailingSpacesForExternalTableQuery;
+    }
+
+    public void setTrimTailingSpacesForExternalTableQuery(boolean trimTailingSpacesForExternalTableQuery) {
+        this.trimTailingSpacesForExternalTableQuery = trimTailingSpacesForExternalTableQuery;
+    }
+
+    public void setEnableJoinReorderBasedCost(boolean enableJoinReorderBasedCost) {
+        this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
+    }
+
+    public void setEnableLowConfidenceEqJoinRemainingConditionDecay(boolean enable) {
+        this.enableLowConfidenceEqJoinRemainingConditionDecay = enable;
+    }
+
+    public void setDisableJoinReorder(boolean disableJoinReorder) {
+        this.disableJoinReorder = disableJoinReorder;
+    }
+
+    public boolean isEnablePushDownMinMaxOnUnique() {
+        return enablePushDownMinMaxOnUnique;
+    }
+
+    public void setEnablePushDownMinMaxOnUnique(boolean enablePushDownMinMaxOnUnique) {
+        this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
+    }
+
+    public String getEnableMorValuePredicatePushdownTables() {
+        return enableMorValuePredicatePushdownTables;
+    }
+
+    public boolean isMorValuePredicatePushdownEnabled(String dbName, String tableName) {
+        return isTableInList(enableMorValuePredicatePushdownTables, dbName, tableName);
+    }
+
+    public boolean isReadMorAsDupEnabled(String dbName, String tableName) {
+        return isTableInList(readMorAsDupTables, dbName, tableName);
+    }
+
+    /**
+     * Check if a table matches any entry in a comma-separated table list.
+     * Parses entries the same way as TableNameInfo: split by "." to extract
+     * component parts (table, db.table, or ctl.db.table).
+     * When entry specifies db, both db and table must match.
+     * When entry is just a table name, it matches any database.
+     */
+    private static boolean isTableInList(String tableList, String dbName, String tableName) {
+        if (tableList == null || tableList.isEmpty()) {
+            return false;
+        }
+        String trimmed = tableList.trim();
+        if ("*".equals(trimmed)) {
+            return true;
+        }
+        for (String entry : trimmed.split(",")) {
+            String trimmedEntry = entry.trim();
+            if (trimmedEntry.isEmpty()) {
+                continue;
+            }
+            String[] parts = trimmedEntry.split("\\.");
+            String entryTbl = parts[parts.length - 1];
+            String entryDb = parts.length >= 2 ? parts[parts.length - 2] : null;
+            if (!entryTbl.equalsIgnoreCase(tableName)) {
+                continue;
+            }
+            if (entryDb != null) {
+                if (dbName != null && entryDb.equalsIgnoreCase(dbName)) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** canUseNereidsDistributePlanner */
+    public static boolean canUseNereidsDistributePlanner() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            return canUseNereidsDistributePlanner(connectContext);
+        } else {
+            return true;
+        }
+    }
+
+    /** canUseNereidsDistributePlanner */
+    public static boolean canUseNereidsDistributePlanner(ConnectContext connectContext) {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext != null) {
+            StatementBase parsedStatement = statementContext.getParsedStatement();
+            if (!(parsedStatement instanceof LogicalPlanAdapter)) {
+                return false;
+            }
+        }
+        return sessionVariable.enableNereidsDistributePlanner;
+    }
+
+    public boolean isEnableNereidsDistributePlanner() {
+        return enableNereidsDistributePlanner;
+    }
+
+    public void setEnableNereidsDistributePlanner(boolean enableNereidsDistributePlanner) {
+        this.enableNereidsDistributePlanner = enableNereidsDistributePlanner;
+    }
+
+    public int getNthOptimizedPlan() {
+        return nthOptimizedPlan;
+    }
+
+    public Set<String> getDisableNereidsRuleNames() {
+        String checkPrivilege = RuleType.CHECK_PRIVILEGES.name();
+        String checkRowPolicy = RuleType.CHECK_ROW_POLICY.name();
+        return Arrays.stream(disableNereidsRules.split(","))
+                .map(rule -> rule.trim().toUpperCase(Locale.ROOT))
+                .filter(rule -> !rule.isEmpty()
+                        && !StringUtils.equalsIgnoreCase(rule, checkPrivilege)
+                        && !StringUtils.equalsIgnoreCase(rule, checkRowPolicy))
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public BitSet getDisableNereidsRules() {
+        BitSet bitSet = new BitSet();
+        for (String ruleName : disableNereidsRules.split(",")) {
+            ruleName = ruleName.trim().toUpperCase(Locale.ROOT);
+            if (ruleName.isEmpty()) {
+                continue;
+            }
+            RuleType ruleType = RuleType.valueOf(ruleName);
+            if (ruleType == RuleType.CHECK_PRIVILEGES || ruleType == RuleType.CHECK_ROW_POLICY) {
+                continue;
+            }
+            bitSet.set(ruleType.type());
+        }
+        return bitSet;
+    }
+
+    public Set<Integer> getEnableNereidsRules() {
+        return Arrays.stream(enableNereidsRules.split(",[\\s]*"))
+                .filter(rule -> !rule.isEmpty())
+                .map(rule -> rule.toUpperCase(Locale.ROOT))
+                .map(rule -> RuleType.valueOf(rule).type())
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public BitSet getDisableNereidsExpressionRules() {
+        return disableNereidsExpressionRuleSet;
+    }
+
+    public void setDisableNereidsRules(String disableNereidsRules) {
+        this.disableNereidsRules = disableNereidsRules;
+    }
+
+    public void setEnableParallelResultSink(boolean enableParallelResultSink) {
+        this.enableParallelResultSink = enableParallelResultSink;
+    }
+
+    public void setDisableNereidsExpressionRules(String disableNereidsExpressionRules) {
+        BitSet bitSet = new BitSet();
+        for (String ruleName : disableNereidsExpressionRules.split(",")) {
+            ruleName = ruleName.trim().toUpperCase(Locale.ROOT);
+            if (ruleName.isEmpty()) {
+                continue;
+            }
+            ExpressionRuleType ruleType = ExpressionRuleType.valueOf(ruleName);
+            bitSet.set(ruleType.type());
+        }
+        this.disableNereidsExpressionRuleSet = bitSet;
+        this.disableNereidsExpressionRules = disableNereidsExpressionRules;
+    }
+
+    public double getNereidsCboPenaltyFactor() {
+        return nereidsCboPenaltyFactor;
+    }
+
+    public void setNereidsCboPenaltyFactor(double penaltyFactor) {
+        this.nereidsCboPenaltyFactor = penaltyFactor;
+    }
+
+    public void setEnableExprTrace(boolean enableExprTrace) {
+        this.enableExprTrace = enableExprTrace;
+    }
+
+    public boolean isEnableExprTrace() {
+        return enableExprTrace;
+    }
+
+    public boolean isEnableFastAnalyzeInsertIntoValues() {
+        return enableFastAnalyzeInsertIntoValues;
+    }
+
+    public void setEnableFastAnalyzeInsertIntoValues(boolean enableFastAnalyzeInsertIntoValues) {
+        this.enableFastAnalyzeInsertIntoValues = enableFastAnalyzeInsertIntoValues;
+    }
+
+    public boolean isEnableMemtableOnSinkNode() {
+        return enableMemtableOnSinkNode;
+    }
+
+    public void setEnableMemtableOnSinkNode(boolean enableMemtableOnSinkNode) {
+        this.enableMemtableOnSinkNode = enableMemtableOnSinkNode;
+    }
+
+    public boolean isEnableRuntimeFilterPrune() {
+        return enableRuntimeFilterPrune;
+    }
+
+    public void setEnableRuntimeFilterPrune(boolean enableRuntimeFilterPrune) {
+        this.enableRuntimeFilterPrune = enableRuntimeFilterPrune;
+    }
+
+    public boolean isEnableRuntimeFilterPartitionPrune() {
+        return enableRuntimeFilterPartitionPrune;
+    }
+
+    public void setEnableRuntimeFilterPartitionPrune(boolean enableRuntimeFilterPartitionPrune) {
+        this.enableRuntimeFilterPartitionPrune = enableRuntimeFilterPartitionPrune;
+    }
+
+    public boolean isEnableRuntimeFilterBucketPrune() {
+        return enableRuntimeFilterBucketPrune;
+    }
+
+    public void setEnableRuntimeFilterBucketPrune(boolean enableRuntimeFilterBucketPrune) {
+        this.enableRuntimeFilterBucketPrune = enableRuntimeFilterBucketPrune;
+    }
+
+    public void setFragmentTransmissionCompressionCodec(String codec) {
+        this.fragmentTransmissionCompressionCodec = codec;
+    }
+
+    public boolean isEnableUnicodeNameSupport() {
+        return enableUnicodeNameSupport;
+    }
+
+    public void setEnableUnicodeNameSupport(boolean enableUnicodeNameSupport) {
+        this.enableUnicodeNameSupport = enableUnicodeNameSupport;
+    }
+
+    public boolean isKeepCarriageReturn() {
+        return keepCarriageReturn;
+    }
+
+    public void setKeepCarriageReturn(boolean keepCarriageReturn) {
+        this.keepCarriageReturn = keepCarriageReturn;
+    }
+
+    public boolean isReadHiveJsonInOneColumn() {
+        return readHiveJsonInOneColumn;
+    }
+
+    public void setReadHiveJsonInOneColumn(boolean readHiveJsonInOneColumn) {
+        this.readHiveJsonInOneColumn = readHiveJsonInOneColumn;
+    }
+
+    public void checkQueryTimeoutValid(String newQueryTimeout) {
+        int value = Integer.valueOf(newQueryTimeout);
+        if (value <= 0) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(
+                        "query_timeout can not be set to " + newQueryTimeout + ", it must be greater than 0");
+            LOG.warn("Check query_timeout failed", exception);
+            throw exception;
+        }
+    }
+
+    public void checkInsertVisibleTimeoutReturnMode(String mode) {
+        // Reuse the parser so validation stays consistent with assignment and enum access.
+        parseInsertVisibleTimeoutReturnMode(mode);
+    }
+
+    // Parse the stored string case-insensitively and expose the enum only to business logic.
+    private InsertVisibleTimeoutReturnMode parseInsertVisibleTimeoutReturnMode(String mode) {
+        if (StringUtils.isEmpty(mode)) {
+            LOG.warn("insertVisibleTimeoutReturnMode value is empty");
+            throw new UnsupportedOperationException("insertVisibleTimeoutReturnMode value is empty");
+        }
+        for (InsertVisibleTimeoutReturnMode value : InsertVisibleTimeoutReturnMode.values()) {
+            if (value.getOption().equalsIgnoreCase(mode)) {
+                return value;
+            }
+        }
+        LOG.warn("insertVisibleTimeoutReturnMode value is invalid, the invalid value is {}", mode);
+        throw new UnsupportedOperationException(
+                "insertVisibleTimeoutReturnMode value is invalid, the invalid value is " + mode);
+    }
+
+    public void checkMaxExecutionTimeMSValid(String newValue) {
+        int value = Integer.valueOf(newValue);
+        if (value < 1000) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(
+                        "max_execution_time can not be set to " + newValue
+                        + ", it must be greater or equal to 1000, the time unit is millisecond");
+            LOG.warn("Check max_execution_time failed", exception);
+            throw exception;
+        }
+    }
+
+    public long convertBoolToLong(Boolean val) {
+        return val ? 1 : 0;
+    }
+
+    public boolean isEnableFileCache() {
+        return enableFileCache;
+    }
+
+    public void setEnableFileCache(boolean enableFileCache) {
+        this.enableFileCache = enableFileCache;
+    }
+
+    public String getFileCacheBasePath() {
+        return fileCacheBasePath;
+    }
+
+    public void setFileCacheBasePath(String basePath) {
+        this.fileCacheBasePath = basePath;
+    }
+
+    public boolean isEnableInvertedIndexQuery() {
+        return enableInvertedIndexQuery;
+    }
+
+    public void setEnableInvertedIndexQuery(boolean enableInvertedIndexQuery) {
+        this.enableInvertedIndexQuery = enableInvertedIndexQuery;
+    }
+
+    public boolean isEnablePushDownCountOnIndex() {
+        return enablePushDownCountOnIndex;
+    }
+
+    public void setEnablePushDownCountOnIndex(boolean enablePushDownCountOnIndex) {
+        this.enablePushDownCountOnIndex = enablePushDownCountOnIndex;
+    }
+
+    public boolean isEnableNoNeedReadDataOpt() {
+        return enableNoNeedReadDataOpt;
+    }
+
+    public void setEnableNoNeedReadDataOpt(boolean enableNoNeedReadDataOpt) {
+        this.enableNoNeedReadDataOpt = enableNoNeedReadDataOpt;
+    }
+
+    public int getMaxTableCountUseCascadesJoinReorder() {
+        return this.maxTableCountUseCascadesJoinReorder;
+    }
+
+    public void setMaxTableCountUseCascadesJoinReorder(int maxTableCountUseCascadesJoinReorder) {
+        this.maxTableCountUseCascadesJoinReorder =
+                maxTableCountUseCascadesJoinReorder < MIN_JOIN_REORDER_TABLE_COUNT
+                        ? MIN_JOIN_REORDER_TABLE_COUNT
+                        : maxTableCountUseCascadesJoinReorder;
+    }
+
+    public boolean isShowUserDefaultRole() {
+        return showUserDefaultRole;
+    }
+
+    public int getExternalTableAnalyzePartNum() {
+        return externalTableAnalyzePartNum;
+    }
+
+    public boolean isTruncateCharOrVarcharColumns() {
+        return truncateCharOrVarcharColumns;
+    }
+
+    public void setTruncateCharOrVarcharColumns(boolean truncateCharOrVarcharColumns) {
+        this.truncateCharOrVarcharColumns = truncateCharOrVarcharColumns;
+    }
+
+    public boolean isEnableUniqueKeyPartialUpdate() {
+        return enableUniqueKeyPartialUpdate;
+    }
+
+    public void setEnableUniqueKeyPartialUpdate(boolean enableUniqueKeyPartialUpdate) {
+        this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
+    }
+
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return parsePartialUpdateNewKeyBehavior(partialUpdateNewKeyPolicy);
+    }
+
+    public int getLoadStreamPerNode() {
+        return loadStreamPerNode;
+    }
+
+    public void setLoadStreamPerNode(int loadStreamPerNode) {
+        this.loadStreamPerNode = loadStreamPerNode;
+    }
+
+    public void setEnableSegmentCache(boolean value) {
+        this.enableSegmentCache = value;
+    }
+
+    public boolean isEnableSegmentCache() {
+        return this.enableSegmentCache;
+    }
+
+    public void setRequireSequenceInInsert(boolean value) {
+        this.requireSequenceInInsert = value;
+    }
+
+    public boolean isRequireSequenceInInsert() {
+        return this.requireSequenceInInsert;
+    }
+
+    /**
+     * Serialize to thrift object.
+     * Used for rest api.
+     */
+    public TQueryOptions toThrift() {
+        TQueryOptions tResult = new TQueryOptions();
+        // Fragment reports are decoded by FE, whose limit can be lower than a rolling-upgrade BE's.
+        tResult.setCoordinatorThriftMaxMessageSize(Config.thrift_max_message_size);
+        tResult.setSupportsExternalFileReportAck(true);
+        tResult.setMemLimit(maxExecMemByte);
+        tResult.setMaxScanMemRatio(maxScanMemRatio);
+        tResult.setEnableAdaptiveScan(enableAdaptiveScan);
+        tResult.setLocalExchangeFreeBlocksLimit(localExchangeFreeBlocksLimit);
+        tResult.setScanQueueMemLimit(maxScanQueueMemByte);
+        tResult.setMaxScannersConcurrency(maxScannersConcurrency);
+        tResult.setMaxFileScannersConcurrency(maxFileScannersConcurrency);
+        tResult.setEnableFileScannerV2(enableFileScannerV2);
+        tResult.setMaxColumnReaderNum(maxColumnReaderNum);
+        tResult.setParallelPrepareThreshold(parallelPrepareThreshold);
+        tResult.setMinScannersConcurrency(minScannersConcurrency);
+        tResult.setMinFileScannersConcurrency(minFileScannersConcurrency);
+
+        tResult.setQueryTimeout(queryTimeoutS);
+        tResult.setEnableProfile(enableProfile);
+        tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
+        if (enableProfile) {
+            // If enable profile == true, then also set report success to true
+            // be need report success to start report thread. But it is very tricky
+            // we should modify BE in the future.
+            tResult.setIsReportSuccess(true);
+        }
+        tResult.setBeExecVersion(Config.be_exec_version);
+        tResult.setEnableLocalShuffle(enableLocalShuffle);
+        String clusterName = resolveCloudClusterName();
+        tResult.setParallelInstance(getParallelExecInstanceNum(clusterName));
+        tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
+        tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
+        tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
+
+        tResult.setBatchSize(batchSize);
+        tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);
+        tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
+        tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
+        tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
+        tResult.setEnableLocalExchangeBeforeAgg(enableLocalExchangeBeforeAgg);
+        tResult.setEnableLocalExchangeBeforeStreamingAgg(enableLocalExchangeBeforeStreamingAgg);
+        tResult.setEnableDistinctStreamingAggForcePassthrough(enableDistinctStreamingAggForcePassthrough);
+        tResult.setEnableBroadcastJoinForcePassthrough(enableBroadcastJoinForcePassthrough);
+        tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
+        tResult.setPartitionTopnPrePartitionRows(partitionTopNPerPartitionRows);
+        if (enableConditionCache) {
+            tResult.setConditionCacheDigest(getAffectQueryResultVariableHashCode());
+        }
+
+        if (maxScanKeyNum > 0) {
+            tResult.setMaxScanKeyNum(maxScanKeyNum);
+        } else {
+            // for old version default value
+            tResult.setMaxScanKeyNum(48);
+        }
+        if (maxPushdownConditionsPerColumn > 0) {
+            tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
+        } else {
+            // for old version default value
+            tResult.setMaxPushdownConditionsPerColumn(1024);
+        }
+
+        tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
+        tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
+        tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
+        tResult.setRuntimeBloomFilterMaxSize(runtimeBloomFilterMaxSize);
+        tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
+        tResult.setRuntimeFilterTreePublishMaxSendBytes(runtimeFilterTreePublishMaxSendBytes);
+        tResult.setEnableFuzzyBlockableTask(enableFuzzyBlockableTask);
+
+        tResult.setEnableFunctionPushdown(enableFunctionPushdown);
+        tResult.setEnableSegmentLimitPushdown(enableSegmentLimitPushdown);
+        tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
+        tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
+        tResult.setEnableLocalExchange(enableLocalExchange);
+        tResult.setEnableNewShuffleHashMethod(enableNewShffleHashMethod);
+
+        tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
+
+        tResult.setSkipDeletePredicate(skipDeletePredicate);
+
+        tResult.setSkipDeleteBitmap(skipDeleteBitmap);
+
+        tResult.setEnableFileCache(enableFileCache);
+
+        tResult.setEnablePageCache(enablePageCache);
+
+        tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
+
+        tResult.setFileCacheBasePath(fileCacheBasePath);
+
+        tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
+        tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
+        tResult.setForcePushdownZonemapMinmax(forcePushDownZonemapMinMax);
+
+        if (dryRunQuery) {
+            tResult.setDryRunQuery(true);
+        }
+
+        tResult.setEnableParquetLazyMat(enableParquetLazyMat);
+        tResult.setEnableOrcLazyMat(enableOrcLazyMat);
+        tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
+        tResult.setEnableParquetFilterByBloomFilter(enableParquetFilterByBloomFilter);
+
+        tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
+        tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
+        tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
+        tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
+        tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
+        tResult.setAiContextWindowSize(aiContextWindowSize);
+        tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
+
+        tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
+        tResult.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
+
+        tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
+        tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
+
+        tResult.setEnableDecimal256(getEnableDecimal256());
+
+        tResult.setSkipMissingVersion(skipMissingVersion);
+
+        tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
+
+        tResult.setInvertedIndexCompatibleRead(invertedIndexCompatibleRead);
+        tResult.setEnableInvertedIndexWandQuery(enableInvertedIndexWandQuery);
+        tResult.setCteMaxRecursionDepth(cteMaxRecursionDepth);
+        tResult.setEnableParallelScan(enableParallelScan);
+        tResult.setEnableLeftSemiDirectReturnOpt(enableLeftSemiDirectReturnOpt);
+        tResult.setEnableAggregateFunctionNullV2(enableAggregateFunctionNullV2);
+        tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
+        tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
+        tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
+        tResult.setDisableFileCache(disableFileCache);
+        tResult.setEnableTopnLazyMatPhase2NoWriteFileCache(enableTopnLazyMatPhase2NoWriteFileCache);
+
+        tResult.setEnablePreferCachedRowset(getEnablePreferCachedRowset());
+        tResult.setQueryFreshnessToleranceMs(getQueryFreshnessToleranceMs());
+
+        // for spill
+        tResult.setEnableSpill(enableSpill);
+        tResult.setEnableForceSpill(enableForceSpill);
+        tResult.setEnableReserveMemory(enableReserveMemory);
+        tResult.setMinRevocableMem(spillMinRevocableMem);
+        tResult.setSpillAggregationPartitionCount(spillAggregationPartitionCount);
+        tResult.setSpillStreamingAggMemLimit(spillStreamingAggMemLimit);
+        tResult.setSpillHashJoinPartitionCount(spillHashJoinPartitionCount);
+        tResult.setRevocableMemoryHighWatermarkPercent(spillRevocableMemoryHighWatermarkPercent);
+        tResult.setDumpHeapProfileWhenMemLimitExceeded(dumpHeapProfileWhenMemLimitExceeded);
+        // Forward new spill-related tuning vars to BE
+        tResult.setSpillBufferSizeBytes(spillBufferSizeBytes);
+        tResult.setSpillRepartitionMaxDepth(spillRepartitionMaxDepth);
+        tResult.setSpillJoinBuildSinkMemLimitBytes(spillJoinBuildSinkMemLimitBytes);
+        tResult.setSpillAggregationSinkMemLimitBytes(spillAggregationSinkMemLimitBytes);
+        tResult.setSpillSortSinkMemLimitBytes(spillSortSinkMemLimitBytes);
+        tResult.setSpillSortMergeMemLimitBytes(spillSortMergeMemLimitBytes);
+
+        tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
+        tResult.setEnableUseHybridSort(enableUseHybridSort);
+        tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
+
+        tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);
+        tResult.setEnableParallelResultSink(enableParallelResultSink);
+        tResult.setEnableParallelOutfile(enableParallelOutfile);
+        tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
+        tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
+        tResult.setSerdeDialect(getSerdeDialect());
+
+        tResult.setEnablePruneNestedColumn(enablePruneNestedColumns);
+
+        tResult.setEnableMatchWithoutInvertedIndex(enableMatchWithoutInvertedIndex);
+        tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
+        tResult.setEnableInvertedIndexSearcherCache(enableInvertedIndexSearcherCache);
+        tResult.setEnableInvertedIndexQueryCache(enableInvertedIndexQueryCache);
+        tResult.setEnableAnnIndexResultCache(enableAnnIndexResultCache);
+        tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
+        tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
+        tResult.setQuerySlotCount(wgQuerySlotCount);
+
+        tResult.setKeepCarriageReturn(keepCarriageReturn);
+
+        tResult.setEnableSegmentCache(enableSegmentCache);
+
+        tResult.setEnableAdaptivePipelineTaskSerialReadOnLimit(enableAdaptivePipelineTaskSerialReadOnLimit);
+        tResult.setAdaptivePipelineTaskSerialReadOnLimit(adaptivePipelineTaskSerialReadOnLimit);
+        tResult.setInListValueCountThreshold(inListValueCountThreshold);
+        tResult.setEnableAutoCreateWhenOverwrite(enableAutoCreateWhenOverwrite);
+
+        tResult.setOrcTinyStripeThresholdBytes(orcTinyStripeThresholdBytes);
+        tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
+        tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
+        tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
+        tResult.setProfileLevel(getProfileLevel());
+        tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
+        tResult.setEnableRuntimeFilterBucketPrune(enableRuntimeFilterBucketPrune);
+
+        tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
+        tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
+        tResult.setEnableStrictCast(enableStrictCast());
+        tResult.setEnableInsertStrict(enableInsertStrict);
+        tResult.setNewVersionUnixTimestamp(true); // once FE upgraded, always use new version
+        tResult.setNewVersionPercentile(true);
+        tResult.setNewVersionBitmapOpCount(true);
+
+        tResult.setHnswEfSearch(hnswEFSearch);
+        tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
+        tResult.setHnswBoundedQueue(hnswBoundedQueue);
+        tResult.setIvfNprobe(ivfNprobe);
+        tResult.setAnnIndexCandidateRowsThreshold(annIndexCandidateRowsThreshold);
+        tResult.setAnnIndexCandidateRowsPercentThreshold(annIndexCandidateRowsPercentThreshold);
+        tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
+        tResult.setEnableExtendedRegex(enableExtendedRegex);
+        tResult.setEnableHyperscanFallback(enableHyperscanFallback);
+        if (fileCacheQueryLimitPercent > 0) {
+            tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent,
+                    Config.file_cache_query_limit_max_percent));
+        } else {
+            tResult.setFileCacheQueryLimitPercent(Config.file_cache_query_limit_max_percent);
+        }
+        tResult.setEnableAdjustConjunctOrderByCost(enableAdjustConjunctOrderByCost);
+
+        // Set Iceberg write target file size
+        tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
+
+        tResult.setEnableLocalShufflePlanner(enableLocalShufflePlanner);
+        tResult.setFileCacheQueryLimitBytes(fileCacheQueryLimitBytes);
+        tResult.setInvertedIndexSniiReadNoWriteFileCache(invertedIndexSniiReadNoWriteFileCache);
+        return tResult;
+    }
+
+    public JSONObject toJson() throws IOException {
+        JSONObject root = new JSONObject();
+        try {
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VarAttr attr = field.getAnnotation(VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        root.put(attr.name(), (Boolean) field.get(this));
+                        break;
+                    case "int":
+                        root.put(attr.name(), (Integer) field.get(this));
+                        break;
+                    case "long":
+                        root.put(attr.name(), (Long) field.get(this));
+                        break;
+                    case "float":
+                        root.put(attr.name(), (Float) field.get(this));
+                        break;
+                    case "double":
+                        root.put(attr.name(), (Double) field.get(this));
+                        break;
+                    case "String":
+                        root.put(attr.name(), (String) field.get(this));
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        throw new IOException("invalid type: " + field.getType().getSimpleName());
+                }
+            }
+        } catch (Exception e) {
+            throw new IOException("failed to write session variable: " + e.getMessage());
+        }
+        return root;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        JSONObject root = toJson();
+        Text.writeString(out, root.toString());
+    }
+
+    public void readFields(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        readFromJson(json);
+    }
+
+    public void readFromJson(String json) throws IOException {
+        JSONObject root = (JSONObject) JSONValue.parse(json);
+        try {
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VarAttr attr = field.getAnnotation(VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
+                if (!root.containsKey(attr.name())) {
+                    continue;
+                }
+
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        field.set(this, root.get(attr.name()));
+                        break;
+                    case "int":
+                        // root.get(attr.name()) always return Long type, so need to convert it.
+                        field.set(this, normalizeIntValue(attr.name(), root.get(attr.name()).toString()));
+                        break;
+                    case "long":
+                        field.set(this, (Long) root.get(attr.name()));
+                        break;
+                    case "float":
+                        field.set(this, root.get(attr.name()));
+                        break;
+                    case "double":
+                        field.set(this, root.get(attr.name()));
+                        break;
+                    case "String":
+                        field.set(this, root.get(attr.name()));
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        throw new IOException("invalid type: " + field.getType().getSimpleName());
+                }
+            }
+            refreshDerivedSessionVariables();
+        } catch (Exception e) {
+            throw new IOException("failed to read session variable: " + e.getMessage());
+        }
+    }
+
+    public void readFromMap(Map<String, String> sessionVarMap)  throws IOException {
+        try {
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VarAttr attr = field.getAnnotation(VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
+
+                if (!sessionVarMap.containsKey(attr.name())) {
+                    continue;
+                }
+
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        String value = sessionVarMap.get(attr.name());
+                        if (value.equalsIgnoreCase("ON")
+                                || value.equalsIgnoreCase("TRUE")
+                                || value.equalsIgnoreCase("1")) {
+                            field.setBoolean(this, true);
+                        } else if (value.equalsIgnoreCase("OFF")
+                                || value.equalsIgnoreCase("FALSE")
+                                || value.equalsIgnoreCase("0")) {
+                            field.setBoolean(this, false);
+                        } else {
+                            throw new IllegalAccessException("Variable " + attr.name()
+                                    + " can't be set to the value of " + value);
+                        }
+                        break;
+                    case "int":
+                        field.set(this, normalizeIntValue(attr.name(), sessionVarMap.get(attr.name())));
+                        break;
+                    case "long":
+                        field.set(this, Long.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "float":
+                        field.set(this, Float.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "double":
+                        field.set(this, Double.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "String":
+                        field.set(this, sessionVarMap.get(attr.name()));
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        throw new IOException("invalid type: " + field.getType().getSimpleName());
+                }
+
+            }
+            refreshDerivedSessionVariables();
+        } catch (Exception ex) {
+            throw new IOException("invalid session variable, " + ex.getMessage());
+        }
+    }
+
+    private static int normalizeIntValue(String name, String value) {
+        int intValue = Integer.valueOf(value);
+        if (RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
+            return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+        }
+        return intValue;
+    }
+
+    /**
+     * Get all variables which need to forward along with statement.
+     **/
+    public Map<String, String> getForwardVariables() {
+        HashMap<String, String> map = new HashMap<String, String>();
+        try {
+            Field[] fields = SessionVariable.class.getDeclaredFields();
+            for (Field f : fields) {
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResultInPlan()
+                        || varAttr.affectQueryResultInExecution())) {
+                    continue;
+                }
+                map.put(varAttr.name(), String.valueOf(f.get(this)));
+            }
+        } catch (IllegalAccessException e) {
+            LOG.error("failed to get forward variables", e);
+        }
+        return map;
+    }
+
+    /**
+     * Set forwardedSessionVariables for variables.
+     **/
+    public void setForwardedSessionVariables(Map<String, String> variables) {
+        try {
+            Field[] fields = SessionVariable.class.getDeclaredFields();
+            for (Field f : fields) {
+                f.setAccessible(true);
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                if (varAttr == null || !(varAttr.needForward() || varAttr.affectQueryResultInPlan()
+                        || varAttr.affectQueryResultInExecution())) {
+                    continue;
+                }
+                String val = variables.get(varAttr.name());
+                if (val == null) {
+                    continue;
+                }
+
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("set forward variable: {} = {}", varAttr.name(), val);
+                }
+
+                // set config field
+                VariableMgr.setValue(this, val, f, varAttr.name());
+            }
+            refreshDerivedSessionVariables();
+        } catch (Throwable e) {
+            LOG.error("failed to set forward variables", e);
+        }
+    }
+
+    private void refreshDerivedSessionVariables() {
+        forceEagerAggHintMap = EagerAggHints.parse(forceEagerAggHint);
+    }
+
+    /**
+     * Set forwardedSessionVariables for queryOptions.
+     **/
+    public void setForwardedSessionVariables(TQueryOptions queryOptions) {
+        if (queryOptions.isSetMemLimit()) {
+            setMaxExecMemByte(queryOptions.getMemLimit());
+        }
+        if (queryOptions.isSetQueryTimeout()) {
+            setQueryTimeoutS(queryOptions.getQueryTimeout());
+        }
+        if (queryOptions.isSetInsertTimeout()) {
+            setInsertTimeoutS(queryOptions.getInsertTimeout());
+        }
+        if (queryOptions.isSetAnalyzeTimeout()) {
+            setAnalyzeTimeoutS(queryOptions.getAnalyzeTimeout());
+        }
+    }
+
+    /**
+     * The sessionContext is as follows:
+     * "k1:v1;k2:v2;..."
+     * eg: set session_context="trace_id:123456"
+     * Here we want to get value with key named "trace_id",
+     * Return empty string is not found.
+     *
+     * @return
+     */
+    public String getTraceId() {
+        if (Strings.isNullOrEmpty(sessionContext)) {
+            return "";
+        }
+        String[] parts = sessionContext.split(";");
+        for (String part : parts) {
+            String[] innerParts = part.split(":");
+            if (innerParts.length != 2) {
+                continue;
+            }
+            if (innerParts[0].equals("trace_id")) {
+                return innerParts[1];
+            }
+        }
+        return "";
+    }
+
+    public boolean isDumpNereidsMemo() {
+        return dumpNereidsMemo;
+    }
+
+    public void setDumpNereidsMemo(boolean dumpNereidsMemo) {
+        this.dumpNereidsMemo = dumpNereidsMemo;
+    }
+
+    public String getMemoLogicalRowCountAggregationPolicy() {
+        return memoLogicalRowCountAggregationPolicy;
+    }
+
+    public void setMemoLogicalRowCountAggregationPolicy(String memoLogicalRowCountAggregationPolicy) {
+        checkMemoLogicalRowCountAggregationPolicy(memoLogicalRowCountAggregationPolicy);
+        this.memoLogicalRowCountAggregationPolicy = memoLogicalRowCountAggregationPolicy.toLowerCase(Locale.ROOT);
+    }
+
+    public void checkMemoLogicalRowCountAggregationPolicy(String memoLogicalRowCountAggregationPolicy) {
+        if (memoLogicalRowCountAggregationPolicy == null) {
+            throw new UnsupportedOperationException("memo logical row count aggregation policy is null");
+        }
+        switch (memoLogicalRowCountAggregationPolicy.toLowerCase(Locale.ROOT)) {
+            case "average":
+            case "median":
+            case "min":
+            case "trust_join_count":
+                return;
+            default:
+                throw new UnsupportedOperationException("memo logical row count aggregation policy is invalid: "
+                        + memoLogicalRowCountAggregationPolicy);
+        }
+    }
+
+    public boolean isEnableStrictConsistencyDml() {
+        // In cloud mode (store-compute separation), there is only a single copy of data,
+        // so multi-replica consistency is not a concern. Default to false.
+        if (Config.isCloudMode()) {
+            return false;
+        }
+        return this.enableStrictConsistencyDml;
+    }
+
+    public void setEnableStrictConsistencyDml(boolean value) {
+        this.enableStrictConsistencyDml = value;
+    }
+
+    /**
+     *
+     * @return true iff set success
+     */
+    public boolean setVarOnce(String varName, String value) {
+        try {
+            setIsSingleSetVar(true);
+            VariableMgr.setVar(this, new SetVar(varName, new StringLiteral(value)));
+            return true;
+        } catch (DdlException e) {
+            LOG.warn("set onece {} = {} failed", varName, value);
+            return false;
+        }
+    }
+
+    // return number of variables by given variable annotation
+    public int getVariableNumByVariableAnnotation(VariableAnnotation type) {
+        int num = 0;
+        Field[] fields = SessionVariable.class.getDeclaredFields();
+        for (Field f : fields) {
+            VarAttr varAttr = f.getAnnotation(VarAttr.class);
+            if (varAttr == null) {
+                continue;
+            }
+            if (varAttr.varType() == type) {
+                ++num;
+            }
+        }
+        return num;
+    }
+
+    public boolean getEnableSharedScan() {
+        return enableSharedScan;
+    }
+
+    public void setEnableSharedScan(boolean value) {
+        enableSharedScan = value;
+    }
+
+    public boolean getEnableParallelScan() {
+        return enableParallelScan;
+    }
+
+    public boolean getEnableAggregateFunctionNullV2() {
+        return enableAggregateFunctionNullV2;
+    }
+
+    public boolean enableParallelResultSink() {
+        return enableParallelResultSink;
+    }
+
+    public void setParallelResultSink(Boolean enableParallelResultSink) {
+        this.enableParallelResultSink   = enableParallelResultSink;
+    }
+
+    public String hiveTextCompression() {
+        if (hiveTextCompression.equals("uncompressed")) {
+            // This is for compatibility.
+            return "plain";
+        }
+        return hiveTextCompression;
+    }
+
+    public void setHiveTextCompression(String hiveTextCompression) {
+        this.hiveTextCompression = hiveTextCompression;
+    }
+
+    public boolean enableSyncRuntimeFilterSize() {
+        return enableSyncRuntimeFilterSize;
+    }
+
+    public static boolean enableAggState() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return true;
+        }
+        return connectContext.getSessionVariable().enableAggState;
+    }
+
+    public static boolean getEnableDecimal256() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        return connectContext.getState().isNereids() && sessionVariable.isEnableDecimal256();
+    }
+
+    public static int getDecimalOverFlowScale() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return VariableMgr.getDefaultSessionVariable().decimalOverflowScale;
+        }
+        return connectContext.getSessionVariable().decimalOverflowScale;
+    }
+
+    public boolean isEnableDecimal256() {
+        return enableDecimal256;
+    }
+
+    public void checkAnalyzeTimeFormat(String time) {
+        try {
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            timeFormatter.parse(time);
+        } catch (DateTimeParseException e) {
+            LOG.warn("Parse analyze start/end time format fail", e);
+            throw new UnsupportedOperationException("Expect format: HH:mm:ss");
+        }
+    }
+
+    public void checkGenerateStatsFactor(String generateStatsFactor) {
+        int value = Integer.valueOf(generateStatsFactor);
+        if (value <= 0) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException("Generate stats factor " + value + " should greater than 0");
+            LOG.warn("Check generate stats factor failed", exception);
+            throw exception;
+        }
+    }
+
+    public TPartialUpdateNewRowPolicy parsePartialUpdateNewKeyBehavior(String behavior) {
+        if (behavior == null) {
+            return null;
+        } else if (behavior.equalsIgnoreCase("APPEND")) {
+            return TPartialUpdateNewRowPolicy.APPEND;
+        } else if (behavior.equalsIgnoreCase("ERROR")) {
+            return TPartialUpdateNewRowPolicy.ERROR;
+        }
+        return null;
+    }
+
+    public void checkPartialUpdateNewKeyBehavior(String partialUpdateNewKeyBehavior) {
+        TPartialUpdateNewRowPolicy policy = parsePartialUpdateNewKeyBehavior(partialUpdateNewKeyBehavior);
+        if (policy == null) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(PARTIAL_UPDATE_NEW_KEY_BEHAVIOR
+                            + " should be one of {'APPEND', 'ERROR'}, but found "
+                                    + partialUpdateNewKeyBehavior);
+            LOG.warn("Check " + PARTIAL_UPDATE_NEW_KEY_BEHAVIOR + " failed", exception);
+            throw exception;
+        }
+    }
+
+    public void setGenerateStatsFactor(int factor) {
+        this.generateStatsFactor = factor;
+        if (factor <= 0) {
+            LOG.warn("Invalid generate stats factor: {}", factor, new RuntimeException(""));
+        }
+    }
+
+    public void setGenerateStatsFactor(String factor) {
+        this.generateStatsFactor = Integer.valueOf(factor);
+        if (generateStatsFactor <= 0) {
+            LOG.warn("Invalid generate stats factor: {}", generateStatsFactor, new RuntimeException(""));
+        }
+    }
+
+    public boolean getEnableDescribeExtendVariantColumn() {
+        return enableDescribeExtendVariantColumn;
+    }
+
+    public void setEnableDescribeExtendVariantColumn(boolean enableDescribeExtendVariantColumn) {
+        this.enableDescribeExtendVariantColumn = enableDescribeExtendVariantColumn;
+    }
+
+    public static boolean enableDescribeExtendVariantColumn() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        return connectContext.getSessionVariable().enableDescribeExtendVariantColumn;
+    }
+
+    public int getProfileLevel() {
+        return this.profileLevel;
+    }
+
+    public void checkSqlDialect(String sqlDialect) {
+        if (StringUtils.isEmpty(sqlDialect)) {
+            LOG.warn("sqlDialect value is empty");
+            throw new UnsupportedOperationException("sqlDialect value is empty");
+        }
+        if (Arrays.stream(Dialect.values())
+                .noneMatch(dialect -> dialect.getDialectName().equalsIgnoreCase(sqlDialect))) {
+            LOG.warn("sqlDialect value is invalid, the invalid value is {}", sqlDialect);
+            throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
+        }
+    }
+
+    public void checkSerdeDialect(String serdeDialect) {
+        if (StringUtils.isEmpty(serdeDialect)) {
+            LOG.warn("serdeDialect value is empty");
+            throw new UnsupportedOperationException("serdeDialect value is empty");
+        }
+
+        if (!serdeDialect.equalsIgnoreCase("doris")
+                && !serdeDialect.equalsIgnoreCase("presto")
+                && !serdeDialect.equalsIgnoreCase("trino")
+                && !serdeDialect.equalsIgnoreCase("hive")) {
+            LOG.warn("serde dialect value is invalid, the invalid value is {}", serdeDialect);
+            throw new UnsupportedOperationException(
+                    "sqlDialect value is invalid, the invalid value is " + serdeDialect);
+        }
+    }
+
+    public void checkBatchSize(String batchSize) {
+        Long batchSizeValue = Long.valueOf(batchSize);
+        if (batchSizeValue < 1 || batchSizeValue > 65535) {
+            throw new InvalidParameterException("batch_size should be between 1 and 65535)");
+        }
+    }
+
+    public void checkEmbedMaxBatchSize(String value) throws Exception {
+        checkFieldValue(EMBED_MAX_BATCH_SIZE, 1, value);
+    }
+
+    public void checkAiContextWindowSize(String value) throws Exception {
+        checkFieldLongValue(AI_CONTEXT_WINDOW_SIZE, 1, value);
+    }
+
+    private static final long PREFERRED_BLOCK_SIZE_BYTES_MIN = 1048576L;      // 1MB
+    private static final long PREFERRED_BLOCK_SIZE_BYTES_MAX = 536870912L;    // 512MB
+
+    public void checkPreferredBlockSizeBytes(String value) {
+        long v = Long.parseLong(value);
+        if (v < PREFERRED_BLOCK_SIZE_BYTES_MIN || v > PREFERRED_BLOCK_SIZE_BYTES_MAX) {
+            throw new InvalidParameterException(
+                    "preferred_block_size_bytes should be between 1MB ("
+                    + PREFERRED_BLOCK_SIZE_BYTES_MIN + ") and 512MB ("
+                    + PREFERRED_BLOCK_SIZE_BYTES_MAX + "), got " + v);
+        }
+    }
+
+    public void checkSkewRewriteAggBucketNum(String bucketNumStr) {
+        try {
+            long bucketNum = Long.parseLong(bucketNumStr);
+            if (bucketNum <= 0 || bucketNum >= 65536) {
+                throw new InvalidParameterException(
+                        SKEW_REWRITE_AGG_BUCKET_NUM + " should be between 1 and 65535");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                    SKEW_REWRITE_AGG_BUCKET_NUM + " must be a valid number between 1 and 65535");
+        }
+    }
+
+    public void checkSkewRewriteJoinSaltExplodeFactor(String factorStr) {
+        try {
+            int factor = Integer.parseInt(factorStr);
+            if (factor < 0 || factor >= 65536) {
+                throw new InvalidParameterException(
+                        SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR + " should be between 0 and 65535");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                    SKEW_REWRITE_JOIN_SALT_EXPLODE_FACTOR + " must be a valid number between 0 and 65535");
+        }
+    }
+
+    public void checkAggPhase(String aggPhaseStr) {
+        try {
+            long aggPhase = Long.parseLong(aggPhaseStr);
+            if (aggPhase < 0 || aggPhase > 4) {
+                throw new InvalidParameterException(AGG_PHASE + " should be between 0 and 4");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(AGG_PHASE + " must be a valid number between 0 and 4");
+        }
+    }
+
+    public void checkMultiDistinctStrategy(String multiDistinctStrategyStr) {
+        try {
+            long aggPhase = Long.parseLong(multiDistinctStrategyStr);
+            if (aggPhase < 0 || aggPhase > 2) {
+                throw new InvalidParameterException(MULTI_DISTINCT_STRATEGY + " should be between 0 and 2");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(MULTI_DISTINCT_STRATEGY + " must be a valid number between 0 and 2");
+        }
+    }
+
+    public boolean isEnableInsertGroupCommit() {
+        return Config.wait_internal_group_commit_finish
+                || GroupCommitBlockSink.parseGroupCommit(groupCommit) == TGroupCommitMode.ASYNC_MODE
+                || GroupCommitBlockSink.parseGroupCommit(groupCommit) == TGroupCommitMode.SYNC_MODE;
+    }
+
+    public String getGroupCommit() {
+        if (Config.wait_internal_group_commit_finish) {
+            return "sync_mode";
+        }
+        return groupCommit;
+    }
+
+    public boolean isEnablePreparedStmtAuditLog() {
+        return enablePreparedStmtAuditLog;
+    }
+
+    public boolean isEnableMaterializedViewRewrite() {
+        return enableMaterializedViewRewrite;
+    }
+
+    public void setEnableMaterializedViewRewrite(boolean enableMaterializedViewRewrite) {
+        this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
+    }
+
+    public String getPreMaterializedViewRewriteStrategy() {
+        return preMaterializedViewRewriteStrategy;
+    }
+
+    public void setPreMaterializedViewRewriteStrategy(String preMaterializedViewRewriteStrategy) {
+        this.preMaterializedViewRewriteStrategy = preMaterializedViewRewriteStrategy;
+    }
+
+    public boolean isEnableDmlMaterializedViewRewrite() {
+        return enableDmlMaterializedViewRewrite;
+    }
+
+    public void setEnableDmlMaterializedViewRewrite(boolean enableDmlMaterializedViewRewrite) {
+        this.enableDmlMaterializedViewRewrite = enableDmlMaterializedViewRewrite;
+    }
+
+    public boolean isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness() {
+        return enableDmlMaterializedViewRewriteWhenBaseTableUnawareness;
+    }
+
+    public boolean isShortCircuitEvaluation() {
+        return shortCircuitEvaluation;
+    }
+
+    public boolean isAllowModifyMaterializedViewData() {
+        return allowModifyMaterializedViewData;
+    }
+
+    public boolean isEnableMaterializedViewRewriteWhenBaseTableUnawareness() {
+        return enableMaterializedViewRewriteWhenBaseTableUnawareness;
+    }
+
+    public int getMaterializedViewRewriteSuccessCandidateNum() {
+        return materializedViewRewriteSuccessCandidateNum;
+    }
+
+    public boolean isEnableMaterializedViewUnionRewrite() {
+        return enableMaterializedViewUnionRewrite;
+    }
+
+    public boolean isEnableMaterializedViewNestRewrite() {
+        return enableMaterializedViewNestRewrite;
+    }
+
+    public int getMaterializedViewRelationMappingMaxCount() {
+        return materializedViewRelationMappingMaxCount;
+    }
+
+    public int getCreateTablePartitionMaxNum() {
+        return createTablePartitionMaxNum;
+    }
+
+    public boolean isIgnoreStorageDataDistribution() {
+        return ignoreStorageDataDistribution && enableLocalShuffle && enableNereidsPlanner;
+    }
+
+    public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
+        this.ignoreStorageDataDistribution = ignoreStorageDataDistribution;
+    }
+
+    // CLOUD_VARIABLES_BEGIN
+    public String getCloudCluster() {
+        return cloudCluster;
+    }
+
+    public String setCloudCluster(String cloudCluster) {
+        return this.cloudCluster = cloudCluster;
+    }
+
+    public boolean getDisableEmptyPartitionPrune() {
+        return disableEmptyPartitionPrune;
+    }
+
+    public void setDisableEmptyPartitionPrune(boolean val) {
+        disableEmptyPartitionPrune = val;
+    }
+    // CLOUD_VARIABLES_END
+
+    public boolean isForceJniScanner() {
+        return forceJniScanner;
+    }
+
+    public String getIgnoreSplitType() {
+        return ignoreSplitType;
+    }
+
+    public void checkIgnoreSplitType(String value) {
+        try {
+            IgnoreSplitType.valueOf(value);
+        } catch (Exception e) {
+            throw new UnsupportedOperationException(
+                    "We only support `NONE`, `IGNORE_JNI`, `IGNORE_NATIVE` and `IGNORE_PAIMON_CPP`");
+        }
+    }
+
+    public boolean getUseConsistentHashForExternalScan() {
+        return useConsistentHashForExternalScan;
+    }
+
+    public void setForceJniScanner(boolean force) {
+        forceJniScanner = force;
+    }
+
+    public boolean isEnableCountPushDownForExternalTable() {
+        return enableCountPushDownForExternalTable;
+    }
+
+    public boolean isForceToLocalShuffle() {
+        return enableLocalShuffle && forceToLocalShuffle && enableNereidsPlanner;
+    }
+
+    public void setForceToLocalShuffle(boolean forceToLocalShuffle) {
+        this.forceToLocalShuffle = forceToLocalShuffle;
+    }
+
+    public boolean isFetchAllFeForSystemTable() {
+        return fetchAllFeForSystemTable;
+    }
+
+    public void setFetchAllFeForSystemTable(boolean fetchAllFeForSystemTable) {
+        this.fetchAllFeForSystemTable = fetchAllFeForSystemTable;
+    }
+
+    public int getMaxMsgSizeOfResultReceiver() {
+        return this.maxMsgSizeOfResultReceiver;
+    }
+
+    public boolean isEnableAutoCreateWhenOverwrite() {
+        return this.enableAutoCreateWhenOverwrite;
+    }
+
+    public TSerdeDialect getSerdeDialect() {
+        switch (serdeDialect) {
+            case "doris":
+                return TSerdeDialect.DORIS;
+            case "presto":
+            case "trino":
+                return TSerdeDialect.PRESTO;
+            case "hive":
+                return TSerdeDialect.HIVE;
+            default:
+                throw new IllegalArgumentException("Unknown serde dialect: " + serdeDialect);
+        }
+    }
+
+    public boolean isEnableCooldownReplicaAffinity() {
+        return enableCooldownReplicaAffinity;
+    }
+
+    public boolean isUseSerialExchange() {
+        return useSerialExchange && getEnableLocalExchange();
+    }
+
+    @Deprecated
+    public void setEnableVariantFlattenNested(boolean enableVariantFlattenNested) {
+        this.enableVariantFlattenNested = enableVariantFlattenNested;
+    }
+
+    @Deprecated
+    public boolean getEnableVariantFlattenNested() {
+        return enableVariantFlattenNested;
+    }
+
+    public boolean isEnableVariantSchemaAutoCast() {
+        return enableVariantSchemaAutoCast;
+    }
+
+    public void setProfileLevel(String profileLevel) {
+        int profileLevelTmp = Integer.valueOf(profileLevel);
+        if (profileLevelTmp < 1 || profileLevelTmp > 3) {
+            LOG.warn("Profile level shuold be in the range of 1-3.");
+        } else {
+            this.profileLevel = profileLevelTmp;
+        }
+
+    }
+
+    public void checkProfileLevel(String profileLevel) {
+        int value = Integer.valueOf(profileLevel);
+        if (value < 1 || value > 3) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException("Profile level can not be set to " + profileLevel
+                            + ", it must be in the range of 1-3");
+            LOG.warn("Check profile_level failed", exception);
+            throw exception;
+        }
+    }
+
+    public void checkRuntimeFilterTreePublishMaxSendBytes(String maxSendBytes) {
+        long value = Long.valueOf(maxSendBytes);
+        if (value < 0) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(
+                            "runtime_filter_tree_publish_max_send_bytes can not be set to "
+                                    + maxSendBytes + ", it must be greater or equal to 0");
+            LOG.warn("Check runtime_filter_tree_publish_max_send_bytes failed", exception);
+            throw exception;
+        }
+    }
+
+    public void checkSqlConvertorFeatures(String features) {
+        if (Strings.isNullOrEmpty(features)) {
+            return;
+        }
+        String[] featureArray = features.split(",");
+        for (String feature : featureArray) {
+            if (!feature.equalsIgnoreCase("ctas")
+                    && !feature.equalsIgnoreCase("delete_all_comment")) {
+                throw new UnsupportedOperationException("Unknown sql convertor feature: " + feature
+                        + ", current support: ctas, delete_all_comment");
+            }
+        }
+    }
+
+    public boolean getEnableLocalMergeSort() {
+        return enableLocalMergeSort;
+    }
+
+    public boolean getEnableExternalTableBatchMode() {
+        return enableExternalTableBatchMode;
+    }
+
+    public boolean showSplitProfileInfo() {
+        return enableProfile() && getProfileLevel() > 1;
+    }
+
+    public boolean isEnableAddIndexForNewData() {
+        return enableAddIndexForNewData;
+    }
+
+    public void setEnableAddIndexForNewData(boolean enableAddIndexForNewData) {
+        this.enableAddIndexForNewData = enableAddIndexForNewData;
+    }
+
+    public static boolean enableStrictCast() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            return connectContext.getSessionVariable().enableStrictCast;
+        } else {
+            return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
+        }
+    }
+
+    public void checkDefaultVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
+        int value = Integer.valueOf(variantMaxSubcolumnsCount);
+        if (value < 0 || value > 100000) {
+            throw new UnsupportedOperationException(
+                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public void checkDefaultVariantMaxSparseColumnStatisticsSize(String variantMaxSparseColumnStatisticsSize) {
+        int value = Integer.valueOf(variantMaxSparseColumnStatisticsSize);
+        if (value < 1 || value > 50000) {
+            throw new UnsupportedOperationException("variant max sparse column statistics size is: "
+                    + variantMaxSparseColumnStatisticsSize + " it must between 1 and 50000");
+        }
+    }
+
+    public void checkHnswEfSearch(String efSearch) {
+        int value = Integer.valueOf(efSearch);
+        if (value < 1) {
+            throw new UnsupportedOperationException(
+                    "hnsw_ef_search must be >= 1, got: " + efSearch);
+        }
+    }
+
+    public void checkIvfNprobe(String nprobe) {
+        int value = Integer.valueOf(nprobe);
+        if (value < 1) {
+            throw new UnsupportedOperationException(
+                    "ivf_nprobe must be >= 1, got: " + nprobe);
+        }
+    }
+
+    public boolean getDefaultEnableTypedPathsToSparse() {
+        return defaultEnableTypedPathsToSparse;
+    }
+
+    public int getDefaultVariantMaxSubcolumnsCount() {
+        return defaultVariantMaxSubcolumnsCount;
+    }
+
+    public int getDefaultVariantMaxSparseColumnStatisticsSize() {
+        return defaultVariantMaxSparseColumnStatisticsSize;
+    }
+
+    public int getDefaultVariantSparseHashShardCount() {
+        return defaultVariantSparseHashShardCount;
+    }
+
+    public boolean getCloudPartitionsTableUseCachedVisibleVersion() {
+        return cloudPartitionsTableUseCachedVisibleVersion;
+    }
+
+    public boolean getDefaultVariantEnableDocMode() {
+        return defaultVariantEnableDocMode;
+    }
+
+    public long getDefaultVariantDocMaterializationMinRows() {
+        return defaultVariantDocMaterializationMinRows;
+    }
+
+    public int getDefaultVariantDocHashShardCount() {
+        return defaultVariantDocHashShardCount;
+    }
+
+    public boolean getDefaultVariantEnableNestedGroup() {
+        return defaultVariantEnableNestedGroup;
+    }
+
+    public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {
+        for (Field affectQueryResultField : affectQueryResultFields) {
+            String name = affectQueryResultField.getName();
+            try {
+                Object value = affectQueryResultField.get(this);
+                variablesReader.accept(name, value);
+            } catch (Throwable t) {
+                throw new IllegalStateException("Can not access SessionVariable." + name, t);
+            }
+        }
+    }
+
+    public int getAffectQueryResultVariableHashCode() {
+        int hash = 0;
+        for (Field affectQueryResultField : affectQueryResultFields) {
+            String name = affectQueryResultField.getName();
+            try {
+                Object value = affectQueryResultField.get(this);
+                hash = 31 * hash + (value != null ? value.hashCode() : 0);
+            } catch (Throwable t) {
+                throw new IllegalStateException("Can not access SessionVariable." + name, t);
+            }
+        }
+        return hash;
+    }
+
+    public static boolean isFeDebug() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().feDebug;
+        } else {
+            return false;
+        }
+    }
+
+    public static void throwAnalysisExceptionWhenFeDebug(String msg) {
+        LOG.warn(msg);
+        if (isFeDebug()) {
+            throw new AnalysisException(msg);
+        }
+    }
+
+    public Map<String, String> getAffectQueryResultInPlanVariables() {
+        ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
+        try {
+            for (Field f : affectQueryResultInPlanFields) {
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                builder.put(varAttr.name(), String.valueOf(f.get(this)));
+            }
+        } catch (IllegalAccessException e) {
+            LOG.error("failed to get affect query result variables", e);
+        }
+        return builder.build();
+    }
+
+    public void setAffectQueryResultInPlanSessionVariables(Map<String, String> variables) {
+        if (variables == null || variables.isEmpty()) {
+            return;
+        }
+        try {
+            for (Field f : affectQueryResultInPlanFields) {
+                VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                String val = variables.get(varAttr.name());
+                if (val == null) {
+                    continue;
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("set affect query result variable: {} = {}", varAttr.name(), val);
+                }
+                VariableMgr.setValue(this, val, f, varAttr.name());
+            }
+        } catch (Throwable e) {
+            LOG.error("failed to set affect query result variables", e);
+        }
+    }
+}

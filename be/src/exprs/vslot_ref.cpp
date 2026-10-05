@@ -1,0 +1,185 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "exprs/vslot_ref.h"
+
+#include <gen_cpp/Exprs_types.h>
+#include <glog/logging.h>
+
+#include <ostream>
+
+#include "common/status.h"
+#include "core/block/block.h"
+#include "exprs/vexpr_context.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+
+namespace doris {
+class VExprContext;
+
+VSlotRef::VSlotRef(const doris::TExprNode& node)
+        : VExpr(node),
+          _slot_id(node.slot_ref.slot_id),
+          _column_id(-1),
+          _column_name(nullptr),
+          _column_label(node.label) {}
+
+VSlotRef::VSlotRef(const SlotDescriptor* desc)
+        : VExpr(desc->type(), true), _slot_id(desc->id()), _column_id(-1), _column_name(nullptr) {}
+
+VSlotRef::VSlotRef(int slot_id, int column_id, int column_uniq_id, const DataTypePtr& type,
+                   std::string column_name)
+        : VExpr(type, true),
+          _slot_id(slot_id),
+          _column_id(column_id),
+          _column_uniq_id(column_uniq_id),
+          _owned_column_name(std::move(column_name)),
+          _column_name(&_owned_column_name) {}
+
+Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
+                         VExprContext* context) {
+    DCHECK_EQ(_children.size(), 0);
+    if (_prepared) {
+        return Status::OK();
+    }
+    if (_column_id >= 0 && _column_name != nullptr) {
+        _prepared = true;
+        _prepare_finished = true;
+        return Status::OK();
+    }
+    _prepared = true;
+    RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
+    if (_slot_id == -1) {
+        _prepare_finished = true;
+        return Status::OK();
+    }
+    const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
+    if (slot_desc == nullptr) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "couldn't resolve slot descriptor {}, desc: {}", _slot_id,
+                state->desc_tbl().debug_string());
+    }
+    _column_name = &slot_desc->col_name();
+    _column_uniq_id = slot_desc->col_unique_id();
+    _column_id = desc.get_column_id(_slot_id);
+    if (_column_id < 0) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "VSlotRef {} have invalid slot id: {}, desc: {}, slot_desc: {}, desc_tbl: {}",
+                *_column_name, _slot_id, desc.debug_string(), slot_desc->debug_string(),
+                state->desc_tbl().debug_string());
+    }
+    _prepare_finished = true;
+    return Status::OK();
+}
+
+Status VSlotRef::open(RuntimeState* state, VExprContext* context,
+                      FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
+    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    _open_finished = true;
+    return Status::OK();
+}
+
+Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) const {
+    if (_column_id >= 0 && _column_id >= block->columns()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "input block not contain slot column {}, column_id={}, block={}", *_column_name,
+                _column_id, block->dump_structure());
+    }
+    *result_column_id = _column_id;
+    return Status::OK();
+}
+
+Status VSlotRef::execute_column_impl(VExprContext* context, const Block* block,
+                                     const Selector* selector, size_t count,
+                                     ColumnPtr& result_column) const {
+    if (_column_id >= 0 && _column_id >= block->columns()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "input block not contain slot column {}, column_id={}, block={}", *_column_name,
+                _column_id, block->dump_structure());
+    }
+    result_column =
+            filter_column_with_selector(block->get_by_position(_column_id).column, selector, count);
+    DCHECK_EQ(result_column->size(), count);
+    return Status::OK();
+}
+
+DataTypePtr VSlotRef::execute_type(const Block* block) const {
+    if (_column_id >= 0 && _column_id >= block->columns()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "input block not contain slot column {}, column_id={}, block={}",
+                               *_column_name, _column_id, block->dump_structure());
+    }
+    return block->get_by_position(_column_id).type;
+}
+
+Status VSlotRef::clone_node(VExprSPtr* cloned_expr) const {
+    DORIS_CHECK(cloned_expr != nullptr);
+    if (_column_id >= 0 && _column_name != nullptr) {
+        *cloned_expr = VSlotRef::create_shared(_slot_id, _column_id, _column_uniq_id, _data_type,
+                                               *_column_name);
+        return Status::OK();
+    }
+    auto node = clone_texpr_node();
+    TSlotRef slot_ref;
+    slot_ref.__set_slot_id(_slot_id);
+    node.__set_slot_ref(slot_ref);
+    node.__set_label(_column_label);
+    auto cloned = VSlotRef::create_shared(node);
+    auto* cloned_slot_ref = static_cast<VSlotRef*>(cloned.get());
+    cloned_slot_ref->_column_id = _column_id;
+    cloned_slot_ref->_column_uniq_id = _column_uniq_id;
+    cloned_slot_ref->_column_name = _column_name;
+    *cloned_expr = std::move(cloned);
+    return Status::OK();
+}
+
+const std::string& VSlotRef::expr_name() const {
+    return *_column_name;
+}
+std::string VSlotRef::expr_label() {
+    return _column_label;
+}
+
+std::string VSlotRef::debug_string() const {
+    std::stringstream out;
+    out << "SlotRef(slot_id=" << _slot_id << VExpr::debug_string() << ")";
+    return out.str();
+}
+
+bool VSlotRef::equals(const VExpr& other) {
+    if (!VExpr::equals(other)) {
+        return false;
+    }
+    const auto* other_ptr = dynamic_cast<const VSlotRef*>(&other);
+    if (!other_ptr) {
+        return false;
+    }
+    if (this->_slot_id != other_ptr->_slot_id || this->_column_id != other_ptr->_column_id ||
+        this->_column_name != other_ptr->_column_name ||
+        this->_column_label != other_ptr->_column_label) {
+        return false;
+    }
+    return true;
+}
+
+uint64_t VSlotRef::get_digest(uint64_t seed) const {
+    seed = HashUtil::hash64(&_column_uniq_id, sizeof(int), seed);
+    return HashUtil::hash64(_column_name->c_str(), _column_name->size(), seed);
+}
+
+} // namespace doris

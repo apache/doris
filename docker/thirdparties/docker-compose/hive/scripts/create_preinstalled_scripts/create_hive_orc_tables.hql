@@ -1,0 +1,13 @@
+create database if not exists multi_catalog;
+use multi_catalog;
+
+drop table if exists complex_data_orc;
+
+create table complex_data_orc (
+  id INT,
+  m MAP<STRING, INT>,
+  l ARRAY<STRING>
+)
+STORED AS ORC
+LOCATION
+  '/user/doris/preinstalled_data/orc/complex_data_orc';

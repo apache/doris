@@ -1,0 +1,769 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.qe;
+
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
+import org.apache.doris.analysis.DecimalLiteralUtils;
+import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.IPv4Literal;
+import org.apache.doris.analysis.IPv6Literal;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.JsonLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.UuidLiteral;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ConnectionException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.exceptions.SyntaxParseException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.SqlDialectHelper;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
+import org.apache.doris.proto.Data;
+import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.thrift.TMasterOpRequest;
+import org.apache.doris.thrift.TMasterOpResult;
+import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionEntry;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.UUID;
+
+/**
+ * Process one connection, the life cycle is the same as connection
+ */
+public abstract class ConnectProcessor {
+    private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
+    protected final ConnectContext ctx;
+    protected StmtExecutor executor;
+    // Executors of this request whose query result stays on the backend for the client to pull;
+    // they are finalized when the request is closed. Only an Arrow Flight SQL session has any.
+    protected ArrayList<StmtExecutor> returnResultFromRemoteExecutor = new ArrayList<>();
+
+    public ConnectProcessor(ConnectContext context) {
+        this.ctx = context;
+    }
+
+    public ConnectContext getConnectContext() {
+        return ctx;
+    }
+
+    // change current database of this session.
+    protected void handleInitDb(String fullDbName) {
+        Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(ctx, fullDbName);
+        if (res.isPresent()) {
+            ctx.getState().setError(res.get().first, res.get().second);
+        }
+    }
+
+    // set killed flag
+    protected void handleQuit() {
+        ctx.setKilled();
+        ctx.getState().setOk();
+    }
+
+    // do nothing
+    protected void handlePing() {
+        ctx.getState().setOk();
+    }
+
+    // Do nothing for now.
+    protected void handleStatistics() {
+        ctx.getState().setOk();
+    }
+
+    // Do nothing for now.
+    protected void handleDebug() {
+        ctx.getState().setOk();
+    }
+
+    protected void handleResetConnection() {
+        try {
+            ctx.resetConnection();
+            ctx.getState().setOk();
+        } catch (UserException e) {
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        }
+    }
+
+    protected void handleStmtResetById(int stmtId) {
+        if (ctx.getPreparedStementContext(String.valueOf(stmtId)) == null) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
+                    String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_reset", stmtId));
+            return;
+        }
+        ctx.getState().setOk();
+    }
+
+    protected void handleStmtClose(int stmtId) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("close stmt id: {}", stmtId);
+        }
+        ConnectContext.get().removePrepareStmt(String.valueOf(stmtId));
+        // No response packet is sent back to the client, see
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_close.html
+        ctx.getState().setNoop();
+    }
+
+    protected static boolean isNull(byte[] bitmap, int position) {
+        return (bitmap[position / 8] & (1 << (position & 7))) != 0;
+    }
+
+    protected void auditAfterExec(String origStmt, StatementBase parsedStmt,
+            Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+        if (Config.enable_bdbje_debug_mode) {
+            return;
+        }
+        AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
+    }
+
+    /**
+     * Pre-resolve the workload group name and set it on ConnectContext.
+     * This ensures the workload group is available for audit logging even if the query
+     * fails when analysing and before reaching Coordinator.exec (where it is normally
+     * set). The resolution follows the same priority as WorkloadGroupMgr:
+     * session variable -> user property -> default group.
+     * Callers should invoke this at the start of any command dispatch path that may
+     * emit an audit log (COM_QUERY / COM_STMT_EXECUTE / COM_FIELD_LIST / FlightSql
+     * handleQuery). It is also re-invoked at the top of every iteration of
+     * {@link #executeQuery}'s per-statement loop so multi-statement requests that
+     * change {@code @@workload_group} mid-batch still audit later statements with
+     * the effective value.
+     */
+    protected void resolveWorkloadGroupName() {
+        ctx.setWorkloadGroupName("");
+        if (!Config.enable_workload_group) {
+            return;
+        }
+        String groupName = ctx.getSessionVariable().getWorkloadGroup();
+        if (Strings.isNullOrEmpty(groupName)) {
+            groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(ctx.getQualifiedUser());
+        }
+        if (Strings.isNullOrEmpty(groupName)) {
+            groupName = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
+        }
+        ctx.setWorkloadGroupName(groupName);
+    }
+
+    // only throw an exception when there is a problem interacting with the requesting client
+    protected void handleQuery(String originStmt) throws ConnectionException {
+        // Before executing the query, the queryId should be set to empty.
+        // Otherwise, if SQL parsing fails, the audit log will record the queryId from the previous query.
+        ctx.resetQueryId();
+        if (Config.isCloudMode()) {
+            if (!ctx.getCurrentUserIdentity().isRootUser()
+                    && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
+                        == Cloud.InstanceInfoPB.Status.OVERDUE) {
+                Exception exception = new Exception("warehouse is overdue!");
+                try {
+                    handleQueryException(exception, originStmt, null, null);
+                } catch (ConnectionException ignore) {
+                    // ignore, should not happen
+                }
+                return;
+            }
+        }
+        try {
+            executeQuery(originStmt);
+        } catch (ConnectionException exception) {
+            throw exception;
+        } catch (UserException exception) {
+            LOG.warn("execute query exception", exception);
+        } catch (Exception ignored) {
+            // saved use handleQueryException
+        }
+    }
+
+    public void executeQuery(String originStmt) throws Exception {
+        if (MetricRepo.isInit && !ctx.getState().isInternal()) {
+            MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
+            if (Config.isCloudMode()) {
+                try {
+                    String clusterName = ctx.getCloudCluster(false);
+                    String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                            .getPhysicalCluster(clusterName);
+                    if (clusterName.equals(physicalClusterName)) {
+                        // not vcg
+                        MetricRepo.increaseClusterRequestAll(clusterName);
+                    } else {
+                        // vcg
+                        MetricRepo.increaseClusterRequestAll(clusterName);
+                        MetricRepo.increaseClusterRequestAll(physicalClusterName);
+                    }
+                } catch (ComputeGroupException e) {
+                    LOG.warn("metrics get cluster exception", e);
+                }
+            }
+        }
+
+        String convertedStmt = SqlDialectHelper.convertSqlByDialect(originStmt, ctx.getSessionVariable());
+        String sqlHash = DigestUtils.md5Hex(convertedStmt);
+        ctx.setSqlHash(sqlHash);
+
+        SessionVariable sessionVariable = ctx.getSessionVariable();
+        // The sql cache keeps the result rows in wire format, so only a protocol that can replay
+        // them looks the cache up; another one re-executes the query and never populates the
+        // cache either, see StmtExecutor.handleQueryStmt.
+        boolean wantToParseSqlFromSqlCache = ctx.getProtocolAdapter().supportsSqlCacheReplay()
+                && CacheAnalyzer.canUseSqlCache(sessionVariable);
+        List<StatementBase> stmts = null;
+        long parseSqlStartTime = System.currentTimeMillis();
+        List<StatementBase> cachedStmts = null;
+        CacheKeyType cacheKeyType = null;
+        if (wantToParseSqlFromSqlCache) {
+            cachedStmts = parseFromSqlCache(originStmt);
+            Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
+                    .getStatementContext().getSqlCacheContext();
+            if (sqlCacheContext.isPresent()) {
+                cacheKeyType = sqlCacheContext.get().getCacheKeyType();
+            }
+            if (cachedStmts != null) {
+                stmts = cachedStmts;
+            }
+        }
+
+        if (stmts == null) {
+            stmts = parseWithFallback(originStmt, convertedStmt, sessionVariable);
+            if (stmts == null || stmts.isEmpty()) {
+                return;
+            }
+        }
+
+        List<String> origSingleStmtList = null;
+        // if stmts.size() > 1, split originStmt to multi singleStmts
+        if (stmts.size() > 1) {
+            try {
+                origSingleStmtList = SqlUtils.splitMultiStmts(convertedStmt);
+            } catch (Exception ignore) {
+                LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", convertedStmt);
+            }
+        }
+        long parseSqlFinishTime = System.currentTimeMillis();
+
+        boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
+        for (int i = 0; i < stmts.size(); ++i) {
+            String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : convertedStmt;
+            if (stmts.size() > 1 && usingOrigSingleStmt) {
+                ctx.setSqlHash(DigestUtils.md5Hex(auditStmt));
+            }
+            try {
+                ctx.getState().reset();
+                if (i > 0) {
+                    ctx.resetReturnRows();
+                }
+                ctx.getProtocolAdapter().beforeStatement(ctx);
+                // Re-resolve per statement: an earlier statement in the same multi-stmt
+                // request (e.g. SET workload_group=...) may have changed the effective
+                // workload group, and later statements that fail before Coordinator.exec
+                // would otherwise be audited with the stale value picked up once per
+                // packet in dispatch().
+                resolveWorkloadGroupName();
+
+                StatementBase parsedStmt = stmts.get(i);
+                parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
+                parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+                executor = new StmtExecutor(ctx, parsedStmt);
+                executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
+                executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
+                executor.getProfile().getSummaryProfile().parsedByConnectionProcess = true;
+                // Here we set the MoreStmtExists flag without considering CLIENT_MULTI_STATEMENTS.
+                // So the master will always set SERVER_MORE_RESULTS_EXISTS when the statement is not the last one.
+                // When the Follower/Observer received the return result of Master, the Follower/Observer
+                // will check CLIENT_MULTI_STATEMENTS is set or not. It sends SERVER_MORE_RESULTS_EXISTS back to client
+                // only when CLIENT_MULTI_STATEMENTS is set.
+                // See MysqlProtocolAdapter.finishStatement.
+                if (i != stmts.size() - 1) {
+                    executor.setMoreStmtExists(true);
+                }
+                if (MetricRepo.isInit) {
+                    MetricRepo.HISTO_PLAN_PARSE_DURATION.update(
+                            executor.getProfile().getSummaryProfile().getParseSqlTimeMs());
+                }
+                ctx.setExecutor(executor);
+
+                if (cacheKeyType != null) {
+                    SqlCacheContext sqlCacheContext =
+                            executor.getContext().getStatementContext().getSqlCacheContext().get();
+                    sqlCacheContext.setCacheKeyType(cacheKeyType);
+                }
+
+                try {
+                    executor.execute();
+                    if (!ctx.isReturnResultFromLocal()) {
+                        returnResultFromRemoteExecutor.add(executor);
+                    }
+                    // A statement that ran is audited whether or not the request goes on: the Flight
+                    // adapter refuses a result that is not the last statement's after the statement
+                    // executed, and the refusal is what the audit row then records (State=ERR with
+                    // its error code), counted as one failed query like any other.
+                    boolean requestGoesOn = ctx.getProtocolAdapter().finishStatement(ctx, executor, i, stmts.size());
+                    auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
+                            true);
+                    if (!requestGoesOn) {
+                        break;
+                    }
+                    // execute failed, skip remaining stmts
+                    if (ctx.getState().getStateType() == MysqlStateType.ERR || (!Env.getCurrentEnv().isMaster()
+                            && ctx.executor != null && ctx.executor.hasForwardedToMaster()
+                            && ctx.executor.getProxyStatusCode() != 0)) {
+                        break;
+                    }
+                } catch (Throwable throwable) {
+                    handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
+                            executor.getQueryStatisticsForAuditLog());
+                    // execute failed, skip remaining stmts
+                    throw throwable;
+                }
+            } finally {
+                StatementContext statementContext = ctx.getStatementContext();
+                if (statementContext != null) {
+                    statementContext.close();
+                }
+            }
+        }
+    }
+
+    private List<StatementBase> parseFromSqlCache(String originStmt) {
+        StatementContext statementContext = new StatementContext(ctx, new OriginStatement(originStmt, 0));
+        ctx.setStatementContext(statementContext);
+
+        // the mysql protocol has different between COM_QUERY and COM_STMT_EXECUTE,
+        // the sql cache use the result of COM_QUERY, so we can not provide the
+        // result of sql cache for COM_STMT_EXECUTE/COM_STMT_PREPARE
+        switch (ctx.getCommand()) {
+            case COM_STMT_EXECUTE:
+            case COM_STMT_PREPARE:
+                return null;
+            default: { }
+        }
+
+        try {
+            Optional<Pair<ExplainOptions, String>> explainPlan = NereidsParser.tryParseExplainPlan(originStmt);
+            String cacheSqlKey = originStmt;
+            if (explainPlan.isPresent()) {
+                cacheSqlKey = explainPlan.get().second;
+            }
+            Env env = ctx.getEnv();
+            Optional<LogicalSqlCache> sqlCachePlanOpt = env.getSqlCacheManager().tryParseSql(ctx, cacheSqlKey);
+            if (MetricRepo.isInit) {
+                if (sqlCachePlanOpt.isPresent()) {
+                    MetricRepo.COUNTER_SQL_CACHE_HIT.increase(1L);
+                }
+                MetricRepo.COUNTER_SQL_SQL_CACHE_TOTAL_SEARCH_TIMES.increase(1L);
+            }
+            if (sqlCachePlanOpt.isPresent()) {
+                LogicalSqlCache logicalSqlCache = sqlCachePlanOpt.get();
+                LogicalPlan parsedPlan = logicalSqlCache;
+                if (explainPlan.isPresent()) {
+                    ExplainOptions explainOptions = explainPlan.get().first;
+                    parsedPlan = new ExplainCommand(
+                            explainOptions.getExplainLevel(),
+                            parsedPlan,
+                            explainOptions.showPlanProcess()
+                    );
+                }
+
+                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(parsedPlan, statementContext);
+                logicalPlanAdapter.setColLabels(
+                        Lists.newArrayList(logicalSqlCache.getColumnLabels())
+                );
+                logicalPlanAdapter.setFieldInfos(Lists.newArrayList(logicalSqlCache.getFieldInfos()));
+                logicalPlanAdapter.setResultExprs(logicalSqlCache.getResultExprs());
+                logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
+                logicalPlanAdapter.setUserInfo(ctx.getCurrentUserIdentity());
+                return ImmutableList.of(logicalPlanAdapter);
+            }
+        } catch (Throwable t) {
+            LOG.warn("Parse from sql cache failed with unexpected exception: {}", Util.getRootCauseMessage(t), t);
+        } finally {
+            statementContext.releasePlannerResources();
+        }
+        return null;
+    }
+
+    /**
+     * Parse converted SQL statement with fallback to original SQL
+     */
+    protected List<StatementBase> parseWithFallback(String originStmt, String convertedStmt,
+            SessionVariable sessionVariable) throws ConnectionException {
+        try {
+            return new NereidsParser().parseSQL(convertedStmt, sessionVariable);
+        } catch (NotSupportedException | SyntaxParseException e) {
+            List<StatementBase> stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
+            if (stmts == null) {
+                handleQueryException(e, convertedStmt, null, null);
+                return null;
+            }
+            return stmts;
+        } catch (Exception e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                        e.getMessage(), convertedStmt, e);
+            }
+            Throwable exception = new AnalysisException(e.getMessage(), e);
+            List<StatementBase> stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
+            if (stmts == null) {
+                handleQueryException(exception, originStmt, null, null);
+                return null;
+            }
+            return stmts;
+        }
+    }
+
+    /**
+     * Try to retry SQL parsing with original SQL when conversion fails
+     */
+    protected List<StatementBase> tryRetryOriginalSql(String originStmt, String convertedStmt,
+            SessionVariable sessionVariable) {
+        // Try to retry with original SQL if enabled and convertedStmt is different from originStmt
+        if (sessionVariable.isRetryOriginSqlOnConvertFail()
+                && !convertedStmt.equals(originStmt)) {
+            try {
+                List<StatementBase> stmts = new NereidsParser().parseSQL(originStmt, sessionVariable);
+                // Update sqlHash to use original statement hash when retry succeeds
+                String originalSqlHash = DigestUtils.md5Hex(originStmt);
+                ctx.setSqlHash(originalSqlHash);
+                return stmts;
+            } catch (Exception e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Retry with original SQL failed. "
+                                    + "Reason: {}. Original Statement: \"{}\". Converted Statement: \"{}\".",
+                            e.getMessage(), originStmt, convertedStmt, e);
+                }
+                // Retry failed, return null
+                return null;
+            }
+        }
+        return null;
+    }
+
+    // Use a handler for exception to avoid big try catch block which is a little hard to understand
+    protected void handleQueryException(Throwable throwable, String origStmt,
+            StatementBase parsedStmt, Data.PQueryStatistics statistics) throws ConnectionException {
+        if (throwable instanceof SyntaxParseException) {
+            // Syntax parse exception.
+            Throwable e = new AnalysisException(throwable.getMessage(), throwable);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
+            ctx.getState().setErrType(QueryState.ErrType.SYNTAX_PARSE_ERR);
+        } else if (throwable instanceof ConnectionException) {
+            // Throw this exception to close the connection outside.
+            throw (ConnectionException) throwable;
+        } else if (throwable instanceof IOException) {
+            // Client failed.
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + throwable.getMessage());
+        } else if (throwable instanceof UserException) {
+            ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
+            // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
+            ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+        } else if (throwable instanceof NotSupportedException) {
+            ctx.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, throwable.getMessage());
+            // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
+            ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+        } else {
+            // Catch all throwable.
+            // If reach here, maybe palo bug.
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    throwable.getClass().getSimpleName() + ", msg: " + throwable.getMessage());
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Process one query failed because: {}", throwable.getMessage());
+        }
+        auditAfterExec(origStmt, parsedStmt, statistics, true);
+    }
+
+    public TMasterOpResult proxyExecute(TMasterOpRequest request) throws TException {
+        ctx.setDatabase(request.db);
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.getState().reset();
+        if (request.isSetUserIp()) {
+            ctx.setRemoteIP(request.getUserIp());
+        }
+        if (request.isSetStmtId()) {
+            ctx.setForwardedStmtId(request.getStmtId());
+        }
+        if (request.isSetCurrentUserIdent()) {
+            UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+            ctx.setCurrentUserIdentity(currentUserIdentity);
+        } else {
+            ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.user, "%"));
+        }
+        if (request.isFoldConstantByBe()) {
+            ctx.getSessionVariable().setEnableFoldConstantByBe(request.foldConstantByBe);
+        }
+
+        if (request.isSetSessionVariables()) {
+            ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
+        }
+
+        if (request.isSetUserVariables()) {
+            ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
+        }
+
+        if (request.isSetConnectAttributes()) {
+            ctx.setConnectAttributes(request.getConnectAttributes());
+        }
+        restoreForwardedSessionContext(ctx, request);
+
+        // set compute group
+        ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.getQualifiedUser()));
+
+        ctx.setThreadLocalInfo();
+        StmtExecutor executor = null;
+        try {
+            MysqlProtocolAdapter.of(ctx).restoreFromForwardRequest(ctx, request);
+            // 0 for compatibility.
+            int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
+            executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
+            // Set default catalog only if the catalog exists.
+            if (request.isSetDefaultCatalog()) {
+                CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalog(request.getDefaultCatalog());
+                if (catalog != null) {
+                    ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
+                    // Set default db only when the default catalog is set and the dbname exists in default catalog.
+                    if (request.isSetDefaultDatabase()) {
+                        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        if (db != null) {
+                            ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
+                        }
+                    }
+                }
+            }
+
+            // set transaction entry for transaction load
+            if (request.isSetTxnLoadInfo()) {
+                TransactionEntry transactionEntry = new TransactionEntry();
+                transactionEntry.setTxnInfoInMaster(request.getTxnLoadInfo());
+                ctx.setTxnEntry(transactionEntry);
+            }
+
+            TUniqueId queryId; // This query id will be set in ctx
+            if (request.isSetQueryId()) {
+                queryId = request.getQueryId();
+            } else {
+                UUID uuid = UUID.randomUUID();
+                queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            }
+            if (request.isSetPrepareExecuteBuffer()) {
+                ctx.setCommand(MysqlCommand.COM_STMT_PREPARE);
+                executor.execute();
+                ctx.setCommand(MysqlCommand.COM_STMT_EXECUTE);
+                String preparedStmtId = executor.getPrepareStmtName();
+                PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(preparedStmtId);
+                if (preparedStatementContext == null) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Something error, just support nereids preparedStmtId:{}", preparedStmtId);
+                    }
+                    throw new RuntimeException("Prepare failed when proxy execute");
+                }
+                handleExecute(preparedStatementContext.command, Long.parseLong(preparedStmtId),
+                        preparedStatementContext,
+                        ByteBuffer.wrap(request.getPrepareExecuteBuffer()).order(ByteOrder.LITTLE_ENDIAN), queryId);
+            } else {
+                executor.queryRetry(queryId);
+            }
+        } catch (IOException e) {
+            // Client failed.
+            LOG.warn("Process one query failed because IOException: ", e);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + e.getMessage());
+        } catch (Throwable e) {
+            // Catch all throwable.
+            // If reach here, maybe Doris bug.
+            LOG.warn("Process one query failed because unknown reason: ", e);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        } finally {
+            // Master-side forwarded statements (redirect DDL / SHOW) execute via Command.run and never reach
+            // unregisterQuery, so their per-statement connector scope has no query-finish trigger. Close it here
+            // via StatementContext.close() (the same per-statement close the direct-connection path runs in its
+            // finally). Idempotent: a coordinated forwarded query's scope is already closed by its query-finish
+            // callback. These statements run synchronously with no off-thread scan pump, so close-after-use holds.
+            StatementContext forwardedStatementContext = ctx.getStatementContext();
+            if (forwardedStatementContext != null) {
+                forwardedStatementContext.close();
+            }
+        }
+        // no matter the master execute success or fail, the master must transfer the result to follower
+        // and tell the follower the current journalID.
+        TMasterOpResult result = new TMasterOpResult();
+        if (ctx.queryId() != null
+                // If none master FE not set query id or query id was reset in StmtExecutor
+                // when a query exec more than once, return it to none master FE.
+                && (!request.isSetQueryId() || !request.getQueryId().equals(ctx.queryId()))
+        ) {
+            result.setQueryId(ctx.queryId());
+        }
+        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+        if (request.moreResultExists) {
+            ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
+        }
+        MysqlProtocolAdapter mysqlAdapter = MysqlProtocolAdapter.of(ctx);
+        result.setPacket(mysqlAdapter.responsePacket(ctx));
+        result.setClientDeprecatedEofApplied(mysqlAdapter.getChannel().clientDeprecatedEOF());
+        result.setStatus(ctx.getState().toString());
+        if (ctx.getState().getStateType() == MysqlStateType.OK) {
+            result.setStatusCode(0);
+            result.setAffectedRows(ctx.getState().getAffectedRows());
+        } else {
+            ErrorCode errorCode = ctx.getState().getErrorCode();
+            if (errorCode != null) {
+                result.setStatusCode(errorCode.getCode());
+            } else {
+                result.setStatusCode(ErrorCode.ERR_UNKNOWN_ERROR.getCode());
+            }
+            result.setErrMessage(ctx.getState().getErrorMessage());
+        }
+        if (request.isSetTxnLoadInfo()) {
+            TransactionEntry transactionEntry = ConnectContext.get().getTxnEntry();
+            // null if this is a commit or rollback command
+            if (transactionEntry != null) {
+                result.setTxnLoadInfo(transactionEntry.getTxnInfoInMaster());
+            }
+        }
+        if (executor != null) {
+            List<Long> auditStatisticsBackendIds = Lists.newArrayList(
+                    AuditLogHelper.getExternalDmlAuditBackendIds(executor));
+            if (!auditStatisticsBackendIds.isEmpty()) {
+                result.setAuditStatisticsBackendIds(auditStatisticsBackendIds);
+            }
+            if (executor.getProxyShowResultSet() != null) {
+                result.setResultSet(executor.getProxyShowResultSet().tothrift());
+            } else if (!mysqlAdapter.proxyResultPackets().isEmpty()) {
+                result.setQueryResultBufList(mysqlAdapter.proxyResultPackets());
+            }
+        }
+        return result;
+    }
+
+    static void restoreForwardedSessionContext(ConnectContext context, TMasterOpRequest request) {
+        if (!request.isSetDelegatedCredentialToken()) {
+            return;
+        }
+        Preconditions.checkState(request.isSetDelegatedCredentialType(),
+                "delegated credential type is required");
+        Preconditions.checkState(request.isSetDelegatedCredentialSessionId(),
+                "delegated credential session id is required");
+        OptionalLong expiresAtMillis = request.isSetDelegatedCredentialExpiresAtMillis()
+                ? OptionalLong.of(request.getDelegatedCredentialExpiresAtMillis())
+                : OptionalLong.empty();
+        String sessionId = request.getDelegatedCredentialSessionId();
+        context.setSessionContext(SessionContext.of(sessionId, new DelegatedCredential(
+                DelegatedCredential.Type.valueOf(request.getDelegatedCredentialType()),
+                request.getDelegatedCredentialToken(),
+                expiresAtMillis)));
+    }
+
+    // only Mysql protocol
+    public void processOnce() throws IOException, NotImplementedException {
+        throw new NotImplementedException("Not Impl processOnce");
+    }
+
+    private Map<String, LiteralExpr> userVariableFromThrift(Map<String, TExprNode> thriftMap) throws TException {
+        try {
+            Map<String, LiteralExpr> userVariables = Maps.newHashMap();
+            for (Map.Entry<String, TExprNode> entry : thriftMap.entrySet()) {
+                TExprNode tExprNode = entry.getValue();
+                LiteralExpr literalExpr = getLiteralExprFromThrift(tExprNode);
+                userVariables.put(entry.getKey(), literalExpr);
+            }
+            return userVariables;
+        } catch (AnalysisException e) {
+            throw new TException(e.getMessage());
+        }
+    }
+
+    private static LiteralExpr getLiteralExprFromThrift(TExprNode node) throws AnalysisException {
+        TExprNodeType type = node.node_type;
+        switch (type) {
+            case NULL_LITERAL: return new NullLiteral();
+            case BOOL_LITERAL: return new BoolLiteral(node.bool_literal.value);
+            case INT_LITERAL: return new IntLiteral(node.int_literal.value);
+            case LARGE_INT_LITERAL: return new LargeIntLiteral(node.large_int_literal.value);
+            case FLOAT_LITERAL: return new FloatLiteral(node.float_literal.value);
+            case DECIMAL_LITERAL: return DecimalLiteralUtils.create(node.decimal_literal.value);
+            case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
+            case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
+            case DATE_LITERAL:
+                Type literalType = Type.fromThrift(node.type);
+                return DateLiteralUtils.createLiteral(node.date_literal.value,
+                        literalType.isTimeStampNs() ? literalType : null);
+            case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
+            case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
+            case UUID_LITERAL: return new UuidLiteral(new UUID(node.uuid_literal.hi, node.uuid_literal.lo).toString());
+            default: throw new AnalysisException("Wrong type from thrift;");
+        }
+    }
+
+
+    protected void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx,
+            ByteBuffer packetBuf, TUniqueId queryId) {
+        throw new NotSupportedException("Just MysqlConnectProcessor support execute");
+    }
+}

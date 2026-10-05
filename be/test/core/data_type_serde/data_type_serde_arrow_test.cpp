@@ -1,0 +1,1486 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <arrow/array/array_binary.h>
+#include <arrow/array/array_nested.h>
+#include <arrow/array/builder_base.h>
+#include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_decimal.h>
+#include <arrow/array/builder_nested.h>
+#include <arrow/array/builder_primitive.h>
+#include <arrow/record_batch.h>
+#include <arrow/status.h>
+#include <arrow/type.h>
+#include <arrow/type_fwd.h>
+#include <arrow/util/decimal.h>
+#include <arrow/util/key_value_metadata.h>
+#include <arrow/visit_type_inline.h>
+#include <arrow/visitor.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/types.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
+
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <iostream>
+#include <limits>
+#include <memory>
+#include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
+
+#include "core/block/block.h"
+#include "core/column/column.h"
+#include "core/column/column_complex.h"
+#include "core/column/column_decimal.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_struct.h"
+#include "core/column/column_varbinary.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/common_data_type_serder_test.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_bitmap.h"
+#include "core/data_type/data_type_date.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_date_time.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_hll.h"
+#include "core/data_type/data_type_ipv4.h"
+#include "core/data_type/data_type_ipv6.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_quantilestate.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_varbinary.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "core/data_type/define_primitive_type.h"
+#include "core/field.h"
+#include "core/types.h"
+#include "core/value/hll.h"
+#include "core/value/vdatetime_value.h"
+#include "exec/common/arrow_column_to_doris_column.h"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
+#include "format/table/iceberg/iceberg_arrow_block_convertor.h"
+#include "format/table/paimon/paimon_arrow_block_convertor.h"
+#include "runtime/descriptors.cpp"
+#include "util/string_parser.hpp"
+
+namespace doris {
+
+std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int row_num,
+                                         bool is_nullable) {
+    auto block = std::make_shared<Block>();
+    for (int i = 0; i < cols.size(); i++) {
+        std::string col_name = std::to_string(i);
+        int precision = 0, scale = 0;
+        switch (cols[i]) {
+        case TYPE_DECIMAL32: {
+            precision = 9;
+            scale = 2;
+            break;
+        }
+        case TYPE_DECIMAL64: {
+            precision = 18;
+            scale = 6;
+            break;
+        }
+        case TYPE_DECIMAL128I: {
+            precision = 27;
+            scale = 9;
+            break;
+        }
+        default:
+            break;
+        }
+        DataTypePtr type_desc;
+        if (!is_complex_type(cols[i])) {
+            type_desc =
+                    DataTypeFactory::instance().create_data_type(cols[i], false, precision, scale);
+        }
+        switch (cols[i]) {
+        case TYPE_BOOLEAN: {
+            auto vec = ColumnVector<TYPE_BOOLEAN>::create();
+            auto& data = vec->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                data.push_back(i % 2);
+            }
+            DataTypePtr data_type(std::make_shared<DataTypeUInt8>());
+            ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            block->insert(std::move(type_and_name));
+        } break;
+        case TYPE_TINYINT: {
+            auto vec = ColumnInt8::create();
+            for (int i = 0; i < row_num; ++i) {
+                vec->get_data().push_back(static_cast<int8_t>(i - 3));
+            }
+            block->insert(ColumnWithTypeAndName(vec->get_ptr(), std::make_shared<DataTypeInt8>(),
+                                                col_name));
+        } break;
+        case TYPE_SMALLINT: {
+            auto vec = ColumnInt16::create();
+            for (int i = 0; i < row_num; ++i) {
+                vec->get_data().push_back(static_cast<int16_t>(i * 17 - 50));
+            }
+            block->insert(ColumnWithTypeAndName(vec->get_ptr(), std::make_shared<DataTypeInt16>(),
+                                                col_name));
+        } break;
+        case TYPE_INT:
+            if (is_nullable) {
+                {
+                    auto column_vector_int32 = ColumnVector<TYPE_INT>::create();
+                    auto column_nullable_vector = make_nullable(std::move(column_vector_int32));
+                    auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
+                    for (int i = 0; i < row_num; i++) {
+                        if (i % 2 == 0) {
+                            mutable_nullable_vector->insert_default();
+                        } else {
+                            mutable_nullable_vector->insert(
+                                    Field::create_field<TYPE_INT>(int32_t(i)));
+                        }
+                    }
+                    auto data_type = make_nullable(std::make_shared<DataTypeInt32>());
+                    ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(),
+                                                        data_type, col_name);
+                    block->insert(type_and_name);
+                }
+            } else {
+                auto vec = ColumnVector<TYPE_INT>::create();
+                auto& data = vec->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    data.push_back(i);
+                }
+                DataTypePtr data_type(std::make_shared<DataTypeInt32>());
+                ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+                block->insert(std::move(type_and_name));
+            }
+            break;
+        case TYPE_BIGINT: {
+            auto vec = ColumnInt64::create();
+            for (int i = 0; i < row_num; ++i) {
+                vec->get_data().push_back(static_cast<int64_t>(i) * 1'000'000'007 - 2);
+            }
+            block->insert(ColumnWithTypeAndName(vec->get_ptr(), std::make_shared<DataTypeInt64>(),
+                                                col_name));
+        } break;
+        case TYPE_FLOAT: {
+            auto vec = ColumnFloat32::create();
+            for (int i = 0; i < row_num; ++i) {
+                vec->get_data().push_back(static_cast<float>(i) + 0.25F);
+            }
+            block->insert(ColumnWithTypeAndName(vec->get_ptr(), std::make_shared<DataTypeFloat32>(),
+                                                col_name));
+        } break;
+        case TYPE_DOUBLE: {
+            auto vec = ColumnFloat64::create();
+            for (int i = 0; i < row_num; ++i) {
+                vec->get_data().push_back(static_cast<double>(i) + 0.125);
+            }
+            block->insert(ColumnWithTypeAndName(vec->get_ptr(), std::make_shared<DataTypeFloat64>(),
+                                                col_name));
+        } break;
+        case TYPE_TIMEV2: {
+            auto vec = ColumnTimeV2::create();
+            for (int i = 0; i < row_num; ++i) {
+                vec->get_data().push_back(3600.125 + i);
+            }
+            block->insert(ColumnWithTypeAndName(vec->get_ptr(), std::make_shared<DataTypeTimeV2>(6),
+                                                col_name));
+        } break;
+        case TYPE_DECIMAL32: {
+            DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal32>(9, 2);
+            type_desc = decimal_data_type;
+            auto decimal_column = decimal_data_type->create_column();
+            auto& data = ((ColumnDecimal32*)decimal_column.get())->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                if (i == 0) {
+                    data.push_back(Int32(0));
+                    continue;
+                }
+                Int32 val;
+                StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+                i % 2 == 0 ? val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
+                                     "1234567.56", 10, type_desc->get_precision(),
+                                     type_desc->get_scale(), &result)
+                           : val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
+                                     "-1234567.56", 11, type_desc->get_precision(),
+                                     type_desc->get_scale(), &result);
+                EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
+                data.push_back(val);
+            }
+
+            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                                col_name);
+            block->insert(type_and_name);
+        } break;
+        case TYPE_DECIMAL64: {
+            DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal64>(18, 6);
+            type_desc = decimal_data_type;
+            auto decimal_column = decimal_data_type->create_column();
+            auto& data = ((ColumnDecimal64*)decimal_column.get())->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                if (i == 0) {
+                    data.push_back(Int64(0));
+                    continue;
+                }
+                Int64 val;
+                StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+                std::string decimal_string =
+                        i % 2 == 0 ? "-123456789012.123456" : "123456789012.123456";
+                val = StringParser::string_to_decimal<TYPE_DECIMAL64>(
+                        decimal_string.c_str(), decimal_string.size(), type_desc->get_precision(),
+                        type_desc->get_scale(), &result);
+                EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
+                data.push_back(val);
+            }
+            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                                col_name);
+            block->insert(type_and_name);
+        } break;
+        case TYPE_DECIMAL128I: {
+            DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
+            type_desc = decimal_data_type;
+            auto decimal_column = decimal_data_type->create_column();
+            auto& data = ((ColumnDecimal128V3*)decimal_column.get())->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
+                data.push_back(value);
+            }
+            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                                col_name);
+            block->insert(type_and_name);
+        } break;
+        case TYPE_STRING:
+        case TYPE_VARCHAR:
+        case TYPE_CHAR: {
+            auto strcol = ColumnString::create();
+            for (int i = 0; i < row_num; ++i) {
+                std::string is = std::to_string(i);
+                strcol->insert_data(is.c_str(), is.size());
+            }
+            DataTypePtr data_type = cols[i] == TYPE_STRING
+                                            ? std::make_shared<DataTypeString>()
+                                            : std::make_shared<DataTypeString>(
+                                                      cols[i] == TYPE_CHAR ? 16 : 128, cols[i]);
+            ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
+            block->insert(type_and_name);
+        } break;
+        case TYPE_VARBINARY: {
+            auto binary = ColumnVarbinary::create();
+            for (int i = 0; i < row_num; ++i) {
+                const std::array<char, 4> value = {static_cast<char>(i), '\0',
+                                                   static_cast<char>(0x80 + i),
+                                                   static_cast<char>(0xff)};
+                binary->insert_data(value.data(), value.size());
+            }
+            block->insert(ColumnWithTypeAndName(
+                    binary->get_ptr(), std::make_shared<DataTypeVarbinary>(128), col_name));
+        } break;
+        case TYPE_HLL: {
+            DataTypePtr hll_data_type(std::make_shared<DataTypeHLL>());
+            auto hll_column = hll_data_type->create_column();
+            std::vector<HyperLogLog>& container = ((ColumnHLL*)hll_column.get())->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                HyperLogLog hll;
+                hll.update(i);
+                container.push_back(hll);
+            }
+            ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type, col_name);
+
+            block->insert(type_and_name);
+        } break;
+        case TYPE_BITMAP: {
+            DataTypePtr bitmap_type(std::make_shared<DataTypeBitMap>());
+            auto bitmap_column = ColumnBitmap::create();
+            for (int i = 0; i < row_num; ++i) {
+                bitmap_column->insert_value(i == 0 ? BitmapValue::empty_bitmap() : BitmapValue(i));
+            }
+            block->insert(ColumnWithTypeAndName(bitmap_column->get_ptr(), bitmap_type, col_name));
+        } break;
+        case TYPE_QUANTILE_STATE: {
+            DataTypePtr quantile_type(std::make_shared<DataTypeQuantileState>());
+            auto quantile_column = ColumnQuantileState::create();
+            for (int i = 0; i < row_num; ++i) {
+                QuantileState state;
+                state.add_value(i + 0.5);
+                quantile_column->insert_value(state);
+            }
+            block->insert(
+                    ColumnWithTypeAndName(quantile_column->get_ptr(), quantile_type, col_name));
+        } break;
+        case TYPE_DATEV2: {
+            auto column_vector_date_v2 = ColumnVector<TYPE_DATEV2>::create();
+            auto& date_v2_data = column_vector_date_v2->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                DateV2Value<DateV2ValueType> value;
+                value.from_date_int64(20210501);
+                date_v2_data.push_back(*reinterpret_cast<UInt32*>(&value));
+            }
+            DataTypePtr date_v2_type(std::make_shared<DataTypeDateV2>());
+            ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(), date_v2_type,
+                                               col_name);
+            block->insert(test_date_v2);
+        } break;
+        case TYPE_DATE: // int64
+        {
+            auto column_vector_date = ColumnVector<TYPE_DATE>::create();
+            auto& date_data = column_vector_date->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                VecDateTimeValue value;
+                value.from_date_int64(20210501);
+                date_data.push_back(value);
+            }
+            DataTypePtr date_type(std::make_shared<DataTypeDate>());
+            ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type, col_name);
+            block->insert(test_date);
+        } break;
+        case TYPE_DATETIME: // int64
+        {
+            auto column_vector_datetime = ColumnVector<TYPE_DATETIME>::create();
+            auto& datetime_data = column_vector_datetime->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                VecDateTimeValue value;
+                value.from_date_int64(20210501080910);
+                datetime_data.push_back(value);
+            }
+            DataTypePtr datetime_type(std::make_shared<DataTypeDateTime>());
+            ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(), datetime_type,
+                                                col_name);
+            block->insert(test_datetime);
+        } break;
+        case TYPE_DATETIMEV2: // uint64
+        {
+            auto column_vector_datetimev2 = ColumnVector<TYPE_DATETIMEV2>::create();
+            DateV2Value<DateTimeV2ValueType> value;
+            std::string date_literal = "2022-01-01 11:11:11.111";
+            cctz::time_zone ctz;
+            TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+            {
+                CastParameters p;
+                EXPECT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                        {date_literal.c_str(), date_literal.size()}, value, &ctz, 3, p));
+            }
+            char to[64] = {};
+            std::cout << "value: " << value.to_string(to) << std::endl;
+            for (int i = 0; i < row_num; ++i) {
+                column_vector_datetimev2->insert(Field::create_field<TYPE_DATETIMEV2>(value));
+            }
+            DataTypePtr datetimev2_type(std::make_shared<DataTypeDateTimeV2>(3));
+            ColumnWithTypeAndName test_datetimev2(column_vector_datetimev2->get_ptr(),
+                                                  datetimev2_type, col_name);
+            block->insert(test_datetimev2);
+        } break;
+        case TYPE_ARRAY: // array
+        {
+            DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr au = std::make_shared<DataTypeArray>(s);
+            Array a1, a2;
+            a1.push_back(Field::create_field<TYPE_STRING>("sss"));
+            a1.push_back(Field());
+            a1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+            a2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+            a2.push_back(Field());
+            a2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+            a2.push_back(Field::create_field<TYPE_STRING>("sf"));
+            MutableColumnPtr array_column = au->create_column();
+            array_column->reserve(2);
+            array_column->insert(Field::create_field<TYPE_ARRAY>(a1));
+            array_column->insert(Field::create_field<TYPE_ARRAY>(a2));
+            ColumnWithTypeAndName type_and_name(array_column->get_ptr(), au, col_name);
+            block->insert(type_and_name);
+            type_desc = au;
+            break;
+        }
+        case TYPE_MAP: {
+            DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
+            type_desc = m;
+            Array k1, k2, v1, v2;
+            k1.push_back(Field::create_field<TYPE_STRING>("null"));
+            k1.push_back(Field::create_field<TYPE_STRING>("doris"));
+            k1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+            v1.push_back(Field::create_field<TYPE_STRING>("ss"));
+            v1.push_back(Field());
+            v1.push_back(Field::create_field<TYPE_STRING>("NULL"));
+            k2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+            k2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+            k2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+            k2.push_back(Field::create_field<TYPE_STRING>("doris"));
+            v2.push_back(Field::create_field<TYPE_STRING>("s"));
+            v2.push_back(Field::create_field<TYPE_STRING>("0"));
+            v2.push_back(Field::create_field<TYPE_STRING>("sf"));
+            v2.push_back(Field());
+            Map m1, m2;
+            m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+            m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+            m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+            m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
+            MutableColumnPtr map_column = m->create_column();
+            map_column->reserve(2);
+            map_column->insert(Field::create_field<TYPE_MAP>(m1));
+            map_column->insert(Field::create_field<TYPE_MAP>(m2));
+            ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
+            block->insert(type_and_name);
+        } break;
+        case TYPE_STRUCT: {
+            DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
+            DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
+            DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
+            type_desc = st;
+            Struct t1, t2;
+            t1.push_back(Field::create_field<TYPE_STRING>("amory cute"));
+            t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+            t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+            t2.push_back(Field::create_field<TYPE_STRING>("null"));
+            t2.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+            t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
+            MutableColumnPtr struct_column = st->create_column();
+            struct_column->reserve(2);
+            struct_column->insert(Field::create_field<TYPE_STRUCT>(t1));
+            struct_column->insert(Field::create_field<TYPE_STRUCT>(t2));
+            ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, col_name);
+            block->insert(type_and_name);
+        } break;
+        case TYPE_IPV4: {
+            auto vec = ColumnIPv4::create();
+            auto& data = vec->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                data.push_back(i);
+            }
+            DataTypePtr data_type(std::make_shared<DataTypeIPv4>());
+            ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            block->insert(std::move(type_and_name));
+        } break;
+        case TYPE_IPV6: {
+            auto vec = ColumnIPv6::create();
+            auto& data = vec->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                data.push_back(i);
+            }
+            DataTypePtr data_type(std::make_shared<DataTypeIPv6>());
+            ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            block->insert(std::move(type_and_name));
+        } break;
+        case TYPE_LARGEINT: {
+            if (is_nullable) {
+                auto column_int128 = ColumnInt128::create();
+                auto column_nullable = make_nullable(std::move(column_int128));
+                auto mutable_nullable = std::move(*column_nullable).mutate();
+                for (int i = 0; i < row_num; ++i) {
+                    if (i % 2 == 0) {
+                        mutable_nullable->insert_default();
+                    } else {
+                        mutable_nullable->insert(Field::create_field<TYPE_LARGEINT>(__int128_t(i)));
+                    }
+                }
+                auto data_type = make_nullable(std::make_shared<DataTypeInt128>());
+                ColumnWithTypeAndName type_and_name(mutable_nullable->get_ptr(), data_type,
+                                                    col_name);
+                block->insert(std::move(type_and_name));
+            } else {
+                auto vec = ColumnInt128::create();
+                auto& data = vec->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    data.push_back(__int128_t(i));
+                }
+                DataTypePtr data_type(std::make_shared<DataTypeInt128>());
+                ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+                block->insert(std::move(type_and_name));
+            }
+        } break;
+        default:
+            LOG(FATAL) << "error column type";
+        }
+    }
+    return block;
+}
+
+void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int row_num,
+                                          bool is_nullable) {
+    std::shared_ptr<Block> block = create_test_block(cols, row_num, is_nullable);
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    auto assert_block = std::make_shared<Block>(block->clone_empty());
+    CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
+template <typename Convertor>
+std::unique_ptr<ArrowBlockConvertor> make_arrow_convertor(
+        const std::shared_ptr<arrow::Schema>& schema, const cctz::time_zone& timezone) {
+    return std::make_unique<Convertor>(schema, timezone);
+}
+
+using ArrowConvertorFactory = std::unique_ptr<ArrowBlockConvertor> (*)(
+        const std::shared_ptr<arrow::Schema>&, const cctz::time_zone&);
+
+// These binding tests supply target schemas intentionally, including unsupported bindings.
+// Production table writers construct converters from their native schema parameters instead.
+Status convert_to_arrow_batch_for_test(
+        const Block& block, const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
+        std::shared_ptr<arrow::RecordBatch>* result, const cctz::time_zone& timezone,
+        size_t start = 0, size_t end = 0,
+        ArrowConvertorFactory factory = make_arrow_convertor<DorisArrowBlockConvertor>) {
+    auto converter = factory(schema, timezone);
+    RETURN_IF_ERROR(converter->init());
+    return converter->convert_to_arrow(block, pool, result, start, end);
+}
+
+void block_converter_test(std::vector<PrimitiveType> cols, int row_num, bool is_nullable) {
+    std::shared_ptr<Block> source_block = create_test_block(cols, row_num, is_nullable);
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    std::shared_ptr<arrow::Schema> schema;
+    Status status = Status::OK();
+    status = get_arrow_schema_from_block(*source_block, &schema, TimezoneUtils::default_time_zone);
+    ASSERT_TRUE(status.ok() && schema);
+    cctz::time_zone default_timezone;
+    ASSERT_TRUE(
+            TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, default_timezone));
+    status = convert_to_arrow_batch_for_test(*source_block, schema, arrow::default_memory_pool(),
+                                             &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok() && record_batch) << status;
+    auto target_block = std::make_shared<Block>(source_block->clone_empty());
+    DataTypes source_data_types = source_block->get_data_types();
+    status = DorisArrowBlockConvertor(record_batch->schema(), default_timezone)
+                     .convert_from_arrow(record_batch, source_data_types, &*target_block);
+    ASSERT_TRUE(status.ok() && target_block);
+    CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
+}
+
+TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {
+    std::vector<PrimitiveType> cols = {
+            TYPE_TINYINT,   TYPE_SMALLINT,  TYPE_INT,       TYPE_BIGINT,      TYPE_FLOAT,
+            TYPE_DOUBLE,    TYPE_BOOLEAN,   TYPE_STRING,    TYPE_VARCHAR,     TYPE_CHAR,
+            TYPE_VARBINARY, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_IPV4,
+            TYPE_IPV6,      TYPE_LARGEINT,  TYPE_DATETIME,  TYPE_DATETIMEV2,  TYPE_DATE,
+            TYPE_DATEV2,
+    };
+    serialize_and_deserialize_arrow_test(cols, 7, true);
+    serialize_and_deserialize_arrow_test(cols, 7, false);
+}
+
+TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
+    std::vector<PrimitiveType> cols = {TYPE_ARRAY, TYPE_MAP, TYPE_STRUCT};
+    serialize_and_deserialize_arrow_test(cols, 7, true);
+    serialize_and_deserialize_arrow_test(cols, 7, false);
+}
+
+TEST(DataTypeSerDeArrowTest, ArrowBlockConvertorReusesBothDirectionsAndValidatesSlices) {
+    auto source = create_test_block({TYPE_INT, TYPE_STRING, TYPE_VARBINARY}, 4, true);
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(*source, &schema, "UTC").ok());
+    ArrowFlightArrowBlockConvertor convertor(schema, cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(convertor.convert_to_arrow(*source, arrow::default_memory_pool(), &batch).ok());
+    auto output = std::make_shared<Block>(source->clone_empty());
+    ASSERT_TRUE(convertor.convert_from_arrow(batch, source->get_data_types(), output.get()).ok());
+    CommonDataTypeSerdeTest::compare_two_blocks(source, output);
+    ASSERT_TRUE(
+            convertor.convert_to_arrow(*source, arrow::default_memory_pool(), &batch, 1, 3).ok());
+    EXPECT_EQ(batch->num_rows(), 2);
+    EXPECT_FALSE(
+            convertor.convert_to_arrow(*source, arrow::default_memory_pool(), &batch, 3, 2).ok());
+    EXPECT_FALSE(
+            convertor.convert_to_arrow(*source, arrow::default_memory_pool(), &batch, 5, 0).ok());
+}
+
+void expect_target_converter_matches_plain(const std::vector<PrimitiveType>& types,
+                                           ArrowConvertorFactory target_converter) {
+    auto block = create_test_block(types, 4, false);
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(*block, &schema, "UTC").ok());
+
+    std::shared_ptr<arrow::RecordBatch> plain_batch;
+    ASSERT_TRUE(
+            convert_to_arrow_batch_for_test(*block, schema, arrow::default_memory_pool(),
+                                            &plain_batch, cctz::utc_time_zone(), 1, block->rows(),
+                                            make_arrow_convertor<ArrowFlightArrowBlockConvertor>)
+                    .ok());
+    std::shared_ptr<arrow::RecordBatch> target_batch;
+    ASSERT_TRUE(convert_to_arrow_batch_for_test(*block, schema, arrow::default_memory_pool(),
+                                                &target_batch, cctz::utc_time_zone(), 1,
+                                                block->rows(), target_converter)
+                        .ok());
+    ASSERT_TRUE(target_batch->ValidateFull().ok()) << target_batch->ValidateFull();
+    EXPECT_TRUE(target_batch->Equals(*plain_batch));
+}
+
+TEST(DataTypeSerDeArrowTest, IcebergCommonScalarTypesUseDeclaredConverter) {
+    expect_target_converter_matches_plain(
+            {TYPE_BOOLEAN, TYPE_INT, TYPE_BIGINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_STRING,
+             TYPE_VARBINARY, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DATEV2},
+            make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
+}
+
+TEST(DataTypeSerDeArrowTest, PaimonDoesNotReadThroughGenericArrowSerde) {
+    Block output;
+    const auto batch = arrow::RecordBatch::Make(arrow::schema({}), 0, arrow::ArrayVector {});
+    paimon::PaimonArrowBlockConvertor converter(batch->schema(), cctz::utc_time_zone());
+    const auto status = converter.convert_from_arrow(batch, {}, &output);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(output.columns(), 0);
+}
+
+TEST(DataTypeSerDeArrowTest, PaimonCommonScalarTypesUseDeclaredConverter) {
+    expect_target_converter_matches_plain(
+            {TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_FLOAT,
+             TYPE_DOUBLE, TYPE_STRING, TYPE_VARCHAR, TYPE_CHAR, TYPE_VARBINARY, TYPE_DECIMAL32,
+             TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DATEV2},
+            make_arrow_convertor<paimon::PaimonArrowBlockConvertor>);
+}
+
+TEST(DataTypeSerDeArrowTest, PlainArrowWritesAggregateStateBinaryTypes) {
+    auto block = create_test_block({TYPE_HLL, TYPE_BITMAP, TYPE_QUANTILE_STATE}, 3, false);
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(*block, &schema, "UTC").ok());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    Status status = convert_to_arrow_batch_for_test(
+            *block, schema, arrow::default_memory_pool(), &batch, cctz::utc_time_zone(), 0,
+            block->rows(), make_arrow_convertor<ArrowFlightArrowBlockConvertor>);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(batch->ValidateFull().ok()) << batch->ValidateFull();
+    ASSERT_EQ(3, batch->num_columns());
+    for (const auto& column : batch->columns()) {
+        EXPECT_EQ(arrow::Type::BINARY, column->type_id());
+        EXPECT_EQ(3, column->length());
+    }
+}
+
+TEST(DataTypeSerDeArrowTest, PlainArrowWritesTimeV2) {
+    auto block = create_test_block({TYPE_TIMEV2}, 3, false);
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(*block, &schema, "UTC").ok());
+    ASSERT_EQ(arrow::Type::DOUBLE, schema->field(0)->type()->id());
+
+    std::shared_ptr<arrow::RecordBatch> batch;
+    Status status = convert_to_arrow_batch_for_test(
+            *block, schema, arrow::default_memory_pool(), &batch, cctz::utc_time_zone(), 0,
+            block->rows(), make_arrow_convertor<ArrowFlightArrowBlockConvertor>);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(batch->ValidateFull().ok()) << batch->ValidateFull();
+    const auto& values = assert_cast<const arrow::DoubleArray&>(*batch->column(0));
+    ASSERT_EQ(3, values.length());
+    EXPECT_DOUBLE_EQ(3600.125, values.Value(0));
+    EXPECT_DOUBLE_EQ(3602.125, values.Value(2));
+}
+
+TEST(DataTypeSerDeArrowTest, TargetConvertersRecurseThroughOrdinaryComplexTypes) {
+    const std::vector<PrimitiveType> complex_types = {TYPE_ARRAY, TYPE_MAP, TYPE_STRUCT};
+    expect_target_converter_matches_plain(
+            complex_types, make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
+    expect_target_converter_matches_plain(complex_types,
+                                          make_arrow_convertor<paimon::PaimonArrowBlockConvertor>);
+}
+
+TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
+    std::string col_name = "map_null_key";
+    auto block = std::make_shared<Block>();
+    {
+        DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+        DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
+        Array k1, k2, v1, v2, k3, v3;
+        k1.push_back(Field::create_field<TYPE_STRING>("doris"));
+        k1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+        v1.push_back(Field());
+        v1.push_back(Field::create_field<TYPE_INT>(30));
+        k2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+        k2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+        k2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+        k2.push_back(Field::create_field<TYPE_STRING>("doris"));
+        v2.push_back(Field::create_field<TYPE_INT>(26));
+        v2.push_back(Field());
+        v2.push_back(Field::create_field<TYPE_INT>(6));
+        v2.push_back(Field::create_field<TYPE_INT>(7));
+        k3.push_back(Field::create_field<TYPE_STRING>("test"));
+        v3.push_back(Field::create_field<TYPE_INT>(11));
+        Map m1, m2, m3;
+        m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
+        m3.push_back(Field::create_field<TYPE_ARRAY>(k3));
+        m3.push_back(Field::create_field<TYPE_ARRAY>(v3));
+        MutableColumnPtr map_column = m->create_column();
+        map_column->reserve(3);
+        map_column->insert(Field::create_field<TYPE_MAP>(m1));
+        map_column->insert(Field::create_field<TYPE_MAP>(m2));
+        map_column->insert(Field::create_field<TYPE_MAP>(m3));
+        ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
+        block->insert(type_and_name);
+    }
+
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    auto assert_block = std::make_shared<Block>(block->clone_empty());
+    CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
+TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
+    std::string col_name = "big_string";
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    // 2G, if > 4G report string column length is too large: total_length=4402341462
+    for (int i = 0; i < 20; ++i) {
+        std::string is(107374182, '0'); // 100M
+        strcol->insert_data(is.c_str(), is.size());
+    }
+    DataTypePtr data_type(std::make_shared<DataTypeString>());
+    ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
+    block->insert(type_and_name);
+
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    auto assert_block = std::make_shared<Block>(block->clone_empty());
+    CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
+TEST(DataTypeSerDeArrowTest, PaimonTimestampBindsTargetTimezone) {
+    auto block = create_test_block({TYPE_DATETIMEV2}, 2, false);
+    auto ntz_schema =
+            arrow::schema({arrow::field("0", arrow::timestamp(arrow::TimeUnit::MILLI), false)});
+    auto ltz_schema = arrow::schema(
+            {arrow::field("0", arrow::timestamp(arrow::TimeUnit::MILLI, "Asia/Shanghai"), false)});
+    cctz::time_zone shanghai;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
+
+    const auto convert = [&](const std::shared_ptr<arrow::Schema>& schema,
+                             ArrowConvertorFactory converter,
+                             std::shared_ptr<arrow::RecordBatch>* record_batch) {
+        return convert_to_arrow_batch_for_test(*block, schema, arrow::default_memory_pool(),
+                                               record_batch, shanghai, 0, block->rows(), converter);
+    };
+
+    std::shared_ptr<arrow::RecordBatch> ntz_batch;
+    Status status = convert(ntz_schema, make_arrow_convertor<paimon::PaimonArrowBlockConvertor>,
+                            &ntz_batch);
+    ASSERT_TRUE(status.ok()) << status;
+
+    std::shared_ptr<arrow::RecordBatch> ltz_batch;
+    status = convert(ltz_schema, make_arrow_convertor<paimon::PaimonArrowBlockConvertor>,
+                     &ltz_batch);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& ntz_values = assert_cast<const arrow::TimestampArray&>(*ntz_batch->column(0));
+    const auto& ltz_values = assert_cast<const arrow::TimestampArray&>(*ltz_batch->column(0));
+    EXPECT_EQ(ntz_values.Value(0) - 8 * 60 * 60 * 1000, ltz_values.Value(0));
+
+    std::shared_ptr<arrow::RecordBatch> iceberg_ntz_batch;
+    status = convert(ntz_schema, make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>,
+                     &iceberg_ntz_batch);
+    ASSERT_TRUE(status.ok()) << status;
+    std::shared_ptr<arrow::RecordBatch> iceberg_ltz_batch;
+    status = convert(ltz_schema, make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>,
+                     &iceberg_ltz_batch);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(iceberg_ntz_batch->Equals(*ntz_batch));
+    EXPECT_TRUE(iceberg_ltz_batch->Equals(*ltz_batch));
+
+    std::shared_ptr<arrow::RecordBatch> unused_batch;
+    status = convert(ntz_schema, make_arrow_convertor<ArrowFlightArrowBlockConvertor>,
+                     &unused_batch);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(unused_batch->Equals(*ntz_batch));
+}
+
+TEST(DataTypeSerDeArrowTest, TargetConvertersWriteNullableTimestampTz) {
+    auto values = ColumnTimeStampTz::create();
+    TimestampTzValue first;
+    first.unchecked_set_time(1969, 12, 31, 23, 59, 59, 123456);
+    TimestampTzValue second;
+    second.unchecked_set_time(2024, 1, 2, 3, 4, 5, 654321);
+    values->insert_value(first);
+    values->insert_value(second);
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().assign({0, 1});
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(
+            ColumnNullable::create(std::move(values), std::move(null_map)),
+            make_nullable(std::make_shared<DataTypeTimeStampTz>(6)), "event_time"));
+    auto schema = arrow::schema({arrow::field(
+            "event_time", arrow::timestamp(arrow::TimeUnit::MICRO, "Asia/Shanghai"), true)});
+    cctz::time_zone shanghai;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
+
+    const auto convert = [&](ArrowConvertorFactory converter,
+                             std::shared_ptr<arrow::RecordBatch>* batch) {
+        return convert_to_arrow_batch_for_test(block, schema, arrow::default_memory_pool(), batch,
+                                               shanghai, 0, block.rows(), converter);
+    };
+    std::shared_ptr<arrow::RecordBatch> plain_batch;
+    ASSERT_TRUE(convert(make_arrow_convertor<ArrowFlightArrowBlockConvertor>, &plain_batch).ok());
+    std::shared_ptr<arrow::RecordBatch> iceberg_batch;
+    ASSERT_TRUE(convert(make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>, &iceberg_batch)
+                        .ok());
+    std::shared_ptr<arrow::RecordBatch> paimon_batch;
+    ASSERT_TRUE(
+            convert(make_arrow_convertor<paimon::PaimonArrowBlockConvertor>, &paimon_batch).ok());
+
+    EXPECT_TRUE(iceberg_batch->Equals(*plain_batch));
+    EXPECT_TRUE(paimon_batch->Equals(*plain_batch));
+    const auto& timestamps = assert_cast<const arrow::TimestampArray&>(*paimon_batch->column(0));
+    EXPECT_EQ(-876544, timestamps.Value(0));
+    EXPECT_TRUE(timestamps.IsNull(1));
+}
+
+TEST(DataTypeSerDeArrowTest, PaimonTimestampTzPreservesBothSidesOfDstFold) {
+    auto values = ColumnTimeStampTz::create();
+    for (int hour : {8, 9}) {
+        TimestampTzValue value;
+        value.unchecked_set_time(2023, 11, 5, hour, 30, 0, 123456);
+        values->insert_value(value);
+    }
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(values), std::make_shared<DataTypeTimeStampTz>(6),
+                                       "event_time"));
+    auto schema = arrow::schema({arrow::field(
+            "event_time", arrow::timestamp(arrow::TimeUnit::MICRO, "America/Los_Angeles"), false)});
+    cctz::time_zone timezone;
+    ASSERT_TRUE(cctz::load_time_zone("America/Los_Angeles", &timezone));
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(convert_to_arrow_batch_for_test(
+                        block, schema, arrow::default_memory_pool(), &batch, timezone, 0,
+                        block.rows(), make_arrow_convertor<paimon::PaimonArrowBlockConvertor>)
+                        .ok());
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    const auto& timestamps = assert_cast<const arrow::TimestampArray&>(*batch->column(0));
+    // Both instants display as 01:30 locally, but must remain one hour apart on the wire.
+    EXPECT_EQ(1699173000123456LL, timestamps.Value(0));
+    EXPECT_EQ(1699176600123456LL, timestamps.Value(1));
+}
+
+TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    strcol->insert_data("550e8400-e29b-41d4-a716-446655440000", 36);
+    strcol->insert_data("00112233445566778899aabbccddeeff", 32);
+    DataTypePtr data_type(std::make_shared<DataTypeString>());
+    block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "uuid_col"));
+
+    auto metadata = arrow::KeyValueMetadata::Make({"originalType"}, {"uuid"});
+    auto schema =
+            arrow::schema({arrow::field("uuid_col", arrow::fixed_size_binary(16), true, metadata)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch_for_test(
+            *block, schema, arrow::default_memory_pool(), &record_batch, default_timezone, 0,
+            block->rows(), make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(nullptr, record_batch);
+    ASSERT_EQ(2, record_batch->num_rows());
+
+    auto uuid_array =
+            std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
+    ASSERT_EQ(16, uuid_array->byte_width());
+
+    const uint8_t expected0[] = {0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4,
+                                 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00};
+    const uint8_t expected1[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(0), expected0, sizeof(expected0)));
+    EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(1), expected1, sizeof(expected1)));
+}
+
+TEST(DataTypeSerDeArrowTest, PlainArrowConverterDoesNotInferIcebergUuid) {
+    Block block;
+    auto column = ColumnString::create();
+    column->insert_data("550e8400-e29b-41d4-a716-446655440000", 36);
+    block.insert(ColumnWithTypeAndName(column->get_ptr(), std::make_shared<DataTypeString>(),
+                                       "uuid_col"));
+    auto metadata = arrow::KeyValueMetadata::Make({"originalType"}, {"uuid"});
+    auto schema =
+            arrow::schema({arrow::field("uuid_col", arrow::fixed_size_binary(16), true, metadata)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    const Status status = convert_to_arrow_batch_for_test(
+            block, schema, arrow::default_memory_pool(), &record_batch, cctz::utc_time_zone());
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos, status.to_string().find("Plain Arrow writer is not bound"));
+}
+
+TEST(DataTypeSerDeArrowTest, NestedIcebergUuidStringToFixedSizeBinary) {
+    auto block = std::make_shared<Block>();
+    DataTypePtr data_type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {std::make_shared<DataTypeString>()});
+    auto struct_column = data_type->create_column();
+
+    Struct row;
+    row.push_back(Field::create_field<TYPE_STRING>("550e8400-e29b-41d4-a716-446655440000"));
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(row));
+    block->insert(ColumnWithTypeAndName(struct_column->get_ptr(), data_type, "uuid_struct"));
+
+    auto metadata = arrow::KeyValueMetadata::Make({"originalType"}, {"uuid"});
+    auto schema = arrow::schema({arrow::field(
+            "uuid_struct",
+            arrow::struct_({arrow::field("id", arrow::fixed_size_binary(16), true, metadata)}),
+            true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch_for_test(
+            *block, schema, arrow::default_memory_pool(), &record_batch, default_timezone, 0,
+            block->rows(), make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto struct_array = std::static_pointer_cast<arrow::StructArray>(record_batch->column(0));
+    auto uuid_array = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(struct_array->field(0));
+    const uint8_t expected[] = {0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4,
+                                0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00};
+    EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(0), expected, sizeof(expected)));
+}
+
+TEST(DataTypeSerDeArrowTest, IcebergFixedVarbinaryPreservesRawBytesNullsAndRowRange) {
+    constexpr int width = 256;
+    std::vector<std::string> values(4, std::string(width, '\0'));
+    for (size_t row = 0; row < values.size(); ++row) {
+        for (int byte = 0; byte < width; ++byte) {
+            values[row][byte] = static_cast<char>((row * 67 + byte * 131) & 0xff);
+        }
+    }
+
+    auto data = ColumnVarbinary::create();
+    for (const auto& value : values) {
+        data->insert_data(value.data(), value.size());
+    }
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().assign({0, 0, 1, 0});
+    auto column = ColumnNullable::create(std::move(data), std::move(null_map));
+    DataTypePtr type = make_nullable(std::make_shared<DataTypeVarbinary>(width));
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(column->get_ptr(), type, "fixed_col"));
+    auto schema = arrow::schema({arrow::field("fixed_col", arrow::fixed_size_binary(width), true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    Status status = convert_to_arrow_batch_for_test(
+            block, schema, arrow::default_memory_pool(), &record_batch, cctz::utc_time_zone(), 1, 4,
+            make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(3, record_batch->num_rows());
+    auto fixed = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
+    ASSERT_EQ(width, fixed->byte_width());
+    EXPECT_FALSE(fixed->IsNull(0));
+    EXPECT_TRUE(fixed->IsNull(1));
+    EXPECT_FALSE(fixed->IsNull(2));
+    EXPECT_EQ(0, std::memcmp(fixed->GetValue(0), values[1].data(), width));
+    EXPECT_EQ(0, std::memcmp(fixed->GetValue(2), values[3].data(), width));
+}
+
+TEST(DataTypeSerDeArrowTest, IcebergFixedBinaryPreservesBindingsAndRejectsInvalidValues) {
+    auto convert = [](DataTypePtr type, std::string_view value, int target_width,
+                      ArrowConvertorFactory converter) {
+        MutableColumnPtr column = type->create_column();
+        column->insert_data(value.data(), value.size());
+        Block block;
+        block.insert(ColumnWithTypeAndName(std::move(column), type, "fixed_col"));
+        auto schema = arrow::schema(
+                {arrow::field("fixed_col", arrow::fixed_size_binary(target_width), true)});
+        std::shared_ptr<arrow::RecordBatch> record_batch;
+        return convert_to_arrow_batch_for_test(block, schema, arrow::default_memory_pool(),
+                                               &record_batch, cctz::utc_time_zone(), 0,
+                                               block.rows(), converter);
+    };
+
+    const auto& iceberg_converter = make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>;
+    Status status = convert(std::make_shared<DataTypeVarbinary>(4), "abc", 4, iceberg_converter);
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos,
+              status.to_string().find("Fixed size binary column expects 4 bytes, got 3"));
+
+    status = convert(std::make_shared<DataTypeVarbinary>(4), "abcde", 4, iceberg_converter);
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos,
+              status.to_string().find("Fixed size binary column expects 4 bytes, got 5"));
+
+    // This refactor preserves the current external mappings and validates physical values.
+    status = convert(std::make_shared<DataTypeVarbinary>(8), "abcd", 4, iceberg_converter);
+    EXPECT_TRUE(status.ok()) << status;
+    status = convert(std::make_shared<DataTypeString>(4, TYPE_CHAR), "abcd", 4, iceberg_converter);
+    EXPECT_TRUE(status.ok()) << status;
+
+    status = convert(std::make_shared<DataTypeVarbinary>(4), "abcd", 4,
+                     make_arrow_convertor<ArrowFlightArrowBlockConvertor>);
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos, status.to_string().find("Plain Arrow writer is not bound"));
+}
+
+TEST(DataTypeSerDeArrowTest, NestedIcebergFixedVarbinaryUsesIcebergConverterRecursively) {
+    constexpr int width = 4;
+    const std::array<std::string, 3> values = {std::string("\0\x01\xfe\xff", width),
+                                               std::string("abcd", width),
+                                               std::string("\x80\0\x7f\x10", width)};
+    DataTypePtr fixed_type = std::make_shared<DataTypeVarbinary>(width);
+    DataTypePtr nullable_fixed_type = make_nullable(fixed_type);
+
+    auto make_nullable_fixed_column = [&]() {
+        auto data = ColumnVarbinary::create();
+        for (const auto& value : values) {
+            data->insert_data(value.data(), value.size());
+        }
+        auto null_map = ColumnUInt8::create();
+        null_map->get_data().assign({0, 1, 0});
+        return ColumnNullable::create(std::move(data), std::move(null_map));
+    };
+
+    auto array_offsets = ColumnArray::ColumnOffsets::create();
+    array_offsets->get_data().assign({2, 3, 3});
+    auto array_column = ColumnArray::create(make_nullable_fixed_column(), std::move(array_offsets));
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(nullable_fixed_type);
+
+    auto map_keys_data = ColumnString::create();
+    for (std::string_view key : {"k0", "k1", "k2"}) {
+        map_keys_data->insert_data(key.data(), key.size());
+    }
+    auto map_key_nulls = ColumnUInt8::create();
+    map_key_nulls->get_data().assign({0, 0, 0});
+    auto map_keys = ColumnNullable::create(std::move(map_keys_data), std::move(map_key_nulls));
+    auto map_offsets = ColumnArray::ColumnOffsets::create();
+    map_offsets->get_data().assign({2, 3, 3});
+    auto map_column = ColumnMap::create(std::move(map_keys), make_nullable_fixed_column(),
+                                        std::move(map_offsets));
+    DataTypePtr map_type = std::make_shared<DataTypeMap>(
+            make_nullable(std::make_shared<DataTypeString>()), nullable_fixed_type);
+
+    MutableColumns struct_children;
+    struct_children.emplace_back(make_nullable_fixed_column());
+    auto struct_column = ColumnStruct::create(std::move(struct_children));
+    DataTypePtr struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {nullable_fixed_type}, Strings {"payload"});
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(array_column), array_type, "items"));
+    block.insert(ColumnWithTypeAndName(std::move(map_column), map_type, "attrs"));
+    block.insert(ColumnWithTypeAndName(std::move(struct_column), struct_type, "info"));
+
+    const auto arrow_fixed = arrow::fixed_size_binary(width);
+    auto schema = arrow::schema({
+            arrow::field("items", arrow::list(arrow::field("element", arrow_fixed, true)), true),
+            arrow::field("attrs",
+                         std::make_shared<arrow::MapType>(arrow::field("key", arrow::utf8(), false),
+                                                          arrow::field("value", arrow_fixed, true)),
+                         true),
+            arrow::field("info", arrow::struct_({arrow::field("payload", arrow_fixed, true)}),
+                         true),
+    });
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    Status status = convert_to_arrow_batch_for_test(
+            block, schema, arrow::default_memory_pool(), &record_batch, cctz::utc_time_zone(), 0,
+            block.rows(), make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(record_batch->ValidateFull().ok()) << record_batch->ValidateFull();
+
+    auto items = std::static_pointer_cast<arrow::ListArray>(record_batch->column(0));
+    auto item_values = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(items->values());
+    EXPECT_EQ(3, item_values->length());
+    EXPECT_TRUE(item_values->IsNull(1));
+    EXPECT_EQ(0, std::memcmp(item_values->GetValue(0), values[0].data(), width));
+    EXPECT_EQ(0, std::memcmp(item_values->GetValue(2), values[2].data(), width));
+
+    auto attrs = std::static_pointer_cast<arrow::MapArray>(record_batch->column(1));
+    auto attr_values = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(attrs->items());
+    EXPECT_EQ(3, attr_values->length());
+    EXPECT_TRUE(attr_values->IsNull(1));
+    EXPECT_EQ(0, std::memcmp(attr_values->GetValue(2), values[2].data(), width));
+
+    auto info = std::static_pointer_cast<arrow::StructArray>(record_batch->column(2));
+    auto payloads = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(info->field(0));
+    EXPECT_EQ(3, payloads->length());
+    EXPECT_TRUE(payloads->IsNull(1));
+    EXPECT_EQ(0, std::memcmp(payloads->GetValue(0), values[0].data(), width));
+}
+
+TEST(DataTypeSerDeArrowTest, CharToFixedSizeBinaryPadsZeros) {
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    strcol->insert_data("ab", 2);
+    DataTypePtr data_type(std::make_shared<DataTypeString>(4, TYPE_CHAR));
+    block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "fixed_col"));
+
+    auto schema = arrow::schema({arrow::field("fixed_col", arrow::fixed_size_binary(4), true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch_for_test(
+            *block, schema, arrow::default_memory_pool(), &record_batch, default_timezone, 0,
+            block->rows(), make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto fixed_array =
+            std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
+    const char expected[] = {'a', 'b', '\0', '\0'};
+    EXPECT_EQ(0, std::memcmp(fixed_array->GetValue(0), expected, sizeof(expected)));
+}
+
+TEST(DataTypeSerDeArrowTest, StringToLargeBinary) {
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    strcol->insert_data("binary-value", 12);
+    DataTypePtr data_type(std::make_shared<DataTypeString>());
+    block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "bin_col"));
+
+    auto schema = arrow::schema({arrow::field("bin_col", arrow::large_binary(), true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch_for_test(*block, schema, arrow::default_memory_pool(),
+                                                    &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto binary_array = std::static_pointer_cast<arrow::LargeBinaryArray>(record_batch->column(0));
+    ASSERT_EQ(12, binary_array->value_length(0));
+    const uint8_t* raw = binary_array->value_data()->data() + binary_array->value_offset(0);
+    EXPECT_EQ(0, std::memcmp(raw, "binary-value", 12));
+}
+
+TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
+    std::vector<PrimitiveType> cols = {
+            TYPE_INT,       TYPE_INT,        TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
+            TYPE_DECIMAL32, TYPE_DECIMAL64,  TYPE_IPV4,   TYPE_IPV6,        TYPE_LARGEINT,
+            TYPE_DATETIME,  TYPE_DATETIMEV2, TYPE_DATE,   TYPE_DATEV2,
+    };
+    block_converter_test(cols, 7, true);
+    block_converter_test(cols, 7, false);
+}
+
+TEST(DataTypeSerDeArrowTest, ConvertDateTimeV2ToNaiveArrowType) {
+    const auto datetime_type = std::make_shared<DataTypeDateTimeV2>(6);
+    std::shared_ptr<arrow::DataType> arrow_type;
+
+    auto status = convert_to_arrow_type(datetime_type, &arrow_type, "Asia/Shanghai");
+    ASSERT_TRUE(status.ok()) << status;
+    auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_EQ("Asia/Shanghai", timestamp_type->timezone());
+
+    status = convert_to_arrow_type(datetime_type, &arrow_type, "Asia/Shanghai", true);
+    ASSERT_TRUE(status.ok()) << status;
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_TRUE(timestamp_type->timezone().empty());
+
+    const auto timestamptz_type = std::make_shared<DataTypeTimeStampTz>(6);
+    status = convert_to_arrow_type(timestamptz_type, &arrow_type, "Asia/Shanghai", true);
+    ASSERT_TRUE(status.ok()) << status;
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::MICRO, timestamp_type->unit());
+    EXPECT_EQ("Asia/Shanghai", timestamp_type->timezone());
+
+    const auto array_type = std::make_shared<DataTypeArray>(datetime_type);
+    status = convert_to_arrow_type(array_type, &arrow_type, "Asia/Shanghai", true);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto list_type = std::static_pointer_cast<arrow::ListType>(arrow_type);
+    timestamp_type = std::static_pointer_cast<arrow::TimestampType>(list_type->value_type());
+    EXPECT_TRUE(timestamp_type->timezone().empty());
+}
+
+TEST(DataTypeSerDeArrowTest, TimeStampNsArrowRoundTrip) {
+    const auto timestamp_ns_type = std::make_shared<DataTypeTimeStampNs>();
+    const auto nullable_timestamp_ns_type = make_nullable(timestamp_ns_type);
+    const auto timestamp_ns_array_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeTimeStampNs>()));
+    const auto timestamp_ns_map_type =
+            std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),
+                                          make_nullable(std::make_shared<DataTypeTimeStampNs>()));
+    const auto timestamp_ns_struct_type = std::make_shared<DataTypeStruct>(DataTypes {
+            make_nullable(std::make_shared<DataTypeTimeStampNs>()), timestamp_ns_array_type});
+
+    std::shared_ptr<arrow::DataType> arrow_type;
+    auto status = convert_to_arrow_type(timestamp_ns_type, &arrow_type, "Asia/Shanghai");
+    ASSERT_TRUE(status.ok()) << status;
+    auto arrow_timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ(arrow::TimeUnit::NANO, arrow_timestamp_type->unit());
+    EXPECT_TRUE(arrow_timestamp_type->timezone().empty());
+
+    MutableColumnPtr timestamp_ns_column = nullable_timestamp_ns_type->create_column();
+    timestamp_ns_column->insert(Field::create_field<TYPE_TIMESTAMP_NS>(
+            TimeStampNsValue(std::numeric_limits<int64_t>::min())));
+    timestamp_ns_column->insert(Field());
+    timestamp_ns_column->insert(Field::create_field<TYPE_TIMESTAMP_NS>(
+            TimeStampNsValue(std::numeric_limits<int64_t>::max())));
+
+    Array first_array;
+    first_array.emplace_back(Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(-1)));
+    first_array.emplace_back(Field());
+    first_array.emplace_back(Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(1)));
+    Array second_array;
+    second_array.emplace_back(Field::create_field<TYPE_TIMESTAMP_NS>(
+            TimeStampNsValue(std::numeric_limits<int64_t>::min())));
+    Array third_array;
+    third_array.emplace_back(Field::create_field<TYPE_TIMESTAMP_NS>(
+            TimeStampNsValue(std::numeric_limits<int64_t>::max())));
+
+    MutableColumnPtr timestamp_ns_array_column = timestamp_ns_array_type->create_column();
+    timestamp_ns_array_column->insert(Field::create_field<TYPE_ARRAY>(first_array));
+    timestamp_ns_array_column->insert(Field::create_field<TYPE_ARRAY>(second_array));
+    timestamp_ns_array_column->insert(Field::create_field<TYPE_ARRAY>(third_array));
+
+    Array first_keys {Field::create_field<TYPE_STRING>("before_epoch"),
+                      Field::create_field<TYPE_STRING>("null_value")};
+    Array first_values {Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(-1)), Field()};
+    Array second_keys {Field::create_field<TYPE_STRING>("epoch")};
+    Array second_values {Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(0))};
+    Array third_keys {Field::create_field<TYPE_STRING>("maximum")};
+    Array third_values {Field::create_field<TYPE_TIMESTAMP_NS>(
+            TimeStampNsValue(std::numeric_limits<int64_t>::max()))};
+    MutableColumnPtr timestamp_ns_map_column = timestamp_ns_map_type->create_column();
+    for (const auto& [keys, values] :
+         std::vector<std::pair<Array, Array>> {{first_keys, first_values},
+                                               {second_keys, second_values},
+                                               {third_keys, third_values}}) {
+        Map map;
+        map.emplace_back(Field::create_field<TYPE_ARRAY>(keys));
+        map.emplace_back(Field::create_field<TYPE_ARRAY>(values));
+        timestamp_ns_map_column->insert(Field::create_field<TYPE_MAP>(map));
+    }
+
+    MutableColumnPtr timestamp_ns_struct_column = timestamp_ns_struct_type->create_column();
+    Struct first_struct {Field::create_field<TYPE_TIMESTAMP_NS>(
+                                 TimeStampNsValue(std::numeric_limits<int64_t>::min())),
+                         Field::create_field<TYPE_ARRAY>(first_array)};
+    Struct second_struct {Field(), Field::create_field<TYPE_ARRAY>(second_array)};
+    Struct third_struct {Field::create_field<TYPE_TIMESTAMP_NS>(
+                                 TimeStampNsValue(std::numeric_limits<int64_t>::max())),
+                         Field::create_field<TYPE_ARRAY>(third_array)};
+    timestamp_ns_struct_column->insert(Field::create_field<TYPE_STRUCT>(first_struct));
+    timestamp_ns_struct_column->insert(Field::create_field<TYPE_STRUCT>(second_struct));
+    timestamp_ns_struct_column->insert(Field::create_field<TYPE_STRUCT>(third_struct));
+
+    auto source_block = std::make_shared<Block>();
+    source_block->insert(
+            ColumnWithTypeAndName(timestamp_ns_column->get_ptr(), nullable_timestamp_ns_type, "0"));
+    source_block->insert(ColumnWithTypeAndName(timestamp_ns_array_column->get_ptr(),
+                                               timestamp_ns_array_type, "1"));
+    source_block->insert(
+            ColumnWithTypeAndName(timestamp_ns_map_column->get_ptr(), timestamp_ns_map_type, "2"));
+    source_block->insert(ColumnWithTypeAndName(timestamp_ns_struct_column->get_ptr(),
+                                               timestamp_ns_struct_type, "3"));
+
+    std::shared_ptr<arrow::Schema> schema;
+    status = get_arrow_schema_from_block(*source_block, &schema, TimezoneUtils::default_time_zone);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(schema, nullptr);
+    auto list_type = std::static_pointer_cast<arrow::ListType>(schema->field(1)->type());
+    arrow_timestamp_type = std::static_pointer_cast<arrow::TimestampType>(list_type->value_type());
+    EXPECT_EQ(arrow::TimeUnit::NANO, arrow_timestamp_type->unit());
+    EXPECT_TRUE(arrow_timestamp_type->timezone().empty());
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    status = convert_to_arrow_batch_for_test(*source_block, schema, arrow::default_memory_pool(),
+                                             &record_batch, cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(record_batch, nullptr);
+
+    const auto scalar_array =
+            std::static_pointer_cast<arrow::TimestampArray>(record_batch->column(0));
+    EXPECT_EQ(std::numeric_limits<int64_t>::min(), scalar_array->Value(0));
+    EXPECT_TRUE(scalar_array->IsNull(1));
+    EXPECT_EQ(std::numeric_limits<int64_t>::max(), scalar_array->Value(2));
+
+    auto target_block = std::make_shared<Block>(source_block->clone_empty());
+    status = DorisArrowBlockConvertor(record_batch->schema(), cctz::utc_time_zone())
+                     .convert_from_arrow(record_batch, source_block->get_data_types(),
+                                         target_block.get());
+    ASSERT_TRUE(status.ok()) << status;
+    CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
+}
+
+TEST(DataTypeSerDeArrowTest, TimeStampNsArrowUnitConversion) {
+    const auto timestamp_ns_type = std::make_shared<DataTypeTimeStampNs>();
+    const auto serde = timestamp_ns_type->get_serde();
+    const std::vector<std::pair<arrow::TimeUnit::type, int64_t>> unit_cases {
+            {arrow::TimeUnit::SECOND, TimeStampNsValue::NANOS_PER_SECOND},
+            {arrow::TimeUnit::MILLI, TimeStampNsValue::NANOS_PER_MILLISECOND},
+            {arrow::TimeUnit::MICRO, TimeStampNsValue::NANOS_PER_MICROSECOND},
+            {arrow::TimeUnit::NANO, 1}};
+
+    for (const auto& [unit, nanos_per_unit] : unit_cases) {
+        auto source_column = ColumnTimeStampNs::create();
+        source_column->insert_value(TimeStampNsValue(-2 * nanos_per_unit));
+        source_column->insert_value(TimeStampNsValue(0));
+        source_column->insert_value(TimeStampNsValue(3 * nanos_per_unit));
+
+        arrow::TimestampBuilder builder(arrow::timestamp(unit), arrow::default_memory_pool());
+        auto status = serde->write_column_to_arrow(*source_column, nullptr, &builder, 0,
+                                                   source_column->size(), cctz::utc_time_zone());
+        ASSERT_TRUE(status.ok()) << status;
+
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+        const auto* timestamp_array = assert_cast<const arrow::TimestampArray*>(array.get());
+        EXPECT_EQ(-2, timestamp_array->Value(0));
+        EXPECT_EQ(0, timestamp_array->Value(1));
+        EXPECT_EQ(3, timestamp_array->Value(2));
+
+        auto target_column = ColumnTimeStampNs::create();
+        status = serde->read_column_from_arrow(*target_column, array.get(), 0, array->length(),
+                                               cctz::utc_time_zone());
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(source_column->size(), target_column->size());
+        for (size_t i = 0; i < source_column->size(); ++i) {
+            EXPECT_EQ(source_column->get_data()[i].epoch_nanos(),
+                      target_column->get_data()[i].epoch_nanos());
+        }
+
+        if (unit != arrow::TimeUnit::NANO) {
+            auto lossy_column = ColumnTimeStampNs::create();
+            lossy_column->insert_value(TimeStampNsValue(1));
+            arrow::TimestampBuilder lossy_builder(arrow::timestamp(unit),
+                                                  arrow::default_memory_pool());
+            status = serde->write_column_to_arrow(*lossy_column, nullptr, &lossy_builder, 0,
+                                                  lossy_column->size(), cctz::utc_time_zone());
+            EXPECT_FALSE(status.ok());
+        }
+    }
+
+    for (const auto unit :
+         {arrow::TimeUnit::SECOND, arrow::TimeUnit::MILLI, arrow::TimeUnit::MICRO}) {
+        for (const auto value :
+             {std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max()}) {
+            arrow::TimestampBuilder builder(arrow::timestamp(unit), arrow::default_memory_pool());
+            ASSERT_TRUE(builder.Append(value).ok());
+            std::shared_ptr<arrow::Array> array;
+            ASSERT_TRUE(builder.Finish(&array).ok());
+
+            auto overflow_column = ColumnTimeStampNs::create();
+            const auto status = serde->read_column_from_arrow(
+                    *overflow_column, array.get(), 0, array->length(), cctz::utc_time_zone());
+            EXPECT_FALSE(status.ok());
+            EXPECT_EQ(0, overflow_column->size());
+        }
+    }
+}
+
+TEST(DataTypeSerDeArrowTest, CanonicalizeUtcTimezoneForArrow) {
+    const auto timestamptz_type = std::make_shared<DataTypeTimeStampTz>(6);
+    std::shared_ptr<arrow::DataType> arrow_type;
+
+    auto status = convert_to_arrow_type(timestamptz_type, &arrow_type, "Z", true);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(arrow_type);
+    EXPECT_EQ("UTC", timestamp_type->timezone());
+}
+
+TEST(DataTypeSerDeArrowTest, DateTimeV2ArrowEncodingFollowsSchemaTimezone) {
+    auto datetime_column = ColumnVector<TYPE_DATETIMEV2>::create();
+    DateV2Value<DateTimeV2ValueType> datetime_value;
+    datetime_value.unchecked_set_time(2026, 7, 2, 15, 0, 0, 123456);
+    datetime_column->insert(Field::create_field<TYPE_DATETIMEV2>(datetime_value));
+
+    auto datetime_type = std::make_shared<DataTypeDateTimeV2>(6);
+    Block block;
+    block.insert(ColumnWithTypeAndName(datetime_column->get_ptr(), datetime_type, "ts"));
+
+    const auto utc_plus_eight = cctz::fixed_time_zone(std::chrono::hours(8));
+    auto timezone_schema = arrow::schema(
+            {arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO, "+08:00"), false)});
+    std::shared_ptr<arrow::RecordBatch> timezone_batch;
+    auto status = convert_to_arrow_batch_for_test(
+            block, timezone_schema, arrow::default_memory_pool(), &timezone_batch, utc_plus_eight);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto timezone_type = std::static_pointer_cast<arrow::TimestampType>(
+            timezone_batch->schema()->field(0)->type());
+    EXPECT_EQ("+08:00", timezone_type->timezone());
+    const auto timezone_array =
+            std::static_pointer_cast<arrow::TimestampArray>(timezone_batch->column(0));
+    // 2026-07-02 15:00:00.123456+08:00 is 2026-07-02 07:00:00.123456 UTC.
+    EXPECT_EQ(1782975600123456, timezone_array->Value(0));
+
+    auto naive_schema =
+            arrow::schema({arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO), false)});
+    std::shared_ptr<arrow::RecordBatch> naive_batch;
+    status = convert_to_arrow_batch_for_test(block, naive_schema, arrow::default_memory_pool(),
+                                             &naive_batch, utc_plus_eight);
+    ASSERT_TRUE(status.ok()) << status;
+
+    const auto naive_type =
+            std::static_pointer_cast<arrow::TimestampType>(naive_batch->schema()->field(0)->type());
+    EXPECT_TRUE(naive_type->timezone().empty());
+    const auto naive_array =
+            std::static_pointer_cast<arrow::TimestampArray>(naive_batch->column(0));
+    // A timezone-naive Arrow timestamp preserves the 15:00:00.123456 wall-clock value.
+    EXPECT_EQ(1783004400123456, naive_array->Value(0));
+}
+
+TEST(DataTypeSerDeArrowTest, NestedDateTimeV2PlainArrowAcceptsNaiveSchema) {
+    DateV2Value<DateTimeV2ValueType> datetime_value;
+    datetime_value.unchecked_set_time(2026, 7, 2, 15, 0, 0, 123456);
+    const auto datetime_type = std::make_shared<DataTypeDateTimeV2>(6);
+
+    const auto array_type = std::make_shared<DataTypeArray>(datetime_type);
+    auto array_column = array_type->create_column();
+    Array array_value;
+    array_value.push_back(Field::create_field<TYPE_DATETIMEV2>(datetime_value));
+    array_column->insert(Field::create_field<TYPE_ARRAY>(array_value));
+
+    // ColumnMap stores nullable key/value children even though Arrow rejects null map keys.
+    const auto map_type = std::make_shared<DataTypeMap>(
+            make_nullable(std::make_shared<DataTypeString>()), make_nullable(datetime_type));
+    auto map_column = map_type->create_column();
+    Array map_keys;
+    map_keys.push_back(Field::create_field<TYPE_STRING>("event"));
+    Array map_values;
+    map_values.push_back(Field::create_field<TYPE_DATETIMEV2>(datetime_value));
+    Map map_value;
+    map_value.push_back(Field::create_field<TYPE_ARRAY>(map_keys));
+    map_value.push_back(Field::create_field<TYPE_ARRAY>(map_values));
+    map_column->insert(Field::create_field<TYPE_MAP>(map_value));
+
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {datetime_type}, Strings {"event_time"});
+    auto struct_column = struct_type->create_column();
+    Struct struct_value;
+    struct_value.push_back(Field::create_field<TYPE_DATETIMEV2>(datetime_value));
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(struct_value));
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(array_column->get_ptr(), array_type, "events"));
+    block.insert(ColumnWithTypeAndName(map_column->get_ptr(), map_type, "event_map"));
+    block.insert(ColumnWithTypeAndName(struct_column->get_ptr(), struct_type, "event_struct"));
+
+    std::shared_ptr<arrow::Schema> naive_schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(block, &naive_schema, "Asia/Shanghai", true).ok());
+    std::shared_ptr<arrow::RecordBatch> naive_batch;
+    const auto status = convert_to_arrow_batch_for_test(
+            block, naive_schema, arrow::default_memory_pool(), &naive_batch,
+            cctz::fixed_time_zone(std::chrono::hours(8)));
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(naive_batch->ValidateFull().ok()) << naive_batch->ValidateFull();
+}
+
+} // namespace doris

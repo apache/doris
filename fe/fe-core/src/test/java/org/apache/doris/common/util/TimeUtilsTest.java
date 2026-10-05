@@ -1,0 +1,286 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.common.util;
+
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.TimeZone;
+
+public class TimeUtilsTest {
+
+    private MockedStatic<TimeUtils> mockedTimeUtils;
+
+    @BeforeEach
+    public void setUp() {
+        TimeZone tz = TimeZone.getTimeZone(ZoneId.of("Asia/Shanghai"));
+        mockedTimeUtils = Mockito.mockStatic(TimeUtils.class, Mockito.CALLS_REAL_METHODS);
+        mockedTimeUtils.when(TimeUtils::getTimeZone).thenReturn(tz);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (mockedTimeUtils != null) {
+            mockedTimeUtils.close();
+        }
+    }
+
+    @Test
+    public void testNormal() {
+        Assertions.assertNotNull(TimeUtils.getCurrentFormatTime());
+        Assertions.assertNotNull(TimeUtils.getStartTimeMs());
+        Assertions.assertTrue(TimeUtils.getElapsedTimeMs(0L) > 0);
+    }
+
+    @Test
+    public void testDateParse() {
+        // date
+        List<String> validDateList = new LinkedList<>();
+        validDateList.add("2013-12-02");
+        validDateList.add("2013-12-02");
+        validDateList.add("2013-12-2");
+        validDateList.add("2013-12-2");
+        validDateList.add("9999-12-31");
+        validDateList.add("1900-01-01");
+        validDateList.add("2013-2-28");
+        validDateList.add("0001-01-01");
+        for (String validDate : validDateList) {
+            try {
+                TimeUtils.parseDate(validDate, PrimitiveType.DATE);
+            } catch (AnalysisException e) {
+                e.printStackTrace();
+                System.out.println(validDate);
+                Assertions.fail();
+            }
+        }
+
+        List<String> invalidDateList = new LinkedList<>();
+        invalidDateList.add("2013-12-02 ");
+        invalidDateList.add(" 2013-12-02");
+        invalidDateList.add("20131-2-28");
+        invalidDateList.add("a2013-2-28");
+        invalidDateList.add("2013-22-28");
+        invalidDateList.add("2013-2-29");
+        invalidDateList.add("2013-2-28 2:3:4");
+        for (String invalidDate : invalidDateList) {
+            try {
+                TimeUtils.parseDate(invalidDate, PrimitiveType.DATE);
+                Assertions.fail();
+            } catch (AnalysisException e) {
+                Assertions.assertTrue(e.getMessage().contains("Invalid"));
+            }
+        }
+
+        // datetime
+        List<String> validDateTimeList = new LinkedList<>();
+        validDateTimeList.add("2013-12-02 13:59:59");
+        validDateTimeList.add("2013-12-2 13:59:59");
+        validDateTimeList.add("2013-12-2 1:59:59");
+        validDateTimeList.add("2013-12-2 3:1:1");
+        validDateTimeList.add("9999-12-31 23:59:59");
+        validDateTimeList.add("1900-01-01 00:00:00");
+        validDateTimeList.add("2013-2-28 23:59:59");
+        validDateTimeList.add("2013-2-28 2:3:4");
+        validDateTimeList.add("2014-05-07 19:8:50");
+        validDateTimeList.add("0001-01-01 00:00:00");
+        for (String validDateTime : validDateTimeList) {
+            try {
+                TimeUtils.parseDate(validDateTime, PrimitiveType.DATETIME);
+            } catch (AnalysisException e) {
+                e.printStackTrace();
+                System.out.println(validDateTime);
+                Assertions.fail();
+            }
+        }
+
+        List<String> invalidDateTimeList = new LinkedList<>();
+        invalidDateTimeList.add("2013-12-02  12:12:10");
+        invalidDateTimeList.add(" 2013-12-02 12:12:10 ");
+        invalidDateTimeList.add("20131-2-28 12:12:10");
+        invalidDateTimeList.add("a2013-2-28 12:12:10");
+        invalidDateTimeList.add("2013-22-28 12:12:10");
+        invalidDateTimeList.add("2013-2-29 12:12:10");
+        invalidDateTimeList.add("2013-2-28");
+        invalidDateTimeList.add("2013-13-01 12:12:12");
+        for (String invalidDateTime : invalidDateTimeList) {
+            try {
+                TimeUtils.parseDate(invalidDateTime, PrimitiveType.DATETIME);
+                Assertions.fail();
+            } catch (AnalysisException e) {
+                Assertions.assertTrue(e.getMessage().contains("Invalid"));
+            }
+        }
+    }
+
+    @Test
+    public void testDateTrans() throws AnalysisException {
+        Assertions.assertEquals(FeConstants.null_string, TimeUtils.longToTimeString(-2L));
+
+        long timestamp = 1426125600000L;
+        Assertions.assertEquals("2015-03-12 10:00:00", TimeUtils.longToTimeString(timestamp));
+
+        DateLiteral date = new DateLiteral(2015, 3, 1, ScalarType.DATE);
+        Assertions.assertEquals(1031777L, date.getRealValue());
+
+        DateLiteral datetime = new DateLiteral(2015, 3, 1, 12, 0, 0, ScalarType.DATETIME);
+        Assertions.assertEquals(20150301120000L, datetime.getRealValue());
+    }
+
+    @Test
+    public void testTimezone() throws AnalysisException {
+        try {
+            Assertions.assertEquals("CST", TimeUtils.checkTimeZoneValidAndStandardize("CST"));
+            Assertions.assertEquals("EST", TimeUtils.checkTimeZoneValidAndStandardize("EST"));
+            Assertions.assertEquals("GMT+08:00", TimeUtils.checkTimeZoneValidAndStandardize("GMT+8:00"));
+            Assertions.assertEquals("UTC+08:00", TimeUtils.checkTimeZoneValidAndStandardize("UTC+8:00"));
+            Assertions.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+08:00"));
+            Assertions.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+8:00"));
+            Assertions.assertEquals("-08:00", TimeUtils.checkTimeZoneValidAndStandardize("-8:00"));
+            Assertions.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("8:00"));
+        } catch (DdlException ex) {
+            Assertions.assertTrue(false, ex.getMessage());
+        }
+        try {
+            TimeUtils.checkTimeZoneValidAndStandardize("FOO");
+            Assertions.fail();
+        } catch (DdlException ex) {
+            Assertions.assertTrue(ex.getMessage().contains("Unknown or incorrect time zone: 'FOO'"));
+        }
+    }
+
+    @Test
+    public void testGetHourAsDate() {
+        Calendar calendar = Calendar.getInstance();
+        Date date = TimeUtils.getHourAsDate("1");
+        calendar.setTime(date);
+        Assertions.assertEquals(1, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("10");
+        calendar.setTime(date);
+        Assertions.assertEquals(10, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("24");
+        calendar.setTime(date);
+        Assertions.assertEquals(0, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("05");
+        calendar.setTime(date);
+        Assertions.assertEquals(5, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("0");
+        calendar.setTime(date);
+        Assertions.assertEquals(0, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("13");
+        calendar.setTime(date);
+        Assertions.assertEquals(13, calendar.get(Calendar.HOUR_OF_DAY));
+        Assertions.assertNull(TimeUtils.getHourAsDate("111"));
+        Assertions.assertNull(TimeUtils.getHourAsDate("-1"));
+    }
+
+    @Test
+    public void testConvertToBEDateType() {
+        long result = TimeUtils.convertStringToDateV2("2021-01-01");
+        Assertions.assertEquals(1034785, result);
+        result = TimeUtils.convertStringToDateV2("1900-01-01");
+        Assertions.assertEquals(972833, result);
+        result = TimeUtils.convertStringToDateV2("1899-12-31");
+        Assertions.assertEquals(972703, result);
+        result = TimeUtils.convertStringToDateV2("9999-12-31");
+        Assertions.assertEquals(5119903, result);
+
+        ExceptionChecker.expectThrows(DateTimeParseException.class, () -> TimeUtils.convertStringToDateV2("2021-1-1"));
+        ExceptionChecker.expectThrows(DateTimeParseException.class, () -> TimeUtils.convertStringToDateV2("1900-01-1"));
+        ExceptionChecker.expectThrows(DateTimeParseException.class, () -> TimeUtils.convertStringToDateV2("20210101"));
+        ExceptionChecker.expectThrows(DateTimeParseException.class, () -> TimeUtils.convertStringToDateV2(""));
+        ExceptionChecker.expectThrows(NullPointerException.class, () -> TimeUtils.convertStringToDateV2(null));
+        ExceptionChecker.expectThrows(DateTimeParseException.class,
+                () -> TimeUtils.convertStringToDateV2("2024:12:31"));
+    }
+
+    @Test
+    public void testConvertToBEDatetimeV2Type() {
+        long result = TimeUtils.convertStringToDateTimeV2("2021-01-01 10:10:10", 0);
+        Assertions.assertEquals(142219811099770880L, result);
+        result = TimeUtils.convertStringToDateTimeV2("1900-01-01 00:00:00.12", 2);
+        Assertions.assertEquals(133705149423146176L, result);
+        result = TimeUtils.convertStringToDateTimeV2("1899-12-31 23:59:59.000", 3);
+        Assertions.assertEquals(133687385164611584L, result);
+        result = TimeUtils.convertStringToDateTimeV2("9999-12-31 23:59:59.123456", 6);
+        Assertions.assertEquals(703674213003812984L, result);
+
+        ExceptionChecker.expectThrows(DateTimeParseException.class,
+                () -> TimeUtils.convertStringToDateTimeV2("2021-1-1", 0));
+        ExceptionChecker.expectThrows(DateTimeParseException.class,
+                () -> TimeUtils.convertStringToDateTimeV2("1900-01-1", 0));
+        ExceptionChecker.expectThrows(DateTimeParseException.class,
+                () -> TimeUtils.convertStringToDateTimeV2("20210101", 0));
+        ExceptionChecker.expectThrows(DateTimeParseException.class, () -> TimeUtils.convertStringToDateTimeV2("", 0));
+        ExceptionChecker.expectThrows(NullPointerException.class, () -> TimeUtils.convertStringToDateTimeV2(null, 0));
+        ExceptionChecker.expectThrows(DateTimeParseException.class,
+                () -> TimeUtils.convertStringToDateTimeV2("2024-10-10", 0));
+        ExceptionChecker.expectThrows(DateTimeParseException.class,
+                () -> TimeUtils.convertStringToDateTimeV2("2024-10-10 10", 0));
+        ExceptionChecker.expectThrows(DateTimeParseException.class,
+                () -> TimeUtils.convertStringToDateTimeV2("2024:12:31", 0));
+        ExceptionChecker.expectThrows(DateTimeParseException.class,
+                () -> TimeUtils.convertStringToDateTimeV2("2024-10-10 11:11:11", 6));
+    }
+
+    @Test
+    public void testLongToTimeStringWithTimeZoneAndOffset() {
+        // null/zero/negative → null_string
+        Assertions.assertEquals(FeConstants.null_string,
+                TimeUtils.longToTimeStringWithTimeZoneAndOffset(null, "UTC"));
+        Assertions.assertEquals(FeConstants.null_string,
+                TimeUtils.longToTimeStringWithTimeZoneAndOffset(0L, "UTC"));
+        Assertions.assertEquals(FeConstants.null_string,
+                TimeUtils.longToTimeStringWithTimeZoneAndOffset(-1L, "Asia/Shanghai"));
+
+        long ts = org.apache.doris.catalog.DataProperty.MAX_COOLDOWN_TIME_MS;
+
+        // UTC → "9999-12-31 15:59:59Z"
+        String utcResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "UTC");
+        Assertions.assertEquals("9999-12-31 15:59:59Z", utcResult);
+
+        // Asia/Shanghai (+08:00) → "9999-12-31 23:59:59+08:00"
+        String shanghaiResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "Asia/Shanghai");
+        Assertions.assertEquals("9999-12-31 23:59:59+08:00", shanghaiResult);
+
+        // America/New_York (-05:00) → "9999-12-31 10:59:59-05:00"
+        String nyResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "America/New_York");
+        Assertions.assertEquals("9999-12-31 10:59:59-05:00", nyResult);
+
+        // America/Chicago (-06:00) → "9999-12-31 09:59:59-06:00"
+        String chicagoResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "America/Chicago");
+        Assertions.assertEquals("9999-12-31 09:59:59-06:00", chicagoResult);
+    }
+}

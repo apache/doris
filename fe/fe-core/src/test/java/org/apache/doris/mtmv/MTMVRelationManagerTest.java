@@ -1,0 +1,213 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.mtmv;
+
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.persist.EditLog.EditLogItem;
+
+import com.google.common.collect.Sets;
+import org.apache.commons.collections4.CollectionUtils;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.Optional;
+import java.util.Set;
+
+public class MTMVRelationManagerTest {
+    private BaseTableInfo mv1 = Mockito.mock(BaseTableInfo.class);
+    private BaseTableInfo mv2 = Mockito.mock(BaseTableInfo.class);
+    private BaseTableInfo t3 = Mockito.mock(BaseTableInfo.class);
+    private BaseTableInfo t4 = Mockito.mock(BaseTableInfo.class);
+
+    @BeforeEach
+    public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
+        Mockito.when(mv1.getCtlName()).thenReturn("ctl1");
+        Mockito.when(mv1.getDbName()).thenReturn("db1");
+        Mockito.when(mv1.getTableName()).thenReturn("mv1");
+
+        Mockito.when(mv2.getCtlName()).thenReturn("ctl1");
+        Mockito.when(mv2.getDbName()).thenReturn("db1");
+        Mockito.when(mv2.getTableName()).thenReturn("mv2");
+
+        Mockito.when(t3.getCtlName()).thenReturn("ctl1");
+        Mockito.when(t3.getDbName()).thenReturn("db1");
+        Mockito.when(t3.getTableName()).thenReturn("t3");
+
+        Mockito.when(t4.getCtlName()).thenReturn("ctl1");
+        Mockito.when(t4.getDbName()).thenReturn("db1");
+        Mockito.when(t4.getTableName()).thenReturn("t4");
+    }
+
+    @Test
+    public void testGetMtmvsByBaseTableOneLevelAndFromView() {
+        // mock mv2==>mv1,t3; mv1==>t4
+        MTMVRelationManager manager = new MTMVRelationManager();
+        MTMVRelation mv2Relation = new MTMVRelation(Sets.newHashSet(mv1, t3, t4), Sets.newHashSet(mv1, t3),
+                Sets.newHashSet(mv1, t3),
+                Sets.newHashSet(), Sets.newHashSet());
+        MTMVRelation mv1Relation = new MTMVRelation(Sets.newHashSet(t4), Sets.newHashSet(t4), Sets.newHashSet(t4),
+                Sets.newHashSet(), Sets.newHashSet());
+        manager.refreshMTMVCache(mv2Relation, mv2);
+        manager.refreshMTMVCache(mv1Relation, mv1);
+        // should return mv2
+        Set<BaseTableInfo> mv1OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(mv1);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), mv1OneLevel));
+        // should return mv2
+        Set<BaseTableInfo> t3OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t3);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3OneLevel));
+        // should return mv1
+        Set<BaseTableInfo> t4OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t4);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4OneLevel));
+
+        // update mv2 only use t3,remove mv1
+        mv2Relation = new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(), Sets.newHashSet());
+        manager.refreshMTMVCache(mv2Relation, mv2);
+        // should return empty
+        mv1OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(mv1);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(), mv1OneLevel));
+        // should return mv2
+        t3OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t3);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3OneLevel));
+        // should return mv1
+        t4OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t4);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4OneLevel));
+    }
+
+    @Test
+    public void testGetMtmvsByBaseTable() {
+        // mock mv2==>mv1,t3; mv1==>t4
+        MTMVRelationManager manager = new MTMVRelationManager();
+        MTMVRelation mv2Relation = new MTMVRelation(Sets.newHashSet(mv1, t3, t4), Sets.newHashSet(mv1, t3),
+                Sets.newHashSet(mv1, t3),
+                Sets.newHashSet(), Sets.newHashSet());
+        MTMVRelation mv1Relation = new MTMVRelation(Sets.newHashSet(t4), Sets.newHashSet(t4), Sets.newHashSet(t4),
+                Sets.newHashSet(), Sets.newHashSet());
+        manager.refreshMTMVCache(mv2Relation, mv2);
+        manager.refreshMTMVCache(mv1Relation, mv1);
+        // should return mv2
+        Set<BaseTableInfo> mv1All = manager.getMtmvsByBaseTable(mv1);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), mv1All));
+        // should return mv2
+        Set<BaseTableInfo> t3All = manager.getMtmvsByBaseTable(t3);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3All));
+        // should return mv1
+        Set<BaseTableInfo> t4All = manager.getMtmvsByBaseTable(t4);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1, mv2), t4All));
+
+        // update mv2 only use t3,remove mv1
+        mv2Relation = new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(), Sets.newHashSet());
+        manager.refreshMTMVCache(mv2Relation, mv2);
+        // should return empty
+        mv1All = manager.getMtmvsByBaseTableOneLevelAndFromView(mv1);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(), mv1All));
+        // should return mv2
+        t3All = manager.getMtmvsByBaseTableOneLevelAndFromView(t3);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3All));
+        // should return mv1
+        t4All = manager.getMtmvsByBaseTableOneLevelAndFromView(t4);
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4All));
+    }
+
+    @Test
+    public void testRefreshMtmvCacheReplacesRelation() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        MTMVRelation oldRelation = new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(t3), Sets.newHashSet(), Sets.newHashSet());
+        MTMVRelation newRelation = new MTMVRelation(Sets.newHashSet(t4), Sets.newHashSet(t4),
+                Sets.newHashSet(t4), Sets.newHashSet(), Sets.newHashSet());
+
+        manager.refreshMTMVCache(oldRelation, mv1);
+        manager.refreshMTMVCache(newRelation, mv1);
+
+        Assertions.assertTrue(manager.getMtmvsByBaseTable(t3).isEmpty());
+        Assertions.assertTrue(manager.getMtmvsByBaseTableOneLevelAndFromView(t3).isEmpty());
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1),
+                manager.getMtmvsByBaseTable(t4)));
+    }
+
+    @Test
+    public void testBaselineBarrierOnlyInvalidatesIvm() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        manager.refreshMTMVCache(new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(t3), Sets.newHashSet(), Sets.newHashSet()), mv1);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.isIvm()).thenReturn(false);
+        try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class)) {
+            util.when(() -> MTMVUtil.getMTMV(mv1)).thenReturn(mtmv);
+
+            manager.markIvmBaselineRebuild(t3, "test");
+        }
+
+        Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
+    }
+
+    @Test
+    public void testBaselineBarrierSkipsExcludedTable() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        manager.refreshMTMVCache(new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(t3), Sets.newHashSet(), Sets.newHashSet()), mv1);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Sets.newHashSet(new TableNameInfo("t3")));
+        try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class)) {
+            util.when(() -> MTMVUtil.getMTMV(mv1)).thenReturn(mtmv);
+
+            manager.markIvmBaselineRebuild(t3, "test");
+        }
+
+        Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
+    }
+
+    /**
+     * The generic base-table change is an invalidation, and it is recorded the way the invalidation above
+     * is: applied and enqueued in one MV-lock critical section, awaited where no MV lock is held. A record
+     * enqueued while the state is still being applied would be replayed on a follower on the other side of
+     * a concurrent task result, leaving the follower in SCHEMA_CHANGE where this FE ended NORMAL.
+     *
+     * <p>A rename is the shortest way into this path: it skips the query check, so what the hook does is
+     * exactly the record under test.
+     */
+    @Test
+    public void testABaseTableRenameIsRecordedThroughTheInvalidation() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        manager.refreshMTMVCache(new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(t3), Sets.newHashSet(), Sets.newHashSet()), mv1);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
+        Mockito.when(mtmv.invalidateWholeMv(Mockito.anyString())).thenReturn(editLogItem);
+        try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class)) {
+            util.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class))).thenReturn(mtmv);
+
+            manager.alterTable(t3, Optional.of(t4), false);
+        }
+
+        ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mtmv).invalidateWholeMv(detail.capture());
+        Assertions.assertTrue(detail.getValue().startsWith("The base table has been updated:"),
+                detail.getValue());
+        Mockito.verify(editLogItem).await();
+    }
+}

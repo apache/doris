@@ -1,0 +1,101 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+---
+name: Code Formatter
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  clang-format:
+    name: "Clang Formatter"
+    runs-on: ubuntu-latest
+    concurrency:
+      group: code-formatter-${{ github.event.pull_request.number || github.run_id }}-${{ github.sha }}
+      cancel-in-progress: true
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Verify current PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          current_head_sha=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          if [[ "${current_head_sha}" != "${EXPECTED_HEAD_SHA}" ]]; then
+            echo "::error::PR #${PR_NUMBER} moved from ${EXPECTED_HEAD_SHA} to ${current_head_sha}; refusing stale validation"
+            exit 1
+          fi
+
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Checkout paths-filter
+        run: |
+          rm -rf ./.github/actions/paths-filter
+          git clone https://github.com/dorny/paths-filter .github/actions/paths-filter
+
+          pushd .github/actions/paths-filter &>/dev/null
+          git checkout 4512585405083f25c027a35db413c2b3b9006d50
+          popd &>/dev/null
+
+      - name: Paths filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            changes:
+              - 'be/src/**'
+              - 'be/test/**'
+              - 'cloud/src/**'
+              - 'cloud/test/**'
+
+      - name: Checkout clang-format-lint-action
+        run: |
+          rm -rf ./.github/actions/clang-format-lint-action
+          git clone https://github.com/DoozyX/clang-format-lint-action .github/actions/clang-format-lint-action
+
+          pushd .github/actions/clang-format-lint-action &>/dev/null
+          git checkout c71d0bf4e21876ebec3e5647491186f8797fde31 # v0.18.2
+          popd &>/dev/null
+
+      - name: Install Python dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'  # Adjust if needed
+
+      - name: "Format it!"
+        if: ${{ steps.filter.outputs.changes == 'true' }}
+        uses: ./.github/actions/clang-format-lint-action
+        id: clang_format
+        with:
+          source: "be/src be/test cloud/src cloud/test"
+          clangFormatVersion: 16
+          inplace: False
+
+      - name: Ignore it!
+        if: ${{ steps.filter.outputs.changes == 'false' }}
+        run: echo 'No need to check.'

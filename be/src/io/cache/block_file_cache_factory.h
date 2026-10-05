@@ -1,0 +1,141 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileCacheFactory.h
+// and modified by Doris
+
+#pragma once
+
+#include <gen_cpp/internal_service.pb.h>
+
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "common/status.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/file_cache_common.h"
+#include "storage/options.h"
+namespace doris {
+class TUniqueId;
+
+class Block;
+
+namespace io {
+
+/**
+ * Creates a FileCache object for cache_base_path.
+ */
+class FileCacheFactory {
+public:
+    static FileCacheFactory* instance();
+
+    Status create_file_cache(const std::string& cache_base_path,
+                             FileCacheSettings file_cache_settings);
+
+    Status create_file_caches(
+            const std::vector<CachePath>& cache_paths,
+            const std::function<bool(const std::string&, const Status&)>& should_ignore_error);
+
+    Status reload_file_cache(const std::vector<CachePath>& cache_base_paths);
+
+    size_t try_release();
+
+    size_t try_release(const std::string& base_path);
+
+    std::string_view pick_one_cache_path() {
+        DCHECK(!_caches.empty());
+        size_t cur_index = _next_index.fetch_add(1);
+        return _caches[cur_index % _caches.size()]->get_base_path();
+    }
+
+    [[nodiscard]] size_t get_capacity() const { return _capacity; }
+
+    [[nodiscard]] size_t get_cache_instance_size() const { return _caches.size(); }
+
+    std::vector<std::string> get_cache_file_by_path(const UInt128Wrapper& hash);
+    int64_t get_cache_file_size_by_path(const UInt128Wrapper& hash);
+
+    // Return cached blocks data for a given key hash
+    std::vector<doris::CacheBlockPB> get_cache_data_by_path(const UInt128Wrapper& hash);
+    // Convenience overload: compute hash from path and return cached blocks data
+    std::vector<doris::CacheBlockPB> get_cache_data_by_path(const std::string& path);
+
+    BlockFileCache* get_by_path(const UInt128Wrapper& hash);
+    BlockFileCache* get_by_path(const std::string& cache_base_path);
+    std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
+            const TUniqueId& query_id, int file_cache_query_limit_percent);
+
+    /**
+     * Clears data of all file cache instances
+     *
+     * @param sync wait until all data cleared
+     * @return summary message
+     */
+    std::string clear_file_caches(bool sync);
+    Status clear_file_caches(bool sync, std::string* result);
+
+    /**
+     * dump lru queue info for all file cache instances
+     */
+    void dump_all_caches();
+
+    std::vector<std::string> get_base_paths();
+
+    /// Re-read the BE-wide async-write settings, split the pending-byte ownership limit equally
+    /// across all initialized cache instances, and update every per-disk manager.
+    /// @return OK after every manager is updated; otherwise the first manager update error.
+    Status refresh_async_write_options();
+
+    /// Start async-write workers for every initialized cache disk. Repeated calls are idempotent.
+    /// @return OK after every manager is ready; otherwise the first startup error.
+    Status start_async_write_managers();
+
+    /**
+     * Clears data of all file cache instances
+     *
+     * @param path file cache absolute path
+     * @param new_capacity
+     * @return summary message
+     */
+    std::string reset_capacity(const std::string& path, int64_t new_capacity);
+
+    void get_cache_stats_block(Block* block);
+
+    // Get all cache instances for inspection
+    const std::vector<std::unique_ptr<BlockFileCache>>& get_caches() const { return _caches; }
+
+    FileCacheFactory() = default;
+    FileCacheFactory& operator=(const FileCacheFactory&) = delete;
+    FileCacheFactory(const FileCacheFactory&) = delete;
+
+private:
+    Status _refresh_async_write_options_locked();
+
+    std::mutex _mtx;
+    std::vector<std::unique_ptr<BlockFileCache>> _caches;
+    std::unordered_map<std::string, BlockFileCache*> _path_to_cache;
+    size_t _capacity = 0;
+    std::atomic_size_t _next_index {0}; // use for round-robin
+};
+
+} // namespace io
+} // namespace doris

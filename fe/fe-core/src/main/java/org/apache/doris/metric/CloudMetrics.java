@@ -1,0 +1,242 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.metric;
+
+import org.apache.doris.common.Config;
+import org.apache.doris.metric.Metric.MetricUnit;
+
+import com.codahale.metrics.MetricRegistry;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+public class CloudMetrics {
+    protected static String CLOUD_CLUSTER_DELIMITER = "@delimiter#";
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_REQUEST_ALL_COUNTER;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_QUERY_ALL_COUNTER;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_QUERY_ERR_COUNTER;
+
+    protected static AutoMappedMetric<GaugeMetricImpl<Double>> CLUSTER_REQUEST_PER_SECOND_GAUGE;
+    protected static AutoMappedMetric<GaugeMetricImpl<Double>> CLUSTER_QUERY_PER_SECOND_GAUGE;
+    protected static AutoMappedMetric<GaugeMetricImpl<Double>> CLUSTER_QUERY_ERR_RATE_GAUGE;
+
+    protected static AutoMappedMetric<HistogramMetric> CLUSTER_QUERY_LATENCY_HISTO;
+
+    protected static AutoMappedMetric<GaugeMetricImpl<Integer>> CLUSTER_BACKEND_ALIVE;
+    protected static AutoMappedMetric<GaugeMetricImpl<Integer>> CLUSTER_BACKEND_ALIVE_TOTAL;
+
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_EXEC_COUNT;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_REQUESTED_TABLETS;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_FINISHED_TABLETS;
+
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_LATEST_START_TIME;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_LAST_FINISH_TIME;
+
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_PARTITION_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_TABLE_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_GLOBAL_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER;
+
+    protected static LongCounterMetric CLOUD_TABLET_REBALANCER_ROUND_TOTAL;
+    protected static LongCounterMetric CLOUD_TABLET_REBALANCER_ALLOCATED_BYTES_TOTAL;
+    protected static GaugeMetricImpl<Long> CLOUD_TABLET_REBALANCER_LAST_ROUND_ALLOCATED_BYTES;
+    protected static LongCounterMetric CLOUD_TABLET_REBALANCER_DURATION_MS_TOTAL;
+    protected static GaugeMetricImpl<Long> CLOUD_TABLET_REBALANCER_LAST_ROUND_DURATION_MS;
+    protected static LongCounterMetric CLOUD_TABLET_REBALANCER_TABLET_SCAN_TOTAL;
+
+    // Per-method meta-service RPC metrics
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_TOTAL;
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_FAILED;
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_RATE_LIMITED;
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_RETRY;
+    public static AutoMappedMetric<GaugeMetricImpl<Double>> META_SERVICE_RPC_PER_SECOND;
+    public static AutoMappedMetric<HistogramMetric> META_SERVICE_RPC_LATENCY;
+    public static AutoMappedMetric<HistogramMetric> META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY;
+
+    // Aggregate meta-service metrics
+    public static LongCounterMetric META_SERVICE_RPC_ALL_TOTAL;
+    public static LongCounterMetric META_SERVICE_RPC_ALL_FAILED;
+    public static LongCounterMetric META_SERVICE_RPC_ALL_RATE_LIMITED;
+    public static LongCounterMetric META_SERVICE_RPC_ALL_RETRY;
+    public static GaugeMetricImpl<Double> META_SERVICE_RPC_ALL_PER_SECOND;
+
+    protected static void init() {
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+        CLUSTER_REQUEST_ALL_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric("request_total",
+            MetricUnit.REQUESTS, "total request"));
+
+        CLUSTER_QUERY_ALL_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric("query_total",
+            MetricUnit.REQUESTS, "total query"));
+
+        CLUSTER_QUERY_ERR_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric("query_err",
+            MetricUnit.REQUESTS, "total error query"));
+
+        CLUSTER_REQUEST_PER_SECOND_GAUGE = new AutoMappedMetric<>(name -> new GaugeMetricImpl<Double>("rps",
+            MetricUnit.NOUNIT, "request per second", 0.0));
+
+        CLUSTER_QUERY_PER_SECOND_GAUGE = new AutoMappedMetric<>(name -> new GaugeMetricImpl<Double>("qps",
+            MetricUnit.NOUNIT, "query per second", 0.0));
+
+        CLUSTER_QUERY_ERR_RATE_GAUGE = new AutoMappedMetric<>(name -> new GaugeMetricImpl<Double>("query_err_rate",
+            MetricUnit.NOUNIT, "query error rate", 0.0));
+
+        CLUSTER_BACKEND_ALIVE = new AutoMappedMetric<>(name -> new GaugeMetricImpl<Integer>("backend_alive",
+            MetricUnit.NOUNIT, "backend alive or not", 0));
+
+        CLUSTER_BACKEND_ALIVE_TOTAL = new AutoMappedMetric<>(name -> new GaugeMetricImpl<Integer>("backend_alive_total",
+            MetricUnit.NOUNIT, "backend alive num in cluster", 0));
+
+        CLUSTER_QUERY_LATENCY_HISTO = new AutoMappedMetric<>(key -> {
+            String[] values = key.split(CLOUD_CLUSTER_DELIMITER, 2);
+            String clusterId = values[0];
+            String clusterName = values[1];
+            List<MetricLabel> labels = Arrays.asList(new MetricLabel("cluster_id", clusterId),
+                    new MetricLabel("cluster_name", clusterName));
+            return new HistogramMetric(MetricRegistry.name("query", "latency", "ms"), labels);
+        });
+        MetricRepo.DORIS_METRIC_REGISTER.addHistogramMetrics(
+                "cloud_cluster_query_latency", CLUSTER_QUERY_LATENCY_HISTO, Config::isCloudMode);
+
+        CLUSTER_WARM_UP_JOB_EXEC_COUNT = new AutoMappedMetric<>(name -> new LongCounterMetric(
+                "file_cache_warm_up_job_exec_count", MetricUnit.NOUNIT, "warm up job execution count"));
+        CLUSTER_WARM_UP_JOB_LATEST_START_TIME = new AutoMappedMetric<>(name -> new LongCounterMetric(
+                "file_cache_warm_up_job_latest_start_time", MetricUnit.MILLISECONDS,
+                "the latest start time (ms, epoch time) of the warm up job"));
+        CLUSTER_WARM_UP_JOB_LAST_FINISH_TIME = new AutoMappedMetric<>(name -> new LongCounterMetric(
+                "file_cache_warm_up_job_last_finish_time", MetricUnit.MILLISECONDS,
+                "the last finish time (ms, epoch time) of the warm up job"));
+
+        CLUSTER_WARM_UP_JOB_REQUESTED_TABLETS = new AutoMappedMetric<>(
+                name -> new LongCounterMetric("file_cache_warm_up_job_requested_tablets",
+                        MetricUnit.NOUNIT, "warm up job requested tablets"));
+
+        CLUSTER_WARM_UP_JOB_FINISHED_TABLETS = new AutoMappedMetric<>(
+                name -> new LongCounterMetric("file_cache_warm_up_job_finished_tablets",
+                        MetricUnit.NOUNIT, "warm up job finished tablets"));
+
+        CLUSTER_CLOUD_PARTITION_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "cloud_partition_balance_num", MetricUnit.NOUNIT,
+            "current cluster cloud partition balance sync edit log number"));
+
+        CLUSTER_CLOUD_TABLE_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "cloud_table_balance_num", MetricUnit.NOUNIT,
+            "current cluster cloud table balance sync edit log number"));
+
+        CLUSTER_CLOUD_GLOBAL_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "cloud_global_balance_num", MetricUnit.NOUNIT,
+            "current cluster cloud be balance sync edit log number"));
+
+        CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "cloud_smooth_upgrade_balance_num", MetricUnit.NOUNIT,
+            "current cluster cloud smooth upgrade sync edit log number"));
+
+        CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "cloud_warm_up_balance_num", MetricUnit.NOUNIT,
+            "current cluster cloud warm up cache sync edit log number"));
+
+        VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "virtual_compute_group_switch_total", MetricUnit.NOUNIT,
+            "virtual compute group active standby switch count"));
+
+        initCloudTabletRebalancerMetrics();
+
+        // Per-method meta-service RPC metrics
+        META_SERVICE_RPC_TOTAL = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_total", MetricUnit.NOUNIT,
+                "total meta service RPC calls"));
+        META_SERVICE_RPC_FAILED = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_failed", MetricUnit.NOUNIT,
+                "failed meta service RPC calls"));
+        META_SERVICE_RPC_RATE_LIMITED = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_rate_limited", MetricUnit.NOUNIT,
+                "rate limited meta service RPC calls"));
+        META_SERVICE_RPC_RETRY = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_retry", MetricUnit.NOUNIT,
+                "meta service RPC retry attempts"));
+        META_SERVICE_RPC_PER_SECOND = new AutoMappedMetric<>(methodName -> {
+            GaugeMetricImpl<Double> gauge = new GaugeMetricImpl<>("meta_service_rpc_per_second",
+                    MetricUnit.NOUNIT, "meta service RPC requests per second", 0.0);
+            gauge.addLabel(new MetricLabel("method", methodName));
+            return gauge;
+        });
+        META_SERVICE_RPC_LATENCY = new AutoMappedMetric<>(methodName -> {
+            List<MetricLabel> labels = Collections.singletonList(new MetricLabel("method", methodName));
+            return new HistogramMetric(MetricRegistry.name("meta_service", "rpc", "latency", "ms"), labels);
+        });
+        MetricRepo.DORIS_METRIC_REGISTER.addHistogramMetrics(
+                "meta_service_rpc_latency", META_SERVICE_RPC_LATENCY, Config::isCloudMode);
+        META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY = new AutoMappedMetric<>(methodName -> {
+            List<MetricLabel> labels = Collections.singletonList(new MetricLabel("method", methodName));
+            return new HistogramMetric(MetricRegistry.name("meta_service", "rpc", "rate_limit_wait",
+                    "latency", "ms"), labels);
+        });
+        MetricRepo.DORIS_METRIC_REGISTER.addHistogramMetrics(
+                "meta_service_rpc_rate_limit_wait_latency", META_SERVICE_RPC_RATE_LIMIT_WAIT_LATENCY,
+                Config::isCloudMode);
+
+        // Aggregate meta-service metrics
+        META_SERVICE_RPC_ALL_TOTAL = new LongCounterMetric("meta_service_rpc_all_total",
+            MetricUnit.NOUNIT, "total meta service RPC calls across all methods");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_TOTAL);
+        META_SERVICE_RPC_ALL_FAILED = new LongCounterMetric("meta_service_rpc_all_failed",
+            MetricUnit.NOUNIT, "total failed meta service RPC calls");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_FAILED);
+        META_SERVICE_RPC_ALL_RATE_LIMITED = new LongCounterMetric("meta_service_rpc_all_rate_limited",
+            MetricUnit.NOUNIT, "total rate limited meta service RPC calls");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_RATE_LIMITED);
+        META_SERVICE_RPC_ALL_RETRY = new LongCounterMetric("meta_service_rpc_all_retry",
+            MetricUnit.NOUNIT, "total meta service RPC retry attempts");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_RETRY);
+        META_SERVICE_RPC_ALL_PER_SECOND = new GaugeMetricImpl<>("meta_service_rpc_all_per_second",
+            MetricUnit.NOUNIT, "meta service RPC requests per second (all methods)", 0.0);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_PER_SECOND);
+    }
+
+    static void initCloudTabletRebalancerMetrics() {
+        CLOUD_TABLET_REBALANCER_ROUND_TOTAL = new LongCounterMetric(
+                "cloud_tablet_rebalancer_round_total", MetricUnit.OPERATIONS,
+                "total cloud tablet rebalancer rounds");
+        CLOUD_TABLET_REBALANCER_ALLOCATED_BYTES_TOTAL = new LongCounterMetric(
+                "cloud_tablet_rebalancer_allocated_bytes_total", MetricUnit.BYTES,
+                "total bytes allocated by cloud tablet rebalancer rounds");
+        CLOUD_TABLET_REBALANCER_LAST_ROUND_ALLOCATED_BYTES = new GaugeMetricImpl<>(
+                "cloud_tablet_rebalancer_last_round_allocated_bytes", MetricUnit.BYTES,
+                "bytes allocated by the last cloud tablet rebalancer round, or -1 when unavailable", -1L);
+        CLOUD_TABLET_REBALANCER_DURATION_MS_TOTAL = new LongCounterMetric(
+                "cloud_tablet_rebalancer_duration_ms_total", MetricUnit.MILLISECONDS,
+                "total cloud tablet rebalancer round duration in milliseconds");
+        CLOUD_TABLET_REBALANCER_LAST_ROUND_DURATION_MS = new GaugeMetricImpl<>(
+                "cloud_tablet_rebalancer_last_round_duration_ms", MetricUnit.MILLISECONDS,
+                "duration of the last cloud tablet rebalancer round in milliseconds", 0L);
+        CLOUD_TABLET_REBALANCER_TABLET_SCAN_TOTAL = new LongCounterMetric(
+                "cloud_tablet_rebalancer_tablet_scan_total", MetricUnit.OPERATIONS,
+                "total tablet route entries scanned by cloud tablet rebalancer rounds");
+
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_ROUND_TOTAL);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_ALLOCATED_BYTES_TOTAL);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_LAST_ROUND_ALLOCATED_BYTES);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_DURATION_MS_TOTAL);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_LAST_ROUND_DURATION_MS);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(CLOUD_TABLET_REBALANCER_TABLET_SCAN_TOTAL);
+    }
+}

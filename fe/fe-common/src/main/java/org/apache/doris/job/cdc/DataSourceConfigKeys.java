@@ -1,0 +1,78 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.job.cdc;
+
+public class DataSourceConfigKeys {
+    public static final String JDBC_URL = "jdbc_url";
+    public static final String TYPE = "type";
+    public static final String DRIVER_URL = "driver_url";
+    public static final String DRIVER_CLASS = "driver_class";
+    public static final String USER = "user";
+    public static final String PASSWORD = "password";
+    public static final String DATABASE = "database";
+    public static final String SCHEMA = "schema";
+    public static final String INCLUDE_TABLES = "include_tables";
+    public static final String EXCLUDE_TABLES = "exclude_tables";
+    // initial,earliest,latest,snapshot,{binlog,position},\d{13}
+    public static final String OFFSET = "offset";
+    public static final String OFFSET_INITIAL = "initial";
+    public static final String OFFSET_EARLIEST = "earliest";
+    public static final String OFFSET_LATEST = "latest";
+    public static final String OFFSET_SNAPSHOT = "snapshot";
+    public static final String SNAPSHOT_SPLIT_SIZE = "snapshot_split_size";
+    public static final String SNAPSHOT_SPLIT_SIZE_DEFAULT = "40960";
+    public static final String SNAPSHOT_SPLIT_KEY = "snapshot_split_key";
+    public static final String SNAPSHOT_PARALLELISM = "snapshot_parallelism";
+    public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
+    public static final String SKIP_SNAPSHOT_BACKFILL = "skip_snapshot_backfill";
+    public static final String SCHEMA_CHANGE_ENABLED = "schema_change_enabled";
+    // MySQL CDC client identity. Single value "5400" or range "5400-5408".
+    public static final String SERVER_ID = "server_id";
+    public static final String SSL_MODE = "ssl_mode";
+    public static final String SSL_ROOTCERT = "ssl_rootcert";
+    // PG-style spelling; MySQL normalizes to underscore form.
+    public static final String SSL_MODE_DISABLE = "disable";
+    public static final String SSL_MODE_REQUIRE = "require";
+    public static final String SSL_MODE_VERIFY_CA = "verify-ca";
+
+    // PostgreSQL replication slot and publication config
+    public static final String SLOT_NAME = "slot_name";
+    public static final String PUBLICATION_NAME = "publication_name";
+    public static final String DEFAULT_SLOT_PREFIX = "doris_cdc_";
+    public static final String DEFAULT_PUBLICATION_PREFIX = "doris_pub_";
+    // Pre-PR default (Debezium auto-created). Legacy jobs reconnecting on a newer version fall
+    // back to this name when no publication_name was persisted.
+    public static final String LEGACY_PUBLICATION_NAME = "dbz_publication";
+
+    public static String defaultSlotName(String jobId) {
+        return DEFAULT_SLOT_PREFIX + jobId;
+    }
+
+    public static String defaultPublicationName(String jobId) {
+        return DEFAULT_PUBLICATION_PREFIX + jobId;
+    }
+
+    // per-table config: key format is "table.<tableName>.<suffix>"
+    public static final String TABLE = "table";
+    public static final String TABLE_EXCLUDE_COLUMNS_SUFFIX = "exclude_columns";
+    public static final String TABLE_TARGET_TABLE_SUFFIX = "target_table";
+
+    // target properties
+    public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
+    public static final String LOAD_PROPERTIES = "load.";
+}

@@ -1,0 +1,124 @@
+if (GLIBC_COMPATIBILITY)
+    enable_language(ASM)
+    include(CheckIncludeFile)
+
+    check_include_file("sys/random.h" HAVE_SYS_RANDOM_H)
+
+    if(COMPILER_CLANG)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-builtin-requires-header")
+    endif()
+
+    if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.12")
+        macro(add_glob cur_list)
+            file(GLOB __tmp RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS ${ARGN})
+            list(APPEND ${cur_list} ${__tmp})
+        endmacro()
+    else ()
+        macro(add_glob cur_list)
+            file(GLOB __tmp RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${ARGN})
+            list(APPEND ${cur_list} ${__tmp})
+        endmacro()
+    endif ()
+
+    macro(add_headers_and_sources prefix common_path)
+        add_glob(${prefix}_headers ${CMAKE_CURRENT_SOURCE_DIR} ${common_path}/*.h)
+        add_glob(${prefix}_sources ${common_path}/*.cpp ${common_path}/*.c ${common_path}/*.h)
+    endmacro()
+
+    macro(add_headers_only prefix common_path)
+        add_glob(${prefix}_headers ${CMAKE_CURRENT_SOURCE_DIR} ${common_path}/*.h)
+    endmacro()
+
+    add_headers_and_sources(glibc_compatibility .)
+    add_headers_and_sources(glibc_compatibility musl)
+    if (ARCH_ARM)
+        list (APPEND glibc_compatibility_sources musl/aarch64/syscall.s musl/aarch64/longjmp.s)
+        set (musl_arch_include_dir musl/aarch64)
+        set (MEMCPY_SOURCE memcpy/memcpy_aarch64.cpp)
+        list(REMOVE_ITEM glibc_compatibility_sources musl/getauxval.c)
+    elseif (ARCH_AMD64)
+        list (APPEND glibc_compatibility_sources musl/x86_64/syscall.s musl/x86_64/longjmp.s)
+        set (musl_arch_include_dir musl/x86_64)
+        set (MEMCPY_SOURCE memcpy/memcpy_x86_64.cpp)
+    else ()
+        message (FATAL_ERROR "glibc_compatibility can only be used on x86_64 or aarch64.")
+    endif ()
+
+    list(REMOVE_ITEM glibc_compatibility_sources musl/getentropy.c)
+
+    # lance_c is linked after this archive and introduces these libc references
+    # too late for another archive scan. Keep the hidden version adapters in the
+    # explicit object target so the final -lc does not pull in the toolchain's
+    # monolithic glibc-compatibility object and conflict with Doris' definitions.
+    set(lance_compatibility_source lance_symbol_versions.c)
+    list(REMOVE_ITEM glibc_compatibility_sources ${lance_compatibility_source})
+
+    # Need to omit frame pointers to match the performance of glibc
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer")
+
+    # NOTE(amos): getrandom is hard to interpose since we build thirdparty deps
+    # without glibc-compatibility. Also sanitizers might generate getrandom
+    # libcalls. Workaround: Use object file so that linker will always take a
+    # look at its symbol table.
+    list(REMOVE_ITEM glibc_compatibility_sources musl/getrandom.c)
+    # NOTE(amos): sanitizers might generate memcpy references that are too late to
+    # refer. Let's also extract memcpy definitions explicitly to avoid UNDEF GLIBC 2.14.
+    #
+    # NOTE: On ARM (aarch64) with ASAN, the custom memcpy (memcpy_aarch64.cpp) overrides
+    # the global memcpy symbol. libpthread's __pthread_initialize_minimal() calls memcpy
+    # before ASAN shadow memory is initialized, causing SIGSEGV. Skip custom memcpy in
+    # this case and fall back to glibc's memcpy.
+    if (ARCH_ARM AND (CMAKE_BUILD_TYPE STREQUAL "ASAN_UT" OR CMAKE_BUILD_TYPE STREQUAL "ASAN"))
+        add_library(glibc-compatibility-explicit OBJECT
+            musl/getrandom.c
+            ${lance_compatibility_source}
+        )
+    else()
+        add_library(glibc-compatibility-explicit OBJECT
+            musl/getrandom.c
+            ${MEMCPY_SOURCE}
+            ${lance_compatibility_source}
+        )
+    endif()
+    if(HAVE_SYS_RANDOM_H)
+        # ASAN's weak getentropy interceptor prevents extracting our implementation
+        # from the static archive. Link it explicitly so calls do not reach a null
+        # real_getentropy on glibc < 2.25.
+        target_sources(glibc-compatibility-explicit PRIVATE musl/getentropy.c)
+        if (COMPILER_CLANG)
+            # Preserve the warning policy previously supplied by the archive target.
+            set_source_files_properties(musl/getentropy.c PROPERTIES COMPILE_OPTIONS -Wno-conversion)
+        endif()
+    endif()
+    target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
+    add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})
+    target_compile_options(
+        glibc-compatibility
+        PRIVATE
+        -Wno-undef
+        -Wno-unused-but-set-variable
+    )
+    if (COMPILER_CLANG)
+        target_compile_options(
+            glibc-compatibility
+            PRIVATE
+            -Wno-unused-command-line-argument
+            -Wno-unused-macros
+            -Wno-conversion
+        )
+    elseif (COMPILER_GCC)
+        target_compile_options(
+            glibc-compatibility
+            PRIVATE
+            -Wno-implicit-fallthrough
+            -Wno-maybe-uninitialized
+        )
+    endif ()
+
+    target_include_directories(glibc-compatibility PRIVATE ${musl_arch_include_dir})
+    target_include_directories(glibc-compatibility-explicit PRIVATE ${musl_arch_include_dir})
+
+    message (STATUS "Some symbols from glibc will be replaced for compatibility")
+else()
+    message (STATUS "not------- compatibility")
+endif ()

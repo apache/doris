@@ -1,0 +1,196 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# where to put generated libraries
+set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test")
+
+# where to put generated libraries
+set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
+
+file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
+    agent/*.cpp
+    ai/*.cpp
+    cloud/*.cpp
+    common/*.cpp
+    core/*.cpp
+    exec/*.cpp
+    exprs/*.cpp
+    format/*.cpp
+    format_v2/*.cpp
+    gutil/*.cpp
+    io/*.cpp
+    load/*.cpp
+    olap/*.cpp
+    runtime/*.cpp
+    service/*.cpp
+    storage/*.cpp
+    testutil/*.cpp
+    udf/*.cpp
+    tools/*.cpp
+    util/*.cpp
+    vec/*.cpp
+)
+
+set(PHDR_CACHE_TEST_DSO_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/common/phdr_cache_test_dso.cpp)
+list(REMOVE_ITEM UT_FILES ${PHDR_CACHE_TEST_DSO_SOURCE})
+
+if (NOT OS_MACOSX)
+    add_library(phdr_cache_test_dso SHARED ${PHDR_CACHE_TEST_DSO_SOURCE})
+    set_target_properties(phdr_cache_test_dso PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${BUILD_DIR}/test"
+    )
+endif()
+
+if (ENABLE_TDE)
+    file(GLOB_RECURSE TDE_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TDE_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${TDE_UT_FILES})
+endif()
+
+if (ENABLE_TLS)
+    file(GLOB_RECURSE TLS_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TLS_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${TLS_UT_FILES})
+endif()
+
+if (ENABLE_VARIANT_NESTED_GROUP)
+    file(GLOB_RECURSE VARIANT_NESTED_GROUP_UT_FILES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/${VARIANT_NESTED_GROUP_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${VARIANT_NESTED_GROUP_UT_FILES})
+endif()
+
+# Remove all cpp files from vector search (ANN index) subdirectory
+# Since cpp files in vector search subdirs use header files from faiss.
+# The compile check used by doris can not be applied to faiss headers.
+# So vector_search cpp files are compiled in a separate library using different compile options.
+file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS storage/index/ann/*.cpp)
+list(REMOVE_ITEM UT_FILES ${VECTOR_FILES})
+
+if(NOT DEFINED DORIS_WITH_LZO)
+    list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/plain_text_line_reader_lzop_test.cpp)
+endif()
+
+if (OS_MACOSX)
+    list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/util/system_metrics_test.cpp)
+endif()
+
+list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_tool.cpp)
+
+# todo: need fix those ut
+list(REMOVE_ITEM UT_FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/agent/heartbeat_server_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/common/config_validator_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/service/http/metrics_action_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_plain_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_prefix_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/bitshuffle_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/column_reader_writer_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/frame_of_reference_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/plain_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/rle_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/remote_rowset_gc_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/jsonb_value_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
+)
+
+message(STATUS "Disable the metrics collection for orc")
+add_compile_definitions(ENABLE_METRICS=0)
+
+list(APPEND UT_FILES
+    ${CONTRIB_PATH}/apache-orc/c++/test/MemoryInputStream.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/MemoryOutputStream.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestAttributes.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestBlockBuffer.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestBufferedOutputStream.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestBloomFilter.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestByteRle.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestByteRLEEncoder.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnPrinter.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnReader.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnStatistics.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestCompression.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestDecompression.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestDecimal.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestDictionaryEncoding.cc
+    #${CONTRIB_PATH}/apache-orc/c++/test/TestDriver.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestInt128.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestMurmur3.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestPredicateLeaf.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestPredicatePushdown.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestReader.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestRleDecoder.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestRleEncoder.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestRLEV2Util.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestSargsApplier.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestSearchArgument.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestStripeIndexStatistics.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestTimestampStatistics.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestTimezone.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestType.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestWriter.cc
+)
+
+include_directories(
+  ${CMAKE_SOURCE_DIR}/../contrib/apache-orc/c++/src
+  ${CMAKE_BINARY_DIR}/apache-orc/c++/src
+  ${CMAKE_BINARY_DIR}/apache-orc/c++/include
+)
+
+# Removed test files are added back using separate compile arguments.
+add_subdirectory(storage/index/ann)
+
+add_executable(doris_be_test ${UT_FILES})
+if (TARGET phdr_cache_test_dso)
+    add_dependencies(doris_be_test phdr_cache_test_dso)
+endif()
+
+# run-be-ut.sh resets DORIS_HOME to the test binary dir before launching the
+# tests, so the real-IPADIC dictionary test can't find the repo dictionary via
+# DORIS_HOME.
+target_compile_definitions(doris_be_test PRIVATE
+    KUROMOJI_SOURCE_DICT_DIR="${BASE_DIR}/dict/kuromoji")
+
+# -force_load takes a file path rather than a target, so unlike --whole-archive <target> below it
+# propagates no usage requirements. Link ann_index explicitly: it exports the faiss include
+# directories PUBLIC, and the test TUs that include faiss headers (function_array_distance.h and
+# what includes it) need them.
+if (APPLE)
+    target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
+        -Wl,-force_load,$<TARGET_FILE:vector_search_test>
+        ann_index)
+    # $<TARGET_FILE:...> inside a link flag does not create a target-level
+    # dependency, so parallel ninja could link doris_be_test before the
+    # archive exists.
+    add_dependencies(doris_be_test vector_search_test)
+else()
+    target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
+        -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
+endif()
+set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+target_compile_options(doris_be_test PRIVATE -include gtest/gtest.h -Wno-shadow -Wno-shadow-field)
+
+if (OS_MACOSX AND ARCH_ARM)
+    find_program(DSYMUTIL NAMES dsymutil)
+    message(STATUS "dsymutil found: ${DSYMUTIL}")
+    find_program(LLVM_STRIP NAMES llvm-strip)
+    message(STATUS "llvm-strip found: ${LLVM_STRIP}")
+    add_custom_command(TARGET doris_be_test POST_BUILD
+        COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
+        COMMAND ${LLVM_STRIP} --strip-all $<TARGET_FILE:doris_be_test>
+    )
+endif()

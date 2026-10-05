@@ -1,0 +1,281 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.job.extensions.insert.streaming;
+
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.job.base.Job;
+import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
+import org.apache.doris.qe.AuditLogHelper;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
+import org.apache.doris.thrift.TStatusCode;
+
+import com.google.common.base.Preconditions;
+import lombok.Getter;
+import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
+
+@Log4j2
+@Getter
+public class StreamingInsertTask extends AbstractStreamingTask {
+    private String sql;
+    private StmtExecutor stmtExecutor;
+    private InsertIntoTableCommand taskCommand;
+    private String currentDb;
+    private ConnectContext ctx;
+    private StreamingJobProperties jobProperties;
+    private Map<String, String> originTvfProps;
+    private String cloudCluster;
+    private String auditSql;
+    private final boolean auditEnabled;
+    SourceOffsetProvider offsetProvider;
+
+    public StreamingInsertTask(long jobId,
+                               long taskId,
+                               String sql,
+                               SourceOffsetProvider offsetProvider,
+                               String currentDb,
+                               StreamingJobProperties jobProperties,
+                               Map<String, String> originTvfProps,
+                               UserIdentity userIdentity,
+                               String cloudCluster) {
+        super(jobId, taskId, userIdentity);
+        this.sql = sql;
+        this.currentDb = currentDb;
+        this.offsetProvider = offsetProvider;
+        this.jobProperties = jobProperties;
+        this.originTvfProps = originTvfProps;
+        this.cloudCluster = cloudCluster;
+        this.auditEnabled = S3TableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType());
+        this.noRetry = CdcStreamTableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType());
+    }
+
+    @Override
+    public void before() throws Exception {
+        auditSql = null;
+        if (getIsCanceled().get()) {
+            log.info("streaming insert task has been canceled, task id is {}", getTaskId());
+            return;
+        }
+        this.status = TaskStatus.RUNNING;
+        this.startTimeMs = System.currentTimeMillis();
+        ctx = InsertTask.makeConnectContext(userIdentity, currentDb);
+        ctx.setSessionVariable(jobProperties.getSessionVariable(ctx.getSessionVariable()));
+        // apply after session merge so compute_group wins over session.cloud_cluster
+        if (Config.isCloudMode() && StringUtils.isNotEmpty(cloudCluster)) {
+            ctx.setCloudCluster(cloudCluster);
+        }
+        StatementContext statementContext = new StatementContext();
+        ctx.setStatementContext(statementContext);
+
+        this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);
+        log.info("streaming insert task {} get running offset: {}", taskId, runningOffset.toString());
+        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+        baseCommand.setJobId(getTaskId());
+        StmtExecutor baseStmtExecutor =
+                new StmtExecutor(ctx, new LogicalPlanAdapter(baseCommand, ctx.getStatementContext()));
+        baseCommand.initPlan(ctx, baseStmtExecutor, false);
+        if (!baseCommand.getParsedPlan().isPresent()) {
+            throw new JobException("Can not get Parsed plan");
+        }
+        this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset, getTaskId());
+        this.taskCommand.setLabelName(Optional.of(labelName));
+        this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
+        if (auditEnabled) {
+            ctx.setExecutor(stmtExecutor);
+            try {
+                this.auditSql = buildAuditSql();
+            } catch (Exception e) {
+                log.warn("Failed to prepare audit SQL, label {}; skipping audit for this attempt", labelName, e);
+            }
+        }
+    }
+
+    @Override
+    public void run() throws JobException {
+        if (getIsCanceled().get()) {
+            log.info("task has been canceled, task id is {}", getTaskId());
+            return;
+        }
+        log.info("start to run streaming insert task, label {}, offset is {}", labelName, runningOffset.toString());
+        String errMsg = null;
+        if (auditEnabled) {
+            ctx.setStartTime();
+        }
+        try {
+            taskCommand.run(ctx, stmtExecutor);
+            if (ctx.getState().getStateType() == QueryState.MysqlStateType.OK) {
+                return;
+            } else {
+                errMsg = ctx.getState().getErrorMessage();
+            }
+            throw new JobException(errMsg);
+        } catch (Exception e) {
+            String errorMessage = Util.getRootCauseMessage(e);
+            if (auditEnabled && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+                ctx.getState().setError(ErrorCode.ERR_INTERNAL_ERROR, errorMessage);
+            }
+            log.warn("execute insert task error, label is {},offset is {}", taskCommand.getLabelName(),
+                    runningOffset.toString(), e);
+            throw new JobException(errorMessage);
+        } finally {
+            if (auditSql != null) {
+                AuditLogHelper.logAuditLog(ctx, auditSql, stmtExecutor.getParsedStmt(),
+                        stmtExecutor.getQueryStatisticsForAuditLog(), true);
+            }
+        }
+    }
+
+    private String buildAuditSql() {
+        TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
+        new NereidsParser().parseForEncryption(sql, replacements);
+        List<UnboundTVFRelation> tvfRelations = taskCommand.getAllTVFRelation();
+        Preconditions.checkState(replacements.size() == 1 && tvfRelations.size() == 1,
+                "S3 streaming insert must contain exactly one TVF");
+        String rewrittenProperties = tvfRelations.get(0).getProperties().getMap().entrySet().stream()
+                .map(entry -> SqlLiteralUtils.quoteStringLiteral(entry.getKey()) + " = "
+                        + SqlLiteralUtils.quoteStringLiteral(entry.getValue()))
+                .collect(Collectors.joining(", "));
+        Pair<Integer, Integer> tvfPropertiesRange = replacements.firstKey();
+        replacements.replace(tvfPropertiesRange, rewrittenProperties);
+        return BaseViewInfo.rewriteSql(replacements, sql);
+    }
+
+    @Override
+    public List<Long> getScanBackendIds() {
+        if (stmtExecutor != null && stmtExecutor.getCoord() != null) {
+            return stmtExecutor.getCoord().getScanBackendIds();
+        }
+        return Collections.emptyList();
+    }
+
+    @Override
+    public boolean onSuccess() throws JobException {
+        if (getIsCanceled().get()) {
+            return false;
+        }
+        this.status = TaskStatus.SUCCESS;
+        this.finishTimeMs = System.currentTimeMillis();
+        if (!isCallable()) {
+            return false;
+        }
+        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        if (null == job) {
+            log.info("job is null, job id is {}", jobId);
+            return false;
+        }
+
+        StreamingInsertJob streamingInsertJob = (StreamingInsertJob) job;
+        streamingInsertJob.onStreamTaskSuccess(this);
+        return true;
+    }
+
+    @Override
+    protected void onFail(String errMsg) throws JobException {
+        super.onFail(errMsg);
+    }
+
+    @Override
+    public void cancel(boolean needWaitCancelComplete) {
+        super.cancel(needWaitCancelComplete);
+        if (null != stmtExecutor) {
+            log.info("cancelling streaming insert task, job id is {}, task id is {}",
+                    getJobId(), getTaskId());
+            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "streaming insert task cancelled"),
+                    needWaitCancelComplete);
+        }
+    }
+
+    @Override
+    public void closeOrReleaseResources() {
+        if (null != stmtExecutor) {
+            stmtExecutor = null;
+        }
+        if (null != taskCommand) {
+            taskCommand = null;
+        }
+        if (null != ctx) {
+            ctx = null;
+        }
+    }
+
+    @Override
+    public TRow getTvfInfo(String jobName) {
+        TRow trow = super.getTvfInfo(jobName);
+        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager()
+                .queryLoadJobsByJobIds(Arrays.asList(this.getTaskId()));
+        if (!loadJobs.isEmpty()) {
+            LoadJob loadJob = loadJobs.get(0);
+            if (loadJob.getLoadingStatus() != null && loadJob.getLoadingStatus().getTrackingUrl() != null) {
+                trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadingStatus().getTrackingUrl()));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            }
+
+            if (loadJob.getLoadStatistic() != null) {
+                trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadStatistic().toJson()));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            }
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        }
+
+        if (this.getUserIdentity() == null) {
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(this.getUserIdentity().getQualifiedUser()));
+        }
+        trow.addToColumnValue(new TCell().setStringVal(""));
+        trow.addToColumnValue(new TCell().setStringVal(runningOffset == null
+                ? FeConstants.null_string : runningOffset.showRange()));
+        return trow;
+    }
+}

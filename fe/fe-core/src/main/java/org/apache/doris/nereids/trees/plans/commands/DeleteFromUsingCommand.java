@@ -1,0 +1,132 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands;
+
+import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * delete from unique key table.
+ */
+public class DeleteFromUsingCommand extends DeleteFromCommand implements SupportProfile {
+    private final Optional<LogicalPlan> cte;
+    private final boolean hasOrderByLimit;
+
+    /**
+     * constructor
+     */
+    public DeleteFromUsingCommand(List<String> nameParts, String tableAlias,
+            boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery,
+            Optional<LogicalPlan> cte, boolean hasOrderByLimit) {
+        super(nameParts, tableAlias, isTempPart, partitions, logicalQuery);
+        this.cte = cte;
+        this.hasOrderByLimit = hasOrderByLimit;
+    }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (ctx.getSessionVariable().isInDebugMode()) {
+            throw new AnalysisException("Delete is forbidden since current session is in debug mode."
+                    + " Please check the following session variables: "
+                    + ctx.getSessionVariable().printDebugModeVariables());
+        }
+        TableIf table = RelationUtil.getTable(RelationUtil.getQualifierName(ctx, nameParts),
+                ctx.getEnv(), Optional.empty());
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = rowLevelDmlArgs(table);
+            new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).run(ctx, executor);
+            return;
+        }
+        // NOTE: delete from using command is executed as insert command, so txn insert can support it
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
+                Optional.empty(), true, Optional.empty()).run(ctx, executor);
+    }
+
+    @Override
+    protected LogicalPlan handleCte(LogicalPlan logicalPlan) {
+        if (cte.isPresent()) {
+            logicalPlan = ((LogicalPlan) cte.get().withChildren(logicalPlan));
+        }
+        return logicalPlan;
+    }
+
+    @Override
+    protected RowLevelDmlArgs rowLevelDmlArgs(TableIf table) {
+        return RowLevelDmlArgs.forDelete(
+                table, nameParts, tableAlias, isTempPart, partitions,
+                handleCte(logicalQuery), mayDuplicateTargetRows());
+    }
+
+    private boolean mayDuplicateTargetRows() {
+        // The parser attaches every regular USING relation through a LogicalJoin. UNNEST is the
+        // exception: withRelations replaces its one-row child with the target and produces a
+        // LogicalGenerate. CTE, ORDER BY/LIMIT, and simple-DELETE fallback plans contain neither,
+        // so their target rows do not need primary-key deduplication.
+        return logicalQuery.anyMatch(plan -> plan instanceof LogicalJoin
+                || plan instanceof LogicalGenerate);
+    }
+
+    /**
+     * for test
+     */
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
+    }
+
+    @Override
+    public List<String> getTargetTableNameParts() {
+        return nameParts;
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitDeleteFromUsingCommand(this, context);
+    }
+
+    @Override
+    protected void checkTargetTable(OlapTable targetTable) {
+        if (targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+            if (hasOrderByLimit) {
+                throw new AnalysisException(
+                        "delete command with ORDER BY/LIMIT only supports unique key model");
+            }
+            throw new AnalysisException(
+                    "delete command on with using clause only supports unique key model");
+        }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DELETE;
+    }
+}

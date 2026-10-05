@@ -1,0 +1,189 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "cloud/cloud_delta_writer.h"
+
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_rowset_builder.h"
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/config.h"
+#include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
+#include "storage/adaptive_thread_pool_controller.h"
+#include "util/threadpool.h"
+
+namespace doris {
+
+bvar::Adder<int64_t> g_cloud_commit_rowset_count("cloud_commit_rowset_count");
+bvar::Adder<int64_t> g_cloud_commit_empty_rowset_count("cloud_commit_empty_rowset_count");
+
+CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& req,
+                                   RuntimeProfile* profile, const UniqueId& load_id)
+        : BaseDeltaWriter(req, profile, load_id) {
+    _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, req, profile);
+    _resource_ctx = thread_context()->resource_ctx();
+}
+
+CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& group_build_req,
+                                   const WriteRequest& sub_data_req,
+                                   const WriteRequest& sub_row_binlog_req, RuntimeProfile* profile,
+                                   const UniqueId& load_id)
+        : BaseDeltaWriter(group_build_req, profile, load_id) {
+    DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
+           sub_data_req.write_req_type == WriteRequestType::DATA &&
+           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
+    _rowset_builder = std::make_unique<CloudGroupRowsetBuilder>(
+            engine, group_build_req, sub_data_req, sub_row_binlog_req, profile);
+    _resource_ctx = thread_context()->resource_ctx();
+}
+
+CloudDeltaWriter::~CloudDeltaWriter() = default;
+
+Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
+    if (writers.empty()) {
+        return Status::OK();
+    }
+
+    std::vector<std::function<Status()>> tasks;
+    tasks.reserve(writers.size());
+    for (auto* writer : writers) {
+        if (writer->_is_init || writer->_is_cancelled) {
+            continue;
+        }
+
+        tasks.emplace_back([writer] {
+            SCOPED_ATTACH_TASK(writer->resource_context());
+            std::lock_guard<bthread::Mutex> lock(writer->_mtx);
+            if (writer->_is_init || writer->_is_cancelled) {
+                return Status::OK();
+            }
+            Status st = writer->init(); // included in SCOPED_ATTACH_TASK
+            return st;
+        });
+    }
+
+    return cloud::bthread_fork_join(tasks, 10);
+}
+
+Status CloudDeltaWriter::write(const Block* block, const TabletAddRowsPayload& rows,
+                               bool* memtable_flushed) {
+    if (memtable_flushed != nullptr) {
+        *memtable_flushed = false;
+    }
+    if (rows.row_idxs.empty()) [[unlikely]] {
+        return Status::OK();
+    }
+    if (_req.enable_table_memtable_backpressure && !_req.is_high_priority) {
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
+                [this]() {
+                    std::lock_guard lock(_mtx);
+                    return _is_cancelled;
+                },
+                table_id());
+    }
+    std::lock_guard lock(_mtx);
+    CHECK(_is_init || _is_cancelled);
+    {
+        SCOPED_TIMER(_wait_flush_limit_timer);
+        auto* s3_file_upload_pool = rowset_builder()->is_s3_storage()
+                                            ? ExecEnv::GetInstance()->s3_file_upload_thread_pool()
+                                            : nullptr;
+        const auto need_backpressure = [this, s3_file_upload_pool] {
+            if (s3_file_upload_pool != nullptr) {
+                return s3_file_upload_pool->get_queue_size() >
+                       AdaptiveThreadPoolController::kS3QueueBusyThreshold;
+            }
+            const auto effective_flush_running_count_limit =
+                    config::memtable_flush_running_count_limit *
+                    (_req.write_req_type == WriteRequestType::GROUP ? 2 : 1);
+            return _memtable_writer->flush_running_count() >= effective_flush_running_count_limit;
+        };
+        while (need_backpressure()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    return _memtable_writer->write(block, rows, memtable_flushed);
+}
+
+Status CloudDeltaWriter::close() {
+    std::lock_guard lock(_mtx);
+    CHECK(_is_init);
+    return _memtable_writer->close();
+}
+
+Status CloudDeltaWriter::flush_memtable_async() {
+    std::lock_guard lock(_mtx);
+    return BaseDeltaWriter::flush_memtable_async();
+}
+
+Status CloudDeltaWriter::cancel_with_status(const Status& st) {
+    std::lock_guard lock(_mtx);
+    return BaseDeltaWriter::cancel_with_status(st);
+}
+
+Status CloudDeltaWriter::build_rowset() {
+    std::lock_guard lock(_mtx);
+    CHECK(_is_init);
+    return BaseDeltaWriter::build_rowset();
+}
+
+CloudRowsetBuilder* CloudDeltaWriter::rowset_builder() {
+    return static_cast<CloudRowsetBuilder*>(_rowset_builder.get());
+}
+
+void CloudDeltaWriter::update_tablet_stats() {
+    rowset_builder()->update_tablet_stats();
+}
+
+Status CloudDeltaWriter::commit_rowset() {
+    g_cloud_commit_rowset_count << 1;
+    std::lock_guard<bthread::Mutex> lock(_mtx);
+
+    // Handle empty rowset (no data written)
+    if (!_is_init) {
+        g_cloud_commit_empty_rowset_count << 1;
+        return _commit_empty_rowset();
+    }
+
+    return rowset_builder()->commit_rowset("", _rowset_builder->tablet()->table_id());
+}
+
+Status CloudDeltaWriter::_commit_empty_rowset() {
+    // If skip writing empty rowset metadata is enabled,
+    // we do not prepare rowset to meta service.
+    if (config::skip_writing_empty_rowset_metadata) {
+        rowset_builder()->set_skip_writing_rowset_metadata(true);
+    }
+
+    RETURN_IF_ERROR(_rowset_builder->init());
+    RETURN_IF_ERROR(_rowset_builder->build_rowset());
+
+    // If skip writing empty rowset metadata is enabled, we do not commit rowset to meta service.
+    if (config::skip_writing_empty_rowset_metadata) {
+        return Status::OK();
+    }
+    // write a empty rowset kv to keep version continuous
+    return rowset_builder()->commit_rowset("", _rowset_builder->tablet()->table_id());
+}
+
+Status CloudDeltaWriter::set_txn_related_info() {
+    return rowset_builder()->set_txn_related_info();
+}
+
+} // namespace doris

@@ -1,0 +1,165 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.analysis;
+
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+public class NormalizeRepeatTest implements MemoPatternMatchSupported {
+    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+
+    @Test
+    public void testKeepNullableAfterNormalizeRepeat() {
+        Slot id = scan1.getOutput().get(0);
+        Slot idNotNull = id.withNullable(true);
+        Slot name = scan1.getOutput().get(1);
+        Alias alias = new Alias(new Sum(name), "sum(name)");
+        Plan plan = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id), ImmutableList.of(name)),
+                ImmutableList.of(idNotNull, alias),
+                RepeatType.GROUPING_SETS,
+                scan1
+        );
+        PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
+                .applyTopDown(new NormalizeRepeat())
+                .matches(
+                        logicalRepeat().when(repeat -> repeat.getOutputExpressions().get(0).nullable())
+                );
+    }
+
+    @Test
+    public void testEliminateRepeat() {
+        Slot id = scan1.getOutput().get(0);
+        Slot idNotNull = id.withNullable(true);
+        Slot name = scan1.getOutput().get(1);
+        Alias alias = new Alias(new Sum(name), "sum(name)");
+        Plan plan = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id)),
+                ImmutableList.of(idNotNull, alias),
+                RepeatType.GROUPING_SETS,
+                scan1
+        );
+        PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
+                .applyTopDown(new NormalizeRepeat())
+                .matchesFromRoot(
+                        logicalAggregate(logicalOlapScan())
+                );
+    }
+
+    @Test
+    public void testNoEliminateRepeat() {
+        Slot id = scan1.getOutput().get(0);
+        Slot idNotNull = id.withNullable(true);
+        Slot name = scan1.getOutput().get(1);
+        Alias alias = new Alias(new GroupingId(name), "grouping_id(name)");
+        Plan plan = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id)),
+                ImmutableList.of(idNotNull, alias),
+                RepeatType.GROUPING_SETS,
+                scan1
+        );
+        PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
+                .applyTopDown(new NormalizeRepeat())
+                .matchesFromRoot(
+                        logicalAggregate(logicalRepeat(logicalOlapScan()))
+                );
+    }
+
+    @Test
+    public void testDeduplicateGroupingScalarFunctions() {
+        Slot id = scan1.getOutput().get(0);
+        Slot name = scan1.getOutput().get(1);
+        Alias firstGroupingId = new Alias(new GroupingId(name), "first_grouping_id");
+        Alias secondGroupingId = new Alias(new GroupingId(name), "second_grouping_id");
+        LogicalRepeat<Plan> repeat = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(id)),
+                ImmutableList.of(id, firstGroupingId, secondGroupingId),
+                RepeatType.GROUPING_SETS,
+                scan1
+        );
+
+        LogicalAggregate<Plan> normalizedAggregate = NormalizeRepeat.doNormalize(repeat);
+        LogicalRepeat<Plan> normalizedRepeat = (LogicalRepeat<Plan>) normalizedAggregate.child();
+        long groupingFunctionCount = normalizedRepeat.getOutputExpressions().stream()
+                .filter(expression -> expression instanceof Alias
+                        && ((Alias) expression).child() instanceof GroupingScalarFunction)
+                .count();
+
+        Assertions.assertEquals(1, groupingFunctionCount);
+        Assertions.assertEquals(3, normalizedAggregate.getOutputExpressions().size());
+        Assertions.assertEquals(
+                ((Alias) normalizedAggregate.getOutputExpressions().get(1)).child(),
+                ((Alias) normalizedAggregate.getOutputExpressions().get(2)).child());
+    }
+
+    @Test
+    public void testGroupingScalarFunctionOrderIsIndependentOfExprId() {
+        List<String> expectedGroupingFunctionNames = ImmutableList.of(
+                "GROUPING_PREFIX_id", "GROUPING_PREFIX_name", "GROUPING_PREFIX_id_name");
+        // These offsets place the same grouping functions in different HashMap bucket orders.
+        Assertions.assertEquals(expectedGroupingFunctionNames, normalizeGroupingFunctionNames(0));
+        Assertions.assertEquals(expectedGroupingFunctionNames, normalizeGroupingFunctionNames(10));
+    }
+
+    private List<String> normalizeGroupingFunctionNames(int firstExprId) {
+        Alias id = new Alias(new ExprId(firstExprId), new IntegerLiteral(1), "id");
+        Alias name = new Alias(new ExprId(firstExprId + 1), new IntegerLiteral(2), "name");
+        Slot idSlot = id.toSlot();
+        Slot nameSlot = name.toSlot();
+        LogicalRepeat<Plan> repeat = new LogicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(idSlot, nameSlot), ImmutableList.of(idSlot)),
+                ImmutableList.of(
+                        idSlot,
+                        nameSlot,
+                        new Alias(new Grouping(idSlot), "grouping_id"),
+                        new Alias(new Grouping(nameSlot), "grouping_name"),
+                        new Alias(new GroupingId(idSlot, nameSlot), "grouping_id_name")),
+                RepeatType.GROUPING_SETS,
+                new LogicalOneRowRelation(new RelationId(firstExprId), ImmutableList.of(id, name)));
+
+        return NormalizeRepeat.doNormalize(repeat).getGroupByExpressions().stream()
+                .filter(expression -> expression instanceof Slot
+                        && ((Slot) expression).getName().startsWith(Repeat.GROUPING_PREFIX))
+                .map(expression -> ((Slot) expression).getName())
+                .collect(ImmutableList.toImmutableList());
+    }
+}

@@ -1,0 +1,156 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.types;
+
+import org.apache.doris.catalog.PatternType;
+import org.apache.doris.common.GlobRegexUtil;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
+import org.apache.doris.nereids.util.Utils;
+
+import com.google.re2j.Pattern;
+import com.google.re2j.PatternSyntaxException;
+
+import java.util.Objects;
+
+/**
+ * A field inside a VariantType.
+ */
+public class VariantField {
+    private final String pattern;
+    private final DataType dataType;
+    private final String comment;
+    private final PatternType patternType;
+
+    public VariantField(String pattern, DataType dataType, String comment) {
+        this(pattern, dataType, comment, PatternType.MATCH_NAME_GLOB.name());
+    }
+
+    /**
+     * VariantField Constructor
+     *  @param pattern of this field
+     *  @param dataType The data type of this field
+     *  @param comment The comment of this field
+     *  @param patternType The patternType of this field
+     */
+    public VariantField(String pattern, DataType dataType, String comment, String patternType) {
+        this.pattern = Objects.requireNonNull(pattern, "pattern should not be null");
+        this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
+        this.comment = Objects.requireNonNull(comment, "comment should not be null");
+        PatternType type;
+        if (PatternType.MATCH_NAME.name().equalsIgnoreCase(patternType)) {
+            type = PatternType.MATCH_NAME;
+        } else {
+            type = PatternType.MATCH_NAME_GLOB;
+        }
+        this.patternType = Objects.requireNonNull(type, "patternType should not be null");
+    }
+
+    public String getPattern() {
+        return pattern;
+    }
+
+    public DataType getDataType() {
+        return dataType;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    /**
+     * Check if the given field name matches this field's pattern.
+     * This method uses a restricted glob syntax converted to regex.
+     *
+     * Supported glob syntax:
+     * - '*' matches any sequence of characters
+     * - '?' matches any single character
+     * - '[...]' matches any character in the brackets
+     * - '[!...]' matches any character not in the brackets
+     * - '\\' escapes the next character
+     *
+     * @param fieldName the field name to check
+     * @return true if the field name matches the pattern
+     */
+    public boolean matches(String fieldName) {
+        if (patternType == PatternType.MATCH_NAME) {
+            return pattern.equals(fieldName);
+        }
+        if (patternType != PatternType.MATCH_NAME_GLOB) {
+            return false;
+        }
+        try {
+            Pattern compiled = GlobRegexUtil.getOrCompilePattern(pattern);
+            return compiled.matcher(fieldName).matches();
+        } catch (PatternSyntaxException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    public org.apache.doris.catalog.VariantField toCatalogDataType() {
+        return new org.apache.doris.catalog.VariantField(
+                pattern, dataType.toCatalogDataType(), comment, patternType);
+    }
+
+    /**
+     * Convert this VariantField to SQL string representation.
+     * @return SQL string representation of this VariantField
+     */
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        if (patternType == PatternType.MATCH_NAME) {
+            sb.append(patternType.toString()).append(" ");
+        }
+
+        sb.append("'").append(pattern).append("'");
+        sb.append(":").append(dataType.toSql());
+        if (!comment.isEmpty()) {
+            sb.append(" COMMENT ").append(SqlLiteralUtils.quoteStringLiteral(comment));
+        }
+        return sb.toString();
+    }
+
+    public VariantField conversion() {
+        return new VariantField(pattern, dataType.conversion(), comment, patternType.toString());
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        VariantField that = (VariantField) o;
+        return Objects.equals(pattern, that.pattern) && Objects.equals(dataType,
+                that.dataType);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(pattern, dataType);
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("VariantField",
+                "pattern", pattern,
+                "dataType", dataType,
+                "comment", comment);
+    }
+}

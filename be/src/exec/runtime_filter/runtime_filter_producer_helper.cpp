@@ -1,0 +1,248 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "exec/runtime_filter/runtime_filter_producer_helper.h"
+
+#include <gen_cpp/Metrics_types.h>
+
+#include "exec/pipeline/pipeline_task.h"
+#include "exec/runtime_filter/runtime_filter_wrapper.h"
+#include "exprs/vexpr.h"
+
+namespace doris {
+Status RuntimeFilterProducerHelper::_init_expr(
+        const VExprContextSPtrs& build_expr_ctxs,
+        const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
+    _filter_expr_contexts.resize(runtime_filter_descs.size());
+    _decoupled_filter_indices.clear();
+    for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
+        if (runtime_filter_descs[i].expr_order >= 0) {
+            _filter_expr_contexts[i] = build_expr_ctxs[runtime_filter_descs[i].expr_order];
+        } else {
+            // Decoupled RF: srcExpr is not in the builder's equi-conjuncts.
+            // Create a new VExprContext from the src_expr in the thrift descriptor.
+            VExprContextSPtr ctx;
+            RETURN_IF_ERROR(VExpr::create_expr_tree(runtime_filter_descs[i].src_expr, ctx));
+            if (ctx == nullptr) {
+                return Status::InternalError("decoupled runtime filter {} has empty src_expr",
+                                             runtime_filter_descs[i].filter_id);
+            }
+            _filter_expr_contexts[i] = std::move(ctx);
+            _decoupled_filter_indices.push_back(i);
+        }
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::init(
+        RuntimeState* state, const VExprContextSPtrs& build_expr_ctxs,
+        const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
+    return _init(state, build_expr_ctxs, runtime_filter_descs, nullptr);
+}
+
+Status RuntimeFilterProducerHelper::init(
+        RuntimeState* state, const VExprContextSPtrs& build_expr_ctxs,
+        const std::vector<TRuntimeFilterDesc>& runtime_filter_descs,
+        const RowDescriptor& row_desc) {
+    return _init(state, build_expr_ctxs, runtime_filter_descs, &row_desc);
+}
+
+Status RuntimeFilterProducerHelper::_init(
+        RuntimeState* state, const VExprContextSPtrs& build_expr_ctxs,
+        const std::vector<TRuntimeFilterDesc>& runtime_filter_descs,
+        const RowDescriptor* row_desc) {
+    _producers.resize(runtime_filter_descs.size());
+    for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
+        RETURN_IF_ERROR(
+                state->register_producer_runtime_filter(runtime_filter_descs[i], &_producers[i]));
+    }
+    RETURN_IF_ERROR(_init_expr(build_expr_ctxs, runtime_filter_descs));
+    if (_decoupled_filter_indices.empty()) {
+        return Status::OK();
+    }
+    if (row_desc == nullptr) {
+        return Status::InternalError("decoupled runtime filters require row_desc during init");
+    }
+    for (size_t idx : _decoupled_filter_indices) {
+        RETURN_IF_ERROR(_filter_expr_contexts[idx]->prepare(state, *row_desc));
+        RETURN_IF_ERROR(_filter_expr_contexts[idx]->open(state));
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::send_filter_size(
+        RuntimeState* state, uint64_t hash_table_size,
+        const std::shared_ptr<CountedFinishDependency>& dependency) {
+    if (_skip_runtime_filters_process) {
+        return Status::OK();
+    }
+    for (const auto& filter : _producers) {
+        filter->latch_dependency(dependency);
+    }
+    for (const auto& filter : _producers) {
+        RETURN_IF_ERROR(filter->send_size(state, hash_table_size));
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::_init_filters(RuntimeState* state,
+                                                  uint64_t local_hash_table_size) {
+    // process IN_OR_BLOOM_FILTER's real type
+    for (const auto& filter : _producers) {
+        RETURN_IF_ERROR(filter->init(local_hash_table_size));
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::_insert(const Block* block, size_t start) {
+    SCOPED_TIMER(_runtime_filter_compute_timer.get());
+    for (int i = 0; i < _producers.size(); i++) {
+        auto filter = _producers[i];
+        int result_column_id = _filter_expr_contexts[i]->get_last_result_column_id();
+        if (result_column_id == -1) {
+            return Status::InternalError(
+                    "runtime filter producer _insert got invalid result_column_id -1");
+        }
+        const auto& column = block->get_by_position(result_column_id).column;
+        RETURN_IF_ERROR(filter->insert(column, start));
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
+    SCOPED_TIMER(_publish_runtime_filter_timer.get());
+    for (const auto& filter : _producers) {
+        RETURN_IF_ERROR(filter->publish(state, _should_build_hash_table));
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::build(
+        RuntimeState* state, Block* block, bool use_shared_table,
+        std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters) {
+    if (_skip_runtime_filters_process) {
+        return Status::OK();
+    }
+
+    if (_should_build_hash_table) {
+        // Hash table is completed and runtime filter has a global size now.
+        uint64_t hash_table_size = block ? block->rows() : 0;
+        RETURN_IF_ERROR(_init_filters(state, hash_table_size));
+        if (hash_table_size > 1) {
+            // Evaluate decoupled RF expressions on the block before insert.
+            // Standard RF exprs are already evaluated during hash table building.
+            for (size_t idx : _decoupled_filter_indices) {
+                int result_column_id = -1;
+                RETURN_IF_ERROR(_filter_expr_contexts[idx]->execute(block, &result_column_id));
+                // Materialize ColumnConst to a full column before insert.
+                // A decoupled source expression like k * 0 may produce a
+                // ColumnConst (single value), but _insert() expects a
+                // full-length column when inserting starting at a non-zero offset.
+                block->get_by_position(result_column_id).column =
+                        block->get_by_position(result_column_id)
+                                .column->convert_to_full_column_if_const();
+            }
+            constexpr int HASH_JOIN_INSERT_OFFSET = 1; // the first row is mocked on hash join sink
+            RETURN_IF_ERROR(_insert(block, HASH_JOIN_INSERT_OFFSET));
+        }
+    }
+
+    for (const auto& filter : _producers) {
+        if (use_shared_table) {
+            if (!_is_broadcast_join) {
+                return Status::InternalError(
+                        "use_shared_table is true but _is_broadcast_join is false");
+            }
+            if (_should_build_hash_table) {
+                if (runtime_filters.contains(filter->wrapper()->filter_id())) {
+                    return Status::InternalError(
+                            "runtime_filters already contains filter_id {} when building hash "
+                            "table",
+                            filter->wrapper()->filter_id());
+                }
+                runtime_filters[filter->wrapper()->filter_id()] = filter->wrapper();
+            } else {
+                if (!runtime_filters.contains(filter->wrapper()->filter_id())) {
+                    return Status::InternalError(
+                            "runtime_filters does not contain filter_id {} when not building "
+                            "hash table",
+                            filter->wrapper()->filter_id());
+                }
+                filter->set_wrapper(runtime_filters[filter->wrapper()->filter_id()]);
+            }
+        }
+        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::publish(RuntimeState* state) {
+    if (_skip_runtime_filters_process) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_publish(state));
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::skip_process(RuntimeState* state) {
+    auto mocked_dependency =
+            std::make_shared<CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
+    RETURN_IF_ERROR(send_filter_size(state, 0, mocked_dependency));
+
+    for (const auto& filter : _producers) {
+        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED,
+                                                       "skip all rf process");
+    }
+
+    RETURN_IF_ERROR(publish(state));
+    _skip_runtime_filters_process = true;
+    return Status::OK();
+}
+
+void RuntimeFilterProducerHelper::collect_realtime_profile(
+        RuntimeProfile* parent_operator_profile) {
+    if (parent_operator_profile == nullptr) {
+        LOG(WARNING) << "parent_operator_profile is nullptr in "
+                        "RuntimeFilterProducerHelper::collect_realtime_profile";
+        return;
+    }
+
+    parent_operator_profile->add_counter_with_level("RuntimeFilterInfo", TUnit::NONE, 1);
+    RuntimeProfile::Counter* publish_timer = parent_operator_profile->add_counter(
+            "PublishTime", TUnit::TIME_NS, "RuntimeFilterInfo", 1);
+    RuntimeProfile::Counter* build_timer = parent_operator_profile->add_counter(
+            "BuildTime", TUnit::TIME_NS, "RuntimeFilterInfo", 1);
+
+    parent_operator_profile->add_description(
+            "SkipProcess", _skip_runtime_filters_process ? "True" : "False", "RuntimeFilterInfo");
+    publish_timer->set(_publish_runtime_filter_timer->value());
+    build_timer->set(_runtime_filter_compute_timer->value());
+}
+
+std::shared_ptr<RuntimeFilterWrapper> RuntimeFilterProducerHelper::detect_local_in_filter(
+        RuntimeState* state) {
+    // If any runtime filter is local in filter, return true.
+    // Local in filter is used to LEFT_SEMI_DIRECT_RETURN_OPT
+    for (const auto& filter : _producers) {
+        if (auto wrapper = filter->detect_local_in_filter(state); wrapper != nullptr) {
+            return wrapper;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace doris

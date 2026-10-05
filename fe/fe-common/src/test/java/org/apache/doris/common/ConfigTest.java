@@ -1,0 +1,239 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.common;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+
+public class ConfigTest {
+    @BeforeAll
+    public static void setUp() throws Exception {
+        Config config = new Config();
+        // create an empty config file to initialize Config
+        Path tempFile = Files.createTempFile("fe_ut_", ".conf");
+        tempFile.toFile().deleteOnExit();
+        config.init(tempFile.toAbsolutePath().toString());
+    }
+
+    // A sensitive config (fe_meta_auth_token) must never be dumped in plaintext by any config
+    // API: both Config.dump() and ConfigBase.getConfigInfo() return the mask instead of the value.
+    @Test
+    public void testSensitiveConfigIsMaskedWhenSet() {
+        String old = Config.fe_meta_auth_token;
+        try {
+            Config.fe_meta_auth_token = "super-secret-token";
+
+            Map<String, String> dumped = ConfigBase.dump();
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, dumped.get("fe_meta_auth_token"));
+
+            String value = configInfoValue("fe_meta_auth_token");
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, value);
+        } finally {
+            Config.fe_meta_auth_token = old;
+        }
+    }
+
+    // The legacy cluster secret auth_token is also marked sensitive, so it is masked by every
+    // config dump API too (it leaks through /rest/v1/config/fe otherwise).
+    @Test
+    public void testAuthTokenIsMaskedWhenSet() {
+        String old = Config.auth_token;
+        try {
+            Config.auth_token = "super-secret-auth-token";
+
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, ConfigBase.dump().get("auth_token"));
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, configInfoValue("auth_token"));
+        } finally {
+            Config.auth_token = old;
+        }
+    }
+
+    // An empty sensitive config is left as-is (no secret to hide), so "unset" stays visible.
+    @Test
+    public void testEmptySensitiveConfigIsNotMasked() {
+        String old = Config.fe_meta_auth_token;
+        try {
+            Config.fe_meta_auth_token = "";
+
+            Assertions.assertEquals("", ConfigBase.dump().get("fe_meta_auth_token"));
+            Assertions.assertEquals("", configInfoValue("fe_meta_auth_token"));
+        } finally {
+            Config.fe_meta_auth_token = old;
+        }
+    }
+
+    private static String configInfoValue(String key) {
+        for (List<String> row : ConfigBase.getConfigInfo(null)) {
+            if (row.get(0).equals(key)) {
+                return row.get(1);
+            }
+        }
+        throw new IllegalStateException("config not found: " + key);
+    }
+
+    @Test
+    public void testSetEmptyArray() throws ConfigException {
+        ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "a,b,c");
+        ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "");
+        Assertions.assertEquals(0, Config.mysql_compat_var_whitelist.length, "array length should be 0");
+    }
+
+    @Test
+    public void testConfFieldDescriptionsAreEnglishStrings() throws Exception {
+        for (Field field : Config.class.getFields()) {
+            ConfigBase.ConfField confField = field.getAnnotation(ConfigBase.ConfField.class);
+            if (confField == null) {
+                continue;
+            }
+            Assertions.assertFalse(confField.description().matches(".*[\\u4e00-\\u9fff].*"), "Chinese description found in config: " + field.getName());
+        }
+    }
+
+    // File-path and jdbc-driver security configs must only be settable in fe.conf (ops), never at runtime
+    // via ADMIN SET FRONTEND CONFIG. setMutableConfig is exactly that runtime entrypoint, so it must reject them.
+    @Test
+    public void testSecurityPathConfigsAreNotRuntimeMutable() {
+        String[] opsOnlyConfigs = {
+                "jdbc_driver_url_white_list",
+                "jdbc_drivers_dir",
+                "jdbc_driver_secure_path",
+                "tmp_dir",
+                "plugin_dir",
+                "s3_load_endpoint_white_list",
+                "force_sqlserver_jdbc_encrypt_false",
+        };
+        for (String key : opsOnlyConfigs) {
+            ConfigException e = Assertions.assertThrows(ConfigException.class, () -> ConfigBase.setMutableConfig(key, "x"), key + " should not be runtime-mutable");
+            Assertions.assertTrue(e.getMessage().contains("is not mutable"));
+        }
+    }
+
+    @Test
+    public void testRejectDeprecatedInvertedIndexV1WithWhitespace() throws Exception {
+        String originFormat = Config.inverted_index_storage_format;
+        try {
+            ConfigBase.setMutableConfig("inverted_index_storage_format", "V2");
+            ConfigException dynamicException = Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("inverted_index_storage_format", " V1 "));
+            Assertions.assertTrue(dynamicException.getMessage().contains("Inverted index V1 is deprecated"));
+            Assertions.assertEquals("V2", Config.inverted_index_storage_format);
+
+            Config.inverted_index_storage_format = "V2";
+            ConfigException startupException = Assertions.assertThrows(ConfigException.class,
+                    () -> InvertedIndexStorageFormatValidator.rejectStartupV1(" V1 "));
+            Assertions.assertTrue(startupException.getMessage().contains("inverted_index_storage_format=V1"));
+            Assertions.assertEquals("V2", Config.inverted_index_storage_format);
+        } finally {
+            Config.inverted_index_storage_format = originFormat;
+        }
+    }
+
+    @Test
+    public void testSetWebSqlMaxResultBytes() throws ConfigException {
+        long original = Config.web_sql_max_result_bytes;
+        try {
+            ConfigBase.setMutableConfig("web_sql_max_result_bytes", "32");
+            Assertions.assertEquals(32, Config.web_sql_max_result_bytes);
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("web_sql_max_result_bytes", "0"));
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("web_sql_max_result_bytes", "104857601"));
+        } finally {
+            Config.web_sql_max_result_bytes = original;
+        }
+    }
+
+    @Test
+    public void testCloudWarmUpSchedulerIntervalMustBePositive() throws ConfigException {
+        int original = Config.cloud_warm_up_job_scheduler_interval_millisecond;
+        try {
+            ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "2000");
+            Assertions.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+
+            ConfigException zeroException = Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "0"));
+            Assertions.assertTrue(zeroException.getMessage().contains("must be greater than 0"));
+            Assertions.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+
+            ConfigException negativeException = Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "-1"));
+            Assertions.assertTrue(negativeException.getMessage().contains("must be greater than 0"));
+            Assertions.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+        } finally {
+            Config.cloud_warm_up_job_scheduler_interval_millisecond = original;
+        }
+    }
+
+    @Test
+    public void testMtmvCacheManageNumRejectsNegative() throws Exception {
+        int original = Config.mtmv_cache_manage_num;
+        try {
+            Config.mtmv_cache_manage_num = 100;
+            // ADMIN SET FRONTEND CONFIG runs the annotation callback before the cache-reload handler,
+            // so a negative maximum must be refused there and leave the field untouched.
+            ConfigException negative = Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("mtmv_cache_manage_num", "-1"));
+            Assertions.assertTrue(negative.getMessage().contains("must not be negative"));
+            Assertions.assertEquals(100, Config.mtmv_cache_manage_num);
+
+            // 0 is the documented way to disable the cache.
+            new Config.NonNegativeMtmvCacheNumConfHandler()
+                    .handle(ConfigBase.getField("mtmv_cache_manage_num"), " 0 ");
+            Assertions.assertEquals(0, Config.mtmv_cache_manage_num);
+            Assertions.assertDoesNotThrow(Config::validateMtmvCacheConfig);
+
+            // fe.conf assigns the field without running any callback, so startup validates it too.
+            Config.mtmv_cache_manage_num = -1;
+            Assertions.assertThrows(ConfigException.class, Config::validateMtmvCacheConfig);
+        } finally {
+            Config.mtmv_cache_manage_num = original;
+        }
+    }
+
+    @Test
+    public void testValidateWebSqlStartupConfig() throws ConfigException {
+        int originalIdleTimeout = Config.web_sql_session_idle_timeout_seconds;
+        int originalMaxSessions = Config.web_sql_max_sessions;
+        long originalMaxResultBytes = Config.web_sql_max_result_bytes;
+        try {
+            Config.validateWebSqlConfig();
+
+            Config.web_sql_session_idle_timeout_seconds = 0;
+            Assertions.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
+            Config.web_sql_session_idle_timeout_seconds = originalIdleTimeout;
+
+            Config.web_sql_max_sessions = 0;
+            Assertions.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
+            Config.web_sql_max_sessions = originalMaxSessions;
+
+            Config.web_sql_max_result_bytes = Config.WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND + 1;
+            Assertions.assertThrows(ConfigException.class, Config::validateWebSqlConfig);
+        } finally {
+            Config.web_sql_session_idle_timeout_seconds = originalIdleTimeout;
+            Config.web_sql_max_sessions = originalMaxSessions;
+            Config.web_sql_max_result_bytes = originalMaxResultBytes;
+        }
+    }
+}

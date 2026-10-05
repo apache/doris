@@ -1,0 +1,223 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.plans.commands.insert;
+
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.planner.BaseExternalTableDataSink;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.transaction.TransactionManager;
+import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TransactionType;
+
+import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Optional;
+
+/**
+ * Insert executor for base external table
+ */
+public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExecutor {
+    private static final Logger LOG = LogManager.getLogger(BaseExternalTableInsertExecutor.class);
+    protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
+    protected final TransactionManager transactionManager;
+    protected Optional<SummaryProfile> summaryProfile = Optional.empty();
+
+    /**
+     * constructor
+     */
+    public BaseExternalTableInsertExecutor(ConnectContext ctx, ExternalTable table,
+                                           String labelName, NereidsPlanner planner,
+                                           Optional<InsertCommandContext> insertCtx,
+                                           boolean emptyInsert, long jobId) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
+        transactionManager = table.getCatalog().getTransactionManager();
+
+        if (ConnectContext.get().getExecutor() != null) {
+            summaryProfile = Optional.of(ConnectContext.get().getExecutor().getSummaryProfile());
+        }
+    }
+
+    /**
+     * At this time, FE has successfully collected all commit information from BEs.
+     * Before commit this txn, commit information need to be analyzed and processed.
+     */
+    protected abstract void doBeforeCommit() throws UserException;
+
+    /**
+     * The type of the current transaction
+     */
+    protected abstract TransactionType transactionType();
+
+    @Override
+    public void beginTransaction() {
+        txnId = transactionManager.begin();
+    }
+
+    /**
+     * Returns the SPI {@link ConnectorTransaction} backing this write, or {@code null} if this executor runs on
+     * the legacy (non-plugin-driven) transaction path. Used by the generic {@code RowLevelDmlCommand} shell to
+     * apply the O5-2 write constraint only when a connector transaction is present. Default: legacy path → null.
+     */
+    public ConnectorTransaction getConnectorTransactionOrNull() {
+        return null;
+    }
+
+    @Override
+    protected void onComplete() throws UserException {
+        if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+            LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier());
+        } else {
+            summaryProfile.ifPresent(profile -> profile.setTransactionBeginTime(transactionType()));
+            long t0 = System.currentTimeMillis();
+            doBeforeCommit();
+            long t1 = System.currentTimeMillis();
+            if (table instanceof ExternalTable) {
+                try {
+                    ExternalTable externalTable = (ExternalTable) table;
+                    externalTable.getCatalog().getExecutionAuthenticator().execute(() -> {
+                        try {
+                            transactionManager.commit(txnId);
+                        } catch (UserException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                } catch (Exception e) {
+                    throw new UserException(Util.getRootCauseMessage(e), e);
+                }
+            } else {
+                transactionManager.commit(txnId);
+            }
+            txnStatus = TransactionStatus.COMMITTED;
+            long t2 = System.currentTimeMillis();
+
+            try {
+                doAfterCommit();
+            } catch (Exception e) {
+                // Cache refresh cannot undo a durable remote commit, so it must not make clients retry the write.
+                LOG.warn("Post-commit refresh failed for table {}. Data was committed successfully.",
+                        table.getName(), e);
+            }
+            long t3 = System.currentTimeMillis();
+            LOG.info("Transaction commit breakdown: doBeforeCommit={}ms, commit={}ms, doAfterCommit={}ms, total={}ms",
+                    t1 - t0, t2 - t1, t3 - t2, t3 - t0);
+            summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
+        }
+    }
+
+    /**
+     * Called after transaction commit.
+     * Subclasses can override this to customize post-commit behavior.
+     * Default: persist the mutation for replay, then refresh the full table.
+     */
+    protected void doAfterCommit() throws DdlException {
+        Env.getCurrentEnv().getRefreshManager().refreshTableAfterExternalMutation((ExternalTable) table);
+    }
+
+    @Override
+    protected void handleAfterCompleteFailure(Exception e) throws Exception {
+        if (txnStatus != TransactionStatus.COMMITTED) {
+            super.handleAfterCompleteFailure(e);
+            return;
+        }
+        // A post-commit listener cannot undo remote data, so failing the statement would invite duplicate retries.
+        LOG.warn("Post-commit listener failed for table {}. Data was committed successfully.", table.getName(), e);
+    }
+
+    @Override
+    protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
+        try {
+            ((BaseExternalTableDataSink) sink).bindDataSink(insertCtx);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void onFail(Throwable t) {
+        errMsg = Util.getRootCauseMessage(t);
+        String queryId = DebugUtil.printId(ctx.queryId());
+        // if any throwable being thrown during insert operation, first we should abort this txn
+        LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
+        String firstErrorMsgPart = "";
+        String urlPart = "";
+        if (txnId != INVALID_TXN_ID) {
+            LOG.warn("insert [{}] with query id {} abort txn {} failed", labelName, queryId, txnId);
+            if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
+                firstErrorMsgPart = StringUtils.abbreviate(coordinator.getFirstErrorMsg(),
+                        Config.first_error_msg_max_length);
+            }
+            if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
+                urlPart = coordinator.getTrackingUrl();
+            }
+        }
+        String finalErrorMsg = InsertUtils.getFinalErrorMsg(t.getMessage(), firstErrorMsgPart, urlPart);
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
+
+        if (table instanceof ExternalTable) {
+            try {
+                ExternalTable externalTable = (ExternalTable) table;
+                externalTable.getCatalog().getExecutionAuthenticator().execute(() -> {
+                    transactionManager.rollback(txnId);
+                });
+            } catch (Exception e) {
+                LOG.warn("errors when abort txn. {} for table: {}", txnId, table.getName(), e);
+            }
+        } else {
+            transactionManager.rollback(txnId);
+        }
+    }
+
+    @Override
+    protected void afterExec(StmtExecutor executor) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{");
+        sb.append("'status':'")
+                .append(ctx.isTxnModel() ? TransactionStatus.PREPARE.name() : txnStatus.name());
+        sb.append("', 'txnId':'").append(txnId).append("'");
+        if (!Strings.isNullOrEmpty(errMsg)) {
+            sb.append(", 'err':'").append(errMsg).append("'");
+        }
+        sb.append("}");
+        ctx.getState().setOk(loadedRows, 0, sb.toString());
+        // set insert result in connection context,
+        // so that user can use `show insert result` to get info of the last insert operation.
+        ctx.setOrUpdateInsertResult(txnId, labelName, database.getFullName(), table.getName(),
+                txnStatus, loadedRows, 0);
+        // update it, so that user can get loaded rows in fe.audit.log
+        ctx.updateReturnRows((int) loadedRows);
+    }
+}

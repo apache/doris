@@ -1,0 +1,415 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.httpv2.rest;
+
+import org.apache.doris.analysis.LimitElement;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.common.util.InternalHttpsUtils;
+import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.controller.BaseController;
+import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.exception.BadRequestException;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.master.MetaHelper;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TNetworkAddress;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.servlet.view.RedirectView;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
+import javax.annotation.Nullable;
+import javax.net.ssl.HttpsURLConnection;
+
+public class RestBaseController extends BaseController {
+
+    protected static final String NS_KEY = "ns";
+    protected static final String CATALOG_KEY = "catalog";
+    protected static final String DB_KEY = "db";
+    protected static final String TABLE_KEY = "table";
+    protected static final String LABEL_KEY = "label";
+    protected static final String TXN_ID_KEY = "txn_id";
+    protected static final String TXN_OPERATION_KEY = "txn_operation";
+    protected static final String SINGLE_REPLICA_KEY = "single_replica";
+    protected static final String FORWARD_MASTER_UT_TEST = "forward_master_ut_test";
+    private static final String PARAM_LIMIT = "limit";
+    private static final String PARAM_OFFSET = "offset";
+    private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
+
+    /**
+     * Apply the limit and offset query parameters to a list.
+     */
+    protected <T> List<T> paginate(HttpServletRequest request, List<T> rows) {
+        String limitString = request.getParameter(PARAM_LIMIT);
+        String offsetString = request.getParameter(PARAM_OFFSET);
+
+        if (Strings.isNullOrEmpty(limitString)) {
+            if (!Strings.isNullOrEmpty(offsetString)) {
+                throw new BadRequestException("Param offset should be set with param limit");
+            }
+            return new LimitElement(0, -1).applyTo(rows);
+        }
+
+        long limit = parseNonNegativeLong(limitString, PARAM_LIMIT);
+        long offset = Strings.isNullOrEmpty(offsetString)
+                ? 0 : parseNonNegativeLong(offsetString, PARAM_OFFSET);
+        return new LimitElement(offset, limit).applyTo(rows);
+    }
+
+    private long parseNonNegativeLong(String value, String parameterName) {
+        try {
+            long parsedValue = Long.parseLong(value);
+            if (parsedValue >= 0) {
+                return parsedValue;
+            }
+        } catch (NumberFormatException ignored) {
+            // Converted to a stable bad-request response below.
+        }
+        throw new BadRequestException("Param " + parameterName + " should be a non-negative integer");
+    }
+
+    public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,
+                                                        HttpServletResponse response) throws UnauthorizedException {
+        ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+        // check password
+        UserIdentity currentUser = checkPassword(authInfo, request);
+
+        // Store UserIdentity in authInfo for convenient parameter passing
+        authInfo.userIdentity = currentUser;
+
+        // Set ConnectContext for backward compatibility
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setRemoteIP(authInfo.remoteIp);
+        ctx.setCurrentUserIdentity(currentUser);
+        ctx.setThreadLocalInfo();
+        return authInfo;
+    }
+
+    protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr) {
+        return buildRedirectUrl(request, addr, request.getRequestURI(), request.getQueryString());
+    }
+
+    protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr, String requestPath,
+            String queryString) {
+        return buildRedirectUrl(request.getScheme(), request, addr, requestPath, queryString);
+    }
+
+    // BE's stream-load listener never terminates TLS, so BE-bound redirects must stay "http".
+    protected String buildRedirectUrlToBackend(HttpServletRequest request, TNetworkAddress addr,
+            String requestPath, String queryString) {
+        return buildRedirectUrl("http", request, addr, requestPath, queryString);
+    }
+
+    private String buildRedirectUrl(String scheme, HttpServletRequest request, TNetworkAddress addr,
+            String requestPath, String queryString) {
+        String userInfo = null;
+        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
+            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+            userInfo = authInfo.fullUserName + ":" + authInfo.password;
+        }
+        try {
+            // Preserve the original request path to avoid re-encoding an already encoded URI path.
+            URI authorityUri = new URI(scheme, userInfo, addr.getHostname(),
+                    addr.getPort(), null, null, null);
+            String redirectUrl = authorityUri.toASCIIString() + requestPath;
+            if (!Strings.isNullOrEmpty(queryString)) {
+                redirectUrl += "?" + queryString;
+            }
+            LOG.info("Redirect url: {}", scheme + "://" + addr.getHostname() + ":"
+                    + addr.getPort() + requestPath);
+            return redirectUrl;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected void writeTemporaryRedirect(HttpServletResponse response, String redirectUrl) throws IOException {
+        response.setContentType("text/html;charset=utf-8");
+        response.setStatus(HttpStatus.TEMPORARY_REDIRECT.value());
+        response.setHeader("Location", redirectUrl);
+        response.flushBuffer();
+    }
+
+    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
+        RedirectView redirectView = new RedirectView(buildRedirectUrl(request, addr));
+        redirectView.setContentType("text/html;charset=utf-8");
+        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
+    }
+
+    // Use for redirects whose destination is a BE (e.g. stream load), which never speaks HTTPS.
+    public RedirectView redirectToBackend(HttpServletRequest request, TNetworkAddress addr) {
+        RedirectView redirectView = new RedirectView(
+                buildRedirectUrlToBackend(request, addr, request.getRequestURI(), request.getQueryString()));
+        redirectView.setContentType("text/html;charset=utf-8");
+        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
+    }
+
+    public String getRedirectUrL(HttpServletRequest request, TNetworkAddress addr) {
+        return buildRedirectUrl(request, addr);
+    }
+
+    public RedirectView redirectToObj(String sign) throws URISyntaxException {
+        RedirectView redirectView = new RedirectView(sign);
+        redirectView.setContentType("text/html;charset=utf-8");
+        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
+    }
+
+    public RedirectView redirectToMasterOrException(HttpServletRequest request, HttpServletResponse response)
+                    throws Exception {
+        Env env = Env.getCurrentEnv();
+        if (env.isMaster()) {
+            return null;
+        }
+        env.checkReadyOrThrow();
+        return redirectTo(request, new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
+    }
+
+    public Object redirectToMaster(HttpServletRequest request, HttpServletResponse response) {
+        try {
+            return redirectToMasterOrException(request, response);
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+    }
+
+    public void getFile(HttpServletRequest request, HttpServletResponse response, Object obj, String fileName)
+            throws IOException {
+        response.setHeader("Content-type", "application/octet-stream");
+        response.addHeader("Content-Disposition", "attachment;fileName=" + fileName); // set file name
+        if (obj instanceof File) {
+            File file = (File) obj;
+            byte[] buffer = new byte[1024];
+            FileInputStream fis = null;
+            BufferedInputStream bis = null;
+            try {
+                fis = new FileInputStream(file);
+                bis = new BufferedInputStream(fis);
+                OutputStream os = response.getOutputStream();
+                int i = bis.read(buffer);
+                while (i != -1) {
+                    os.write(buffer, 0, i);
+                    i = bis.read(buffer);
+                }
+                return;
+            } finally {
+                if (bis != null) {
+                    try {
+                        bis.close();
+                    } catch (IOException e) {
+                        LOG.warn("", e);
+                    }
+                }
+                if (fis != null) {
+                    try {
+                        fis.close();
+                    } catch (IOException e) {
+                        LOG.warn("", e);
+                    }
+                }
+            }
+        } else if (obj instanceof byte[]) {
+            OutputStream os = response.getOutputStream();
+            os.write((byte[]) obj);
+        }
+    }
+
+    public void writeFileResponse(HttpServletRequest request,
+            HttpServletResponse response, File imageFile) throws IOException {
+        Preconditions.checkArgument(imageFile != null && imageFile.exists());
+        response.setHeader("Content-type", "application/octet-stream");
+        response.addHeader("Content-Disposition", "attachment;fileName=" + imageFile.getName());
+        response.setHeader(MetaHelper.X_IMAGE_SIZE, imageFile.length() + "");
+        response.setHeader(MetaHelper.X_IMAGE_MD5, DigestUtils.md5Hex(new FileInputStream(imageFile)));
+        getFile(request, response, imageFile, imageFile.getName());
+    }
+
+    public boolean needRedirect(String scheme) {
+        return Config.enable_https && "http".equalsIgnoreCase(scheme);
+    }
+
+    public Object redirectToHttps(HttpServletRequest request) {
+        String serverName = request.getServerName();
+        String uri = request.getRequestURI();
+        String query = request.getQueryString();
+        query = query == null ? "" : query;
+        String newUrl = "https://" + NetUtils.getHostPortInAccessibleFormat(serverName, Config.https_port) + uri + "?"
+                + query;
+        LOG.info("redirect to new url: {}", newUrl);
+        RedirectView redirectView = new RedirectView(newUrl);
+        redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
+    }
+
+    public Object forwardToMaster(HttpServletRequest request) {
+        try {
+            return forwardToMaster(request, (Object) getRequestBody(request));
+        } catch (Exception e) {
+            LOG.warn(e);
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+    }
+
+    public boolean checkForwardToMaster(HttpServletRequest request) {
+        if (FeConstants.runningUnitTest) {
+            String forbidForward = request.getHeader(FORWARD_MASTER_UT_TEST);
+            if (forbidForward != null) {
+                return "true".equals(forbidForward);
+            }
+        }
+        return !Env.getCurrentEnv().isMaster();
+    }
+
+    // NOTE: This function can only be used for AuditlogPlugin stream load for now.
+    // AuditlogPlugin should be re-disigned carefully, and blow method focuses on
+    // temporarily addressing the users' needs for audit logs.
+    // So this function is not widely tested under general scenario
+    protected boolean checkClusterToken(String token) {
+        try {
+            return Env.getCurrentEnv().getTokenManager().checkAuthToken(token);
+        } catch (UserException e) {
+            throw new UnauthorizedException(e.getMessage());
+        }
+    }
+
+
+    private String getRequestBody(HttpServletRequest request) throws IOException {
+        BufferedReader reader = request.getReader();
+        return reader.lines().collect(Collectors.joining(System.lineSeparator()));
+    }
+
+    public Object forwardToMaster(HttpServletRequest request, @Nullable Object body) {
+        try {
+            Env env = Env.getCurrentEnv();
+            String redirectUrl = null;
+            if (FeConstants.runningUnitTest) {
+                redirectUrl =
+                        getRedirectUrL(request, new TNetworkAddress(request.getServerName(), request.getServerPort()));
+            } else {
+                redirectUrl = HttpURLUtil.buildInternalFeUrl(
+                        env.getMasterHost(), request.getRequestURI(), request.getQueryString());
+            }
+            String method = request.getMethod();
+
+            HttpHeaders headers = new HttpHeaders();
+            for (String headerName : Collections.list(request.getHeaderNames())) {
+                // remove Content-Length because RestTemplate will recalculate Content-Length for request body
+                if ("Content-Length".equalsIgnoreCase(headerName)) {
+                    continue;
+                }
+                headers.add(headerName, request.getHeader(headerName));
+            }
+
+            if (FeConstants.runningUnitTest) {
+                //remove header to avoid forward.
+                headers.remove(FORWARD_MASTER_UT_TEST);
+            }
+
+            HttpEntity<Object> entity = new HttpEntity<>(body, headers);
+
+            RestTemplate restTemplate;
+            if (Config.enable_https) {
+                SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+                    @Override
+                    protected void prepareConnection(HttpURLConnection conn, String httpMethod)
+                            throws IOException {
+                        if (conn instanceof HttpsURLConnection) {
+                            HttpsURLConnection https = (HttpsURLConnection) conn;
+                            https.setSSLSocketFactory(
+                                    InternalHttpsUtils.getSslContext().getSocketFactory());
+                            https.setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
+                        }
+                        super.prepareConnection(conn, httpMethod);
+                    }
+                };
+                restTemplate = new RestTemplate(factory);
+            } else {
+                restTemplate = new RestTemplate();
+            }
+
+            ResponseEntity<Object> responseEntity;
+            switch (method) {
+                case "GET":
+                    responseEntity = restTemplate.exchange(redirectUrl, HttpMethod.GET, entity, Object.class);
+                    break;
+                case "POST":
+                    responseEntity = restTemplate.exchange(redirectUrl, HttpMethod.POST, entity, Object.class);
+                    break;
+                case "PUT":
+                    responseEntity = restTemplate.exchange(redirectUrl, HttpMethod.PUT, entity, Object.class);
+                    break;
+                case "DELETE":
+                    responseEntity = restTemplate.exchange(redirectUrl, HttpMethod.DELETE, entity, Object.class);
+                    break;
+                default:
+                    throw new UnsupportedOperationException("Unsupported HTTP method: " + method);
+            }
+
+            return responseEntity.getBody();
+        } catch (Exception e) {
+            LOG.warn(e);
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+    }
+
+    /**
+     * Check if admin privilege is required.
+     * When enable_all_http_auth is enabled, check if the user has admin privilege.
+     * If not authorized, throws UnauthorizedException.
+     *
+     * @param userIdentity The user identity to check
+     */
+    protected void checkAdminAuth(UserIdentity userIdentity) throws UnauthorizedException {
+        if (Config.enable_all_http_auth) {
+            checkGlobalAuth(userIdentity, org.apache.doris.mysql.privilege.PrivPredicate.ADMIN);
+        }
+    }
+}

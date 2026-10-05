@@ -1,0 +1,247 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "cloud/config.h"
+
+#include "common/status.h"
+
+namespace doris::config {
+
+DEFINE_String(deploy_mode, "");
+DEFINE_mString(cloud_unique_id, "");
+DEFINE_mString(meta_service_endpoint, "");
+DEFINE_mBool(enable_meta_service_endpoint_consistency_check, "true");
+DEFINE_Bool(meta_service_connection_pooled, "true");
+DEFINE_mInt64(meta_service_connection_pool_size, "20");
+DEFINE_mInt32(meta_service_connection_age_base_seconds, "30");
+DEFINE_mInt32(meta_service_idle_connection_timeout_ms, "0");
+DEFINE_mInt32(meta_service_rpc_retry_times, "20");
+DEFINE_mInt32(meta_service_brpc_timeout_ms, "10000");
+DEFINE_mInt32(meta_service_rpc_timeout_retry_times, "2");
+
+DEFINE_Int64(tablet_cache_capacity, "100000");
+DEFINE_Int64(tablet_cache_shards, "16");
+DEFINE_mInt32(tablet_sync_interval_s, "1800");
+DEFINE_mInt32(init_scanner_sync_rowsets_parallelism, "10");
+DEFINE_mInt32(sync_rowsets_slow_threshold_ms, "1000");
+
+DEFINE_mInt64(min_compaction_failure_interval_ms, "5000");
+DEFINE_mInt64(base_compaction_freeze_interval_s, "1800");
+DEFINE_mInt64(compaction_load_max_freeze_interval_s, "1200");
+DEFINE_mInt64(cumu_compaction_interval_s, "1800");
+
+DEFINE_mInt32(compaction_timeout_seconds, "86400");
+DEFINE_mInt32(lease_compaction_interval_seconds, "20");
+DEFINE_mBool(enable_parallel_cumu_compaction, "false");
+DEFINE_mDouble(base_compaction_thread_num_factor, "0.25");
+DEFINE_mDouble(cumu_compaction_thread_num_factor, "0.5");
+DEFINE_mDouble(binlog_compaction_thread_num_factor, "0.25");
+DEFINE_mInt32(check_auto_compaction_interval_seconds, "5");
+DEFINE_mInt32(max_base_compaction_task_num_per_disk, "2");
+DEFINE_mBool(prioritize_query_perf_in_compaction, "false");
+DEFINE_mInt32(compaction_max_rowset_count, "10000");
+DEFINE_mInt64(compaction_txn_max_size_bytes, "7340032"); // 7MB
+DEFINE_mBool(enable_cloud_single_rowset_compaction, "false");
+DEFINE_mInt32(cloud_single_rowset_compaction_min_segments, "512");
+DEFINE_mInt32(cloud_single_rowset_compaction_segment_group_size, "64");
+
+DEFINE_mInt32(refresh_s3_info_interval_s, "60");
+DEFINE_mInt32(vacuum_stale_rowsets_interval_s, "300");
+DEFINE_mInt32(schedule_sync_tablets_interval_s, "600");
+
+DEFINE_mInt32(mow_stream_load_commit_retry_times, "5");
+
+DEFINE_mBool(save_load_error_log_to_s3, "false");
+
+DEFINE_mBool(use_public_endpoint_for_error_log, "true");
+
+DEFINE_mInt32(sync_load_for_tablets_thread, "32");
+
+DEFINE_Int32(warmup_cache_async_thread, "16");
+
+DEFINE_mBool(enable_new_tablet_do_compaction, "true");
+
+// Empty rowset compaction strategy configurations
+DEFINE_mBool(enable_empty_rowset_compaction, "true");
+DEFINE_mInt32(empty_rowset_compaction_min_count, "5");
+DEFINE_mDouble(empty_rowset_compaction_min_ratio, "0.3");
+
+DEFINE_mInt32(delete_bitmap_lock_expiration_seconds, "10");
+
+DEFINE_mInt32(get_delete_bitmap_lock_max_retry_times, "100");
+
+DEFINE_mBool(enable_sync_tablet_delete_bitmap_by_cache, "true");
+DEFINE_mInt32(delete_bitmap_store_write_version, "1");
+DEFINE_mInt32(delete_bitmap_store_read_version, "1");
+DEFINE_mBool(enable_delete_bitmap_store_v2_check_correctness, "false");
+// Leave room for DeleteBitmapStoragePB overhead to fit within blob_put's 90000-byte split size.
+DEFINE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb, "89000");
+DEFINE_Int32(sync_delete_bitmap_task_max_thread, "32");
+DEFINE_mBool(enable_agg_delta_delete_bitmap_for_store_v2, "true");
+
+DEFINE_mBool(enable_batch_get_delete_bitmap, "false");
+// used in get_delete_bitmap rpc
+// The MS will return the current results to BE immediately when the size of delete bitmap
+// in memory fetched from fdb reached this theshold the first time, and BE will make subsequent RPCs
+// to get the remaining rowsets' results.
+DEFINE_mInt64(get_delete_bitmap_bytes_threshold, "524288000"); // 500MB
+
+DEFINE_Bool(enable_cloud_txn_lazy_commit, "true");
+
+DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
+
+DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "1800");
+
+DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
+
+DEFINE_mBool(enable_cloud_tablet_report, "true");
+
+DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "100");
+
+DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
+
+DEFINE_Bool(enable_check_storage_vault, "true");
+
+DEFINE_mBool(skip_writing_empty_rowset_metadata, "true");
+
+DEFINE_mInt64(cloud_index_change_task_timeout_second, "3600");
+
+DEFINE_mInt64(warmup_tablet_replica_info_cache_ttl_sec, "600");
+
+DEFINE_mInt32(warm_up_manager_thread_pool_size, "4");
+
+DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
+
+DEFINE_mBool(enable_compaction_delay_commit_for_warm_up, "false");
+
+DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "500");
+
+DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
+
+DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
+
+// Packed file manager config
+DEFINE_mBool(enable_packed_file, "true");
+DEFINE_mBool(enable_file_cache_write_index_file_only, "false");
+DEFINE_mInt64(packed_file_size_threshold_bytes, "5242880"); // 5MB
+DEFINE_mInt64(packed_file_time_threshold_ms, "100");        // 100ms
+DEFINE_mInt64(packed_file_try_lock_timeout_ms, "5");        // 5ms
+DEFINE_mInt64(packed_file_small_file_count_threshold, "100");
+DEFINE_mInt64(small_file_threshold_bytes, "1048576");      // 1MB
+DEFINE_mInt64(uploaded_file_retention_seconds, "1800");    // 1 minute
+DEFINE_mInt64(packed_file_cleanup_interval_seconds, "60"); // 1 minute
+
+DEFINE_mBool(enable_standby_passive_compaction, "true");
+
+DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
+
+// Compaction read-write separation: only the "last active" cluster (the one that most recently
+// performed load) is allowed to compact a tablet
+DEFINE_mBool(enable_compaction_rw_separation, "true");
+// Timeout in ms for takeover when last active cluster becomes unavailable (default 5 min)
+DEFINE_mInt64(compaction_cluster_takeover_timeout_ms, "300000");
+// Interval in seconds to refresh cluster status cache (default 1 min)
+DEFINE_mInt64(cluster_status_cache_refresh_interval_sec, "60");
+// When version count exceeds this ratio of max_tablet_version_num, force compaction
+// even on read-only clusters (safety valve)
+DEFINE_mDouble(compaction_rw_separation_version_threshold_ratio, "0.8");
+// Rate limit for warmup download in bytes per second, default 100MB/s
+// <= 0 means no limit
+DEFINE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second, "104857600");
+
+// Cross compute group peer read candidate management
+DEFINE_mInt64(peer_candidate_cleanup_interval_s, "3600"); // cleanup interval, 1 hour
+DEFINE_mInt64(peer_candidate_expiry_s, "3600");           // candidate expiry, 1 hour
+DEFINE_mInt32(peer_rpc_failure_eviction_threshold, "3");  // consecutive failures to evict
+// Consecutive connection or RPC failures to one peer address before opening its circuit.
+DEFINE_mInt32(cache_peer_read_failure_threshold, "3");
+// Seconds to reject reads to a peer address before allowing one recovery probe.
+DEFINE_mInt32(cache_peer_read_circuit_open_seconds, "30");
+DEFINE_mInt32(peer_all_miss_cooldown_threshold,
+              "5"); // consecutive all-miss races to trigger cooldown
+DEFINE_mInt64(peer_all_miss_cooldown_duration_s, "300"); // cooldown duration, 5 minutes
+
+DEFINE_mBool(enable_cache_read_from_peer, "false");
+
+// Winner race between peer read and S3 read for cross compute group scenarios
+DEFINE_mBool(enable_peer_s3_race, "true");
+DEFINE_mInt32(max_concurrent_peer_races, "64");
+DEFINE_mInt32(peer_race_hedge_delay_ms, "20");
+DEFINE_mString(peer_cache_fill_compute_group_id, "");
+DEFINE_mBool(enable_peer_server_cache_fill, "true");
+// Peer server fill pulls the missing block from remote storage before serving it back to the
+// requesting BE. Small remote reads can still exceed 500ms in docker/cloud regression, so keep
+// this comfortably above the normal block-cache wait timeout to avoid premature fallback.
+DEFINE_mInt32(peer_server_cache_fill_timeout_ms, "6000");
+// Maximum number of concurrent server-side S3 pull-through fills. Each fill ties up a
+// download task slot and waits up to peer_server_cache_fill_timeout_ms. Without this
+// limit a burst of cross-CG cold misses can saturate the fill server's download pool.
+// Excess requests are rejected immediately so the client falls back to S3.
+DEFINE_mInt32(max_concurrent_peer_server_fills, "32");
+// Reject queued peer fetch tasks that wait too long in the peer fetch pool.
+DEFINE_mInt32(peer_fetch_queue_timeout_ms, "100");
+
+DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
+DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
+
+// MS RPC rate limiting config
+DEFINE_mBool(enable_ms_rpc_host_level_rate_limit, "false");
+DEFINE_mBool(enable_ms_rpc_host_level_rate_limit_dry_run, "true");
+
+// Per-RPC QPS limit configs (per CPU core)
+// QPS limit = config_value * num_cores
+// Set to 0 to disable rate limiting for a specific RPC
+// Set to -1 to use ms_rpc_qps_default config value
+DEFINE_mInt32(ms_rpc_qps_default, "100");
+DEFINE_mInt32(ms_rpc_qps_get_tablet_meta, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_prepare_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_tmp_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_abort_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_precommit_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_obj_store_info, "-1");
+DEFINE_mInt32(ms_rpc_qps_start_tablet_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_finish_tablet_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_delete_bitmap, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_delete_bitmap, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_delete_bitmap_update_lock, "-1");
+DEFINE_mInt32(ms_rpc_qps_remove_delete_bitmap_update_lock, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_instance, "-1");
+DEFINE_mInt32(ms_rpc_qps_prepare_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_finish_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_list_snapshots, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_cluster_status, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_packed_file_info, "-1");
+
+// Table-level backpressure handling config
+DEFINE_mBool(enable_ms_backpressure_handling, "false");
+DEFINE_mBool(enable_ms_backpressure_handling_dry_run, "true");
+DEFINE_Int32(ms_rpc_table_qps_window_sec, "3");
+
+// Throttle upgrade config
+DEFINE_mInt32(ms_backpressure_upgrade_interval_ms, "3000");
+DEFINE_mInt32(ms_backpressure_upgrade_top_k, "1");
+DEFINE_mDouble(ms_backpressure_throttle_ratio, "0.75");
+DEFINE_mDouble(ms_rpc_table_qps_limit_floor, "1.0");
+
+// Throttle downgrade config
+DEFINE_mInt32(ms_backpressure_downgrade_interval_ms, "3000");
+
+} // namespace doris::config

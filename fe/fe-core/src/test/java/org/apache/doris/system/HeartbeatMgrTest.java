@@ -1,0 +1,251 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.system;
+
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
+import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.GenericPool;
+import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
+import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
+import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.system.SystemInfoService.HostInfo;
+import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TBrokerOperationStatus;
+import org.apache.doris.thrift.TBrokerOperationStatusCode;
+import org.apache.doris.thrift.TBrokerPingBrokerRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendResult;
+import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
+import org.apache.doris.thrift.TMasterInfo;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPaloBrokerService;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicReference;
+
+public class HeartbeatMgrTest {
+
+    private Env env = Mockito.mock(Env.class);
+    private MockedStatic<Env> mockedEnvStatic;
+
+    @BeforeEach
+    public void setUp() {
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("192.168.1.3", 9010)); // not self
+        Mockito.when(env.isReady()).thenReturn(true);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testFrontendHbHandler() throws Exception {
+        FrontendService.Client client = Mockito.mock(FrontendService.Client.class);
+
+        GenericPool<FrontendService.Client> mockPool = Mockito.mock(GenericPool.class);
+        Mockito.when(mockPool.borrowObject(Mockito.any(TNetworkAddress.class))).thenReturn(client);
+
+        GenericPool<FrontendService.Client> originalPool = ClientPool.frontendHeartbeatPool;
+        ClientPool.frontendHeartbeatPool = mockPool;
+        try {
+            TFrontendPingFrontendRequest normalRequest = new TFrontendPingFrontendRequest(12345, "abcd");
+            TFrontendPingFrontendResult normalResult = new TFrontendPingFrontendResult();
+            normalResult.setStatus(TFrontendPingFrontendStatusCode.OK);
+            normalResult.setMsg("success");
+            normalResult.setReplayedJournalId(191224);
+            normalResult.setQueryPort(9131);
+            normalResult.setRpcPort(9121);
+            normalResult.setArrowFlightSqlPort(9141);
+            normalResult.setVersion("test");
+
+            TFrontendPingFrontendRequest badRequest = new TFrontendPingFrontendRequest(12345, "abcde");
+            TFrontendPingFrontendResult badResult = new TFrontendPingFrontendResult();
+            badResult.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+            badResult.setMsg("not ready");
+
+            Mockito.when(client.ping(normalRequest)).thenReturn(normalResult);
+            Mockito.when(client.ping(badRequest)).thenReturn(badResult);
+
+            Frontend fe = new Frontend(FrontendNodeType.FOLLOWER, "test", "192.168.1.1", 9010);
+            FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(fe, 12345, "abcd");
+            HeartbeatResponse response = handler.call();
+
+            Assertions.assertTrue(response instanceof FrontendHbResponse);
+            FrontendHbResponse hbResponse = (FrontendHbResponse) response;
+            Assertions.assertEquals(191224, hbResponse.getReplayedJournalId());
+            Assertions.assertEquals(9131, hbResponse.getQueryPort());
+            Assertions.assertEquals(9121, hbResponse.getRpcPort());
+            Assertions.assertEquals(9141, hbResponse.getArrowFlightSqlPort());
+            Assertions.assertEquals(HbStatus.OK, hbResponse.getStatus());
+            Assertions.assertEquals("test", hbResponse.getVersion());
+
+            Frontend fe2 = new Frontend(FrontendNodeType.FOLLOWER, "test2", "192.168.1.2", 9010);
+            handler = new FrontendHeartbeatHandler(fe2, 12345, "abcde");
+            response = handler.call();
+
+            Assertions.assertTrue(response instanceof FrontendHbResponse);
+            hbResponse = (FrontendHbResponse) response;
+            Assertions.assertEquals(0, hbResponse.getReplayedJournalId());
+            Assertions.assertEquals(0, hbResponse.getQueryPort());
+            Assertions.assertEquals(0, hbResponse.getRpcPort());
+            Assertions.assertEquals(0, hbResponse.getArrowFlightSqlPort());
+            Assertions.assertEquals(HbStatus.BAD, hbResponse.getStatus());
+            Assertions.assertEquals("not ready", hbResponse.getMsg());
+        } finally {
+            ClientPool.frontendHeartbeatPool = originalPool;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testSetMasterHttpPort() throws Exception {
+        int originalHttpPort = Config.http_port;
+        int originalHttpsPort = Config.https_port;
+        boolean originalEnableHttps = Config.enable_https;
+
+        try {
+            HeartbeatMgr mgr = new HeartbeatMgr(null, false);
+            Field masterInfoField = HeartbeatMgr.class.getDeclaredField("masterInfo");
+            masterInfoField.setAccessible(true);
+
+            // enable_https=false: must send http_port to BEs
+            Config.enable_https = false;
+            Config.http_port = 8030;
+            Config.https_port = 8050;
+            mgr.setMaster(1, "token", 1L);
+            AtomicReference<TMasterInfo> masterInfo =
+                    (AtomicReference<TMasterInfo>) masterInfoField.get(null);
+            Assertions.assertEquals(8030, masterInfo.get().getHttpPort());
+
+            // enable_https=true: must send https_port to BEs so small_file_mgr can connect
+            Config.enable_https = true;
+            mgr.setMaster(1, "token", 1L);
+            masterInfo = (AtomicReference<TMasterInfo>) masterInfoField.get(null);
+            Assertions.assertEquals(8050, masterInfo.get().getHttpPort());
+        } finally {
+            Config.http_port = originalHttpPort;
+            Config.https_port = originalHttpsPort;
+            Config.enable_https = originalEnableHttps;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testBrokerHbHandler() throws Exception {
+        TPaloBrokerService.Client client = Mockito.mock(TPaloBrokerService.Client.class);
+
+        TBrokerOperationStatus status = new TBrokerOperationStatus();
+        status.setStatusCode(TBrokerOperationStatusCode.OK);
+
+        GenericPool<TPaloBrokerService.Client> mockPool = Mockito.mock(GenericPool.class);
+        Mockito.when(mockPool.borrowObject(Mockito.any(TNetworkAddress.class))).thenReturn(client);
+
+        GenericPool<TPaloBrokerService.Client> originalPool = ClientPool.brokerPool;
+        ClientPool.brokerPool = mockPool;
+        try {
+            Mockito.when(client.ping(Mockito.any(TBrokerPingBrokerRequest.class))).thenReturn(status);
+
+            FsBroker broker = new FsBroker("192.168.1.1", 8111);
+            BrokerHeartbeatHandler handler = new BrokerHeartbeatHandler("hdfs", broker, "abc");
+            HeartbeatResponse response = handler.call();
+
+            Assertions.assertTrue(response instanceof BrokerHbResponse);
+            BrokerHbResponse hbResponse = (BrokerHbResponse) response;
+            Assertions.assertEquals(HbStatus.OK, hbResponse.getStatus());
+        } finally {
+            ClientPool.brokerPool = originalPool;
+        }
+    }
+
+    @Test
+    public void testNonNormalCloudClusterAbortWindow() throws Exception {
+        SystemInfoService nodeMgr = Mockito.mock(SystemInfoService.class);
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(nodeMgr.getBackend(1L)).thenReturn(backend);
+        Mockito.when(backend.getHost()).thenReturn("127.0.0.1");
+        ThreadPoolExecutor executor = Mockito.mock(ThreadPoolExecutor.class);
+        BackendHbResponse response = new BackendHbResponse(1L, "127.0.0.1", 0, "heartbeat failed");
+        Method handleHbResponse = HeartbeatMgr.class.getDeclaredMethod(
+                "handleHbResponse", HeartbeatResponse.class, boolean.class);
+        handleHbResponse.setAccessible(true);
+        long timeoutMs = Config.abort_txn_after_lost_heartbeat_time_second * 1000L;
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                MockedStatic<ThreadPoolManager> threadPools = Mockito.mockStatic(ThreadPoolManager.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            threadPools.when(() -> ThreadPoolManager.newDaemonFixedThreadPool(
+                    Mockito.anyInt(), Mockito.anyInt(), Mockito.anyString(), Mockito.anyBoolean()))
+                    .thenReturn(executor);
+            HeartbeatMgr mgr = new HeartbeatMgr(nodeMgr, false);
+            for (ClusterStatus status : new ClusterStatus[] {ClusterStatus.UNKNOWN, ClusterStatus.SUSPENDED,
+                    ClusterStatus.TO_RESUME, ClusterStatus.MANUAL_SHUTDOWN}) {
+                Mockito.clearInvocations(executor);
+                Mockito.when(backend.getCloudClusterStatus()).thenReturn(status.name());
+
+                Mockito.when(backend.getLastUpdateMs()).thenReturn(System.currentTimeMillis() - timeoutMs / 2);
+                handleHbResponse.invoke(mgr, response, false);
+                Mockito.verify(executor, Mockito.never()).submit(Mockito.any(Runnable.class));
+
+                Mockito.when(backend.getLastUpdateMs()).thenReturn(System.currentTimeMillis() - timeoutMs * 3 / 2);
+                handleHbResponse.invoke(mgr, response, false);
+                Mockito.verify(executor, Mockito.times(1)).submit(Mockito.any(Runnable.class));
+                handleHbResponse.invoke(mgr, response, true);
+                Mockito.verify(executor, Mockito.times(1)).submit(Mockito.any(Runnable.class));
+
+                Mockito.when(backend.getLastUpdateMs()).thenReturn(System.currentTimeMillis() - timeoutMs * 3);
+                handleHbResponse.invoke(mgr, response, false);
+                Mockito.verify(executor, Mockito.times(1)).submit(Mockito.any(Runnable.class));
+            }
+
+            Mockito.clearInvocations(executor);
+            Mockito.when(backend.getCloudClusterStatus()).thenReturn(ClusterStatus.NORMAL.name());
+            handleHbResponse.invoke(mgr, response, false);
+            Mockito.verify(executor, Mockito.times(1)).submit(Mockito.any(Runnable.class));
+
+            config.when(Config::isCloudMode).thenReturn(false);
+            Mockito.when(backend.getCloudClusterStatus()).thenReturn(ClusterStatus.SUSPENDED.name());
+            handleHbResponse.invoke(mgr, response, false);
+            Mockito.verify(executor, Mockito.times(2)).submit(Mockito.any(Runnable.class));
+
+            Mockito.when(backend.getLastUpdateMs()).thenReturn(0L);
+            handleHbResponse.invoke(mgr, response, false);
+            Mockito.verify(executor, Mockito.times(2)).submit(Mockito.any(Runnable.class));
+        }
+    }
+
+}

@@ -1,0 +1,297 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# where to put generated libraries
+set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test")
+
+# where to put generated libraries
+set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
+
+set(TEST_LINK_LIBS ResourceManager ${TEST_LINK_LIBS})
+
+#add_executable(sync_point_test sync_point_test.cpp)
+add_executable(blob_message_test blob_message_test.cpp)
+
+add_executable(clone_chain_reader_test clone_chain_reader_test.cpp)
+
+add_executable(codec_test codec_test.cpp)
+
+add_executable(document_message_test document_message_test.cpp)
+
+add_executable(keys_test keys_test.cpp)
+
+add_executable(doris_txn_test doris_txn_test.cpp)
+
+add_executable(txn_kv_test txn_kv_test.cpp)
+set_target_properties(txn_kv_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+
+add_executable(recycler_test
+    recycler_test.cpp
+    recycler_benchmark_test.cpp
+    recycler_operation_log_test.cpp
+    table_stream_recycler_test.cpp
+    table_stream_checker_test.cpp
+    snapshot_data_size_calculator_test.cpp
+    recycle_versioned_keys_test.cpp
+    recycler_batch_delete_test.cpp)
+
+add_executable(mem_txn_kv_test mem_txn_kv_test.cpp)
+
+add_executable(meta_reader_test meta_reader_test.cpp)
+
+add_executable(meta_service_test
+   meta_service_test.cpp
+   meta_service_helper_test.cpp
+   meta_service_job_test.cpp
+   meta_service_http_test.cpp
+   meta_service_operation_log_test.cpp
+   meta_service_snapshot_test.cpp
+   meta_service_tablet_stats_test.cpp
+   meta_service_table_stream_test.cpp
+   meta_service_versioned_read_test.cpp
+   schema_kv_test.cpp
+   compaction_rw_separation_test.cpp
+)
+
+add_executable(meta_server_test meta_server_test.cpp)
+
+add_executable(rate_limiter_test rate_limiter_test.cpp)
+
+add_executable(s3_rate_limiter_test s3_rate_limiter_test.cpp)
+
+add_executable(encryption_test encryption_test.cpp)
+
+add_executable(metric_test metric_test.cpp)
+
+add_executable(log_test log_test.cpp)
+
+add_executable(resource_test resource_test.cpp)
+
+add_executable(rpc_kv_bvar_test rpc_kv_bvar_test.cpp)
+
+add_executable(http_encode_key_test http_encode_key_test.cpp)
+
+add_executable(fdb_injection_test fdb_injection_test.cpp)
+
+# This object supplies a process-local getentropy implementation for an ASAN
+# build/runtime glibc mismatch in CloudUT. Keep it test-only and Linux-ASAN-only
+# so production binaries and non-affected test configurations are unchanged.
+# Cloud is a separate CMake project and does not link the BE glibc-compatibility
+# objects, so the implementation must be attached explicitly here.
+if (OS_LINUX AND CMAKE_BUILD_TYPE STREQUAL "ASAN")
+    add_library(fdb_getentropy_compat OBJECT fdb_getentropy_compat.c)
+    target_compile_options(fdb_getentropy_compat PRIVATE -fPIC)
+endif()
+
+add_executable(s3_accessor_test s3_accessor_test.cpp)
+
+add_executable(s3_accessor_client_test s3_accessor_client_test.cpp)
+
+add_executable(s3_accessor_mock_test s3_accessor_mock_test.cpp)
+
+option(ENABLE_HDFS_STORAGE_VAULT "Enable HDFS storage support" ON)
+if (ENABLE_HDFS_STORAGE_VAULT)
+    add_compile_definitions(ENABLE_HDFS_STORAGE_VAULT)
+    add_executable(hdfs_accessor_test hdfs_accessor_test.cpp)
+endif()
+
+add_executable(stopwatch_test stopwatch_test.cpp)
+
+add_executable(util_test util_test.cpp)
+
+add_executable(network_util_test network_util_test.cpp)
+
+add_executable(cloud_server_starter_factory_test cloud_server_starter_factory_test.cpp)
+
+set(TLS_UT_TARGETS)
+if (ENABLE_TLS)
+    file(GLOB_RECURSE TLS_UT_FILES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/${TLS_MODULE_DIR}/*.cpp")
+    foreach(TLS_UT_FILE ${TLS_UT_FILES})
+        get_filename_component(TLS_UT_NAME ${TLS_UT_FILE} NAME_WE)
+        add_executable(${TLS_UT_NAME} ${TLS_UT_FILE})
+        list(APPEND TLS_UT_TARGETS ${TLS_UT_NAME})
+    endforeach()
+endif()
+
+set(SNAPSHOT_UT_TARGETS)
+if (ENABLE_SNAPSHOT)
+    file(GLOB_RECURSE SNAPSHOT_UT_FILES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/${SNAPSHOT_MODULE_DIR}/*.cpp")
+    foreach(SNAPSHOT_UT_FILE ${SNAPSHOT_UT_FILES})
+        get_filename_component(SNAPSHOT_UT_NAME ${SNAPSHOT_UT_FILE} NAME_WE)
+        add_executable(snapshot_${SNAPSHOT_UT_NAME} ${SNAPSHOT_UT_FILE})
+        list(APPEND SNAPSHOT_UT_TARGETS snapshot_${SNAPSHOT_UT_NAME})
+    endforeach()
+endif()
+
+add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp)
+
+add_executable(versionstamp_test versionstamp_test.cpp)
+
+add_executable(versioned_value_test versioned_value_test.cpp)
+
+add_executable(bvars_test bvars_test.cpp)
+
+message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
+#target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
+
+target_link_libraries(blob_message_test ${TEST_LINK_LIBS})
+
+target_link_libraries(clone_chain_reader_test ${TEST_LINK_LIBS})
+
+target_link_libraries(codec_test ${TEST_LINK_LIBS})
+
+target_link_libraries(keys_test ${TEST_LINK_LIBS})
+
+target_link_libraries(meta_reader_test ${TEST_LINK_LIBS})
+
+target_link_libraries(meta_service_test ${TEST_LINK_LIBS})
+
+target_link_libraries(meta_server_test ${TEST_LINK_LIBS})
+
+target_link_libraries(rate_limiter_test ${TEST_LINK_LIBS})
+
+target_link_libraries(s3_rate_limiter_test ${TEST_LINK_LIBS})
+
+target_link_libraries(encryption_test ${TEST_LINK_LIBS})
+
+target_link_libraries(metric_test ${TEST_LINK_LIBS})
+
+target_link_libraries(log_test ${TEST_LINK_LIBS})
+
+target_link_libraries(resource_test ${TEST_LINK_LIBS})
+
+target_link_libraries(rpc_kv_bvar_test ${TEST_LINK_LIBS})
+
+target_link_libraries(http_encode_key_test ${TEST_LINK_LIBS})
+
+target_link_libraries(s3_accessor_test ${TEST_LINK_LIBS})
+
+target_link_libraries(s3_accessor_client_test ${TEST_LINK_LIBS})
+
+target_link_libraries(s3_accessor_mock_test ${TEST_LINK_LIBS})
+
+option(ENABLE_HDFS_STORAGE_VAULT "Enable HDFS storage support" ON)
+if (ENABLE_HDFS_STORAGE_VAULT)
+    target_link_libraries(hdfs_accessor_test ${TEST_LINK_LIBS})
+endif()
+
+target_link_libraries(stopwatch_test ${TEST_LINK_LIBS})
+
+target_link_libraries(util_test ${TEST_LINK_LIBS})
+
+target_link_libraries(network_util_test ${TEST_LINK_LIBS})
+
+target_link_libraries(cloud_server_starter_factory_test ${TEST_LINK_LIBS})
+
+foreach(TLS_UT_TARGET ${TLS_UT_TARGETS})
+    target_link_libraries(${TLS_UT_TARGET} ${TEST_LINK_LIBS})
+endforeach()
+
+foreach(SNAPSHOT_UT_TARGET ${SNAPSHOT_UT_TARGETS})
+    target_link_libraries(${SNAPSHOT_UT_TARGET} ${TEST_LINK_LIBS})
+endforeach()
+
+target_link_libraries(txn_lazy_commit_test ${TEST_LINK_LIBS})
+
+target_link_libraries(versionstamp_test ${TEST_LINK_LIBS})
+
+# FDB related tests need to be linked with libfdb_c
+set(FDB_LINKER_FLAGS "-lfdb_c -L${THIRDPARTY_DIR}/lib")
+
+target_link_libraries(document_message_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS}
+)
+
+target_link_libraries(doris_txn_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS}
+)
+
+target_link_libraries(txn_kv_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS}
+)
+
+target_link_libraries(mem_txn_kv_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS}
+)
+
+target_link_libraries(recycler_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS}
+)
+
+target_link_libraries(fdb_injection_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS})
+
+target_link_libraries(versioned_value_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS})
+
+target_link_libraries(bvars_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS})
+
+# libfdb_c probes getentropy as a weak symbol while initializing its network.
+# In the affected environment, compiler-rt's interceptor makes that probe pass
+# but cannot forward the call to the older runtime libc. Add the compatibility
+# object only to executables that may initialize FDB; ENABLE_EXPORTS puts the
+# strong executable symbol in the dynamic symbol table so libfdb_c resolves to
+# it instead of the unusable interceptor.
+set(FDB_NETWORK_TEST_TARGETS
+    bvars_test
+    document_message_test
+    doris_txn_test
+    fdb_injection_test
+    mem_txn_kv_test
+    meta_service_test
+    recycler_test
+    rpc_kv_bvar_test
+    txn_kv_test
+    txn_lazy_commit_test
+    versioned_value_test)
+
+if (TARGET fdb_getentropy_compat)
+    foreach(FDB_NETWORK_TEST_TARGET ${FDB_NETWORK_TEST_TARGETS})
+        target_sources(${FDB_NETWORK_TEST_TARGET}
+            PRIVATE $<TARGET_OBJECTS:fdb_getentropy_compat>)
+        set_target_properties(${FDB_NETWORK_TEST_TARGET} PROPERTIES ENABLE_EXPORTS ON)
+    endforeach()
+endif()
+
+install(FILES
+    ${BASE_DIR}/script/run_all_tests.sh
+    ${BASE_DIR}/conf/fdb.cluster
+    ${BASE_DIR}/conf/doris_cloud.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
+    ${BASE_DIR}/test/fdb_metric_example.json
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+    GROUP_READ GROUP_WRITE GROUP_EXECUTE
+    WORLD_READ WORLD_EXECUTE
+    DESTINATION ${BUILD_DIR}/test)
+
+install(FILES
+    ${THIRDPARTY_DIR}/lib/libfdb_c.so
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+    GROUP_READ GROUP_WRITE GROUP_EXECUTE
+    WORLD_READ WORLD_EXECUTE
+    DESTINATION ${BUILD_DIR}/test)

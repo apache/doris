@@ -1,0 +1,303 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_hive_topn_lazy_mat", "p0,external") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+
+    // Define test function inside suite
+    def runTopNLazyMatTests = {
+        def limitValues = [3, 8, 29]
+        
+        // Single table query tests, using nested loops to iterate through tables and limit values
+        for (String table : ["orc_topn_lazy_mat_table", "parquet_topn_lazy_mat_table"]) {
+            qt_1 """ select * from ${table} order by id limit 10; """
+            qt_2 """ select * from ${table} order by id,file_id limit 10; """
+            qt_3 """ select score, value, active,name  from ${table} order by id,file_id limit 10; """
+            qt_4 """ select value,name,id,file_id  from ${table} order by name limit 10; """
+
+            // Duplicate projected column - same column twice (the core bug from rowid_fetcher fix)
+            qt_dup_col_twice """ select name a, name b from ${table} order by id limit 10; """
+            // Duplicate projected column - same column three times
+            qt_dup_col_thrice """ select name a, name b, name c from ${table} order by id limit 10; """
+            // Duplicate column mixed with other columns
+            qt_dup_col_mixed """ select id, name a, score, name b from ${table} order by id limit 10; """
+            // Duplicate nullable column
+            qt_dup_col_nullable """ select score x, score y from ${table} order by id limit 10; """
+
+
+            for (int limit : limitValues) {
+                // Basic query
+                qt_test_basic """ 
+                    select * from ${table} 
+                    where value > 0 
+                    order by id, score desc 
+                    limit ${limit};
+                """
+
+                // Partial columns query
+                qt_test_partial """
+                    select id, name, score 
+                    from ${table} 
+                    where active = true 
+                    order by id, value desc 
+                    limit ${limit};
+                """
+
+                // Multi-field sorting
+                qt_test_multi_sort """
+                    select id, name, value, score 
+                    from ${table} 
+                    order by id, score desc, value asc 
+                    limit ${limit};
+                """
+
+                // Filter condition query
+                qt_test_filter """
+                    select id, name, value 
+                    from ${table} 
+                    where active = true and value > 100 
+                    order by id, value desc 
+                    limit ${limit};
+                """
+
+                // Subquery
+                qt_test_subquery """
+                    select t.id, t.name, t.total_score 
+                    from (
+                        select id, name, (value + score) as total_score 
+                        from ${table} 
+                        where active = true
+                    ) t 
+                    order by t.id, t.total_score desc 
+                    limit ${limit};
+                """
+
+                // Aggregation query
+                qt_test_agg """
+                    select 
+                        id,
+                        max(score) as max_score,
+                        avg(value) as avg_value
+                    from ${table} 
+                    group by id
+                    order by id, max_score desc 
+                    limit ${limit};
+                """
+            }
+        }
+
+        // Multi-table query tests (join related), also using limit loop
+        for (int limit : limitValues) {
+            // Join query
+            qt_test_join1 """
+                select o.id, o.name, o.value, p.score 
+                from orc_topn_lazy_mat_table o 
+                join parquet_topn_lazy_mat_table p 
+                on o.id = p.id 
+                where o.active = true 
+                order by o.id, o.value desc 
+                limit ${limit};
+            """
+
+            // Left join
+            qt_test_join2 """
+                select o.id, o.name, o.value, p.score 
+                from orc_topn_lazy_mat_table o 
+                left join parquet_topn_lazy_mat_table p 
+                on o.id = p.id and o.file_id = p.file_id
+                where o.score > 0 
+                order by o.id, o.score desc, p.score desc 
+                limit ${limit};
+            """
+
+            // Complex join query
+            qt_test_complex """
+                select 
+                    o.id,
+                    o.name,
+                    o.value,
+                    o.score,
+                    p.value as p_value
+                from orc_topn_lazy_mat_table o 
+                left join parquet_topn_lazy_mat_table p 
+                on o.id = p.id 
+                where o.active = true 
+                    and o.value > 0 
+                    and o.score is not null
+                order by o.id, o.score desc, p.value asc 
+                limit ${limit};
+            """
+
+            qt_test_join4  """
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b 
+                where a.file_id = 1  and b.file_id = 1
+                order by a.id,b.id  limit 100;
+            """
+
+            qt_test_join5  """
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b 
+                where a.file_id = 1  and b.file_id = 1
+                order by a.id,b.id  limit 100;
+            """
+
+            qt_test_join6  """
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b
+                where a.file_id = 1  and b.file_id = 1 and a.id = 1
+                order by a.id,b.id  limit 100;
+            """
+
+            // Duplicate columns from both sides of join
+            qt_test_join_dup_cols """
+                select a.name, a.name, b.id, b.id
+                from parquet_topn_lazy_mat_table as a
+                join orc_topn_lazy_mat_table as b on a.id = b.id
+                order by a.id limit ${limit};
+            """
+        }
+
+        for (String table : ["parquet_topn_lazy_complex_table", "parquet_topn_lazy_complex_table_multi_pages"]) {
+            for (int limit : limitValues) {
+                qt_complex_1  """ select * from ${table} order by id asc limit ${limit}; """
+                qt_complex_2  """ select * from ${table} order by col1 desc limit ${limit}; """
+                qt_complex_3  """ select col1,col3,col2 from ${table} order by id desc limit ${limit}; """
+                qt_complex_4  """ select col3,col2 from ${table} order by col1 desc limit ${limit}; """
+
+                qt_complex_5  """ select * from ${table} where id = 1 order by id limit ${limit}; """
+                qt_complex_6  """ select col3,col2 from ${table} where id > 10 order by id limit ${limit}; """
+                qt_complex_7  """ select * from ${table} where id between 5 and 15 order by id limit ${limit}; """
+                qt_complex_8  """ select id, col1 from ${table} where id in (3, 7, 12) order by id limit ${limit}; """
+
+                qt_complex_9  """ select id,col3,col1 from ${table} where col1 = 'text_8' order by id limit ${limit}; """
+                qt_complex_10 """ select col2,id from ${table} where col1 like 'text_1%' order by id limit ${limit}; """
+                qt_complex_11 """ select id, col1 from ${table} where col1 in ('text_2', 'text_10', 'text_20') order by id limit ${limit}; """
+
+                qt_complex_12 """ select * from ${table} where id%2 = 0 order by id limit ${limit}; """
+                qt_complex_13 """ select * from ${table} where id%2 = 1 order by id limit ${limit}; """                
+
+                // Duplicate projected columns over nested types. The scalar cases above only
+                // cover text/double/boolean; a STRUCT or MAP column reaches the row-id fetch as a
+                // different column shape, so dedup and the result remap need coverage here too.
+                qt_complex_dup_struct """ select col2 x, col2 y from ${table} order by id limit ${limit}; """
+                qt_complex_dup_map """ select col3 m, col3 n from ${table} order by id limit ${limit}; """
+                qt_complex_dup_string """ select col1 a, col1 b from ${table} order by id limit ${limit}; """
+                qt_complex_dup_mixed """ select id, col2 a, col1 b, col2 c, col3 d, col1 e from ${table} order by id limit ${limit}; """
+                qt_complex_dup_pred """ select col2 x, col2 y, col1 z from ${table} where col1 like 'text_1%' order by id limit ${limit}; """
+            }
+        }
+    }
+
+    for (String hivePrefix : ["hive2"]) {
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String catalog = "test_hive_topn_lazy_mat_${hivePrefix}"
+
+        sql """drop catalog if exists ${catalog}"""
+        sql """create catalog if not exists ${catalog} properties (
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+        );"""
+
+        logger.info("catalog " + catalog + " created")
+        sql """switch ${catalog};"""
+
+        sql """ use global_lazy_mat_db; """
+
+
+        sql """
+        set topn_lazy_materialization_threshold=1024;
+        set runtime_filter_mode=GLOBAL;
+        set TOPN_FILTER_RATIO=0.5;
+        set disable_join_reorder=true;
+        set enable_runtime_filter_prune=false;
+        """
+
+
+        explain {
+            sql "select * from  orc_topn_lazy_mat_table order by id limit 10; "
+            contains("projectList:[id, name, value, active, score, file_id]")
+            contains("column_descs_lists[[`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL]]")
+            contains("locations: [[1, 2, 3, 4, 5]]")
+            contains("column_idxs_lists: [[1, 2, 3, 4, 5]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+       
+        explain {
+            sql " select file_id,id from  orc_topn_lazy_mat_table  order by name limit 10; "
+            contains("projectList:[file_id, id]")
+            contains("column_descs_lists[[`id` int NULL, `file_id` int NULL]]")
+            contains("locations: [[1, 2]]")
+            contains("column_idxs_lists: [[0, 5]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+
+        // Output aliases must not be used to resolve physical Hive column indices.
+        explain {
+            sql "select name as lazy_alias from orc_topn_lazy_mat_table order by id limit 10;"
+            contains("VMaterializeNode")
+            contains("column_descs_lists[[`name` text NULL]]")
+            contains("column_idxs_lists: [[1]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+
+        // The duplicate-column regressions below only prove the fix if their queries really
+        // enter phase-2 materialization. Pin the plan: two result slots must point at one
+        // physical column index, which is the input that used to drop a column.
+        explain {
+            sql "select name a, name b from orc_topn_lazy_mat_table order by id limit 10;"
+            contains("VMaterializeNode")
+            contains("projectList:[a, b]")
+            contains("column_descs_lists[[`name` text NULL, `name` text NULL]]")
+            contains("locations: [[1, 2]]")
+            contains("column_idxs_lists: [[1, 1]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+
+        explain {
+            sql "select col2 x, col2 y from parquet_topn_lazy_complex_table order by id limit 10;"
+            contains("VMaterializeNode")
+            contains("column_descs_lists[[`col2` struct<a:int,b:array<int>> NULL, `col2` struct<a:int,b:array<int>> NULL]]")
+            contains("locations: [[1, 2]]")
+            contains("column_idxs_lists: [[2, 2]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__parquet_topn_lazy_complex_table]")
+        }
+
+        explain {
+            sql """ select a.name,length(a.name),a.value,b.*,a.* from  parquet_topn_lazy_mat_table as a    
+            join  orc_topn_lazy_mat_table as b on a.id = b.id order by a.name    limit 10 """
+            contains("projectList:[name, FunctionCallExpr{type=int}, value, id, name, value, active, score, file_id, id, name, value, active, score, file_id]")
+            contains("column_descs_lists[[`value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL], [`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL]]")
+            contains("locations: [[3, 4, 5, 6], [7, 8, 9, 10, 11]]")
+            contains("column_idxs_lists: [[2, 3, 4, 5], [1, 2, 3, 4, 5]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__parquet_topn_lazy_mat_table, __DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+
+        runTopNLazyMatTests()
+
+
+        sql """ set topn_lazy_materialization_threshold=-1; """
+        runTopNLazyMatTests()
+
+
+
+
+    }
+}

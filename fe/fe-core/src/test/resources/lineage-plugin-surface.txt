@@ -1,0 +1,16 @@
+org.apache.doris.extension.spi.Plugin#close():void
+org.apache.doris.extension.spi.Plugin#initialize(org.apache.doris.extension.spi.PluginContext):void
+org.apache.doris.extension.spi.PluginContext#getProperties():java.util.Map
+org.apache.doris.extension.spi.PluginFactory#create():org.apache.doris.extension.spi.Plugin
+org.apache.doris.extension.spi.PluginFactory#create(org.apache.doris.extension.spi.PluginContext):org.apache.doris.extension.spi.Plugin
+org.apache.doris.extension.spi.PluginFactory#description():java.lang.String
+org.apache.doris.extension.spi.PluginFactory#name():java.lang.String
+org.apache.doris.nereids.lineage.LineagePlugin#close():void
+org.apache.doris.nereids.lineage.LineagePlugin#eventFilter():boolean
+org.apache.doris.nereids.lineage.LineagePlugin#exec(org.apache.doris.nereids.lineage.LineageInfo):boolean
+org.apache.doris.nereids.lineage.LineagePlugin#initialize(org.apache.doris.extension.spi.PluginContext):void
+org.apache.doris.nereids.lineage.LineagePlugin#name():java.lang.String
+org.apache.doris.nereids.lineage.LineagePluginFactory#create():org.apache.doris.nereids.lineage.LineagePlugin
+org.apache.doris.nereids.lineage.LineagePluginFactory#create(org.apache.doris.extension.spi.PluginContext):org.apache.doris.nereids.lineage.LineagePlugin
+org.apache.doris.nereids.lineage.LineagePluginFactory#description():java.lang.String
+org.apache.doris.nereids.lineage.LineagePluginFactory#name():java.lang.String

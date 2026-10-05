@@ -1,0 +1,112 @@
+1	\N	\N	\N
+1	["cherry", null]	{"key2":null}	{"id": 1}
+1	["apple", "banana", "cherry", "kiwi", null]	{"key1":10, "key2":20}	{"id": 1}
+1	["apple", "banana", "kiwi", null]	{"key1":10, "key2":5}	{"id": 1}
+1	["grape", "banana", null, "plum", "cherry"]	{"key2":15, "key3":8}	{"id": 1}
+1	["plum", "banana", "apple"]	{"key5":null}	{"id": 1}
+2	\N	{"key3":null}	{"id": 2}
+2	["orange", "grape", null]	{"key2":null, "key3":7}	{"id": 2}
+2	["apple", null, "banana"]	{"key1":10, "key2":null, "key3":20}	{"id": null}
+2	\N	{"key1":null, "key5":25}	{"id": 2}
+3	["plum", "peach", null]	{"key1":5, "key4":null}	{"id": 3}
+3	["apple", "kiwi", "papaya"]	{"key3":null}	{"id": 3}
+3	["orange"]	{"key1":5}	{"id": 3}
+3	["mango", null]	{"key1":12}	{"id": 3}
+4	\N	{"key3":7, "key4":null}	{"id": 4}
+4	["plum", "kiwi", null, "peach", "berry"]	{"key4":15}	{"id": 4}
+4	["orange", "grape", "mango", "berry"]	\N	{"id": 4}
+4	["mango", null, "orange", "plum", "berry", "kiwi"]	{"key2":30}	{"id": null}
+5	\N	{"key2":8, "key5":null}	{"id": 5}
+5	["grape", "kiwi", null]	\N	{"id": 5}
+5	["apple", null, "kiwi"]	{"key1":7, "key2":8}	{"id": null}
+5	["peach", "melon", null]	{"key1":10}	{"id": 5}
+6	\N	{"key2":null, "key3":25}	{"id": 6}
+6	["cherry", "apple", null, "plum"]	{"key3":null, "key6":12}	{"id": 6}
+6	\N	{"key1":1, "key2":2, "key3":null, "key4":4}	{"id": 6}
+6	\N	{"key4":7, "key6":null}	{"id": 6}
+7	["orange", "grape", "kiwi"]	{"key1":5}	{"id": 7}
+7	["melon", null, "papaya", "grape", "kiwi", "berry", null]	{"key4":15, "key5":null}	{"id": null}
+7	["melon"]	\N	{"id": null}
+7	["papaya", "cherry", "apple", null]	{"key1":12, "key3":6}	{"id": null}
+8	["banana", "mango", null]	\N	{"id": 8}
+8	["berry", "cherry"]	{"key1":null, "key5":50}	{"id": 8}
+8	["banana", null]	{"key2":9}	{"id": 8}
+8	["plum", "peach", null, "orange"]	{"key1":6, "key7":12}	{"id": 8}
+9	\N	{"key1":10, "key2":20, "key3":30, "key4":40, "key5":50, "key6":60, "key7":null}	{"id": 9}
+9	["kiwi", null]	{"key2":14, "key5":7}	{"id": 9}
+9	["apple", "kiwi", "plum", null, "mango"]	\N	{"id": 9}
+9	["orange", "kiwi", "berry", null, "plum"]	{"key2":null, "key5":40}	{"id": 9}
+10	["peach"]	{"key1":10}	{"id": null}
+10	["cherry", "berry", null]	{"key2":10, "key7":null}	{"id": 10}
+10	["apple", "banana", null, "cherry", "grape"]	{"key1":null, "key6":9}	{"id": 10}
+10	\N	{"key3":5, "key4":null}	{"id": 10}
+11	\N	{"key4":null}	{"id": null}
+11	\N	{"key1":3, "key5":null}	{"id": 11}
+11	\N	{"key4":5, "key5":null}	{"id": 11}
+11	["grape", "apple", "kiwi"]	{"key1":9}	{"id": 11}
+12	["plum", null]	{"key1":null, "key2":5}	{"id": null}
+12	["plum", null, "mango"]	{"key2":20, "key3":null}	{"id": 12}
+12	["plum", null, "kiwi", "banana"]	{"key4":25}	{"id": 12}
+12	["melon", "papaya", "kiwi"]	\N	{"id": 12}
+13	["plum", null]	{"key3":null, "key5":10}	{"id": null}
+13	["peach", "cherry", "papaya", "kiwi", null]	\N	{"id": 13}
+13	\N	\N	{"id": 13}
+13	["apple", null]	{"key2":null, "key3":7}	{"id": 13}
+14	["orange", "banana", null]	{"key4":3, "key5":null}	{"id": null}
+14	["orange", "grape", null]	{"key1":3, "key6":8}	{"id": 14}
+14	["apple", "melon"]	{"key5":15, "key6":25}	{"id": null}
+14	["orange", "mango", "plum"]	{"key6":5}	{"id": 14}
+15	["strawberry", null]	\N	{"id": null}
+15	\N	{"key3":null}	{"id": 15}
+15	["banana", "peach", "plum", null]	{"key2":4}	{"id": null}
+15	\N	{"key1":18, "key6":22}	{"id": 15}
+16	["kiwi", null]	{"key7":7, "key3":null}	{"id": 16}
+16	["plum", "grape", null]	{"key2":8, "key3":null}	{"id": 16}
+16	\N	{"key2":2}	{"id": 16}
+16	["peach", "kiwi", null, "berry"]	{"key2":20}	{"id": 16}
+17	["apple", "kiwi", null, "papaya"]	{"key7":null}	{"id": 17}
+17	\N	{"key1":10, "key4":14}	{"id": 17}
+17	["papaya"]	{"key6":9, "key7":null}	{"id": 17}
+17	["banana", "plum", null]	{"key4":8}	{"id": 17}
+18	\N	{"key2":null, "key5":10}	{"id": 18}
+18	["apple", "mango", null]	{"key2":2}	{"id": 18}
+18	\N	{"key1":10, "key2":null}	{"id": null}
+18	["apple", null]	{"key1":11}	{"id": 18}
+19	["banana", "mango", "cherry"]	{"key3":7, "key4":null}	{"id": 19}
+19	["cherry", null, "plum"]	{"key1":null, "key7":6}	{"id": 19}
+19	["pear", "grape"]	{"key1":1, "key2":2, "key3":3}	{"id": null}
+19	["kiwi", "mango", null]	{"key7":9}	{"id": 19}
+20	["papaya", "orange", "kiwi", null]	{"key5":3, "key7":null}	{"id": null}
+20	["kiwi", "plum", "orange", null]	{"key1":14}	{"id": null}
+20	["kiwi", null]	{"key1":1, "key9":6}	{"id": 20}
+20	["grape", null]	{"key1":null, "key3":6}	{"id": 20}
+21	["kiwi", null]	{"key1":10, "key6":2}	{"id": 21}
+22	["orange", "peach", null, "kiwi"]	{"key3":null}	{"id": 22}
+23	["berry", "grape", null]	{"key1":8}	{"id": 23}
+24	\N	{"key2":15, "key4":null}	{"id": 24}
+25	["mango", "plum", "apple", null]	{"key7":18}	{"id": 25}
+26	["banana", null]	{"key3":12}	{"id": 26}
+27	["orange", "kiwi", "plum", null]	{"key5":10}	{"id": 27}
+28	\N	{"key1":14}	{"id": 28}
+29	["apple", null, "grape", "peach"]	{"key2":4, "key4":null}	{"id": 29}
+30	["kiwi", "banana", null]	{"key6":6}	{"id": 30}
+31	["cherry", "berry", null, "plum"]	{"key3":null}	{"id": 31}
+32	\N	{"key2":9, "key7":null}	{"id": 32}
+33	["apple", null, "kiwi", "orange"]	{"key1":7}	{"id": 33}
+34	["grape", "plum", null]	{"key4":20}	{"id": 34}
+35	["banana", null]	{"key1":12, "key5":null}	{"id": 35}
+36	["kiwi", "orange", "plum", null]	{"key3":11}	{"id": 36}
+37	\N	{"key1":null}	{"id": 37}
+38	["apple", null]	{"key2":3, "key6":9}	{"id": 38}
+39	["plum", "grape", null]	{"key5":8}	{"id": 39}
+40	["banana", "kiwi", "peach", null]	{"key1":15}	{"id": 40}
+41	["grape", null, "plum"]	{"key3":7}	{"id": 41}
+42	["orange", "kiwi", "peach", null]	{"key4":5}	{"id": 42}
+43	\N	{"key1":2, "key7":null}	{"id": 43}
+44	["apple", "banana", null]	{"key2":14}	{"id": 44}
+45	["grape", null]	{"key4":12}	{"id": 45}
+46	["plum", "kiwi", null, "orange"]	{"key6":10}	{"id": 46}
+47	\N	{"key2":null}	{"id": 47}
+48	["mango", null]	{"key5":9}	{"id": 48}
+49	["kiwi", "plum", "banana", null]	{"key1":13}	{"id": 49}
+50	\N	{"key7":8}	{"id": 50}

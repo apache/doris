@@ -1,0 +1,637 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <arrow/api.h>
+#include <cctz/time_zone.h>
+#include <gen_cpp/types.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
+
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <orc/OrcFile.hh>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "core/arena.h"
+#include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_varbinary.h"
+#include "core/column/column_vector.h"
+#include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/data_type_varbinary_serde.h"
+#include "core/string_buffer.hpp"
+#include "core/types.h"
+#include "util/jsonb_writer.h"
+#include "util/slice.h"
+
+namespace doris {
+
+static std::string make_bytes(size_t n, uint8_t seed = 0x31) {
+    std::string s;
+    s.resize(n);
+    for (size_t i = 0; i < n; ++i) {
+        s[i] = static_cast<char>(seed + i);
+    }
+    if (n >= 3) {
+        s[n / 3] = '\0';
+        s[(2 * n) / 3] = '\0';
+    }
+    return s;
+}
+
+class DataTypeVarbinarySerDeTest : public ::testing::Test {};
+
+TEST_F(DataTypeVarbinarySerDeTest, HiveTextBinaryUsesBase64InsteadOfJsonBytes) {
+    DataTypeVarbinarySerDe serde;
+    auto column = ColumnVarbinary::create();
+    auto options = DataTypeSerDe::get_default_format_options();
+    // Hive LazyBinary decodes Base64, whereas JSON/CSV and binary file readers keep raw bytes.
+    const std::vector<std::pair<std::string, std::string>> cases = {
+            {"dGVzdDI=", "test2"},
+            {"AP8=", std::string("\0\xff", 2)},
+            {"", ""},
+            {"not!base64", "not!base64"},
+            {"====", "===="},
+            {"dGVzdDI", "test2"},
+            {"dG Vz\tdDI=\r\n", "test2"},
+            {"-_8=", std::string("\xfb\xff", 2)},
+            {"YWJjZ", "abc"}};
+    for (const auto& [encoded, expected] : cases) {
+        Slice slice(encoded);
+        ASSERT_TRUE(serde.deserialize_one_cell_from_hive_text(*column, slice, options).ok());
+        EXPECT_EQ(expected, column->get_data_at(column->size() - 1).to_string());
+    }
+    auto output = ColumnString::create();
+    VectorBufferWriter writer(*output);
+    auto binary = ColumnVarbinary::create();
+    binary->insert_data("\0\xff", 2);
+    ASSERT_TRUE(serde.serialize_one_cell_to_hive_text(*binary, 0, writer, options).ok());
+    writer.commit();
+    EXPECT_EQ("AP8=", output->get_data_at(0).to_string());
+
+    std::string encoded = "dGVzdDI=";
+    Slice raw(encoded);
+    ASSERT_TRUE(serde.deserialize_one_cell_from_json(*column, raw, options).ok());
+    EXPECT_EQ(encoded, column->get_data_at(column->size() - 1).to_string());
+
+    auto vector_column = ColumnVarbinary::create();
+    std::vector<Slice> slices;
+    for (const auto& [text, expected] : cases) {
+        slices.emplace_back(text);
+    }
+    uint64_t count = 0;
+    ASSERT_TRUE(serde.deserialize_column_from_hive_text_vector(*vector_column, slices, &count,
+                                                               options, 2)
+                        .ok());
+    ASSERT_EQ(cases.size(), count);
+    for (size_t i = 0; i < cases.size(); ++i) {
+        EXPECT_EQ(cases[i].second, vector_column->get_data_at(i).to_string());
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, FromHexStringPreservesBinaryPartitionBytes) {
+    DataTypeVarbinarySerDe serde;
+    auto column = ColumnVarbinary::create();
+    auto options = DataTypeSerDe::get_default_format_options();
+    for (const std::string text : {"0x00FF", "0x", "0x123E4567E89B12D3A456426614174000"}) {
+        StringRef input(text);
+        ASSERT_TRUE(serde.from_string(input, *column, options).ok());
+    }
+    ASSERT_EQ(3, column->size());
+    EXPECT_EQ(std::string("\0\xff", 2), column->get_data_at(0).to_string());
+    EXPECT_EQ(0, column->get_data_at(1).size);
+    EXPECT_EQ(std::string("\x12\x3e\x45\x67\xe8\x9b\x12\xd3\xa4\x56\x42\x66\x14\x17\x40\x00", 16),
+              column->get_data_at(2).to_string());
+    for (const std::string text : {"0x0", "0xGG", "1234"}) {
+        StringRef input(text);
+        EXPECT_FALSE(serde.from_string(input, *column, options).ok());
+        EXPECT_EQ(3, column->size());
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, Name) {
+    DataTypeVarbinarySerDe serde;
+    EXPECT_EQ(serde.get_name(), std::string("Varbinary"));
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, JsonTextBehavior) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = col.get();
+    std::vector<std::string> vals = {make_bytes(0), make_bytes(5), std::string("ABC", 3)};
+    for (auto& v : vals) {
+        vb->insert_data(v.data(), v.size());
+    }
+
+    DataTypeSerDe::FormatOptions opt;
+
+    // serialize_one_cell_to_json
+    {
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        auto st = serde.serialize_one_cell_to_json(*col, 1, bw, opt);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        bw.commit();
+        auto written = out->get_data_at(0);
+        auto original = col->get_data_at(1);
+        EXPECT_EQ(written.size, original.size);
+        EXPECT_EQ(memcmp(written.data, original.data, original.size), 0);
+    }
+    // serialize_column_to_json
+    {
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        auto st = serde.serialize_column_to_json(*col, 0, col->size(), bw, opt);
+        EXPECT_FALSE(st.ok());
+    }
+    // deserialize_one_cell_from_json
+    {
+        std::string json = "deadbeef";
+        Slice s(json.data(), json.size());
+        auto st = serde.deserialize_one_cell_from_json(*vb, s, opt);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        auto inserted = vb->get_data_at(vb->size() - 1);
+        EXPECT_EQ(inserted.size, json.size());
+        EXPECT_EQ(std::memcmp(inserted.data, json.data(), json.size()), 0);
+    }
+    // deserialize_column_from_json_vector
+    {
+        std::vector<Slice> slices;
+        std::string a = "aa";
+        std::string b = "bb";
+        slices.emplace_back(a.data(), a.size());
+        slices.emplace_back(b.data(), b.size());
+        uint64_t num = 0;
+        auto st = serde.deserialize_column_from_json_vector(*vb, slices, &num, opt);
+        EXPECT_FALSE(st.ok());
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, ProtobufNotSupported) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = col.get();
+    std::string v = make_bytes(4);
+    vb->insert_data(v.data(), v.size());
+
+    PValues pv;
+    auto st1 = serde.write_column_to_pb(*col, pv, 0, 1);
+    EXPECT_FALSE(st1.ok());
+
+    auto st2 = serde.read_column_from_pb(*vb, pv);
+    EXPECT_FALSE(st2.ok());
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, JsonbThrows) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = col.get();
+    std::string v = make_bytes(6);
+    vb->insert_data(v.data(), v.size());
+
+    JsonbWriterT<JsonbOutStream> jw;
+    Arena pool;
+    DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
+
+    EXPECT_THROW({ serde.write_one_cell_to_jsonb(*col, jw, pool, 0, 0, options); },
+                 doris::Exception);
+    EXPECT_THROW({ serde.read_one_cell_from_jsonb(*vb, nullptr); }, doris::Exception);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, MysqlTextAndBinaryAndConst) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = col.get();
+    std::vector<std::string> vals = {make_bytes(1, 0x11), make_bytes(3, 0x22), make_bytes(5, 0x33)};
+    for (auto& v : vals) {
+        vb->insert_data(v.data(), v.size());
+    }
+
+    // binary protocol (smoke)
+    {
+        MysqlRowBinaryBuffer rb;
+        auto format_options = DataTypeSerDe::FormatOptions();
+        rb.start_binary_row(vals.size());
+        for (int i = 0; i < static_cast<int>(vals.size()); ++i) {
+            auto st = serde.write_column_to_mysql_binary(*col, rb, i, false, format_options);
+            EXPECT_TRUE(st.ok()) << st.to_string();
+        }
+        EXPECT_GT(rb.length(), 0);
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryRoundTrip) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = col.get();
+    std::string v = make_bytes(2);
+    vb->insert_data(v.data(), v.size());
+
+    auto builder = std::make_shared<arrow::BinaryBuilder>();
+    cctz::time_zone tz;
+
+    auto st = serde.write_column_to_arrow(*col, nullptr, builder.get(), 0, 1, tz);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    std::shared_ptr<arrow::Array> arr;
+    ASSERT_TRUE(builder->Finish(&arr).ok());
+    auto read_column = ColumnVarbinary::create();
+    st = serde.read_column_from_arrow(*read_column, arr.get(), 0, 1, tz);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(1U, read_column->size());
+    EXPECT_EQ(v, read_column->get_data_at(0).to_string());
+
+    auto* binary_array = dynamic_cast<arrow::BinaryArray*>(arr.get());
+    ASSERT_NE(binary_array, nullptr);
+    ASSERT_EQ(binary_array->length(), 1);
+    ASSERT_FALSE(binary_array->IsNull(0));
+    auto view = vb->get_data_at(0);
+    EXPECT_EQ(binary_array->value_length(0), static_cast<int>(view.size));
+    const uint8_t* raw = binary_array->value_data()->data() + binary_array->value_offset(0);
+    EXPECT_EQ(memcmp(raw, view.data, view.size), 0);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, ArrowReadSupportsLargeAndFixedSizeBinary) {
+    DataTypeVarbinarySerDe serde;
+    cctz::time_zone tz;
+    const auto expect_values = [](const ColumnVarbinary& column,
+                                  const std::vector<std::string>& expected) {
+        ASSERT_EQ(expected.size(), column.size());
+        for (size_t i = 0; i < expected.size(); ++i) {
+            EXPECT_EQ(expected[i], column.get_data_at(i).to_string());
+        }
+    };
+
+    {
+        arrow::LargeBinaryBuilder builder;
+        ASSERT_TRUE(builder.Append("large").ok());
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append("binary").ok());
+        std::shared_ptr<arrow::Array> arrow_array;
+        ASSERT_TRUE(builder.Finish(&arrow_array).ok());
+
+        auto column = ColumnVarbinary::create();
+        ASSERT_TRUE(serde.read_column_from_arrow(*column, arrow_array.get(), 0,
+                                                 arrow_array->length(), tz)
+                            .ok());
+        expect_values(*column, {"large", "", "binary"});
+    }
+
+    {
+        auto type = arrow::fixed_size_binary(3);
+        arrow::FixedSizeBinaryBuilder builder(type, arrow::default_memory_pool());
+        ASSERT_TRUE(builder.Append("abc").ok());
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append("xyz").ok());
+        std::shared_ptr<arrow::Array> arrow_array;
+        ASSERT_TRUE(builder.Finish(&arrow_array).ok());
+
+        auto column = ColumnVarbinary::create();
+        ASSERT_TRUE(serde.read_column_from_arrow(*column, arrow_array.get(), 0,
+                                                 arrow_array->length(), tz)
+                            .ok());
+        expect_values(*column, {"abc", "", "xyz"});
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcWriteSupported) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = col.get();
+    std::string v = make_bytes(3);
+    vb->insert_data(v.data(), v.size());
+
+    Arena arena;
+    TimezoneUtils::load_timezones_to_cache();
+    DataTypeSerDe::FormatOptions format_options;
+    cctz::time_zone tz;
+    TimezoneUtils::find_cctz_time_zone("UTC", tz);
+    format_options.timezone = &tz;
+    auto batch = std::make_unique<orc::StringVectorBatch>(1, *orc::getDefaultPool());
+    auto st = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), 0, 0, arena,
+                                        format_options);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(batch->numElements, 0);
+    auto st2 = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), 0, 1, arena,
+                                         format_options);
+    EXPECT_TRUE(st2.ok());
+    EXPECT_EQ(batch->numElements, 1);
+    EXPECT_EQ(batch->length[0], 3);
+    EXPECT_EQ(memcmp(batch->data[0], v.data(), 3), 0);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcReadBytesNullsSelectionAndOwnership) {
+    std::vector<std::string> values = {std::string(16, '\0'), make_bytes(16),         "", "",
+                                       make_bytes(64),        std::string(16, '\xff')};
+    const auto expected = values;
+    orc::StringVectorBatch batch(values.size(), *orc::getDefaultPool());
+    batch.numElements = values.size();
+    batch.hasNulls = true;
+    for (size_t row = 0; row < values.size(); ++row) {
+        batch.notNull[row] = row != 3;
+        batch.data[row] = values[row].data();
+        batch.length[row] = values[row].size();
+    }
+    batch.data[3] = nullptr;
+    batch.length[3] = -1;
+    auto file_type = orc::createPrimitiveType(orc::BINARY);
+    OrcDecodedColumnView view;
+    view.file_type = file_type.get();
+    view.selected_type = file_type.get();
+    view.batch = &batch;
+    view.rows = values.size();
+    DataTypeNullableSerDe serde(std::make_shared<DataTypeVarbinarySerDe>());
+    auto column = ColumnNullable::create(ColumnVarbinary::create(), ColumnUInt8::create());
+    ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    const std::vector<size_t> selected_rows = {0, 2, 3, 4, 5};
+    view.selected_rows = &selected_rows;
+    ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    values.clear();
+    ASSERT_EQ(column->size(), expected.size() + selected_rows.size());
+    for (size_t row = 0; row < column->size(); ++row) {
+        const auto source_row = row < expected.size() ? row : selected_rows[row - expected.size()];
+        EXPECT_EQ(column->is_null_at(row), source_row == 3);
+        EXPECT_EQ(column->get_nested_column().get_data_at(row).to_string(), expected[source_row]);
+    }
+    const std::vector<size_t> empty_selection;
+    view.selected_rows = &empty_selection;
+    ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    EXPECT_EQ(column->size(), expected.size() + selected_rows.size());
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcReadDictionaryBinary) {
+    const auto bytes = make_bytes(32);
+    orc::EncodedStringVectorBatch batch(4, *orc::getDefaultPool());
+    batch.numElements = 4;
+    batch.isEncoded = true;
+    batch.hasNulls = true;
+    batch.dictionary = std::make_shared<orc::StringDictionary>(*orc::getDefaultPool());
+    batch.dictionary->dictionaryBlob.resize(bytes.size());
+    memcpy(batch.dictionary->dictionaryBlob.data(), bytes.data(), bytes.size());
+    batch.dictionary->dictionaryOffset.resize(3);
+    batch.dictionary->dictionaryOffset[0] = 0;
+    batch.dictionary->dictionaryOffset[1] = 0;
+    batch.dictionary->dictionaryOffset[2] = bytes.size();
+    for (size_t row = 0; row < 4; ++row) {
+        batch.notNull[row] = row != 2;
+        batch.index[row] = row == 1 ? 0 : 1;
+    }
+    batch.index[2] = -1;
+    const auto file_type = orc::createPrimitiveType(orc::BINARY);
+    const std::vector<size_t> selected_rows = {1, 2, 3};
+    OrcDecodedColumnView view;
+    view.file_type = file_type.get();
+    view.selected_type = file_type.get();
+    view.batch = &batch;
+    view.rows = 4;
+    view.selected_rows = &selected_rows;
+    DataTypeNullableSerDe serde(std::make_shared<DataTypeVarbinarySerDe>());
+    auto column = ColumnNullable::create(ColumnVarbinary::create(), ColumnUInt8::create());
+    ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    batch.dictionary.reset();
+    ASSERT_EQ(column->size(), 3);
+    EXPECT_FALSE(column->is_null_at(0));
+    EXPECT_TRUE(column->is_null_at(1));
+    EXPECT_EQ(column->get_nested_column().get_data_at(0).size, 0);
+    EXPECT_EQ(column->get_nested_column().get_data_at(2).to_string(), bytes);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcReadDecodedDictionaryBatch) {
+    std::string bytes = make_bytes(16);
+    orc::EncodedStringVectorBatch batch(1, *orc::getDefaultPool());
+    batch.numElements = 1;
+    batch.isEncoded = false;
+    batch.hasNulls = false;
+    batch.data[0] = bytes.data();
+    batch.length[0] = bytes.size();
+    const auto file_type = orc::createPrimitiveType(orc::BINARY);
+    OrcDecodedColumnView view;
+    view.file_type = file_type.get();
+    view.selected_type = file_type.get();
+    view.batch = &batch;
+    view.rows = 1;
+    DataTypeVarbinarySerDe serde;
+    auto column = ColumnVarbinary::create();
+    ASSERT_TRUE(serde.read_column_from_orc(*column, view).ok());
+    ASSERT_EQ(column->size(), 1);
+    EXPECT_EQ(column->get_data_at(0).to_string(), bytes);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcReadRejectsNegativeLengthAndRollsBack) {
+    orc::StringVectorBatch batch(2, *orc::getDefaultPool());
+    batch.numElements = 2;
+    batch.hasNulls = false;
+    std::string bytes = make_bytes(16);
+    batch.data[0] = bytes.data();
+    batch.length[0] = bytes.size();
+    batch.data[1] = nullptr;
+    batch.length[1] = -1;
+    const auto file_type = orc::createPrimitiveType(orc::BINARY);
+    OrcDecodedColumnView view;
+    view.file_type = file_type.get();
+    view.selected_type = file_type.get();
+    view.batch = &batch;
+    view.rows = 2;
+    DataTypeNullableSerDe serde(std::make_shared<DataTypeVarbinarySerDe>());
+    auto column = ColumnNullable::create(ColumnVarbinary::create(), ColumnUInt8::create());
+    column->insert_default();
+    const auto status = serde.read_column_from_orc(*column, view);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Invalid negative ORC binary length"), std::string::npos);
+    EXPECT_EQ(column->size(), 1);
+    EXPECT_TRUE(column->is_null_at(0));
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryAndStringWithNullsAndInvalidType) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = col.get();
+    std::vector<std::string> vals = {std::string("A", 1), std::string("BC", 2),
+                                     std::string("XYZ", 3)};
+    for (auto& v : vals) {
+        vb->insert_data(v.data(), v.size());
+    }
+
+    // null map: second row null
+    NullMap nulls = {0, 1, 0};
+    cctz::time_zone tz;
+
+    // BinaryBuilder path + nulls
+    {
+        auto builder = std::make_shared<arrow::BinaryBuilder>();
+        auto st = serde.write_column_to_arrow(*col, &nulls, builder.get(), 0, vals.size(), tz);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        std::shared_ptr<arrow::Array> arr;
+        ASSERT_TRUE(builder->Finish(&arr).ok());
+        auto* bin = dynamic_cast<arrow::BinaryArray*>(arr.get());
+        ASSERT_NE(bin, nullptr);
+        ASSERT_EQ(bin->length(), static_cast<int>(vals.size()));
+        ASSERT_FALSE(bin->IsNull(0));
+        ASSERT_TRUE(bin->IsNull(1));
+        ASSERT_FALSE(bin->IsNull(2));
+        // row 0
+        ASSERT_EQ(bin->value_length(0), static_cast<int>(vals[0].size()));
+        const uint8_t* p0 = bin->value_data()->data() + bin->value_offset(0);
+        EXPECT_EQ(memcmp(p0, vals[0].data(), vals[0].size()), 0);
+        // row 2
+        ASSERT_EQ(bin->value_length(2), static_cast<int>(vals[2].size()));
+        const uint8_t* p2 = bin->value_data()->data() + bin->value_offset(2);
+        EXPECT_EQ(memcmp(p2, vals[2].data(), vals[2].size()), 0);
+    }
+
+    // StringBuilder path (no nulls)
+    {
+        auto builder = std::make_shared<arrow::StringBuilder>();
+        auto st = serde.write_column_to_arrow(*col, nullptr, builder.get(), 0, vals.size(), tz);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        std::shared_ptr<arrow::Array> arr;
+        ASSERT_TRUE(builder->Finish(&arr).ok());
+        auto* str_arr = dynamic_cast<arrow::StringArray*>(arr.get());
+        ASSERT_NE(str_arr, nullptr);
+        ASSERT_EQ(str_arr->length(), static_cast<int>(vals.size()));
+        for (int i = 0; i < str_arr->length(); ++i) {
+            ASSERT_FALSE(str_arr->IsNull(i));
+            // StringArray shares BinaryArray API for raw buffer checks
+            auto* bin = static_cast<arrow::BinaryArray*>(arr.get());
+            ASSERT_EQ(bin->value_length(i), static_cast<int>(vals[i].size()));
+            const uint8_t* pi = bin->value_data()->data() + bin->value_offset(i);
+            EXPECT_EQ(memcmp(pi, vals[i].data(), vals[i].size()), 0);
+        }
+    }
+
+    // LargeBinaryBuilder path (no nulls)
+    {
+        auto builder = std::make_shared<arrow::LargeBinaryBuilder>();
+        auto st = serde.write_column_to_arrow(*col, nullptr, builder.get(), 0, vals.size(), tz);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        std::shared_ptr<arrow::Array> arr;
+        ASSERT_TRUE(builder->Finish(&arr).ok());
+        auto* bin = dynamic_cast<arrow::LargeBinaryArray*>(arr.get());
+        ASSERT_NE(bin, nullptr);
+        ASSERT_EQ(bin->length(), static_cast<int>(vals.size()));
+        for (int i = 0; i < bin->length(); ++i) {
+            ASSERT_FALSE(bin->IsNull(i));
+            ASSERT_EQ(bin->value_length(i), static_cast<int64_t>(vals[i].size()));
+            const uint8_t* raw = bin->value_data()->data() + bin->value_offset(i);
+            EXPECT_EQ(memcmp(raw, vals[i].data(), vals[i].size()), 0);
+        }
+    }
+
+    // Unsupported builder type
+    {
+        arrow::Int32Builder ib;
+        auto st = serde.write_column_to_arrow(*col, nullptr, &ib, 0, 1, tz);
+        EXPECT_FALSE(st.ok());
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, OrcWriteStartEndNullMapIgnoredAndEmptyRange) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = col.get();
+    std::vector<std::string> vals = {std::string("aa", 2), std::string("bbb", 3),
+                                     std::string("cccc", 4)};
+    for (auto& v : vals) {
+        vb->insert_data(v.data(), v.size());
+    }
+
+    Arena arena;
+    auto batch = std::make_unique<orc::StringVectorBatch>(8, *orc::getDefaultPool());
+    TimezoneUtils::load_timezones_to_cache();
+    DataTypeSerDe::FormatOptions format_options;
+    cctz::time_zone tz;
+    TimezoneUtils::find_cctz_time_zone("UTC", tz);
+    format_options.timezone = &tz;
+
+    // Provide a null_map but implementation ignores it; ensure data still written.
+    NullMap nulls = {0, 1, 0};
+    auto st = serde.write_column_to_orc("UTC", *col, &nulls, batch.get(), /*start=*/1, /*end=*/3,
+                                        arena, format_options);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(batch->numElements, 2);
+    // rows 1 and 2 are filled
+    EXPECT_EQ(batch->length[1], static_cast<long>(vals[1].size()));
+    EXPECT_EQ(memcmp(batch->data[1], vals[1].data(), vals[1].size()), 0);
+    EXPECT_EQ(batch->length[2], static_cast<long>(vals[2].size()));
+    EXPECT_EQ(memcmp(batch->data[2], vals[2].data(), vals[2].size()), 0);
+
+    // Empty range should set numElements = 0
+    auto st2 = serde.write_column_to_orc("UTC", *col, nullptr, batch.get(), /*start=*/3, /*end=*/3,
+                                         arena, format_options);
+    EXPECT_TRUE(st2.ok());
+    EXPECT_EQ(batch->numElements, 0);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, SerializeOneCellToJsonWithRawBytes) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = col.get();
+
+    // Test binary data with embedded NUL character
+    std::string v = std::string("A\0B", 3);
+    vb->insert_data(v.data(), v.size());
+
+    DataTypeSerDe::FormatOptions opt;
+    auto out = ColumnString::create();
+    VectorBufferWriter bw(*out);
+    auto st = serde.serialize_one_cell_to_json(*col, 0, bw, opt);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    bw.commit();
+
+    auto written = out->get_data_at(0);
+    EXPECT_EQ(written.size, v.size());
+    EXPECT_EQ(memcmp(written.data, v.data(), v.size()), 0);
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, DeserializeOneCellFromJsonWithRawBytes) {
+    DataTypeVarbinarySerDe serde;
+    auto col = ColumnVarbinary::create();
+    auto* vb = col.get();
+
+    // Test 1: String with quotes and backslash, inserted as-is
+    {
+        std::string json = R"("a\b")";
+        Slice s(json.data(), json.size());
+        DataTypeSerDe::FormatOptions opt;
+        auto st = serde.deserialize_one_cell_from_json(*vb, s, opt);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        auto inserted = vb->get_data_at(vb->size() - 1);
+        EXPECT_EQ(inserted.size, json.size());
+        EXPECT_EQ(memcmp(inserted.data, json.data(), json.size()), 0);
+    }
+
+    // Test 2: Pure binary data
+    {
+        std::string binary_data = std::string("\x01\x02\x03\x00\xFF", 5);
+        Slice s(binary_data.data(), binary_data.size());
+        DataTypeSerDe::FormatOptions opt;
+        auto st = serde.deserialize_one_cell_from_json(*vb, s, opt);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        auto inserted = vb->get_data_at(vb->size() - 1);
+        EXPECT_EQ(inserted.size, binary_data.size());
+        EXPECT_EQ(memcmp(inserted.data, binary_data.data(), binary_data.size()), 0);
+    }
+}
+
+} // namespace doris
