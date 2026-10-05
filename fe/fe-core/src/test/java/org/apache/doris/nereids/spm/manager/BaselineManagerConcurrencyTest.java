@@ -1107,6 +1107,138 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
+     * round-38 #3: an OFFSET continuation that lands inside an id group is only sound when
+     * the page order is a TOTAL order over that group's rows. With {@code ORDER BY `id`}
+     * alone the engine may return a repeated id's rows in ANY order in EVERY execution
+     * (SQL promises nothing for equal sort keys): page one ends on the OLD row of the
+     * group, the continuation's OFFSET then re-reads that row and skips the NEWER one -
+     * and the duplicate/skip pair leaves the row count equal to the fence's COUNT(*), so
+     * the completeness proof cannot see it and refresh publishes the OLD status (a failed
+     * DISABLE silently re-enables until the next stable read).
+     */
+    @Test
+    public void testSnapshotPaginationSurvivesTieReorderingBetweenPages() throws Exception {
+        // the reviewer's shape: 1,999 lower-id rows plus an id whose group STRADDLES the
+        // 2,000-row page boundary (an ALTER DISABLE whose compensating delete failed left
+        // the older ENABLED row behind: (ENABLED, older) + (DISABLED, newer))
+        Map<Long, List<BaselinePlan>> table = new java.util.LinkedHashMap<>();
+        for (long id = 1; id <= 1999; id++) {
+            table.put(id, List.of(withId(baseline("d" + id, "select k from t" + id), id)));
+        }
+        table.put(2000L, List.of(
+                flipRow(2000L, BaselineStatus.ENABLED, 100_000L),
+                flipRow(2000L, BaselineStatus.DISABLED, 150_000L)));
+
+        String pageSql = BaselineManager.snapshotPageSql(2000L, 1);
+        Assertions.assertTrue(pageSql.contains("ORDER BY `id`, `update_time`, `status`"),
+                "the page order must be TOTAL over the rows of one id, not merely by id:"
+                        + " an id-only order lets a valid execution re-order the tie and the"
+                        + " OFFSET skip a row behind it: " + pageSql);
+
+        Map<Long, BaselinePlan> snapshot = BaselineManager.readStableSnapshot(
+                tieReorderingReader(table, 2000),
+                () -> new BaselineManager.SnapshotFence(2000L, 2001L, ""));
+        Assertions.assertEquals(BaselineStatus.DISABLED, snapshot.get(2000L).getStatus(),
+                "the NEWER row of the straddling group must win even though the engine's"
+                        + " tie order differs between the two pages (the duplicate/skip pair"
+                        + " keeps the row count unchanged, so the fence cannot see it)");
+        Assertions.assertEquals(2000, snapshot.size(),
+                "every distinct id must be present exactly once: " + snapshot.keySet());
+    }
+
+    /**
+     * A page reader emulating an engine that HONORS the ORDER BY the manager requested but
+     * is FREE to order rows that remain tied under it differently in every execution (SQL
+     * promises nothing for equal sort keys): on the second and later calls it reverses
+     * every run of rows that tie under the DECLARED order. Under {@code ORDER BY `id`} that
+     * reproduces the reviewer's reordering (the two rows of one id tie); under the total
+     * order the rows no longer tie, so the same engine cannot re-order them and the
+     * continuation reads the group completely.
+     */
+    private static BaselineManager.SnapshotPageReader tieReorderingReader(
+            Map<Long, List<BaselinePlan>> table, int pageSize) {
+        AtomicInteger calls = new AtomicInteger();
+        return (pageStart, offset) -> {
+            List<String> keys = orderByColumnsOf(BaselineManager.snapshotPageSql(pageStart, offset));
+            List<ResultRow> rows = table.entrySet().stream()
+                    .filter(entry -> pageStart == null || entry.getKey() >= pageStart)
+                    .flatMap(entry -> entry.getValue().stream())
+                    .map(BaselineManagerConcurrencyTest::rowOf)
+                    .collect(java.util.stream.Collectors.toList());
+            rows.sort(comparatorOf(keys));
+            if (calls.incrementAndGet() >= 2) {
+                reverseTiedRuns(rows, keys);
+            }
+            return rows.stream().skip(offset).limit(pageSize)
+                    .collect(java.util.stream.Collectors.toList());
+        };
+    }
+
+    /** The order columns of one page SQL (the manager's own request). */
+    private static List<String> orderByColumnsOf(String sql) {
+        int at = sql.indexOf("ORDER BY ");
+        Assertions.assertTrue(at > 0, "the page SQL must declare its order: " + sql);
+        String clause = sql.substring(at + "ORDER BY ".length());
+        int limit = clause.indexOf(" LIMIT ");
+        Assertions.assertTrue(limit > 0, "the order clause must precede LIMIT: " + sql);
+        List<String> keys = new ArrayList<>();
+        for (String key : clause.substring(0, limit).split(",")) {
+            keys.add(key.trim().replace("`", ""));
+        }
+        return keys;
+    }
+
+    /** Compares two snapshot rows by the ORDER BY columns the manager declared. */
+    private static java.util.Comparator<ResultRow> comparatorOf(List<String> keys) {
+        return (left, right) -> {
+            for (String key : keys) {
+                int column = snapshotColumnIndex(key);
+                String l = left.getWithDefault(column, "");
+                String r = right.getWithDefault(column, "");
+                int compared = "id".equals(key)
+                        ? Long.compare(Long.parseLong(l.trim()), Long.parseLong(r.trim()))
+                        : l.compareTo(r);
+                if (compared != 0) {
+                    return compared;
+                }
+            }
+            return 0;
+        };
+    }
+
+    /** The position of one tie-break column in the snapshot row (SNAPSHOT_COLUMNS order). */
+    private static int snapshotColumnIndex(String name) {
+        switch (name) {
+            case "id":
+                return 0;
+            case "status":
+                return 9;
+            case "update_time":
+                return 11;
+            default:
+                throw new AssertionError("unexpected snapshot order column: " + name);
+        }
+    }
+
+    /**
+     * Reverses every maximal run of rows that remain EQUAL under the declared order - the
+     * engine may emit such rows in any order in any execution (see
+     * {@link #tieReorderingReader}).
+     */
+    private static void reverseTiedRuns(List<ResultRow> rows, List<String> keys) {
+        java.util.Comparator<ResultRow> comparator = comparatorOf(keys);
+        int start = 0;
+        for (int i = 1; i <= rows.size(); i++) {
+            if (i == rows.size() || comparator.compare(rows.get(i - 1), rows.get(i)) != 0) {
+                if (i - start > 1) {
+                    java.util.Collections.reverse(rows.subList(start, i));
+                }
+                start = i;
+            }
+        }
+    }
+
+    /**
      * round-33 #4 (fail-closed side): the fence alone cannot see a TRUNCATED page - a
      * partial result looks exactly like a short, completed page. The loop reads every row
      * exactly once, so the rows it read must equal the fence's row count; when they do not

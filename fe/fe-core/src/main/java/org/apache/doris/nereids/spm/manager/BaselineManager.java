@@ -267,11 +267,17 @@ public class BaselineManager {
 
     /**
      * First page of a whole-table snapshot: ordered by id so the pagination can continue
-     * with {@link #SELECT_PAGE_SQL} from the last row read (and so the duplicate-id
-     * resolution sees a stable order).
+     * with {@link #SELECT_PAGE_SQL} from the last row read. The order is a TOTAL order over
+     * the rows of ONE id - {@code (update_time, status)} break the id ties (round-38 #3):
+     * with {@code ORDER BY `id`} alone the engine may return a repeated id's rows in ANY
+     * order in EVERY execution (SQL promises nothing for equal sort keys), and an OFFSET
+     * continuation that lands inside such a group could then re-read one row and skip
+     * another while the row COUNT - the completeness proof - stays unchanged, so the
+     * refresh would publish the OLD status. Rows equal in EVERY column remain
+     * interchangeable (they resolve to the same {@link #pickDurableWinner} outcome).
      */
     private static final String SELECT_ALL_ORDERED_SQL =
-            SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE + " ORDER BY `id`";
+            SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE + " ORDER BY `id`, `update_time`, `status`";
 
     /**
      * One continuation page of a whole-table snapshot: every row with {@code id >=
@@ -279,10 +285,14 @@ public class BaselineManager {
      * range. The offset is what keeps an id group larger than one page readable: a
      * repeated opposite-status ALTER failure leaves one more row under the id every time,
      * so the group can outgrow {@link #SNAPSHOT_PAGE_SIZE} rows - a jump past it would
-     * omit the rows behind the first page, possibly the newest durable status.
+     * omit the rows behind the first page, possibly the newest durable status. The order
+     * must remain a TOTAL order within one id (see {@link #SELECT_ALL_ORDERED_SQL}) or a
+     * tie order that differs between the two queries can make the offset skip a row of
+     * the interrupted group (round-38 #3).
      */
     private static final String SELECT_PAGE_SQL = SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE
-            + " WHERE `id` >= ${lastId} ORDER BY `id` LIMIT ${pageSize} OFFSET ${offset}";
+            + " WHERE `id` >= ${lastId} ORDER BY `id`, `update_time`, `status`"
+            + " LIMIT ${pageSize} OFFSET ${offset}";
 
     /**
      * Rows per snapshot page (see {@link #readPersistedSnapshot}). Bounds what ONE
@@ -2809,8 +2819,9 @@ public class BaselineManager {
      * drive through the internal table) is covered directly.
      *
      * @param reader       reads one page: every row with {@code id >= pageStart} after
-     *                     skipping {@code offset} rows of that range, ordered by id; a null
-     *                     pageStart reads the first page (offset 0)
+     *                     skipping {@code offset} rows of that range, in the TOTAL order
+     *                     {@code (id, update_time, status)}; a null pageStart reads the
+     *                     first page (offset 0)
      * @param pageSize     rows per page (the production value is
      *                     {@link #SNAPSHOT_PAGE_SIZE})
      * @param rowsReadSink counts every row the loop actually read (see the completeness
@@ -2873,15 +2884,17 @@ public class BaselineManager {
 
     /**
      * The read of ONE snapshot page: every row with {@code id >= pageStart}, ordered by
-     * id and skipping the first {@code offset} rows of that range, or the whole table (in
-     * id order) when the snapshot has just started.
+     * the TOTAL order {@code (id, update_time, status)} and skipping the first
+     * {@code offset} rows of that range, or the whole table (in the same order) when the
+     * snapshot has just started.
      *
      * @param pageStart inclusive lower bound of the page id range (null = first page)
      * @param offset    rows to skip inside the id range (the continuation within an id
      *                  group larger than one page; 0 for a fresh bound)
      * @return the page SQL
      */
-    private static String snapshotPageSql(Long pageStart, long offset) {
+    @VisibleForTesting
+    static String snapshotPageSql(Long pageStart, long offset) {
         if (pageStart == null) {
             return SELECT_ALL_ORDERED_SQL + " LIMIT " + SNAPSHOT_PAGE_SIZE;
         }

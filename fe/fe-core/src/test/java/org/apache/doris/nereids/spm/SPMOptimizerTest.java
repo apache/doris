@@ -18,16 +18,19 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -235,6 +238,80 @@ public class SPMOptimizerTest {
                     "WITH c AS (SELECT /*+ SET_VAR(parallel_pipeline_task_num=1) */ k FROM t1)"
                             + " SELECT k FROM c");
             Assertions.assertDoesNotThrow(() -> SPMOptimizer.checkProtectedSetVarHints(allowed));
+        }
+    }
+
+    // ==================== round-38 #1: the nested statement context is closed ====================
+
+    /**
+     * The nested statement context installed while the baseline plan is produced OWNS
+     * everything the nested plan registered on it - the connector scope an external (e.g.
+     * Iceberg) bind installed through it (table-cache lease / tracked tables, released only
+     * by close()) and its planner resources. The outer statement's own teardown later closes
+     * only the OUTER context the session carries, so BOTH a successful and a FAILING nested
+     * plan must close the nested one.
+     */
+    @Test
+    public void testNestedStatementContextIsClosedOnSuccessAndFailure() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setSessionVariable(new SessionVariable());
+        ctx.setThreadLocalInfo();
+        StatementContext outer = new StatementContext(ctx, new OriginStatement("SELECT 1", 0));
+        ctx.setStatementContext(outer);
+        LogicalPlan plan = (LogicalPlan) new NereidsParser().parseSingle("SELECT 1");
+        try {
+            // SUCCESS: the mocked planner returns a physical plan, so optimize() returns
+            TrackingStatementContext nested = new TrackingStatementContext(ctx);
+            SPMOptimizer.nestedStatementContextFactoryForTest = (connectContext, sql) -> nested;
+            try (MockedConstruction<NereidsPlanner> mocked = Mockito.mockConstruction(
+                    NereidsPlanner.class, (planner, construction) -> Mockito
+                            .when(planner.planWithLock(Mockito.any(), Mockito.any(), Mockito.any()))
+                            .thenReturn(Mockito.mock(PhysicalPlan.class)))) {
+                SPMOptimizer.optimize(ctx, plan, "SELECT 1");
+                Assertions.assertEquals(1, mocked.constructed().size(),
+                        "the nested plan runs on its own planner");
+            }
+            Assertions.assertTrue(nested.closed,
+                    "a SUCCESSFUL nested plan must close its statement context: its connector"
+                            + " scope / planner resources are released only there");
+            Assertions.assertSame(outer, ctx.getStatementContext(),
+                    "the outer context is restored");
+
+            // FAILURE: the nested plan throws; the context must still be closed and the
+            // failure must propagate unchanged
+            TrackingStatementContext failing = new TrackingStatementContext(ctx);
+            SPMOptimizer.nestedStatementContextFactoryForTest = (connectContext, sql) -> failing;
+            try (MockedConstruction<NereidsPlanner> mocked = Mockito.mockConstruction(
+                    NereidsPlanner.class, (planner, construction) -> Mockito
+                            .when(planner.planWithLock(Mockito.any(), Mockito.any(), Mockito.any()))
+                            .thenThrow(new IllegalStateException("nested plan failed")))) {
+                IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                        () -> SPMOptimizer.optimize(ctx, plan, "SELECT 1"),
+                        "the nested failure must not be swallowed");
+                Assertions.assertEquals("nested plan failed", failure.getMessage());
+            }
+            Assertions.assertTrue(failing.closed,
+                    "a FAILING nested plan must still close its statement context");
+            Assertions.assertSame(outer, ctx.getStatementContext(),
+                    "the outer context is restored on the failure path as well");
+        } finally {
+            SPMOptimizer.nestedStatementContextFactoryForTest = null;
+            ConnectContext.remove();
+        }
+    }
+
+    /** A statement context that records its own close (round-38 #1 test). */
+    private static final class TrackingStatementContext extends StatementContext {
+        private boolean closed;
+
+        TrackingStatementContext(ConnectContext ctx) {
+            super(ctx, new OriginStatement("SELECT 1", 0));
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+            super.close();
         }
     }
 }

@@ -38,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -49,6 +50,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -184,6 +186,16 @@ public class SPMOptimizer {
             "ELIMINATE_LIMIT_ON_EMPTY_RELATION",
             "PRUNE_EMPTY_PARTITION"
     );
+
+    /**
+     * Test seam (round-38 #1): the factory that creates the nested statement context the
+     * baseline plan is produced under, so a unit test can observe that it is CLOSED on
+     * both the success and the failure path. Null in production (a plain
+     * {@link StatementContext} is created).
+     */
+    @VisibleForTesting
+    static volatile BiFunction<ConnectContext, String, StatementContext>
+            nestedStatementContextFactoryForTest;
 
     /**
      * SET_VAR keys that carry the SPM safety overrides (see optimize()): a plan-SQL hint
@@ -383,8 +395,7 @@ public class SPMOptimizer {
         // the TopN / CTE guards for the nested statement. Reject such hints up front -
         // CREATE then keeps the user's planSql text instead of freezing an unguarded plan.
         checkProtectedSetVarHints(logicalPlan);
-        StatementContext statementContext = new StatementContext(ctx,
-                new OriginStatement(originSql, 0));
+        StatementContext statementContext = createNestedStatementContext(ctx, originSql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
 
         SessionVariable sessionVar = ctx.getSessionVariable();
@@ -463,7 +474,32 @@ public class SPMOptimizer {
             sessionVar.inlineCTEReferencedThreshold = originalInlineCteThreshold;
             sessionVar.cteInlineMode = originalCteInlineMode;
             ctx.setStatementContext(originalCtx);
+            // Round-38 #1: the nested statement context OWNS everything the nested plan
+            // registered on it - the connector scope an external (e.g. Iceberg) bind
+            // installed, whose table-cache lease / tracked tables are released only by
+            // close() (connectorStatementScope.closeAll), plus its planner resources
+            // (releasePlannerResources). Restoring the outer context above is NOT a
+            // substitute: the statement's own teardown (ConnectProcessor / the
+            // forwarded-request finally) later closes only the context the session
+            // carries at that point, so without this close every CREATE / capture refresh
+            // left the nested scope pinned for the lifetime of the FE.
+            statementContext.close();
         }
+    }
+
+    /**
+     * Creates the nested statement context of one baseline-plan optimization. The context
+     * is closed in the caller's finally (see
+     * {@link #nestedStatementContextFactoryForTest} for the test seam).
+     */
+    private static StatementContext createNestedStatementContext(ConnectContext ctx,
+            String originSql) {
+        BiFunction<ConnectContext, String, StatementContext> factory =
+                nestedStatementContextFactoryForTest;
+        if (factory != null) {
+            return factory.apply(ctx, originSql);
+        }
+        return new StatementContext(ctx, new OriginStatement(originSql, 0));
     }
 
     /**

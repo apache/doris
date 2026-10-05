@@ -50,6 +50,10 @@ import java.util.List;
  *       query sits in {@link WorkloadRuntimeStatusMgr} first, and the
  *       {@link AuditEventProcessor} can hold an event in its queue or in-flight while a
  *       plugin runs - the loader being empty proves nothing.</li>
+ *   <li>round-38 #2: an OVERDUE row is only dropped when its FE is provably GONE; a
+ *       live - or undecidable - reporter fails the read closed instead of silently
+ *       releasing the fence, because its pipeline may still owe events (and its last
+ *       confirmed value can already be stale).</li>
  * </ul>
  */
 public class AuditPublicationHorizonTest {
@@ -70,6 +74,7 @@ public class AuditPublicationHorizonTest {
         mockedEnv.close();
         AuditPublicationHorizon.horizonRowsReaderForTest = null;
         AuditPublicationHorizon.localHorizonWriterForTest = null;
+        AuditPublicationHorizon.feAliveProbeForTest = null;
     }
 
     private static AuditEvent event(long timestamp) {
@@ -124,16 +129,17 @@ public class AuditPublicationHorizonTest {
     public void testClusterHorizonTakesTheMinimumOverFreshFollowerRows() {
         long now = System.currentTimeMillis();
         AuditPublicationHorizon.horizonRowsReaderForTest = () -> Arrays.asList(
-                new Object[] {now - 10_000L, now}, // a follower still owing a 10s-old event
-                new Object[] {now - 40_000L, now}, // another owing an older one
-                new Object[] {0L, now});           // a third with nothing outstanding
+                new Object[] {"fe-a", now - 10_000L, now}, // a follower still owing a 10s-old event
+                new Object[] {"fe-b", now - 40_000L, now}, // another owing an older one
+                new Object[] {"fe-c", 0L, now});            // a third with nothing outstanding
         Assertions.assertEquals(now - 40_000L, AuditPublicationHorizon.clusterHorizon(),
                 "the oldest fresh row fences, regardless of which FE it is");
 
-        // a row whose reporter went silent is IGNORED: its events are gone with the FE,
-        // and fencing forever would freeze the capture instead of protecting anything
+        // an OVERDUE row of a GONE FE is ignored: its events died with the FE, and fencing
+        // forever would freeze the capture instead of protecting anything
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
         AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
-                new Object[] {now - 10_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+                new Object[] {"fe-dead", now - 10_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
         Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon());
     }
 
@@ -271,5 +277,52 @@ public class AuditPublicationHorizonTest {
         Deencapsulation.setField(processor, "processingEvent", null);
         Assertions.assertEquals(0L, AuditPublicationHorizon.localHorizon(),
                 "the internal event stays out of the fence at every stage");
+    }
+
+    // ==================== round-38 #2: an overdue row of a LIVE fe fails closed =========
+
+    /**
+     * A follower's keepalive upserts can fail for minutes while the FE still holds a
+     * completed event (and may even gain MORE events with older start times): the overdue
+     * row must not be silently dropped, and its STALE VALUE must not be trusted either -
+     * the read fails closed so the capture skips the cycle and retries instead of
+     * checkpointing past the unread fence.
+     */
+    @Test
+    public void testOverdueFenceOfALiveFeFailsClosed() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> true;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-live", now - 20_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "a live FE's un-refreshed fence must skip the cycle, not release it");
+        Assertions.assertTrue(failure.getMessage().contains("fe-live"),
+                "the failure names the FE: " + failure.getMessage());
+    }
+
+    /** A row whose FE is provably gone is a leftover: its events died with it. */
+    @Test
+    public void testOverdueFenceOfAGoneFeIsDropped() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-gone", now - 20_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                "a gone FE's overdue row no longer fences: nothing of its can publish any more");
+    }
+
+    /** An undecidable liveness must be conservative: the fence fails closed. */
+    @Test
+    public void testOverdueFenceWithUndecidableLivenessFailsClosed() {
+        long now = System.currentTimeMillis();
+        // no probe: the Env-based lookup finds no membership view in the unit test, so the
+        // liveness is UNKNOWN - and unknown must not be mistaken for "gone"
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-unknown", now - 20_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "an undecidable reporter must keep the fence: dropping it could miss the"
+                        + " event it still owes");
     }
 }

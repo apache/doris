@@ -24,6 +24,7 @@ import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.system.Frontend;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
@@ -72,8 +73,12 @@ import java.util.function.Supplier;
  *       the reporter's writes fence (and thereby re-trigger) themselves forever on an
  *       idle FE (round-37 #7).</li>
  *   <li>{@link #clusterHorizon()} is the MINIMUM over the local value and the FRESH
- *       rows of that table; a row the reporter stopped refreshing (its FE died or
- *       stopped reporting - the events are gone with it) is ignored.</li>
+ *       rows of that table; a row the reporter stopped refreshing is only IGNORED
+ *       when its FE is provably GONE (the events died with it). A live FE whose
+ *       keepalive writes fail - or one whose liveness cannot be decided - makes the
+ *       read FAIL CLOSED instead: its pipeline may still owe events (and may even
+ *       have gained events with OLDER start times), so neither the stale value may
+ *       be trusted nor the fence released (round-38 #2).</li>
  * </ul>
  */
 public final class AuditPublicationHorizon {
@@ -81,16 +86,20 @@ public final class AuditPublicationHorizon {
     private static final Logger LOG = LogManager.getLogger(AuditPublicationHorizon.class);
 
     /**
-     * A reported row older than this is IGNORED: its FE stopped refreshing the fence
-     * (crashed / killed / its reporter thread is gone), so the events it still owed are
-     * lost with it and fencing progress forever would freeze the capture instead of
-     * protecting anything. Must be comfortably larger than the reporter's keepalive
-     * interval ({@link AuditLoader#HORIZON_KEEPALIVE_MILLIS}).
+     * A reported row older than this is OVERDUE: its FE's reporter failed to refresh it
+     * (keepalive failures, a stuck thread, or a crash). An overdue row is only DISCARDED
+     * when the FE is provably gone - its events died with it, and fencing forever would
+     * freeze the capture instead of protecting anything. For a FE that is still alive (or
+     * whose liveness cannot be decided) the read FAILS CLOSED instead: the reporter's
+     * writes can fail for minutes while the FE still owes its events, and its pipeline
+     * may even hold NEW events with older start times than the last reported value
+     * (round-38 #2). Must be comfortably larger than the reporter's keepalive interval
+     * ({@link AuditLoader#HORIZON_KEEPALIVE_MILLIS}).
      */
     public static final long ROW_STALE_MILLIS = 5 * 60 * 1000L;
 
     private static final String SELECT_ROWS_SQL =
-            "SELECT `horizon_ms`, `update_time` FROM `" + FeConstants.INTERNAL_DB_NAME + "`."
+            "SELECT `fe_name`, `horizon_ms`, `update_time` FROM `" + FeConstants.INTERNAL_DB_NAME + "`."
                     + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "`";
     private static final String SELECT_OWN_ROW_SQL = "SELECT `horizon_ms` FROM `"
             + FeConstants.INTERNAL_DB_NAME + "`."
@@ -133,6 +142,13 @@ public final class AuditPublicationHorizon {
      */
     @VisibleForTesting
     static volatile Function<Long, Boolean> localHorizonWriterForTest;
+
+    /**
+     * Test seam: the liveness of the FE behind a reported fence row ({@code null} =
+     * undecidable; see {@link #reportingFeAlive}). Null in production.
+     */
+    @VisibleForTesting
+    static volatile Function<String, Boolean> feAliveProbeForTest;
 
     private AuditPublicationHorizon() {
     }
@@ -190,8 +206,10 @@ public final class AuditPublicationHorizon {
     /**
      * The fence the CAPTURE uses: the minimum over this FE's own pipeline and the fresh
      * rows every other FE reported. Throws {@link IllegalStateException} when the shared
-     * table cannot be read - the caller must NOT advance without a complete fence
-     * (round-36 #1: an unreadable follower row is exactly the hole this guards).
+     * table cannot be read or when the fence is INCOMPLETE (a live reporter's overdue row)
+     * - the caller must NOT advance without a complete fence (round-36 #1: an unreadable
+     * follower row is exactly the hole this guards; round-38 #2 added the overdue-live
+     * reporter, whose last confirmed value may already be stale).
      */
     public static long clusterHorizon() {
         long oldest = localHorizon();
@@ -199,8 +217,10 @@ public final class AuditPublicationHorizon {
     }
 
     /**
-     * The minimum horizon over the FRESH rows of the shared table (0 when none / all
-     * stale). A read failure propagates as a retryable {@link IllegalStateException}.
+     * The minimum horizon over the FRESH rows of the shared table (0 when none / when
+     * every overdue row belongs to a FE that is provably gone). A read failure - or an
+     * overdue row of a live / undecidable reporter - propagates as a retryable
+     * {@link IllegalStateException} (see {@link #reportingFeAlive}).
      */
     private static long remoteHorizon() {
         List<Object[]> rows;
@@ -217,11 +237,12 @@ public final class AuditPublicationHorizon {
                 if (result != null) {
                     for (ResultRow row : result) {
                         List<String> values = row.getValues();
-                        if (values == null || values.size() < 2) {
+                        if (values == null || values.size() < 3) {
                             continue;
                         }
-                        rows.add(new Object[] {Long.parseLong(values.get(0).trim()),
-                                parseUpdateTime(values.get(1).trim())});
+                        rows.add(new Object[] {values.get(0).trim(),
+                                Long.parseLong(values.get(1).trim()),
+                                parseUpdateTime(values.get(2).trim())});
                     }
                 }
             } catch (Exception e) {
@@ -232,20 +253,73 @@ public final class AuditPublicationHorizon {
         long oldest = 0;
         long now = System.currentTimeMillis();
         for (Object[] row : rows) {
-            if (row == null || row.length < 2 || row[0] == null || row[1] == null) {
+            if (row == null || row.length < 3 || row[0] == null
+                    || row[1] == null || row[2] == null) {
                 continue;
             }
-            long horizon = (Long) row[0];
-            long updatedAt = (Long) row[1];
+            String feName = (String) row[0];
+            long horizon = (Long) row[1];
+            long updatedAt = (Long) row[2];
             if (horizon <= 0) {
-                continue;
+                continue; // nothing outstanding: a zero row needs no fence
             }
             if (updatedAt <= 0 || now - updatedAt > ROW_STALE_MILLIS) {
-                continue; // the reporter stopped: its outstanding events are gone with it
+                // Round-38 #2: an OVERDUE row does NOT mean its FE is gone - its keepalive
+                // upserts can fail for minutes while the FE still holds the events, and
+                // its pipeline may even have GAINED events with older start times - so the
+                // stale VALUE cannot be trusted either. Only a KNOWN-GONE FE releases its
+                // fence (the events died with it); a live - or an undecidable - reporter
+                // fails this read closed, and the capture skips the cycle and retries
+                // promptly instead of checkpointing past the unread fence.
+                Boolean alive = reportingFeAlive(feName);
+                if (Boolean.FALSE.equals(alive)) {
+                    LOG.warn("audit publication horizon: dropping the overdue fence of FE"
+                            + " {} (oldest event {}, not refreshed for {} ms): the FE is"
+                            + " gone, its events died with it", feName, horizon, now - updatedAt);
+                    continue;
+                }
+                throw new IllegalStateException("SPM capture cannot trust the cluster audit"
+                        + " publication horizon: the fence of FE " + feName + " (oldest event"
+                        + " " + horizon + ") has not been refreshed for " + (now - updatedAt)
+                        + " ms while the FE is " + (alive == null ? "not confirmably gone"
+                        : "still alive") + "; the capture must retry on a later cycle");
             }
             oldest = minPositive(oldest, horizon);
         }
         return oldest;
+    }
+
+    /**
+     * Whether the FE that reported a fence row is still ALIVE: {@code null} when that
+     * cannot be decided (no live environment / no membership view / a failed lookup), and
+     * {@code false} ONLY when the FE is provably gone. Called for OVERDUE rows only: the
+     * capture runs on the leader, whose frontend list tracks every member's heartbeat, so
+     * a row whose FE is absent from the membership is a leftover whose events died with
+     * that FE (see {@link #remoteHorizon}, round-38 #2).
+     */
+    private static Boolean reportingFeAlive(String feName) {
+        Function<String, Boolean> probe = feAliveProbeForTest;
+        if (probe != null) {
+            return probe.apply(feName);
+        }
+        try {
+            Env env = Env.getCurrentEnv();
+            if (env == null || feName == null || feName.isEmpty()) {
+                return null;
+            }
+            List<Frontend> frontends = env.getFrontends(null);
+            if (frontends == null || frontends.isEmpty()) {
+                return null; // no membership view (not the leader / not ready): undecidable
+            }
+            for (Frontend frontend : frontends) {
+                if (feName.equals(frontend.getNodeName())) {
+                    return frontend.isAlive();
+                }
+            }
+            return Boolean.FALSE; // not a member any more: dropped / decommissioned
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /**
