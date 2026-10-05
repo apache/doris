@@ -38,6 +38,7 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.UpdateVisibleVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -431,6 +432,8 @@ public class PublishVersionDaemon extends MasterDaemon {
             List<TPartitionVersionInfo> partitionVersionInfos, Map<Long, Set<Long>> beIdToBaseTabletIds,
             long createPublishVersionTaskTime,
             AgentBatchTask batchTask) {
+        Map<Long, RowBinlogWriteMapping> mappings =
+                transactionState.getRowBinlogColumnMappings(transactionId);
         for (Long backendId : publishBackends) {
             PublishVersionTask task = new PublishVersionTask(backendId,
                     transactionId,
@@ -438,6 +441,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     partitionVersionInfos,
                     createPublishVersionTaskTime);
             task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
+            task.setRowBinlogColumnMappings(mappings);
             // add to AgentTaskQueue for handling finish report.
             // not check return value, because the add will success
             AgentTaskQueue.addTask(task);

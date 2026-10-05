@@ -331,6 +331,7 @@ import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.Transaction;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
@@ -2421,6 +2422,41 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         OlapTable table = (OlapTable) tableIf;
+        // Cloud retains the writer snapshot in the BE transaction cache. Local publish needs it
+        // journaled by the owning FE, even if its current catalog differs from the writer's schema.
+        // Legacy clients omit all three fields for ordinary tables; validate any supplied snapshot.
+        if (!Config.isCloudMode() && (table.needRowBinlog()
+                || request.isSetRowBinlogColumnMappings() || request.isSetRowBinlogSourceIndexIds()
+                || request.isSetRowBinlogNeedHistoricalValues())) {
+            if (!request.isSetRowBinlogColumnMappings() || !request.isSetRowBinlogSourceIndexIds()
+                    || !request.isSetRowBinlogNeedHistoricalValues()) {
+                throw new AnalysisException("Missing row-binlog column mapping for remote transaction "
+                        + request.getTxnId());
+            }
+            int mappingCount = request.getRowBinlogSourceIndexIdsSize();
+            if (request.getRowBinlogColumnMappingsSize() != mappingCount
+                    || request.getRowBinlogNeedHistoricalValuesSize() != mappingCount) {
+                throw new AnalysisException("Misaligned row-binlog column mapping lists for remote transaction "
+                        + request.getTxnId());
+            }
+            Map<Long, RowBinlogWriteMapping> mappings = new HashMap<>();
+            for (int i = 0; i < mappingCount; i++) {
+                long indexId = request.getRowBinlogSourceIndexIds().get(i);
+                RowBinlogWriteMapping mapping = new RowBinlogWriteMapping(
+                        request.getRowBinlogNeedHistoricalValues().get(i),
+                        request.getRowBinlogColumnMappings().get(i));
+                if (mappings.putIfAbsent(indexId, mapping) != null) {
+                    throw new AnalysisException("Duplicate row-binlog source index " + indexId
+                            + " for remote transaction " + request.getTxnId());
+                }
+            }
+            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(),
+                    request.getTxnId());
+            if (state == null) {
+                throw new AnalysisException("txn does not exist: " + request.getTxnId());
+            }
+            state.captureRemoteRowBinlogColumnMappings(mappings);
+        }
         return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, Lists.newArrayList(table),
                 request.getTxnId(),

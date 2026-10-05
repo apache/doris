@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
 #include "runtime/thread_context.h"
 #include "storage/olap_common.h"
@@ -42,6 +43,7 @@ namespace doris {
 
 class ReadSchema;
 class Block;
+class TupleDescriptor;
 using ReadSchemaSPtr = std::shared_ptr<ReadSchema>;
 
 // Select columns by their ordinal in `columns`, preserving the requested order and duplicates.
@@ -85,10 +87,9 @@ public:
 
     std::string read_columns_to_string() const;
 
-    // Always sets the two facts below; the flags add the sequence mapping and the row-binlog
-    // before-image mapping.
+    // Always sets the two facts below; the flag adds the sequence mapping.
     Status init_from_tablet_schema(const TabletSchema& tablet_schema,
-                                   bool merge_by_sequence_mapping, bool map_row_binlog_columns);
+                                   bool merge_by_sequence_mapping);
 
     // Whether the tablet schema defines a sequence mapping -- not whether this read merges by
     // one. A MoW query does not merge, yet a value predicate still must not be pushed down.
@@ -102,9 +103,28 @@ public:
 
     const SequenceMap& sequence_map() const { return _sequence_map; }
 
+    // Initialize row-binlog relationships using dense ordinals in this ReadSchema. Special
+    // ordinals are -1 when absent.
+    Status init_row_binlog_column_mappings(RowBinlogValueColumnPairs value_pairs,
+                                           int32_t tso_ordinal, int32_t lsn_ordinal,
+                                           int32_t op_ordinal);
+
+    // Resolve TabletSchema special columns to dense ReadSchema ordinals by unique id.
+    Status init_row_binlog_column_mappings(RowBinlogValueColumnPairs value_pairs,
+                                           const TabletSchema& tablet_schema);
+
+    // Parse query mappings and validate the scan-mode requirements. nullptr means an absent
+    // mapping field, while an empty vector is an explicitly supplied empty mapping. The tuple
+    // slots must match this ReadSchema's caller-visible columns in order. Inputs are not retained.
+    Status init_row_binlog_column_mappings(const std::vector<TSlotId>* current_slot_ids,
+                                           const std::vector<TSlotId>* before_slot_ids,
+                                           const TupleDescriptor& scan_tuple,
+                                           const TabletSchema& tablet_schema,
+                                           TBinlogScanType::type scan_type);
+
     // Return the matching before-image ordinal for a Row Binlog value column. For example, in
-    // [v1, v2, __BEFORE__v1__, __BEFORE__v2__], 0 maps to 2 and 1 maps to 3. Columns without a
-    // before image, including TSO/LSN/OP, map to themselves.
+    // [v1, v2, __BEFORE__v1__, __BEFORE__v2__], 0 maps to 2 and 1 maps to 3.
+    // Columns without a before image, including TSO/LSN/OP, map to themselves.
     ColumnId before_column_ordinal(ColumnId ordinal) const {
         DCHECK_LT(ordinal, _before_column_ordinals.size());
         return _before_column_ordinals[ordinal];
@@ -159,9 +179,7 @@ public:
 
 private:
     void _init_read_types();
-    void _init_before_column_ordinals();
     Status _init_sequence_map(const TabletSchema& tablet_schema);
-    void _init_row_binlog_column_mappings(const TabletSchema& tablet_schema);
 
     void _init_descriptors() {
         DORIS_CHECK_LE(_num_block_columns, _read_columns.size());
@@ -175,7 +193,7 @@ private:
         _lsn_ordinal = -1;
         _op_ordinal = -1;
         _commit_tso_ordinal = -1;
-        _before_column_ordinals.clear();
+        _before_column_ordinals.resize(_num_block_columns);
         _uid_to_ordinal.clear();
         for (uint32_t i = 0; i < _read_columns.size(); ++i) {
             const auto& col = *_read_columns[i];
@@ -185,6 +203,7 @@ private:
         }
         for (uint32_t i = 0; i < _num_block_columns; ++i) {
             const auto& col = *_read_columns[i];
+            _before_column_ordinals[i] = i;
             if (col.is_key()) {
                 ++_num_key_columns;
             }
@@ -200,21 +219,9 @@ private:
             if (col.name() == VERSION_COL) {
                 _version_ordinal = i;
             }
-            if (col.name() == BINLOG_TSO_COL) {
-                _tso_ordinal = i;
-            }
-            if (col.name() == BINLOG_LSN_COL) {
-                _lsn_ordinal = i;
-            }
-            if (col.name() == BINLOG_OP_COL) {
-                _op_ordinal = i;
-            }
             if (col.name() == COMMIT_TSO_COL) {
                 _commit_tso_ordinal = i;
             }
-        }
-        if (_op_ordinal >= 0) {
-            _init_before_column_ordinals();
         }
     }
 

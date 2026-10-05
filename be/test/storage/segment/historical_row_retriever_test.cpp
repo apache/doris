@@ -90,7 +90,10 @@ protected:
         ctx->partial_update_info = info;
         ctx->write_type = DataWriteType::TYPE_DIRECT;
         ctx->write_binlog_opt().enable = true;
-        ctx->write_binlog_opt().set_need_before(need_before);
+        ctx->write_binlog_opt().write_binlog_config().need_historical_value = need_before;
+        if (need_before) {
+            ctx->write_binlog_opt().write_binlog_config().column_mappings = {{0, 0, 1}};
+        }
     }
 
     // A block holding the key column and the sequence column, in that order.

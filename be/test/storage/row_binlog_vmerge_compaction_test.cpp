@@ -275,8 +275,7 @@ protected:
         reader_context.read_schema = read_schema;
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,
-                                                      /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*merge_by_sequence_mapping=*/false)
                             .ok());
 
         RowsetReaderSharedPtr reader;

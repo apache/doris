@@ -646,8 +646,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*tablet_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_row_binlog_columns=*/false)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -788,8 +787,7 @@ TEST_F(VerticalCompactionTest, MergeHonorsKeyRanges) {
         reader_context.read_schema = read_schema;
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,
-                                                      /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*merge_by_sequence_mapping=*/false)
                             .ok());
         RowsetReaderSharedPtr output_reader;
         create_and_init_rowset_reader(output_rowset.get(), reader_context, &output_reader);
@@ -909,8 +907,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*tablet_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_row_binlog_columns=*/false)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -1020,8 +1017,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*tablet_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_row_binlog_columns=*/false)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -1285,8 +1281,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeySegmentContextMemoryAmplification) {
         reader_context.read_schema = read_schema;
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,
-                                                      /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*merge_by_sequence_mapping=*/false)
                             .ok());
         RowsetReaderSharedPtr output_rs_reader;
         create_and_init_rowset_reader(output_rowset.get(), reader_context, &output_rs_reader);
@@ -1408,8 +1403,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*tablet_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_row_binlog_columns=*/false)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -1514,8 +1508,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*tablet_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_row_binlog_columns=*/false)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -1611,8 +1604,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*tablet_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_row_binlog_columns=*/false)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
@@ -1810,8 +1802,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*tablet_schema,
-                                                  /*merge_by_sequence_mapping=*/false,
-                                                  /*map_row_binlog_columns=*/false)
+                                                  /*merge_by_sequence_mapping=*/false)
                         .ok());
     RowsetReaderSharedPtr output_rs_reader;
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);

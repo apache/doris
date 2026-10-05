@@ -640,8 +640,22 @@ Status OlapScanner::_init_read_schema() {
 
     // The FE physical scan tuple is the read-path schema. It already includes
     // every storage key, sequence, TSO and binlog column required below.
-    _tablet_reader_params.read_schema =
+    auto read_schema =
             std::make_shared<ReadSchema>(std::move(read_columns), std::move(expected_types));
+    if (_tablet_reader_params.read_row_binlog) {
+        const auto* olap_local_state = static_cast<OlapScanLocalState*>(_local_state);
+        const auto& olap_scan_node = olap_local_state->olap_scan_node();
+        RETURN_IF_ERROR(read_schema->init_row_binlog_column_mappings(
+                olap_scan_node.__isset.row_binlog_current_slot_ids
+                        ? &olap_scan_node.row_binlog_current_slot_ids
+                        : nullptr,
+                olap_scan_node.__isset.row_binlog_before_slot_ids
+                        ? &olap_scan_node.row_binlog_before_slot_ids
+                        : nullptr,
+                *_output_tuple_desc, *_tablet_reader_params.tablet_schema,
+                _tablet_reader_params.binlog_scan_type));
+    }
+    _tablet_reader_params.read_schema = std::move(read_schema);
 
     return Status::OK();
 }

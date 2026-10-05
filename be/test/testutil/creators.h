@@ -272,6 +272,21 @@ inline std::shared_ptr<OlapTableSchemaParam> create_table_schema_param(
     }
     if (row_binlog_index_id > 0) {
         tschema.indexes[0].__set_row_binlog_id(row_binlog_index_id);
+        tschema.indexes[0].__set_row_binlog_need_historical_value(false);
+        std::vector<TRowBinlogWriteColumnMapping> mappings;
+        for (size_t source_cid = 0; source_cid < columns.size(); ++source_cid) {
+            const auto& column = columns[source_cid];
+            if (column.__isset.visible && !column.visible && !column.is_key) {
+                continue;
+            }
+            TRowBinlogWriteColumnMapping mapping;
+            mapping.source_column_unique_id = column.col_unique_id >= 0
+                                                      ? column.col_unique_id
+                                                      : static_cast<int32_t>(source_cid);
+            mapping.current_column_unique_id = mapping.source_column_unique_id;
+            mappings.push_back(mapping);
+        }
+        tschema.indexes[0].__set_row_binlog_column_mappings(std::move(mappings));
         TOlapTableIndexSchema row_binlog_index_schema;
         row_binlog_index_schema.id = row_binlog_index_id;
         row_binlog_index_schema.schema_hash = row_binlog_schema_hash;

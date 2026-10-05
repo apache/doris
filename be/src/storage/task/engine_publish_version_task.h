@@ -97,6 +97,7 @@ struct DiscontinuousVersionTablet {
     int64_t tablet_id;
     int64_t publish_version;
     int64_t commit_tso;
+    std::shared_ptr<const PRowBinlogWriteColumnMappings> row_binlog_column_mappings;
 };
 
 class EnginePublishVersionTask final : public EngineTask {
@@ -115,11 +116,11 @@ public:
     void add_error_tablet_id(int64_t tablet_id);
 
 private:
-    void _handle_publish_version_not_continuous(int64_t partition_id, const TabletInfo& tablet_info,
-                                                const TabletSharedPtr& tablet,
-                                                const Version& version, const int64_t commit_tso,
-                                                int64_t max_version, bool first_time_update,
-                                                Status& res);
+    void _handle_publish_version_not_continuous(
+            int64_t partition_id, const TabletInfo& tablet_info, const TabletSharedPtr& tablet,
+            const Version& version, const int64_t commit_tso, int64_t max_version,
+            bool first_time_update, Status& res,
+            std::shared_ptr<const PRowBinlogWriteColumnMappings> row_binlog_column_mappings);
     void _calculate_tbl_num_delta_rows(
             const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows);
 
@@ -136,7 +137,9 @@ private:
 class AsyncTabletPublishTask {
 public:
     AsyncTabletPublishTask(StorageEngine& engine, TabletSharedPtr tablet, int64_t partition_id,
-                           int64_t transaction_id, int64_t version, int64_t commit_tso)
+                           int64_t transaction_id, int64_t version, int64_t commit_tso,
+                           std::shared_ptr<const PRowBinlogWriteColumnMappings>
+                                   row_binlog_column_mappings = nullptr)
             : _engine(engine),
               _tablet(std::move(tablet)),
               _partition_id(partition_id),
@@ -144,7 +147,8 @@ public:
               _version(version),
               _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                             "AsyncTabletPublishTask")),
-              _commit_tso(commit_tso) {
+              _commit_tso(commit_tso),
+              _row_binlog_column_mappings(std::move(row_binlog_column_mappings)) {
         _stats.submit_time_us = MonotonicMicros();
     }
     ~AsyncTabletPublishTask() = default;
@@ -160,6 +164,7 @@ private:
     TabletPublishStatistics _stats;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     int64_t _commit_tso;
+    std::shared_ptr<const PRowBinlogWriteColumnMappings> _row_binlog_column_mappings;
 };
 
 } // namespace doris
