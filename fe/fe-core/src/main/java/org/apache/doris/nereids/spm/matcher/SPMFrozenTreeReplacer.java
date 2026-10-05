@@ -138,9 +138,9 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
     public Expression visitUnboundFunction(UnboundFunction function,
             Map<Long, Expression> placeholderValues) {
         // a scalar placeholder call: _spm_const_var(id) -> the user actual value.
-        // Only the UNQUALIFIED marker call is a placeholder - db._spm_const_var(1) is a
-        // real UDF reference and must be evaluated normally (see
-        // isUnsubstitutedPlaceholder).
+        // Only the UNQUALIFIED marker call with an integer-literal id is a placeholder -
+        // db._spm_const_var(1) is a real UDF reference and must be evaluated normally
+        // (see isUnsubstitutedPlaceholder).
         if (CONST_VAR_FUNC.equals(function.getName())
                 && (function.getDbName() == null || function.getDbName().isEmpty())) {
             Long id = placeholderId(function);
@@ -149,10 +149,15 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
                 if (userValue != null) {
                     return userValue;
                 }
+                // no extracted value (plan-only placeholder): leave it for the caller's
+                // safety net (isUnsubstitutedPlaceholder) to reject
+                return function;
             }
-            // no extracted value (plan-only placeholder): leave it for the caller's
-            // safety net (isUnsubstitutedPlaceholder) to reject
-            return function;
+            // NOT the marker: a real global UDF of the same name whose first argument is
+            // not an integer literal. Its OTHER arguments may still carry genuine markers
+            // (round-41 #2) - returning the call unchanged left them substituted never,
+            // and the residue scan then rejected a persisted frozen baseline that has no
+            // parameterized-tree fallback. Fall through and rebuild the arguments.
         }
         // a non-placeholder function (e.g. substr(...) whose arguments may still carry
         // placeholders): recurse into the arguments

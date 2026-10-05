@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.spm.builder;
 
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.placeholder.SPMSubquerySupport;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -349,19 +350,40 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * Name of a bound function call for the frozen SQL. A user-defined function keeps its
      * database qualifier (Java / Python UDF, UDAF and UDTF nodes retain dbName): a frozen
      * db1.f(k) must not resolve to db2.f(k) when the replayed SQL runs under another
-     * default database. Package-visible for tests.
+     * default database. A GLOBAL UDF has no qualifier, and its registered name is not
+     * necessarily a plain identifier (my-fn): emitting it bare produced frozen text the
+     * parser reads as a subtraction, and a persisted frozen row has no parameterized-tree
+     * fallback - the baseline could never replay (round-41 #8).
+     *
+     * <p>A user function NAMED like the SPM placeholder marker is refused here (round-41
+     * #15): its rendered call would be indistinguishable from a genuine
+     * {@code _spm_const_var(id) / _spm_const_list(id)} marker, so the replay could either
+     * substitute the real call with a user literal or reject the frozen baseline as an
+     * unresolved marker. Refusing the decompile keeps the ORIGINAL planSql (provenance
+     * planFrozen=false) as the baseline's replayable fallback.
+     *
+     * <p>Package-visible for tests.
      */
     @VisibleForTesting
     public static String functionName(Function function) {
         if (function instanceof Udf) {
+            String name = function.getName();
+            if (SPMFrozenTreeReplacer.CONST_VAR_FUNC.equals(name)
+                    || SPMFrozenTreeReplacer.CONST_LIST_FUNC.equals(name)) {
+                throw new UnsupportedOperationException("SPM decompile: the user function "
+                        + name + " collides with the SPM placeholder marker; keeping the"
+                        + " original planSql");
+            }
             String dbName = ((Udf) function).getDbName();
             if (dbName != null && !dbName.isEmpty()) {
                 // Quote each component: a legal database name like my-db is NOT a
                 // parser identifier, and `my-db`.f(k) is what re-parses after a reload
                 // - the unquoted my-db.f(k) made the persisted frozen SQL unparseable.
                 return SPMPlan2SQLBuilder.quoteIdentifier(dbName) + "."
-                        + SPMPlan2SQLBuilder.quoteIdentifier(function.getName());
+                        + SPMPlan2SQLBuilder.quoteIdentifier(name);
             }
+            // a GLOBAL UDF without a database: quote the (possibly non-plain) name
+            return SPMPlan2SQLBuilder.quoteIdentifier(name);
         }
         return function.getName();
     }

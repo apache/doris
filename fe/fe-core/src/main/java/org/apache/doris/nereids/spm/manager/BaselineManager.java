@@ -52,10 +52,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -625,6 +628,19 @@ public class BaselineManager {
      */
     private static final long PENDING_CREATE_FENCE_MILLIS = 30 * 60 * 1000L;
 
+    /**
+     * How long a COMPLETED local mutation (or a forwarded GLOBAL DDL known to have
+     * committed on the master) fences the persisted snapshots that contradict it
+     * (round-41 #3/#7/#10/#13): the durable write may be committed while its publication
+     * still lags every local read, so a daemon snapshot / SHOW read that still returns
+     * the pre-mutation row must not republish it - matching would keep serving a baseline
+     * the user just dropped or disabled (and a stale snapshot must not hide a
+     * just-enabled one either). The fence is bounded like the create-side fence: a write
+     * that never becomes visible after this bound is treated as LOST and the persisted
+     * state wins again.
+     */
+    private static final long PENDING_MUTATION_FENCE_MILLIS = 5 * 60 * 1000L;
+
     // ==================== priority ordering ====================
 
     /**
@@ -746,6 +762,56 @@ public class BaselineManager {
         PendingCreate(BaselinePlan plan, long since) {
             this.plan = plan;
             this.since = since;
+        }
+    }
+
+    /**
+     * Completed (or attempted) mutations whose durable outcome is not visible to this FE's
+     * own reads yet: id -> the state the durable table must reach (see
+     * {@link PendingMutationFence}). While a fence is active, a persisted snapshot that
+     * CONTRADICTS it is masked - its id is skipped by the refresh diff and the local
+     * post-mutation state stays - so matching never republishes a baseline the user just
+     * dropped or disabled, and a stale row never overwrites a committed flip. Recorded by
+     * a completed DROP / status flip and their ambiguous-write failures (round-41
+     * #7/#10/#13) and by a forwarded GLOBAL DDL whose expected outcome did not become
+     * visible on this FE within its budget (round-41 #3). Removed when a snapshot
+     * satisfies it or after {@link #PENDING_MUTATION_FENCE_MILLIS} (write presumed lost).
+     * Never cleared by {@link #invalidatePublishedStore}: the fences describe writes THIS
+     * FE committed / observed, exactly like {@link #pendingCreates}.
+     */
+    private final Map<Long, PendingMutationFence> pendingMutationFences =
+            new ConcurrentHashMap<>();
+
+    /** One pending durable outcome of a local mutation (see {@link #pendingMutationFences}). */
+    private static final class PendingMutationFence {
+        private final BaselineStatus expectedStatus; // null = the row must be absent
+        private final long sinceMillis;
+        private final long attemptedUpdateTimeMillis; // 0 = unknown (delete / forwarded DDL)
+
+        PendingMutationFence(BaselineStatus expectedStatus, long sinceMillis,
+                long attemptedUpdateTimeMillis) {
+            this.expectedStatus = expectedStatus;
+            this.sinceMillis = sinceMillis;
+            this.attemptedUpdateTimeMillis = attemptedUpdateTimeMillis;
+        }
+
+        /**
+         * Whether the snapshot row shows the expected durable outcome: absent for an
+         * absent fence, the expected status, or a strictly LATER write than the attempt
+         * (any later row supersedes this fence).
+         */
+        boolean isSatisfiedBy(BaselinePlan row) {
+            if (expectedStatus == null) {
+                return row == null;
+            }
+            if (row == null) {
+                return false;
+            }
+            if (row.getStatus() == expectedStatus) {
+                return true;
+            }
+            return attemptedUpdateTimeMillis > 0
+                    && row.getUpdateTime() >= attemptedUpdateTimeMillis;
         }
     }
 
@@ -1472,7 +1538,21 @@ public class BaselineManager {
             // the delete is keyed by id + content, so a stale id can never remove an
             // unrelated row that reused the id
             assertLeaderForWrite();
-            persistDeleteByIdentity(removed);
+            try {
+                persistDeleteByIdentity(removed);
+            } catch (RuntimeException e) {
+                if (!NO_LONGER_MASTER.equals(e.getMessage())) {
+                    // The DELETE may have COMMITTED while its publication lags every
+                    // immediate probe (round-41 #10): the row the user just asked to
+                    // delete must stop matching NOW, and the fence keeps a later daemon
+                    // snapshot / SHOW read from resurrecting it until the durable table
+                    // shows the outcome (or the fence expires). The failure still
+                    // propagates - the client may retry.
+                    removeCachedBaseline(id);
+                    recordPendingMutationFence(id, null, 0);
+                }
+                throw e;
+            }
             // The cached object can predate a promotion reload AND the durable row under
             // this id may be a DIFFERENT incarnation (an id reused after the old row was
             // dropped): DROP is keyed by the user-facing id, so no row of this id may
@@ -1489,9 +1569,15 @@ public class BaselineManager {
                 // had already deleted; the failure still propagates (retryable), and the
                 // retry takes the cache-miss path which deletes the lingering rows.
                 removeCachedBaseline(id);
+                recordPendingMutationFence(id, null, 0);
                 throw e;
             }
             removeCachedBaseline(id);
+            // Even a CONFIRMED identity delete can stay unreadable to a later local read
+            // (its publication lags the confirmation): the fence keeps the refresh / a
+            // SHOW reload from re-adding the dropped row until the table shows it gone
+            // (round-41 #13).
+            recordPendingMutationFence(id, null, 0);
             return true;
         }
     }
@@ -1526,9 +1612,19 @@ public class BaselineManager {
         if (durable.isEmpty()) {
             return false;
         }
-        for (BaselinePlan row : durable) {
-            persistDeleteByIdentity(row);
+        try {
+            for (BaselinePlan row : durable) {
+                persistDeleteByIdentity(row);
+            }
+        } catch (RuntimeException e) {
+            if (!NO_LONGER_MASTER.equals(e.getMessage())) {
+                // same fence as the cached path (round-41 #10): the delete may have
+                // committed while its publication lags
+                recordPendingMutationFence(id, null, 0);
+            }
+            throw e;
         }
+        recordPendingMutationFence(id, null, 0);
         LOG.info("SPM dropped baseline {} from the durable table while the local cache did"
                 + " not have it (promotion reload / stale snapshot window)", id);
         return true;
@@ -1822,6 +1918,9 @@ public class BaselineManager {
                 LOG.warn("SPM status update of baseline {} reported success but its row is"
                         + " not READABLE yet; the committed flip is the durable winner -"
                         + " publishing it", id);
+                // the row may stay unreadable for a while: fence the id so a stale
+                // snapshot cannot revert the committed flip (round-41 #13)
+                recordPendingMutationFence(id, status, newUpdateTime);
                 return true;
             } catch (RuntimeException e) {
                 // The INSERT outcome cannot be PROVEN (it may have written nothing, or may
@@ -1829,6 +1928,16 @@ public class BaselineManager {
                 // status. Reconcile the cache with a winner that IS readable, then report
                 // the failure.
                 reconcileCacheToDurableWinner(id, plan);
+                // A successful read CANNOT prove the write landed nothing (publication of
+                // a committed row lags every immediate probe), so the caller's failed flip
+                // keeps the id FENCED and the obsolete entry out of matching until the
+                // durable table shows the outcome (round-41 #7): the committed DISABLED
+                // row may publish at any moment, and the reconciled OLD-status entry would
+                // keep being replayed until a refresh.
+                recordPendingMutationFence(id, status, newUpdateTime);
+                if (plan.getStatus() != status) {
+                    removeCachedBaseline(id);
+                }
                 throw e;
             }
             if (!insertWritten) {
@@ -1859,6 +1968,9 @@ public class BaselineManager {
                 // status let this FE keep replaying a baseline the durable table has
                 // already flipped until the next refresh.
                 publishStatus(plan, status, newUpdateTime);
+                // the old row may linger readable for a while: fence the id so a snapshot
+                // still dominated by it cannot revert the confirmed winner (round-41 #13)
+                recordPendingMutationFence(id, status, newUpdateTime);
                 if (NO_LONGER_MASTER.equals(e.getMessage())) {
                     // a fenced write is reported to the client (retrying converges: the
                     // retry's probe sees the requested status durably), but the cache still
@@ -1874,6 +1986,9 @@ public class BaselineManager {
                 return true;
             }
             publishStatus(plan, status, newUpdateTime);
+            // the committed row's publication may lag: fence the id until a snapshot
+            // shows the flip (round-41 #13)
+            recordPendingMutationFence(id, status, newUpdateTime);
             return true;
         }
     }
@@ -2376,6 +2491,7 @@ public class BaselineManager {
             loaded = true; // tests manage the in-memory storage directly; never touch the table
             persistToTable = false; // and never write the table from a unit test
             pendingCreates.clear(); // pending-create records belong to the dropped state
+            pendingMutationFences.clear(); // (the mutation fences belong to it as well)
             statusProtocolStoreForTest = null; // and never route through a leaked test seam
             idAllocatorStoreForTest = null; // (the create-time collision seam, same reason)
             leaderProbeForTest = null; // (the leadership seam, same reason)
@@ -2609,6 +2725,12 @@ public class BaselineManager {
 
     /** Replaces the in-memory store with the read snapshot (caller holds the write lock). */
     private void doLoadFromTable(Map<Long, BaselinePlan> loadedPlans) {
+        // Pending mutation fences mask contradicting rows here as well (round-41 #3): a
+        // reload after an invalidation must not republish a row whose dropped / disabled
+        // outcome is still owed.
+        for (Long fenced : resolvePendingMutationFences(loadedPlans)) {
+            loadedPlans.remove(fenced);
+        }
         Map<Long, List<Long>> loadedIndex = new HashMap<>();
         long maxId = 0;
         for (BaselinePlan p : loadedPlans.values()) {
@@ -2800,6 +2922,7 @@ public class BaselineManager {
             try {
                 syncJournalWithMaster(ctx);
             } catch (Throwable t) {
+                recordForwardedDdlFence(expected);
                 invalidatePublishedStore();
                 throw new IllegalStateException("SPM cannot synchronize this FE with the"
                         + " master after the forwarded GLOBAL DDL; the local baseline cache"
@@ -2845,6 +2968,7 @@ public class BaselineManager {
                 } catch (Throwable t) {
                     // Never pretend the local cache reflects the committed DDL: fence the
                     // (possibly pre-DDL) published rows out and surface a retryable failure.
+                    recordForwardedDdlFence(expected);
                     invalidatePublishedStore();
                     throw new IllegalStateException("SPM baseline cache cannot be confirmed after"
                             + " the forwarded DDL (please retry later): " + t.getMessage(), t);
@@ -2857,7 +2981,14 @@ public class BaselineManager {
                     // The committed DDL's outcome never became visible. Publishing this
                     // snapshot would republish the old ENABLED row after a DISABLE (or the
                     // dropped row), which ordinary queries on this connection keep
-                    // replaying - fail CLOSED instead (invalidate + retryable error).
+                    // replaying - fail CLOSED instead (invalidate + retryable error). The
+                    // expectation is RETAINED as a mutation fence (round-41 #3): a LATER
+                    // read on THIS FE (SHOW's confirmed read, the refresh daemon, a
+                    // post-invalidation reload) must keep masking the contradicting old
+                    // row until the durable table shows the expected outcome - the
+                    // statement-scoped expectation alone protected only the forwarded
+                    // statement itself, not the reads that follow it.
+                    recordForwardedDdlFence(expected);
                     invalidatePublishedStore();
                     throw new IllegalStateException("SPM cannot confirm the forwarded GLOBAL"
                             + " DDL on this FE yet (baseline " + expected.getId()
@@ -2965,10 +3096,16 @@ public class BaselineManager {
 
     /** Applies a snapshot; the caller must hold the write lock (see refreshFromInternalTable). */
     private void applyRefreshedBaselinesLocked(Map<Long, BaselinePlan> persisted) {
+        Set<Long> fenced = resolvePendingMutationFences(persisted);
         long maxId = 0;
         int added = 0;
         int updated = 0;
         for (BaselinePlan row : persisted.values()) {
+            if (fenced.contains(row.getId())) {
+                // keep the local post-mutation state (dropped / disabled / enabled) until
+                // the durable table shows the outcome (round-41 #3/#7/#10/#13)
+                continue;
+            }
             maxId = Math.max(maxId, row.getId());
             BaselinePlan current = baselines.get(row.getId());
             if (current == null) {
@@ -2990,7 +3127,7 @@ public class BaselineManager {
         }
         List<Long> vanished = new ArrayList<>();
         for (Long id : baselines.keySet()) {
-            if (!persisted.containsKey(id)) {
+            if (!persisted.containsKey(id) && !fenced.contains(id)) {
                 vanished.add(id);
             }
         }
@@ -3006,6 +3143,74 @@ public class BaselineManager {
             LOG.info("SPM baseline refresh applied: added={}, removed={}, updated={}, total={}",
                     added, removed, updated, baselines.size());
         }
+    }
+
+    /**
+     * Records (or refreshes) the fence of one completed / attempted local mutation (see
+     * {@link #pendingMutationFences}).
+     *
+     * @param id                          the baseline id
+     * @param expectedStatus              the durable status the write must reach (null =
+     *                                    the row must become absent)
+     * @param attemptedUpdateTimeMillis   the stored second the write attempted (0 when
+     *                                    unknown, e.g. a delete or a forwarded DDL)
+     */
+    private void recordPendingMutationFence(long id, BaselineStatus expectedStatus,
+            long attemptedUpdateTimeMillis) {
+        pendingMutationFences.put(id, new PendingMutationFence(expectedStatus,
+                System.currentTimeMillis(), attemptedUpdateTimeMillis));
+    }
+
+    /**
+     * Retains a forwarded GLOBAL DDL's expectation as a mutation fence (round-41 #3) so
+     * every LATER read on this FE keeps masking a row that contradicts it (see
+     * {@link #pendingMutationFences}). A CREATE carries no expectation object (the
+     * follower cannot name the id the master produced), so only DROP / ALTER fence here.
+     */
+    private void recordForwardedDdlFence(ForwardedDdlExpectation expected) {
+        if (expected != null) {
+            recordPendingMutationFence(expected.getId(), expected.getStatus(), 0);
+        }
+    }
+
+    /** For tests: whether an id currently carries a pending mutation fence. */
+    @VisibleForTesting
+    boolean hasPendingMutationFenceForTest(long id) {
+        return pendingMutationFences.containsKey(id);
+    }
+
+    /**
+     * Resolves / applies the pending mutation fences against a fresh snapshot (round-41
+     * #3/#7/#10/#13): a fence whose expected outcome the snapshot shows is done and is
+     * removed; a fence the snapshot contradicts keeps its id MASKED - neither the stale
+     * row is applied nor the local post-mutation state removed - until the bound expires,
+     * after which the write is presumed lost and the persisted state wins again.
+     *
+     * @param persisted the snapshot about to be applied (not modified)
+     * @return the ids whose rows the snapshot contradicts and that stay masked
+     */
+    private Set<Long> resolvePendingMutationFences(Map<Long, BaselinePlan> persisted) {
+        if (pendingMutationFences.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<Long> masked = new HashSet<>();
+        long now = System.currentTimeMillis();
+        for (Map.Entry<Long, PendingMutationFence> entry : pendingMutationFences.entrySet()) {
+            BaselinePlan row = persisted.get(entry.getKey());
+            if (entry.getValue().isSatisfiedBy(row)) {
+                pendingMutationFences.remove(entry.getKey(), entry.getValue());
+                continue;
+            }
+            if (now - entry.getValue().sinceMillis > PENDING_MUTATION_FENCE_MILLIS) {
+                LOG.warn("SPM pending mutation fence for baseline {} expired before its"
+                        + " durable outcome became visible; the persisted state wins",
+                        entry.getKey());
+                pendingMutationFences.remove(entry.getKey(), entry.getValue());
+                continue;
+            }
+            masked.add(entry.getKey());
+        }
+        return masked;
     }
 
     /**

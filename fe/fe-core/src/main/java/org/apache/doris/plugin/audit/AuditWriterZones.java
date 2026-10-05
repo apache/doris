@@ -75,6 +75,21 @@ public final class AuditWriterZones {
 
     private static final ConcurrentHashMap<String, Long> WRITER_ZONES = new ConcurrentHashMap<>();
 
+    /**
+     * The zones that have been part of at least one CONFIRMED shared report (round-41
+     * #6). A freshly registered zone must not be evicted by the covered-through filter
+     * before the capture ever LEARNED it: the row renderer can register and publish a
+     * row under a new zone -05:00, a capture cycle can sample the previous shared zone
+     * set and checkpoint past the render time, and only then does the reporter tick
+     * refresh {@code coveredThrough} and encode the registry - which used to drop -05:00
+     * before it was ever reported, so later windows no longer knew the row's rendering
+     * and missed it permanently. Eviction (and the covered filter) therefore requires
+     * BOTH: the zone was reported at least once AND capture progress passed its last
+     * use. Reporting keeps the zone visible in every later shared snapshot until that
+     * point.
+     */
+    private static final java.util.Set<String> REPORTED_ZONES = ConcurrentHashMap.newKeySet();
+
     private static final String SELECT_CAPTURE_WATERMARK_SQL =
             "SELECT `last_scan_timestamp` FROM `__internal_schema`.`spm_capture_checkpoint`"
                     + " WHERE `id` = 1";
@@ -115,7 +130,9 @@ public final class AuditWriterZones {
 
     /**
      * Records one zone the audit writer rendered a row with (the last-use instant is kept
-     * per zone).
+     * per zone). A zone entering the registry is NOT yet "reported": it stays outside the
+     * covered-through filter until {@link #markReported} confirms its first shared
+     * snapshot (round-41 #6).
      *
      * @param zoneId   the zone ID the row was rendered in
      * @param atMillis the render instant (epoch millis)
@@ -125,8 +142,40 @@ public final class AuditWriterZones {
         if (zoneId == null || zoneId.isEmpty()) {
             return;
         }
+        Long previous = WRITER_ZONES.get(zoneId);
         WRITER_ZONES.merge(zoneId, atMillis, Math::max);
+        if (previous == null) {
+            // fresh registration: its first shared report is still owed
+            REPORTED_ZONES.remove(zoneId);
+        }
         evictCoveredZones(zoneId);
+    }
+
+    /**
+     * Marks the zones that were part of a CONFIRMED shared report (the horizon row was
+     * read back with exactly this set, see AuditPublicationHorizon#reportLocalHorizon).
+     * Only reported zones become eligible for covered-through eviction (round-41 #6).
+     *
+     * @param reportedZoneIds the zone IDs the confirmed report carried
+     */
+    public static void markReported(java.util.Collection<String> reportedZoneIds) {
+        if (reportedZoneIds == null) {
+            return;
+        }
+        for (String zoneId : reportedZoneIds) {
+            if (zoneId != null && WRITER_ZONES.containsKey(zoneId)) {
+                REPORTED_ZONES.add(zoneId);
+            }
+        }
+    }
+
+    /**
+     * Whether a zone may be dropped once capture progress passed it: it must have been
+     * part of a confirmed shared report first (round-41 #6) - otherwise the capture was
+     * never told about its rendering.
+     */
+    private static boolean isCoveredAndReported(String zoneId, long lastUse, long covered) {
+        return lastUse < covered && REPORTED_ZONES.contains(zoneId);
     }
 
     /**
@@ -142,7 +191,8 @@ public final class AuditWriterZones {
             String candidate = null;
             long oldest = Long.MAX_VALUE;
             for (Map.Entry<String, Long> entry : WRITER_ZONES.entrySet()) {
-                if (entry.getValue() < covered && entry.getValue() < oldest
+                if (isCoveredAndReported(entry.getKey(), entry.getValue(), covered)
+                        && entry.getValue() < oldest
                         && !entry.getKey().equals(protectedZone)) {
                     oldest = entry.getValue();
                     candidate = entry.getKey();
@@ -155,6 +205,7 @@ public final class AuditWriterZones {
                 return;
             }
             WRITER_ZONES.remove(candidate);
+            REPORTED_ZONES.remove(candidate);
         }
     }
 
@@ -227,7 +278,7 @@ public final class AuditWriterZones {
         long covered = captureCoveredThrough();
         Map<String, Long> zones = new LinkedHashMap<>();
         for (Map.Entry<String, Long> entry : WRITER_ZONES.entrySet()) {
-            if (entry.getValue() < covered) {
+            if (isCoveredAndReported(entry.getKey(), entry.getValue(), covered)) {
                 continue;
             }
             zones.put(entry.getKey(), entry.getValue());
@@ -292,6 +343,7 @@ public final class AuditWriterZones {
     @VisibleForTesting
     public static void resetForTest() {
         WRITER_ZONES.clear();
+        REPORTED_ZONES.clear();
         coveredThrough = 0;
         coveredThroughReadAt = 0;
     }

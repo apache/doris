@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.capture.AuditLogScanner;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
+import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -238,6 +239,78 @@ public class SPMFrozenTreeReplayTest {
         Assertions.assertEquals("cc", ((UnboundAlias) computed).getAlias().orElse(null),
                 "the computed derived column must keep its own label: "
                         + rewritten.treeString());
+    }
+
+    /**
+     * round-41 #9: equal OUTER limits do not make a manual plan equivalent - its INNER cap
+     * can truncate a DIFFERENT slice before the caller's own sort (ORDER BY ASC LIMIT 2
+     * inside, then a descending outer sort). The candidate must be skipped although both
+     * trees ask for LIMIT 2.
+     */
+    @Test
+    public void testInnerCapOfAManualPlanIsCheckedForEqualOuterLimits() throws Exception {
+        installConnectContext();
+        SPMPlanner planner = new SPMPlanner();
+        String bindSql = "SELECT k FROM t1 WHERE k > 5 ORDER BY k DESC LIMIT 2";
+        String frozenPlanSql = "SELECT k FROM (SELECT k FROM t1 WHERE k > "
+                + "_spm_const_var(1) ORDER BY k ASC LIMIT 2) t_0 ORDER BY k DESC LIMIT 2";
+        manager.createBaseline(frozenBaseline(bindSql, frozenPlanSql));
+
+        LogicalPlan userPlan = parse(bindSql);
+        long deadline = System.currentTimeMillis() + 5000;
+        LogicalPlan rewritten = planner.tryRewritePlan(userPlan, deadline);
+
+        Assertions.assertNull(rewritten, "the manual plan's inner cap picks a different"
+                + " slice than the caller's own plan; the candidate must be skipped");
+    }
+
+    /**
+     * Control for round-41 #9: a frozen plan whose caps are exactly the caller's own (a
+     * single top-level TopN) keeps hitting.
+     */
+    @Test
+    public void testFrozenPlanWithOnlyTheCallersOwnCapStillHits() throws Exception {
+        installConnectContext();
+        SPMPlanner planner = new SPMPlanner();
+        String bindSql = "SELECT k FROM t1 WHERE k > 5 ORDER BY k DESC LIMIT 2";
+        String frozenPlanSql = "SELECT k FROM t1 WHERE k > CAST(_spm_const_var(1) AS INT)"
+                + " ORDER BY k DESC LIMIT 2";
+        manager.createBaseline(frozenBaseline(bindSql, frozenPlanSql));
+
+        LogicalPlan userPlan = parse(bindSql);
+        long deadline = System.currentTimeMillis() + 5000;
+        LogicalPlan rewritten = planner.tryRewritePlan(userPlan, deadline);
+
+        Assertions.assertNotNull(rewritten,
+                "a frozen plan carrying exactly the caller's own cap must keep hitting");
+    }
+
+    /**
+     * round-41 #2: a real global UDF named like the marker whose FIRST argument is not the
+     * marker id must still have its OTHER arguments substituted. The old early return left
+     * a genuine nested marker in the tree, and the residue scan then rejected a persisted
+     * frozen baseline that has no parameterized-tree fallback.
+     */
+    @Test
+    public void testMarkerNamedFunctionStillHasItsArgumentsSubstituted() throws Exception {
+        installConnectContext();
+        // the explicit alias keeps the DERIVED label (which carries the original text
+        // verbatim as a plain name) out of the collected expression SQL
+        LogicalPlan parsed = parse("SELECT _spm_const_var(a, _spm_const_var(1)) AS f FROM t1");
+        java.util.Map<Long, Expression> values = new java.util.HashMap<>();
+        values.put(1L, new org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral(42));
+        SPMFrozenTreeReplacer replacer = new SPMFrozenTreeReplacer();
+        LogicalPlan rewritten = SPMPlanTreeSupport.transform(parsed,
+                expr -> expr.accept(replacer, values));
+        String sql = allExprSqls(rewritten);
+        Assertions.assertTrue(sql.contains("42"),
+                "the nested marker must be substituted: " + sql);
+        Assertions.assertFalse(sql.contains("_spm_const_var(1)"),
+                "no marker may remain: " + sql);
+        // the UnboundSlot first argument renders quoted ('a): the real call stays an
+        // unqualified UDF with a NON-numeric first argument, so it is not a marker
+        Assertions.assertTrue(sql.contains("_spm_const_var('a"),
+                "the real UDF call itself must stay: " + sql);
     }
 
     // ==================== text classification: only REAL placeholder calls are frozen ====================

@@ -34,6 +34,9 @@ suite("test_spm_review_round35", "spm") {
     //    leaves, so the parenthesized rejections did not cover them: a baseline for
     //    'SELECT CURRENT_DATE AS d FROM t' froze the CREATE date and served it to every
     //    later matching query. CREATE GLOBAL BASELINE PLAN rejects them now.
+    //  - round-41 #9: the inner-cap walk now runs even when the caller's outer LIMIT
+    //    EQUALS the captured one, so the exact-limit queries of #3 / #4 skip as well
+    //    (their caps have no counterpart in the caller's tree) and run their own plan.
 
     // SPM regression pins the fallback switch CLOSED: a rewritten-plan failure must
     // surface as an error, never silently re-run the original query.
@@ -100,9 +103,15 @@ suite("test_spm_review_round35", "spm") {
                 """CREATE GLOBAL BASELINE PLAN '${capOnA}' WITH '${capOnB}'""")
         assertEquals(1, created3.size(), "CREATE should return one row, got: ${created3}")
         long id3 = Long.parseLong(created3[0][0].toString())
-        // the EXACT captured limit is the baseline's own contract: still hit
-        assertTrue(explainOf(capOnA).contains("SPM baseline hit: id=${id3}"),
-                "the exact-limit query must keep hitting its baseline: ${explainOf(capOnA)}")
+        // round-41 #9: an inner cap of the manual plan that has NO counterpart in the
+        // caller's tree skips the candidate even at the captured outer limit - the
+        // frozen cap on spm_r35_b would truncate the wrong input
+        assertTrue(!explainOf(capOnA).contains("SPM baseline hit: id=${id3}"),
+                "a cap on ANOTHER input must skip the candidate: ${explainOf(capOnA)}")
+        order_qt_r35_moved_cap_exact """
+            SELECT b.g FROM (SELECT k FROM spm_r35_a ORDER BY k LIMIT 1) x
+            JOIN spm_r35_b b ON x.k = b.g ORDER BY b.g LIMIT 1
+        """
 
         // the VARIANT (outer limit 2) must NOT be rewritten: the frozen cap on
         // spm_r35_b would truncate the join to one row while the caller's own plan
@@ -126,9 +135,15 @@ suite("test_spm_review_round35", "spm") {
                 """CREATE GLOBAL BASELINE PLAN '${cteNoBodyCap}' WITH '${cteWithBodyCap}'""")
         assertEquals(1, created4.size(), "CREATE should return one row, got: ${created4}")
         long id4 = Long.parseLong(created4[0][0].toString())
-        assertTrue(explainOf(cteNoBodyCap).contains("SPM baseline hit: id=${id4}"),
-                "the exact-limit CTE query must keep hitting its baseline:" +
+        // round-41 #9: the manual plan's CTE BODY cap has no counterpart in the
+        // caller's tree, so the exact query skips the candidate as well
+        assertTrue(!explainOf(cteNoBodyCap).contains("SPM baseline hit: id=${id4}"),
+                "a cap inside the WITH body must skip the candidate:" +
                         " ${explainOf(cteNoBodyCap)}")
+        order_qt_r35_cte_body_cap_exact """
+            WITH c AS (SELECT v FROM spm_r35_c)
+            SELECT v FROM c ORDER BY v LIMIT 1
+        """
 
         String cteVariant = cteNoBodyCap.replace("ORDER BY v LIMIT 1", "ORDER BY v LIMIT 2")
         assertTrue(!explainOf(cteVariant).contains("SPM baseline hit"),

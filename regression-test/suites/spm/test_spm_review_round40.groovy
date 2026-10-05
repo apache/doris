@@ -25,6 +25,9 @@ suite("test_spm_review_round40", "spm") {
     //    a manual plan that moved ORDER BY k LIMIT 1 to another same-table occurrence
     //    can no longer be replayed for a caller whose own cap sits elsewhere - the
     //    candidate is SKIPPED and the caller's query returns its own rows.
+    //    round-41 #9: the inner-cap walk runs even when the outer LIMIT equals the
+    //    captured one, so the EXACT query of #1 skips too (the exact slice assertion is
+    //    pinned by order_qt_r40_moved_cap_exact).
     //  - #6: the sequence identity column is an unbounded STRING now; a bind whose
     //    canonical digest exceeds 4096 chars used to fail the reservation INSERT, so a
     //    valid GLOBAL CREATE errored before writing anything.
@@ -86,9 +89,18 @@ suite("test_spm_review_round40", "spm") {
                 """CREATE GLOBAL BASELINE PLAN '${capOnA}' WITH '${capOnB}'""")
         assertEquals(1, created1.size(), "CREATE should return one row, got: ${created1}")
         long id1 = Long.parseLong(created1[0][0].toString())
-        // the EXACT captured limit is the baseline's own contract: still hit
-        assertTrue(explainOf(capOnA).contains("SPM baseline hit: id=${id1}"),
-                "the exact-limit query must keep hitting its baseline: ${explainOf(capOnA)}")
+        // round-41 #9: the manual plan's inner cap sits on the OTHER occurrence than the
+        // caller's, so the replay cannot carry the caller's LIMIT contract even at the
+        // captured limit (the cap would truncate the wrong side) - the exact query must
+        // skip the candidate and run its own, correct plan
+        assertTrue(!explainOf(capOnA).contains("SPM baseline hit: id=${id1}"),
+                "an inner cap on ANOTHER occurrence must skip the candidate: ${explainOf(capOnA)}")
+        order_qt_r40_moved_cap_exact """
+            SELECT a.k AS ak, b.k AS bk
+            FROM (SELECT k FROM spm_r40_t ORDER BY k LIMIT 1) a
+            CROSS JOIN (SELECT k FROM spm_r40_t) b
+            ORDER BY ak, bk LIMIT 1
+        """
 
         // the VARIANT (outer limit 1 -> 2) must NOT be rewritten: the frozen cap on the
         // b occurrence would truncate the wrong side (a={1,2}, b={1} instead of a={1},

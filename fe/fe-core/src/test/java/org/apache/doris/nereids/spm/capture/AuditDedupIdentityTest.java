@@ -69,6 +69,39 @@ public class AuditDedupIdentityTest {
                 "a statement without a selector keeps the plain digest");
     }
 
+    /**
+     * round-41 #16: {@code audit_log.stmt} is the statement AS SUBMITTED, so the
+     * multi-token gates ({@code LATERAL VIEW}, {@code FOR TIME AS OF}, {@code FOR VERSION
+     * AS OF}) must survive a line break between their tokens. The gate compared against
+     * the raw upper-cased text, so a selector on its own line was missed, the fingerprint
+     * stayed off the dedup identity, and two variants differing only in the masked
+     * argument (split delimiter, snapshot) collapsed into one baseline.
+     */
+    @Test
+    public void testGateSurvivesLineBreaksBetweenTokens() {
+        Assertions.assertTrue(AuditLogScanner.mentionsScanSelector(
+                "SELECT * FROM db.t\nFOR TIME AS OF '2026-01-01 00:00:00'"),
+                "a time-travel selector on its own line must be recognized");
+        Assertions.assertTrue(AuditLogScanner.mentionsScanSelector(
+                "SELECT *\nFROM db.t\nFOR VERSION\nAS OF 3"),
+                "even a break inside the marker must be tolerated");
+        Assertions.assertTrue(AuditLogScanner.mentionsGenerator(
+                "SELECT a, c\nFROM db.t\nLATERAL VIEW explode(split(s, ',')) e AS c"),
+                "an indented LATERAL VIEW owns concrete generator arguments");
+        Assertions.assertTrue(AuditLogScanner.mentionsGenerator(
+                "SELECT a, c\nFROM db.t\nUNNEST(s) AS c"),
+                "UNNEST stays recognized as well");
+        Assertions.assertFalse(AuditLogScanner.mentionsGenerator(
+                "SELECT a FROM db.t\nWHERE a > 0"),
+                "a plain statement still takes the plain digest");
+
+        // the identity level: a masked snapshot on its own line still refines the digest
+        Assertions.assertNotEquals(
+                identity("SELECT * FROM db.t\nFOR TIME AS OF '2026-01-01 00:00:00'"),
+                identity("SELECT * FROM db.t\nFOR TIME AS OF '2026-01-02 00:00:00'"),
+                "two snapshots must not collapse into one identity because of a newline");
+    }
+
     /** A statement without a selector is unchanged: its identity IS the digest. */
     @Test
     public void testPlainStatementKeepsTheDigestIdentity() {

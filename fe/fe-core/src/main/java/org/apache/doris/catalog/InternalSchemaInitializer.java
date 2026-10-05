@@ -480,8 +480,11 @@ public class InternalSchemaInitializer extends Thread {
                 ScalarType.createType(PrimitiveType.BIGINT));
         SPM_BASELINES_UPGRADE_COLUMNS.put("plan_frozen",
                 ScalarType.createType(PrimitiveType.BOOLEAN));
+        // STRING, not VARCHAR(4096): the fingerprint concatenates one entry per distinct
+        // referenced table with no length cap (round-41 #4), so a bounded column would
+        // fail the baseline INSERT for wide multi-table queries.
         SPM_BASELINES_UPGRADE_COLUMNS.put("schema_fingerprint",
-                ScalarType.createVarchar(4096));
+                ScalarType.createType(PrimitiveType.STRING));
     }
 
     /**

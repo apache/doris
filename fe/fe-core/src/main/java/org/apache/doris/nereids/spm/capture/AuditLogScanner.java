@@ -85,8 +85,26 @@ public class AuditLogScanner {
 
     private static final Logger LOG = LogManager.getLogger(AuditLogScanner.class);
 
+    /**
+     * Wall-clock format of the scan bounds. MILLISECOND precision (round-41 #12):
+     * {@code audit_log.time} is DATETIMEV2(3), but a second-precision rendering of the
+     * EXCLUSIVE upper bound dropped the fraction - a row published at 07:00:00.500 with
+     * a window end rendered as 07:00:00.900 was tested with {@code time < '07:00:00'} and
+     * excluded although it belongs to the window. If its writer zone then changed (the
+     * old zone retired after its checkpoint passed), no later window ever recovered the
+     * row.
+     */
     private static final DateTimeFormatter DATETIME_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+
+    /**
+     * Parses a scan bound: the string-form builders may hand in a second-precision
+     * spelling ({@code 2026-01-01 11:55:00}) while the millisecond rendering is the
+     * published form (round-41 #12), so the fraction is optional HERE only - rendering
+     * always spells it out.
+     */
+    private static final DateTimeFormatter DATETIME_PARSE_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss[.SSS]");
 
     /**
      * Lookback floor of the completion-aware scan lower bound (see buildScanSql): a query
@@ -743,7 +761,7 @@ public class AuditLogScanner {
         if (stmt == null) {
             return false;
         }
-        String upper = stmt.toUpperCase(java.util.Locale.ROOT);
+        String upper = upperWithCollapsedWhitespace(stmt);
         return upper.contains("PARTITION") || upper.contains("TABLET")
                 || upper.contains("TABLESAMPLE") || upper.contains("INDEX")
                 || upper.contains("FOR VERSION AS OF") || upper.contains("FOR TIME AS OF")
@@ -765,12 +783,38 @@ public class AuditLogScanner {
         }
     }
 
-    private static boolean mentionsGenerator(String stmt) {
+    /**
+     * Whether the statement can carry concrete generator arguments (LATERAL VIEW /
+     * UNNEST). Over-matching only costs one parse; under-matching drops the argument
+     * fingerprint from the dedup identity (round-41 #16: the multi-token marker must be
+     * matched across whitespace runs - see {@link #upperWithCollapsedWhitespace}).
+     *
+     * <p>Package-private for tests.
+     *
+     * @param stmt the audit statement text
+     * @return whether the statement needs its concrete generator arguments in the
+     *         dedup identity
+     */
+    @VisibleForTesting
+    static boolean mentionsGenerator(String stmt) {
         if (stmt == null) {
             return false;
         }
-        String upper = stmt.toUpperCase(java.util.Locale.ROOT);
+        String upper = upperWithCollapsedWhitespace(stmt);
         return upper.contains("LATERAL VIEW") || upper.contains("UNNEST");
+    }
+
+    /**
+     * Upper-cased statement with every whitespace run collapsed to one space: the
+     * multi-token gates above ({@code LATERAL VIEW}, {@code FOR TIME AS OF}) must not miss
+     * a line-break separated spelling (round-41 #16). The audit DIGEST masks the concrete
+     * generator / snapshot arguments, so a statement the gate misses keeps the plain
+     * digest as its dedup identity - two slow queries differing only in a split delimiter
+     * or a time-travel snapshot then share that identity and toBatch drops one, although
+     * SPM compares those arguments concretely. Over-matching only costs one parse.
+     */
+    private static String upperWithCollapsedWhitespace(String stmt) {
+        return stmt.toUpperCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
     }
 
     /** The concrete generator arguments of the statement (the full text when unparsable). */
@@ -935,7 +979,19 @@ public class AuditLogScanner {
         // 11:54:59.900 and was excluded on every later scan. Microsecond arithmetic on
         // the exact millisecond duration is exact in both directions.
         String start = windowRanges.get(0)[0];
-        String lastEnd = windowRanges.get(windowRanges.size() - 1)[1];
+        // The upper bound is the GREATEST rendered end, not the last range's (round-41
+        // #5): at a fall-back transition the ranges render as [01:45, 02:00) then
+        // [01:00, 01:15), and bounding the whole scan by the LAST end (01:15) discarded
+        // every row of the first range (a published 01:50 row) before the OR / completion
+        // predicate could admit it - the capture then checkpointed past it. The maximum
+        // keeps the partition-pruning conjunct while covering every range; the wall-clock
+        // strings share one format, so the comparison is exact.
+        String lastEnd = windowRanges.get(0)[1];
+        for (int i = 1; i < windowRanges.size(); i++) {
+            if (windowRanges.get(i)[1].compareTo(lastEnd) > 0) {
+                lastEnd = windowRanges.get(i)[1];
+            }
+        }
         String completionBound = "timestampadd(MICROSECOND, CAST(`query_time` AS BIGINT) * 1000"
                 + (offsetSwingSeconds == 0 ? "" : " + " + offsetSwingSeconds * 1_000_000L)
                 + ", `time`)";
@@ -1005,7 +1061,7 @@ public class AuditLogScanner {
      */
     private static String completeWindowFloor(String start) {
         try {
-            return java.time.LocalDateTime.parse(start, DATETIME_FORMAT)
+            return java.time.LocalDateTime.parse(start, DATETIME_PARSE_FORMAT)
                     .minus(java.time.Duration.ofMillis(LATE_COMPLETION_LOOKBACK_MILLIS))
                     .format(DATETIME_FORMAT);
         } catch (RuntimeException e) {

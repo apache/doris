@@ -325,10 +325,14 @@ public class InternalSchema {
         // CREATE-time schema identity of the referenced base tables (sorted
         // name|tableId|schemaHash entries): validated before every frozen replay so an
         // ALTER TABLE ... ADD COLUMN / DROP + CREATE cannot keep matching a frozen plan
-        // that still emits the creator-time output columns. NULLABLE (NULL / empty = a
-        // pre-column row: no validation possible).
+        // that still emits the creator-time output columns. STRING, not VARCHAR(4096):
+        // the entry list grows with every DISTINCT referenced table and has no length
+        // cap (a valid UNION ALL over dozens of long-named tables exceeds 4096 chars),
+        // and a persistence failure here fails the whole GLOBAL CREATE (round-41 #4 -
+        // same precedent as the seq table's bind_sql_digest). NULLABLE (NULL / empty =
+        // a pre-column row: no validation possible).
         SPM_BASELINES_SCHEMA.add(new ColumnDef("schema_fingerprint",
-                ScalarType.createVarchar(4096), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
 
         // SPM baseline id sequence (append-only, id = 1): every row records one id the
         // create path has reserved. The baseline table itself cannot be the watermark:

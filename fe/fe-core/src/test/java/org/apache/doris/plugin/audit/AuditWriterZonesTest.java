@@ -32,6 +32,13 @@ import java.util.Set;
  * ({@code spm_capture_checkpoint.last_scan_timestamp}), not to an age TTL: a zone that
  * still owns a row of an uncompleted window must stay in the required set however old it
  * is, and may only be dropped once the capture watermark has passed its last use.
+ *
+ * Round-41 #6: covered-through ALONE is not enough - a zone enters the set when a row is
+ * rendered in it, but the shared report that lets every node count on the zone happens
+ * one REPORTER TICK later. A capture cycle that sampled the previous shared set and then
+ * checkpointed past the render instant used to drop the zone, so a later window no longer
+ * required a pass in it and the row was never captured. The zone stays required until a
+ * CONFIRMED shared report included it.
  */
 public class AuditWriterZonesTest {
 
@@ -47,8 +54,14 @@ public class AuditWriterZonesTest {
             AuditWriterZones.note("Asia/Tokyo", now - 60_000L);
             AuditWriterZones.note("UTC", now + 1_000L);
             // an epoch whose rows a COMPLETED window already consumed: it can own no
-            // uncompleted row any more, however recently it was pruned
+            // uncompleted row any more - but it is only evictable once a CONFIRMED
+            // shared report (round-41 #6) has carried it to the other nodes
             AuditWriterZones.note("America/New_York", now - 120_000L);
+            Assertions.assertTrue(AuditWriterZones.snapshot().containsKey("America/New_York"),
+                    "an uncovered report obligation keeps the covered zone in the set");
+
+            // a CONFIRMED shared report carrying the covered epoch retires it (round-41 #6)
+            AuditWriterZones.markReported(Set.of("UTC", "Asia/Tokyo", "America/New_York"));
 
             Map<String, Long> zones = AuditWriterZones.snapshot();
             Assertions.assertEquals(Set.of("UTC", "Asia/Tokyo"), zones.keySet(),
@@ -62,6 +75,46 @@ public class AuditWriterZonesTest {
             AuditWriterZones.note(null, now);
             AuditWriterZones.note("", now);
             Assertions.assertEquals(2, AuditWriterZones.snapshot().size());
+        } finally {
+            AuditWriterZones.captureCoveredThroughForTest = null;
+            AuditWriterZones.resetForTest();
+        }
+    }
+
+    /**
+     * round-41 #6: a FRESH zone whose render instant the capture has already checkpointed
+     * past must still be listed. The zone set enters the report the moment a row renders
+     * in it, but the CONFIRMED shared report that lets every node count on the zone comes
+     * one reporter tick later; a capture cycle that sampled the previous shared set,
+     * scanned (nothing required in the new zone), and checkpointed past the render used to
+     * drop the zone before it ever surfaced - later windows then never required a pass in
+     * it and the row stayed invisible.
+     */
+    @Test
+    public void testFreshZoneIsKeptUntilItsFirstConfirmedReport() {
+        AuditWriterZones.resetForTest();
+        try {
+            long now = System.currentTimeMillis();
+            // the capture watermark is already PAST the render instant below
+            AuditWriterZones.captureCoveredThroughForTest = () -> now + 1_000L;
+            AuditWriterZones.note("America/New_York", now - 5_000L);
+            Assertions.assertEquals(Set.of("America/New_York"), AuditWriterZones.zones(),
+                    "an unreported zone must survive the covered filter");
+
+            AuditWriterZones.markReported(Set.of("America/New_York"));
+            Assertions.assertEquals(Set.of(), AuditWriterZones.zones(),
+                    "once its confirmed report carried it, the covered zone is covered");
+
+            // registry pressure may evict a covered+reported zone; a LATER render
+            // re-registers it as fresh and the report obligation starts over
+            for (int i = 0; i < AuditWriterZones.MAX_ZONES + 5; i++) {
+                AuditWriterZones.note("zone-" + i, now - 3_000L);
+                AuditWriterZones.markReported(Set.of("zone-" + i));
+            }
+            AuditWriterZones.note("America/New_York", now - 6_000L);
+            Assertions.assertEquals(Set.of("America/New_York"), AuditWriterZones.zones(),
+                    "a re-registered zone owes a fresh report although it is covered: "
+                            + AuditWriterZones.zones());
         } finally {
             AuditWriterZones.captureCoveredThroughForTest = null;
             AuditWriterZones.resetForTest();
@@ -88,8 +141,15 @@ public class AuditWriterZonesTest {
             Assertions.assertEquals(Set.of("America/New_York"), AuditWriterZones.zones(),
                     "a zone the capture has not passed must stay required, however old it is");
 
-            // once the durable progress passes the zone's last use, it is dropped
+            // round-41 #6: the covered filter alone must NOT drop it - the shared report
+            // that lets every node settle the zone may still be in flight
             AuditWriterZones.captureCoveredThroughForTest = () -> now;
+            Assertions.assertEquals(Set.of("America/New_York"), AuditWriterZones.zones(),
+                    "a covered but UNREPORTED zone still owes its report");
+
+            // once the durable progress passes the zone's last use AND a confirmed report
+            // carried it, it is dropped
+            AuditWriterZones.markReported(Set.of("America/New_York"));
             Assertions.assertEquals(Set.of(), AuditWriterZones.zones(),
                     "a zone covered by completed windows stops being required");
         } finally {
@@ -125,8 +185,13 @@ public class AuditWriterZonesTest {
             for (int i = 0; i < 10; i++) {
                 AuditWriterZones.note("covered-" + i, covered - 1_000L - i);
             }
-            // ... but a zone the capture has NOT passed is never dropped, even when it is
-            // the least recently used one of the surviving set
+            // ... but only AFTER a confirmed shared report named them (round-41 #6): the
+            // report obligation of a just-registered zone outlives the covered filter
+            for (int i = 0; i < 10; i++) {
+                AuditWriterZones.markReported(Set.of("covered-" + i));
+            }
+            // a zone the capture has NOT passed is never dropped, even when it is the
+            // least recently used one of the surviving set
             AuditWriterZones.note("needed-old", covered + 1_000L);
             for (int i = 0; i < 30; i++) {
                 AuditWriterZones.note("zone-" + i, now + i);
@@ -141,6 +206,7 @@ public class AuditWriterZonesTest {
                             + " stay: " + zones.size());
 
             // once the capture has passed them too, no zone is required any more
+            AuditWriterZones.markReported(AuditWriterZones.zones());
             AuditWriterZones.captureCoveredThroughForTest = () -> now + 1_000L;
             Assertions.assertEquals(Set.of(), AuditWriterZones.zones());
         } finally {

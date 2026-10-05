@@ -97,6 +97,12 @@ public class BaselineManagerConcurrencyTest {
          */
         private boolean failReadAfterDelete;
         private boolean deleted;
+        /** When set, every identity delete removes the row and THEN reports an error
+         *  (a COMMITTED delete whose statement timed out - round-41 #10). */
+        private boolean failDeleteAfterCommit;
+        /** When set, every identity delete reports an error WITHOUT removing the row
+         *  (an ambiguous delete whose commit is unknown - round-41 #10). */
+        private boolean failDeleteKeepingRow;
 
         @Override
         public long seqWatermark() {
@@ -206,6 +212,12 @@ public class BaselineManagerConcurrencyTest {
 
         @Override
         public void deleteByIdentity(BaselinePlan plan) {
+            if (failDeleteKeepingRow) {
+                // an ambiguous delete: it REPORTED an error and the row is (still?) there -
+                // it may just as well have committed with the publication lagging
+                throw new RuntimeException("identity delete reported an error"
+                        + " (statement timed out)");
+            }
             if (deleteEntered != null) {
                 deleteEntered.countDown();
                 try {
@@ -221,6 +233,10 @@ public class BaselineManagerConcurrencyTest {
                         && row.getPlanSql().equals(plan.getPlanSql()));
                 return updated.isEmpty() ? null : updated;
             });
+            if (failDeleteAfterCommit) {
+                throw new RuntimeException("identity delete reported after commit"
+                        + " (statement timed out)");
+            }
         }
 
         private List<BaselinePlan> rowsOf(long id) {
@@ -647,10 +663,15 @@ public class BaselineManagerConcurrencyTest {
             updater.join(10_000);
             Assertions.assertNotNull(failure.get(),
                     "the failed INSERT must surface (ALTER reports failure)");
-            Assertions.assertEquals(BaselineStatus.DISABLED,
-                    manager.getBaseline(id).getStatus(),
-                    "a failed durable change must leave the baseline DISABLED in memory"
-                            + " too (it would keep replaying otherwise)");
+            // round-41 #7: a read cannot PROVE the INSERT wrote nothing (publication of a
+            // committed row lags), so the obsolete entry must stop serving matching and
+            // the id stays fenced until the table shows the outcome - keeping the old
+            // ENABLED state live let this FE replay a baseline whose committed DISABLED
+            // row may publish at any moment
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the obsolete entry must not stay matchable while the flip is unproven");
+            Assertions.assertTrue(manager.hasPendingMutationFenceForTest(id),
+                    "the unproven flip must be fenced");
         } finally {
             BaselineManager.statusProtocolStoreForTest = null;
             manager.clearForTest();
@@ -1751,10 +1772,11 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * A failed DELETE whose reconciliation READ also fails must NOT be treated as proof
-     * that the row is gone: dropBaseline would remove the cached entry and report success
-     * although the durable row still existed, and the next refresh / restart resurrected
-     * the dropped baseline.
+     * A failed DELETE whose reconciliation READ also fails must NOT be reported as a
+     * success, and the possibly-deleted entry must leave the matchable cache (round-41
+     * #10): the committed delete may merely lag its publication, and keeping the entry
+     * let ordinary queries replay a baseline the user dropped until a refresh. The fence
+     * holds the id out of every applied snapshot until a durable readback resolves it.
      */
     @Test
     public void testUnconfirmableDeleteKeepsTheDropFailed() {
@@ -1774,18 +1796,25 @@ public class BaselineManagerConcurrencyTest {
                     "an unconfirmable delete must surface as a failure");
             Assertions.assertTrue(failure.getMessage().contains("could not be confirmed"),
                     failure.getMessage());
-            Assertions.assertNotNull(manager.getBaseline(id),
-                    "the unconfirmed drop must keep the cached row");
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the possibly-deleted row must stop matching immediately");
+            Assertions.assertTrue(manager.hasPendingMutationFenceForTest(id),
+                    "the ambiguous delete stays fenced until the table shows the outcome");
 
-            // the row is READABLE and still present: still a failure
+            // the row is READABLE and still present: still a failure, still fenced
             store.failRead = false;
             Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(id));
-            Assertions.assertNotNull(manager.getBaseline(id));
-
-            // only a readable ABSENT row proves the delete landed
-            store.rows.clear();
-            Assertions.assertTrue(manager.dropBaseline(id));
             Assertions.assertNull(manager.getBaseline(id));
+            Assertions.assertTrue(manager.hasPendingMutationFenceForTest(id));
+
+            // only a readable ABSENT row proves the delete landed: the empty snapshot
+            // resolves the fence (the cache miss of a retry then reports the absence)
+            store.rows.clear();
+            manager.applyRefreshedBaselines(Map.of());
+            Assertions.assertFalse(manager.hasPendingMutationFenceForTest(id));
+            Assertions.assertNull(manager.getBaseline(id));
+            Assertions.assertFalse(manager.dropBaseline(id),
+                    "the retry sees the delete already landed: no durable row is left");
         } finally {
             BaselineManager.idAllocatorStoreForTest = null;
             manager.clearForTest();
@@ -2353,6 +2382,246 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
+    // ==================== round-41: pending mutation fences ====================
+
+    /**
+     * round-41 #7: the conditional status INSERT may commit while its row stays unreadable
+     * (the statement reported an error and the old row is still the only readable one).
+     * Reconciling against that readable row left the OLD status replayable until a later
+     * refresh; now the entry is fenced out - matching falls back - until the durable table
+     * shows the flip.
+     */
+    @Test
+    public void testAmbiguousStatusInsertHidesTheEntryUntilTheFlipIsVisible() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-amb", "p-amb"));
+            BaselinePlan old = store.rowsOf(id).get(0);
+
+            store.failInsert = true; // the transition INSERT reports an error (may have committed)
+            Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.DISABLED));
+            Assertions.assertTrue(manager.hasPendingMutationFenceForTest(id),
+                    "an unproven flip must be fenced");
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the obsolete ENABLED entry must not stay replayable");
+
+            // a daemon snapshot still showing only the OLD row must not republish it
+            manager.applyRefreshedBaselines(Map.of(id, old));
+            Assertions.assertNull(manager.getBaseline(id),
+                    "a stale snapshot must not resurrect the pre-flip row");
+
+            // the committed DISABLED row publishes: the fence resolves and the flip shows
+            BaselinePlan committed = old.copyPersistedScalars();
+            committed.setStatus(BaselineStatus.DISABLED);
+            committed.setUpdateTime(old.getUpdateTime() + 1000L);
+            manager.applyRefreshedBaselines(Map.of(id, committed));
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus(),
+                    "the visible outcome is applied");
+            Assertions.assertFalse(manager.hasPendingMutationFenceForTest(id),
+                    "a visible outcome resolves the fence");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-41 #13: a committed DISABLE whose new row is temporarily unreadable must
+     * survive a daemon snapshot that still carries the old ENABLED row.
+     */
+    @Test
+    public void testCompletedDisableSurvivesAStaleDaemonSnapshot() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-dis", "p-dis"));
+            BaselinePlan old = store.rowsOf(id).get(0);
+
+            // the INSERT(DISABLED) committed, but no read sees it within the probe budget
+            BaselineManager.durableVisibilityProbeForTest = (rowId, status) -> false;
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED));
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus());
+            Assertions.assertTrue(manager.hasPendingMutationFenceForTest(id),
+                    "the unreadable committed flip must be fenced");
+
+            BaselineManager.durableVisibilityProbeForTest = null;
+            manager.applyRefreshedBaselines(Map.of(id, old));
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus(),
+                    "the stale ENABLED row must not revert the completed flip");
+
+            // the flip becomes visible: the fence resolves
+            BaselinePlan winner = store.rowsOf(id).get(0);
+            for (BaselinePlan row : store.rowsOf(id)) {
+                winner = BaselineManager.pickDurableWinner(winner, row);
+            }
+            manager.applyRefreshedBaselines(Map.of(id, winner));
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus());
+            Assertions.assertFalse(manager.hasPendingMutationFenceForTest(id));
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-41 #10: an identity DELETE whose outcome is UNKNOWN (it reported an error
+     * while the row is still readable - the delete may have committed with its
+     * publication lagging) must not leave the dropped baseline replayable: the entry
+     * leaves the cache immediately, and the fence keeps a later stale snapshot from
+     * resurrecting it until a durable readback resolves the outcome.
+     */
+    @Test
+    public void testAmbiguousIdentityDeleteFencesTheCache() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-ambdel", "p-ambdel"));
+            BaselinePlan old = store.rowsOf(id).get(0);
+
+            store.failDeleteKeepingRow = true; // the DELETE reported an error; the row stayed
+            Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(id),
+                    "an unprovable delete must surface as a retryable failure");
+            Assertions.assertEquals(1, store.rowsOf(id).size(),
+                    "the simulator kept the durable row for the resolution");
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the possibly-deleted row must stop matching immediately");
+            Assertions.assertTrue(manager.hasPendingMutationFenceForTest(id),
+                    "the ambiguous delete is fenced until the table shows the outcome");
+
+            manager.applyRefreshedBaselines(Map.of(id, old));
+            Assertions.assertNull(manager.getBaseline(id),
+                    "a stale snapshot still carrying the row must not republish it");
+
+            manager.applyRefreshedBaselines(Map.of());
+            Assertions.assertFalse(manager.hasPendingMutationFenceForTest(id),
+                    "the confirmed absence resolves the fence");
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-41 #10, committed variant: the DELETE removed the row and THEN reported an
+     * error (a statement timeout after commit). The reported error still surfaces on a
+     * retry-able path, but the drop itself is treated as landed (the row is gone) and the
+     * fence keeps a stale snapshot from bringing it back.
+     */
+    @Test
+    public void testCommittedDeleteReportingAnErrorStillDropsTheBaseline() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-cmt", "p-cmt"));
+            BaselinePlan old = store.rowsOf(id).get(0);
+
+            store.failDeleteAfterCommit = true; // the DELETE committed, then errored
+            Assertions.assertTrue(manager.dropBaseline(id),
+                    "the committed delete is the durable outcome");
+            Assertions.assertTrue(store.rowsOf(id).isEmpty(), "the row is really gone");
+            Assertions.assertNull(manager.getBaseline(id));
+            Assertions.assertTrue(manager.hasPendingMutationFenceForTest(id),
+                    "the delete's publication may lag: the id stays fenced");
+
+            manager.applyRefreshedBaselines(Map.of(id, old));
+            Assertions.assertNull(manager.getBaseline(id),
+                    "a stale snapshot still carrying the row must not republish it");
+
+            manager.applyRefreshedBaselines(Map.of());
+            Assertions.assertFalse(manager.hasPendingMutationFenceForTest(id),
+                    "the confirmed absence resolves the fence");
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-41 #13: a completed DROP whose delete publication lags every probe must not be
+     * re-added by a later daemon snapshot that still contains the row.
+     */
+    @Test
+    public void testCompletedDropSurvivesAStaleDaemonSnapshot() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-lag", "p-lag"));
+            BaselinePlan old = store.rowsOf(id).get(0);
+
+            BaselineManager.durableVisibilityProbeForTest = (rowId, status) -> true;
+            Assertions.assertTrue(manager.dropBaseline(id),
+                    "a committed delete that is merely not visible yet IS the durable outcome");
+            Assertions.assertNull(manager.getBaseline(id));
+            Assertions.assertTrue(manager.hasPendingMutationFenceForTest(id),
+                    "the completed DROP is fenced until the table shows it gone");
+
+            manager.applyRefreshedBaselines(Map.of(id, old));
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the daemon must not resurrect a dropped row from a stale snapshot");
+
+            manager.applyRefreshedBaselines(Map.of());
+            Assertions.assertFalse(manager.hasPendingMutationFenceForTest(id),
+                    "the visible absence resolves the fence");
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-41 #3: a forwarded GLOBAL DDL whose expected outcome never becomes visible is
+     * RETAINED as a fence - a later read on THIS FE (SHOW's confirmed read, the daemon)
+     * must keep masking the contradicting old row, not just the forwarded statement.
+     */
+    @Test
+    public void testForwardedDdlExpectationKeepsFencingLaterReads() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            BaselinePlan stale = baseline("d-fwd", "p-fwd");
+            stale.setId(7L);
+            stale.setStatus(BaselineStatus.ENABLED);
+            // the follower's local read keeps returning the pre-DDL row
+            BaselineManager.snapshotReaderForTest = () -> Map.of(7L, stale);
+            BaselineManager.forwardedDdlSyncForTest = () -> { };
+            manager.prepareLoadForTest();
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.refreshAfterForwardedDdl(null,
+                            BaselineManager.ForwardedDdlExpectation.absent(7L)),
+                    "an expected DROP whose delete never becomes visible fails closed");
+            Assertions.assertTrue(manager.hasPendingMutationFenceForTest(7L),
+                    "the expectation must be retained for later reads");
+
+            manager.applyRefreshedBaselines(Map.of(7L, stale));
+            Assertions.assertNull(manager.getBaseline(7L),
+                    "the retained fence must keep the dropped row masked");
+
+            manager.applyRefreshedBaselines(Map.of());
+            Assertions.assertFalse(manager.hasPendingMutationFenceForTest(7L),
+                    "the visible absence resolves the fence");
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            BaselineManager.forwardedDdlSyncForTest = null;
+            manager.clearForTest();
+        }
+    }
+
     // ==================== round-23: durable identity reconciliation ====================
 
     /**
@@ -2635,8 +2904,14 @@ public class BaselineManagerConcurrencyTest {
             Assertions.assertThrows(RuntimeException.class,
                     () -> manager.updateStatus(id, BaselineStatus.DISABLED),
                     "an INSERT that never committed must not be confirmed by the OLD row");
-            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus(),
-                    "the failed ALTER must not flip the live object");
+            // round-41 #7: the outcome is unproven (a committed row may merely lag its
+            // publication), so the ENABLED entry stops serving matching and the id is
+            // fenced until the table shows the outcome - the old row's presence must
+            // never be read as confirmation of the requested status
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the failed ALTER must not leave an unproven status matchable");
+            Assertions.assertTrue(manager.hasPendingMutationFenceForTest(id),
+                    "the failed ALTER must fence the id");
             Assertions.assertEquals(1, store.rowsOf(id).size(),
                     "the old version must survive: " + store.rowsOf(id));
             Assertions.assertEquals(BaselineStatus.ENABLED, store.rowsOf(id).get(0).getStatus(),

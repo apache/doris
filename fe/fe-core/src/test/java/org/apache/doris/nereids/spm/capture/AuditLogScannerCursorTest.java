@@ -272,13 +272,15 @@ public class AuditLogScannerCursorTest {
         Assertions.assertTrue(sql.contains("timestampadd(MICROSECOND"),
                 "the lower bound must also admit rows whose START predates the window but"
                         + " whose COMPLETION reaches into it: " + sql);
+        // these bounds arrive as GIVEN strings (the string-form builder); the DERIVED
+        // floor is what gets rendered - round-41 #12: at millisecond precision
         Assertions.assertTrue(sql.contains("`time` >= '2026-01-01 11:55:00'"),
                 "the start-time bound stays: " + sql);
         Assertions.assertTrue(sql.contains("`time` < '2026-01-01 15:00:00'"),
                 "the upper bound stays start-time based: " + sql);
         // round-23 #2: the completion branch is FLOORED, otherwise the OR admits every
         // old query-time partition and the range-partitioned audit table can never prune
-        Assertions.assertTrue(sql.contains("`time` >= '2025-12-31 11:55:00'"),
+        Assertions.assertTrue(sql.contains("`time` >= '2025-12-31 11:55:00.000'"),
                 "the completion branch must be bounded so old partitions still prune: " + sql);
     }
 
@@ -648,7 +650,7 @@ public class AuditLogScannerCursorTest {
         String predicate = AuditLogScanner.cursorPredicate(batch.getCursorQueryTime(),
                 batch.getCursorTime(), batch.getCursorQueryId(), batch.getCursorTail());
         // an older-event-time row (e.g. query_time 900, time 00:01) satisfies the FIRST
-        // branch of the chain ...
+        // branch of the chain ... (the cursor time is the raw row string)
         Assertions.assertTrue(predicate.contains("`time` < '2026-01-01 00:00:02'"),
                 "an older-event-time row sorts AFTER the cursor: " + predicate);
         // ... and the event time leads the chain (the query_time comparison only applies
@@ -712,10 +714,11 @@ public class AuditLogScannerCursorTest {
                     AuditLogScanner.auditWriteZone().getRules()
                             .getOffset(java.time.Instant.EPOCH),
                     "the audit writer's zone must be the global session time_zone");
-            Assertions.assertEquals("1970-01-01 08:00:00",
+            // round-41 #12: rendered bounds carry MILLISECOND precision
+            Assertions.assertEquals("1970-01-01 08:00:00.000",
                     AuditLogScanner.formatTimestamp(0L, AuditLogScanner.auditWriteZone()));
             global.setTimeZone("UTC");
-            Assertions.assertEquals("1970-01-01 00:00:00",
+            Assertions.assertEquals("1970-01-01 00:00:00.000",
                     AuditLogScanner.formatTimestamp(0L, AuditLogScanner.auditWriteZone()));
         } finally {
             global.setTimeZone(originalZone);
@@ -796,8 +799,8 @@ public class AuditLogScannerCursorTest {
                 Instant.parse("2026-11-01T08:45:00Z").toEpochMilli(),
                 Instant.parse("2026-11-01T09:15:00Z").toEpochMilli(), losAngeles);
         Assertions.assertEquals(2, ranges.size(), describe(ranges));
-        assertRange(ranges.get(0), "2026-11-01 01:45:00", "2026-11-01 02:00:00");
-        assertRange(ranges.get(1), "2026-11-01 01:00:00", "2026-11-01 01:15:00");
+        assertRange(ranges.get(0), "2026-11-01 01:45:00.000", "2026-11-01 02:00:00.000");
+        assertRange(ranges.get(1), "2026-11-01 01:00:00.000", "2026-11-01 01:15:00.000");
         for (String[] range : ranges) {
             Assertions.assertTrue(range[0].compareTo(range[1]) < 0,
                     "every segment must be a MONOTONE range: " + describe(ranges));
@@ -806,7 +809,7 @@ public class AuditLogScannerCursorTest {
         // the row at 09:05Z renders as 01:05 (PST) and falls into the second segment
         String rowRendering = AuditLogScanner.formatTimestamp(
                 Instant.parse("2026-11-01T09:05:00Z").toEpochMilli(), losAngeles);
-        Assertions.assertEquals("2026-11-01 01:05:00", rowRendering);
+        Assertions.assertEquals("2026-11-01 01:05:00.000", rowRendering);
         Assertions.assertTrue(rowRendering.compareTo(ranges.get(1)[0]) >= 0
                         && rowRendering.compareTo(ranges.get(1)[1]) < 0,
                 "the late row stays inside a segment: " + describe(ranges));
@@ -820,8 +823,8 @@ public class AuditLogScannerCursorTest {
                 Instant.parse("2026-03-08T10:15:00Z").toEpochMilli(),
                 ZoneId.of("America/Los_Angeles"));
         Assertions.assertEquals(2, ranges.size(), describe(ranges));
-        assertRange(ranges.get(0), "2026-03-08 01:45:00", "2026-03-08 02:00:00");
-        assertRange(ranges.get(1), "2026-03-08 03:00:00", "2026-03-08 03:15:00");
+        assertRange(ranges.get(0), "2026-03-08 01:45:00.000", "2026-03-08 02:00:00.000");
+        assertRange(ranges.get(1), "2026-03-08 03:00:00.000", "2026-03-08 03:15:00.000");
     }
 
     /** A fixed-offset zone keeps the single range - the pre-existing SQL shape. */
@@ -831,7 +834,7 @@ public class AuditLogScannerCursorTest {
                 Instant.parse("2026-11-01T08:45:00Z").toEpochMilli(),
                 Instant.parse("2026-11-01T09:15:00Z").toEpochMilli(), ZoneId.of("UTC"));
         Assertions.assertEquals(1, ranges.size(), describe(ranges));
-        assertRange(ranges.get(0), "2026-11-01 08:45:00", "2026-11-01 09:15:00");
+        assertRange(ranges.get(0), "2026-11-01 08:45:00.000", "2026-11-01 09:15:00.000");
     }
 
     /** The scan SQL carries every segment (OR'd) instead of one inverted range. */
@@ -843,16 +846,22 @@ public class AuditLogScannerCursorTest {
                 ZoneId.of("America/Los_Angeles"));
         String sql = AuditLogScanner.buildScanSql(ranges, 500, 1000, 100000, "", 3600);
         Assertions.assertTrue(
-                sql.contains("(`time` >= '2026-11-01 01:45:00'"
-                        + " AND `time` < '2026-11-01 02:00:00')"),
+                sql.contains("(`time` >= '2026-11-01 01:45:00.000'"
+                        + " AND `time` < '2026-11-01 02:00:00.000')"),
                 "the first segment must be a valid range: " + sql);
         Assertions.assertTrue(
-                sql.contains(" OR (`time` >= '2026-11-01 01:00:00'"
-                        + " AND `time` < '2026-11-01 01:15:00')"),
+                sql.contains(" OR (`time` >= '2026-11-01 01:00:00.000'"
+                        + " AND `time` < '2026-11-01 01:15:00.000')"),
                 "the repeated-hour segment must be scanned as well: " + sql);
-        Assertions.assertFalse(sql.contains("`time` >= '2026-11-01 01:45:00' AND `time` <"
-                        + " '2026-11-01 01:15:00'"),
+        Assertions.assertFalse(sql.contains("`time` >= '2026-11-01 01:45:00.000' AND `time` <"
+                        + " '2026-11-01 01:15:00.000'"),
                 "the inverted range must be gone: " + sql);
+        // round-41 #5: the top-level partition bound is the GREATEST rendered end (02:00),
+        // not the last range's (01:15): the last-end bound discarded every row of the
+        // first segment - including an 01:50 row published after the rollback - before
+        // the OR could admit it, and the capture then checkpointed past it
+        Assertions.assertTrue(sql.contains("`time` < '2026-11-01 02:00:00.000' AND ("),
+                "the scan bound must be the greatest segment end: " + sql);
     }
 
     // ==================== round-28 #7: absolute completion across a transition ====================

@@ -157,7 +157,7 @@ public class AuditScanPredicateTest {
         // 2026-03-08 03:05 PDT (the spring-forward transition was that morning)
         long startMs = Instant.parse("2026-03-08T10:05:00Z").toEpochMilli();
         long endMs = startMs + 30 * 60_000L;
-        Assertions.assertEquals("2026-03-07 02:05:00",
+        Assertions.assertEquals("2026-03-07 02:05:00.000",
                 AuditLogScanner.lateCompletionFloor(startMs, zone),
                 "24 hours before 03:05 PDT is 02:05 PST, not 03:05 PST");
         List<String[]> ranges = AuditLogScanner.localTimeRanges(startMs, endMs, zone);
@@ -176,6 +176,31 @@ public class AuditScanPredicateTest {
                 "2026-03-07 03:05:00.000");
         Assertions.assertFalse(matches(stale, "2026-03-07 02:30:00", queryTimeMs),
                 "the civil floor excluded the row permanently");
+    }
+
+    /**
+     * round-41 #5: at a FALL-BACK transition the rendered ranges are
+     * {@code [01:45, 02:00)} then {@code [01:00, 01:15)}; bounding the whole scan by the
+     * LAST segment end (01:15) discarded every row of the FIRST segment - a query started
+     * 01:50 PDT whose row the rollback published was invisible to the scan, which then
+     * checkpointed past it.
+     */
+    @Test
+    public void testFallBackWindowBoundsTheScanByTheGreatestSegmentEnd() {
+        List<String[]> ranges = AuditLogScanner.localTimeRanges(
+                Instant.parse("2026-11-01T08:45:00Z").toEpochMilli(),
+                Instant.parse("2026-11-01T09:15:00Z").toEpochMilli(),
+                ZoneId.of("America/Los_Angeles"));
+        String sql = AuditLogScanner.buildScanSql(ranges, 500, 1000, 100000, "", 0);
+        // the row of the first segment (01:50 PDT = 08:50Z, inside the window) stays
+        // reachable although the LAST range ends at 01:15
+        Assertions.assertTrue(matches(sql, "2026-11-01 01:50:00.000", 60_000L),
+                "a row of the first segment must be admitted: " + sql);
+        // the repeated-hour segment keeps working as well
+        Assertions.assertTrue(matches(sql, "2026-11-01 01:05:00.000", 1000L), sql);
+        // a rendering before every segment with a short completion is still excluded
+        Assertions.assertFalse(matches(sql, "2026-11-01 01:20:00.000", 60_000L),
+                "the max-end bound must not widen the window membership: " + sql);
     }
 
     // ==================== a minimal evaluator of the generated predicate ====================
@@ -229,21 +254,24 @@ public class AuditScanPredicateTest {
             // the completion is time + query_time at MILLISECOND precision (round-37 #8;
             // the swing is an extra duration widening, in the expression's unit)
             long completionMicros = queryTimeMs * 1000 + swingMicrosOf(leaf);
-            String completion = LocalDateTime.parse(time, TS)
-                    .plus(completionMicros, ChronoUnit.MICROS)
-                    .format(TS);
-            return completion.compareTo(bound) >= 0;
+            LocalDateTime completion = LocalDateTime.parse(time, TS)
+                    .plus(completionMicros, ChronoUnit.MICROS);
+            // round-41 #12: the published bounds carry MILLIS and a boundary value must
+            // compare EQUAL to its rendered bound - the string comparison of the old
+            // evaluator ranked "11:55:00" below "11:55:00.000" (SQL compares DATETIME
+            // values, so the evaluator parses both sides)
+            return !completion.isBefore(LocalDateTime.parse(bound, TS));
         }
         if (leaf.contains("`time`")) {
             int ge = leaf.indexOf(">= '");
             if (ge > 0) {
                 String bound = leaf.substring(ge + 4, leaf.indexOf('\'', ge + 4));
-                return time.compareTo(bound) >= 0;
+                return !LocalDateTime.parse(time, TS).isBefore(LocalDateTime.parse(bound, TS));
             }
             int lt = leaf.indexOf("< '");
             Assertions.assertTrue(lt > 0, "unexpected time leaf: " + leaf);
             String bound = leaf.substring(lt + 3, leaf.indexOf('\'', lt + 3));
-            return time.compareTo(bound) < 0;
+            return LocalDateTime.parse(time, TS).isBefore(LocalDateTime.parse(bound, TS));
         }
         // metrics / flags / the resume cursor: not part of the window membership question
         return true;

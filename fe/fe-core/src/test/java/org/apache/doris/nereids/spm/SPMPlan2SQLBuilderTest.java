@@ -2403,6 +2403,23 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(udf.getName()).thenReturn("my-fn");
         Assertions.assertEquals("`my-db`.`my-fn`", SPMExprSqlBuilder.functionName(udf),
                 "the function name component is quoted independently as well");
+
+        // round-41 #8: a GLOBAL UDF has NO database qualifier, and its registered name is
+        // not necessarily a plain identifier (my-fn) - emitting it bare made the frozen
+        // text re-parse as a SUBTRACTION (there is no parameterized-tree fallback for a
+        // persisted frozen row, so the baseline could never replay)
+        Mockito.when(udf.getDbName()).thenReturn("");
+        Assertions.assertEquals("`my-fn`", SPMExprSqlBuilder.functionName(udf),
+                "an unqualified GLOBAL UDF name must still be quoted when needed");
+
+        // round-41 #15: a user function NAMED like the SPM placeholder marker would be
+        // indistinguishable from a genuine marker in the frozen text - the freeze must
+        // refuse it instead of storing a text the replay either mis-substitutes or
+        // rejects as an unresolved marker
+        Mockito.when(udf.getName()).thenReturn("_spm_const_var");
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> SPMExprSqlBuilder.functionName(udf),
+                "the marker-name collision must be refused at freeze time");
     }
 
     // ==================== the final relabel wrapper keeps a top-level LIMIT ====================
@@ -2539,6 +2556,103 @@ public class SPMPlan2SQLBuilderTest {
                 "mergeLimits can only adopt the user's limit when the frozen root (or its"
                         + " direct child) IS a Limit: "
                         + frozen.getClass().getSimpleName() + " / " + sql);
+    }
+
+    /**
+     * round-41 #1: a fully QUOTED column name is a resolvable ORDER BY reference - the
+     * hoist must not leave the user's sort buried inside a derived table, where a no-LIMIT
+     * sort is a droppable hint at replay and the rows come back unordered.
+     */
+    @Test
+    public void testProjectOverSortHoistsQuotedOrderByKey() {
+        SlotReference col = new SlotReference("a b", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(col));
+        PhysicalProject<?> inner = mockProject(List.of(col), scan);
+        PhysicalQuickSort<?> sort = mockQuickSort(inner, List.of(new OrderKey(col, true, true)));
+        PhysicalProject<?> top = mockProject(List.of(col), sort);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(top);
+        Assertions.assertTrue(sql.indexOf("ORDER BY") > sql.lastIndexOf(")"),
+                "the quoted ORDER BY key must hoist out of the derived table: " + sql);
+        Assertions.assertNotNull(new NereidsParser().parseSingle(sql),
+                "the frozen text must re-parse: " + sql);
+    }
+
+    /**
+     * round-41 #11: hoisting the child's "ORDER BY b" (the BASE column) above a wrapper
+     * that EXPORTS an alias named b would rebind the sort to that alias: the original
+     * sorts by the base column, the replay would sort by the alias' expression. The
+     * key is shadowed, so the clause must keep its own query block.
+     */
+    @Test
+    public void testHoistedOrderByKeyIsNeverCapturedByAnOutputAlias() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a, b));
+        PhysicalTopN<?> topN = mockTopN(scan, List.of(new OrderKey(b, true, true)), 1);
+        // the wrapper exports `b` COMPUTED from a - hoisting "ORDER BY b" would bind
+        // the sort to this alias instead of the base column
+        PhysicalProject<?> top = mockProjectExprs(
+                List.of(new Alias(new Cast(a, IntegerType.INSTANCE), "b")), topN);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(top);
+        Assertions.assertNotNull(new NereidsParser().parseSingle(sql),
+                "the frozen text must re-parse: " + sql);
+        Assertions.assertTrue(sql.indexOf("ORDER BY") < sql.lastIndexOf(")"),
+                "the sort key must keep its own query block instead of being captured by"
+                        + " the b alias: " + sql);
+    }
+
+    /**
+     * round-41 #11 control: without a shadowing alias the hoist still happens - the
+     * clause lands at the statement tail where the base column it names stays
+     * resolvable.
+     */
+    @Test
+    public void testHoistStillHappensWhenNoAliasShadowsTheKey() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a, b));
+        PhysicalTopN<?> topN = mockTopN(scan, List.of(new OrderKey(b, true, true)), 2);
+        PhysicalProject<?> top = mockProjectExprs(
+                List.of(new Alias(new Cast(a, IntegerType.INSTANCE), "s")), topN);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(top);
+        Assertions.assertNotNull(new NereidsParser().parseSingle(sql),
+                "the frozen text must re-parse: " + sql);
+        Assertions.assertTrue(sql.indexOf("ORDER BY b") > sql.lastIndexOf(")"),
+                "the unshadowed key hoists to the statement tail: " + sql);
+        Assertions.assertTrue(sql.contains("LIMIT 2"), sql);
+    }
+
+    /**
+     * round-41 #14: an already-exported QUOTED sort key (a-b) must be recognised through
+     * the backticks - appending it a second time exposed two identical columns in the
+     * derived table and made every outer reference ambiguous.
+     */
+    @Test
+    public void testExportedQuotedSortKeyIsNotAppendedTwice() {
+        SlotReference dashed = new SlotReference("a-b", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(dashed));
+        PhysicalProject<?> inner = mockProject(List.of(dashed), scan);
+        PhysicalQuickSort<?> sort = mockQuickSort(inner,
+                List.of(new OrderKey(dashed, true, true)));
+        PhysicalProject<?> top = mockProject(List.of(dashed), sort);
+
+        Slot output = Mockito.mock(Slot.class);
+        Mockito.when(output.getExprId()).thenReturn(dashed.getExprId());
+        Mockito.when(output.getName()).thenReturn("a-b");
+        org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink sink =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink.class);
+        Mockito.when(sink.child(0)).thenReturn(top);
+        Mockito.when(sink.getOutput()).thenReturn(List.of(output));
+
+        String sql = new SPMPlan2SQLBuilder().visitPhysicalSink(sink, null).toSQL();
+        Assertions.assertFalse(sql.contains("`a-b`, `a-b`"),
+                "the quoted sort key is already exported and must not be appended again:"
+                        + " two identical columns make every outer reference ambiguous: " + sql);
+        Assertions.assertNotNull(new NereidsParser().parseSingle(sql),
+                "the frozen text must re-parse: " + sql);
     }
 
     /**

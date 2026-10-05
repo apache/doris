@@ -505,7 +505,14 @@ public final class AuditPublicationHorizon {
             } else {
                 StatisticsUtil.execUpdate(DELETE_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
             }
-            return ownRowConfirms(feName, effectiveHorizon, writerZones, committedFence);
+            boolean confirmed = ownRowConfirms(feName, effectiveHorizon, writerZones, committedFence);
+            if (confirmed) {
+                // Only a CONFIRMED report makes the zones known to the capture (round-41
+                // #6): the registry keeps a fresh zone outside the covered-through filter
+                // until this point, so it cannot be dropped before it was ever shared.
+                AuditWriterZones.markReported(AuditWriterZones.decode(writerZones));
+            }
+            return confirmed;
         } catch (Exception e) {
             LOG.warn("audit publication horizon: cannot report the local fence {}: {}",
                     horizon, e.getMessage());

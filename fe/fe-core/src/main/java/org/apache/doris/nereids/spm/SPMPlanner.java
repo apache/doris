@@ -334,18 +334,16 @@ public class SPMPlanner {
             return SPMPlanTreeSupport.rowLimitsWithin(replayed, userPlan);
         }
         if (Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(replayed))) {
-            // The caller's own top-level limit is in place. A limit VARIANT (its value
-            // differs from the CAPTURED one) is only accepted while the replay carries NO
-            // row-limiting cap the caller's own tree does not have: the transfer is
-            // POSITIONAL, so an inner cap of the manual plan that the merge cannot align
-            // keeps the CAPTURED value and silently truncates the result - the reviewer's
-            // example: bind 'SELECT k FROM t ORDER BY k LIMIT 1' replayed from
-            // 'SELECT DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k
-            // LIMIT 2' updated the outer TopN but left the inner cap at 1, so a query
-            // with two keys returned one row (reviewer round 32 #8).
-            if (Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(bindTree))) {
-                return true; // not a variant: the captured caps ARE the caller's contract
-            }
+            // The caller's own top-level limit is in place. Every OTHER cap the replay
+            // still exposes must be one the caller's own tree also has (round-41 #9):
+            // equal OUTER limits do not make the plans equivalent - a manual plan
+            // 'SELECT k FROM (SELECT k FROM t ORDER BY k ASC LIMIT 2) s ORDER BY k DESC
+            // LIMIT 2' passes the single-scan CREATE guard and answers a LIMIT 2 caller
+            // with (2,1) although the caller's own plan returns (3,2): its INNER cap
+            // truncates a DIFFERENT slice before the outer sort. Only the captured caps
+            // themselves may justify the replay's caps - the captured (bind) tree is
+            // what the caller's own tree structurally matched, so an identical-text
+            // baseline keeps passing.
             return SPMPlanTreeSupport.rowLimitsWithin(replayed, userPlan);
         }
         return Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(bindTree));
