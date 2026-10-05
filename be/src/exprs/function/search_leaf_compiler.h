@@ -35,25 +35,15 @@ struct SearchLeafContext {
     uint32_t num_rows = 0;
     // Whether the query scores its rows; clauses that only add to the score matter only then.
     bool scoring = true;
-    // The rows that can still be TRUE or UNKNOWN for the Boolean around the leaf; outside them
-    // that Boolean is FALSE, so the leaf may leave them out. Null for every row.
-    const roaring::Roaring* domain = nullptr;
 };
 
-// Turns one lowered leaf into a query_v2 query on the index its field was bound to: the lazy
-// query the engine drives on the field's source, or, for a scored leaf of an index that still
-// scores itself, the rows and scores it answered as a scored bit-set query.
+// Compiles one lowered leaf on its bound text or scalar index.
 class SearchLeafCompiler {
 public:
     virtual ~SearchLeafCompiler() = default;
 
     virtual Status compile(const index_query::logical::Node& leaf, const SearchLeafContext& ctx,
                            segment_v2::inverted_index::query_v2::QueryPtr* out) = 0;
-
-    // Whether term sets of one field under AND or OR should reach this compiler as one set.
-    // An index that answers each leaf in full before the Boolean combines it answers a joined
-    // set in one query instead.
-    virtual bool joins_term_sets() const { return false; }
 };
 
 // UNKNOWN for every row: no row matches and every row counts as NULL.

@@ -39,9 +39,6 @@ public:
         return std::make_shared<BitSetWeight>(_bitmap, _null_bitmap);
     }
 
-    const roaring::Roaring* known_rows() const override { return _bitmap.get(); }
-    const roaring::Roaring* known_null_rows() const override { return _null_bitmap.get(); }
-
 private:
     std::shared_ptr<roaring::Roaring> _bitmap;
     std::shared_ptr<roaring::Roaring> _null_bitmap;

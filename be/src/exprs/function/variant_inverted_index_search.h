@@ -146,8 +146,6 @@ public:
         _leaf_query_mapper = std::move(mapper);
     }
 
-    bool maps_leaf_queries() const { return static_cast<bool>(_leaf_query_mapper); }
-
     Status map_leaf_query(
             const std::string& field_name,
             std::shared_ptr<segment_v2::inverted_index::query_v2::Query>* query) const {
