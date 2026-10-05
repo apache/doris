@@ -20,16 +20,19 @@
 #include <cstdint>
 
 #include "storage/index/query/phrase/position_span.h"
-#include "storage/index/query/spi/position_cursor.h"
+#include "storage/index/query/spi/postings_cursor.h"
 
 namespace doris::index_query {
 
 // Retains the current position while the exact matcher advances a borrowed cursor.
 class PositionStream {
 public:
-    Status reset(PositionCursor* positions) {
-        _positions = positions;
-        return _positions->next_position(&_position, &_available);
+    Status reset(PostingsCursor& postings, uint32_t ordinal) {
+        size_t count = 0;
+        RETURN_IF_ERROR(postings.open_position_stream(ordinal, std::span(&_position, 1), &count,
+                                                      &_positions));
+        _available = count != 0;
+        return Status::OK();
     }
 
     bool whole(PhrasePositionSpan* /*span*/) const { return false; }

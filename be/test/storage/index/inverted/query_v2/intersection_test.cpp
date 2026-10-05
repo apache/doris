@@ -229,30 +229,6 @@ TEST_F(IntersectionTest, test_norm) {
     EXPECT_TRUE(norm == 10 || norm == 20);
 }
 
-// Test docset_mut_specialized for accessing individual docsets
-TEST_F(IntersectionTest, test_docset_mut_specialized) {
-    std::vector<MockDocSetPtr> docsets;
-    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {1, 2, 3}));
-    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 4}));
-    docsets.push_back(std::make_shared<MockDocSet>(std::vector<uint32_t> {2, 3, 5}));
-
-    auto intersection = Intersection<MockDocSetPtr, MockDocSetPtr>::create(docsets, 10000);
-    ASSERT_NE(nullptr, intersection);
-
-    // Access left (ord 0)
-    auto& docset0 = intersection->docset_mut_specialized<MockDocSetPtr>(0);
-    EXPECT_NE(nullptr, docset0);
-    EXPECT_EQ(2U, docset0->doc());
-
-    // Access right (ord 1)
-    auto& docset1 = intersection->docset_mut_specialized<MockDocSetPtr>(1);
-    EXPECT_NE(nullptr, docset1);
-
-    // Access others (ord 2+)
-    auto& docset2 = intersection->docset_mut_specialized<MockDocSetPtr>(2);
-    EXPECT_NE(nullptr, docset2);
-}
-
 // Test all docsets identical
 TEST_F(IntersectionTest, test_all_identical_docsets) {
     std::vector<uint32_t> common_docs {1, 2, 3, 4, 5};

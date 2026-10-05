@@ -217,11 +217,13 @@ ScorerPtr ListedTerms::scored_conjunction() {
             _similarities[i]->bind_norms(_source->norm_lengths());
             THROW_IF_ERROR(_cursors[i]->rewind());
             TermWalk walk(*_cursors[i], rows);
-            for (size_t row = 0; row < rows.size(); ++row) {
-                index_query::PhrasePositionSpan positions;
-                THROW_IF_ERROR(walk.positions_of(row, rows[row], &positions));
-                const auto frequency = static_cast<float>(positions.second - positions.first);
-                scores[row] += _similarities[i]->score(frequency, norms[row]);
+            for (size_t row = 0; row < rows.size();) {
+                THROW_IF_ERROR(walk.prepare(row, rows[row]));
+                for (const size_t row_end = walk.end(); row < row_end; ++row) {
+                    const auto positions = walk.positions(row);
+                    const auto frequency = static_cast<float>(positions.second - positions.first);
+                    scores[row] += _similarities[i]->score(frequency, norms[row]);
+                }
             }
             _cursors[i].reset();
         }

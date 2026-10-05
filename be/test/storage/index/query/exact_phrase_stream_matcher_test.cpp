@@ -403,5 +403,25 @@ TEST(ExactPhraseStreamMatcherTest, RejectsRepeatedCursorIndices) {
                  "");
 }
 
+TEST(ExactPhraseStreamMatcherTest, ReturnsFirstFinishErrorInPhraseOrder) {
+    std::vector<FakeCursor> cursors;
+    cursors.emplace_back(doc_positions({{53, {1}}}), FakeCursor::FailurePoint::kFinishDocIo);
+    cursors.emplace_back(doc_positions({{53, {2}}}),
+                         FakeCursor::FailurePoint::kFinishDocInvalidArgument);
+    cursors.emplace_back(doc_positions({{53, {0}}}));
+    const std::array<size_t, 3> plan = {2, 0, 1};
+    const std::array<uint32_t, 3> offsets = {0, 1, 2};
+    bool matched = false;
+
+    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
+                                                      std::span(offsets), 53, &matched);
+
+    EXPECT_TRUE(status.is<ErrorCode::IO_ERROR>()) << status.to_string();
+    EXPECT_TRUE(matched);
+    for (const FakeCursor& cursor : cursors) {
+        EXPECT_EQ(cursor.finish_doc_calls(), 1U);
+    }
+}
+
 } // namespace
 } // namespace doris::index_query

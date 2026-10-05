@@ -2182,8 +2182,8 @@ public:
         }
 
     protected:
-        Status handle_searcher_cache(const IndexQueryContextPtr& context,
-                                     InvertedIndexCacheHandle*) override {
+        Status handle_searcher_cache(const IndexQueryContextPtr& context, InvertedIndexCacheHandle*,
+                                     const std::string&) override {
             CLuceneError err;
             err.set(CL_ERR_IO, "mock handle_searcher_cache failure");
             throw err;
@@ -2205,8 +2205,8 @@ public:
         }
 
     protected:
-        Status handle_searcher_cache(const IndexQueryContextPtr& context,
-                                     InvertedIndexCacheHandle*) override {
+        Status handle_searcher_cache(const IndexQueryContextPtr& context, InvertedIndexCacheHandle*,
+                                     const std::string&) override {
             CLuceneError err;
             err.set(CL_ERR_IO, "mock tokenized index searcher cache failure");
             throw err;
@@ -5228,7 +5228,7 @@ TEST_F(InvertedIndexReaderTest, FulltextOneTokenPhrasePrefixPublishesNoScore) {
     MatchContext run(/*scoring=*/true);
     EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "qui"),
               rows({0, 1}));
-    EXPECT_TRUE(run.context->collection_similarity->release_scores().empty());
+    EXPECT_TRUE(run.context->collection_similarity->_bm25_scores.empty());
 }
 
 // A keyword MATCH_PHRASE takes a trailing " ~N" as its slop, as SNII does.

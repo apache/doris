@@ -415,19 +415,21 @@ constexpr uint64_t kSeveralTermsListingRatio = 8;
 // terms that is not far rarer than every exact slot lists last, on the rows the others kept. A
 // slot read in waves, which opened no cursor, is left to its own gathering.
 Status chain_rows(std::span<const SlotCursors> slots, const roaring::Roaring* candidates,
-                  std::vector<uint32_t>* rows, HeldRows* held) {
+                  std::vector<uint32_t>* rows, HeldRows* held,
+                  std::span<index_query::SelectedPostings> selected) {
     std::vector<index_query::CursorChainedPostings> singles;
     std::vector<UnionChainedPostings> unions;
     singles.reserve(slots.size());
     unions.reserve(slots.size());
     std::vector<index_query::ChainedPostings*> first;
     uint64_t rarest_exact = std::numeric_limits<uint64_t>::max();
-    for (const SlotCursors& cursors : slots) {
+    for (size_t slot = 0; slot < slots.size(); ++slot) {
+        const SlotCursors& cursors = slots[slot];
         if (cursors.empty()) {
             continue;
         }
         if (cursors.size() == 1) {
-            first.push_back(&singles.emplace_back(*cursors.front()));
+            first.push_back(&singles.emplace_back(*cursors.front(), &selected[slot]));
             rarest_exact = std::min<uint64_t>(rarest_exact, cursors.front()->doc_freq());
         } else {
             unions.emplace_back(cursors);
@@ -489,12 +491,14 @@ Status append_held_positions(index_query::IndexSource& source, const SlotCursors
         }
         RETURN_IF_ERROR(cursors[member]->rewind());
         TermWalk walk(*cursors[member], rows);
-        for (size_t row = 0; row < rows.size(); ++row) {
-            index_query::PhrasePositionSpan positions;
-            RETURN_IF_ERROR(walk.positions_of(row, rows[row], &positions));
-            for (const uint32_t* position = positions.first; position != positions.second;
-                 ++position) {
-                out->emplace_back(rows[row], *position);
+        for (size_t row = 0; row < rows.size();) {
+            RETURN_IF_ERROR(walk.prepare(row, rows[row]));
+            for (const size_t end = walk.end(); row < end; ++row) {
+                const auto positions = walk.positions(row);
+                for (const uint32_t* position = positions.first; position != positions.second;
+                     ++position) {
+                    out->emplace_back(rows[row], *position);
+                }
             }
         }
     }
@@ -674,7 +678,8 @@ Status gather_slots(index_query::IndexSource& source,
 Status list_rows(index_query::IndexSource& source, std::span<const SlotCursors> slots,
                  std::span<const std::vector<std::string>> waved,
                  std::span<const uint64_t> slot_docs, const roaring::Roaring* candidates,
-                 std::vector<uint32_t>* rows, HeldRows* held, std::vector<GatheredSlot>* gathered) {
+                 std::vector<uint32_t>* rows, HeldRows* held, std::vector<GatheredSlot>* gathered,
+                 std::span<index_query::SelectedPostings> selected) {
     std::vector<size_t> order;
     uint64_t rarest_single = std::numeric_limits<uint64_t>::max();
     bool any_opened = false;
@@ -689,7 +694,7 @@ Status list_rows(index_query::IndexSource& source, std::span<const SlotCursors> 
         }
     }
     if (order.empty()) {
-        return chain_rows(slots, candidates, rows, held);
+        return chain_rows(slots, candidates, rows, held, selected);
     }
     std::ranges::stable_sort(order, {}, [slot_docs](size_t slot) { return slot_docs[slot]; });
     gathered->assign(slots.size(), {});
@@ -714,7 +719,7 @@ Status list_rows(index_query::IndexSource& source, std::span<const SlotCursors> 
             narrowed.addMany(domain->size(), domain->data());
             chain_candidates = &narrowed;
         }
-        RETURN_IF_ERROR(chain_rows(slots, chain_candidates, rows, held));
+        RETURN_IF_ERROR(chain_rows(slots, chain_candidates, rows, held, selected));
     } else {
         *rows = std::move(*domain);
     }
@@ -743,8 +748,9 @@ Status prefetch_positions(std::span<const SlotCursors> slots, const std::vector<
 class SlotWalk {
 public:
     // A slot of one term, which holds every listed row.
-    SlotWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows) {
-        _walks.emplace_back(cursor, rows);
+    SlotWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows,
+             const index_query::SelectedPostings* selected) {
+        _walks.emplace_back(cursor, rows, selected);
     }
 
     // A slot of several terms, term `member` holding the rows `held[member]`.
@@ -759,14 +765,24 @@ public:
     // A slot whose positions were gathered at every listed row.
     explicit SlotWalk(const GatheredSlot& gathered) : _gathered(&gathered) {}
 
-    Status positions_of(size_t row, uint32_t doc, index_query::PhrasePositionSpan* span) {
+    Status prepare(size_t row, uint32_t doc) {
+        _end = row + 1;
         if (_gathered != nullptr) {
-            return _gathered_positions(doc, span);
+            return _gathered_positions(doc, &_positions);
         }
         if (_held.empty()) {
-            return _walks.front().positions_of(row, doc, span);
+            RETURN_IF_ERROR(_walks.front().prepare(row, doc));
+            _end = _walks.front().end();
+            return Status::OK();
         }
-        return _merged_positions(doc, span);
+        return _merged_positions(doc, &_positions);
+    }
+
+    size_t end() const { return _end; }
+
+    index_query::PhrasePositionSpan positions(size_t row) const {
+        DCHECK_LT(row, _end);
+        return _gathered == nullptr && _held.empty() ? _walks.front().positions(row) : _positions;
     }
 
 private:
@@ -787,6 +803,8 @@ private:
 
     const GatheredSlot* _gathered = nullptr;
     size_t _next_gathered = 0;
+    size_t _end = 0;
+    index_query::PhrasePositionSpan _positions;
     std::span<const std::vector<uint32_t>> _held;
     std::vector<size_t> _next;
     std::vector<TermWalk> _walks;
@@ -805,8 +823,8 @@ Status SlotWalk::_merged_positions(uint32_t doc, index_query::PhrasePositionSpan
         if (next == held.size() || held[next] != doc) {
             continue;
         }
-        index_query::PhrasePositionSpan positions;
-        RETURN_IF_ERROR(_walks[member].positions_of(next, doc, &positions));
+        RETURN_IF_ERROR(_walks[member].prepare(next, doc));
+        const auto positions = _walks[member].positions(next);
         if (++holders == 1) {
             *span = positions;
             continue;
@@ -836,19 +854,22 @@ Status verify_rows(std::span<Walk> walks, std::span<const uint32_t> rows,
     if (options.slop == 0 && clauses.slots.size() == 2 && clauses.slots[0] == 0 &&
         clauses.slots[1] == 1) {
         const uint32_t delta = clauses.offsets[1] - clauses.offsets[0];
-        for (size_t row = 0; row < rows.size(); ++row) {
-            index_query::PhrasePositionSpan left;
-            index_query::PhrasePositionSpan right;
-            RETURN_IF_ERROR(walks[0].positions_of(row, rows[row], &left));
-            RETURN_IF_ERROR(walks[1].positions_of(row, rows[row], &right));
-            if constexpr (kCounting) {
-                const uint32_t count = index_query::count_two_term_phrase(left, right, delta);
-                if (count > 0) {
+        for (size_t row = 0; row < rows.size();) {
+            RETURN_IF_ERROR(walks[0].prepare(row, rows[row]));
+            RETURN_IF_ERROR(walks[1].prepare(row, rows[row]));
+            const size_t end = std::min(walks[0].end(), walks[1].end());
+            for (; row < end; ++row) {
+                const auto left = walks[0].positions(row);
+                const auto right = walks[1].positions(row);
+                if constexpr (kCounting) {
+                    const uint32_t count = index_query::count_two_term_phrase(left, right, delta);
+                    if (count > 0) {
+                        matched->push_back(rows[row]);
+                        frequencies->push_back(static_cast<float>(count));
+                    }
+                } else if (index_query::contains_two_term_phrase(left, right, delta)) {
                     matched->push_back(rows[row]);
-                    frequencies->push_back(static_cast<float>(count));
                 }
-            } else if (index_query::contains_two_term_phrase(left, right, delta)) {
-                matched->push_back(rows[row]);
             }
         }
         return Status::OK();
@@ -858,7 +879,9 @@ Status verify_rows(std::span<Walk> walks, std::span<const uint32_t> rows,
     for (size_t row = 0; row < rows.size(); ++row) {
         const uint32_t doc = rows[row];
         const auto load = [&walks, row, doc](size_t slot, index_query::PhrasePositionSpan* span) {
-            return walks[slot].positions_of(row, doc, span);
+            RETURN_IF_ERROR(walks[slot].prepare(row, doc));
+            *span = walks[slot].positions(row);
+            return Status::OK();
         };
         float frequency = 0.0F;
         RETURN_IF_ERROR(verifier.verify(load, kCounting, &frequency));
@@ -913,21 +936,31 @@ Status streams_positions(std::span<const SlotCursors> slots, std::span<const uin
 // Verifies an exact phrase of distinct single-term slots on the listed rows with each row's
 // positions streamed.
 Status verify_streamed(std::span<const SlotCursors> slots, std::span<const uint32_t> rows,
-                       const PhraseClauses& clauses, std::vector<uint32_t>* matched) {
+                       const PhraseClauses& clauses, std::vector<uint32_t>* matched,
+                       std::span<const index_query::SelectedPostings> selected) {
     std::vector<StreamWalk> walks;
     walks.reserve(slots.size());
-    for (const SlotCursors& cursors : slots) {
-        walks.emplace_back(*cursors.front(), rows);
+    for (size_t slot = 0; slot < slots.size(); ++slot) {
+        walks.emplace_back(*slots[slot].front(), rows, &selected[slot]);
     }
     const std::span<StreamWalk> cursors(walks);
     index_query::validate_exact_phrase_stream_inputs(cursors, std::span(clauses.slots),
                                                      std::span(clauses.offsets));
-    for (const uint32_t row : rows) {
-        bool hit = false;
-        RETURN_IF_ERROR(index_query::match_exact_phrase_document(
-                cursors, std::span(clauses.slots), std::span(clauses.offsets), row, &hit));
-        if (hit) {
-            matched->push_back(row);
+    size_t row = 0;
+    while (row < rows.size()) {
+        size_t end = rows.size();
+        for (StreamWalk& walk : walks) {
+            RETURN_IF_ERROR(walk.prepare());
+            end = std::min(end, walk.end());
+        }
+        for (; row < end; ++row) {
+            bool hit = false;
+            RETURN_IF_ERROR(index_query::match_exact_phrase_document(
+                    cursors, std::span(clauses.slots), std::span(clauses.offsets), rows[row],
+                    &hit));
+            if (hit) {
+                matched->push_back(rows[row]);
+            }
         }
     }
     return Status::OK();
@@ -940,7 +973,8 @@ Status verify_streamed(std::span<const SlotCursors> slots, std::span<const uint3
 Status verify_slots(std::span<const SlotCursors> slots, std::span<const GatheredSlot> gathered,
                     std::span<const uint32_t> rows, const HeldRows& held,
                     const PhraseClauses& clauses, const index_query::PhraseQueryOptions& options,
-                    std::vector<uint32_t>* matched, std::vector<float>* frequencies) {
+                    std::vector<uint32_t>* matched, std::vector<float>* frequencies,
+                    std::span<const index_query::SelectedPostings> selected) {
     for (const SlotCursors& cursors : slots) {
         for (const auto& cursor : cursors) {
             RETURN_IF_ERROR(cursor->rewind());
@@ -953,12 +987,12 @@ Status verify_slots(std::span<const SlotCursors> slots, std::span<const Gathered
             RETURN_IF_ERROR(streams_positions(slots, rows, clauses, options, &streams));
         }
         if (streams) {
-            return verify_streamed(slots, rows, clauses, matched);
+            return verify_streamed(slots, rows, clauses, matched, selected);
         }
         std::vector<TermWalk> walks;
         walks.reserve(slots.size());
-        for (const SlotCursors& cursors : slots) {
-            walks.emplace_back(*cursors.front(), rows);
+        for (size_t slot = 0; slot < slots.size(); ++slot) {
+            walks.emplace_back(*slots[slot].front(), rows, &selected[slot]);
         }
         return verify_rows(walks, rows, clauses, options, matched, frequencies);
     }
@@ -968,7 +1002,7 @@ Status verify_slots(std::span<const SlotCursors> slots, std::span<const Gathered
         if (slots[slot].empty()) {
             walks.emplace_back(gathered[slot]);
         } else if (slots[slot].size() == 1) {
-            walks.emplace_back(*slots[slot].front(), rows);
+            walks.emplace_back(*slots[slot].front(), rows, &selected[slot]);
         } else {
             walks.emplace_back(slots[slot], held[slot]);
         }
@@ -993,8 +1027,9 @@ ScorerPtr SlotPhraseWeight::_listed_scorer(index_query::IndexSource& source,
     std::vector<uint32_t> rows;
     HeldRows held;
     std::vector<GatheredSlot> gathered;
+    std::vector<index_query::SelectedPostings> selected(slots.size());
     THROW_IF_ERROR(list_rows(source, slots, waved, clauses.slot_docs, candidates, &rows, &held,
-                             &gathered));
+                             &gathered, selected));
     if (rows.empty()) {
         return std::make_shared<EmptyScorer>();
     }
@@ -1005,7 +1040,7 @@ ScorerPtr SlotPhraseWeight::_listed_scorer(index_query::IndexSource& source,
     std::vector<uint32_t> matched;
     std::vector<float> frequencies;
     THROW_IF_ERROR(verify_slots(slots, gathered, rows, held, clauses, _options, &matched,
-                                _enable_scoring ? &frequencies : nullptr));
+                                _enable_scoring ? &frequencies : nullptr, selected));
     if (!_enable_scoring) {
         auto matched_rows = std::make_shared<roaring::Roaring>();
         matched_rows->addMany(matched.size(), matched.data());

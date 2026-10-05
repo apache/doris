@@ -19,7 +19,6 @@
 
 #include <climits>
 #include <optional>
-#include <variant>
 #include <vector>
 
 #include "CLucene/index/DocRange.h"
@@ -34,30 +33,28 @@ namespace doris::segment_v2 {
 class ClucenePostingsCursor final : public index_query::PostingsCursor,
                                     public index_query::PositionCursor {
 public:
-    using IterVariant = std::variant<TermDocsPtr, TermPositionsPtr>;
-
-    explicit ClucenePostingsCursor(TermDocsPtr iter) : _iter(std::move(iter)) {
-        _raw_iter = std::get<TermDocsPtr>(_iter).get();
-        _check_iterator();
-    }
-    explicit ClucenePostingsCursor(TermPositionsPtr iter) : _iter(std::move(iter)) {
-        _raw_positions = std::get<TermPositionsPtr>(_iter).get();
-        _raw_iter = _raw_positions;
+    explicit ClucenePostingsCursor(TermDocsPtr iter) : _iter(std::move(iter)) { _check_iterator(); }
+    explicit ClucenePostingsCursor(TermPositionsPtr iter) {
+        _raw_positions = iter.get();
+        _iter = std::move(iter);
         _check_iterator();
     }
 
-    uint32_t doc_freq() const override { return _raw_iter->docFreq(); }
+    uint32_t doc_freq() const override { return _iter->docFreq(); }
 
     Status next_block(index_query::PostingsBlock* out, bool* eof) override {
-        ErrorContext error_context;
         *out = {};
         _block_available = false;
         _position_open = false;
         _position_remaining = 0;
         try {
-            *eof = !_raw_iter->readBlock(&_block) || _block.doc_many_size_ == 0;
+            *eof = !_iter->readBlock(&_block) || _block.doc_many_size_ == 0;
             _bound.reset();
             if (!*eof) {
+                if (_raw_positions != nullptr) {
+                    DORIS_CHECK(_block.freq_many != nullptr);
+                    DORIS_CHECK_GE(_block.freq_many_size_, _block.doc_many_size_);
+                }
                 *out = {.docs = {_block.doc_many->data(), _block.doc_many_size_},
                         .freqs = _block.freq_many
                                          ? std::span<const uint32_t>(_block.freq_many->data(),
@@ -67,15 +64,18 @@ public:
                                          ? std::span<const uint32_t>(_block.norm_many->data(),
                                                                      _block.norm_many_size_)
                                          : std::span<const uint32_t>()};
+                if (_block.type_ == DocRangeType::kRange) {
+                    out->dense = true;
+                    out->range_begin = _block.doc_range.first;
+                    out->range_end = static_cast<uint64_t>(out->range_begin) + out->docs.size();
+                }
                 _freqs = _block.freq_many ? _block.freq_many->data() : nullptr;
                 _prox_cursor = 0;
                 _block_available = true;
             }
         } catch (CLuceneError& error) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg = error.what();
+            return clucene_error_status(error.what());
         }
-        FINALLY({});
         return Status::OK();
     }
 
@@ -86,9 +86,8 @@ public:
     }
 
     Status shallow_seek(uint32_t target, bool* moved) override {
-        ErrorContext error_context;
         try {
-            *moved = _raw_iter->skipToBlock(target);
+            *moved = _iter->skipToBlock(target);
             if (*moved) {
                 _bound.reset();
                 _block_available = false;
@@ -96,19 +95,17 @@ public:
                 _position_remaining = 0;
             }
         } catch (CLuceneError& error) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg = error.what();
+            return clucene_error_status(error.what());
         }
-        FINALLY({});
         return Status::OK();
     }
 
     index_query::BlockBound current_block_bound() const override {
         if (!_bound) {
-            const int32_t last = _raw_iter->getLastDocInBlock();
+            const int32_t last = _iter->getLastDocInBlock();
             _bound = {.last_doc = static_cast<uint32_t>(last),
-                      .max_freq = _raw_iter->getMaxBlockFreq(),
-                      .max_norm = _raw_iter->getMaxBlockNorm(),
+                      .max_freq = _iter->getMaxBlockFreq(),
+                      .max_norm = _iter->getMaxBlockNorm(),
                       .last_doc_known = last >= 0 && last != INT_MAX};
         }
         return *_bound;
@@ -119,21 +116,46 @@ public:
         if (_raw_positions == nullptr) {
             return Status::NotSupported("This posting type does not support position information");
         }
-        ErrorContext error_context;
         try {
             _open_positions(ordinal);
             *out = this;
         } catch (CLuceneError& error) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg = error.what();
+            return clucene_error_status(error.what());
         }
-        FINALLY({});
         return Status::OK();
     }
 
-    uint32_t frequency() const override {
-        DORIS_CHECK(_position_open);
-        return _position_frequency;
+    Status open_position_stream(uint32_t ordinal, std::span<uint32_t> first_chunk, size_t* count,
+                                index_query::PositionCursor** out) override {
+        *out = nullptr;
+        *count = 0;
+        if (_raw_positions == nullptr) {
+            return Status::NotSupported("This posting type does not support position information");
+        }
+        uint32_t position = 0;
+        uint32_t remaining = 0;
+        size_t filled = 0;
+        bool opened = false;
+        Status status;
+        try {
+            remaining = _prepare_positions(ordinal);
+            opened = true;
+            while (filled < first_chunk.size() && remaining != 0) {
+                position += static_cast<uint32_t>(_raw_positions->nextDeltaPosition());
+                --remaining;
+                first_chunk[filled++] = position;
+            }
+            *out = this;
+        } catch (CLuceneError& error) {
+            status = clucene_error_status(error.what());
+        }
+        if (opened) {
+            _position = position;
+            _position_remaining = remaining;
+            _position_open = true;
+            *count = filled;
+        }
+        return status;
     }
 
     Status next_position(uint32_t* position, bool* available) override {
@@ -141,14 +163,14 @@ public:
     }
 
     Status next_position_at_least(uint32_t target, uint32_t* position, bool* available) override {
-        DORIS_CHECK(_position_open);
+        DCHECK(_position_open);
         *available = false;
         if (_position_remaining == 0) {
             return Status::OK();
         }
         uint32_t current = _position;
         uint32_t remaining = _position_remaining;
-        ErrorContext error_context;
+        Status status;
         try {
             while (remaining != 0) {
                 current += static_cast<uint32_t>(_raw_positions->nextDeltaPosition());
@@ -160,86 +182,70 @@ public:
                 }
             }
         } catch (CLuceneError& error) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg = error.what();
+            status = clucene_error_status(error.what());
         }
-        FINALLY({
-            _position = current;
-            _position_remaining = remaining;
-        });
-        return Status::OK();
+        _position = current;
+        _position_remaining = remaining;
+        return status;
     }
 
     Status finish_doc() override {
-        DORIS_CHECK(_position_open);
+        DCHECK(_position_open);
         if (_position_remaining == 0) {
             return Status::OK();
         }
-        ErrorContext error_context;
         try {
             _finish_positions();
         } catch (CLuceneError& error) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg = error.what();
+            return clucene_error_status(error.what());
         }
-        FINALLY({});
         return Status::OK();
     }
 
     Status append_remaining_positions(uint32_t offset, std::vector<uint32_t>& output) override {
-        DORIS_CHECK(_position_open);
-        ErrorContext error_context;
+        DCHECK(_position_open);
         uint32_t position = _position;
         uint32_t remaining = _position_remaining;
+        Status status;
         try {
             for (; remaining != 0; --remaining) {
                 position += static_cast<uint32_t>(_raw_positions->nextDeltaPosition());
                 output.push_back(position + offset);
             }
         } catch (CLuceneError& error) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg = error.what();
+            status = clucene_error_status(error.what());
         }
-        FINALLY({
-            _position = position;
-            _position_remaining = remaining;
-        });
-        return Status::OK();
+        _position = position;
+        _position_remaining = remaining;
+        return status;
     }
 
-    // The open and the drain in one CLucene error frame. It runs once per document a phrase reads,
-    // so the error status is built only when CLucene throws.
+    // Opens and drains the document in one CLucene call.
     Status append_positions(uint32_t ordinal, uint32_t offset,
                             std::vector<uint32_t>& output) override {
         if (_raw_positions == nullptr) {
             return Status::NotSupported("This posting type does not support position information");
         }
-        uint32_t frequency = 0;
         uint32_t position = 0;
         uint32_t remaining = 0;
         bool opened = false;
-        ErrorContext error_context;
+        Status status;
         try {
-            frequency = _prepare_positions(ordinal);
-            remaining = frequency;
+            remaining = _prepare_positions(ordinal);
             opened = true;
             for (; remaining != 0; --remaining) {
                 position += static_cast<uint32_t>(_raw_positions->nextDeltaPosition());
                 output.push_back(position + offset);
             }
         } catch (CLuceneError& error) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg = error.what();
+            status = clucene_error_status(error.what());
         }
-        FINALLY({
-            if (opened) {
-                _position_frequency = frequency;
-                _position = position;
-                _position_remaining = remaining;
-                _position_open = true;
-            }
-        });
-        return Status::OK();
+        if (opened) {
+            _position = position;
+            _position_remaining = remaining;
+            _position_open = true;
+        }
+        return status;
     }
 
 private:
@@ -252,17 +258,16 @@ private:
 
     // Inlined into each open: it runs once per document a phrase reads.
     ALWAYS_INLINE void _open_positions(uint32_t ordinal) {
-        _position_frequency = _prepare_positions(ordinal);
-        _position_remaining = _position_frequency;
+        _position_remaining = _prepare_positions(ordinal);
         _position = 0;
         _position_open = true;
     }
 
     ALWAYS_INLINE uint32_t _prepare_positions(uint32_t ordinal) {
-        DORIS_CHECK(_block_available);
-        DORIS_CHECK(_freqs != nullptr);
-        DORIS_CHECK(ordinal < _block.freq_many_size_);
-        DORIS_CHECK(ordinal >= _prox_cursor);
+        DCHECK(_block_available);
+        DCHECK(_freqs != nullptr);
+        DCHECK_LT(ordinal, _block.doc_many_size_);
+        DCHECK_GE(ordinal, _prox_cursor);
         if (_position_open) {
             _finish_positions();
         }
@@ -278,20 +283,18 @@ private:
     }
 
     void _check_iterator() const {
-        if (!_raw_iter) {
+        if (!_iter) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "CLucene postings require a valid iterator");
         }
     }
 
-    IterVariant _iter;
-    lucene::index::TermDocs* _raw_iter = nullptr;
+    TermDocsPtr _iter;
     DocRange _block;
     // The current block's frequencies, when it holds them.
     const uint32_t* _freqs = nullptr;
     uint32_t _prox_cursor = 0;
     lucene::index::TermPositions* _raw_positions = nullptr;
-    uint32_t _position_frequency = 0;
     uint32_t _position_remaining = 0;
     uint32_t _position = 0;
     bool _position_open = false;

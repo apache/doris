@@ -79,17 +79,23 @@ Status CluceneIndexSource::open_term(std::string_view term, bool positions, bool
     out->reset();
     const std::wstring text =
             boost::locale::conv::utf_to_utf<wchar_t>(term.data(), term.data() + term.size());
-    auto t = make_term_ptr(_field.c_str(), text.c_str());
-    if (positions) {
-        auto iter = make_term_positions_ptr(_reader, t.get(), scoring, _io_ctx);
-        if (iter != nullptr) {
-            *out = std::make_unique<ClucenePostingsCursor>(std::move(iter));
+    try {
+        auto t = make_term_ptr(_field.c_str(), text.c_str());
+        if (positions) {
+            auto iter = make_term_positions_ptr(_reader, scoring, _io_ctx);
+            if (iter != nullptr) {
+                iter->seek(t.get());
+                *out = std::make_unique<ClucenePostingsCursor>(std::move(iter));
+            }
+        } else {
+            auto iter = make_term_doc_ptr(_reader, scoring, _io_ctx);
+            if (iter != nullptr) {
+                iter->seek(t.get());
+                *out = std::make_unique<ClucenePostingsCursor>(std::move(iter));
+            }
         }
-        return Status::OK();
-    }
-    auto iter = make_term_doc_ptr(_reader, t.get(), scoring, _io_ctx);
-    if (iter != nullptr) {
-        *out = std::make_unique<ClucenePostingsCursor>(std::move(iter));
+    } catch (CLuceneError& e) {
+        return clucene_error_status(e.what());
     }
     return Status::OK();
 }
@@ -105,8 +111,14 @@ Status CluceneIndexSource::expand_terms(index_query::TermPattern& pattern, int32
     // A term without the text every match holds is skipped before it is converted.
     const std::wstring required = inverted_index::StringHelper::to_wstring(pattern.required_text());
     lucene::index::Term start(_field.c_str(), start_text.c_str());
-    lucene::index::TermEnum* enumerator = _reader->terms(&start, _io_ctx);
+    ErrorContext error_context;
+    auto close = [&](lucene::index::TermEnum* enumerator) {
+        FINALLY_CLOSE(enumerator);
+        _CLDELETE(enumerator);
+    };
+    std::unique_ptr<lucene::index::TermEnum, decltype(close)> enumerator(nullptr, close);
     try {
+        enumerator.reset(_reader->terms(&start, _io_ctx));
         do {
             // The enumerator keeps its current term until next(), so no reference is taken.
             const lucene::index::Term* term = enumerator->term(false);
@@ -129,11 +141,12 @@ Status CluceneIndexSource::expand_terms(index_query::TermPattern& pattern, int32
                 }
             }
         } while (enumerator->next());
+    } catch (CLuceneError& e) {
+        error_context.eptr = std::current_exception();
+        error_context.err_msg = e.what();
     }
-    _CLFINALLY({
-        enumerator->close();
-        _CLDELETE(enumerator);
-    });
+    enumerator.reset();
+    FINALLY({});
     return Status::OK();
 }
 

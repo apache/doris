@@ -19,7 +19,19 @@
 
 #include <CLucene.h>
 
+#include <utility>
+
+#include "common/status.h"
+
 namespace doris::segment_v2 {
+
+Status clucene_error_status(std::string message) {
+    ErrorContext error_context;
+    error_context.eptr = std::current_exception();
+    error_context.err_msg = std::move(message);
+    FINALLY({});
+    return Status::OK();
+}
 
 void DirectoryDeleter::operator()(lucene::store::Directory* p) const {
     if (p != nullptr) {

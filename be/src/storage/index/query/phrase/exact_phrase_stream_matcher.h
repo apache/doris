@@ -74,13 +74,11 @@ void validate_exact_phrase_stream_inputs(std::span<Cursor> cursors,
 // target and stays on it, so a later call may give it again, whole(span) gives the document's
 // remaining positions when the cursor already holds all of them, and finish_doc() validates
 // skipped data. Every referenced cursor is finished before a successful match returns.
-namespace exact_phrase_stream_matcher_detail {
-
-template <typename Cursor, size_t Clauses>
-Status match_positions(std::span<Cursor> cursors,
-                       std::span<const size_t, Clauses> phrase_plan_index,
-                       std::span<const uint32_t, Clauses> position_offsets, bool* matched) {
-    DORIS_CHECK(matched != nullptr);
+template <typename Cursor>
+Status match_exact_phrase_positions(std::span<Cursor> cursors,
+                                    std::span<const size_t> phrase_plan_index,
+                                    std::span<const uint32_t> position_offsets, bool* matched) {
+    DCHECK(matched != nullptr);
 
     *matched = false;
 
@@ -118,20 +116,6 @@ Status match_positions(std::span<Cursor> cursors,
     }
     *matched = available && clause == phrase_plan_index.size();
     return exact_phrase_stream_matcher_detail::finish_document(cursors, phrase_plan_index);
-}
-
-} // namespace exact_phrase_stream_matcher_detail
-
-template <typename Cursor>
-Status match_exact_phrase_positions(std::span<Cursor> cursors,
-                                    std::span<const size_t> phrase_plan_index,
-                                    std::span<const uint32_t> position_offsets, bool* matched) {
-    if (phrase_plan_index.size() == 2) {
-        return exact_phrase_stream_matcher_detail::match_positions(
-                cursors, phrase_plan_index.first<2>(), position_offsets.first<2>(), matched);
-    }
-    return exact_phrase_stream_matcher_detail::match_positions(cursors, phrase_plan_index,
-                                                               position_offsets, matched);
 }
 
 // Opens the document before matching its buffered positions.

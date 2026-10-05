@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <span>
 #include <vector>
 
@@ -28,11 +27,10 @@
 namespace doris::index_query {
 
 // A borrowed view of one document's positions. Opening another document or
-// changing the postings block invalidates this cursor and any returned span.
+// changing the postings block invalidates this cursor.
 class PositionCursor {
 public:
     virtual ~PositionCursor() = default;
-    virtual uint32_t frequency() const = 0;
     virtual Status next_position(uint32_t* position, bool* available) = 0;
     // Consumes unread positions through the first one at or after target.
     virtual Status next_position_at_least(uint32_t target, uint32_t* position, bool* available) {
@@ -68,9 +66,6 @@ public:
         return Status::OK();
     }
     virtual Status finish_doc() = 0;
-
-    // An absent view requires streaming; an empty span is a materialized empty document.
-    virtual std::optional<std::span<const uint32_t>> view() const { return std::nullopt; }
 
     virtual Status append_remaining_positions(uint32_t offset, std::vector<uint32_t>& output) {
         uint32_t position = 0;

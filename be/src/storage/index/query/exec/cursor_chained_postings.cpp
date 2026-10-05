@@ -20,7 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
-#include <iterator>
+#include <numeric>
 
 #include "storage/index/query/docid_sink.h"
 
@@ -31,9 +31,42 @@ namespace {
 constexpr size_t kBitSetDocs = 16 * 1024;
 constexpr size_t kBitSetMinInput = 32;
 
-// The candidates a listed block holds, probed through a bit set over the block's span.
+struct DocumentOutput {
+    static constexpr bool needs_ordinals = false;
+    std::vector<uint32_t>* rows;
+
+    void append(uint32_t doc, uint32_t /*ordinal*/) const { rows->push_back(doc); }
+    void append_all(std::span<const uint32_t> docs) const {
+        rows->insert(rows->end(), docs.begin(), docs.end());
+    }
+};
+
+struct OrdinalOutput {
+    static constexpr bool needs_ordinals = true;
+    std::vector<uint32_t>* ordinals;
+
+    void append(uint32_t /*doc*/, uint32_t ordinal) const { ordinals->push_back(ordinal); }
+    void append_all(std::span<const uint32_t> docs) const {
+        const size_t begin = ordinals->size();
+        ordinals->resize(begin + docs.size());
+        std::iota(ordinals->begin() + begin, ordinals->end(), 0U);
+    }
+};
+
+struct SelectedOutput : DocumentOutput {
+    static constexpr bool needs_ordinals = true;
+    std::vector<uint32_t>* ordinals;
+
+    void append(uint32_t doc, uint32_t ordinal) const {
+        rows->push_back(doc);
+        ordinals->push_back(ordinal);
+    }
+};
+
+// Ordinal selection intersects one word at a time and ranks matches among the document bits.
+template <typename Output>
 void intersect_through_bit_set(std::span<const uint32_t> docs, std::span<const uint32_t> candidates,
-                               std::vector<uint32_t>* out) {
+                               Output out) {
     const uint32_t first = docs.front();
     const size_t words = ((docs.back() - first) >> 6) + 1;
     std::array<uint64_t, kBitSetDocs / 64> bits;
@@ -42,45 +75,79 @@ void intersect_through_bit_set(std::span<const uint32_t> docs, std::span<const u
         const uint32_t off = doc - first;
         bits[off >> 6] |= uint64_t {1} << (off & 63);
     }
-    for (const uint32_t candidate : candidates) {
-        const uint32_t off = candidate - first;
-        if ((bits[off >> 6] >> (off & 63)) & 1) {
-            out->push_back(candidate);
+    if constexpr (Output::needs_ordinals) {
+        size_t candidate = 0;
+        uint32_t preceding = 0;
+        for (size_t word = 0; word < words; ++word) {
+            uint64_t matches = 0;
+            const auto end = static_cast<uint32_t>((word + 1) * 64);
+            while (candidate < candidates.size() && candidates[candidate] - first < end) {
+                matches |= uint64_t {1} << ((candidates[candidate++] - first) & 63);
+            }
+            matches &= bits[word];
+            while (matches != 0) {
+                const auto bit = static_cast<uint32_t>(std::countr_zero(matches));
+                const uint32_t ordinal =
+                        preceding + static_cast<uint32_t>(std::popcount(
+                                            bits[word] & ((uint64_t {1} << bit) - 1)));
+                out.append(first + static_cast<uint32_t>(word * 64) + bit, ordinal);
+                matches &= matches - 1;
+            }
+            preceding += static_cast<uint32_t>(std::popcount(bits[word]));
+        }
+    } else {
+        for (const uint32_t candidate : candidates) {
+            const uint32_t off = candidate - first;
+            if ((bits[off >> 6] & (uint64_t {1} << (off & 63))) != 0) {
+                out.append(candidate, 0);
+            }
         }
     }
 }
 
-// The candidates a listed block holds, all within its span: identical lists are the result as
-// they are, a few candidates are searched, many within a narrow span are probed through a bit
-// set, and the rest merge.
+// Selects documents or their block ordinals with the same intersection strategy.
+template <typename Output>
 void intersect_block(std::span<const uint32_t> docs, std::span<const uint32_t> candidates,
-                     std::vector<uint32_t>* out) {
-    if (candidates.size() == docs.size() && candidates.front() == docs.front() &&
-        candidates.back() == docs.back() && std::ranges::equal(candidates, docs)) {
-        out->insert(out->end(), candidates.begin(), candidates.end());
+                     Output out) {
+    if (docs.empty() || candidates.empty()) {
         return;
     }
-    // The candidates lie within the block's span, so as many as its width fill it and hold every
-    // document of the block.
+    if (candidates.size() == docs.size() && candidates.front() == docs.front() &&
+        candidates.back() == docs.back() && std::ranges::equal(candidates, docs)) {
+        out.append_all(docs);
+        return;
+    }
     const uint64_t width = static_cast<uint64_t>(docs.back()) - docs.front() + 1;
     if (candidates.size() == width) {
-        out->insert(out->end(), docs.begin(), docs.end());
+        out.append_all(docs);
         return;
     }
     const size_t probes_per_candidate = std::bit_width(docs.size()) + 1;
     if (candidates.size() < docs.size() / probes_per_candidate) {
+        auto next = docs.begin();
         for (const uint32_t candidate : candidates) {
-            if (std::ranges::binary_search(docs, candidate)) {
-                out->push_back(candidate);
+            next = std::lower_bound(next, docs.end(), candidate);
+            if (next == docs.end()) {
+                break;
+            }
+            if (*next == candidate) {
+                out.append(*next, static_cast<uint32_t>(next - docs.begin()));
+                ++next;
             }
         }
         return;
     }
     const size_t probes_per_doc = std::bit_width(candidates.size()) + 1;
     if (docs.size() < candidates.size() / probes_per_doc) {
-        for (const uint32_t doc : docs) {
-            if (std::ranges::binary_search(candidates, doc)) {
-                out->push_back(doc);
+        auto next = candidates.begin();
+        for (size_t ordinal = 0; ordinal < docs.size(); ++ordinal) {
+            next = std::lower_bound(next, candidates.end(), docs[ordinal]);
+            if (next == candidates.end()) {
+                break;
+            }
+            if (*next == docs[ordinal]) {
+                out.append(docs[ordinal], static_cast<uint32_t>(ordinal));
+                ++next;
             }
         }
         return;
@@ -90,13 +157,34 @@ void intersect_block(std::span<const uint32_t> docs, std::span<const uint32_t> c
         intersect_through_bit_set(docs, candidates, out);
         return;
     }
-    std::ranges::set_intersection(candidates, docs, std::back_inserter(*out));
+    size_t ordinal = 0;
+    size_t candidate = 0;
+    while (ordinal < docs.size() && candidate < candidates.size()) {
+        if (docs[ordinal] < candidates[candidate]) {
+            ++ordinal;
+        } else if (candidates[candidate] < docs[ordinal]) {
+            ++candidate;
+        } else {
+            out.append(docs[ordinal], static_cast<uint32_t>(ordinal));
+            ++ordinal;
+            ++candidate;
+        }
+    }
 }
 
 } // namespace
 
+void intersect_block_ordinals(std::span<const uint32_t> docs, std::span<const uint32_t> candidates,
+                              std::vector<uint32_t>* ordinals) {
+    intersect_block(docs, candidates, OrdinalOutput {ordinals});
+}
+
 Status CursorChainedPostings::start(const std::vector<uint32_t>* candidates) {
     _candidates = candidates;
+    if (_selected != nullptr) {
+        _selected->ordinals.clear();
+        _selected->blocks.clear();
+    }
     return _cursor.prefetch(candidates, /*positions=*/false);
 }
 
@@ -112,12 +200,20 @@ Status CursorChainedPostings::collect(std::vector<uint32_t>* out) {
     out->reserve(out->size() + std::min<uint64_t>(_candidates->size(), _cursor.doc_freq()));
     return for_each_candidate_block(
             _cursor, *_candidates,
-            [out](const PostingsBlock& block, std::span<const uint32_t> slice) {
+            [this, out](const PostingsBlock& block, std::span<const uint32_t> slice) {
                 // A dense block holds every candidate in its span.
                 if (block.dense) {
                     out->insert(out->end(), slice.begin(), slice.end());
+                } else if (_selected != nullptr) {
+                    const size_t begin = _selected->ordinals.size();
+                    intersect_block(block.docs, slice,
+                                    SelectedOutput {{out}, &_selected->ordinals});
+                    if (_selected->ordinals.size() != begin) {
+                        _selected->blocks.push_back(
+                                {block.docs.back(), _selected->ordinals.size()});
+                    }
                 } else {
-                    intersect_block(block.docs, slice, out);
+                    intersect_block(block.docs, slice, DocumentOutput {out});
                 }
                 return Status::OK();
             });

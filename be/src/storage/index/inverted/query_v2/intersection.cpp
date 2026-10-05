@@ -193,20 +193,6 @@ float Intersection<TDocSet, TOtherDocSet>::score() {
 }
 
 template <typename TDocSet, typename TOtherDocSet>
-template <typename T>
-std::enable_if_t<std::is_same_v<TDocSet, T>, TDocSet&>
-Intersection<TDocSet, TOtherDocSet>::docset_mut_specialized(size_t ord) {
-    switch (ord) {
-    case 0:
-        return _left;
-    case 1:
-        return _right;
-    default:
-        return _others[ord - 2];
-    }
-}
-
-template <typename TDocSet, typename TOtherDocSet>
 uint32_t Intersection<TDocSet, TOtherDocSet>::intersect_from(uint32_t candidate) {
     if (_candidates_lead) {
         candidate = seek_lead(candidate);
@@ -283,9 +269,7 @@ uint32_t Intersection<TDocSet, TOtherDocSet>::next_candidate_row(uint32_t doc) {
     template class Intersection<T, T>;                                         \
     template std::enable_if_t<std::is_same_v<T, T>, IntersectionPtr<T, T>>     \
     Intersection<T, T>::create<T>(std::vector<T> & docsets, uint32_t num_docs, \
-                                  const roaring::Roaring* candidates);         \
-    template std::enable_if_t<std::is_same_v<T, T>, T&>                        \
-    Intersection<T, T>::docset_mut_specialized<T>(size_t ord);
+                                  const roaring::Roaring* candidates);
 
 INSTANTIATE_INTERSECTION(PostingsPtr)
 INSTANTIATE_INTERSECTION(SegmentPostingsPtr)

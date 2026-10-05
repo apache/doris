@@ -236,7 +236,7 @@ TEST_F(MultiSegmentCollectorTest, ScoredRowsReachTheSimilarityInTheGlobalDocIdDo
         std::vector<uint32_t> actual_rows(rows->cardinality());
         rows->toUint32Array(actual_rows.data());
         EXPECT_EQ(actual_rows, expected_rows[i]) << i;
-        const auto scores = similarity->release_scores();
+        const auto& scores = similarity->_bm25_scores;
         const std::map<uint32_t, float> actual(scores.begin(), scores.end());
         EXPECT_EQ(actual, expected) << i;
     }

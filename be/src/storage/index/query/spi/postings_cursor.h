@@ -106,8 +106,8 @@ public:
         (void)positions;
         return Status::OK();
     }
-    // Starts the listing over from the first block, keeping what was read. Only an adapter
-    // that keeps its bytes supports it.
+    // Restarts at the first block with the same block boundaries and document order.
+    // Only an adapter that keeps its bytes supports it.
     virtual Status rewind() { return Status::NotSupported("this posting type cannot rewind"); }
     // The mean work of decoding one document's positions, in positions, over the blocks whose
     // positions were read; 0 when the adapter cannot tell.
@@ -127,6 +127,13 @@ public:
     virtual Status open_positions(uint32_t ordinal, PositionCursor** out) {
         *out = nullptr;
         return Status::NotSupported("This posting type does not support positions");
+    }
+    // Opens the document and reads its first chunk in one call, which an adapter may fuse.
+    virtual Status open_position_stream(uint32_t ordinal, std::span<uint32_t> first_chunk,
+                                        size_t* count, PositionCursor** out) {
+        *count = 0;
+        RETURN_IF_ERROR(open_positions(ordinal, out));
+        return (*out)->next_positions(first_chunk, count);
     }
     // The positions of the document at `ordinal`, each plus `offset`, appended to `output`:
     // the open and the drain as one call, which an adapter may fuse.

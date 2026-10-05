@@ -362,7 +362,8 @@ public:
                             InvertedIndexQueryCacheHandle* cache_handler, bool enabled = true);
 
     virtual Status handle_searcher_cache(const IndexQueryContextPtr& context,
-                                         InvertedIndexCacheHandle* inverted_index_cache_handle);
+                                         InvertedIndexCacheHandle* inverted_index_cache_handle,
+                                         const std::string& index_file_key = {});
     std::string get_index_file_path();
     static Status create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
                                         lucene::store::Directory* dir, IndexSearcherPtr* searcher,
@@ -394,15 +395,15 @@ struct OpenedIndex {
     virtual ~OpenedIndex() = default;
 };
 
-// A leaf query once its cache identity is known. `plan` yields the leaf a cache miss runs.
+// A raw query or a borrowed leaf already lowered by the caller.
 struct LeafRequest {
     InvertedIndexQueryType query_type;
-    InvertedIndexQueryCache::CacheKey cache_key;
+    // Null for a raw query, which is lowered only after a cache miss.
+    const index_query::logical::Node* leaf = nullptr;
     // The longest value the STRING_TYPE ignore_above limit applies to.
     size_t longest_value_bytes = 0;
     // The value messages quote, and the pattern a gram query compiles.
     std::string_view text;
-    std::function<Status(index_query::logical::Node*)> plan;
     // The analyzer that cuts a MATCH value; null when the index's own does, and for a leaf.
     const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
 };
@@ -471,9 +472,10 @@ protected:
                           OpenedIndex& index, const std::string& term, bool* handled,
                           std::shared_ptr<roaring::Roaring>* out);
 
-    // Opens the index, through the searcher cache when the session enables it.
+    // Opens the index through the searcher cache, reusing an already constructed index key.
     virtual Status _open_index(const IndexQueryContextPtr& context,
-                               std::unique_ptr<OpenedIndex>* out) = 0;
+                               std::unique_ptr<OpenedIndex>* out,
+                               const std::string& index_file_key = {}) = 0;
     // The engine's source for `field` over the open index.
     virtual index_query::IndexSourcePtr _bind_source(const IndexQueryContextPtr& context,
                                                      const std::wstring& field,
@@ -510,13 +512,9 @@ class CluceneTextIndexReader : public TextIndexReader {
 public:
     using TextIndexReader::TextIndexReader;
 
-    // Opens the index's full-text searcher through the searcher cache; `handle` keeps it alive.
-    Status open_searcher(const IndexQueryContextPtr& context, InvertedIndexCacheHandle* handle,
-                         FulltextIndexSearcherPtr* searcher);
-
 protected:
-    Status _open_index(const IndexQueryContextPtr& context,
-                       std::unique_ptr<OpenedIndex>* out) override;
+    Status _open_index(const IndexQueryContextPtr& context, std::unique_ptr<OpenedIndex>* out,
+                       const std::string& index_file_key = {}) override;
     index_query::IndexSourcePtr _bind_source(const IndexQueryContextPtr& context,
                                              const std::wstring& field,
                                              OpenedIndex& index) override;

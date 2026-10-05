@@ -271,10 +271,11 @@ void InvertedIndexReader::insert_query_cache(const IndexQueryContextPtr& context
 }
 
 Status InvertedIndexReader::handle_searcher_cache(
-        const IndexQueryContextPtr& context,
-        InvertedIndexCacheHandle* inverted_index_cache_handle) {
+        const IndexQueryContextPtr& context, InvertedIndexCacheHandle* inverted_index_cache_handle,
+        const std::string& index_file_key) {
     InvertedIndexSearcherCache::CacheKey searcher_cache_key(
-            _index_file_reader->get_index_file_cache_key(&_index_meta));
+            index_file_key.empty() ? _index_file_reader->get_index_file_cache_key(&_index_meta)
+                                   : index_file_key);
     const auto& query_options = context->runtime_state->query_options();
 
     bool cache_hit = false;
@@ -502,11 +503,9 @@ Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring&
                                      field, context->io_ctx),
                 reader->maxDoc(), result));
     } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
-                                                                      e.what());
+        return clucene_error_status(fmt::format("CLuceneError occurred: {}", e.what()));
     } catch (const Exception& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("Exception occurred: {}",
-                                                                      e.what());
+        return clucene_error_status(fmt::format("Exception occurred: {}", e.what()));
     }
     return Status::OK();
 }
@@ -661,21 +660,10 @@ Status TextIndexReader::query_leaf(const IndexQueryContextPtr& context,
                                    const std::string& column_name, const logical::Node& leaf,
                                    std::shared_ptr<roaring::Roaring>& bit_map,
                                    InvertedIndexQueryCacheHandle* null_bitmap_cache_handle) {
-    const InvertedIndexQueryType query_type = logical::leaf_query_type(leaf);
-    const InvertedIndexLeafSemantic semantic {
-            .leaf = &leaf, .max_expansions = index_query::max_expansions(*context)};
-    const LeafRequest request {
-            .query_type = query_type,
-            .cache_key = {.index_path = _index_file_reader->get_index_file_cache_key(&_index_meta),
-                          .column_name = column_name,
-                          .query_type = query_type,
-                          .value = semantic.encode()},
-            .longest_value_bytes = longest_term(leaf),
-            .text = {},
-            .plan = [&leaf](logical::Node* out) {
-                *out = leaf;
-                return Status::OK();
-            }};
+    const LeafRequest request {.query_type = logical::leaf_query_type(leaf),
+                               .leaf = &leaf,
+                               .longest_value_bytes = longest_term(leaf),
+                               .text = {}};
     return _execute(context, column_name, request, bit_map, null_bitmap_cache_handle);
 }
 
@@ -685,46 +673,10 @@ Status TextIndexReader::_query_raw(const IndexQueryContextPtr& context,
                                    std::shared_ptr<roaring::Roaring>& bit_map,
                                    InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
                                    const InvertedIndexAnalyzerCtx* analyzer_ctx) {
-    // The cache key holds the raw value: the index's properties and policies decide its analysis
-    // and never change once referenced, so a hit needs neither analysis nor an open index.
-    const InvertedIndexRawQuerySemantic raw_semantic {
-            .raw_query_bytes = value,
-            .query_type = query_type,
-            .max_expansions = index_query::max_expansions(*context)};
-    // One capture keeps the plan inside std::function's inline storage.
-    struct Lowering {
-        const IndexQueryContextPtr& context;
-        InvertedIndexQueryType query_type;
-        const std::string& value;
-        const InvertedIndexAnalyzerCtx* analyzer_ctx;
-        const std::map<std::string, std::string>& properties;
-    };
-    const Lowering lowering {.context = context,
-                             .query_type = query_type,
-                             .value = value,
-                             .analyzer_ctx = analyzer_ctx,
-                             .properties = _index_meta.properties()};
-    const LeafRequest request {
-            .query_type = query_type,
-            .cache_key = {.index_path = _index_file_reader->get_index_file_cache_key(&_index_meta),
-                          .column_name = column_name,
-                          .query_type = query_type,
-                          .value = raw_semantic.encode()},
-            .longest_value_bytes = value.size(),
-            .text = value,
-            .plan =
-                    [&lowering](logical::Node* out) {
-                        SCOPED_RAW_TIMER(&lowering.context->stats->inverted_index_analyzer_timer);
-                        return logical::lower_match(
-                                lowering.query_type, lowering.value,
-                                [&lowering](std::string_view text, std::vector<TermInfo>* tokens) {
-                                    return inverted_index::InvertedIndexAnalyzer::analyze(
-                                            text, lowering.analyzer_ctx, lowering.properties,
-                                            tokens);
-                                },
-                                out);
-                    },
-            .analyzer_ctx = analyzer_ctx};
+    const LeafRequest request {.query_type = query_type,
+                               .longest_value_bytes = value.size(),
+                               .text = value,
+                               .analyzer_ctx = analyzer_ctx};
     return _execute(context, column_name, request, bit_map, null_bitmap_cache_handle);
 }
 
@@ -787,7 +739,8 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
         return status;
     };
 
-    if (type() == InvertedIndexReaderType::STRING_TYPE) {
+    const bool keyword = type() == InvertedIndexReaderType::STRING_TYPE;
+    if (keyword) {
         // A keyword index drops values longer than ignore_above: a longer query value finds
         // nothing in it, and a contains match may still need such a value, so rows answer both.
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
@@ -807,7 +760,21 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
     const bool scoring = context->collection_similarity != nullptr &&
                          IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta);
     const bool allow_result_cache = !scoring && admission.cacheable;
-    const InvertedIndexQueryCache::CacheKey& cache_key = request.cache_key;
+    InvertedIndexQueryCache::CacheKey cache_key {
+            .index_path = {}, .column_name = {}, .query_type = query_type, .value = {}};
+    if (allow_result_cache) {
+        cache_key.index_path = _index_file_reader->get_index_file_cache_key(&_index_meta);
+        cache_key.column_name = column_name;
+        const int32_t max_expansions = index_query::max_expansions(*context);
+        cache_key.value = request.leaf != nullptr
+                                  ? InvertedIndexLeafSemantic {.leaf = request.leaf,
+                                                               .max_expansions = max_expansions}
+                                            .encode()
+                                  : InvertedIndexRawQuerySemantic {.raw_query_bytes = request.text,
+                                                                   .query_type = query_type,
+                                                                   .max_expansions = max_expansions}
+                                            .encode();
+    }
     auto* cache = InvertedIndexQueryCache::instance();
     InvertedIndexQueryCacheHandle cache_handler;
     if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map,
@@ -818,21 +785,41 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
     // A gram query runs over the index's grams; any other request is planned, before the index
     // opens unless its format admits the segment first.
     const bool gram = is_gram_query(query_type);
-    logical::Node leaf;
+    logical::Node lowered;
+    const logical::Node* leaf = request.leaf;
+    const auto plan = [&]() -> Status {
+        if (leaf != nullptr) {
+            return Status::OK();
+        }
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
+        logical::AnalyzeValue analyze;
+        const bool analyzed = request.analyzer_ctx != nullptr
+                                      ? request.analyzer_ctx->requires_analysis()
+                                      : !keyword;
+        if (analyzed) {
+            analyze = [&](std::string_view text, std::vector<TermInfo>* tokens) {
+                return inverted_index::InvertedIndexAnalyzer::analyze(
+                        text, request.analyzer_ctx, _index_meta.properties(), tokens);
+            };
+        }
+        RETURN_IF_ERROR(logical::lower_match(query_type, request.text, analyze, &lowered));
+        leaf = &lowered;
+        return Status::OK();
+    };
     if (!gram && admission.plan_before_open) {
-        RETURN_IF_ERROR(request.plan(&leaf));
+        RETURN_IF_ERROR(plan());
     }
     std::unique_ptr<OpenedIndex> index;
-    if (Status status = _open_index(context, &index); !status.ok()) {
+    if (Status status = _open_index(context, &index, cache_key.index_path); !status.ok()) {
         return admission.open_failed == nullptr ? status : admission.open_failed(std::move(status));
     }
     if (admission.check_open != nullptr) {
         RETURN_IF_ERROR(admission.check_open(*index));
     }
     if (!gram && !admission.plan_before_open) {
-        RETURN_IF_ERROR(request.plan(&leaf));
+        RETURN_IF_ERROR(plan());
     }
-    if (!gram && leaf.as<logical::Empty>() != nullptr) {
+    if (!gram && leaf->as<logical::Empty>() != nullptr) {
         auto msg = fmt::format("token parser result is empty for query '{}'", request.text);
         if (is_match_query(query_type)) {
             LOG(WARNING) << msg;
@@ -881,7 +868,7 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
     // since a cached row-accurate bitmap counts correctly, and the count-shaped bitmap never
     // enters the cache or the flight, which serve real row ids.
     if (context->count_on_index_fastpath) {
-        if (const std::string* term = single_exact_term(leaf); term != nullptr) {
+        if (const std::string* term = single_exact_term(*leaf); term != nullptr) {
             bool handled = false;
             std::shared_ptr<roaring::Roaring> count_bitmap;
             RETURN_IF_ERROR(
@@ -897,11 +884,12 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
         }
     }
 
-    const bool consume_candidates = context->candidate_rows != nullptr && consumes_candidates(leaf);
+    const bool consume_candidates =
+            context->candidate_rows != nullptr && consumes_candidates(*leaf);
     const roaring::Roaring* candidates = consume_candidates ? context->candidate_rows : nullptr;
     if (!allow_result_cache || consume_candidates) {
         RETURN_IF_ERROR(
-                _run_leaf(context, column_name, *index, leaf, candidates, scoring, &result));
+                _run_leaf(context, column_name, *index, *leaf, candidates, scoring, &result));
         // A phrase with a slot the index lacks stops before the candidates: its result is empty
         // for the whole segment, so it may be cached.
         if (consume_candidates && !context->candidate_rows_consumed) {
@@ -912,7 +900,7 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
     } else {
         RETURN_IF_ERROR(run_shared(
                 [&](std::shared_ptr<roaring::Roaring>* out) {
-                    return _run_leaf(context, column_name, *index, leaf, nullptr, false, out);
+                    return _run_leaf(context, column_name, *index, *leaf, nullptr, false, out);
                 },
                 &result));
     }
@@ -987,27 +975,20 @@ struct CluceneOpenedIndex : OpenedIndex {
 
 } // namespace
 
-Status CluceneTextIndexReader::open_searcher(const IndexQueryContextPtr& context,
-                                             InvertedIndexCacheHandle* handle,
-                                             FulltextIndexSearcherPtr* searcher) {
+Status CluceneTextIndexReader::_open_index(const IndexQueryContextPtr& context,
+                                           std::unique_ptr<OpenedIndex>* out,
+                                           const std::string& index_file_key) {
+    auto opened = std::make_unique<CluceneOpenedIndex>();
     try {
-        RETURN_IF_ERROR(handle_searcher_cache(context, handle));
+        RETURN_IF_ERROR(handle_searcher_cache(context, &opened->handle, index_file_key));
     } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
-                                                                      e.what());
+        return clucene_error_status(fmt::format("CLuceneError occurred: {}", e.what()));
     }
-    auto variant = handle->get_index_searcher();
+    auto variant = opened->handle.get_index_searcher();
     auto* fulltext = std::get_if<FulltextIndexSearcherPtr>(&variant);
     // A text index always builds a full-text searcher.
     DORIS_CHECK(fulltext != nullptr);
-    *searcher = *fulltext;
-    return Status::OK();
-}
-
-Status CluceneTextIndexReader::_open_index(const IndexQueryContextPtr& context,
-                                           std::unique_ptr<OpenedIndex>* out) {
-    auto opened = std::make_unique<CluceneOpenedIndex>();
-    RETURN_IF_ERROR(open_searcher(context, &opened->handle, &opened->searcher));
+    opened->searcher = *fulltext;
     *out = std::move(opened);
     return Status::OK();
 }
@@ -1032,8 +1013,7 @@ Status CluceneTextIndexReader::_term_document_frequency(const std::string& colum
         // Every row has a document, a NULL row an empty one.
         *document_count = reader->maxDoc();
     } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
-                                                                      e.what());
+        return clucene_error_status(fmt::format("CLuceneError occurred: {}", e.what()));
     }
     return Status::OK();
 }

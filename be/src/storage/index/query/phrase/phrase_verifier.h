@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <utility>
@@ -70,18 +71,20 @@ public:
         const size_t term_count = *std::ranges::max_element(clause_terms_) + 1;
         can_stream_ = slop == 0 && clause_terms_.size() > 1 && term_count == clause_terms_.size() &&
                       std::ranges::adjacent_find(offsets_, std::greater_equal {}) == offsets_.end();
-        term_begins_.resize(term_count);
-        term_ends_.resize(term_count);
-        loaded_epoch_.resize(term_count);
-        if (slop > 0) {
-            clause_spans_.resize(clause_terms_.size());
-            sloppy_.emplace(clause_terms_, offsets_, slop, ordered);
-        } else if (clause_terms_.size() > 2) {
-            DORIS_CHECK_EQ(clause_costs.size(), clause_terms_.size());
-            exact_.emplace(offsets_,
-                           select_phrase_verification_pair(clause_costs.size(), [&](size_t clause) {
-                               return clause_costs[clause];
-                           }));
+        if (slop > 0 || clause_terms_.size() > 2) {
+            state_ = std::make_unique<MatcherState>();
+            state_->term_positions.resize(term_count);
+            state_->loaded_epoch.resize(term_count);
+            if (slop > 0) {
+                state_->clause_spans.resize(clause_terms_.size());
+                state_->sloppy.emplace(clause_terms_, offsets_, slop, ordered);
+            } else {
+                DORIS_CHECK_EQ(clause_costs.size(), clause_terms_.size());
+                state_->exact.emplace(offsets_, select_phrase_verification_pair(
+                                                        clause_costs.size(), [&](size_t clause) {
+                                                            return clause_costs[clause];
+                                                        }));
+            }
         }
     }
 
@@ -103,7 +106,7 @@ public:
     // Inlined, it runs inside each caller's per-document loop.
     template <typename Load>
     ALWAYS_INLINE Status verify(Load load, bool collect_frequency, float* frequency) {
-        if (!sloppy_.has_value() && !exact_.has_value()) {
+        if (state_ == nullptr) {
             PhrasePositionSpan left;
             RETURN_IF_ERROR(load(clause_terms_[0], &left));
             if (clause_terms_.size() == 1) {
@@ -120,53 +123,59 @@ public:
                                       : contains_two_term_phrase(left, right, offsets_[1]));
             return Status::OK();
         }
-        // Each document gets a new epoch, so the loaded marks need no clearing per document.
-        if (++epoch_ == 0) {
-            std::ranges::fill(loaded_epoch_, 0);
-            epoch_ = 1;
-        }
-        const auto clause_positions = [&](size_t clause, PhrasePositionSpan* span) -> Status {
-            const size_t term = clause_terms_[clause];
-            if (loaded_epoch_[term] != epoch_) {
-                PhrasePositionSpan loaded;
-                RETURN_IF_ERROR(load(term, &loaded));
-                term_begins_[term] = loaded.first;
-                term_ends_[term] = loaded.second;
-                loaded_epoch_[term] = epoch_;
-            }
-            *span = {term_begins_[term], term_ends_[term]};
-            return Status::OK();
-        };
-        *frequency = 0.0F;
-        if (sloppy_.has_value()) {
-            for (size_t clause = 0; clause < clause_spans_.size(); ++clause) {
-                RETURN_IF_ERROR(clause_positions(clause, &clause_spans_[clause]));
-            }
-            *frequency = sloppy_->match(clause_spans_, collect_frequency);
-            return Status::OK();
-        }
-        if (exact_.has_value()) {
-            uint32_t count = 0;
-            RETURN_IF_ERROR(exact_->match(clause_positions, collect_frequency, &count));
-            *frequency = static_cast<float>(count);
-            return Status::OK();
-        }
-        return Status::OK();
+        return state_->verify(clause_terms_, load, collect_frequency, frequency);
     }
 
 private:
+    struct MatcherState {
+        template <typename Load>
+        Status verify(std::span<const size_t> clauses, Load load, bool collect_frequency,
+                      float* frequency) {
+            // Each document gets a new epoch, so the loaded marks need no clearing per document.
+            if (++epoch == 0) {
+                std::ranges::fill(loaded_epoch, 0);
+                epoch = 1;
+            }
+            const auto clause_positions = [&](size_t clause, PhrasePositionSpan* span) -> Status {
+                const size_t term = clauses[clause];
+                if (loaded_epoch[term] != epoch) {
+                    PhrasePositionSpan loaded;
+                    RETURN_IF_ERROR(load(term, &loaded));
+                    term_positions[term] = loaded;
+                    loaded_epoch[term] = epoch;
+                }
+                *span = term_positions[term];
+                return Status::OK();
+            };
+            *frequency = 0.0F;
+            if (sloppy.has_value()) {
+                for (size_t clause = 0; clause < clause_spans.size(); ++clause) {
+                    RETURN_IF_ERROR(clause_positions(clause, &clause_spans[clause]));
+                }
+                *frequency = sloppy->match(clause_spans, collect_frequency);
+                return Status::OK();
+            }
+            if (exact.has_value()) {
+                uint32_t count = 0;
+                RETURN_IF_ERROR(exact->match(clause_positions, collect_frequency, &count));
+                *frequency = static_cast<float>(count);
+                return Status::OK();
+            }
+            return Status::OK();
+        }
+
+        std::vector<PhrasePositionSpan> term_positions;
+        std::vector<uint32_t> loaded_epoch;
+        uint32_t epoch = 0;
+        std::vector<PhrasePositionSpan> clause_spans;
+        std::optional<SloppyPhraseMatcher> sloppy;
+        std::optional<ExactPhraseMatcher> exact;
+    };
+
     std::vector<size_t> clause_terms_;
     std::vector<uint32_t> offsets_;
-    // Begins and ends live apart so that a loader's two pointer reads stay two 8-byte loads: one
-    // 16-byte read right after the loader appended positions would wait for that store.
-    std::vector<const uint32_t*> term_begins_;
-    std::vector<const uint32_t*> term_ends_;
-    std::vector<uint32_t> loaded_epoch_;
-    uint32_t epoch_ = 0;
+    std::unique_ptr<MatcherState> state_;
     bool can_stream_ = false;
-    std::vector<PhrasePositionSpan> clause_spans_;
-    std::optional<SloppyPhraseMatcher> sloppy_;
-    std::optional<ExactPhraseMatcher> exact_;
 };
 
 } // namespace doris::index_query

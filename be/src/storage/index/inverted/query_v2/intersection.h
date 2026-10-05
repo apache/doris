@@ -53,9 +53,6 @@ public:
 
     float score() override;
 
-    template <typename T = TOtherDocSet>
-    std::enable_if_t<std::is_same_v<TDocSet, T>, TDocSet&> docset_mut_specialized(size_t ord);
-
 private:
     uint32_t intersect_from(uint32_t candidate);
     // Seeks the lead to `target`. Candidates cheaper than the second member then take it on to its

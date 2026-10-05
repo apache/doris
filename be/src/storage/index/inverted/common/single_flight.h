@@ -53,34 +53,29 @@ public:
     }
 
     void publish(const std::string& key, Result result) {
+        Result ready(std::move(result));
         auto& shard = _shard_for(key);
-        Flight* flight = nullptr;
+        std::optional<std::promise<Result>> promise;
         {
             std::lock_guard<std::mutex> guard(shard.mutex);
             auto it = shard.inflight.find(key);
             if (it == shard.inflight.end() || it->second.publishing) {
                 return;
             }
-            flight = &it->second;
-            flight->publishing = true;
-        }
-        // Move the result outside the lock while callers can still join this publication.
-        Result ready(std::move(result));
-        std::optional<std::promise<Result>> promise;
-        {
-            std::lock_guard<std::mutex> guard(shard.mutex);
-            if (!flight->promise.has_value()) {
-                shard.inflight.erase(key);
+            auto& flight = it->second;
+            if (!flight.promise.has_value()) {
+                shard.inflight.erase(it);
                 return;
             }
-            promise = std::move(flight->promise);
+            flight.publishing = true;
+            promise = std::move(flight.promise);
         }
         promise->set_value(std::move(ready));
         {
             std::lock_guard<std::mutex> guard(shard.mutex);
             auto it = shard.inflight.find(key);
             DORIS_CHECK(it != shard.inflight.end());
-            DORIS_CHECK(&it->second == flight);
+            DORIS_CHECK(it->second.publishing);
             shard.inflight.erase(it);
         }
     }

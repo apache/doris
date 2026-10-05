@@ -519,6 +519,46 @@ TEST(SearchLoweringTest, NestedIsRejected) {
     EXPECT_TRUE(lower_search_clause(clause, {}, catalog, &node).is<ErrorCode::INVALID_ARGUMENT>());
 }
 
+TEST(SearchLoweringTest, KeywordValuesKeepTheirBytesWithoutAnAnalyzer) {
+    for (const std::string value : {"", " ", "MiXeD token"}) {
+        Node node;
+        ASSERT_TRUE(lower_match(InvertedIndexQueryType::EQUAL_QUERY, value, {}, &node).ok());
+        ASSERT_NE(node.as<Term>(), nullptr);
+        EXPECT_EQ(node.as<Term>()->term, value);
+    }
+}
+
+TEST(SearchLoweringTest, KeywordMatchOperatorsKeepTheWholeValue) {
+    for (const auto type :
+         {InvertedIndexQueryType::MATCH_ANY_QUERY, InvertedIndexQueryType::MATCH_ALL_QUERY,
+          InvertedIndexQueryType::MATCH_PHRASE_QUERY}) {
+        Node node;
+        ASSERT_TRUE(lower_match(type, "MiXeD ~text", {}, &node).ok());
+        ASSERT_NE(node.as<Term>(), nullptr);
+        EXPECT_EQ(node.as<Term>()->term, "MiXeD ~text");
+    }
+}
+
+TEST(SearchLoweringTest, KeywordPhraseKeepsSlopAndExpansionSyntax) {
+    Node node;
+    ASSERT_TRUE(
+            lower_match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "apple ~1", {}, &node).ok());
+    ASSERT_NE(node.as<Term>(), nullptr);
+    EXPECT_EQ(node.as<Term>()->term, "apple");
+    ASSERT_TRUE(
+            lower_match(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "MiXeD token", {}, &node)
+                    .ok());
+    ASSERT_NE(node.as<Expand>(), nullptr);
+    EXPECT_EQ(node.as<Expand>()->kind, ExpandKind::kPrefix);
+    EXPECT_EQ(node.as<Expand>()->pattern, "MiXeD token");
+    ASSERT_TRUE(
+            lower_match(InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, "MiXeD token", {}, &node)
+                    .ok());
+    ASSERT_NE(node.as<Expand>(), nullptr);
+    EXPECT_EQ(node.as<Expand>()->kind, ExpandKind::kContains);
+    EXPECT_EQ(node.as<Expand>()->pattern, "MiXeD token");
+}
+
 TEST(SearchLoweringTest, MatchAnyAllAndEqualLowerToTermSets) {
     FakeCatalog catalog;
     auto any = match(InvertedIndexQueryType::MATCH_ANY_QUERY, "Quick fox", catalog);

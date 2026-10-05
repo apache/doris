@@ -351,6 +351,20 @@ Status lower_match(InvertedIndexQueryType query_type, std::string_view value,
     if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
         take_slop(&value, &phrase);
     }
+    if (!analyze) {
+        if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
+            out->value =
+                    Expand {.field = {},
+                            .kind = query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY
+                                            ? ExpandKind::kPrefix
+                                            : ExpandKind::kContains,
+                            .pattern = std::string(value)};
+        } else {
+            out->value = Term {.field = {}, .term = std::string(value)};
+        }
+        return Status::OK();
+    }
     std::vector<Token> tokens;
     RETURN_IF_ERROR(analyze(value, &tokens));
     // MATCH places a phrase's tokens by their order, so tokens an analyzer stacks at one position

@@ -730,25 +730,29 @@ std::span<const uint32_t> SniiPostingsCursor::_positions_of(uint32_t ordinal) co
 }
 
 Status SniiPostingsCursor::open_positions(uint32_t ordinal, index_query::PositionCursor** out) {
+    size_t count = 0;
+    return open_position_stream(ordinal, {}, &count, out);
+}
+
+Status SniiPostingsCursor::open_position_stream(uint32_t ordinal, std::span<uint32_t> first_chunk,
+                                                size_t* count, index_query::PositionCursor** out) {
     *out = nullptr;
+    *count = 0;
     if (!_positions_wanted) {
         return Status::NotSupported("This posting type does not support positions");
     }
-    DORIS_CHECK(_current_window != kNoWindow);
+    DCHECK(_current_window != kNoWindow);
     if (_streaming) {
         RETURN_IF_ERROR(_stream.seek(ordinal));
         _stream_ordinal = ordinal;
-        _doc_streamed = true;
-        _doc_open = true;
-        *out = this;
-        return Status::OK();
+    } else {
+        RETURN_IF_ERROR(_ensure_positions());
+        _doc_positions = _positions_of(ordinal);
+        _doc_position_next = 0;
     }
-    RETURN_IF_ERROR(_ensure_positions());
-    _doc_positions = _positions_of(ordinal);
-    _doc_position_next = 0;
     _doc_open = true;
     *out = this;
-    return Status::OK();
+    return first_chunk.empty() ? Status::OK() : next_positions(first_chunk, count);
 }
 
 Status SniiPostingsCursor::append_positions(uint32_t ordinal, uint32_t offset,
@@ -756,7 +760,7 @@ Status SniiPostingsCursor::append_positions(uint32_t ordinal, uint32_t offset,
     if (!_positions_wanted) {
         return Status::NotSupported("This posting type does not support positions");
     }
-    DORIS_CHECK(_current_window != kNoWindow);
+    DCHECK(_current_window != kNoWindow);
     RETURN_IF_ERROR(_ensure_positions());
     for (const uint32_t position : _positions_of(ordinal)) {
         output.push_back(position + offset);
@@ -772,7 +776,7 @@ Status SniiPostingsCursor::block_positions(std::span<const uint32_t> ordinals,
     if (!_positions_wanted) {
         return Status::NotSupported("This posting type does not support positions");
     }
-    DORIS_CHECK(_current_window != kNoWindow);
+    DCHECK(_current_window != kNoWindow);
     DCHECK(ordinals.empty() || ordinals.back() < _doc_count);
     if (!_positions_decoded && ordinals.size() * 2 < _doc_count) {
         return _decode_selected(ordinals, out);
@@ -800,14 +804,9 @@ Status SniiPostingsCursor::_decode_selected(std::span<const uint32_t> ordinals,
     return Status::OK();
 }
 
-uint32_t SniiPostingsCursor::frequency() const {
-    DORIS_CHECK(_doc_open);
-    return _doc_streamed ? _stream.freq() : static_cast<uint32_t>(_doc_positions.size());
-}
-
 Status SniiPostingsCursor::next_position(uint32_t* position, bool* available) {
-    DORIS_CHECK(_doc_open);
-    if (_doc_streamed) {
+    DCHECK(_doc_open);
+    if (_streaming) {
         return _stream.next_position(position, available);
     }
     if (_doc_position_next >= _doc_positions.size()) {
@@ -820,8 +819,8 @@ Status SniiPostingsCursor::next_position(uint32_t* position, bool* available) {
 }
 
 Status SniiPostingsCursor::next_positions(std::span<uint32_t> out, size_t* count) {
-    DORIS_CHECK(_doc_open);
-    if (_doc_streamed) {
+    DCHECK(_doc_open);
+    if (_streaming) {
         return _stream.next_positions(out, count);
     }
     *count = std::min(out.size(), _doc_positions.size() - _doc_position_next);
@@ -832,26 +831,17 @@ Status SniiPostingsCursor::next_positions(std::span<uint32_t> out, size_t* count
 
 // Finishing the last streamed document checks the rest of its frame.
 Status SniiPostingsCursor::finish_doc() {
-    DORIS_CHECK(_doc_open);
+    DCHECK(_doc_open);
     _doc_open = false;
-    if (!_doc_streamed) {
+    if (!_streaming) {
         return Status::OK();
     }
-    _doc_streamed = false;
     RETURN_IF_ERROR(_stream.finish_doc());
     if (_stream_ordinal != _stream_last) {
         return Status::OK();
     }
     _streaming = false;
     return _stream.finish_frame();
-}
-
-std::optional<std::span<const uint32_t>> SniiPostingsCursor::view() const {
-    DORIS_CHECK(_doc_open);
-    if (_doc_streamed) {
-        return std::nullopt;
-    }
-    return _doc_positions;
 }
 
 } // namespace doris::snii::reader

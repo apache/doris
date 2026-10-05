@@ -36,6 +36,7 @@
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/query_v2/null_bitmap_fetcher.h"
+#include "storage/index/inverted/query_v2/postings/listed_walk.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
 #include "storage/index/inverted/similarity/collection_statistics.h"
@@ -49,6 +50,62 @@ namespace {
 using index_query::testing::FakeIndexSource;
 
 const std::wstring kField = L"body";
+
+void check_term_walk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows,
+                     const index_query::SelectedPostings& selected,
+                     const std::map<uint32_t, uint32_t>& expected) {
+    ASSERT_TRUE(cursor.rewind().ok());
+    TermWalk walk(cursor, rows, &selected);
+    for (size_t row = 0; row < rows.size(); ++row) {
+        ASSERT_TRUE(walk.prepare(row, rows[row]).ok());
+        const auto positions = walk.positions(row);
+        ASSERT_EQ(positions.second - positions.first, 1);
+        EXPECT_EQ(*positions.first, expected.at(rows[row]));
+    }
+}
+
+void check_stream_position(StreamWalk& stream, uint32_t expected) {
+    index_query::PhrasePositionSpan positions;
+    ASSERT_TRUE(stream.whole(&positions));
+    ASSERT_EQ(positions.second - positions.first, 1);
+    EXPECT_EQ(*positions.first, expected);
+    ASSERT_TRUE(stream.finish_doc().ok());
+}
+
+void check_stream_walk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows,
+                       const index_query::SelectedPostings& selected,
+                       const std::map<uint32_t, uint32_t>& expected) {
+    ASSERT_TRUE(cursor.rewind().ok());
+    StreamWalk stream(cursor, rows, &selected);
+    for (const uint32_t doc : rows) {
+        ASSERT_TRUE(stream.prepare().ok());
+        ASSERT_TRUE(stream.seek(doc).ok());
+        check_stream_position(stream, expected.at(doc));
+    }
+}
+
+TEST(ListedTermsWalkTest, RetainedOrdinalsSurviveFurtherCandidateFiltering) {
+    index_query::testing::FakePostingsCursor cursor({{.doc = 1, .positions = {0}},
+                                                     {.doc = 2, .positions = {10}},
+                                                     {.doc = 5, .positions = {20}},
+                                                     {.doc = 8, .positions = {30}},
+                                                     {.doc = 11, .positions = {40}}},
+                                                    /*positions=*/true, /*scoring=*/false);
+    const std::vector<uint32_t> candidates = {2, 5, 8, 11};
+    index_query::SelectedPostings selected;
+    index_query::CursorChainedPostings term(cursor, &selected);
+    ASSERT_TRUE(term.start(&candidates).ok());
+    std::vector<uint32_t> matched;
+    ASSERT_TRUE(term.collect(&matched).ok());
+    EXPECT_EQ(matched, candidates);
+    ASSERT_EQ(selected.ordinals.size(), candidates.size());
+
+    const std::map<uint32_t, uint32_t> expected = {{2, 10}, {5, 20}, {8, 30}, {11, 40}};
+    for (const auto& remaining : {candidates, std::vector<uint32_t> {5, 11}}) {
+        check_term_walk(cursor, remaining, selected, expected);
+        check_stream_walk(cursor, remaining, selected, expected);
+    }
+}
 
 class FieldNullIterator final : public segment_v2::IndexIterator {
 public:

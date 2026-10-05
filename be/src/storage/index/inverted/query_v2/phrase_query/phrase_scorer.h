@@ -36,7 +36,12 @@ class PhraseScorer : public Scorer {
 public:
     using IntersectionDocSetPtr = IntersectionPtr<TPostings, TPostings>;
 
-    PhraseScorer(IntersectionDocSetPtr intersection_docset, std::vector<TPostings> terms,
+    struct TermState {
+        TPostings postings;
+        std::vector<uint32_t> positions;
+    };
+
+    PhraseScorer(IntersectionDocSetPtr intersection_docset, std::vector<TermState> terms,
                  size_t num_clauses, index_query::PhraseVerifier verifier,
                  index_query::ScoringContextPtr<float> similarity);
     ~PhraseScorer() override;
@@ -59,8 +64,7 @@ public:
 
 private:
     IntersectionDocSetPtr _intersection_docset;
-    std::vector<TPostings> _terms;
-    std::vector<std::vector<uint32_t>> _positions;
+    std::vector<TermState> _terms;
     index_query::PhraseVerifier _verifier;
     std::vector<index_query::PositionStream> _streams;
     size_t _num_clauses = 0;

@@ -20,12 +20,22 @@
 #include <CLucene.h>
 #include <gtest/gtest.h>
 
+#include <array>
+#include <limits>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
 #include "CLucene/index/DocRange.h"
+#include "CLucene/index/MultiReader.h"
+#include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
+#include "storage/index/inverted/query_v2/postings/listed_walk.h"
+#include "storage/index/inverted/similarity/bm25_similarity.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/spi/clucene_postings_cursor.h"
 #include "storage/index/query/fake_index_source.h"
+#include "storage/index/query/phrase/exact_phrase_stream_matcher.h"
+#include "storage/index/query/term_pattern.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -201,6 +211,203 @@ private:
 
 class SegmentPostingsTest : public testing::Test {};
 
+class ChunkedPositions final : public MockTermPositions {
+public:
+    explicit ChunkedPositions(size_t block_size)
+            : MockTermPositions({1, 2, 5, 8, 11, 20, 27}, {1, 1, 1, 1, 1, 1, 1},
+                                {1, 1, 1, 1, 1, 1, 1},
+                                {{10}, {20}, {50}, {80}, {110}, {200}, {270}}, 7),
+              _block_size(block_size) {}
+
+    bool readBlock(DocRange* block) override {
+        ++reads;
+        if (fail_read == reads) {
+            _CLTHROWA(CL_ERR_IO, "Injected position-block failure");
+        }
+        if (_next == _docs.size()) {
+            return false;
+        }
+        const size_t end = std::min(_next + _block_size, _docs.size());
+        _block_docs.assign(_docs.begin() + _next, _docs.begin() + end);
+        _block_freqs.assign(end - _next, 1);
+        _prox_idx = _next;
+        block->type_ = DocRangeType::kMany;
+        block->doc_many = &_block_docs;
+        block->freq_many = &_block_freqs;
+        block->doc_many_size_ = block->freq_many_size_ = end - _next;
+        _next = end;
+        return true;
+    }
+
+    size_t reads = 0;
+    size_t fail_read = 0;
+
+private:
+    size_t _block_size;
+    size_t _next = 0;
+    std::vector<uint32_t> _block_docs;
+    std::vector<uint32_t> _block_freqs;
+};
+
+class DenseTermPositions final : public MockTermPositions {
+public:
+    explicit DenseTermPositions(uint32_t first)
+            : MockTermPositions({first, first + 1, first + 2}, {1, 2, 1}, {3, 4, 5},
+                                {{5}, {8, 13}, {21}}, 3) {}
+
+    bool readBlock(DocRange* block) override {
+        const bool found = MockTermPositions::readBlock(block);
+        if (found) {
+            block->type_ = DocRangeType::kRange;
+            block->doc_range = {_docs.front(), _docs.back() + 1};
+        }
+        return found;
+    }
+};
+
+void check_dense_block_view(const index_query::PostingsBlock& block, uint32_t first) {
+    EXPECT_TRUE(block.dense);
+    EXPECT_EQ(block.range_begin, first);
+    EXPECT_EQ(block.range_end, static_cast<uint64_t>(first) + 3);
+    ASSERT_EQ(block.size(), 3U);
+    const auto suffix = block.suffix(1);
+    ASSERT_EQ(suffix.size(), 2U);
+    EXPECT_EQ(suffix.doc_at(0), first + 1);
+    EXPECT_EQ(suffix.doc_at(1), first + 2);
+    EXPECT_EQ(suffix.freq_at(0), 2U);
+    EXPECT_EQ(suffix.norm_at(0), 4U);
+}
+
+void check_dense_block(uint32_t first) {
+    ClucenePostingsCursor cursor {TermPositionsPtr(new DenseTermPositions(first))};
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(cursor.next_block(&block, &eof).ok());
+    ASSERT_FALSE(eof);
+    check_dense_block_view(block, first);
+    std::vector<uint32_t> positions;
+    ASSERT_TRUE(cursor.append_positions(1, 0, positions).ok());
+    EXPECT_EQ(positions, (std::vector<uint32_t> {8, 13}));
+    ASSERT_TRUE(cursor.next_block(&block, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(block.size(), 0U);
+}
+
+TEST_F(SegmentPostingsTest, CommonCursorPreservesDenseRangesAndPositionOrdinals) {
+    check_dense_block(0);
+    check_dense_block(123);
+    check_dense_block(std::numeric_limits<uint32_t>::max() - 2);
+}
+
+void check_prepared_position_ranges(size_t width, const std::vector<size_t>& ends) {
+    const std::vector<uint32_t> rows {2, 5, 11, 20, 27};
+    auto* reader = new ChunkedPositions(width);
+    ClucenePostingsCursor source {TermPositionsPtr(reader)};
+    TermWalk walk(source, rows);
+    size_t previous_end = 0;
+    size_t expected_reads = 0;
+    for (size_t row = 0; row < rows.size(); ++row) {
+        expected_reads += row >= previous_end;
+        ASSERT_TRUE(walk.prepare(row, rows[row]).ok());
+        ASSERT_EQ(walk.end(), ends[row]);
+        previous_end = walk.end();
+        for (size_t prepared = row; prepared < walk.end(); ++prepared) {
+            const auto positions = walk.positions(prepared);
+            ASSERT_EQ(positions.second - positions.first, 1);
+            EXPECT_EQ(*positions.first, rows[prepared] * 10);
+        }
+        EXPECT_EQ(reader->reads, expected_reads);
+    }
+}
+
+TEST_F(SegmentPostingsTest, PreparedPositionRangesFollowSelectedBlockRows) {
+    check_prepared_position_ranges(2, {1, 2, 4, 4, 5});
+    check_prepared_position_ranges(3, {2, 2, 4, 4, 5});
+}
+
+TEST_F(SegmentPostingsTest, PositionPreparationPropagatesBlockErrors) {
+    auto* reader = new ChunkedPositions(2);
+    reader->fail_read = 2;
+    ClucenePostingsCursor source {TermPositionsPtr(reader)};
+    const std::vector<uint32_t> rows {2, 5};
+    TermWalk walk(source, rows);
+    ASSERT_TRUE(walk.prepare(0, rows[0]).ok());
+    EXPECT_EQ(walk.prepare(1, rows[1]).code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+}
+
+void check_streamed_block(const StreamWalk& walk, const ChunkedPositions& reader, size_t end,
+                          size_t reads) {
+    EXPECT_EQ(walk.end(), end);
+    EXPECT_EQ(reader.reads, reads);
+}
+
+TEST_F(SegmentPostingsTest, StreamedPhrasePreservesRowsAcrossDifferentBlockPartitions) {
+    const std::vector<uint32_t> rows {2, 5, 11, 20, 27};
+    auto* left_reader = new ChunkedPositions(2);
+    auto* right_reader = new ChunkedPositions(3);
+    for (auto& position : right_reader->_deltas) {
+        ++position;
+    }
+    ClucenePostingsCursor left {TermPositionsPtr(left_reader)};
+    ClucenePostingsCursor right {TermPositionsPtr(right_reader)};
+    std::array<StreamWalk, 2> walks {StreamWalk(left, rows), StreamWalk(right, rows)};
+    const std::array<size_t, 2> plan {0, 1};
+    const std::array<uint32_t, 2> offsets {0, 1};
+    const std::array<size_t, 5> left_reads {1, 2, 3, 3, 4};
+    const std::array<size_t, 5> right_reads {1, 1, 2, 2, 3};
+    const std::array<size_t, 5> left_ends {1, 2, 4, 4, 5};
+    const std::array<size_t, 5> right_ends {2, 2, 4, 4, 5};
+    for (size_t row = 0; row < rows.size(); ++row) {
+        ASSERT_TRUE(walks[0].prepare().ok());
+        ASSERT_TRUE(walks[1].prepare().ok());
+        bool matched = false;
+        ASSERT_TRUE(index_query::match_exact_phrase_document(std::span<StreamWalk>(walks), plan,
+                                                             offsets, rows[row], &matched)
+                            .ok());
+        EXPECT_TRUE(matched);
+        check_streamed_block(walks[0], *left_reader, left_ends[row], left_reads[row]);
+        check_streamed_block(walks[1], *right_reader, right_ends[row], right_reads[row]);
+    }
+}
+
+TEST_F(SegmentPostingsTest, StreamedPhrasePropagatesBlockReadErrors) {
+    auto* reader = new ChunkedPositions(2);
+    reader->fail_read = 2;
+    ClucenePostingsCursor source {TermPositionsPtr(reader)};
+    const std::vector<uint32_t> rows {2, 5};
+    StreamWalk walk(source, rows);
+    ASSERT_TRUE(walk.prepare().ok());
+    ASSERT_TRUE(walk.seek(rows[0]).ok());
+    ASSERT_TRUE(walk.finish_doc().ok());
+    EXPECT_EQ(walk.prepare().code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+}
+
+TEST_F(SegmentPostingsTest, PositionBlockRejectsMissingFrequencies) {
+    class MissingFrequencies final : public MockTermPositions {
+    public:
+        MissingFrequencies() : MockTermPositions({1}, {1}, {1}, {{5}}, 1) {}
+        bool readBlock(DocRange* block) override {
+            const bool found = MockTermPositions::readBlock(block);
+            block->freq_many = nullptr;
+            return found;
+        }
+    };
+    ClucenePostingsCursor cursor {TermPositionsPtr(new MissingFrequencies())};
+    index_query::PostingsBlock block;
+    bool eof = false;
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    EXPECT_DEATH(static_cast<void>(cursor.next_block(&block, &eof)), "Check failed");
+}
+
+TEST_F(SegmentPostingsTest, PositionBlockRejectsIncompleteFrequencies) {
+    ClucenePostingsCursor cursor {
+            TermPositionsPtr(new MockTermPositions({1, 3}, {1}, {1, 1}, {{5}, {8}}, 2))};
+    index_query::PostingsBlock block;
+    bool eof = false;
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    EXPECT_DEATH(static_cast<void>(cursor.next_block(&block, &eof)), "Check failed");
+}
+
 TEST_F(SegmentPostingsTest, CommonCursorReturnsCLuceneReadFailures) {
     class FailingTermDocs final : public MockTermDocs {
     public:
@@ -224,6 +431,35 @@ TEST_F(SegmentPostingsTest, CommonCursorReturnsCLuceneReadFailures) {
     EXPECT_TRUE(block.docs.empty());
 }
 
+TEST_F(SegmentPostingsTest, CommonCursorReturnsCLuceneSeekFailures) {
+    class FailingTermDocs final : public MockTermDocs {
+    public:
+        FailingTermDocs() : MockTermDocs({1}, {2}, {3}, 1) {}
+        bool skipToBlock(int32_t /*target*/) override {
+            _CLTHROWA(CL_ERR_IO, "Injected CLucene postings seek failure");
+        }
+    };
+    ClucenePostingsCursor cursor {TermDocsPtr(new FailingTermDocs())};
+    bool moved = false;
+    const auto status = cursor.shallow_seek(1, &moved);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_NE(status.to_string().find("Injected CLucene postings seek failure"), std::string::npos);
+}
+
+TEST_F(SegmentPostingsTest, CommonCursorPropagatesNonCLuceneFailures) {
+    class FailingTermDocs final : public MockTermDocs {
+    public:
+        FailingTermDocs() : MockTermDocs({1}, {2}, {3}, 1) {}
+        bool readBlock(DocRange* /*block*/) override {
+            throw std::runtime_error("Injected non-CLucene failure");
+        }
+    };
+    ClucenePostingsCursor cursor {TermDocsPtr(new FailingTermDocs())};
+    index_query::PostingsBlock block;
+    bool eof = false;
+    EXPECT_THROW(static_cast<void>(cursor.next_block(&block, &eof)), std::runtime_error);
+}
+
 TEST_F(SegmentPostingsTest, PositionReadFailuresBecomeDorisErrors) {
     class FailingPositions final : public MockTermPositions {
     public:
@@ -245,9 +481,44 @@ TEST_F(SegmentPostingsTest, PositionReadFailuresBecomeDorisErrors) {
     EXPECT_TRUE(output.empty());
 }
 
+TEST_F(SegmentPostingsTest, MaterializedPhrasePreservesPositionReadErrors) {
+    class FailingPositions final : public MockTermPositions {
+    public:
+        FailingPositions() : MockTermPositions({1}, {1}, {1}, {{3}}, 1) {}
+        int32_t nextDeltaPosition() override {
+            _CLTHROWA(CL_ERR_IO, "Injected phrase position read failure");
+        }
+    };
+    auto similarity = std::make_shared<BM25Similarity>(2.0F, 8.0F);
+    for (uint32_t slop : {0, 1}) {
+        for (uint32_t clauses : {2, 3}) {
+            SCOPED_TRACE(::testing::Message() << "slop=" << slop << ", clauses=" << clauses);
+            std::vector<std::pair<size_t, SegmentPostingsPtr>> terms;
+            for (uint32_t clause = 0; clause < clauses; ++clause) {
+                TermPositionsPtr positions;
+                if (clause + 1 == clauses) {
+                    positions.reset(new FailingPositions());
+                } else {
+                    positions.reset(new MockTermPositions({1}, {1}, {1}, {{clause + 1}}, 1));
+                }
+                terms.emplace_back(clause,
+                                   make_segment_postings(std::make_unique<ClucenePostingsCursor>(
+                                                                 std::move(positions)),
+                                                         true, nullptr));
+            }
+            try {
+                PhraseScorer<SegmentPostingsPtr>::create(terms, similarity, {.slop = slop}, 2);
+                FAIL() << "Expected the phrase position read error";
+            } catch (const Exception& error) {
+                EXPECT_EQ(error.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+                EXPECT_NE(std::string(error.what()).find("Injected phrase position read failure"),
+                          std::string::npos);
+            }
+        }
+    }
+}
+
 void expect_initial_positions(index_query::PositionCursor& positions) {
-    EXPECT_EQ(positions.frequency(), 3);
-    EXPECT_FALSE(positions.view().has_value());
     uint32_t position = 0;
     bool available = false;
     ASSERT_TRUE(positions.next_position(&position, &available).ok());
@@ -267,15 +538,13 @@ void expect_remaining_positions(index_query::PositionCursor& positions) {
     EXPECT_FALSE(available);
 }
 
+#ifndef NDEBUG
 template <typename Operation>
 void expect_position_contract_failure(Operation&& operation) {
-#ifndef NDEBUG
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_DEATH(static_cast<void>(operation()), "Check failed");
-#else
-    EXPECT_THROW(static_cast<void>(operation()), Exception);
-#endif
 }
+#endif
 
 TEST_F(SegmentPostingsTest, CommonPositionCursorStreamsAndSkipsUnselectedDocuments) {
     class CountingPositions final : public MockTermPositions {
@@ -313,6 +582,87 @@ TEST_F(SegmentPostingsTest, CommonPositionCursorStreamsAndSkipsUnselectedDocumen
     EXPECT_EQ(reader->skipped, 4);
     expect_remaining_positions(*positions);
     EXPECT_EQ(reader->reads, 3);
+}
+
+void check_open_position_chunk_doc(index_query::PostingsCursor& source, uint32_t ordinal,
+                                   std::span<uint32_t> buffer,
+                                   const std::vector<uint32_t>& expected, const size_t& reads) {
+    const size_t before = reads;
+    index_query::PositionCursor* positions = nullptr;
+    size_t count = 0;
+    ASSERT_TRUE(source.open_position_stream(ordinal, buffer, &count, &positions).ok());
+    ASSERT_NE(positions, nullptr);
+    ASSERT_EQ(count, std::min(buffer.size(), expected.size()));
+    EXPECT_EQ(reads, before + count);
+    std::vector<uint32_t> all(buffer.begin(), buffer.begin() + count);
+    ASSERT_TRUE(positions->append_remaining_positions(0, all).ok());
+    EXPECT_EQ(all, expected);
+    ASSERT_TRUE(positions->finish_doc().ok());
+}
+
+void check_open_position_chunk(index_query::PostingsCursor& source, size_t capacity,
+                               const size_t& reads) {
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(source.next_block(&block, &eof).ok());
+    ASSERT_FALSE(eof);
+    std::vector<uint32_t> buffer(capacity);
+    check_open_position_chunk_doc(source, 0, buffer, {10, 20, 30}, reads);
+    check_open_position_chunk_doc(source, 2, buffer, {40, 41}, reads);
+}
+
+TEST_F(SegmentPostingsTest, FusedPositionOpenReadsOnlyTheRequestedChunk) {
+    class CountingPositions final : public MockTermPositions {
+    public:
+        CountingPositions()
+                : MockTermPositions({1, 3, 5}, {3, 1, 2}, {1, 1, 1}, {{10, 20, 30}, {7}, {40, 41}},
+                                    3) {}
+        int32_t nextDeltaPosition() override {
+            ++reads;
+            return MockTermPositions::nextDeltaPosition();
+        }
+        size_t reads = 0;
+    };
+    for (const size_t capacity : {0, 1, 2, 4}) {
+        auto* reader = new CountingPositions();
+        ClucenePostingsCursor clucene {TermPositionsPtr(reader)};
+        check_open_position_chunk(clucene, capacity, reader->reads);
+        index_query::testing::FakePostingsCursor generic({{.doc = 1, .positions = {10, 20, 30}},
+                                                          {.doc = 3, .positions = {7}},
+                                                          {.doc = 5, .positions = {40, 41}}},
+                                                         true, false);
+        check_open_position_chunk(generic, capacity, generic.positions_read);
+    }
+}
+
+TEST_F(SegmentPostingsTest, FusedPositionOpenConvertsReadErrorsAndPreservesRemainingPositions) {
+    class FailOncePositions final : public MockTermPositions {
+    public:
+        FailOncePositions() : MockTermPositions({1}, {3}, {1}, {{3, 5, 7}}, 1) {}
+        int32_t nextDeltaPosition() override {
+            if (_reads++ == 1) {
+                _CLTHROWA(CL_ERR_IO, "injected first-chunk failure");
+            }
+            return MockTermPositions::nextDeltaPosition();
+        }
+
+    private:
+        size_t _reads = 0;
+    };
+    ClucenePostingsCursor source {TermPositionsPtr(new FailOncePositions())};
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(source.next_block(&block, &eof).ok());
+    std::vector<uint32_t> buffer(4);
+    size_t count = 0;
+    index_query::PositionCursor* positions = nullptr;
+    EXPECT_EQ(source.open_position_stream(0, buffer, &count, &positions).code(),
+              ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    ASSERT_EQ(count, 1);
+    EXPECT_EQ(buffer.front(), 3);
+    std::vector<uint32_t> remaining;
+    ASSERT_TRUE(source.append_remaining_positions(0, remaining).ok());
+    EXPECT_EQ(remaining, (std::vector<uint32_t> {5, 7}));
 }
 
 void expect_advanced_position(index_query::PositionCursor& positions, uint32_t target,
@@ -388,7 +738,34 @@ TEST_F(SegmentPostingsTest, PositionAdvanceRetainsProgressAfterAReadError) {
     EXPECT_EQ(remaining, (std::vector<uint32_t> {9}));
 }
 
+TEST_F(SegmentPostingsTest, BulkPositionFailureKeepsOnlySuccessfullyDecodedPositions) {
+    class FailOncePositions final : public MockTermPositions {
+    public:
+        FailOncePositions() : MockTermPositions({1}, {4}, {1}, {{3, 5, 7, 9}}, 1) {}
+        int32_t nextDeltaPosition() override {
+            if (++reads == 3) {
+                _CLTHROWA(CL_ERR_IO, "Injected failure during a bulk position read");
+            }
+            return MockTermPositions::nextDeltaPosition();
+        }
+        size_t reads = 0;
+    };
+    ClucenePostingsCursor source {TermPositionsPtr(new FailOncePositions())};
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(source.next_block(&block, &eof).ok());
+    std::vector<uint32_t> positions {999};
+    EXPECT_EQ(source.append_positions(0, 10, positions).code(),
+              ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_EQ(positions, (std::vector<uint32_t> {999, 13, 15}));
+    ASSERT_TRUE(source.append_remaining_positions(10, positions).ok());
+    EXPECT_EQ(positions, (std::vector<uint32_t> {999, 13, 15, 17, 19}));
+}
+
 TEST_F(SegmentPostingsTest, CommonPositionCursorRejectsReplayAndInvalidatedBlocks) {
+#ifdef NDEBUG
+    GTEST_SKIP() << "Cursor precondition assertions require a debug build";
+#else
     ClucenePostingsCursor postings {
             TermPositionsPtr(new MockTermPositions({1, 3}, {2, 1}, {1, 1}, {{5, 8}, {13}}, 2))};
     index_query::PostingsBlock block;
@@ -409,6 +786,7 @@ TEST_F(SegmentPostingsTest, CommonPositionCursorRejectsReplayAndInvalidatedBlock
     expect_position_contract_failure(
             [&] { return positions->next_position(&position, &available); });
     expect_position_contract_failure([&] { return postings.open_positions(0, &positions); });
+#endif
 }
 
 TEST_F(SegmentPostingsTest, BulkOpenFailurePreservesTheRemainingPositionState) {
@@ -663,6 +1041,177 @@ TEST_F(SegmentPostingsTest, test_no_score_segment_posting) {
     EXPECT_EQ(posting.doc(), 1);
     EXPECT_EQ(posting.freq(), 1);
     EXPECT_EQ(posting.norm(), 1);
+}
+
+namespace {
+
+struct EnumerationFailure {
+    lucene::index::TermEnum* alive = nullptr;
+    lucene::index::TermDocs* postings_alive = nullptr;
+    bool fail_seek = false;
+    bool fail_open = false;
+    bool fail_next = false;
+    bool fail_close = false;
+    size_t closes = 0;
+
+    ~EnumerationFailure() {
+        delete alive;
+        delete postings_alive;
+    }
+};
+
+class FailingTermEnum final : public lucene::index::TermEnum {
+public:
+    explicit FailingTermEnum(EnumerationFailure& failure)
+            : _failure(failure), _term(make_term_ptr(L"body", L"abc")) {
+        _failure.alive = this;
+    }
+    ~FailingTermEnum() override { _failure.alive = nullptr; }
+    const char* getObjectName() const override { return "FailingTermEnum"; }
+    bool next() override {
+        if (_failure.fail_next) {
+            _CLTHROWA(CL_ERR_IO, "Injected term enumeration failure");
+        }
+        return false;
+    }
+    lucene::index::Term* term(bool retain) override {
+        if (retain) {
+            return _CL_POINTER(_term.get());
+        }
+        return _term.get();
+    }
+    int32_t docFreq() const override { return 1; }
+    void close() override {
+        ++_failure.closes;
+        if (_failure.fail_close) {
+            _CLTHROWA(CL_ERR_IO, "Injected term enumeration close failure");
+        }
+    }
+
+private:
+    EnumerationFailure& _failure;
+    TermPtr _term;
+};
+
+class FailingSeekDocs final : public MockTermDocs {
+public:
+    explicit FailingSeekDocs(EnumerationFailure& failure)
+            : MockTermDocs({}, {}, {}, 0), _failure(failure) {
+        _failure.postings_alive = this;
+    }
+    ~FailingSeekDocs() override { _failure.postings_alive = nullptr; }
+    using MockTermDocs::seek;
+    void seek(lucene::index::Term*) override {
+        _CLTHROWA(CL_ERR_IO, "Injected postings seek failure");
+    }
+
+private:
+    EnumerationFailure& _failure;
+};
+
+class FailingSeekPositions final : public MockTermPositions {
+public:
+    explicit FailingSeekPositions(EnumerationFailure& failure)
+            : MockTermPositions({}, {}, {}, {}, 0), _failure(failure) {
+        _failure.postings_alive = this;
+    }
+    ~FailingSeekPositions() override { _failure.postings_alive = nullptr; }
+    using MockTermPositions::seek;
+    void seek(lucene::index::Term*) override {
+        _CLTHROWA(CL_ERR_IO, "Injected positions seek failure");
+    }
+
+private:
+    EnumerationFailure& _failure;
+};
+
+class FailingSourceReader final : public lucene::index::MultiReader {
+public:
+    FailingSourceReader(const lucene::util::ArrayBase<lucene::index::IndexReader*>* readers,
+                        EnumerationFailure& failure)
+            : MultiReader(readers, false), _failure(failure) {}
+    using MultiReader::terms;
+    lucene::index::TermEnum* terms(const lucene::index::Term*, const void*) override {
+        if (_failure.fail_open) {
+            _CLTHROWA(CL_ERR_IO, "Injected term enumeration open failure");
+        }
+        return new FailingTermEnum(_failure);
+    }
+    lucene::index::TermDocs* termDocs(bool, const void*) override {
+        if (_failure.fail_seek) {
+            return new FailingSeekDocs(_failure);
+        }
+        _CLTHROWA(CL_ERR_IO, "Injected postings open failure");
+    }
+    lucene::index::TermPositions* termPositions(bool, const void*) override {
+        if (_failure.fail_seek) {
+            return new FailingSeekPositions(_failure);
+        }
+        _CLTHROWA(CL_ERR_IO, "Injected positions open failure");
+    }
+
+private:
+    EnumerationFailure& _failure;
+};
+
+} // namespace
+
+void check_postings_failure(bool positions, bool fail_seek) {
+    EnumerationFailure failure;
+    failure.fail_seek = fail_seek;
+    lucene::util::ValueArray<lucene::index::IndexReader*> empty(0);
+    auto reader = std::make_shared<FailingSourceReader>(&empty, failure);
+    auto source = clucene_index_source(reader, L"body", nullptr);
+    std::unique_ptr<index_query::PostingsCursor> cursor;
+    Status status;
+    EXPECT_NO_THROW(status = source->open_term("abc", positions, false, &cursor));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_EQ(cursor, nullptr);
+    EXPECT_EQ(failure.postings_alive, nullptr);
+}
+
+TEST(CluceneIndexSourceTest, OpeningPostingsReturnsAnErrorStatus) {
+    check_postings_failure(false, false);
+    check_postings_failure(true, false);
+}
+
+TEST(CluceneIndexSourceTest, SeekFailureDestroysThePostingsCursor) {
+    check_postings_failure(false, true);
+    check_postings_failure(true, true);
+}
+
+void check_enumeration_failure(EnumerationFailure& failure) {
+    lucene::util::ValueArray<lucene::index::IndexReader*> empty(0);
+    auto reader = std::make_shared<FailingSourceReader>(&empty, failure);
+    auto source = clucene_index_source(reader, L"body", nullptr);
+    index_query::TermPattern pattern;
+    ASSERT_TRUE(
+            index_query::TermPattern::create(index_query::TermPatternKind::kPrefix, "a", &pattern)
+                    .ok());
+    std::vector<std::string> terms;
+    Status status;
+    EXPECT_NO_THROW(status = source->expand_terms(pattern, 0, &terms));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_EQ(failure.alive, nullptr);
+    EXPECT_EQ(failure.closes, failure.fail_open ? 0U : 1U);
+}
+
+TEST(CluceneIndexSourceTest, OpeningEnumerationReturnsAnErrorStatus) {
+    EnumerationFailure failure;
+    failure.fail_open = true;
+    check_enumeration_failure(failure);
+}
+
+TEST(CluceneIndexSourceTest, EnumerationFailureClosesAndDestroysTheCursor) {
+    EnumerationFailure failure;
+    failure.fail_next = true;
+    check_enumeration_failure(failure);
+}
+
+TEST(CluceneIndexSourceTest, CloseFailureStillDestroysTheEnumerationCursor) {
+    EnumerationFailure failure;
+    failure.fail_close = true;
+    check_enumeration_failure(failure);
 }
 
 } // namespace doris::segment_v2::inverted_index::query_v2

@@ -65,7 +65,8 @@ namespace doris::segment_v2 {
 Status SniiIndexReader::_get_logical_reader(
         const IndexQueryContextPtr& context, InvertedIndexCacheHandle* searcher_cache_handle,
         std::unique_ptr<::doris::snii::reader::LogicalIndexReader>* uncached_reader,
-        const ::doris::snii::reader::LogicalIndexReader** logical_reader) {
+        const ::doris::snii::reader::LogicalIndexReader** logical_reader,
+        const std::string& index_file_key) {
     DCHECK(searcher_cache_handle != nullptr);
     DCHECK(uncached_reader != nullptr);
     DCHECK(logical_reader != nullptr);
@@ -74,7 +75,8 @@ Status SniiIndexReader::_get_logical_reader(
             context->runtime_state != nullptr &&
             context->runtime_state->query_options().enable_inverted_index_searcher_cache;
     InvertedIndexSearcherCache::CacheKey searcher_cache_key(
-            _index_file_reader->get_index_file_cache_key(&_index_meta));
+            index_file_key.empty() ? _index_file_reader->get_index_file_cache_key(&_index_meta)
+                                   : index_file_key);
 
     bool cache_hit = false;
     if (enable_searcher_cache) {
@@ -266,10 +268,11 @@ Status SniiIndexReader::_run_gram(const IndexQueryContextPtr& context, OpenedInd
 }
 
 Status SniiIndexReader::_open_index(const IndexQueryContextPtr& context,
-                                    std::unique_ptr<OpenedIndex>* out) {
+                                    std::unique_ptr<OpenedIndex>* out,
+                                    const std::string& index_file_key) {
     auto opened = std::make_unique<SniiOpenedIndex>(context->io_ctx, context->stats);
     RETURN_IF_ERROR(_get_logical_reader(context, &opened->searcher_cache_handle,
-                                        &opened->uncached_reader, &opened->reader));
+                                        &opened->uncached_reader, &opened->reader, index_file_key));
     *out = std::move(opened);
     return Status::OK();
 }

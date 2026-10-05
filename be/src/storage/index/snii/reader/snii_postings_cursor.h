@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <span>
 #include <vector>
 
@@ -126,16 +125,16 @@ public:
     Status shallow_seek(uint32_t target, bool* moved) override;
     index_query::BlockBound current_block_bound() const override;
     Status open_positions(uint32_t ordinal, index_query::PositionCursor** out) override;
+    Status open_position_stream(uint32_t ordinal, std::span<uint32_t> first_chunk, size_t* count,
+                                index_query::PositionCursor** out) override;
     Status append_positions(uint32_t ordinal, uint32_t offset,
                             std::vector<uint32_t>& output) override;
     Status block_positions(std::span<const uint32_t> ordinals, index_query::PositionsBuffer* buffer,
                            index_query::BlockPositions* out) override;
 
-    uint32_t frequency() const override;
     Status next_position(uint32_t* position, bool* available) override;
     Status next_positions(std::span<uint32_t> out, size_t* count) override;
     Status finish_doc() override;
-    std::optional<std::span<const uint32_t>> view() const override;
 
 private:
     enum class Kind : uint8_t { kInline, kSlim, kWindowed };
@@ -244,7 +243,6 @@ private:
     uint32_t _stream_ordinal = 0;
     uint32_t _stream_last = 0;
     bool _streaming = false;
-    bool _doc_streamed = false;
 
     // The open document's positions and the next one to hand out.
     std::span<const uint32_t> _doc_positions;

@@ -26,8 +26,7 @@
 
 #include "common/status.h"
 #include "storage/index/query/docid_sink.h"
-#include "storage/index/query/exec/block_doc_set.h"
-#include "storage/index/query/exec/collect_postings.h"
+#include "storage/index/query/exec/cursor_chained_postings.h"
 #include "storage/index/query/spi/index_source.h"
 #include "storage/index/query/spi/postings_cursor.h"
 
@@ -97,9 +96,10 @@ inline Status collect_term_rows(IndexSource& source, std::span<const std::string
                     return Status::OK();
                 }
                 present = true;
-                BlockDocSet docs(*cursor);
-                return collect_postings<false>(docs, nullptr, sink,
-                                               [](uint32_t, uint32_t, uint32_t) {});
+                return for_each_block(*cursor, [&sink](const PostingsBlock& block) {
+                    return block.dense ? sink.append_range(block.range_begin, block.range_end)
+                                       : sink.append_sorted(block.docs);
+                });
             }));
     if (any_present != nullptr) {
         *any_present = present;

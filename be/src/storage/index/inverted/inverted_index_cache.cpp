@@ -21,6 +21,7 @@
 #include <sys/resource.h>
 
 #include <cstring>
+#include <span>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <iostream>
 #include <memory>
@@ -55,7 +56,7 @@ std::string InvertedIndexRawQuerySemantic::encode() const {
 
 namespace {
 
-void append_terms(const std::vector<std::string>& terms, std::string* output) {
+void append_terms(std::span<const std::string> terms, std::string* output) {
     put_fixed32_le(output, static_cast<uint32_t>(terms.size()));
     for (const auto& term : terms) {
         append_length_prefixed(term, output);
@@ -80,7 +81,7 @@ void append_leaf(const index_query::logical::Node& leaf, std::string* output) {
         for (const auto& slot : phrase->slots) {
             put_fixed32_le(output, static_cast<uint32_t>(slot.position));
             if (slot.is_single_term()) {
-                append_terms({slot.get_single_term()}, output);
+                append_terms(std::span(&slot.get_single_term(), 1), output);
             } else {
                 append_terms(slot.get_multi_terms(), output);
             }

@@ -86,11 +86,27 @@ Status for_each_candidate_block(PostingsCursor& cursor, std::span<const uint32_t
     return Status::OK();
 }
 
+// Appends the ordinals in `docs` of documents also in `candidates`. Both lists are strictly
+// ascending, and candidates lie between the first and last document of the block.
+void intersect_block_ordinals(std::span<const uint32_t> docs, std::span<const uint32_t> candidates,
+                              std::vector<uint32_t>* ordinals);
+
+// Ordinals retained from partial intersections, grouped by their postings blocks.
+struct SelectedPostings {
+    struct Block {
+        uint32_t last_doc;
+        size_t end;
+    };
+    std::vector<uint32_t> ordinals;
+    std::vector<Block> blocks;
+};
+
 // A term of the chained conjunction read through its postings cursor: the start prefetches
 // the candidates' blocks and the listing walks only those.
 class CursorChainedPostings final : public ChainedPostings {
 public:
-    explicit CursorChainedPostings(PostingsCursor& cursor) : _cursor(cursor) {}
+    explicit CursorChainedPostings(PostingsCursor& cursor, SelectedPostings* selected = nullptr)
+            : _cursor(cursor), _selected(selected) {}
 
     uint64_t doc_freq() const override { return _cursor.doc_freq(); }
     Status start(const std::vector<uint32_t>* candidates) override;
@@ -99,6 +115,8 @@ public:
 private:
     PostingsCursor& _cursor;
     const std::vector<uint32_t>* _candidates = nullptr;
+    // Partial sparse intersections retain their ordinals for a later position read.
+    SelectedPostings* _selected = nullptr;
 };
 
 // The rows every one of `cursors` holds, among `candidates` when given, listed as a chain that

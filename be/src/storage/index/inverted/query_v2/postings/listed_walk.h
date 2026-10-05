@@ -36,8 +36,9 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 // block holding a row lists the ordinals of the listed rows it holds.
 class ListedBlocks {
 protected:
-    ListedBlocks(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows)
-            : _cursor(cursor), _rows(rows) {}
+    ListedBlocks(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows,
+                 const index_query::SelectedPostings* selected)
+            : _cursor(cursor), _rows(rows), _selected(selected) {}
 
     // The listed rows in the block are some of its documents, and all of them when they are as
     // many.
@@ -56,8 +57,20 @@ protected:
             _asked = std::span(_every).first(count);
             return Status::OK();
         }
-        _ordinals.resize(count);
-        _list_ordinals(_rows.subspan(_begin, count), _ordinals.data());
+        _ordinals.clear();
+        const auto listed = _rows.subspan(_begin, count);
+        if (_reuse_ordinals(listed, last)) {
+            return Status::OK();
+        }
+        _ordinals.reserve(count);
+        if (_block.dense) {
+            for (const uint32_t doc : listed) {
+                _ordinals.push_back(doc - _block.range_begin);
+            }
+        } else {
+            index_query::intersect_block_ordinals(_block.docs, listed, &_ordinals);
+        }
+        DORIS_CHECK_EQ(_ordinals.size(), count);
         _asked = _ordinals;
         return Status::OK();
     }
@@ -71,36 +84,41 @@ protected:
     size_t _end = 0;
 
 private:
-    // The ordinals of `listed`, some of the current block's documents, in the block. A few skip
-    // ahead to each; at least half step through the block once, without a branch on each
-    // comparison.
-    void _list_ordinals(std::span<const uint32_t> listed, uint32_t* ordinals) const {
-        if (_block.dense) {
-            const uint32_t first = _block.range_begin;
-            for (size_t i = 0; i < listed.size(); ++i) {
-                ordinals[i] = listed[i] - first;
+    // Later terms may narrow the earlier intersection; keep the ordinals of surviving rows.
+    bool _reuse_ordinals(std::span<const uint32_t> listed, uint32_t last) {
+        if (_selected == nullptr) {
+            return false;
+        }
+        const auto& blocks = _selected->blocks;
+        while (_next_selected < blocks.size() && blocks[_next_selected].last_doc < last) {
+            ++_next_selected;
+        }
+        if (_next_selected == blocks.size() || blocks[_next_selected].last_doc != last) {
+            return false;
+        }
+        const size_t begin = _next_selected == 0 ? 0 : blocks[_next_selected - 1].end;
+        const auto retained =
+                std::span(_selected->ordinals).subspan(begin, blocks[_next_selected++].end - begin);
+        if (retained.size() == listed.size()) {
+            _asked = retained;
+            return true;
+        }
+        _ordinals.reserve(listed.size());
+        size_t next = 0;
+        for (const uint32_t doc : listed) {
+            while (next < retained.size() && _block.docs[retained[next]] < doc) {
+                ++next;
             }
-            return;
+            DCHECK_LT(next, retained.size());
+            DCHECK_EQ(_block.docs[retained[next]], doc);
+            _ordinals.push_back(retained[next++]);
         }
-        const uint32_t* docs = _block.docs.data();
-        uint32_t ordinal = 0;
-        if (listed.size() * 2 < _block.docs.size()) {
-            for (size_t i = 0; i < listed.size(); ++i) {
-                while (docs[ordinal] < listed[i]) {
-                    ++ordinal;
-                }
-                DCHECK_EQ(docs[ordinal], listed[i]);
-                ordinals[i] = ordinal++;
-            }
-            return;
-        }
-        for (size_t i = 0; i < listed.size(); ++ordinal) {
-            DCHECK_LT(ordinal, _block.docs.size());
-            ordinals[i] = ordinal;
-            i += docs[ordinal] == listed[i] ? 1 : 0;
-        }
+        _asked = _ordinals;
+        return true;
     }
 
+    const index_query::SelectedPostings* _selected;
+    size_t _next_selected = 0;
     index_query::PostingsBlock _block;
     // 0, 1, 2, ...: the ordinals of a block whose every document is listed.
     std::vector<uint32_t> _every;
@@ -112,22 +130,40 @@ private:
 // leaves the block.
 class TermWalk : private ListedBlocks {
 public:
-    TermWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows)
-            : ListedBlocks(cursor, rows) {}
+    TermWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows,
+             const index_query::SelectedPostings* selected = nullptr)
+            : ListedBlocks(cursor, rows, selected) {}
 
-    Status positions_of(size_t row, uint32_t /*doc*/, index_query::PhrasePositionSpan* span) {
+    Status prepare(size_t row, uint32_t /*doc*/) {
         if (row >= _end) {
-            RETURN_IF_ERROR(_enter_block(row));
-            RETURN_IF_ERROR(_cursor.block_positions(_asked, &_buffer, &_positions));
+            RETURN_IF_ERROR(_read_block(row));
         }
-        const size_t chosen = row - _begin;
-        const size_t k = _positions.by_ordinal ? _asked[chosen] : chosen;
-        *span = {_positions.flat.data() + _positions.offsets[k],
-                 _positions.flat.data() + _positions.offsets[k + 1]};
         return Status::OK();
     }
 
+    size_t end() const { return _end; }
+
+    // Prepared rows share the current block's positions until prepare enters another block.
+    index_query::PhrasePositionSpan positions(size_t row) const {
+        DCHECK_GE(row, _begin);
+        DCHECK_LT(row, _end);
+        const size_t chosen = row - _begin;
+        const size_t k = _positions.by_ordinal ? _asked[chosen] : chosen;
+        return {_positions.flat.data() + _positions.offsets[k],
+                _positions.flat.data() + _positions.offsets[k + 1]};
+    }
+
 private:
+    Status _read_block(size_t row) {
+        RETURN_IF_ERROR(_enter_block(row));
+        RETURN_IF_ERROR(_cursor.block_positions(_asked, &_buffer, &_positions));
+        // Selecting every document makes the position ordinal equal to the row ordinal.
+        if (_asked.size() + 1 == _positions.offsets.size()) {
+            _positions.by_ordinal = false;
+        }
+        return Status::OK();
+    }
+
     index_query::PositionsBuffer _buffer;
     index_query::BlockPositions _positions;
 };
@@ -137,21 +173,31 @@ private:
 // as they are read, a chunk at a time.
 class StreamWalk : private ListedBlocks {
 public:
-    StreamWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows)
-            : ListedBlocks(cursor, rows) {}
+    StreamWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows,
+               const index_query::SelectedPostings* selected = nullptr)
+            : ListedBlocks(cursor, rows, selected) {}
 
-    // Opens the next listed row, which is `doc`, and pulls its first chunk.
-    Status seek(uint32_t doc) {
-        DCHECK_LT(_next, _rows.size());
-        DCHECK_EQ(_rows[_next], doc);
+    // Prepares the block containing the next row before its documents are opened.
+    Status prepare() {
         if (_next >= _end) {
             RETURN_IF_ERROR(_enter_block(_next));
             RETURN_IF_ERROR(_cursor.stream_positions(_asked));
         }
+        return Status::OK();
+    }
+
+    size_t end() const { return _end; }
+
+    // Opens the next listed row in the prepared block and pulls its first chunk.
+    Status seek(uint32_t doc) {
+        DCHECK_LT(_next, _end);
+        DCHECK_EQ(_rows[_next], doc);
         const uint32_t ordinal = _asked[_next - _begin];
         ++_next;
-        RETURN_IF_ERROR(_cursor.open_positions(ordinal, &_positions));
-        return _pull();
+        RETURN_IF_ERROR(_cursor.open_position_stream(ordinal, _buffer, &_buffered, &_positions));
+        _read = 0;
+        _last_chunk = _buffered < _buffer.size();
+        return Status::OK();
     }
 
     // The open row's positions not passed yet, when the walk holds all of them.

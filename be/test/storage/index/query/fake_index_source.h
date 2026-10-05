@@ -156,10 +156,6 @@ public:
         return Status::OK();
     }
 
-    uint32_t frequency() const override {
-        return static_cast<uint32_t>(_postings[_current].positions.size());
-    }
-
     Status next_position(uint32_t* position, bool* available) override {
         const auto& positions = _postings[_current].positions;
         *available = _next_position < positions.size();

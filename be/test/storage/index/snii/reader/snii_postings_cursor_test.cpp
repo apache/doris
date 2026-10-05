@@ -406,11 +406,7 @@ TEST(SniiPostingsCursor, FrequenciesAndNormsWhenScoring) {
                 EXPECT_EQ(block.norm_at(ordinal), norms.encoded_norm(doc)) << name;
                 index_query::PositionCursor* positions = nullptr;
                 assert_ok(cursor->open_positions(static_cast<uint32_t>(ordinal), &positions));
-                ASSERT_TRUE(positions->view().has_value());
-                EXPECT_EQ(
-                        std::vector<uint32_t>(positions->view()->begin(), positions->view()->end()),
-                        expected[doc_index]);
-                EXPECT_EQ(positions->frequency(), expected[doc_index].size());
+                EXPECT_FALSE(cursor->_streaming);
                 EXPECT_EQ(read_in_chunks(positions, 3), expected[doc_index]);
                 assert_ok(positions->finish_doc());
             }
@@ -470,9 +466,8 @@ void expect_streamed_block(SniiPostingsCursor& cursor, const std::vector<uint32_
     for (size_t i = 0; i < chosen.size(); ++i) {
         index_query::PositionCursor* positions = nullptr;
         assert_ok(cursor.open_positions(chosen[i], &positions));
-        EXPECT_FALSE(positions->view().has_value());
+        EXPECT_TRUE(cursor._streaming);
         const std::vector<uint32_t>& want = expected[chosen[i]];
-        EXPECT_EQ(positions->frequency(), want.size());
         if (i % 3 == 0) {
             std::vector<uint32_t> streamed;
             assert_ok(positions->append_remaining_positions(0, streamed));
@@ -523,6 +518,62 @@ TEST(SniiPostingsCursor, StreamedPositionsMatchTheDecoder) {
     }
     EXPECT_GT(blocks, 1U);
     EXPECT_EQ(stats.streaming_frames, blocks);
+}
+
+void expect_first_position_chunk(SniiPostingsCursor& cursor, uint32_t ordinal, size_t capacity,
+                                 const std::vector<uint32_t>& expected, bool streaming) {
+    std::vector<uint32_t> chunk(capacity);
+    size_t count = 0;
+    index_query::PositionCursor* positions = nullptr;
+    assert_ok(cursor.open_position_stream(ordinal, chunk, &count, &positions));
+    ASSERT_NE(positions, nullptr);
+    ASSERT_EQ(count, std::min(capacity, expected.size()));
+    EXPECT_EQ(cursor._streaming, streaming);
+    std::vector<uint32_t> all(chunk.begin(), chunk.begin() + count);
+    const auto remaining = read_in_chunks(positions, 3);
+    all.insert(all.end(), remaining.begin(), remaining.end());
+    EXPECT_EQ(all, expected);
+    assert_ok(positions->finish_doc());
+}
+
+void check_position_chunks(const Fixture& fixture, const Term& term, size_t capacity,
+                           bool streaming) {
+    const auto expected = fixture.oracle_positions(term);
+    auto cursor = fixture.cursor(term, /*positions=*/true);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    size_t begin = 0;
+    while (true) {
+        assert_ok(cursor->next_block(&block, &eof));
+        if (eof) {
+            break;
+        }
+        std::vector<uint32_t> chosen;
+        for (uint32_t ordinal = 0; ordinal < block.size(); ordinal += 2) {
+            chosen.push_back(ordinal);
+        }
+        if (streaming) {
+            assert_ok(cursor->stream_positions(chosen));
+        }
+        for (const uint32_t ordinal : chosen) {
+            expect_first_position_chunk(*cursor, ordinal, capacity, expected[begin + ordinal],
+                                        streaming);
+        }
+        begin += block.size();
+    }
+    EXPECT_EQ(begin, expected.size());
+}
+
+TEST(SniiPostingsCursor, FirstPositionChunksMatchBothAccessModes) {
+    Fixture fixture;
+    assert_ok(fixture.open_scored());
+    for (const auto* name : {"rare", "mid", "wide"}) {
+        const Term term = fixture.lookup(name);
+        for (const size_t capacity : {0, 1, 2, 16}) {
+            check_position_chunks(fixture, term, capacity, false);
+            check_position_chunks(fixture, term, capacity, true);
+        }
+    }
 }
 
 // A term holding one to three positions per document reports a light decode for each.

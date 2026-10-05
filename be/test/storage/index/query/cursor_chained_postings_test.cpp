@@ -19,7 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <utility>
 #include <vector>
@@ -255,6 +257,106 @@ TEST(CursorChainedPostings, BlockPositionsByDefaultReadEachDocument) {
               (std::vector<uint32_t> {1, 4, 3, 6, 8}));
     EXPECT_EQ(std::vector<uint32_t>(view.offsets.begin(), view.offsets.end()),
               (std::vector<uint32_t> {0, 2, 5}));
+}
+
+void check_ordinals(const std::vector<uint32_t>& docs, const std::vector<uint32_t>& candidates) {
+    std::vector<uint32_t> expected;
+    std::vector<uint32_t> matched;
+    for (size_t ordinal = 0; ordinal < docs.size(); ++ordinal) {
+        if (std::ranges::binary_search(candidates, docs[ordinal])) {
+            expected.push_back(static_cast<uint32_t>(ordinal));
+            matched.push_back(docs[ordinal]);
+        }
+    }
+    std::vector<uint32_t> actual = {123};
+    intersect_block_ordinals(docs, candidates, &actual);
+    expected.insert(expected.begin(), 123);
+    EXPECT_EQ(actual, expected);
+    if (!docs.empty()) {
+        BlockedCursor cursor({BlockedCursor::listed(docs)});
+        EXPECT_EQ(collected(cursor, candidates), matched);
+    }
+}
+
+TEST(CursorChainedPostings, OrdinalIntersectionHandlesEverySmallSubset) {
+    check_ordinals({}, {});
+    for (uint32_t document_mask = 1; document_mask < 128; ++document_mask) {
+        std::vector<uint32_t> docs;
+        for (uint32_t doc = 0; doc < 7; ++doc) {
+            if ((document_mask & (1U << doc)) != 0) {
+                docs.push_back(doc);
+            }
+        }
+        for (uint32_t candidate_mask = 0; candidate_mask < 128; ++candidate_mask) {
+            std::vector<uint32_t> candidates;
+            for (uint32_t doc = docs.front(); doc <= docs.back(); ++doc) {
+                if ((candidate_mask & (1U << doc)) != 0) {
+                    candidates.push_back(doc);
+                }
+            }
+            check_ordinals(docs, candidates);
+        }
+    }
+}
+
+TEST(CursorChainedPostings, OrdinalIntersectionCoversSparseWideAndBoundedBlocks) {
+    for (const uint32_t width : {128U, 16384U, 65536U}) {
+        for (const uint32_t base : {0U, std::numeric_limits<uint32_t>::max() - width}) {
+            for (const uint32_t doc_step : {1U, 2U, 3U, 31U, 257U}) {
+                std::vector<uint32_t> docs;
+                for (uint32_t offset = 0; offset < width; offset += doc_step) {
+                    docs.push_back(base + offset);
+                }
+                for (const uint32_t candidate_step : {1U, 2U, 7U, 103U}) {
+                    std::vector<uint32_t> candidates;
+                    for (uint32_t offset = 0; offset <= docs.back() - base;
+                         offset += candidate_step) {
+                        candidates.push_back(base + offset);
+                    }
+                    check_ordinals(docs, candidates);
+                }
+            }
+        }
+    }
+}
+
+TEST(CursorChainedPostings, RetainsPartialSparseBlockOrdinals) {
+    BlockedCursor cursor({BlockedCursor::listed({1, 3, 8}), BlockedCursor::dense(10, 13),
+                          BlockedCursor::listed({20, 21}), BlockedCursor::listed({30, 34, 40})});
+    const std::vector<uint32_t> candidates = {3, 8, 10, 12, 20, 21, 31, 34};
+    SelectedPostings selected;
+    CursorChainedPostings term(cursor, &selected);
+    ASSERT_TRUE(term.start(&candidates).ok());
+    std::vector<uint32_t> rows;
+    ASSERT_TRUE(term.collect(&rows).ok());
+    EXPECT_EQ(rows, (std::vector<uint32_t> {3, 8, 10, 12, 20, 21, 34}));
+    EXPECT_EQ(selected.ordinals, (std::vector<uint32_t> {1, 2, 1}));
+    ASSERT_EQ(selected.blocks.size(), 2U);
+    EXPECT_EQ(selected.blocks[0].last_doc, 8U);
+    EXPECT_EQ(selected.blocks[0].end, 2U);
+    EXPECT_EQ(selected.blocks[1].last_doc, 40U);
+    EXPECT_EQ(selected.blocks[1].end, 3U);
+}
+
+TEST(CursorChainedPostings, WholePostingRestartClearsRetainedOrdinals) {
+    FakePostingsCursor cursor({posting(1), posting(3), posting(8)}, false, false);
+    const std::vector<uint32_t> candidates = {3};
+    SelectedPostings selected;
+    CursorChainedPostings term(cursor, &selected);
+    ASSERT_TRUE(term.start(&candidates).ok());
+    std::vector<uint32_t> rows;
+    ASSERT_TRUE(term.collect(&rows).ok());
+    EXPECT_EQ(selected.ordinals, (std::vector<uint32_t> {1}));
+    ASSERT_EQ(selected.blocks.size(), 1U);
+    EXPECT_EQ(selected.blocks.front().last_doc, 8U);
+    EXPECT_EQ(selected.blocks.front().end, 1U);
+    ASSERT_TRUE(cursor.rewind().ok());
+    ASSERT_TRUE(term.start(nullptr).ok());
+    rows.clear();
+    ASSERT_TRUE(term.collect(&rows).ok());
+    EXPECT_EQ(rows, (std::vector<uint32_t> {1, 3, 8}));
+    EXPECT_TRUE(selected.ordinals.empty());
+    EXPECT_TRUE(selected.blocks.empty());
 }
 
 TEST(CursorChainedPostings, GallopsPastAPrefix) {

@@ -82,11 +82,9 @@ Status lower_search_clause(const TSearchClause& clause, const LoweringOptions& o
 // Tokenizes a value with the analyzer of the index a predicate runs on.
 using AnalyzeValue = std::function<Status(std::string_view value, std::vector<Token>* out)>;
 
-// Lowers a predicate on one index: MATCH_ANY, MATCH_ALL, MATCH_PHRASE, MATCH_PHRASE_PREFIX,
-// MATCH_REGEXP, EQUAL or WILDCARD. The value is analyzed, except a MATCH_REGEXP or WILDCARD
-// pattern, which is taken as written, and its tokens take positions in the order the analyzer
-// emits them. A MATCH_PHRASE value ending in " ~N" or " ~N+" has slop N, and "+" keeps the tokens
-// in order.
+// Lowers a MATCH or EQUAL predicate; no analyzer means the value is one keyword term.
+// REGEXP/WILDCARD patterns stay raw, while phrase tokens follow analysis order and a trailing
+// " ~N" or " ~N+" sets unordered or ordered slop.
 Status lower_match(segment_v2::InvertedIndexQueryType query_type, std::string_view value,
                    const AnalyzeValue& analyze, Node* out);
 

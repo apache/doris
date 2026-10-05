@@ -63,8 +63,8 @@ public:
     }
 
 private:
-    Status _open_index(const IndexQueryContextPtr& context,
-                       std::unique_ptr<OpenedIndex>* out) override;
+    Status _open_index(const IndexQueryContextPtr& context, std::unique_ptr<OpenedIndex>* out,
+                       const std::string& index_file_key = {}) override;
     Status _term_document_frequency(const std::string& column_name, OpenedIndex& index,
                                     const std::string& term, uint64_t* df,
                                     uint64_t* document_count) override;
@@ -92,7 +92,8 @@ private:
     Status _get_logical_reader(
             const IndexQueryContextPtr& context, InvertedIndexCacheHandle* searcher_cache_handle,
             std::unique_ptr<::doris::snii::reader::LogicalIndexReader>* uncached_reader,
-            const ::doris::snii::reader::LogicalIndexReader** logical_reader);
+            const ::doris::snii::reader::LogicalIndexReader** logical_reader,
+            const std::string& index_file_key = {});
     Status _read_snii_null_bitmap(
             const IndexQueryContextPtr& context, InvertedIndexQueryCacheHandle* cache_handle,
             const ::doris::snii::reader::LogicalIndexReader* preopened_reader);

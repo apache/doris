@@ -36,6 +36,10 @@ class IndexReader;
 
 class CLuceneError;
 
+namespace doris {
+class Status;
+} // namespace doris
+
 namespace doris::segment_v2 {
 
 struct DirectoryDeleter {
@@ -61,6 +65,9 @@ TermDocsPtr make_term_doc_ptr(lucene::index::IndexReader* reader, Args&&... args
 
 template <typename... Args>
 TermPositionsPtr make_term_positions_ptr(lucene::index::IndexReader* reader, Args&&... args);
+
+// Converts the current exception at a CLucene boundary after local resources have unwound.
+Status clucene_error_status(std::string message);
 
 struct ErrorContext {
     std::string err_msg;
