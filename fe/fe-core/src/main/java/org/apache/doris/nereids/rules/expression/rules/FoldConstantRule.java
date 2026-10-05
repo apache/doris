@@ -53,8 +53,22 @@ public class FoldConstantRule implements ExpressionPatternRuleFactory {
 
     /** evaluate by visitor */
     public static Expression evaluate(Expression expr, ExpressionRewriteContext ctx) {
+        return evaluateInternal(expr, ctx, true);
+    }
+
+    /**
+     * Evaluate constants using FE rules only. This entry point has the same debug-skip and
+     * exception semantics as {@link #evaluate(Expression, ExpressionRewriteContext)}, but never
+     * invokes BE constant folding.
+     */
+    public static Expression evaluateOnFE(Expression expr, ExpressionRewriteContext ctx) {
+        return evaluateInternal(expr, ctx, false);
+    }
+
+    private static Expression evaluateInternal(
+            Expression expr, ExpressionRewriteContext ctx, boolean allowBeEvaluation) {
         try {
-            return evaluateOrThrow(expr, ctx);
+            return evaluateOrThrow(expr, ctx, allowBeEvaluation);
         } catch (Exception e) {
             if (SessionVariable.isFeDebug()) {
                 throw e;
@@ -63,14 +77,15 @@ public class FoldConstantRule implements ExpressionPatternRuleFactory {
         }
     }
 
-    private static Expression evaluateOrThrow(Expression expr, ExpressionRewriteContext ctx) {
+    private static Expression evaluateOrThrow(
+            Expression expr, ExpressionRewriteContext ctx, boolean allowBeEvaluation) {
         SessionVariable sessionVariable = ctx.cascadesContext != null
                 && ctx.cascadesContext.getConnectContext() != null
                         ? ctx.cascadesContext.getConnectContext().getSessionVariable() : null;
         if (sessionVariable != null && sessionVariable.isDebugSkipFoldConstant()) {
             return expr;
         }
-        if (sessionVariable != null && sessionVariable.isEnableFoldConstantByBe()) {
+        if (allowBeEvaluation && sessionVariable != null && sessionVariable.isEnableFoldConstantByBe()) {
             return FULL_FOLD_REWRITER.rewrite(expr, ctx);
         } else {
             return FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(expr, ctx);

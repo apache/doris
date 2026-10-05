@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -228,7 +229,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                     rfToPush,
                                     rightDeepTargetExpressionOnCTE,
                                     rfCtx,
-                                    cteProducerMap.get(cteId)
+                                    cteProducerMap.get(cteId),
+                                    ctx
                             );
                             if (pushedDown) {
                                 rfCtx.removeFilter(
@@ -287,7 +289,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                             RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContext(
                                     ctx, join, equalTo.right(), equalTo.left(),
                                     type, context.getStatementContext().isHasUnknownColStats(),
-                                    buildSideNdv, i);
+                                    buildSideNdv, i, new ExpressionRewriteContext(context));
                     // pushDownContext is not valid, if the target is an agg result.
                     // Currently, we only apply RF on PhysicalScan. So skip this rf.
                     // example: (select sum(x) as s from A) T join B on T.s=B.s
@@ -404,7 +406,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContext(
                                 ctx, decoupledBuilder, resolvedSrcExpr, buildExpr, type,
                                 context.getStatementContext().isHasUnknownColStats(),
-                                decoupledNdv, -1 /*sentinel: decoupled RF*/);
+                                decoupledNdv, -1 /*sentinel: decoupled RF*/,
+                                new ExpressionRewriteContext(context));
                 boolean decoupledRfPushed = false;
                 if (pushDownContext.isValid()) {
                     decoupledRfPushed = join.right().accept(
@@ -721,7 +724,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
      * min-max filter (A.x < N, N=max(B.y)) could be applied to A.x
      */
     private void generateMinMaxRuntimeFilter(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join,
-                                                   RuntimeFilterContext ctx) {
+            RuntimeFilterContext ctx, CascadesContext context) {
         int hashCondionSize = join.getHashJoinConjuncts().size();
         for (int idx = 0; idx < join.getOtherJoinConjuncts().size(); idx++) {
             int exprOrder = idx + hashCondionSize;
@@ -735,7 +738,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContext(
                                 ctx, join, compare.child(1), compare.child(0),
                                 TRuntimeFilterType.MIN_MAX, getMinMaxType(compare),
-                                false, -1, exprOrder);
+                                false, -1, exprOrder, new ExpressionRewriteContext(context));
                 if (pushDownContext.isValid()) {
                     join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
                 }
@@ -756,7 +759,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
 
         if (ctx.getSessionVariable().allowedRuntimeFilterType(TRuntimeFilterType.MIN_MAX)) {
-            generateMinMaxRuntimeFilter(join, ctx);
+            generateMinMaxRuntimeFilter(join, ctx, context);
         }
 
         return join;
@@ -828,7 +831,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
                             RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContext(
                                     ctx, setOp, sourceExpression, targetExpression,
-                                    type, hasUnknownColStats, buildNdvOrRowCount, slotIdx);
+                                    type, hasUnknownColStats, buildNdvOrRowCount, slotIdx,
+                                    new ExpressionRewriteContext(context));
                     if (pushDownContext.isValid()) {
                         setOp.child(childId).accept(pushDownVisitor, pushDownContext);
                     }
@@ -910,7 +914,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     private boolean doPushDownIntoCTEProducerInternal(RuntimeFilter rf, Expression targetExpression,
-                                                    RuntimeFilterContext ctx, PhysicalCTEProducer cteProducer) {
+            RuntimeFilterContext ctx, PhysicalCTEProducer cteProducer, CascadesContext cascadesContext) {
         PhysicalPlan inputPlanNode = (PhysicalPlan) cteProducer.child(0);
         Slot unwrappedSlot = checkTargetChild(targetExpression);
         if (unwrappedSlot == null) {
@@ -945,7 +949,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContext(
                         ctx, rf.getBuilderNode(), rf.getSrcExpr(), producerTargetExpression,
                         rf.getType(), rf.gettMinMaxType(),
-                        !rf.isBloomFilterSizeCalculatedByNdv(), rf.getBuildSideNdv(), rf.getExprOrder());
+                        !rf.isBloomFilterSizeCalculatedByNdv(), rf.getBuildSideNdv(), rf.getExprOrder(),
+                        new ExpressionRewriteContext(cascadesContext));
         if (pushDownContext.isValid()) {
             return inputPlanNode.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
         }

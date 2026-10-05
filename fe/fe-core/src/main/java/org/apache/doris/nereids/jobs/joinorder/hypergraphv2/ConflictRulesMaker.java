@@ -21,20 +21,15 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.NullInputEvaluator;
 
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -317,13 +312,8 @@ public class ConflictRulesMaker {
     }
 
     private static boolean isEvalToNullOrFalse(Set<Slot> slots, Expression expression, ExpressionRewriteContext ctx) {
-        Map<Slot, NullLiteral> replaceMap = new HashMap<>();
-        for (Slot slot : slots) {
-            replaceMap.put(slot, new NullLiteral(slot.getDataType()));
-        }
-        Expression evalExpr = FoldConstantRule.evaluate(
-                ExpressionUtils.replace(expression, replaceMap), ctx);
-        return evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr);
+        NullInputEvaluator.Result result = NullInputEvaluator.evaluate(expression, slots, ctx);
+        return result == NullInputEvaluator.Result.NULL || result == NullInputEvaluator.Result.FALSE;
     }
 
     private static void generateAssocLeftTreeCR(Edge leftChildEdge, List<Pair<Long, Long>> conflictRules) {
