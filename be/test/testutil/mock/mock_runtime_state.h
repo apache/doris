@@ -67,6 +67,10 @@ public:
 
     void set_enable_spill(bool enable) { _query_options.__set_enable_spill(enable); }
 
+    void set_spill_streaming_agg_mem_limit(int64_t limit) {
+        _query_options.__set_spill_streaming_agg_mem_limit(limit);
+    }
+
     void set_enable_strict_cast(bool enable) { _query_options.__set_enable_strict_cast(enable); }
 
     bool enable_local_exchange() const override { return true; }

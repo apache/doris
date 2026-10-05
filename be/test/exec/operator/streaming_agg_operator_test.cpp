@@ -50,14 +50,12 @@ struct MockStreamingAggLocalState : public StreamingAggLocalState {
             : StreamingAggLocalState(state, parent) {}
 
     bool _should_not_do_pre_agg(size_t rows) override {
-        static_cast<void>(_should_expand_preagg_hash_tables()); // mock the function
-        static_cast<void>(_memory_usage());                     // mock the function
-        static_cast<void>(
-                StreamingAggLocalState::_should_not_do_pre_agg(rows)); // mock the function
-        return should_not_do_pre_agg;
+        const bool base_decision = StreamingAggLocalState::_should_not_do_pre_agg(rows);
+        return use_base_decision ? base_decision : should_not_do_pre_agg;
     }
 
     bool should_not_do_pre_agg = false;
+    bool use_base_decision = false;
 };
 
 class MockStreamingAggOperatorChildOperator : public OperatorXBase {
@@ -103,6 +101,25 @@ struct StreamingAggOperatorTest : public testing::Test {
 
     ObjectPool pool;
 };
+
+TEST_F(StreamingAggOperatorTest, memoryLimitWithoutSpill) {
+    constexpr int64_t memory_limit = 256 * 1024 * 1024;
+    state->set_enable_spill(false);
+    state->set_spill_streaming_agg_mem_limit(memory_limit);
+
+    TPlanNode tnode;
+    tnode.node_id = 0;
+    tnode.node_type = TPlanNodeType::AGGREGATION_NODE;
+    tnode.num_children = 1;
+    tnode.nereids_id = 0;
+    tnode.limit = -1;
+    tnode.agg_node.need_finalize = false;
+    tnode.agg_node.intermediate_tuple_id = 0;
+    tnode.agg_node.output_tuple_id = 0;
+
+    EXPECT_TRUE(op->init(tnode, state.get()).ok());
+    EXPECT_EQ(op->_spill_streaming_agg_mem_limit, memory_limit);
+}
 
 TEST_F(StreamingAggOperatorTest, test1) {
     op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
@@ -216,7 +233,8 @@ TEST_F(StreamingAggOperatorTest, test2) {
     }
 
     {
-        local_state->should_not_do_pre_agg = true;
+        op->_spill_streaming_agg_mem_limit = 1;
+        local_state->use_base_decision = true;
         Block block {
                 ColumnHelper::create_column_with_name<DataTypeInt64>({2, 2, 2, 2, 4, 4}),
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
