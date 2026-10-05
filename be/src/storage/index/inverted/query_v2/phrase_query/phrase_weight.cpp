@@ -326,6 +326,18 @@ Status open_slots(index_query::IndexSource& source, std::vector<PhraseSlot> phra
     return Status::OK();
 }
 
+void append_union_rows(std::span<const std::vector<uint32_t>> terms, std::vector<uint32_t>* out) {
+    roaring::Roaring rows;
+    for (const auto& term : terms) {
+        rows.addMany(term.size(), term.data());
+    }
+    const size_t begin = out->size();
+    out->resize(begin + rows.cardinality());
+    if (!rows.isEmpty()) {
+        rows.toUint32Array(out->data() + begin);
+    }
+}
+
 // Several terms of one slot listed as the union of their documents. The documents each term
 // listed are kept, since its positions are read on its own afterwards.
 class UnionChainedPostings final : public index_query::ChainedPostings {
@@ -353,14 +365,11 @@ public:
     }
 
     Status collect(std::vector<uint32_t>* out) override {
-        const auto appended = static_cast<std::ptrdiff_t>(out->size());
         for (size_t member = 0; member < _members.size(); ++member) {
             _held[member].clear();
             RETURN_IF_ERROR(_members[member].collect(&_held[member]));
-            out->insert(out->end(), _held[member].begin(), _held[member].end());
         }
-        std::sort(out->begin() + appended, out->end());
-        out->erase(std::unique(out->begin() + appended, out->end()), out->end());
+        append_union_rows(_held, out);
         return Status::OK();
     }
 
@@ -493,15 +502,10 @@ Status append_held_positions(index_query::IndexSource& source, const SlotCursors
 }
 
 // The positions of a slot's terms, merged per row: rows ascending, each with its positions.
-void build_gathered(std::vector<std::vector<uint32_t>> term_rows,
+void build_gathered(const std::vector<std::vector<uint32_t>>& term_rows,
                     std::vector<std::pair<uint32_t, uint32_t>> held_positions, GatheredSlot* out) {
-    std::vector<uint32_t> rows;
-    for (const auto& held : term_rows) {
-        rows.insert(rows.end(), held.begin(), held.end());
-    }
-    std::ranges::sort(rows);
-    rows.erase(std::ranges::unique(rows).begin(), rows.end());
-    out->rows = std::move(rows);
+    out->rows.clear();
+    append_union_rows(term_rows, &out->rows);
     std::ranges::sort(held_positions);
     held_positions.erase(std::ranges::unique(held_positions).begin(), held_positions.end());
     out->positions.clear();
@@ -625,9 +629,8 @@ Status list_rare_slot(index_query::IndexSource& source, std::span<const std::str
             });
         }
     }
-    GatheredSlot listed;
-    build_gathered(*term_rows, {}, &listed);
-    *domain = std::move(listed.rows);
+    domain->emplace();
+    append_union_rows(*term_rows, &domain->value());
     return Status::OK();
 }
 
@@ -655,7 +658,7 @@ Status gather_slots(index_query::IndexSource& source,
             }
             RETURN_IF_ERROR(read_term_positions(source, waved[slot], term_rows, &held_positions));
         }
-        build_gathered(std::move(term_rows), std::move(held_positions), &(*gathered)[slot]);
+        build_gathered(term_rows, std::move(held_positions), &(*gathered)[slot]);
         *rows = (*gathered)[slot].rows;
     }
     return Status::OK();

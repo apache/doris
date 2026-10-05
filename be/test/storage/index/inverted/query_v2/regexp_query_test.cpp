@@ -216,7 +216,7 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_execution) {
     _CLDECDELETE(dir);
 }
 
-// RE2 bounds "中(国|华)" by strings whose common bytes end inside a character.
+// RE2 bounds this pattern by strings whose common bytes end inside a character.
 TEST_F(RegexpQueryV2Test, test_regexp_alternating_multibyte_characters) {
     const std::string cjk_dir = kTestDir + "/cjk";
     ASSERT_TRUE(io::global_local_filesystem()->create_directory(cjk_dir).ok());

@@ -165,11 +165,14 @@ public:
         *available = _next_position < positions.size();
         if (*available) {
             *position = positions[_next_position++];
+            ++positions_read;
         }
         return Status::OK();
     }
 
     Status finish_doc() override { return Status::OK(); }
+
+    size_t positions_read = 0;
 
 private:
     std::vector<Posting> _postings;

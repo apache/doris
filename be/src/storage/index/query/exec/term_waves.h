@@ -41,12 +41,13 @@ inline constexpr size_t kTermsPerWave = 32;
 // Opens `terms` together and reads their whole postings in one round; a term the dictionary
 // lacks has a null cursor.
 inline Status read_term_wave(IndexSource& source, std::span<const std::string> terms, bool scoring,
-                             std::vector<std::unique_ptr<PostingsCursor>>* cursors) {
+                             std::vector<std::unique_ptr<PostingsCursor>>* cursors,
+                             const std::vector<uint32_t>* candidates = nullptr) {
     RETURN_IF_ERROR(source.open_terms(terms, /*positions=*/false, scoring, cursors));
     bool reads = false;
     for (const auto& cursor : *cursors) {
         if (cursor != nullptr) {
-            RETURN_IF_ERROR(cursor->prefetch(nullptr, /*positions=*/false));
+            RETURN_IF_ERROR(cursor->prefetch(candidates, /*positions=*/false));
             reads = true;
         }
     }
@@ -60,11 +61,14 @@ inline Status read_term_wave(IndexSource& source, std::span<const std::string> t
 // visited; another opens them one at a time.
 template <typename Visit>
 Status visit_term_postings(IndexSource& source, std::span<const std::string> terms, bool scoring,
-                           Visit&& visit) {
+                           Visit&& visit, const std::vector<uint32_t>* candidates = nullptr) {
     if (!source.batches_reads()) {
         for (size_t i = 0; i < terms.size(); ++i) {
             std::unique_ptr<PostingsCursor> cursor;
             RETURN_IF_ERROR(source.open_term(terms[i], /*positions=*/false, scoring, &cursor));
+            if (cursor != nullptr && candidates != nullptr) {
+                RETURN_IF_ERROR(cursor->prefetch(candidates, /*positions=*/false));
+            }
             RETURN_IF_ERROR(visit(i, cursor.get()));
         }
         return Status::OK();
@@ -73,7 +77,7 @@ Status visit_term_postings(IndexSource& source, std::span<const std::string> ter
     std::vector<std::unique_ptr<PostingsCursor>> cursors;
     for (size_t begin = 0; begin < terms.size(); begin += kTermsPerWave) {
         const auto wave = terms.subspan(begin, std::min(kTermsPerWave, terms.size() - begin));
-        RETURN_IF_ERROR(read_term_wave(source, wave, scoring, &cursors));
+        RETURN_IF_ERROR(read_term_wave(source, wave, scoring, &cursors, candidates));
         for (size_t i = 0; i < cursors.size(); ++i) {
             RETURN_IF_ERROR(visit(begin + i, cursors[i].get()));
         }

@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <ctime>
 #include <functional>
 #include <map>
 #include <memory>
@@ -33,12 +34,14 @@
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/query_v2/null_bitmap_fetcher.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
 #include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/index/query/boolean/truth_set.h"
 #include "storage/index/query/fake_index_source.h"
+#include "testutil/benchmark_control.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 namespace {
@@ -277,6 +280,89 @@ protected:
     FieldNullIterator _iterator {roaring::Roaring::bitmapOf(2, 40U, 41U)};
     FieldNullResolver _resolver {&_iterator};
 };
+
+TEST_F(ListedTermsTest, SparseManyTermScoresPreserveOverlapsAndClauseOrder) {
+    for (bool batches : {false, true}) {
+        auto input = std::make_shared<FakeIndexSource>();
+        input->batches = batches;
+        input->set_doc_count(1000000);
+        std::vector<std::string> texts;
+        std::vector<QueryPtr> clauses;
+        for (uint32_t i = 0; i < 256; ++i) {
+            texts.push_back(many_term(i));
+            input->add(texts.back(), {posting(i * 1000, {i}), posting(999999, {0, 2})});
+            clauses.push_back(term(texts.back()));
+        }
+        const auto actual = scored([&] { return boolean(OperatorType::OP_OR, clauses); }, input);
+        expect_scores_near(actual, summed(texts, input));
+        EXPECT_EQ(actual.size(), 257);
+        EXPECT_LE(input->live.peak, kWaveTerms);
+    }
+}
+
+TEST_F(ListedTermsTest, ScoresRemainCorrectAsASparseDisjunctionBecomesDense) {
+    for (bool batches : {false, true}) {
+        auto input = std::make_shared<FakeIndexSource>();
+        input->batches = batches;
+        input->set_doc_count(256);
+        std::vector<std::string> texts;
+        std::vector<QueryPtr> clauses;
+        for (uint32_t i = 0; i < 96; ++i) {
+            texts.push_back(many_term(i));
+            input->add(texts.back(), {posting(i, {i}), posting(255, {0, 2})});
+            clauses.push_back(term(texts.back()));
+        }
+        const auto actual = scored([&] { return boolean(OperatorType::OP_OR, clauses); }, input);
+        expect_scores_near(actual, summed(texts, input));
+        EXPECT_EQ(actual.size(), 97);
+    }
+}
+
+TEST_F(ListedTermsTest, DISABLED_SparseDisjunctionScaling) {
+    for (uint32_t count : {8, 32, 128, 512, 1024}) {
+        auto input = std::make_shared<FakeIndexSource>();
+        input->batches = true;
+        input->set_doc_count(1000000);
+        std::vector<QueryPtr> clauses;
+        for (uint32_t i = 0; i < count; ++i) {
+            input->add(many_term(i), {posting(i * 500, {0}), posting(999999, {0, 2})});
+            clauses.push_back(term(many_term(i)));
+        }
+        const auto query = boolean(OperatorType::OP_OR, clauses);
+        const std::string label = "sparse_or/SNII/" + std::to_string(count);
+        for (uint32_t sample = 0; sample < 32; ++sample) {
+            input->prefetches.clear();
+            input->opened_together.clear();
+            benchmark::wait_for_turn(label, sample);
+            timespec start {};
+            timespec end {};
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &start);
+            const auto rows = scored([&] { return query; }, input);
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &end);
+            ASSERT_EQ(rows.size(), count + 1);
+            const uint64_t elapsed =
+                    (end.tv_sec - start.tv_sec) * 1000000000L + end.tv_nsec - start.tv_nsec;
+            benchmark::report_sample(label, sample, 1, elapsed, rows.size(), true);
+        }
+    }
+}
+
+TEST_F(ListedTermsTest, AConjunctionReadsExpansionsOnlyOnRemainingCandidates) {
+    for (const bool batches : {false, true}) {
+        auto input = source(batches);
+        const auto make = [&] {
+            auto expansion = std::make_shared<ExpandQuery>(
+                    _context, kField, index_query::TermPatternKind::kPrefix, "a");
+            return boolean(OperatorType::OP_AND, {expansion, term("c")});
+        };
+        const auto rows = evaluate(make, input);
+        EXPECT_EQ(rows.true_rows, roaring::Roaring::bitmapOf(2, 3U, 8U));
+        EXPECT_EQ(rows.null_rows, roaring::Roaring::bitmapOf(2, 40U, 41U));
+        ASSERT_EQ(input->prefetches["a"].size(), 1U);
+        EXPECT_FALSE(input->prefetches["a"][0].whole);
+        EXPECT_EQ(input->prefetches["a"][0].candidates, (std::vector<uint32_t> {3, 8, 20, 40, 41}));
+    }
+}
 
 TEST_F(ListedTermsTest, AGroupListsWithTheFieldsNullRows) {
     auto nulls = FieldNullBitmapFetcher::fetch(&_resolver, "body");

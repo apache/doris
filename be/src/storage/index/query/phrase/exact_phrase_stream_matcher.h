@@ -75,15 +75,12 @@ void validate_exact_phrase_stream_inputs(std::span<Cursor> cursors,
 // remaining positions when the cursor already holds all of them, and finish_doc() validates
 // skipped data. Every referenced cursor is finished before a successful match returns.
 template <typename Cursor>
-Status match_exact_phrase_document(std::span<Cursor> cursors,
-                                   std::span<const size_t> phrase_plan_index,
-                                   std::span<const uint32_t> position_offsets, uint32_t docid,
-                                   bool* matched) {
+Status match_exact_phrase_positions(std::span<Cursor> cursors,
+                                    std::span<const size_t> phrase_plan_index,
+                                    std::span<const uint32_t> position_offsets, bool* matched) {
     DORIS_CHECK(matched != nullptr);
 
     *matched = false;
-    RETURN_IF_ERROR(
-            exact_phrase_stream_matcher_detail::seek_document(cursors, phrase_plan_index, docid));
 
     Cursor& lead = cursors[phrase_plan_index.front()];
     // Two clauses held whole check with the block kernel.
@@ -119,6 +116,17 @@ Status match_exact_phrase_document(std::span<Cursor> cursors,
     }
     *matched = available && clause == phrase_plan_index.size();
     return exact_phrase_stream_matcher_detail::finish_document(cursors, phrase_plan_index);
+}
+
+// Opens the document before matching its buffered positions.
+template <typename Cursor>
+Status match_exact_phrase_document(std::span<Cursor> cursors,
+                                   std::span<const size_t> phrase_plan_index,
+                                   std::span<const uint32_t> position_offsets, uint32_t docid,
+                                   bool* matched) {
+    RETURN_IF_ERROR(
+            exact_phrase_stream_matcher_detail::seek_document(cursors, phrase_plan_index, docid));
+    return match_exact_phrase_positions(cursors, phrase_plan_index, position_offsets, matched);
 }
 
 } // namespace doris::index_query

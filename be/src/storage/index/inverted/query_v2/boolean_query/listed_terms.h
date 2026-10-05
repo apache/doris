@@ -46,8 +46,7 @@ public:
     ListedTerms(index_query::IndexSourcePtr source, std::shared_ptr<roaring::Roaring> nulls);
 
     const index_query::IndexSourcePtr& source() const { return _source; }
-    // Adds clause `clause` of the boolean, which asks for `term`, scored by `similarity` when
-    // the boolean scores.
+    // Adds a clause in ascending clause order, scored by `similarity` when the boolean scores.
     void add(size_t clause, std::string term,
              index_query::ScoringContextPtr<float> similarity = nullptr);
     // Whether the boolean's clause `clause` is listed here.

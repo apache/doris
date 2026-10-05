@@ -70,7 +70,9 @@
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/query/docid_set_ops.h"
+#include "storage/index/query/exec/term_waves.h"
 #include "storage/index/query/logical/search_lowering.h"
+#include "storage/index/query/roaring_docid_sink.h"
 #include "storage/index/query/term_pattern.h"
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
@@ -437,6 +439,21 @@ Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
                 index_query::IndexSourcePtr source, uint32_t doc_count,
                 const std::shared_ptr<roaring::Roaring>& result) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
+    if (!scoring) {
+        std::span<const std::string> terms;
+        if (const auto* term = leaf.as<logical::Term>(); term != nullptr) {
+            terms = std::span(&term->term, 1);
+        } else if (const auto* set = leaf.as<logical::TermSet>();
+                   set != nullptr && (!set->require_all || set->terms.size() == 1) &&
+                   set->min_should_match == 0) {
+            terms = set->terms;
+        }
+        if (!terms.empty() && source->segments().empty()) {
+            SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
+            index_query::RoaringDocIdSink sink(*result);
+            return index_query::collect_term_rows(*source, terms, sink);
+        }
+    }
     query_v2::WeightPtr weight;
     {
         SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_init_timer);
@@ -463,10 +480,11 @@ Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring&
         reader->setCompatibleRead(true);
     }
     try {
-        RETURN_IF_ERROR(
-                run_leaf(context, field, leaf, candidates, scoring,
-                         clucene_index_source(non_owning_reader(reader), field, context->io_ctx),
-                         reader->maxDoc(), result));
+        RETURN_IF_ERROR(run_leaf(
+                context, field, leaf, candidates, scoring,
+                clucene_index_source(std::shared_ptr<lucene::index::IndexReader>(searcher, reader),
+                                     field, context->io_ctx),
+                reader->maxDoc(), result));
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
                                                                       e.what());
@@ -980,8 +998,10 @@ Status CluceneTextIndexReader::_open_index(const IndexQueryContextPtr& context,
 
 index_query::IndexSourcePtr CluceneTextIndexReader::_bind_source(
         const IndexQueryContextPtr& context, const std::wstring& field, OpenedIndex& index) {
-    auto* reader = static_cast<CluceneOpenedIndex&>(index).searcher->getReader();
-    return clucene_index_source(non_owning_reader(reader), field, context->io_ctx);
+    const auto& searcher = static_cast<CluceneOpenedIndex&>(index).searcher;
+    return clucene_index_source(
+            std::shared_ptr<lucene::index::IndexReader>(searcher, searcher->getReader()), field,
+            context->io_ctx);
 }
 
 Status CluceneTextIndexReader::_term_document_frequency(const std::string& column_name,

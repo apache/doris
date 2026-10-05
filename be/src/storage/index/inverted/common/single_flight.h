@@ -20,7 +20,6 @@
 #include <array>
 #include <functional>
 #include <future>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -41,33 +40,47 @@ public:
     std::optional<ResultFuture> join_or_lead(const std::string& key) {
         auto& shard = _shard_for(key);
         std::lock_guard<std::mutex> guard(shard.mutex);
-        if (auto it = shard.inflight.find(key); it != shard.inflight.end()) {
-            return it->second->future;
+        auto [it, inserted] = shard.inflight.try_emplace(key);
+        if (!inserted) {
+            auto& flight = it->second;
+            if (!flight.promise.has_value()) {
+                flight.promise.emplace();
+                flight.future = flight.promise->get_future().share();
+            }
+            return flight.future;
         }
-        auto flight = std::make_shared<Flight>();
-        flight->future = flight->promise.get_future().share();
-        shard.inflight.emplace(key, std::move(flight));
         return std::nullopt;
     }
 
     void publish(const std::string& key, Result result) {
         auto& shard = _shard_for(key);
-        std::shared_ptr<Flight> flight;
+        Flight* flight = nullptr;
         {
             std::lock_guard<std::mutex> guard(shard.mutex);
             auto it = shard.inflight.find(key);
-            if (it == shard.inflight.end() || it->second->publishing) {
+            if (it == shard.inflight.end() || it->second.publishing) {
                 return;
             }
-            flight = it->second;
+            flight = &it->second;
             flight->publishing = true;
         }
-        flight->promise.set_value(std::move(result));
+        // Move the result outside the lock while callers can still join this publication.
+        Result ready(std::move(result));
+        std::optional<std::promise<Result>> promise;
+        {
+            std::lock_guard<std::mutex> guard(shard.mutex);
+            if (!flight->promise.has_value()) {
+                shard.inflight.erase(key);
+                return;
+            }
+            promise = std::move(flight->promise);
+        }
+        promise->set_value(std::move(ready));
         {
             std::lock_guard<std::mutex> guard(shard.mutex);
             auto it = shard.inflight.find(key);
             DORIS_CHECK(it != shard.inflight.end());
-            DORIS_CHECK(it->second == flight);
+            DORIS_CHECK(&it->second == flight);
             shard.inflight.erase(it);
         }
     }
@@ -87,14 +100,14 @@ public:
 
 private:
     struct Flight {
-        std::promise<Result> promise;
+        std::optional<std::promise<Result>> promise;
         ResultFuture future;
         bool publishing = false;
     };
 
     struct Shard {
         mutable std::mutex mutex;
-        std::unordered_map<std::string, std::shared_ptr<Flight>> inflight;
+        std::unordered_map<std::string, Flight> inflight;
     };
 
     static constexpr size_t kShardCount = 64;

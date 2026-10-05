@@ -388,7 +388,7 @@ protected:
         pb.set_index_type(IndexType::INVERTED);
         pb.set_index_id(1);
         pb.set_index_name("phrase_candidate_bench");
-        pb.add_col_unique_id(1);
+        pb.add_col_unique_id(env_or("PHRASE_CANDIDATE_BENCH_FIELD_ID", 1));
         pb.mutable_properties()->insert({"parser", "english"});
         pb.mutable_properties()->insert({"lower_case", "true"});
         pb.mutable_properties()->insert({"support_phrase", "true"});
@@ -398,7 +398,7 @@ protected:
         keyword_pb.set_index_type(IndexType::INVERTED);
         keyword_pb.set_index_id(2);
         keyword_pb.set_index_name("phrase_candidate_bench_keyword");
-        keyword_pb.add_col_unique_id(1);
+        keyword_pb.add_col_unique_id(env_or("PHRASE_CANDIDATE_BENCH_FIELD_ID", 1));
         _keyword_meta.init_from_pb(keyword_pb);
     }
 
@@ -408,7 +408,7 @@ protected:
         schema_pb.set_num_short_key_columns(1);
         schema_pb.set_num_rows_per_row_block(1024);
         schema_pb.set_compress_kind(COMPRESS_NONE);
-        schema_pb.set_next_column_unique_id(2);
+        schema_pb.set_next_column_unique_id(env_or("PHRASE_CANDIDATE_BENCH_FIELD_ID", 1) + 1);
         ColumnPB* key = schema_pb.add_column();
         key->set_unique_id(0);
         key->set_name("c1");
@@ -418,7 +418,7 @@ protected:
         key->set_index_length(4);
         key->set_is_nullable(false);
         ColumnPB* text = schema_pb.add_column();
-        text->set_unique_id(1);
+        text->set_unique_id(env_or("PHRASE_CANDIDATE_BENCH_FIELD_ID", 1));
         text->set_name("c2");
         text->set_type("VARCHAR");
         text->set_length(255);

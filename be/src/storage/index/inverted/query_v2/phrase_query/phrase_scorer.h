@@ -62,6 +62,7 @@ private:
     std::vector<TPostings> _terms;
     std::vector<std::vector<uint32_t>> _positions;
     index_query::PhraseVerifier _verifier;
+    std::vector<index_query::PositionStream> _streams;
     size_t _num_clauses = 0;
     float _phrase_count = 0.0F;
     index_query::ScoringContextPtr<float> _similarity;

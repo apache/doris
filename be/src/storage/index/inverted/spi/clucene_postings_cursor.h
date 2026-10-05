@@ -198,27 +198,31 @@ public:
         if (_raw_positions == nullptr) {
             return Status::NotSupported("This posting type does not support position information");
         }
+        uint32_t frequency = 0;
         uint32_t position = 0;
         uint32_t remaining = 0;
         bool opened = false;
+        ErrorContext error_context;
         try {
-            _open_positions(ordinal);
-            position = _position;
-            remaining = _position_remaining;
+            frequency = _prepare_positions(ordinal);
+            remaining = frequency;
             opened = true;
             for (; remaining != 0; --remaining) {
                 position += static_cast<uint32_t>(_raw_positions->nextDeltaPosition());
                 output.push_back(position + offset);
             }
         } catch (CLuceneError& error) {
+            error_context.eptr = std::current_exception();
+            error_context.err_msg = error.what();
+        }
+        FINALLY({
             if (opened) {
+                _position_frequency = frequency;
                 _position = position;
                 _position_remaining = remaining;
+                _position_open = true;
             }
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("{}", error.what());
-        }
-        _position = position;
-        _position_remaining = remaining;
+        });
         return Status::OK();
     }
 
@@ -232,6 +236,13 @@ private:
 
     // Inlined into each open: it runs once per document a phrase reads.
     ALWAYS_INLINE void _open_positions(uint32_t ordinal) {
+        _position_frequency = _prepare_positions(ordinal);
+        _position_remaining = _position_frequency;
+        _position = 0;
+        _position_open = true;
+    }
+
+    ALWAYS_INLINE uint32_t _prepare_positions(uint32_t ordinal) {
         DORIS_CHECK(_block_available);
         DORIS_CHECK(_freqs != nullptr);
         DORIS_CHECK(ordinal < _block.freq_many_size_);
@@ -246,11 +257,8 @@ private:
         if (skip_count > 0) {
             _raw_positions->addLazySkipProxCount(skip_count);
         }
-        _position_frequency = _freqs[ordinal];
-        _position_remaining = _position_frequency;
-        _position = 0;
-        _position_open = true;
         _prox_cursor = ordinal + 1;
+        return _freqs[ordinal];
     }
 
     uint32_t _read_next_position() {

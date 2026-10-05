@@ -29,7 +29,9 @@
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "storage/index/query/phrase/exact_phrase_matcher.h"
+#include "storage/index/query/phrase/exact_phrase_stream_matcher.h"
 #include "storage/index/query/phrase/position_span.h"
+#include "storage/index/query/phrase/position_stream.h"
 #include "storage/index/query/phrase/sloppy_phrase_matcher.h"
 
 namespace roaring {
@@ -66,6 +68,8 @@ public:
             offsets_.push_back(offset - offsets.front());
         }
         const size_t term_count = *std::ranges::max_element(clause_terms_) + 1;
+        can_stream_ = slop == 0 && clause_terms_.size() > 1 && term_count == clause_terms_.size() &&
+                      std::ranges::adjacent_find(offsets_, std::greater_equal {}) == offsets_.end();
         term_begins_.resize(term_count);
         term_ends_.resize(term_count);
         loaded_epoch_.resize(term_count);
@@ -86,11 +90,36 @@ public:
     PhraseVerifier& operator=(const PhraseVerifier&) = delete;
     PhraseVerifier(PhraseVerifier&&) = default;
 
+    bool can_stream() const { return can_stream_; }
+
+    Status verify_stream(std::span<PositionStream> streams, bool* matched) const {
+        DCHECK(can_stream_);
+        return match_exact_phrase_positions(streams, std::span(clause_terms_), std::span(offsets_),
+                                            matched);
+    }
+
     // `load(term, span)` reads distinct term `term`'s positions in the document and keeps them
     // valid until verify() returns. A frequency of zero means the document does not match.
     // Inlined, it runs inside each caller's per-document loop.
     template <typename Load>
     ALWAYS_INLINE Status verify(Load load, bool collect_frequency, float* frequency) {
+        if (!sloppy_.has_value() && !exact_.has_value()) {
+            PhrasePositionSpan left;
+            RETURN_IF_ERROR(load(clause_terms_[0], &left));
+            if (clause_terms_.size() == 1) {
+                const auto count = static_cast<uint32_t>(left.second - left.first);
+                *frequency = static_cast<float>(collect_frequency ? count : std::min(count, 1U));
+                return Status::OK();
+            }
+            PhrasePositionSpan right = left;
+            if (clause_terms_[0] != clause_terms_[1]) {
+                RETURN_IF_ERROR(load(clause_terms_[1], &right));
+            }
+            *frequency = static_cast<float>(
+                    collect_frequency ? count_two_term_phrase(left, right, offsets_[1])
+                                      : contains_two_term_phrase(left, right, offsets_[1]));
+            return Status::OK();
+        }
         // Each document gets a new epoch, so the loaded marks need no clearing per document.
         if (++epoch_ == 0) {
             std::ranges::fill(loaded_epoch_, 0);
@@ -122,18 +151,6 @@ public:
             *frequency = static_cast<float>(count);
             return Status::OK();
         }
-        PhrasePositionSpan left;
-        RETURN_IF_ERROR(clause_positions(0, &left));
-        if (clause_terms_.size() == 1) {
-            const auto count = static_cast<uint32_t>(left.second - left.first);
-            *frequency = static_cast<float>(collect_frequency ? count : std::min(count, 1U));
-            return Status::OK();
-        }
-        PhrasePositionSpan right;
-        RETURN_IF_ERROR(clause_positions(1, &right));
-        *frequency = static_cast<float>(
-                collect_frequency ? count_two_term_phrase(left, right, offsets_[1])
-                                  : contains_two_term_phrase(left, right, offsets_[1]));
         return Status::OK();
     }
 
@@ -146,6 +163,7 @@ private:
     std::vector<const uint32_t*> term_ends_;
     std::vector<uint32_t> loaded_epoch_;
     uint32_t epoch_ = 0;
+    bool can_stream_ = false;
     std::vector<PhrasePositionSpan> clause_spans_;
     std::optional<SloppyPhraseMatcher> sloppy_;
     std::optional<ExactPhraseMatcher> exact_;

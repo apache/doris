@@ -31,7 +31,13 @@ PhraseScorer<TPostings>::PhraseScorer(IntersectionDocSetPtr intersection_docset,
           _positions(_terms.size()),
           _verifier(std::move(verifier)),
           _num_clauses(num_clauses),
-          _similarity(std::move(similarity)) {}
+          _similarity(std::move(similarity)) {
+    if constexpr (std::is_same_v<TPostings, SegmentPostingsPtr>) {
+        if (!_similarity && _verifier.can_stream()) {
+            _streams.resize(_terms.size());
+        }
+    }
+}
 
 template <typename TPostings>
 PhraseScorer<TPostings>::~PhraseScorer() = default;
@@ -132,6 +138,20 @@ float PhraseScorer<TPostings>::score() {
 
 template <typename TPostings>
 bool PhraseScorer<TPostings>::phrase_match() {
+    if constexpr (std::is_same_v<TPostings, SegmentPostingsPtr>) {
+        if (!_streams.empty()) {
+            for (size_t i = 0; i < _terms.size(); ++i) {
+                index_query::PositionCursor* positions = nullptr;
+                THROW_IF_ERROR(_terms[i]->cursor().open_positions(
+                        static_cast<uint32_t>(_terms[i]->doc_set().ordinal()), &positions));
+                THROW_IF_ERROR(_streams[i].reset(positions));
+            }
+            bool matched = false;
+            THROW_IF_ERROR(_verifier.verify_stream(_streams, &matched));
+            _phrase_count = matched ? 1.0F : 0.0F;
+            return matched;
+        }
+    }
     const auto load = [this](size_t term, index_query::PhrasePositionSpan* span) {
         _terms[term]->positions_with_offset(0, _positions[term]);
         *span = {_positions[term].data(), _positions[term].data() + _positions[term].size()};

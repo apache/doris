@@ -32,7 +32,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
-#include "io/fs/path.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
@@ -257,7 +256,7 @@ public:
 
     // cache key
     struct CacheKey {
-        io::Path index_path;               // index file path
+        std::string index_path;            // index identity
         std::string column_name;           // column name
         InvertedIndexQueryType query_type; // query type
         std::string value;                 // query value

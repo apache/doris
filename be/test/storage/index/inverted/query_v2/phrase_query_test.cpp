@@ -666,6 +666,37 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_bm25_similarity) {
     _CLDECDELETE(dir);
 }
 
+TEST(PhraseScorerStreamTest, ExactMatchStopsReadingAfterAnEarlyHit) {
+    using Cursor = index_query::testing::FakePostingsCursor;
+    std::vector<Cursor*> observed;
+    std::vector<std::pair<size_t, query_v2::SegmentPostingsPtr>> terms;
+    for (uint32_t offset = 0; offset < 3; ++offset) {
+        std::vector<uint32_t> positions;
+        for (uint32_t i = 0; i < 512; ++i) {
+            positions.push_back(4 * i + offset);
+        }
+        auto cursor = std::make_unique<Cursor>(
+                std::vector<Cursor::Posting> {{.doc = 0, .positions = positions},
+                                              {.doc = 2, .positions = positions}},
+                true, true);
+        observed.push_back(cursor.get());
+        terms.emplace_back(offset,
+                           query_v2::make_segment_postings(std::move(cursor), false, nullptr));
+    }
+    auto scorer =
+            query_v2::PhraseScorer<query_v2::SegmentPostingsPtr>::create(terms, nullptr, {}, 3);
+    ASSERT_EQ(scorer->doc(), 0);
+    EXPECT_EQ(scorer->seek(0), 0);
+    for (const auto* cursor : observed) {
+        EXPECT_LE(cursor->positions_read, 16);
+    }
+    ASSERT_EQ(scorer->advance(), 2);
+    for (const auto* cursor : observed) {
+        EXPECT_LE(cursor->positions_read, 32);
+    }
+    EXPECT_EQ(scorer->advance(), query_v2::TERMINATED);
+}
+
 TEST_F(PhraseQueryV2Test, SloppyScorerPreservesForwardOnlyPositionsAcrossSeek) {
     std::unique_ptr<lucene::store::Directory, DirectoryDeleter> directory(
             FSDirectory::getDirectory(kTestDir.c_str()));

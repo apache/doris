@@ -113,10 +113,9 @@ std::string InvertedIndexQueryCache::CacheKey::encode() const {
         return {};
     }
     std::string output;
-    const std::string index_path_string = index_path.string();
-    output.reserve(3 * sizeof(uint64_t) + index_path_string.size() + column_name.size() +
+    output.reserve(3 * sizeof(uint64_t) + index_path.size() + column_name.size() +
                    sizeof(query_type) + value.size());
-    append_length_prefixed(index_path_string, &output);
+    append_length_prefixed(index_path, &output);
     append_length_prefixed(column_name, &output);
     put_fixed32_le(&output, static_cast<uint32_t>(query_type));
     append_length_prefixed(value, &output);
@@ -207,10 +206,11 @@ Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCa
 }
 
 bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle) {
-    if (key.encode().empty()) {
+    const auto encoded = key.encode();
+    if (encoded.empty()) {
         return false;
     }
-    auto* lru_handle = LRUCachePolicy::lookup(key.encode());
+    auto* lru_handle = LRUCachePolicy::lookup(encoded);
     if (lru_handle == nullptr) {
         return false;
     }
@@ -220,14 +220,14 @@ bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCach
 
 void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> bitmap,
                                      InvertedIndexQueryCacheHandle* handle) {
+    const auto encoded = key.encode();
+    if (encoded.empty()) {
+        return;
+    }
     std::unique_ptr<InvertedIndexQueryCache::CacheValue> cache_value_ptr =
             std::make_unique<InvertedIndexQueryCache::CacheValue>();
     cache_value_ptr->bitmap = bitmap;
-    if (key.encode().empty()) {
-        return;
-    }
-
-    auto* lru_handle = LRUCachePolicy::insert(key.encode(), (void*)cache_value_ptr.release(),
+    auto* lru_handle = LRUCachePolicy::insert(encoded, (void*)cache_value_ptr.release(),
                                               bitmap->getSizeInBytes(), bitmap->getSizeInBytes(),
                                               CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(this, lru_handle);

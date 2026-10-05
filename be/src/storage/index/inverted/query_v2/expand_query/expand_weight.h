@@ -34,7 +34,17 @@ public:
 
     ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) override;
 
+    bool lists_rows(const QueryExecutionContext&, const std::string&) const override {
+        return true;
+    }
+    index_query::TruthSet listed_rows(const QueryExecutionContext& context,
+                                      const std::string& binding_key,
+                                      const roaring::Roaring* candidates) override;
+
 private:
+    std::shared_ptr<roaring::Roaring> _rows(const QueryExecutionContext& context,
+                                            const std::string& binding_key,
+                                            const roaring::Roaring* candidates);
     IndexQueryContextPtr _context;
     std::wstring _field;
     index_query::TermPatternKind _kind;

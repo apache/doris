@@ -37,17 +37,24 @@ namespace {
 
 // The rows holding any of the expanded terms, read a wave of terms at a time.
 Status collect_expanded_rows(index_query::IndexSource& source,
-                             const std::vector<std::string>& terms, roaring::Roaring* rows) {
+                             const std::vector<std::string>& terms,
+                             const roaring::Roaring* candidates, roaring::Roaring* rows) {
     index_query::RoaringDocIdSink sink(*rows);
+    std::vector<uint32_t> selected;
+    if (candidates != nullptr) {
+        selected.resize(candidates->cardinality());
+        candidates->toUint32Array(selected.data());
+    }
     return index_query::visit_term_postings(
             source, terms, /*scoring=*/false,
-            [&sink](size_t, index_query::PostingsCursor* cursor) -> Status {
+            [&sink, candidates](size_t, index_query::PostingsCursor* cursor) -> Status {
                 // The dictionary just listed the term, so its postings open.
                 DORIS_CHECK(cursor != nullptr);
                 index_query::BlockDocSet postings(*cursor);
-                return index_query::collect_postings<false>(postings, nullptr, sink,
+                return index_query::collect_postings<false>(postings, candidates, sink,
                                                             [](uint32_t, uint32_t, uint32_t) {});
-            });
+            },
+            candidates == nullptr ? nullptr : &selected);
 }
 
 } // namespace
@@ -59,11 +66,15 @@ ExpandWeight::ExpandWeight(IndexQueryContextPtr context, std::wstring field,
           _kind(kind),
           _pattern(std::move(pattern)) {}
 
-ScorerPtr ExpandWeight::scorer(const QueryExecutionContext& context,
-                               const std::string& binding_key) {
+std::shared_ptr<roaring::Roaring> ExpandWeight::_rows(const QueryExecutionContext& context,
+                                                      const std::string& binding_key,
+                                                      const roaring::Roaring* candidates) {
+    auto docs = std::make_shared<roaring::Roaring>();
+    if (candidates != nullptr && candidates->isEmpty()) {
+        return docs;
+    }
     index_query::TermPattern pattern;
     THROW_IF_ERROR(index_query::TermPattern::create(_kind, _pattern, &pattern));
-    ScorerPtr scorer = std::make_shared<EmptyScorer>();
     auto source = lookup_source(_field, context, binding_key);
     if (source != nullptr) {
         std::vector<std::string> terms;
@@ -71,15 +82,30 @@ ScorerPtr ExpandWeight::scorer(const QueryExecutionContext& context,
                 pattern,
                 index_query::expansion_limit(_kind, index_query::max_expansions(*_context)),
                 &terms));
-        if (!terms.empty()) {
-            auto docs = std::make_shared<roaring::Roaring>();
-            THROW_IF_ERROR(collect_expanded_rows(*source, terms, docs.get()));
-            scorer = std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(
-                    std::make_shared<BitSetScorer>(std::move(docs)));
-        }
+        THROW_IF_ERROR(collect_expanded_rows(*source, terms, candidates, docs.get()));
     }
+    return docs;
+}
+
+ScorerPtr ExpandWeight::scorer(const QueryExecutionContext& context,
+                               const std::string& binding_key) {
+    auto scorer = std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(
+            std::make_shared<BitSetScorer>(_rows(context, binding_key, nullptr)));
     return make_nullable_scorer(scorer, logical_field_or_fallback(context, binding_key, _field),
                                 context.null_resolver);
+}
+
+index_query::TruthSet ExpandWeight::listed_rows(const QueryExecutionContext& context,
+                                                const std::string& binding_key,
+                                                const roaring::Roaring* candidates) {
+    index_query::TruthSet result;
+    result.true_rows = std::move(*_rows(context, binding_key, candidates));
+    auto nulls = FieldNullBitmapFetcher::fetch(
+            context.null_resolver, logical_field_or_fallback(context, binding_key, _field));
+    if (nulls != nullptr) {
+        result.null_rows = candidates == nullptr ? *nulls : *nulls & *candidates;
+    }
+    return result;
 }
 
 } // namespace doris::segment_v2::inverted_index::query_v2

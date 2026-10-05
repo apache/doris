@@ -17,6 +17,8 @@
 
 #include "storage/index/inverted/query_v2/boolean_query/listed_terms.h"
 
+#include <parallel_hashmap/phmap.h>
+
 #include <algorithm>
 #include <bit>
 #include <optional>
@@ -41,13 +43,14 @@ ListedTerms::ListedTerms(index_query::IndexSourcePtr source,
 
 void ListedTerms::add(size_t clause, std::string term,
                       index_query::ScoringContextPtr<float> similarity) {
+    DCHECK(_clauses.empty() || _clauses.back() < clause);
     _clauses.push_back(clause);
     _terms.push_back(std::move(term));
     _similarities.push_back(std::move(similarity));
 }
 
 bool ListedTerms::holds(size_t clause) const {
-    return std::ranges::find(_clauses, clause) != _clauses.end();
+    return std::ranges::binary_search(_clauses, clause);
 }
 
 void ListedTerms::open(bool conjunctive, bool scoring) {
@@ -229,11 +232,13 @@ ScorerPtr ListedTerms::scored_conjunction() {
 // Every term reads its whole posting, with its frequencies and norms, a wave of terms per round;
 // a row's score sums the scores of the terms holding it, in clause order. Once a term and the
 // rows scored before it cover a quarter of the segment, the terms add into a slot per row.
+// Sparse results switch to a map after one wave to bound repeated merging.
 ScorerPtr ListedTerms::scored_disjunction() {
     bool any_present = false;
     std::vector<uint32_t> rows;
     std::vector<float> scores;
     std::optional<RowSlots> slots;
+    std::optional<phmap::flat_hash_map<uint32_t, float>> sparse;
     const uint32_t doc_count = _source->doc_count();
     THROW_IF_ERROR(index_query::visit_term_postings(
             *_source, _terms, /*scoring=*/true,
@@ -243,13 +248,35 @@ ScorerPtr ListedTerms::scored_disjunction() {
                 }
                 any_present = true;
                 _similarities[i]->bind_norms(_source->norm_lengths());
-                if (!slots.has_value() && !rows.empty() &&
-                    (rows.size() + cursor->doc_freq()) * 4 >= doc_count) {
-                    slots.emplace(doc_count, rows, scores);
+                if (!slots.has_value()) {
+                    const size_t held = sparse.has_value() ? sparse->size() : rows.size();
+                    if (held != 0 && (held + cursor->doc_freq()) * 4 >= doc_count) {
+                        if (sparse.has_value()) {
+                            rows.clear();
+                            scores.clear();
+                            for (const auto& [row, score] : *sparse) {
+                                rows.push_back(row);
+                                scores.push_back(score);
+                            }
+                            sparse.reset();
+                        }
+                        slots.emplace(doc_count, rows, scores);
+                    } else if (!sparse.has_value() && i >= index_query::kTermsPerWave) {
+                        sparse.emplace();
+                        sparse->reserve(rows.size() + cursor->doc_freq());
+                        for (size_t row = 0; row < rows.size(); ++row) {
+                            sparse->emplace(rows[row], scores[row]);
+                        }
+                    }
                 }
                 index_query::BlockDocSet docs(*cursor);
                 if (slots.has_value()) {
                     slots->add_term(docs, *_similarities[i]);
+                } else if (sparse.has_value()) {
+                    for (; !docs.exhausted(); docs.advance()) {
+                        (*sparse)[docs.doc()] += _similarities[i]->score(
+                                static_cast<float>(docs.freq()), docs.norm());
+                    }
                 } else {
                     merge_term(docs, *_similarities[i], &rows, &scores);
                 }
@@ -260,6 +287,16 @@ ScorerPtr ListedTerms::scored_disjunction() {
     }
     if (slots.has_value()) {
         slots->list(&rows, &scores);
+    } else if (sparse.has_value()) {
+        rows.clear();
+        scores.clear();
+        for (const auto& [row, score] : *sparse) {
+            rows.push_back(row);
+        }
+        std::ranges::sort(rows);
+        for (const uint32_t row : rows) {
+            scores.push_back(sparse->at(row));
+        }
     }
     return std::make_shared<ScoredRowsScorer>(std::move(rows), std::move(scores), _nulls);
 }
