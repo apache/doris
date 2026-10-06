@@ -364,6 +364,35 @@ public class SplitAssignmentTest {
         Assertions.assertNotNull(splitAssignment.getSampleSplit());
     }
 
+    // ==================== SplitSource.getNextBatch() tests ====================
+
+    @Test
+    void testFetchTakesTheLastSplitsWithoutWaitingOnceNoMoreCanCome() throws Exception {
+        Multimap<Backend, Split> batch = ArrayListMultimap.create();
+        batch.put(mockBackend, mockSplit);
+        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenReturn(batch);
+        Mockito.when(mockSplitToScanRange.getScanRange(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyBoolean())).thenReturn(mockScanRangeLocations);
+        SplitSource source = new SplitSource(mockBackend, splitAssignment, 1000);
+        // The generator queued every split and finished, as a remote Doris scan's does when it is started.
+        splitAssignment.addToQueue(Collections.singletonList(mockSplit));
+        splitAssignment.finishSchedule();
+
+        // A fetch that waited on the queue for more would fail on an interrupted thread: this one takes what is
+        // queued and returns at once.
+        Thread.currentThread().interrupt();
+        List<TScanRangeLocations> lastSplits;
+        try {
+            lastSplits = source.getNextBatch(1000);
+        } finally {
+            Thread.interrupted();
+        }
+
+        Assertions.assertEquals(Collections.singletonList(mockScanRangeLocations), lastSplits);
+        // The backend's next fetch learns that the source is done.
+        Assertions.assertTrue(source.getNextBatch(1000).isEmpty());
+    }
+
     @Test
     void testInitWhenNeedMoreSplitReturnsFalse() throws Exception {
         // Test init behavior when needMoreSplit() returns false

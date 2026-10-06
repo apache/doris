@@ -81,7 +81,10 @@ public class SplitSource {
             }
             while (scanRanges.size() < maxBatchSize) {
                 try {
-                    Collection<TScanRangeLocations> splitCollection = splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
+                    // Once the generator is done - or the assignment is stopped or failed - nothing more can arrive
+                    // in the queue: take what is there without waiting for more.
+                    Collection<TScanRangeLocations> splitCollection = splitAssignment.needMoreSplit()
+                            ? splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS) : splits.poll();
                     if (splitCollection != null) {
                         scanRanges.addAll(splitCollection);
                     }
