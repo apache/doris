@@ -25,8 +25,11 @@
 #include <vector>
 
 #include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_string.h"
 #include "exprs/function/match.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
@@ -524,6 +527,62 @@ TEST(FunctionMatchTest, array_match_keeps_tokens_from_all_elements) {
     check_match(match_phrase, "alpha token", {1, 0, 0, 1, 0});
     check_match(match_phrase_prefix, "alpha", {1, 0, 0, 1, 0});
     check_match(match_phrase_edge, "pha", {1, 0, 0, 1, 0});
+}
+
+TEST(FunctionMatchTest, null_array_elements_do_not_match_hidden_payload) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto array_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+    auto string_type = std::make_shared<DataTypeString>();
+    auto context = FunctionContext::create_context(
+            &runtime_state, std::make_shared<DataTypeUInt8>(), {array_type, string_type});
+    auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+    analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
+    context->set_function_state(FunctionContext::FRAGMENT_LOCAL, analyzer_ctx);
+
+    auto check_match = [&](const FunctionMatchBase& function) {
+        auto values = ColumnString::create();
+        for (const std::string value : {"alpha", "tail", "alpha", "alpha", "tail", "alpha"}) {
+            values->insert_data(value.data(), value.size());
+        }
+        auto null_map = ColumnUInt8::create();
+        const uint8_t nulls[] = {1, 0, 1, 0, 0, 1};
+        for (uint8_t is_null : nulls) {
+            null_map->insert_value(is_null);
+        }
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        for (uint64_t offset : {2, 4, 6}) {
+            offsets->insert_value(offset);
+        }
+        auto query = ColumnString::create();
+        for (size_t row = 0; row < 3; ++row) {
+            query->insert_data("alpha", 5);
+        }
+
+        Block block;
+        block.insert(
+                {ColumnArray::create(ColumnNullable::create(std::move(values), std::move(null_map)),
+                                     std::move(offsets)),
+                 array_type, "tags"});
+        block.insert({std::move(query), string_type, "query"});
+        block.insert({nullptr, std::make_shared<DataTypeUInt8>(), "result"});
+        ASSERT_TRUE(function.execute_impl(context.get(), block, {0, 1}, 2, 3).ok());
+
+        const auto& result = assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column);
+        SCOPED_TRACE(function.get_name());
+        EXPECT_EQ(result.get_element(0), 0);
+        EXPECT_EQ(result.get_element(1), 1);
+        EXPECT_EQ(result.get_element(2), 0);
+    };
+
+    check_match(FunctionMatchAny {});
+    check_match(FunctionMatchAll {});
+    check_match(FunctionMatchRegexp {});
+    check_match(FunctionMatchPhrase {});
+    check_match(FunctionMatchPhrasePrefix {});
+    check_match(FunctionMatchPhraseEdge {});
 }
 
 // Test Unicode and special character handling

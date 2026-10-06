@@ -49,7 +49,6 @@ bool match_phrase_tokens(const std::vector<segment_v2::TermInfo>& data_tokens,
     bool matched = false;
     auto data_it = data_tokens.begin();
     while (data_it != data_tokens.end()) {
-        // find position of first token
         data_it = std::find_if(data_it, data_tokens.end(), [&](const segment_v2::TermInfo& info) {
             return info.get_single_term() == query_tokens[0].get_single_term();
         });
@@ -57,7 +56,6 @@ bool match_phrase_tokens(const std::vector<segment_v2::TermInfo>& data_tokens,
             matched = true;
             auto data_it_next = ++data_it;
             auto query_it = query_tokens.begin() + 1;
-            // compare query_tokens after the first to data_tokens one by one
             while (query_it != query_tokens.end()) {
                 if (data_it_next == data_tokens.end() ||
                     data_it_next->get_single_term() != query_it->get_single_term()) {
@@ -233,6 +231,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
     const ColumnArray* array_col = nullptr;
+    const ColumnUInt8::Container* array_element_null_map = nullptr;
     if (is_column<ColumnArray>(source_col.get())) {
         array_col = check_and_get_column<ColumnArray>(source_col.get());
         if (array_col && !array_col->get_data().is_column_string()) {
@@ -246,6 +245,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
         if (is_column_nullable(array_col->get_data())) {
             const auto& array_nested_null_column =
                     reinterpret_cast<const ColumnNullable&>(array_col->get_data());
+            array_element_null_map = &array_nested_null_column.get_null_map_column().get_data();
             values = check_and_get_column<ColumnString>(
                     *(array_nested_null_column.get_nested_column_ptr()));
         } else {
@@ -267,7 +267,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     vec_res.resize_fill(input_rows_count);
     RETURN_IF_ERROR(execute_match(context, column_name, match_query_str, input_rows_count, values,
                                   analyzer_ctx, (array_col ? &(array_col->get_offsets()) : nullptr),
-                                  vec_res));
+                                  vec_res, array_element_null_map));
     block.replace_by_position(result, std::move(res));
 
     return Status::OK();
@@ -330,8 +330,9 @@ std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_query_str_token(
 
 inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
         const std::string& column_name, const InvertedIndexAnalyzerCtx* analyzer_ctx,
-        const ColumnString* string_col, int32_t current_block_row_idx,
-        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) const {
+        const ColumnString* string_col, size_t current_block_row_idx,
+        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset,
+        const ColumnUInt8::Container* array_element_null_map) const {
     std::vector<segment_v2::TermInfo> data_tokens;
     if (analyzer_ctx == nullptr) {
         return data_tokens;
@@ -343,6 +344,9 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
     if (array_offsets) {
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
              current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
+            if (array_element_null_map && (*array_element_null_map)[current_src_array_offset]) {
+                continue;
+            }
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
             if (!requires_analysis) {
                 data_tokens.emplace_back(str_ref.to_string());
@@ -393,7 +397,8 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
                                        const ColumnString* string_col,
                                        const InvertedIndexAnalyzerCtx* analyzer_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
-                                       ColumnUInt8::Container& result) const {
+                                       ColumnUInt8::Container& result,
+                                       const ColumnUInt8::Container* array_element_null_map) const {
     RETURN_IF_ERROR(check(context, name));
 
     auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
@@ -409,8 +414,9 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
-                                              array_offsets, current_src_array_offset);
+        auto data_tokens =
+                analyse_data_token(column_name, analyzer_ctx, string_col, i, array_offsets,
+                                   current_src_array_offset, array_element_null_map);
 
         // TODO: more efficient impl
         for (auto& term_info : query_tokens) {
@@ -433,7 +439,8 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
                                        const ColumnString* string_col,
                                        const InvertedIndexAnalyzerCtx* analyzer_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
-                                       ColumnUInt8::Container& result) const {
+                                       ColumnUInt8::Container& result,
+                                       const ColumnUInt8::Container* array_element_null_map) const {
     RETURN_IF_ERROR(check(context, name));
 
     auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
@@ -449,8 +456,9 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
-                                              array_offsets, current_src_array_offset);
+        auto data_tokens =
+                analyse_data_token(column_name, analyzer_ctx, string_col, i, array_offsets,
+                                   current_src_array_offset, array_element_null_map);
 
         // TODO: more efficient impl
         auto find_count = 0;
@@ -474,12 +482,12 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
     return Status::OK();
 }
 
-Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::string& column_name,
-                                          const std::string& match_query_str,
-                                          size_t input_rows_count, const ColumnString* string_col,
-                                          const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                          const ColumnArray::Offsets64* array_offsets,
-                                          ColumnUInt8::Container& result) const {
+Status FunctionMatchPhrase::execute_match(
+        FunctionContext* context, const std::string& column_name,
+        const std::string& match_query_str, size_t input_rows_count, const ColumnString* string_col,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx, const ColumnArray::Offsets64* array_offsets,
+        ColumnUInt8::Container& result,
+        const ColumnUInt8::Container* array_element_null_map) const {
     RETURN_IF_ERROR(check(context, name));
 
     auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
@@ -498,6 +506,9 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
         const auto element_begin = array_offsets ? (*array_offsets)[i - 1] : i;
         const auto element_end = array_offsets ? (*array_offsets)[i] : i + 1;
         for (auto element = element_begin; element < element_end && !result[i]; ++element) {
+            if (array_element_null_map && (*array_element_null_map)[element]) {
+                continue;
+            }
             auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, element,
                                                   nullptr, current_src_array_offset);
             result[i] = match_phrase_tokens(data_tokens, query_tokens);
@@ -511,7 +522,8 @@ Status FunctionMatchPhrasePrefix::execute_match(
         FunctionContext* context, const std::string& column_name,
         const std::string& match_query_str, size_t input_rows_count, const ColumnString* string_col,
         const InvertedIndexAnalyzerCtx* analyzer_ctx, const ColumnArray::Offsets64* array_offsets,
-        ColumnUInt8::Container& result) const {
+        ColumnUInt8::Container& result,
+        const ColumnUInt8::Container* array_element_null_map) const {
     RETURN_IF_ERROR(check(context, name));
 
     auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
@@ -530,6 +542,9 @@ Status FunctionMatchPhrasePrefix::execute_match(
         const auto element_begin = array_offsets ? (*array_offsets)[i - 1] : i;
         const auto element_end = array_offsets ? (*array_offsets)[i] : i + 1;
         for (auto element = element_begin; element < element_end && !result[i]; ++element) {
+            if (array_element_null_map && (*array_element_null_map)[element]) {
+                continue;
+            }
             auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, element,
                                                   nullptr, current_src_array_offset);
             result[i] = match_phrase_prefix_tokens(data_tokens, query_tokens);
@@ -539,12 +554,12 @@ Status FunctionMatchPhrasePrefix::execute_match(
     return Status::OK();
 }
 
-Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::string& column_name,
-                                          const std::string& match_query_str,
-                                          size_t input_rows_count, const ColumnString* string_col,
-                                          const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                          const ColumnArray::Offsets64* array_offsets,
-                                          ColumnUInt8::Container& result) const {
+Status FunctionMatchRegexp::execute_match(
+        FunctionContext* context, const std::string& column_name,
+        const std::string& match_query_str, size_t input_rows_count, const ColumnString* string_col,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx, const ColumnArray::Offsets64* array_offsets,
+        ColumnUInt8::Container& result,
+        const ColumnUInt8::Container* array_element_null_map) const {
     RETURN_IF_ERROR(check(context, name));
 
     VLOG_DEBUG << "begin to run FunctionMatchRegexp::execute_match, parser_type: "
@@ -586,8 +601,9 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
     try {
         auto current_src_array_offset = 0;
         for (int i = 0; i < input_rows_count; i++) {
-            auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
-                                                  array_offsets, current_src_array_offset);
+            auto data_tokens =
+                    analyse_data_token(column_name, analyzer_ctx, string_col, i, array_offsets,
+                                       current_src_array_offset, array_element_null_map);
 
             for (auto& input : data_tokens) {
                 bool is_match = false;
@@ -617,7 +633,8 @@ Status FunctionMatchPhraseEdge::execute_match(
         FunctionContext* context, const std::string& column_name,
         const std::string& match_query_str, size_t input_rows_count, const ColumnString* string_col,
         const InvertedIndexAnalyzerCtx* analyzer_ctx, const ColumnArray::Offsets64* array_offsets,
-        ColumnUInt8::Container& result) const {
+        ColumnUInt8::Container& result,
+        const ColumnUInt8::Container* array_element_null_map) const {
     RETURN_IF_ERROR(check(context, name));
 
     auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
@@ -636,6 +653,9 @@ Status FunctionMatchPhraseEdge::execute_match(
         const auto element_begin = array_offsets ? (*array_offsets)[i - 1] : i;
         const auto element_end = array_offsets ? (*array_offsets)[i] : i + 1;
         for (auto element = element_begin; element < element_end && !result[i]; ++element) {
+            if (array_element_null_map && (*array_element_null_map)[element]) {
+                continue;
+            }
             auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, element,
                                                   nullptr, current_src_array_offset);
             result[i] = match_phrase_edge_tokens(data_tokens, query_tokens);
