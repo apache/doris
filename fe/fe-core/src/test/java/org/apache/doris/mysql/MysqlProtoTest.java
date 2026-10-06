@@ -225,6 +225,52 @@ public class MysqlProtoTest {
     }
 
     @Test
+    public void testNegotiateRecordsCompressionOnlyWhenBothSidesAskForIt() throws Exception {
+        String savedAlgorithms = Config.mysql_compression_algorithms;
+        try {
+            // the server offers zlib and the client asks: the negotiated level is recorded, nothing started
+            Config.mysql_compression_algorithms = "zlib";
+            mockChannel("user", true);
+            int clientFlags = MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                    | MysqlCapability.Flag.CLIENT_COMPRESS.getFlagBit();
+            channel.fetchOnePacket().putInt(0, Integer.reverseBytes(clientFlags));
+            mockPassword(true);
+            mockAccess();
+            ConnectContext context = createContext(); // the adapter builds the server capability here
+            context.setEnv(env);
+            context.setThreadLocalInfo();
+            Assertions.assertTrue(MysqlProto.negotiate(context));
+            Assertions.assertTrue(context.getCapability().isCompress());
+            Mockito.verify(channel).setCompressionNegotiated(Config.mysql_zlib_compression_level);
+            Mockito.verify(channel, Mockito.never()).startCompressionIfNegotiated();
+
+            // the server offers zlib, the client does not ask: nothing recorded
+            Mockito.clearInvocations(channel);
+            mockChannel("user", true); // the default flags carry no CLIENT_COMPRESS
+            context = createContext();
+            context.setEnv(env);
+            context.setThreadLocalInfo();
+            Assertions.assertTrue(MysqlProto.negotiate(context));
+            Assertions.assertFalse(context.getCapability().isCompress());
+            Mockito.verify(channel, Mockito.never()).setCompressionNegotiated(Mockito.anyInt());
+
+            // the server does not offer, the client asks anyway: nothing recorded
+            Config.mysql_compression_algorithms = "";
+            Mockito.clearInvocations(channel);
+            mockChannel("user", true);
+            channel.fetchOnePacket().putInt(0, Integer.reverseBytes(clientFlags));
+            context = createContext();
+            context.setEnv(env);
+            context.setThreadLocalInfo();
+            Assertions.assertTrue(MysqlProto.negotiate(context));
+            Assertions.assertFalse(context.getCapability().isCompress());
+            Mockito.verify(channel, Mockito.never()).setCompressionNegotiated(Mockito.anyInt());
+        } finally {
+            Config.mysql_compression_algorithms = savedAlgorithms;
+        }
+    }
+
+    @Test
     public void testNegotiateInitCatalog() throws Exception {
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         mockChannel("user", true);

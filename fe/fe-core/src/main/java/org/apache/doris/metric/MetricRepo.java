@@ -120,6 +120,10 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_REQUEST_ALL;
     public static LongCounterMetric COUNTER_QUERY_ALL;
     public static LongCounterMetric COUNTER_QUERY_ERR;
+    public static LongCounterMetric COUNTER_MYSQL_COMPRESSED_CONNECTIONS;
+    public static LongCounterMetric COUNTER_MYSQL_COMPRESSED_SEND_RAW_BYTES;
+    public static LongCounterMetric COUNTER_MYSQL_COMPRESSED_SEND_BYTES;
+    public static LongCounterMetric COUNTER_MYSQL_COMPRESSED_RECV_BYTES;
     public static LongCounterMetric COUNTER_QUERY_SLOW;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
@@ -467,6 +471,19 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_ARROW_FLIGHT_CONNECTIONS);
+        // MySQL connections on the compressed protocol, and the bytes it moved for them
+        COUNTER_MYSQL_COMPRESSED_CONNECTIONS = new LongCounterMetric("mysql_compressed_connection_total",
+                MetricUnit.CONNECTIONS, "MySQL connections that negotiated the compressed protocol");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_MYSQL_COMPRESSED_CONNECTIONS);
+        COUNTER_MYSQL_COMPRESSED_SEND_RAW_BYTES = new LongCounterMetric("mysql_compressed_send_raw_bytes",
+                MetricUnit.BYTES, "bytes handed to the MySQL compressed protocol before compression");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_MYSQL_COMPRESSED_SEND_RAW_BYTES);
+        COUNTER_MYSQL_COMPRESSED_SEND_BYTES = new LongCounterMetric("mysql_compressed_send_bytes",
+                MetricUnit.BYTES, "bytes of compressed frames sent to MySQL clients, headers included");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_MYSQL_COMPRESSED_SEND_BYTES);
+        COUNTER_MYSQL_COMPRESSED_RECV_BYTES = new LongCounterMetric("mysql_compressed_recv_bytes",
+                MetricUnit.BYTES, "bytes of compressed frames received from MySQL clients, headers included");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_MYSQL_COMPRESSED_RECV_BYTES);
         GAUGE_CONNECTION_MAX = new GaugeMetric<Integer>("connection_max",
                 MetricUnit.CONNECTIONS, "max connections") {
             @Override
