@@ -117,7 +117,7 @@ public:
         return inner_->read_at(offset, len, out);
     }
     Status read_batch(const std::vector<doris::snii::io::Range>& ranges,
-                      std::vector<std::vector<uint8_t>>* outs) override {
+                      index_query::IoReadResult* outs) override {
         ++batch_rounds_;
         return inner_->read_batch(ranges, outs);
     }

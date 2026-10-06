@@ -134,7 +134,7 @@ Status IoReadBatch::try_add(uint64_t offset, uint64_t len, uint64_t max_bytes, s
 
 void IoReadBatch::clear() {
     reqs_.clear();
-    phys_.clear();
+    fetched_.clear();
     bounded_ranges_.clear();
     bounded_requests_ = 0;
     bounded_bytes_ = 0;
@@ -145,7 +145,7 @@ Status IoReadBatch::fetch() {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "batch_range_fetcher: null reader");
     }
-    phys_.clear();
+    fetched_.clear();
     if (reqs_.empty()) {
         return Status::OK();
     }
@@ -172,21 +172,21 @@ Status IoReadBatch::fetch() {
         } else {
             cur_end = std::max(cur_end, r_end);
         }
-        r.phys_idx = segs.size() - 1;
+        r.read_index = segs.size() - 1;
         RETURN_IF_ERROR(checked_size(r.offset - cur_start, &r.sub_offset));
         RETURN_IF_ERROR(checked_size(cur_end - cur_start, &segs.back().len));
     }
 
-    Status status = reader_->read_batch(segs, &phys_);
+    Status status = reader_->read_batch(segs, &fetched_);
     if (!status.ok()) {
-        phys_.clear();
+        fetched_.clear();
     }
     return status;
 }
 
 uint64_t IoReadBatch::fetched_bytes() const {
     uint64_t bytes = 0;
-    for (const std::vector<uint8_t>& buffer : phys_) {
+    for (const std::vector<uint8_t>& buffer : fetched_.buffers) {
         bytes += buffer.size();
     }
     return bytes;
@@ -194,8 +194,7 @@ uint64_t IoReadBatch::fetched_bytes() const {
 
 std::span<const uint8_t> IoReadBatch::get(size_t h) const {
     const Req& r = reqs_[h];
-    const std::vector<uint8_t>& buf = phys_[r.phys_idx];
-    return {buf.data() + r.sub_offset, r.len_size};
+    return fetched_.views[r.read_index].subspan(r.sub_offset, r.len_size);
 }
 
 } // namespace doris::index_query

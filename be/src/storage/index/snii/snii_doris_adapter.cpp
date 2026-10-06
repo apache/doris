@@ -158,12 +158,12 @@ Status DorisSniiFileReader::_read_at(uint64_t offset, size_t len, std::vector<ui
 
 // NOLINTBEGIN(readability-non-const-parameter): outs is the SNII batch read output buffer.
 Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Range>& ranges,
-                                       std::vector<std::vector<uint8_t>>* outs) {
+                                       index_query::IoReadResult* outs) {
     if (outs == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("output buffers is null");
     }
     outs->clear();
-    outs->resize(ranges.size());
+    outs->views.resize(ranges.size());
     if (ranges.empty()) {
         return Status::OK();
     }
@@ -206,7 +206,6 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         size_t len = 0;
         size_t begin = 0; // first index into `sorted` covered by this segment
         size_t end = 0;   // one-past-last index into `sorted`
-        bool single = false;
     };
     constexpr uint64_t max_coalesced_gap = 4096;
     constexpr uint64_t max_coalesced_read = 1ULL << 20;
@@ -230,31 +229,21 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         seg.len = cast_set<size_t>(read_end - read_offset);
         seg.begin = begin;
         seg.end = end;
-        // A single-range group exactly covers its segment, so it can be read
-        // straight into the caller's output slot with no temp + no second copy.
-        seg.single = (end == begin + 1);
         segs.push_back(seg);
         begin = end;
     }
 
-    // Resolve per-segment target buffers, io contexts and the shared sink on the
-    // calling thread: workers (which run on tracker-less pool threads) must not
-    // allocate, and per-segment private cache-stat slots keep disjoint physical
-    // reads from racing on the shared FileCacheStatistics.
+    // Allocate physical buffers and private I/O contexts before submitting reads.
     const size_t num_segs = segs.size();
     const io::IOContext* base_io_ctx = _current_io_ctx();
-    std::vector<std::vector<uint8_t>> tmp_bufs(num_segs);
-    std::vector<std::vector<uint8_t>*> targets(num_segs);
+    outs->buffers.resize(num_segs);
     std::vector<io::FileCacheStatistics> seg_stats(num_segs);
     std::vector<io::IOContext> seg_io_ctx(num_segs);
     std::vector<Status> seg_status(num_segs);
     int64_t read_bytes = 0;
     for (size_t s = 0; s < num_segs; ++s) {
         const Seg& seg = segs[s];
-        std::vector<uint8_t>* target =
-                seg.single ? &(*outs)[sorted[seg.begin].index] : &tmp_bufs[s];
-        target->resize(seg.len);
-        targets[s] = target;
+        outs->buffers[s].resize(seg.len);
         seg_io_ctx[s] = *base_io_ctx;
         seg_io_ctx[s].file_cache_stats =
                 base_io_ctx->file_cache_stats != nullptr ? &seg_stats[s] : nullptr;
@@ -263,7 +252,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
 
     // ----- Phase 2: physical reads (lock-free; concurrent when a pool exists) -----
     auto run_segment = [&](size_t s) {
-        seg_status[s] = _read_at(segs[s].offset, segs[s].len, targets[s], &seg_io_ctx[s]);
+        seg_status[s] = _read_at(segs[s].offset, segs[s].len, &outs->buffers[s], &seg_io_ctx[s]);
     };
     ThreadPool* pool = _select_io_pool();
     if (pool != nullptr && num_segs > 1) {
@@ -306,7 +295,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         }
     }
 
-    // ----- Phase 3: merge stats, first-error, scatter, account (serial) -----
+    // ----- Phase 3: merge stats, first-error, views, account (serial) -----
     // Fold every segment's private stats back FIRST: physical IO that already
     // happened (including partial work inside a segment that then failed) must
     // reach the query profile even when another segment of this batch errors.
@@ -340,15 +329,10 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
     }
     for (size_t s = 0; s < num_segs; ++s) {
         const Seg& seg = segs[s];
-        if (seg.single) {
-            continue; // already read in place
-        }
-        const std::vector<uint8_t>& bytes = tmp_bufs[s];
+        const std::span<const uint8_t> bytes(outs->buffers[s]);
         for (size_t i = seg.begin; i < seg.end; ++i) {
             const uint64_t pos = sorted[i].offset - seg.offset;
-            auto& out = (*outs)[sorted[i].index];
-            out.assign(bytes.begin() + cast_set<ptrdiff_t>(pos),
-                       bytes.begin() + cast_set<ptrdiff_t>(pos + sorted[i].len));
+            outs->views[sorted[i].index] = bytes.subspan(cast_set<size_t>(pos), sorted[i].len);
         }
     }
     _record_read_stats(request_bytes, read_bytes, cast_set<int64_t>(num_segs),

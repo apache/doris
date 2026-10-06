@@ -123,10 +123,10 @@ TEST(SniiMeteredFileReader, BatchNonAdjacent) {
     std::vector<Range> ranges = {{.offset = 0, .len = 4},
                                  {.offset = 100, .len = 4},
                                  {.offset = 200, .len = 4}}; // blocks 0, 6, 12
-    std::vector<std::vector<uint8_t>> outs;
+    doris::index_query::IoReadResult outs;
     ASSERT_TRUE(m.read_batch(ranges, &outs).ok());
-    ASSERT_EQ(outs.size(), 3U);
-    EXPECT_EQ(outs[1][0], 100U);
+    ASSERT_EQ(outs.views.size(), 3U);
+    EXPECT_EQ(outs.views[1][0], 100U);
     EXPECT_EQ(m.metrics().read_at_calls, 3U);
     EXPECT_EQ(m.metrics().serial_rounds, 1U); // one batch = one round
     EXPECT_EQ(m.metrics().range_gets, 3U);    // 3 disjoint runs
@@ -143,7 +143,7 @@ TEST(SniiMeteredFileReader, BatchAdjacentCoalesced) {
     std::vector<Range> ranges = {{.offset = 0, .len = 4},
                                  {.offset = 16, .len = 4},
                                  {.offset = 32, .len = 4}}; // blocks 0,1,2
-    std::vector<std::vector<uint8_t>> outs;
+    doris::index_query::IoReadResult outs;
     ASSERT_TRUE(m.read_batch(ranges, &outs).ok());
     EXPECT_EQ(m.metrics().read_at_calls, 3U);
     EXPECT_EQ(m.metrics().serial_rounds, 1U);
@@ -191,7 +191,7 @@ TEST(SniiMeteredFileReader, InvalidBatchRangeDoesNotPolluteMetrics) {
     ASSERT_TRUE(inner.open(ramp.path()).ok());
     MeteredFileReader m(&inner, 16);
 
-    std::vector<std::vector<uint8_t>> outs;
+    doris::index_query::IoReadResult outs;
     const Status st =
             m.read_batch({Range {.offset = 0, .len = 4}, Range {.offset = 250, .len = 16}}, &outs);
     EXPECT_TRUE(st.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << st.to_string();

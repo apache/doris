@@ -315,15 +315,16 @@ private:
     }
 
     void _globalize_block() {
-        if (_doc_base == 0) {
+        const uint32_t base = _doc_base;
+        if (base == 0) {
             return;
         }
-        for (uint32_t i = 0; i < _block.doc_many_size_; ++i) {
-            (*_block.doc_many)[i] += _doc_base;
+        for (uint32_t& doc : std::span(_block.doc_many->data(), _block.doc_many_size_)) {
+            doc += base;
         }
         if (_block.type_ == DocRangeType::kRange) {
-            _block.doc_range.first += _doc_base;
-            _block.doc_range.second += _doc_base;
+            _block.doc_range.first += base;
+            _block.doc_range.second += base;
         }
     }
 

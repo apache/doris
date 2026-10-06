@@ -432,7 +432,7 @@ public:
         return inner_->read_at(offset, len, out);
     }
     Status read_batch(const std::vector<io::Range>& ranges,
-                      std::vector<std::vector<uint8_t>>* outs) override {
+                      doris::index_query::IoReadResult* outs) override {
         for (const auto& r : ranges) {
             account(r.offset, r.len);
         }
@@ -472,7 +472,7 @@ public:
     }
 
     Status read_batch(const std::vector<io::Range>& ranges,
-                      std::vector<std::vector<uint8_t>>* outs) override {
+                      doris::index_query::IoReadResult* outs) override {
         return inner_->read_batch(ranges, outs);
     }
 

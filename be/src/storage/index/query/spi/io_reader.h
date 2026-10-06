@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <vector>
 
 #include "common/check.h"
@@ -32,6 +33,23 @@ namespace doris::index_query {
 struct IoRange {
     uint64_t offset = 0;
     size_t len = 0;
+};
+
+// Owns physical read buffers and exposes their bytes in request order.
+struct IoReadResult {
+    IoReadResult() = default;
+    IoReadResult(const IoReadResult&) = delete;
+    IoReadResult& operator=(const IoReadResult&) = delete;
+    IoReadResult(IoReadResult&&) = default;
+    IoReadResult& operator=(IoReadResult&&) = default;
+
+    void clear() {
+        views.clear();
+        buffers.clear();
+    }
+
+    std::vector<std::vector<uint8_t>> buffers;
+    std::vector<std::span<const uint8_t>> views;
 };
 
 // Provides exact byte reads independently of the index format.
@@ -61,11 +79,13 @@ public:
     }
 
     // Implementations may read ranges concurrently; the default reads them sequentially.
-    virtual Status read_batch(const std::vector<IoRange>& ranges,
-                              std::vector<std::vector<uint8_t>>* outs) {
-        outs->resize(ranges.size());
+    virtual Status read_batch(const std::vector<IoRange>& ranges, IoReadResult* outs) {
+        outs->clear();
+        outs->buffers.resize(ranges.size());
+        outs->views.resize(ranges.size());
         for (size_t i = 0; i < ranges.size(); ++i) {
-            RETURN_IF_ERROR(read_at(ranges[i].offset, ranges[i].len, &(*outs)[i]));
+            RETURN_IF_ERROR(read_at(ranges[i].offset, ranges[i].len, &outs->buffers[i]));
+            outs->views[i] = outs->buffers[i];
         }
         return Status::OK();
     }

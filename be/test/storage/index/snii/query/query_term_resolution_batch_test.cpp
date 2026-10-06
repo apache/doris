@@ -68,7 +68,7 @@ public:
     }
 
     Status read_batch(const std::vector<io::Range>& ranges,
-                      std::vector<std::vector<uint8_t>>* outs) override {
+                      index_query::IoReadResult* outs) override {
         ++read_batch_calls_;
         batch_range_counts_.push_back(ranges.size());
         ranges_ += ranges.size();

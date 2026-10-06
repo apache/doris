@@ -21,6 +21,7 @@
 
 #include <array>
 #include <numeric>
+#include <utility>
 #include <vector>
 
 namespace doris::index_query {
@@ -52,9 +53,36 @@ TEST(IndexQueryIoReadBatch, ReleasesPartialReadBuffersBeforeRetry) {
     batch.add(0, 4);
     batch.add(32, 4);
     EXPECT_FALSE(batch.fetch().ok());
+    EXPECT_EQ(batch.fetched_bytes(), 0U);
     ASSERT_TRUE(batch.fetch().ok());
+    EXPECT_EQ(batch.fetched_bytes(), 8U);
     EXPECT_EQ(batch.get(0)[3], 3U);
     EXPECT_EQ(batch.get(1)[0], 32U);
+    batch.clear();
+    EXPECT_EQ(batch.fetched_bytes(), 0U);
+}
+
+TEST(IndexQueryIoReadBatch, MovedResultKeepsViewsAliveAfterTheSourceIsReused) {
+    MemoryIoReader reader;
+    IoReadResult result;
+    ASSERT_TRUE(reader.read_batch({{48, 4}}, &result).ok());
+    {
+        IoReadResult source;
+        ASSERT_TRUE(reader.read_batch({{32, 4}, {0, 4}, {8, 0}}, &source).ok());
+        IoReadResult moved(std::move(source));
+        ASSERT_TRUE(reader.read_batch({{16, 4}}, &source).ok());
+        result = std::move(moved);
+    }
+
+    ASSERT_EQ(result.views.size(), 3U);
+    EXPECT_EQ(std::vector(result.views[0].begin(), result.views[0].end()),
+              (std::vector<uint8_t> {32, 33, 34, 35}));
+    EXPECT_EQ(std::vector(result.views[1].begin(), result.views[1].end()),
+              (std::vector<uint8_t> {0, 1, 2, 3}));
+    EXPECT_TRUE(result.views[2].empty());
+    result.clear();
+    EXPECT_TRUE(result.views.empty());
+    EXPECT_TRUE(result.buffers.empty());
 }
 
 TEST(IndexQueryIoReadBatch, ReaderFallbackPreservesExactReadAndErrorSemantics) {

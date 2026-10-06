@@ -121,15 +121,6 @@ public:
         return Status::OK();
     }
 
-    Status read_batch(const std::vector<io::Range>& ranges,
-                      std::vector<std::vector<uint8_t>>* outs) override {
-        outs->resize(ranges.size());
-        for (size_t i = 0; i < ranges.size(); ++i) {
-            RETURN_IF_ERROR(read_at(ranges[i].offset, ranges[i].len, &(*outs)[i]));
-        }
-        return Status::OK();
-    }
-
     uint64_t size() const override { return bytes_.size(); }
 
     const std::vector<io::Range>& reads() const { return reads_; }

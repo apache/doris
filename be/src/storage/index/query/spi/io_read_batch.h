@@ -63,7 +63,7 @@ private:
         uint64_t offset;
         uint64_t len;
         size_t len_size = 0;   // validated size_t length after successful fetch()
-        size_t phys_idx = 0;   // index into phys_ after fetch
+        size_t read_index = 0; // index into fetched views after fetch
         size_t sub_offset = 0; // byte offset of this req within its physical read
     };
 
@@ -72,7 +72,7 @@ private:
     IoReader* reader_;
     uint64_t coalesce_gap_;
     std::vector<Req> reqs_;
-    std::vector<std::vector<uint8_t>> phys_; // physical read buffers after fetch
+    IoReadResult fetched_;
     // Built only for bounded registration; the ordinary add/fetch path stays lazy.
     std::vector<IoRange> bounded_ranges_;
     size_t bounded_requests_ = 0;
