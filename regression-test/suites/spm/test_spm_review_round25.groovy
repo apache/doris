@@ -80,7 +80,7 @@ suite("test_spm_review_round25", "spm") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES("replication_num" = "1")
     """
-    sql """INSERT INTO spm_r25_l VALUES (1), (2), (3)"""
+    sql """INSERT INTO spm_r25_l VALUES (1), (2)"""
 
     // ==================== #3: a bare bind column keeps its own JDBC label ====================
     long labelId = createBaseline("SELECT k FROM spm_r25_x",
@@ -95,7 +95,11 @@ suite("test_spm_review_round25", "spm") {
     assertEquals([[1]], labelRows, "the replayed rows stay the manual plan's rows")
 
     // ==================== #4: a caller limit the replay cannot carry is not served ====================
-    String limitedBind = "SELECT k FROM spm_r25_l ORDER BY k LIMIT 1"
+    // round-44 #10 pins the top-level ORDER BY contract at CREATE time and a matching
+    // caller must share the bind's digest, so the bind carries no ORDER BY; the manual
+    // plan keeps its own LIMIT below the DISTINCT, where the positional merge cannot
+    // align it
+    String limitedBind = "SELECT k FROM spm_r25_l LIMIT 1"
     String distinctPlan =
             "SELECT DISTINCT k FROM (SELECT k FROM spm_r25_l ORDER BY k LIMIT 1) s"
     long limitedId = createBaseline(limitedBind, distinctPlan)
@@ -106,13 +110,16 @@ suite("test_spm_review_round25", "spm") {
 
     // a larger caller limit: the DISTINCT above the inner LIMIT 1 cannot receive the
     // transferred value, so the replay would return the CAPTURED one row instead of two
-    String largerLimit = "SELECT k FROM spm_r25_l ORDER BY k LIMIT 2"
+    String largerLimit = "SELECT k FROM spm_r25_l LIMIT 2"
     String largerExplain = explainOf(largerLimit)
     assertTrue(!largerExplain.contains("SPM baseline hit: id=${limitedId}"),
             "the candidate must be skipped: its plan cannot carry the caller's LIMIT: "
                     + largerExplain)
-    assertEquals([[1], [2]], sql(largerLimit),
+    def largerRows = sql(largerLimit)
+    assertEquals(2, largerRows.size(),
             "the caller's own limit must be honored (two rows, not the captured one)")
+    assertEquals([1, 2], largerRows*.get(0).sort(),
+            "both rows must come from the caller's own plan: " + largerRows)
 
     // ==================== #6: a wide multi-table fingerprint stays persistable ====================
     // the reviewer's example: ten 500-column tables. One 0/1 digit per column per table

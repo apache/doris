@@ -259,15 +259,19 @@ public class SPMPlanner {
                 LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(
                         SPMPlanTreeSupport.alignRootOutputLabels(rewritten, matchPlan),
                         matchPlan);
-                if (!limitContractPreserved(replay, matchPlan, bindTree)) {
+                if (!limitContractPreserved(replay, matchPlan, bindTree)
+                        || !SPMPlanTreeSupport.orderContractPreserved(replay, matchPlan)) {
                     LOG.info("SPM tryRewritePlan: baseline {} skipped: its plan cannot carry"
-                                    + " the caller's LIMIT / OFFSET (caller {}, replayed {},"
-                                    + " replayedCapsWithinCaller={}, callerCapsSurvive={})",
+                                    + " the caller's LIMIT / OFFSET / ORDER BY contract"
+                                    + " (caller {}, replayed {}, replayedCapsWithinCaller={},"
+                                    + " callerCapsSurvive={}, callerOrder={}, replayOrder={})",
                             candidate.getId(),
                             Arrays.toString(SPMPlanTreeSupport.topLevelLimitOf(matchPlan)),
                             Arrays.toString(SPMPlanTreeSupport.topLevelLimitOf(replay)),
                             SPMPlanTreeSupport.rowLimitsWithin(replay, matchPlan),
-                            SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, matchPlan));
+                            SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, matchPlan),
+                            SPMPlanTreeSupport.rootOrderContractForTest(matchPlan),
+                            SPMPlanTreeSupport.rootOrderContractForTest(replay));
                     continue;
                 }
                 usedBaselineId = candidate.getId();
@@ -296,15 +300,19 @@ public class SPMPlanner {
             LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(
                     SPMPlanTreeSupport.alignRootOutputLabels(rewritten, matchPlan),
                     matchPlan);
-            if (!limitContractPreserved(replay, matchPlan, bindTree)) {
+            if (!limitContractPreserved(replay, matchPlan, bindTree)
+                    || !SPMPlanTreeSupport.orderContractPreserved(replay, matchPlan)) {
                 LOG.info("SPM tryRewritePlan: baseline {} skipped: its plan cannot carry"
-                                + " the caller's LIMIT / OFFSET (caller {}, replayed {},"
-                                + " replayedCapsWithinCaller={}, callerCapsSurvive={})",
+                                + " the caller's LIMIT / OFFSET / ORDER BY contract"
+                                + " (caller {}, replayed {}, replayedCapsWithinCaller={},"
+                                + " callerCapsSurvive={}, callerOrder={}, replayOrder={})",
                         candidate.getId(),
                         Arrays.toString(SPMPlanTreeSupport.topLevelLimitOf(matchPlan)),
                         Arrays.toString(SPMPlanTreeSupport.topLevelLimitOf(replay)),
                         SPMPlanTreeSupport.rowLimitsWithin(replay, matchPlan),
-                        SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, matchPlan));
+                        SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, matchPlan),
+                        SPMPlanTreeSupport.rootOrderContractForTest(matchPlan),
+                        SPMPlanTreeSupport.rootOrderContractForTest(replay));
                 continue;
             }
             usedBaselineId = candidate.getId();
@@ -621,6 +629,11 @@ public class SPMPlanner {
             // bind text is the matching key, so a divergent selection silently changes
             // which rows the replayed baseline reads.
             SPMPlanTreeSupport.rejectScanSelectorMismatch(bindPlan, planPlan, bindSql);
+            // Round-44 #1/#9/#10/#11: the plan must implement the SAME logical query as
+            // the bind text (same sources, output expressions / arity, row filters and
+            // top-level ordering) - see the guard for the silent result changes it
+            // prevents.
+            SPMPlanTreeSupport.rejectManualPlanDivergence(bindPlan, planPlan, bindSql);
         } catch (AnalysisException e) {
             // the checked-exception entry point is buildBaselineFromSql; this test-only
             // overload keeps its signature and surfaces the rejection as-is
@@ -771,6 +784,11 @@ public class SPMPlanner {
         // text is the matching key, so a divergent selection silently changes which rows
         // the replayed baseline reads (and the fingerprint cannot see the selectors).
         SPMPlanTreeSupport.rejectScanSelectorMismatch(bindPlan, planPlan, bindSql);
+        // Round-44 #1/#9/#10/#11: the plan must implement the SAME logical query as the
+        // bind text (same sources, output expressions / arity, row filters and top-level
+        // ordering) - a plan that drops a filter / reads another table / renames an
+        // output column / flips the sort silently changes a matching caller's result.
+        SPMPlanTreeSupport.rejectManualPlanDivergence(bindPlan, planPlan, bindSql);
         // key(...) folds a named secret into a constant during optimization, and the parsed
         // form of `KEY db.key` is an EncryptKeyRef (NOT an UnboundFunction): reject on BOTH
         // parsed inputs BEFORE optimizing / storing anything.

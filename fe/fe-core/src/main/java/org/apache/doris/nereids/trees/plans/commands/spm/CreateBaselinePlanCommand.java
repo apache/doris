@@ -147,11 +147,20 @@ public class CreateBaselinePlanCommand extends Command implements Forward {
      * SQL it submitted): without the expectation the refresh accepted a stable local
      * snapshot that still LACKED the new row, and the next query of that connection
      * missed its GLOBAL baseline until the daemon caught up.
+     *
+     * <p>Round-44 #3: the submitted planSql cannot identify an ordinary CREATE - the
+     * master persists SPMPlan2SQLBuilder's DECOMPILED rendering when it succeeds - so the
+     * expectation also carries the STATEMENT QUERY ID. The forward put this statement's
+     * {@code ctx.queryId()} into the request (FEOpExecutor) and the master's execution
+     * context adopted it, exactly the value the CREATE stored on the row; the id survives
+     * every freezing choice, so the follower confirms its own statement's row instead of
+     * retrying against text equality that can never hold.
      */
     @Override
     public void afterForwardToMaster(ConnectContext ctx) {
         BaselineManager.getInstance().refreshAfterForwardedDdl(ctx,
-                BaselineManager.ForwardedDdlExpectation.created(bindSql, planSql));
+                BaselineManager.ForwardedDdlExpectation.created(bindSql, planSql,
+                        ctx.queryId() == null ? "" : DebugUtil.printId(ctx.queryId())));
     }
 
     @Override

@@ -152,6 +152,7 @@ public class InternalSchemaInitializer extends Thread {
             AuditLoader.AUDIT_LOG_TABLE,
             InternalSchema.SPM_BASELINES_TBL_NAME,
             InternalSchema.SPM_BASELINES_SEQ_TBL_NAME,
+            InternalSchema.SPM_BASELINES_HWM_TBL_NAME,
             InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME,
             InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME);
 
@@ -451,6 +452,7 @@ public class InternalSchemaInitializer extends Thread {
         createTable(getAuditLogCreateSql());
         createTable(getSpmBaselinesCreateSql());
         createTable(getSpmBaselinesSeqCreateSql());
+        createTable(getSpmBaselinesHwmCreateSql());
         createTable(getSpmCaptureCheckpointCreateSql());
         createTable(getSpmAuditHorizonCreateSql());
     }
@@ -919,7 +921,9 @@ public class InternalSchemaInitializer extends Thread {
      * writer's zone history of that FE, so the capture can require a window pass in every
      * zone that may own rows (round-39 #3); committed_fence_ms marks the oldest batch
      * whose publication outcome is AMBIGUOUS, so the fence survives the FE's death - its
-     * committed rows can still publish (round-40 #10).
+     * committed rows can still publish (round-40 #10); committed_fence_labels lists the
+     * labels of those batches, so a dead FE's fence is resolved per transaction instead
+     * of expiring on the age bound alone (round-44 #7).
      */
     @VisibleForTesting
     static final Map<String, ScalarType> SPM_AUDIT_HORIZON_UPGRADE_COLUMNS = new LinkedHashMap<>();
@@ -929,6 +933,8 @@ public class InternalSchemaInitializer extends Thread {
                 ScalarType.createType(PrimitiveType.STRING));
         SPM_AUDIT_HORIZON_UPGRADE_COLUMNS.put("committed_fence_ms",
                 ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_AUDIT_HORIZON_UPGRADE_COLUMNS.put("committed_fence_labels",
+                ScalarType.createType(PrimitiveType.STRING));
     }
 
     /**
@@ -1205,6 +1211,38 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
+     * CREATE SQL of the COMPACT SPM baseline id high-water-mark table (round-44 #15):
+     * append-only rows (id = 1) carrying the newest allocated id, pruned after every
+     * write. It answers the id watermark read in one bounded scan however many creates
+     * the cluster has served (see InternalSchema#SPM_BASELINES_HWM_TBL_NAME).
+     */
+    private static String getSpmBaselinesHwmCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = InternalSchema.SPM_BASELINES_HWM_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "DUPLICATE KEY(`id`)\n"
+                        + "COMMENT \"Doris internal SPM baseline id high-water mark table,"
+                        + " DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`id`)\n"
+                        + "BUCKETS 1\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
+    /**
      * CREATE SQL of the cluster-wide audit publication horizon table: one row per FE
      * (upserted by its own audit loader) holding the start time of the oldest audit event
      * that FE has accepted but not yet published. The SPM capture reads the MINIMUM over
@@ -1353,6 +1391,12 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
 
+        // 4c-2. check the compact id high-water-mark table (round-44 #15) the same way:
+        // without it every create falls back to the unbounded history read.
+        if (isSpmBaselinesHwmTableMissing(db)) {
+            return false;
+        }
+
         // 4d. check the audit publication horizon table the same way: the capture reads its
         // rows to fence a follower's still-unpublished backlog, so an upgraded cluster must
         // gain it too (round-36 #1).
@@ -1402,6 +1446,18 @@ public class InternalSchemaInitializer extends Thread {
     @VisibleForTesting
     static boolean isSpmBaselinesSeqTableMissing(Database db) {
         return !db.getTable(InternalSchema.SPM_BASELINES_SEQ_TBL_NAME).isPresent();
+    }
+
+    /**
+     * Whether the compact SPM id high-water-mark internal table is absent. Package-visible
+     * for the upgrade test, exactly like {@link #isSpmBaselinesTableMissing}.
+     *
+     * @param db the internal schema database
+     * @return true when spm_baselines_hwm does not exist yet
+     */
+    @VisibleForTesting
+    static boolean isSpmBaselinesHwmTableMissing(Database db) {
+        return !db.getTable(InternalSchema.SPM_BASELINES_HWM_TBL_NAME).isPresent();
     }
 
     /**

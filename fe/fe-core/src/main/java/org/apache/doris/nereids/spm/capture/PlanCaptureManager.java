@@ -1889,8 +1889,21 @@ public class PlanCaptureManager extends MasterDaemon {
      * back a later takeover could read the superseded window), and resume PROMPTLY. The
      * caller aborts the cycle: consuming this process's derived window over the adopted
      * one would permanently skip the adopted window's unconsumed prefix.
+     *
+     * <p>Round-44 #14: every caller rejected the SAME-state cases first, so the adopted
+     * window is always a DIFFERENT one - and the zone-pass credit belongs to the window
+     * (see {@link #clearPendingWindow}). Keeping this process's passes falsely credits
+     * zones for the adopted window: a leader that staged its own derived window in UTC
+     * (the pass marks its rendering zone before scanning) and then adopted an earlier
+     * reservation with {@code scan_zone = -05:00} resumed the adopted window in -05:00
+     * only, while UTC stayed marked as covered - a 09:05 row rendered in UTC was never
+     * scanned, the completeness check passed, and the watermark advanced over it. The
+     * set is therefore reset to the adopted window's baseline: the resumed pass re-seeds
+     * its OWN zone ({@code lastScanZone} → pass zone, see
+     * {@link #resolveScanPassZone}) and every other required zone must earn a real pass.
      */
     private void adoptCheckpointRow(ResultRow row) {
+        scannedZonesInWindow.clear();
         applyCheckpointRow(row);
         persistCheckpoint();
         pendingWindowNeedsPromptResume = true;

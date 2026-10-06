@@ -246,4 +246,62 @@ public class AuditWriterZonesTest {
             AuditWriterZones.resetForTest();
         }
     }
+
+    /**
+     * round-44 #12: the eviction floor must be ROLLBACK-SAFE. The checkpoint is
+     * append-only and the capture can REWIND to an earlier pending window at any time, so
+     * the floor is the MINIMUM of the token-greatest progress and the most-behind pending
+     * window's start: evicting by a merely-newest watermark dropped a zone whose render
+     * instant sits inside the rewound window - the reviewer's -05:00 zone for a 09:05 row
+     * was omitted from the follower's next report exactly when the leader adopted the
+     * [09:00,12:00) window and no longer knew it had to scan -05:00.
+     */
+    @Test
+    public void testEvictionFloorIsRollbackSafe() {
+        // no durable progress (empty store): the previous floor is kept
+        Assertions.assertEquals(-1L, AuditWriterZones.resolvedCoveredThrough(null, null));
+        Assertions.assertEquals(-1L, AuditWriterZones.resolvedCoveredThrough(null, 42L));
+        // no pending window: the resolved progress stands alone
+        Assertions.assertEquals(99L, AuditWriterZones.resolvedCoveredThrough(99L, null));
+        Assertions.assertEquals(99L, AuditWriterZones.resolvedCoveredThrough(99L, 0L));
+        // a readable pending window CAPS the floor at its start, even when a newer
+        // progress row exists (a stale-but-readable progress row never proves the pending
+        // window was consumed)
+        Assertions.assertEquals(50L, AuditWriterZones.resolvedCoveredThrough(99L, 50L));
+        // a candidate at/after the progress cannot RAISE the floor
+        Assertions.assertEquals(99L, AuditWriterZones.resolvedCoveredThrough(99L, 120L));
+    }
+
+    /**
+     * The consequence of the capped floor: while the pending window [09:00, 12:00) is
+     * unconsumed, the zone that rendered the 09:05 row (last use 09:05) must NOT be
+     * evicted although the stale progress row claims 12:10 - the rewound pass still has
+     * to visit it.
+     */
+    @Test
+    public void testAZoneInsideARewindableWindowIsNotEvicted() {
+        AuditWriterZones.resetForTest();
+        try {
+            long staleProgress = 12 * 3_600_000L;
+            long pendingWindowStart = 9 * 3_600_000L;
+            AuditWriterZones.captureCoveredThroughForTest =
+                    () -> AuditWriterZones.resolvedCoveredThrough(staleProgress,
+                            pendingWindowStart);
+            AuditWriterZones.note("America/New_York", 9 * 3_600_000L + 300_000L); // 09:05
+            AuditWriterZones.markReported(Set.of("America/New_York"));
+            Assertions.assertEquals(Set.of("America/New_York"), AuditWriterZones.zones(),
+                    "a zone whose last render sits inside the rewindable window stays"
+                            + " required: " + AuditWriterZones.zones());
+
+            // once the pending window completed AND the progress passed the last use, the
+            // zone is evicted normally
+            AuditWriterZones.captureCoveredThroughForTest =
+                    () -> AuditWriterZones.resolvedCoveredThrough(staleProgress, null);
+            Assertions.assertEquals(Set.of(), AuditWriterZones.zones(),
+                    "with no pending window the resolved progress evicts the covered zone");
+        } finally {
+            AuditWriterZones.captureCoveredThroughForTest = null;
+            AuditWriterZones.resetForTest();
+        }
+    }
 }

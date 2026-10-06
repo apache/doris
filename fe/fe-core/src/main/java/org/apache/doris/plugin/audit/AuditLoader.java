@@ -551,8 +551,13 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             Boolean published = null;
             // the load label + whether the request reached a BE (round-43 #6): the fence
             // resolution needs the label, and a request that never left the FE cannot
-            // have committed anything
+            // have committed anything. Round-44 #8: the label is allocated - and its
+            // obligation RETAINED - BEFORE the request can leave the FE, so the batch
+            // stays fenced even when this FE dies while the load is in flight (the BE
+            // may commit and publish the batch without this FE ever seeing a response).
             String fenceLabel = "";
+            boolean fenceRetained = false;
+            boolean fenceOutcomeKnown = false;
             boolean fenceSent = false;
             try {
                 String token = "";
@@ -564,12 +569,20 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     discardLogNum += auditLogNum;
                     return;
                 }
-                AuditStreamLoader.LoadResponse response = streamLoader.loadBatch(auditLogBuffer, token);
+                // Round-44 #8: the obligation is durable BEFORE the body can be written;
+                // the pre-allocated label identifies the transaction the request may
+                // create, so its outcome stays resolvable by label even after this FE
+                // died mid-load.
+                fenceLabel = streamLoader.allocateLabel();
+                retainPublishFence(batchOldest, batchQueryId, fenceLabel);
+                fenceRetained = batchOldest > 0;
+                AuditStreamLoader.LoadResponse response =
+                        streamLoader.loadBatch(auditLogBuffer, token, fenceLabel);
+                fenceOutcomeKnown = true;
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("audit loader response: {}", response);
                 }
                 published = batchPublicationConfirmed(response);
-                fenceLabel = response.label;
                 fenceSent = response.sent;
                 if (!published) {
                     LOG.warn("audit loader: the stream load of {} event(s) is not confirmed"
@@ -578,18 +591,32 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 }
             } catch (Exception e) {
                 // a reported error (typically a timeout) may hide a COMMITTED load whose
-                // rows are only not readable yet: fence it like a Publish Timeout
+                // rows are only not readable yet: fence it like a Publish Timeout. With
+                // the obligation already retained (round-44 #8) an exception cannot open
+                // the crash gap either: the request may have been delivered.
                 published = Boolean.FALSE;
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("encounter exception when putting current audit batch, discard current batch", e);
                 }
                 discardLogNum += auditLogNum;
             } finally {
-                if (published != null && !published && fenceSent) {
-                    // only a DELIVERED request can have created a transaction (round-43
-                    // #6): a failure before the body was written cannot have committed
-                    // anything, and fencing it would keep the capture behind forever
-                    retainPublishFence(batchOldest, batchQueryId, fenceLabel);
+                // Resolve the pre-send obligation on a DECIDED outcome (round-44 #8):
+                // confirmed-published rows are readable, and a request that never
+                // reached a BE cannot have created a transaction. Every other outcome
+                // (Publish Timeout, an error, an unknowable delivery state) KEEPS the
+                // obligation - it is exactly the crash gap this fence exists for.
+                if (fenceRetained) {
+                    if (Boolean.TRUE.equals(published)) {
+                        releasePublishAttempt(fenceLabel,
+                                "the stream load CONFIRMED its publication");
+                    } else if (fenceOutcomeKnown && !fenceSent) {
+                        releasePublishAttempt(fenceLabel,
+                                "the request never reached a BE (no transaction can exist)");
+                    } else {
+                        // re-report: the pre-send report may have been lost, and this
+                        // batch may now be COMMITTED and unreadable
+                        reportCommittedFence();
+                    }
                 }
                 // make a new string builder to receive following events.
                 resetBatch(currentTime);
@@ -647,14 +674,21 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     /**
-     * Retains the fence of one unconfirmed batch with its transaction label (round-43
-     * #6): the label lets {@link #confirmPublishFence} resolve the transaction's TERMINAL
-     * outcome once the retention bound elapsed. The zone the sample row was RENDERED in
-     * travels with the fence as well (round-43 #5).
+     * Retains the obligation of one batch whose publication outcome is not yet decided
+     * (round-39 #2 as the per-batch fence; round-44 #8: called BEFORE the load is sent,
+     * so the possible commitment is durable before the request can leave the FE - a
+     * crash while the load is in flight no longer leaves the batch unfenced for the
+     * cluster). The entry carries everything a later resolution needs: the batch's
+     * oldest event time, its sample query id, its load label (the transaction manager
+     * resolves the transaction's TERMINAL state by label) and the zone the sample row
+     * was RENDERED in. The obligation is RELEASED again when the outcome proves it
+     * unnecessary (see {@link #releasePublishAttempt}); on an ambiguous outcome it
+     * stays and is resolved by {@link #confirmPublishFence} locally, or - after this
+     * FE's death - by the shared-row reader through the label column.
      *
      * @param batchOldest the batch's oldest event time (0 = nothing to fence)
      * @param batchQueryId the sample row's query id ("" = not probeable)
-     * @param label        the stream-load label, "" when the request never reached a BE
+     * @param label        the batch's load label, "" when the request never reached a BE
      */
     private void retainPublishFence(long batchOldest, String batchQueryId, String label) {
         if (batchOldest <= 0) {
@@ -769,6 +803,36 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         return loader == null ? 0L : loader.oldestPendingPublishFenceEventTime();
     }
 
+    /**
+     * The load labels of the batches still fencing this FE's progress (round-44 #7),
+     * oldest first and "-" for a batch whose label is unknown, joined with ';' ("" when
+     * nothing fences). Travels in the shared horizon row so the reader can resolve each
+     * transaction after this FE died - a dead FE cannot re-report, so the labels are the
+     * only way to learn whether its committed fences are terminal instead of expiring
+     * them on a bare age bound.
+     */
+    static String oldestCommittedPublishFenceLabels() {
+        AuditLoader loader = runningLoader;
+        return loader == null ? "" : loader.pendingPublishFenceLabels();
+    }
+
+    /** The encoded labels of the pending fences (see above); guarded by the monitor. */
+    private String pendingPublishFenceLabels() {
+        synchronized (this) {
+            if (pendingPublishFences.isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            for (PublishFence fence : pendingPublishFences) {
+                if (sb.length() > 0) {
+                    sb.append(';');
+                }
+                sb.append(fence.label.isEmpty() ? "-" : fence.label);
+            }
+            return sb.toString();
+        }
+    }
+
     /** Best-effort immediate report of this FE's committed-but-unreadable batches. */
     private void reportCommittedFence() {
         try {
@@ -845,9 +909,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
      * Whether a transaction status is TERMINAL for the publish fence (round-43 #6): a
      * VISIBLE transaction's rows are readable (the probe may merely have failed to
      * confirm them), an ABORTED one can never publish. Everything else - including an
-     * undecidable state - keeps fencing.
+     * undecidable state - keeps fencing. Package-visible: the shared-row reader applies
+     * the same rule to the committed fence of a GONE FE (round-44 #7).
      */
-    private static boolean isTerminalTransactionStatus(String status) {
+    static boolean isTerminalTransactionStatus(String status) {
         return "VISIBLE".equals(status) || "ABORTED".equals(status);
     }
 
@@ -889,6 +954,33 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             LOG.warn("audit loader: cannot resolve the transaction state of label {}: {}",
                     label, t.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Releases the PRE-SEND obligation of one batch (round-44 #8) whose outcome makes it
+     * unnecessary: the response CONFIRMED publication (the rows are readable), or the
+     * request never reached a BE (no transaction can exist). Matching is by the batch's
+     * own label, so the obligation of every OTHER batch stays in place.
+     *
+     * @param label  the batch's pre-allocated load label
+     * @param reason the resolved outcome (logged)
+     */
+    private void releasePublishAttempt(String label, String reason) {
+        if (label == null || label.isEmpty()) {
+            return;
+        }
+        PublishFence match = null;
+        synchronized (this) {
+            for (PublishFence fence : pendingPublishFences) {
+                if (label.equals(fence.label)) {
+                    match = fence;
+                    break;
+                }
+            }
+        }
+        if (match != null) {
+            releasePublishFence(match, reason);
         }
     }
 

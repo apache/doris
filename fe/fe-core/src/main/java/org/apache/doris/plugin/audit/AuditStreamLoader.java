@@ -156,7 +156,43 @@ public class AuditStreamLoader {
     }
 
     public LoadResponse loadBatch(StringBuilder sb, String clusterToken) {
-        String label = genLabel();
+        return loadBatch(sb, clusterToken, allocateLabel());
+    }
+
+    /**
+     * Allocates the label of the NEXT batch (round-44 #8): the caller records the
+     * batch's obligation under this label BEFORE {@link #loadBatch} can send anything,
+     * so a crash between the send and its response leaves a durable, resolvable trace of
+     * the possible transaction instead of an unfenced batch. The returned label is the
+     * one the request will carry (it already includes the audit prefix).
+     */
+    public String allocateLabel() {
+        return "audit" + nextLabel(feIdentity);
+    }
+
+    /**
+     * One un-prefixed label text (static: the format is testable without an Env, and the
+     * allocation carries no state - uniqueness rests on the millisecond + FE identity
+     * components, exactly as before round-44 #8).
+     */
+    static String nextLabel(String feIdentity) {
+        Calendar calendar = Calendar.getInstance();
+        return String.format("_log_%s%02d%02d_%02d%02d%02d_%s_%s",
+                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
+                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
+                calendar.get(Calendar.MILLISECOND),
+                feIdentity);
+    }
+
+    /**
+     * One stream load under a CALLER-allocated label (round-44 #8, see
+     * {@link #allocateLabel}); the two-argument form allocates its own.
+     *
+     * @param allocatedLabel the label the request carries (the caller may already have
+     *                       recorded an obligation for it)
+     */
+    public LoadResponse loadBatch(StringBuilder sb, String clusterToken, String allocatedLabel) {
+        String label = allocatedLabel;
         // Round-43 #6: whether the batch could have reached a TRANSACTION at all. Only a
         // delivered request can have committed rows that might publish later - a failure
         // before the body was written needs no fence, and the fence resolution resolves
@@ -167,7 +203,6 @@ public class AuditStreamLoader {
         HttpURLConnection beConn = null;
         try {
             // build request and send to fe
-            label = "audit" + label;
             feConn = getConnection(auditLogLoadUrlStr, label, clusterToken);
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
@@ -211,15 +246,6 @@ public class AuditStreamLoader {
                 beConn.disconnect();
             }
         }
-    }
-
-    private String genLabel() {
-        Calendar calendar = Calendar.getInstance();
-        return String.format("_log_%s%02d%02d_%02d%02d%02d_%s_%s",
-                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
-                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
-                calendar.get(Calendar.MILLISECOND),
-                feIdentity);
     }
 
     public static class LoadResponse {

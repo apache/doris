@@ -42,6 +42,7 @@ import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -93,6 +94,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -138,6 +140,14 @@ public final class SPMPlanTreeSupport {
      * section can be introduced without invalidating already persisted baselines.
      */
     private static final String NULLABILITY_SECTION = "nullable:";
+
+    /**
+     * The marker appended by {@link #expandedOutputLabels} behind the derivable prefix of
+     * a PARTLY derivable star expansion (see the star-expansion helper returned by
+     * {@link #alignRootOutputLabels}). Kept in the constants block: a static field may
+     * not sit between methods (checkstyle DeclarationOrder).
+     */
+    private static final String OPEN_TAIL_LABEL = "\u0000spm-open-star-tail";
 
     /** Expression transform used by transform. */
     public interface ExprTransform {
@@ -2086,16 +2096,28 @@ public final class SPMPlanTreeSupport {
         // `(SELECT k + 1 FROM t) s` kept the captured `k + 1` header on the replay of the
         // `k + 2` variant, although the original query exposes `k + 2`).
         List<String> userLabels = expandedOutputLabels(userItems, userNode);
-        if (userLabels == null || userLabels.size() != rewrittenItems.size()) {
+        // Round-44 #2: a caller star whose expansion is only PARTLY derivable (a star
+        // over a join whose leading side is a derived relation) carries the open-tail
+        // marker; the derived prefix still realigns the frozen labels positionally, and
+        // the positions behind the marker keep the frozen names (those are real column
+        // names that need no realignment).
+        if (userLabels == null) {
+            return rewritten;
+        }
+        boolean openTail = !userLabels.isEmpty()
+                && userLabels.get(userLabels.size() - 1) == OPEN_TAIL_LABEL;
+        int derivableCount = openTail ? userLabels.size() - 1 : userLabels.size();
+        if (derivableCount > rewrittenItems.size()
+                || (!openTail && derivableCount != rewrittenItems.size())) {
             return rewritten;
         }
         List<NamedExpression> aligned = new ArrayList<>(rewrittenItems.size());
         boolean changed = false;
         for (int i = 0; i < rewrittenItems.size(); i++) {
             NamedExpression rewrittenItem = rewrittenItems.get(i);
-            NamedExpression userItem = userItems.size() == userLabels.size()
+            NamedExpression userItem = userItems.size() == derivableCount && i < userItems.size()
                     ? userItems.get(i) : null;
-            String userLabel = userLabels.get(i);
+            String userLabel = i < derivableCount ? userLabels.get(i) : null;
             String rewrittenLabel = outputLabelOf(rewrittenItem);
             if (userLabel == null || rewrittenLabel == null
                     || userLabel.equals(rewrittenLabel)) {
@@ -2166,27 +2188,48 @@ public final class SPMPlanTreeSupport {
     /**
      * One label per caller-visible output COLUMN: a plain item contributes its own label,
      * a root STAR is expanded through the caller's own child relation (see
-     * {@link #starExpansionLabels}).
+     * {@link #starExpansion}).
      *
-     * @return the labels (null entries = the position carries no derivable label), or
-     *         null when a star cannot be expanded (a star over a join / base relation
-     *         whose columns are REAL names, `* EXCEPT` / `* REPLACE`, ...)
+     * @return the labels (null entries = the position carries no derivable label), the
+     *         list ENDING with {@link #OPEN_TAIL_LABEL} when the trailing positions'
+     *         count / labels are not derivable, or null when a star's open tail cannot
+     *         be placed (another item follows it)
      */
     private static List<String> expandedOutputLabels(List<NamedExpression> items, Plan node) {
         List<String> labels = new ArrayList<>(items.size());
-        for (NamedExpression item : items) {
+        for (int i = 0; i < items.size(); i++) {
+            NamedExpression item = items.get(i);
             if (item instanceof UnboundStar && !hasStarPayload((UnboundStar) item)
                     && node.children().size() == 1) {
-                List<String> expanded = starExpansionLabels(node.child(0));
-                if (expanded == null) {
-                    return null;
+                StarLabels expanded = starExpansion(node.child(0));
+                if (expanded.openTail) {
+                    if (i != items.size() - 1) {
+                        // the open tail's length is unknown: the items after it cannot be
+                        // positioned
+                        return null;
+                    }
+                    labels.addAll(expanded.labels);
+                    labels.add(OPEN_TAIL_LABEL);
+                    continue;
                 }
-                labels.addAll(expanded);
+                labels.addAll(expanded.labels);
                 continue;
             }
             labels.add(outputLabelOf(item));
         }
         return labels;
+    }
+
+    /** One `*`'s expansion: the derivable leading labels plus whether the TRAILING
+     * positions' count / labels are unknown (see {@link #starExpansion}). */
+    private static final class StarLabels {
+        final List<String> labels;
+        final boolean openTail;
+
+        StarLabels(List<String> labels, boolean openTail) {
+            this.labels = labels;
+            this.openTail = openTail;
+        }
     }
 
     /** Whether a star carries an EXCEPT / REPLACE payload (then its expansion is not a
@@ -2198,13 +2241,19 @@ public final class SPMPlanTreeSupport {
     /**
      * The labels a caller-side star expands to, derived from the CALLER's own tree: the
      * output items of the relation the star reads from (following the subquery-alias /
-     * wrapper chain). Only a DERIVED relation is resolvable this way; a base relation or
-     * a join expands to real column names that need no realignment.
+     * wrapper chain), or - for a JOIN relation (round-44 #2) - the derivation of its
+     * sides IN OUTPUT ORDER. A DERIVED leading side contributes its labels; a base table
+     * / underivable side expands to real column names that need no realignment, so it may
+     * only be the TAIL: the expansion then ends with an open tail (its arity is unknown
+     * at parse time) and the positions behind the derivable prefix keep their frozen
+     * names. The previous implementation returned null for every join, and a
+     * {@code SELECT *} over {@code (SELECT k + 1 ...) s CROSS JOIN u} then kept the
+     * captured frozen sink label {@code k + 1} for a {@code k + 2} caller.
      *
      * @param relation the relation the star projects from
-     * @return one label per expanded column, or null when not derivable
+     * @return the derivable label prefix plus whether the tail is open
      */
-    private static List<String> starExpansionLabels(Plan relation) {
+    private static StarLabels starExpansion(Plan relation) {
         Plan node = relation;
         while (node != null && node.children().size() == 1 && !carriesOutputList(node)
                 && (node instanceof LogicalSubQueryAlias
@@ -2212,10 +2261,35 @@ public final class SPMPlanTreeSupport {
                                 && ((LogicalSink<?>) node).getOutputExprs().isEmpty()))) {
             node = node.child(0);
         }
-        if (node == null || !carriesOutputList(node)) {
-            return null;
+        if (node != null && carriesOutputList(node)) {
+            List<String> labels = expandedOutputLabels(outputItemsOf(node), node);
+            if (labels == null) {
+                return new StarLabels(List.of(), true);
+            }
+            if (!labels.isEmpty() && labels.get(labels.size() - 1) == OPEN_TAIL_LABEL) {
+                return new StarLabels(
+                        new ArrayList<>(labels.subList(0, labels.size() - 1)), true);
+            }
+            return new StarLabels(labels, false);
         }
-        return expandedOutputLabels(outputItemsOf(node), node);
+        if (node instanceof LogicalJoin) {
+            List<String> labels = new ArrayList<>();
+            List<Plan> children = node.children();
+            for (int i = 0; i < children.size(); i++) {
+                StarLabels child = starExpansion(children.get(i));
+                if (child.openTail) {
+                    if (i != children.size() - 1) {
+                        // an underivable side before a derivable one: the derivable labels
+                        // cannot be positioned
+                        return new StarLabels(List.of(), true);
+                    }
+                    return new StarLabels(labels, true);
+                }
+                labels.addAll(child.labels);
+            }
+            return new StarLabels(labels, false);
+        }
+        return new StarLabels(List.of(), true);
     }
 
     /** The caller-visible output list of a node that {@link #carriesOutputList}. */
@@ -2614,7 +2688,265 @@ public final class SPMPlanTreeSupport {
         return selectors;
     }
 
-    /** One base-table occurrence's scan selector together with the relation's alias. */
+    /**
+     * Rejects a manual plan whose LOGICAL query diverges from the bind text (round-44
+     * #1/#9/#10/#11). The bind text is the MATCHING KEY: any caller matching it gets the
+     * plan side replayed with the caller's values, so a plan that drops the caller's row
+     * filter, reads another table, changes the output columns / arity or re-orders the
+     * caller's uncapped result silently returns rows the caller never asked for - and
+     * neither the schema fingerprint nor the scan-selector guard can see it.
+     *
+     * <p>The four contracts checked here:
+     * <ul>
+     *   <li><b>sources</b>: every table the plan reads is read by the bind text - bind
+     *       {@code SELECT k FROM t} with plan {@code SELECT k FROM u} makes a caller's
+     *       t-query return u's rows (t={1}, u={9} returns 9);</li>
+     *   <li><b>output</b>: the two output lists have the same ARITY and, per position,
+     *       the same underlying expression (only the LABEL may differ - a manual plan may
+     *       render a bind column under another name and the replay restores the caller's
+     *       label). Bind {@code k} vs plan {@code v} otherwise exposes v's value under
+     *       the caller's name (k=1, v=9 returns 9), a wider plan changes the result
+     *       arity;</li>
+     *   <li><b>filters</b>: every row filter conjunct of the bind text (WHERE / HAVING)
+     *       exists in the plan text - a dropped filter makes a caller restricted to
+     *       {@code k = 2} receive every row (e.g. {1,2});</li>
+     *   <li><b>ordering</b>: both trees expose the same TOP-LEVEL ORDER BY contract
+     *       (keys, direction, null placement, or none) - an uncapped caller keeps its
+     *       ordering contract, and a plan that flips the direction returns (2,1) for the
+     *       caller that asked for (1,2).</li>
+     * </ul>
+     * The checks compare the two PARSED trees, so an equivalent plan written in another
+     * shape (requalified columns, reordered predicates) is rejected: write both
+     * statements with the same tables, filters and ordering.
+     *
+     * @param bindPlan the parsed (unbound) bind tree
+     * @param planPlan the parsed (unbound) plan tree (may be the same object)
+     * @param bindSql  the bind text (for the error message)
+     */
+    public static void rejectManualPlanDivergence(Plan bindPlan, Plan planPlan, String bindSql) {
+        if (bindPlan == planPlan) {
+            return; // one parse (bindSql == planSql): symmetric by construction
+        }
+        Set<String> bindTables = scanSelectorsByTable(bindPlan).keySet();
+        Set<String> planTables = scanSelectorsByTable(planPlan).keySet();
+        if (!bindTables.containsAll(planTables)) {
+            java.util.Set<String> extra = new java.util.LinkedHashSet<>(planTables);
+            extra.removeAll(bindTables);
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: the plan reads table(s)"
+                            + " " + extra + " the bind text never reads. A caller matching the"
+                            + " bind text (over " + bindTables + ") would be silently"
+                            + " answered with those tables' rows. Write the plan over the"
+                            + " SAME tables as the bind text: " + bindSql);
+        }
+        List<NamedExpression> bindItems = topLevelOutputItems(bindPlan);
+        List<NamedExpression> planItems = topLevelOutputItems(planPlan);
+        if (bindItems == null || planItems == null) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: the two statements'"
+                            + " output columns cannot be compared (an unsupported shape such"
+                            + " as a set operation); write the plan as the same query shape:"
+                            + " " + bindSql);
+        }
+        if (bindItems.size() != planItems.size()) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: the two statements"
+                            + " expose " + bindItems.size() + " vs " + planItems.size()
+                            + " output columns, so a matching caller would receive a"
+                            + " different result arity. Write the plan with the SAME output"
+                            + " columns: " + bindSql);
+        }
+        for (int i = 0; i < bindItems.size(); i++) {
+            String bindExpr = outputExpressionText(bindItems.get(i));
+            String planExpr = outputExpressionText(planItems.get(i));
+            if (!bindExpr.equals(planExpr)) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "SPM cannot align the plan SQL with the bind SQL: output column "
+                                + (i + 1) + " reads '" + bindExpr + "' in the bind text but '"
+                                + planExpr + "' in the plan text, so a matching caller would"
+                                + " receive another column's value under its own name (only"
+                                + " the column LABEL may differ). Write the plan with the"
+                                + " SAME output expressions: " + bindSql);
+            }
+        }
+        Set<String> bindFilters = filterConjunctTexts(bindPlan);
+        Set<String> planFilters = filterConjunctTexts(planPlan);
+        if (!planFilters.containsAll(bindFilters)) {
+            java.util.Set<String> missing = new java.util.LinkedHashSet<>(bindFilters);
+            missing.removeAll(planFilters);
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: the plan drops row"
+                            + " filter(s) " + missing + " of the bind text, so a matching"
+                            + " caller would receive rows it filtered out. Write the plan with"
+                            + " the SAME filters: " + bindSql);
+        }
+        List<String> bindOrder = rootOrderContract(bindPlan);
+        List<String> planOrder = rootOrderContract(planPlan);
+        if (!bindOrder.equals(planOrder)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: their top-level"
+                            + " ORDER BY contracts differ (bind " + bindOrder + ", plan "
+                            + planOrder + "), so a matching caller would receive its rows in"
+                            + " another order. Write the plan with the SAME ordering: "
+                            + bindSql);
+        }
+    }
+
+    /**
+     * The caller-visible output list of one query tree: descend through single-child
+     * wrappers (sink / sort / limit / subquery alias) to the node that carries the list
+     * (see {@link #carriesOutputList}); null when the tree exposes no comparable list
+     * (e.g. a set operation root).
+     */
+    private static List<NamedExpression> topLevelOutputItems(Plan root) {
+        Plan node = root;
+        while (node != null && !carriesOutputList(node) && node.children().size() == 1) {
+            node = node.child(0);
+        }
+        return node != null && carriesOutputList(node) ? outputItemsOf(node) : null;
+    }
+
+    /** One output item's canonical text IGNORING its label (see
+     * {@link #rejectManualPlanDivergence}). */
+    private static String outputExpressionText(NamedExpression item) {
+        Expression expression = item;
+        if (item instanceof Alias) {
+            expression = ((Alias) item).child();
+        } else if (item instanceof UnboundAlias) {
+            expression = ((UnboundAlias) item).child();
+        }
+        return expression.toSql();
+    }
+
+    /**
+     * Every row-filter conjunct text of one tree (each {@link LogicalFilter} or
+     * {@link LogicalHaving} anywhere in the statement, subqueries included). A
+     * conjunct that IS an AND is FLATTENED into its leaves: the unbound parse of
+     * {@code WHERE k1 = 1 AND k2 IS NOT NULL} keeps ONE And node in the conjunct list
+     * (rendered as the whole {@code AND[(k1 = 1),(not k2 IS NULL)]} compound), so a
+     * containment test against the bind's single {@code (k1 = 1)} conjunct would
+     * reject a plan that genuinely carries it.
+     */
+    private static Set<String> filterConjunctTexts(Plan plan) {
+        Set<String> conjuncts = new java.util.LinkedHashSet<>();
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            Collection<Expression> predicates;
+            if (node instanceof LogicalFilter) {
+                predicates = ((LogicalFilter<?>) node).getConjuncts();
+            } else if (node instanceof LogicalHaving) {
+                predicates = ((LogicalHaving<?>) node).getConjuncts();
+            } else {
+                return;
+            }
+            for (Expression predicate : predicates) {
+                collectConjunctTexts(predicate, conjuncts);
+            }
+        });
+        return conjuncts;
+    }
+
+    /** One predicate's leaf texts: an AND is split into its children (see
+     * {@link #filterConjunctTexts}). */
+    private static void collectConjunctTexts(Expression predicate, Set<String> conjuncts) {
+        if (predicate instanceof And) {
+            for (Expression child : ((And) predicate).children()) {
+                collectConjunctTexts(child, conjuncts);
+            }
+            return;
+        }
+        conjuncts.add(predicate.toSql());
+    }
+
+    /**
+     * The caller-visible top-level ORDER BY contract of one tree: one entry per order
+     * key ({@code direction/nulls:expression-text}), empty when the tree exposes no
+     * top-level sort. The descent mirrors {@link #topLevelLimitOf}: it follows the
+     * wrapper chain and STOPS at a projection, so a sort below a projection is not the
+     * caller-visible contract.
+     */
+    private static List<String> rootOrderContract(Plan plan) {
+        Plan node = plan;
+        while (node != null && !(node instanceof LogicalSort) && !(node instanceof LogicalTopN)
+                && !(node instanceof LogicalProject) && node.children().size() == 1) {
+            node = node.child(0);
+        }
+        List<OrderKey> keys = null;
+        if (node instanceof LogicalSort) {
+            keys = ((LogicalSort<?>) node).getOrderKeys();
+        } else if (node instanceof LogicalTopN) {
+            keys = ((LogicalTopN<?>) node).getOrderKeys();
+        }
+        if (keys == null) {
+            return List.of();
+        }
+        List<String> contract = new ArrayList<>(keys.size());
+        for (OrderKey key : keys) {
+            contract.add((key.isAsc() ? "ASC" : "DESC") + "/"
+                    + (key.isNullFirst() ? "NULLS_FIRST" : "NULLS_LAST") + ":"
+                    + key.getExpr().toSql());
+        }
+        return contract;
+    }
+
+    /**
+     * Whether the REPLAYED tree still exposes the caller's own top-level ORDER BY
+     * contract (round-44 #10). {@link #rowLimitsWithin} / {@link #rowLimitsSurviveReplay}
+     * only compare ROW CAPS: a caller with an UNCAPPED sort - {@code ORDER BY k ASC} and
+     * no LIMIT - matched a bind that also had none, so the limit contract passed without
+     * ever comparing the sort and a manual / frozen plan ordering by DESC returned
+     * (2,1) for the caller that asked for (1,2).
+     *
+     * <p>A caller WITHOUT a top-level sort passes: an unordered result has no visible
+     * ordering contract to preserve (a TopN the replay carries for a caller LIMIT is
+     * governed by the row-cap checks, not by this one).
+     *
+     * <p>The caller's shape must be a PREFIX of the replay's: the frozen (decompiled)
+     * optimal plan appends deterministic TIE-BREAKER keys after the caller's own - the
+     * tpch q18 frozen TopN sorts by the caller's {@code o_totalprice DESC,
+     * o_orderdate ASC} PLUS {@code c_name / c_custkey / o_orderkey} - and those extra
+     * keys only refine ties the caller's ORDER BY left unspecified, while a caller key
+     * DROPPED from or FLIPPED in the replay breaks the visible ordering.
+     *
+     * @param replayed the replayed tree (frozen text or parameterized fallback)
+     * @param userPlan the caller's own tree
+     * @return whether the caller's visible ordering survives the replay
+     */
+    public static boolean orderContractPreserved(Plan replayed, Plan userPlan) {
+        List<String> caller = rootSortShape(userPlan);
+        if (caller.isEmpty()) {
+            return true;
+        }
+        List<String> replay = rootSortShape(replayed);
+        return replay.size() >= caller.size() && replay.subList(0, caller.size()).equals(caller);
+    }
+
+    /**
+     * The ORDER BY contract entries WITHOUT the order-key expression: the replay
+     * comparison must not reject a legitimate rewrite because the order key is spelled
+     * differently across the user text and the regenerated frozen text ({@code ORDER BY
+     * 1} / {@code ORDER BY v} in the caller vs {@code ORDER BY c_1} in the frozen
+     * projection - round-42 #11's lesson: order-key expressions are not comparable
+     * across the two trees; the L3 match plus the CREATE-time full contract pin the
+     * expressions themselves).
+     */
+    private static List<String> rootSortShape(Plan plan) {
+        List<String> entries = new ArrayList<>();
+        for (String entry : rootOrderContract(plan)) {
+            int colon = entry.indexOf(':');
+            entries.add(colon < 0 ? entry : entry.substring(0, colon));
+        }
+        return entries;
+    }
+
+    /** For tests: the top-level ORDER BY contract entries of one tree. */
+    @VisibleForTesting
+    public static List<String> rootOrderContractForTest(Plan plan) {
+        return rootOrderContract(plan);
+    }
+
+    /**
+     * One base-table occurrence's scan selector together with the relation's alias.
+     */
     private static final class ScanSelectorOccurrence {
         final String alias;
         final String selector;

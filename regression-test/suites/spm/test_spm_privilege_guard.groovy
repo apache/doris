@@ -17,19 +17,20 @@
 
 suite("test_spm_privilege_guard", "spm") {
 
-    // Security regression guard for the SPM rewrite path when the rewritten plan
-    // fails at planning.
+    // Security regression guards for the SPM rewrite path.
     //
-    // Scenario: an admin authors a GLOBAL baseline whose frozen planSql reads a table
-    // the LOW-PRIVILEGE user may access (spm_guard_pub) while its bindSql matches the
-    // same user's query on a table they may NOT access (spm_guard_secret). A block rule
-    // bound to that user is arranged to trip on the REWRITTEN plan only AFTER its
-    // privilege check has passed.
+    // Round-44 #11: a manual plan may only read tables the BIND text reads. The former
+    // scenario - an admin-authored baseline binding the LOW-PRIVILEGE user's query on a
+    // table they may NOT access (spm_guard_secret) while its frozen planSql reads a
+    // table they MAY access (spm_guard_pub) - is now rejected at CREATE: a caller
+    // matching the secret-table bind would be answered from the plan's OTHER table, so
+    // the row must never exist. The suite asserts that rejection.
     //
-    // SPM regression pins enable_spm_fallback CLOSED (its default): the rewritten plan
-    // failure must surface as an error and the ORIGINAL statement must never be
-    // re-planned or executed, so the low-privilege user cannot reach spm_guard_secret
-    // through the baseline.
+    // The rewrite-path guard proper: SPM regression pins enable_spm_fallback CLOSED (its
+    // default). A baseline matches, the rewritten plan passes its own privilege check
+    // and then FAILS (here: tripped by a user-bound block rule); the failure must
+    // surface as an error and the ORIGINAL statement must never be re-planned or
+    // executed behind the failed rewrite.
     //
     // Historical note: when the fallback is opted into (production availability), it
     // must re-authorize the original statement instead of inheriting the abandoned
@@ -80,16 +81,32 @@ suite("test_spm_privilege_guard", "spm") {
     sql """GRANT SELECT_PRIV ON ${pubTable} TO '${userName}'"""
 
     try {
-        // admin-authored baseline: bind on the SECRET table, frozen plan on the PUB table
+        // round-44 #11: the cross-table manual plan is rejected WHERE IT IS AUTHORED.
+        // The plan reads spm_guard_pub while the bind text never does: a caller matching
+        // the secret-table bind would be answered with the plan table's rows, so the
+        // baseline must never be stored.
+        test {
+            sql """
+                CREATE GLOBAL BASELINE PLAN 'select k from ${secretTable} where k = 1'
+                WITH 'select k from ${pubTable} where k = 1'
+            """
+            exception "never reads"
+        }
+        assertEquals(0,
+                sql("""SHOW BASELINE PLANS WHERE bind_sql = 'select k from ${secretTable} where k = 1'""").size(),
+                "the rejected CREATE must leave no baseline behind")
+
+        // the rewrite-path guard proper: a SAME-table baseline (accepted) whose rewritten
+        // plan passes the user's privilege check and then fails the user-bound block rule
         List<List<Object>> created = sql """
-            CREATE GLOBAL BASELINE PLAN 'select k from ${secretTable} where k = 1'
+            CREATE GLOBAL BASELINE PLAN 'select k from ${pubTable} where k = 1'
             WITH 'select k from ${pubTable} where k = 1'
         """
         baselineId = Long.parseLong(created[0][0].toString())
 
         // pin the path: the rewrite must really match this query shape
         sql """SET enable_spm_rewrite = true"""
-        String explain = sql("""EXPLAIN SELECT k FROM ${secretTable} WHERE k = 111""").toString()
+        String explain = sql("""EXPLAIN SELECT k FROM ${pubTable} WHERE k = 111""").toString()
         assertTrue(explain.contains("SPM baseline hit: id=${baselineId}"),
                 "the baseline must match the guarded query shape, got: ${explain}")
         sql """SET enable_spm_rewrite = false"""
@@ -117,12 +134,12 @@ suite("test_spm_privilege_guard", "spm") {
             }
             // the guard: the rewrite matches, the rewritten (pub) plan passes its own
             // privilege check, then the user-bound block rule trips the plan; with the
-            // fallback CLOSED the ORIGINAL secret query is never re-planned/executed -
-            // the query surfaces the rewrite failure and leaks nothing
+            // fallback CLOSED the ORIGINAL statement is never re-planned/executed behind
+            // the failed rewrite - the query surfaces the rewrite failure
             sql """SET enable_spm_rewrite = true"""
             sql """SET enable_spm_fallback = false"""
             test {
-                sql """SELECT k FROM ${secretTable} WHERE k = 3000"""
+                sql """SELECT k FROM ${pubTable} WHERE k = 7"""
                 exception "SPM rewritten plan failed"
             }
         }

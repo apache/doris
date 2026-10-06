@@ -170,8 +170,11 @@ public class SPMMatchingSafetyTest {
                 () -> new SPMPlanner().buildBaseline(
                         "SELECT * FROM t a WHERE a.k = 1",
                         "SELECT * FROM t b WHERE b.k = 1"));
+        // the renamed alias is rejected by the round-44 divergence guard (the conjunct
+        // texts no longer match) or - when that guard is not reached - by the placeholder
+        // alignment; both messages say "cannot align"
         Assertions.assertTrue(failure.getMessage() != null
-                        && failure.getMessage().contains("placeholder"),
+                        && failure.getMessage().contains("align"),
                 failure.getMessage());
     }
 

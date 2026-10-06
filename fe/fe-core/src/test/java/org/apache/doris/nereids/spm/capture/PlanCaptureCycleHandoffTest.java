@@ -260,6 +260,81 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
+     * round-44 #14: the zone-pass credit belongs to the WINDOW. This process staged its
+     * own derived window in UTC (the pass about to run is credited at once), then adopted
+     * an earlier leader's pending window whose row was RENDERED in another zone
+     * ({@code scan_zone = America/New_York}). Without resetting the credit the resumed
+     * pass in America/New_York counted UTC as covered: the completeness check passed
+     * although the adopted window's UTC span was never scanned, and the checkpoint
+     * advanced permanently over a row rendered in UTC inside it.
+     */
+    @Test
+    public void testAdoptionOfADifferentWindowResetsTheZonePassCredit() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        SessionVariable global = VariableMgr.getDefaultSessionVariable();
+        String originalZone = global.getTimeZone();
+        try {
+            global.setTimeZone("UTC");
+            AtomicInteger reads = new AtomicInteger();
+            // the load reads the store ONCE (empty: this process derives its own window),
+            // and the RESERVATION confirmation then surfaces the earlier leader's pending
+            // reservation - window [100, 200), rendered in another zone
+            manager.setCheckpointReaderForTest(() -> reads.incrementAndGet() == 1
+                    ? List.of()
+                    : List.of(new ResultRow(List.of(
+                            "0", "100", "200", "0", "", "", "{}", "{}", "", "-1", "-1",
+                            "", "", "America/New_York", "0", "0"))));
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            manager.setCheckpointWriterForTest((sql, params) -> { });
+            // some FE of the cluster rendered rows in UTC: a completed pass in UTC is
+            // required before the adopted window may advance
+            manager.setAuditWriterZonesForTest(
+                    () -> new LinkedHashSet<>(List.of("UTC")));
+            manager.setAuditQueueHorizonForTest(() -> 0L);
+
+            // cycle 1: the derived window reserves in UTC - the pass is credited - and the
+            // earlier reservation then surfaces: the cycle is ABORTED for the adoption
+            manager.runCaptureCycle(global, manager.getFilter());
+            Assertions.assertEquals(0, scanner.calls.get(),
+                    "the adoption aborts the cycle before any scan");
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(100L, ((Number) fields[1]).longValue(),
+                    "the earlier leader's window is adopted");
+            Assertions.assertEquals(200L, ((Number) fields[2]).longValue());
+            Assertions.assertEquals("America/New_York", manager.lastScanZoneForTest(),
+                    "the adopted row's rendering zone resumes the window");
+
+            // cycle 2: the resumed pass renders in the adopted zone; UTC was NEVER scanned
+            // for this window, so the window must stay pending and re-scan in UTC
+            manager.runCaptureCycle(global, manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get());
+            Assertions.assertEquals("America/New_York", scanner.passZones.get(0),
+                    "the resumed pass renders in the adopted row's zone");
+            Assertions.assertEquals(0L,
+                    ((Number) manager.checkpointFieldsForTest()[0]).longValue(),
+                    "UTC cannot stay credited from the ABANDONED derived window: the"
+                            + " adopted window was never scanned in UTC");
+            Assertions.assertEquals("UTC", manager.lastScanZoneForTest(),
+                    "the missing UTC pass is queued for the same window");
+
+            // cycle 3: the UTC pass completes the adopted window
+            manager.runCaptureCycle(global, manager.getFilter());
+            Assertions.assertEquals(2, scanner.calls.get());
+            Assertions.assertEquals("UTC", scanner.passZones.get(1),
+                    "the missing zone gets its OWN completed pass");
+            Assertions.assertEquals(200L,
+                    ((Number) manager.checkpointFieldsForTest()[0]).longValue(),
+                    "with every zone covered the window completes");
+        } finally {
+            global.setTimeZone(originalZone);
+            manager.resetForTest();
+        }
+    }
+
+    /**
      * The reader seam of a checkpoint store: a row is readable only AFTER the writer
      * made it visible (see {@link #checkpointRow}), so the reservation confirmation
      * exercises the same read path the load does.

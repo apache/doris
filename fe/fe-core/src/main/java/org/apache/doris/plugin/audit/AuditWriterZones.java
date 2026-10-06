@@ -90,9 +90,34 @@ public final class AuditWriterZones {
      */
     private static final java.util.Set<String> REPORTED_ZONES = ConcurrentHashMap.newKeySet();
 
+    /**
+     * The capture's RESOLVED progress (round-44 #12): the token-greatest checkpoint row -
+     * the same row {@code PlanCaptureManager}'s read resolves to when no earlier pending
+     * window is involved (the append-only table needs the token ordering; an unfiltered
+     * single-row read could return ANY generation of the checkpoint, including a stale
+     * progress row the best-effort prune has not removed yet).
+     */
     private static final String SELECT_CAPTURE_WATERMARK_SQL =
             "SELECT `last_scan_timestamp` FROM `__internal_schema`.`spm_capture_checkpoint`"
-                    + " WHERE `id` = 1";
+                    + " WHERE `id` = 1"
+                    + " ORDER BY `leader_epoch` DESC, `write_seq` DESC, `update_time` DESC"
+                    + " LIMIT 1";
+
+    /**
+     * The most-behind PENDING window's start (round-44 #12): while such a row exists the
+     * capture can REWIND to it (see {@code PlanCaptureManager#readCheckpointRow}), so no
+     * zone whose last render is at or after the window start may be evicted - a zone
+     * dropped here disappears from the follower's next shared report exactly when the
+     * leader adopts the window and needs it: the reviewer's -05:00 zone for a 09:05 row,
+     * evicted by a stale 12:10 progress row, left the adopted [09:00,12:00) window
+     * scanned in UTC only and the row permanently unconsumed.
+     */
+    private static final String SELECT_CAPTURE_REWIND_FLOOR_SQL =
+            "SELECT `pending_window_start` FROM `__internal_schema`.`spm_capture_checkpoint`"
+                    + " WHERE `id` = 1 AND `pending_window_start` > 0"
+                    + " AND `pending_window_start` < `pending_window_end`"
+                    + " ORDER BY `pending_window_start` ASC, `leader_epoch` DESC,"
+                    + " `write_seq` DESC, `update_time` DESC LIMIT 1";
     private static final int WATERMARK_READ_TIMEOUT_SECONDS = 10;
 
     /**
@@ -254,7 +279,11 @@ public final class AuditWriterZones {
     /**
      * Re-reads {@link #coveredThrough} at most once per
      * {@link #COVERED_THROUGH_REFRESH_MILLIS} (called from the horizon reporter's tick -
-     * never from the per-row render path). A failed read keeps the previous value: an
+     * never from the per-row render path). The value is the ROLLBACK-SAFE resolved
+     * progress (round-44 #12): the minimum of the token-greatest row's watermark and the
+     * most-behind pending window's start, because the capture can rewind to such a
+     * window at any time - a zone evicted by a merely "newest" watermark could own a row
+     * of the pending window. A failed read (either query) keeps the previous value: an
      * older watermark can only retain a zone too long, never drop one too early.
      */
     static void refreshCaptureCoveredThrough() {
@@ -271,21 +300,63 @@ public final class AuditWriterZones {
             if (env == null || !env.isReady()) {
                 return; // no live internal table (unit tests / startup): keep the value
             }
-            List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_CAPTURE_WATERMARK_SQL,
-                    Collections.emptyMap(), WATERMARK_READ_TIMEOUT_SECONDS);
-            if (rows == null || rows.isEmpty()) {
-                return;
+            Long progress = readWatermarkColumn(SELECT_CAPTURE_WATERMARK_SQL);
+            long resolved = resolvedCoveredThrough(progress,
+                    readWatermarkColumn(SELECT_CAPTURE_REWIND_FLOOR_SQL));
+            if (resolved < 0) {
+                return; // no durable progress: keep the value
             }
-            String text = rows.get(0).getWithDefault(0, "");
-            if (text == null || text.isEmpty()) {
-                return;
-            }
-            coveredThrough = Math.max(0L, Long.parseLong(text.trim()));
+            coveredThrough = resolved;
         } catch (Throwable t) {
             // keep the previous value: an unreadable watermark must not free zones whose
             // rows the capture may still owe a scan for
             LOG.debug("audit writer zones: cannot read the capture watermark: {}",
                     t.getMessage());
+        }
+    }
+
+    /**
+     * The ROLLBACK-SAFE eviction floor (round-44 #12): the minimum of the resolved
+     * progress and the most-behind pending window's start. While an unconsumed pending
+     * window is readable, the capture can REWIND to it, so its start caps the floor even
+     * when the "newest" progress has moved past it (a stale-but-readable progress row
+     * never proves the pending window was consumed - only its completion does). Pure, so
+     * the floor semantics are testable without the internal table.
+     *
+     * @param progress   the token-greatest row's watermark, or null when the store has no
+     *                   row (the caller keeps the previous value)
+     * @param rewindFloor the most-behind pending window's start, or null when none exists
+     * @return the floor to evict by, or -1 when nothing may be updated
+     */
+    @VisibleForTesting
+    static long resolvedCoveredThrough(Long progress, Long rewindFloor) {
+        if (progress == null) {
+            return -1;
+        }
+        long resolved = rewindFloor != null && rewindFloor > 0 && rewindFloor < progress
+                ? rewindFloor : progress;
+        return Math.max(0L, resolved);
+    }
+
+    /**
+     * One scalar column of one watermark query; null when the store has no row / the
+     * value is blank or unparsable. A failed QUERY propagates - the caller then keeps
+     * the previous floor (see {@link #refreshCaptureCoveredThrough}).
+     */
+    private static Long readWatermarkColumn(String sql) {
+        List<ResultRow> rows = StatisticsUtil.executeQuery(sql, Collections.emptyMap(),
+                WATERMARK_READ_TIMEOUT_SECONDS);
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        String text = rows.get(0).getWithDefault(0, "");
+        if (text == null || text.isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(text.trim());
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

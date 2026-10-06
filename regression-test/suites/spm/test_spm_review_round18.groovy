@@ -72,20 +72,31 @@ suite("test_spm_review_round18", "spm") {
     }
 
     // ==================== EXPLAIN revalidates the replayed baseline (comment 5) ====================
+    // round-44 #11: a manual plan may only read tables the BIND text reads, so the old
+    // cross-table pair (bind spm_r18_t1, plan spm_r18_p1) is now rejected at CREATE -
+    // the reviewer's "SELECT k FROM t / SELECT k FROM u" case. The equivalent
+    // same-table scenario keeps the coverage: the baseline pins the table's schema and
+    // a later DDL must stop the replay instead of letting EXPLAIN describe a plan the
+    // query would not use.
     String explainBind = "SELECT k FROM spm_r18_t1"
-    long explainId = createBaseline(explainBind, "SELECT v AS k FROM spm_r18_p1")
+    long explainId = createBaseline(explainBind, explainBind)
     assertTrue(explainOf(explainBind).contains("SPM baseline hit: id=${explainId}"),
             "control: the baseline must hit before the DDL: " + explainOf(explainBind))
 
-    // the stored fingerprint was bound to the OLD plan-side table: the pre-match guard
-    // only checks the BIND side, so the drift is caught after planning - the equivalent
-    // QUERY rejects the stale replay, and EXPLAIN must do the same instead of describing
-    // a plan the query would not use
-    sql """ALTER TABLE spm_r18_p1 ADD COLUMN extra INT"""
+    // the cross-table manual plan is rejected where it is authored; no row may appear
     test {
-        sql """EXPLAIN SELECT k FROM spm_r18_t1"""
-        exception "metadata changed"
+        sql """CREATE GLOBAL BASELINE PLAN '${explainBind}' WITH 'SELECT v AS k FROM spm_r18_p1'"""
+        exception "never reads"
     }
+    assertEquals(0, sql("""SHOW BASELINE PLANS WHERE bind_sql = '${explainBind}'""")
+                    .findAll { it[4].toString().contains("spm_r18_p1") }.size(),
+            "the rejected cross-table CREATE must leave no row behind")
+
+    // the stored fingerprint was bound to the OLD schema: after the DDL the candidate
+    // must be skipped and the query / EXPLAIN must run their own plan
+    sql """ALTER TABLE spm_r18_t1 ADD COLUMN extra INT"""
+    assertFalse(explainOf(explainBind).contains("SPM baseline hit: id=${explainId}"),
+            "after the schema change the stale replay must not be used: " + explainOf(explainBind))
     sql """DROP BASELINE PLAN ${explainId}"""
 
     // ==================== the raw-plan fallback stores the ORIGINAL text (comment 10) ====================

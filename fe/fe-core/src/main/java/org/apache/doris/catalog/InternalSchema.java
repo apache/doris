@@ -54,6 +54,17 @@ public class InternalSchema {
     public static final String SPM_BASELINES_SEQ_TBL_NAME = "spm_baselines_seq";
 
     /**
+     * Name of the COMPACT SPM baseline id high-water-mark internal table (round-44 #15):
+     * a tiny append-only table whose surviving rows carry the newest allocated id. The
+     * append-only sequence history grows by one row per create forever, so its
+     * {@code MAX(last_id)} - the only unbounded read on the id-allocation path, and the
+     * one that made GLOBAL CREATE fail once the scan outgrew its fixed timeout - is
+     * answered from here: every allocation appends its id, superseded rows are pruned,
+     * and a cluster upgraded from before this table pays the legacy history read ONCE.
+     */
+    public static final String SPM_BASELINES_HWM_TBL_NAME = "spm_baselines_hwm";
+
+    /**
      * Name of the cluster-wide audit PUBLICATION horizon internal table: one row per FE
      * carrying the start time of the OLDEST audit event that FE has accepted but not yet
      * published (queued in its audit pipeline, or a batch whose stream load reported
@@ -73,6 +84,7 @@ public class InternalSchema {
     public static final List<ColumnDef> AUDIT_SCHEMA;
     public static final List<ColumnDef> SPM_BASELINES_SCHEMA;
     public static final List<ColumnDef> SPM_BASELINES_SEQ_SCHEMA;
+    public static final List<ColumnDef> SPM_BASELINES_HWM_SCHEMA;
     public static final List<ColumnDef> SPM_CAPTURE_CHECKPOINT_SCHEMA;
     public static final List<ColumnDef> SPM_AUDIT_HORIZON_SCHEMA;
 
@@ -382,6 +394,19 @@ public class InternalSchema {
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("dropped",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
 
+        // The COMPACT id high-water mark (round-44 #15, see
+        // SPM_BASELINES_HWM_TBL_NAME): append-only rows (id = 1) carrying the newest
+        // allocated id, so the id watermark read stays bounded however many creates the
+        // cluster has served. The rows are pruned after every write (best effort); the
+        // read takes the MAX, so a delayed superseded row can never regress it.
+        SPM_BASELINES_HWM_SCHEMA = new ArrayList<>();
+        SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("id",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("last_id",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("update_time",
+                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+
         // SPM plan-capture checkpoint (APPEND-ONLY, round-42 #8; every row carries the
         // fixed id = 1): the truncated window bounds, the FULL cursor (time, query_time,
         // query_id + the encoded tie-breaker tail) and the retry state survive a leader
@@ -478,7 +503,11 @@ public class InternalSchema {
         // AMBIGUOUS (Publish Timeout / an error that may hide a commit): such a batch's
         // rows can still PUBLISH after the FE dies, so the reader must keep fencing for
         // it even when the FE is provably gone - only an ordinary (never sent) backlog
-        // dies with its FE (round-40 #10).
+        // dies with its FE (round-40 #10). committed_fence_labels lists the load
+        // labels of those batches (oldest first, "-" for an unknown label): a DEAD FE
+        // cannot re-report, so the reader resolves each transaction by its label and
+        // keeps the fence until the LAST of them is terminal instead of releasing it
+        // on the age bound alone (round-44 #7).
         SPM_AUDIT_HORIZON_SCHEMA = new ArrayList<>();
         SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("fe_name",
                 ScalarType.createVarchar(128), ColumnNullableType.NOT_NULLABLE));
@@ -490,6 +519,8 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("committed_fence_ms",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("committed_fence_labels",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
     }
 
     // Get copied schema for statistic table
@@ -514,6 +545,9 @@ public class InternalSchema {
                 break;
             case SPM_BASELINES_SEQ_TBL_NAME:
                 schema = SPM_BASELINES_SEQ_SCHEMA;
+                break;
+            case SPM_BASELINES_HWM_TBL_NAME:
+                schema = SPM_BASELINES_HWM_SCHEMA;
                 break;
             case SPM_CAPTURE_CHECKPOINT_TBL_NAME:
                 schema = SPM_CAPTURE_CHECKPOINT_SCHEMA;

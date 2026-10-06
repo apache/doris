@@ -89,8 +89,15 @@ public class BaselineManagerConcurrencyTest {
          * exactly the durable state the baselines table's own MAX(id) loses.
          */
         private long reservedHighWater;
-        /** identity-carrying reservations, keyed by digest + planSql hash (round-39 #4). */
+        /**
+         * The LATEST identity record of each key, in the shape production reads it
+         * ({@code (last_id, reserve_time, unconfirmed, dropped)}): the plain pre-INSERT
+         * reservation every create appends (round-44 #5 - while its row is unreadable
+         * and the record young it FENCES, exactly like the explicit marker), replaced by
+         * the UNCONFIRMED marker of an ambiguous write or by a DROP TOMBSTONE.
+         */
         private final Map<String, long[]> keyedReservations = new ConcurrentHashMap<>();
+
         /**
          * When set, every by-id read AFTER an identity delete fails (round-35 #1): the
          * lingering-row cleanup of a DROP cannot be completed.
@@ -104,6 +111,10 @@ public class BaselineManagerConcurrencyTest {
          *  (an ambiguous delete whose commit is unknown - round-41 #10). */
         private boolean failDeleteKeepingRow;
 
+        private static String seqKey(String bindSqlDigest, long planSqlHash) {
+            return bindSqlDigest + '\u0001' + planSqlHash;
+        }
+
         @Override
         public long seqWatermark() {
             return reservedHighWater;
@@ -115,37 +126,65 @@ public class BaselineManagerConcurrencyTest {
         }
 
         /**
-         * The identity-carrying reservation (round-39 #4): the plain reservation only
-         * extends the watermark - the DURABLE fence is driven by the explicit UNCONFIRMED
-         * marker below ({@link #notePendingSeqState}). A reservation exists for every
-         * create (successful ones included) and must never fence.
+         * The identity-carrying reservation (round-39 #4; round-44 #5: it RECORDS the
+         * identity - production reads the latest record of the key, so a plain
+         * reservation whose row stays unreadable fences a cross-FE retry for the durable
+         * bound even when the explicit marker write failed / lagged).
          */
         @Override
         public void reserveId(long id, String bindSqlDigest, long planSqlHash,
                 long reserveTimeMs) {
             reserveId(id);
+            keyedReservations.compute(seqKey(bindSqlDigest, planSqlHash), (key, current) ->
+                    current != null && current[1] > reserveTimeMs
+                            ? current : new long[] {id, reserveTimeMs, 0, 0});
         }
 
         @Override
         public void notePendingSeqState(String bindSqlDigest, long planSqlHash, long id,
                 long atMillis) {
-            keyedReservations.put(bindSqlDigest + '\u0001' + planSqlHash,
-                    new long[] {id, atMillis});
+            keyedReservations.put(seqKey(bindSqlDigest, planSqlHash),
+                    new long[] {id, atMillis, 1, 0});
+        }
+
+        /** The DROP TOMBSTONE of one identity (round-42 #9 / round-44 #4). */
+        @Override
+        public void appendDroppedMarker(long id, String bindSqlDigest, long planSqlHash,
+                long atMillis) {
+            keyedReservations.put(seqKey(bindSqlDigest, planSqlHash),
+                    new long[] {id, atMillis, 0, 1});
         }
 
         @Override
         public BaselineManager.SeqReservation pendingSeqReservation(String bindSqlDigest,
                 long planSqlHash) {
-            long[] entry = keyedReservations.get(bindSqlDigest + '\u0001' + planSqlHash);
-            return entry == null ? null : new BaselineManager.SeqReservation(entry[0], entry[1]);
+            long[] entry = keyedReservations.get(seqKey(bindSqlDigest, planSqlHash));
+            return entry == null ? null : new BaselineManager.SeqReservation(
+                    entry[0], entry[1], entry[2] == 1, entry[3] == 1);
         }
 
         /** Round-40 #7: the marker DELETE of a resolved ambiguous write. */
         @Override
         public void retirePendingSeqState(String bindSqlDigest, long planSqlHash, long markerId) {
-            long[] entry = keyedReservations.get(bindSqlDigest + '\u0001' + planSqlHash);
+            long[] entry = keyedReservations.get(seqKey(bindSqlDigest, planSqlHash));
             if (entry != null && entry[0] == markerId) {
-                keyedReservations.remove(bindSqlDigest + '\u0001' + planSqlHash);
+                // the UNCONFIRMED row is DELETEd; the plain pre-INSERT reservation row of
+                // the same attempt stays behind (round-44 #5) - it keeps the id and the
+                // watermark, just without the marker semantics
+                keyedReservations.put(seqKey(bindSqlDigest, planSqlHash),
+                        new long[] {entry[0], entry[1], 0, 0});
+            }
+        }
+
+        /**
+         * Ages EVERY identity record (round-44: the fence of a plain reservation bounds a
+         * RECENT unresolved write - a create that happened long ago must not defer a
+         * legitimate re-create of its key).
+         */
+        void ageReservations(long millis) {
+            for (String key : keyedReservations.keySet()) {
+                keyedReservations.compute(key, (k, current) ->
+                        new long[] {current[0], current[1] - millis, current[2], current[3]});
             }
         }
 
@@ -2859,6 +2898,9 @@ public class BaselineManagerConcurrencyTest {
             reused.setId(originalId);
             reused.setStatus(BaselineStatus.ENABLED);
             store.replaceRows(originalId, List.of(reused));
+            // the reuse happened long AFTER the original create: the round-44 #5 fence
+            // bounds a RECENT unresolved write, so the legit re-create must not defer
+            store.ageReservations(6 * 60 * 1000L);
 
             // the cached duplicate still holds the ORIGINAL identity
             long id = manager.createBaseline(baseline("d-reuse", "p-reuse"));
@@ -3602,9 +3644,12 @@ public class BaselineManagerConcurrencyTest {
                     "the new create proceeds on a reconciled registry: " + fresh);
             Assertions.assertEquals(0, manager.pendingCreateCountForTest(),
                     "every readable record was retired by the reconciliation");
-            Assertions.assertNull(
-                    store.pendingSeqReservation("d-f5b-0", SPMUtils.hashOf("p-d-f5b-0")),
-                    "the durable markers of the reconciled records are retired too");
+            BaselineManager.SeqReservation reconciled = store.pendingSeqReservation(
+                    "d-f5b-0", SPMUtils.hashOf("p-d-f5b-0"));
+            Assertions.assertNotNull(reconciled,
+                    "the plain reservation row of the reconciled attempt stays (round-44 #5)");
+            Assertions.assertFalse(reconciled.unconfirmed,
+                    "the UNCONFIRMED marker is retired; only the plain reservation remains");
             Assertions.assertEquals(1, store.rowsOf(fresh).size());
         } finally {
             BaselineManager.idAllocatorStoreForTest = null;
@@ -3629,9 +3674,10 @@ public class BaselineManagerConcurrencyTest {
             Assertions.assertThrows(IllegalStateException.class,
                     () -> manager.createBaseline(baseline("d-ret", "p-ret")));
             long reserved = store.reservedHighWater;
-            Assertions.assertNotNull(
-                    store.pendingSeqReservation("d-ret", SPMUtils.hashOf("p-ret")),
-                    "the ambiguous create appended the durable marker");
+            BaselineManager.SeqReservation marker = store.pendingSeqReservation(
+                    "d-ret", SPMUtils.hashOf("p-ret"));
+            Assertions.assertNotNull(marker, "the ambiguous create appended the durable marker");
+            Assertions.assertTrue(marker.unconfirmed, "the record IS the unconfirmed marker");
 
             // the committed row publishes and the retry adopts it - the marker is retired
             BaselinePlan committed = baseline("d-ret", "p-ret");
@@ -3640,9 +3686,13 @@ public class BaselineManagerConcurrencyTest {
             store.failInsert = false;
             Assertions.assertEquals(reserved,
                     manager.createBaseline(baseline("d-ret", "p-ret")));
-            Assertions.assertNull(
-                    store.pendingSeqReservation("d-ret", SPMUtils.hashOf("p-ret")),
-                    "a resolved marker must stop fencing");
+            BaselineManager.SeqReservation resolved = store.pendingSeqReservation(
+                    "d-ret", SPMUtils.hashOf("p-ret"));
+            Assertions.assertNotNull(resolved,
+                    "the plain pre-INSERT reservation row survives the marker retirement"
+                            + " (round-44 #5): it keeps the id / watermark");
+            Assertions.assertFalse(resolved.unconfirmed,
+                    "a resolved marker must stop fencing (unconfirmed = false)");
 
             // DROP the adopted baseline and immediately re-CREATE the same bind/plan
             Assertions.assertTrue(manager.dropBaseline(reserved));

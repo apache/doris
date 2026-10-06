@@ -88,10 +88,13 @@ import java.util.function.Supplier;
  *       right after it may still be unpublished.</li>
  *   <li>a COMMITTED batch whose rows are only not readable yet (Publish Timeout) keeps
  *       fencing even after its FE died: its {@code committed_fence_ms} marker survives
- *       the death for the same bound the loader itself applies (round-40 #10) - the
- *       FEs' writer-zone history in that row is kept for exactly as long as durable
- *       capture progress has not passed it, so no uncompleted window loses its zone
- *       (round-40 #2).</li>
+ *       the death for the same bound the loader itself applies (round-40 #10), and its
+ *       batches' load labels ride along (round-44 #7) so the reader resolves each
+ *       transaction and keeps the marker until the LAST one is terminal (VISIBLE /
+ *       ABORTED) - a dead FE cannot re-report, and expiring the marker on the age bound
+ *       alone lost a batch that published just after it. The FEs' writer-zone history in
+ *       that row is kept for exactly as long as durable capture progress has not passed
+ *       it, so no uncompleted window loses its zone (round-40 #2).</li>
  * </ul>
  */
 public final class AuditPublicationHorizon {
@@ -112,24 +115,27 @@ public final class AuditPublicationHorizon {
     public static final long ROW_STALE_MILLIS = 5 * 60 * 1000L;
 
     /**
-     * How long the committed-publication fence of a PROVABLY GONE FE keeps fencing
-     * (round-40 #10): a batch whose stream load reported Publish Timeout is COMMITTED,
-     * and its rows can become readable AFTER the FE died - dropping the fence at death
-     * would let the capture checkpoint past them. Deliberately the SAME bound the loader
-     * itself applies ({@link AuditLoader#PUBLISH_FENCE_MAX_MILLIS}): after it the batch
-     * is "conclusively lost" for both sides, so fencing longer would freeze the capture
-     * without protecting anything.
+     * How long the committed-publication fence of a PROVABLY GONE FE keeps fencing when
+     * its transaction CANNOT be resolved by label (round-40 #10; round-44 #7 made this
+     * the LAST RESORT instead of the rule): a batch whose stream load reported Publish
+     * Timeout is COMMITTED, and its rows can become readable AFTER the FE died -
+     * dropping the fence at death would let the capture checkpoint past them. A row that
+     * carries its batches' labels keeps fencing on the TRANSACTION outcome (only
+     * VISIBLE / ABORTED releases it, whatever the age); the bound applies to the labels
+     * the transaction manager cannot resolve at all, where it deliberately mirrors the
+     * loader's own fallback ({@link AuditLoader#PUBLISH_FENCE_MAX_MILLIS}) so a
+     * genuinely lost batch cannot freeze the capture forever.
      */
     public static final long COMMITTED_FENCE_SURVIVAL_MILLIS =
             AuditLoader.PUBLISH_FENCE_MAX_MILLIS;
 
     private static final String SELECT_ROWS_SQL =
             "SELECT `fe_name`, `horizon_ms`, `update_time`, `writer_zones`,"
-                    + " `committed_fence_ms` FROM `"
+                    + " `committed_fence_ms`, `committed_fence_labels` FROM `"
                     + FeConstants.INTERNAL_DB_NAME + "`."
                     + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "`";
     private static final String SELECT_OWN_ROW_SQL = "SELECT `horizon_ms`, `writer_zones`,"
-            + " `committed_fence_ms` FROM `"
+            + " `committed_fence_ms`, `committed_fence_labels` FROM `"
             + FeConstants.INTERNAL_DB_NAME + "`."
             + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "` WHERE `fe_name` = '${feName}'";
     // ONE atomic statement per report: the table is a merge-on-write UNIQUE KEY(`fe_name`)
@@ -144,9 +150,10 @@ public final class AuditPublicationHorizon {
     // would drop exactly that knowledge.
     private static final String UPSERT_OWN_ROW_SQL = "INSERT INTO `" + FeConstants.INTERNAL_DB_NAME + "`."
             + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "`"
-            + " (`fe_name`, `horizon_ms`, `update_time`, `writer_zones`, `committed_fence_ms`)"
+            + " (`fe_name`, `horizon_ms`, `update_time`, `writer_zones`, `committed_fence_ms`,"
+            + " `committed_fence_labels`)"
             + " VALUES ('${feName}', ${horizonMs}, '${updateTime}', '${writerZones}',"
-            + " ${committedFenceMs})";
+            + " ${committedFenceMs}, '${committedFenceLabels}')";
     private static final String DELETE_OWN_ROW_SQL = "DELETE FROM `" + FeConstants.INTERNAL_DB_NAME + "`."
             + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "` WHERE `fe_name` = '${feName}'";
     private static final int IO_TIMEOUT_SECONDS = 10;
@@ -308,7 +315,9 @@ public final class AuditPublicationHorizon {
                                         ? values.get(3) : "",
                                 values.size() > 4 && values.get(4) != null
                                         && !values.get(4).trim().isEmpty()
-                                        ? Long.parseLong(values.get(4).trim()) : 0L});
+                                        ? Long.parseLong(values.get(4).trim()) : 0L,
+                                values.size() > 5 && values.get(5) != null
+                                        ? values.get(5).trim() : ""});
                     }
                 }
             } catch (Exception e) {
@@ -368,7 +377,9 @@ public final class AuditPublicationHorizon {
                                         ? values.get(3) : "",
                                 values.size() > 4 && values.get(4) != null
                                         && !values.get(4).trim().isEmpty()
-                                        ? Long.parseLong(values.get(4).trim()) : 0L});
+                                        ? Long.parseLong(values.get(4).trim()) : 0L,
+                                values.size() > 5 && values.get(5) != null
+                                        ? values.get(5).trim() : ""});
                     }
                 }
             } catch (Exception e) {
@@ -387,6 +398,7 @@ public final class AuditPublicationHorizon {
             long horizon = (Long) row[1];
             long updatedAt = (Long) row[2];
             long committedFence = row.length > 4 && row[4] != null ? (Long) row[4] : 0L;
+            String fenceLabels = row.length > 5 && row[5] != null ? (String) row[5] : "";
             // The ROW's earliest obligation is the MINIMUM of its horizon and its
             // committed fence (round-42 #3): both are lower bounds on "events that may
             // still be missing", so the earlier one fences. (The reporter's write already
@@ -409,11 +421,15 @@ public final class AuditPublicationHorizon {
                 Boolean alive = reportingFeAlive(feName);
                 if (Boolean.FALSE.equals(alive)) {
                     if (committedFence > 0
-                            && now - updatedAt <= COMMITTED_FENCE_SURVIVAL_MILLIS) {
+                            && !committedFenceSettled(fenceLabels, updatedAt, now)) {
                         // Round-40 #10: the batch is COMMITTED, so its rows can become
-                        // readable even though the FE is dead; the fence survives its
-                        // death until they are observed or the same bound the loader
-                        // itself applies has elapsed
+                        // readable even though the FE is dead. Round-44 #7: the fence
+                        // survives on the TRANSACTION's outcome, not on the age bound -
+                        // the labels the row carries resolve each batch's state, and
+                        // only terminal (VISIBLE / ABORTED) transactions release it. A
+                        // dead FE cannot re-report, so the age bound alone released the
+                        // only marker that protected a publication arriving just after
+                        // it; it remains the last resort for an UNRESOLVABLE label only.
                         LOG.warn("audit publication horizon: keeping the COMMITTED fence"
                                         + " {} of FE {} (not refreshed for {} ms) although the"
                                         + " FE is gone: the committed batch may still publish",
@@ -423,7 +439,8 @@ public final class AuditPublicationHorizon {
                     }
                     LOG.warn("audit publication horizon: dropping the overdue fence of FE"
                             + " {} (oldest event {}, not refreshed for {} ms): the FE is"
-                            + " gone, its events died with it", feName, horizon, now - updatedAt);
+                            + " gone and its committed fence is settled or beyond every"
+                            + " resolution bound", feName, horizon, now - updatedAt);
                     continue;
                 }
                 throw new IllegalStateException("SPM capture cannot trust the cluster audit"
@@ -567,6 +584,57 @@ public final class AuditPublicationHorizon {
     }
 
     /**
+     * Whether the committed fence of a PROVABLY GONE FE is SETTLED (round-44 #7): every
+     * batch the row lists is either TERMINAL (VISIBLE - its rows are readable; ABORTED -
+     * it can never publish) or unresolvable with the retention bound elapsed (the same
+     * last resort the live loader applies, round-43 #6/#8: a label the transaction
+     * manager does not know - the request never got as far as creating a transaction -
+     * cannot be proven lost, so it keeps fencing until the bound). A batch still
+     * COMMITTED / PRECOMMITTED keeps its fence REGARDLESS OF AGE: the publish daemon can
+     * make its rows readable at any moment, and a dead FE can no longer re-report, so
+     * releasing the marker on the age bound alone (round-40 #10) lost exactly the
+     * publication that arrived just after it.
+     *
+     * <p>While ANY listed batch keeps fencing, the row contributes its full
+     * {@code committed_fence_ms} (the MINIMUM over all its batches, settled ones
+     * included): the resolution has no per-batch event times, and over-fencing merely
+     * delays the capture while under-fencing would skip an event.
+     *
+     * @param labelsCsv the row's committed-fence labels (oldest first, "-" = unknown
+     *                  identity), "" for a row written before the column existed
+     * @param updatedAt the row's last refresh (epoch millis)
+     * @param now       the read instant (epoch millis)
+     * @return true when no listed batch can still publish
+     */
+    private static boolean committedFenceSettled(String labelsCsv, long updatedAt, long now) {
+        if (labelsCsv == null || labelsCsv.trim().isEmpty()) {
+            // No resolvable label (a row written before the column, or by a loader that
+            // never learned its labels): the retention bound stays the last resort
+            return now - updatedAt > COMMITTED_FENCE_SURVIVAL_MILLIS;
+        }
+        for (String label : labelsCsv.split(";", -1)) {
+            String trimmed = label.trim();
+            if (trimmed.isEmpty() || "-".equals(trimmed)) {
+                if (now - updatedAt <= COMMITTED_FENCE_SURVIVAL_MILLIS) {
+                    return false; // unknown identity: keep fencing until the bound
+                }
+                continue;
+            }
+            String status = AuditLoader.transactionStatusForLabel(trimmed);
+            if (AuditLoader.isTerminalTransactionStatus(status)) {
+                continue; // VISIBLE / ABORTED: this batch is settled
+            }
+            if ("COMMITTED".equals(status) || "PRECOMMITTED".equals(status)) {
+                return false; // the publish daemon may still make its rows readable
+            }
+            if (now - updatedAt <= COMMITTED_FENCE_SURVIVAL_MILLIS) {
+                return false; // unresolvable and young: the same last resort as above
+            }
+        }
+        return true;
+    }
+
+    /**
      * Publishes THIS FE's current horizon into the shared table (one row per FE) and
      * returns whether the written state is CONFIRMED readable from it. Called by the
      * audit loader's reporter thread on change and on its keepalive cadence; the caller
@@ -588,8 +656,12 @@ public final class AuditPublicationHorizon {
         // A COMMITTED-but-unreadable batch must survive this FE's death (round-40 #10):
         // the fence is folded in HERE, at write time, so even a report computed before the
         // batch timed out (a stale zero, or the close path's clear) cannot DELETE or
-        // understate it - this is what keeps the crash/close gap closed.
+        // understate it - this is what keeps the crash/close gap closed. Round-44 #7: the
+        // batches' load LABELS travel with the fence, so a reader that finds the FE gone
+        // can resolve each transaction's outcome instead of expiring the marker on the
+        // age bound alone.
         long committedFence = AuditLoader.oldestCommittedPublishFenceEventTime();
+        String committedLabels = AuditLoader.oldestCommittedPublishFenceLabels();
         // EVERY locally known obligation is folded with minPositive (round-42 #3): the
         // caller's value can be a PARTIAL report (AuditLoader.reportCommittedFence passes
         // only the batch fence), and taking the MAX of (value, committed fence) OVERSTATED
@@ -629,8 +701,10 @@ public final class AuditPublicationHorizon {
             params.put("updateTime", renderUpdateTime(System.currentTimeMillis()));
             params.put("writerZones", StatisticsUtil.escapeSQL(writerZones));
             params.put("committedFenceMs", String.valueOf(committedFence));
+            params.put("committedFenceLabels", StatisticsUtil.escapeSQL(committedLabels));
             StatisticsUtil.execUpdate(UPSERT_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
-            boolean confirmed = ownRowConfirms(feName, effectiveHorizon, writerZones, committedFence);
+            boolean confirmed = ownRowConfirms(feName, effectiveHorizon, writerZones,
+                    committedFence, committedLabels);
             if (confirmed) {
                 // Only a CONFIRMED report makes the zones known to the capture (round-41
                 // #6): the registry keeps a fresh zone outside the covered-through filter
@@ -677,17 +751,20 @@ public final class AuditPublicationHorizon {
      * set is indistinguishable from the old row by the horizon alone - if the UPSERT
      * committed without being readable, the reporter would record the new zones as
      * reported and the capture could checkpoint in the gap without scanning the new
-     * zone) and the COMMITTED fence (round-40 #10: an unreadable marker would let a crash
-     * drop the fence). A read failure is an UNCONFIRMED write - the caller retries.
+     * zone), the COMMITTED fence (round-40 #10: an unreadable marker would let a crash
+     * drop the fence) and its LABELS (round-44 #7: an unreadable labels write would leave
+     * a dead FE's fence unresolvable, which is exactly the age-bound release this column
+     * exists to replace). A read failure is an UNCONFIRMED write - the caller retries.
      */
     private static boolean ownRowConfirms(String feName, long horizon, String writerZones,
-            long committedFenceMs) throws Exception {
+            long committedFenceMs, String committedLabels) throws Exception {
         Map<String, String> params = new HashMap<>();
         params.put("feName", StatisticsUtil.escapeSQL(feName));
         List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
         long readBack = 0;
         String readBackZones = "";
         long readBackCommitted = 0;
+        String readBackLabels = "";
         boolean sawRow = rows != null && !rows.isEmpty();
         if (sawRow) {
             List<String> values = rows.get(0).getValues();
@@ -697,22 +774,26 @@ public final class AuditPublicationHorizon {
                 readBackCommitted = values.size() > 2 && values.get(2) != null
                         && !values.get(2).trim().isEmpty()
                         ? Long.parseLong(values.get(2).trim()) : 0L;
+                readBackLabels = values.size() > 3 && values.get(3) != null
+                        ? values.get(3).trim() : "";
             }
         }
         if (horizon > 0) {
             return readBack == horizon && readBackCommitted == committedFenceMs
-                    && sameZones(readBackZones, writerZones);
+                    && sameText(readBackZones, writerZones)
+                    && sameText(readBackLabels, committedLabels);
         }
         // An IDLE REGISTRATION must be VISIBLE (round-42 #12): the cluster check reads
         // the row's ABSENCE as "the FE never registered", so a zero report is confirmed
         // only once the row itself can be read back - an unconfirmed zero would stop the
         // reporter's retries while the leader keeps failing the cycle closed.
         return sawRow && readBack <= 0 && readBackCommitted <= 0
-                && sameZones(readBackZones, writerZones);
+                && sameText(readBackZones, writerZones)
+                && sameText(readBackLabels, committedLabels);
     }
 
-    /** Zone-set comparison of a read-back against the attempted report (null = empty). */
-    private static boolean sameZones(String readBack, String attempted) {
+    /** Zone-set / label comparison of a read-back against the attempted report. */
+    private static boolean sameText(String readBack, String attempted) {
         return (readBack == null ? "" : readBack.trim())
                 .equals(attempted == null ? "" : attempted.trim());
     }

@@ -664,6 +664,68 @@ public class AuditLoaderTest {
         }
     }
 
+    // round-44 #8: the obligation of a batch is recorded BEFORE the load is sent, so the
+    // shared horizon row names the possible transaction (its LABEL) from the first moment
+    // the request could leave the FE. A crash between the send and its response then
+    // leaves a resolvable trace instead of an unfenced batch: the reader resolves the
+    // transaction by label even though this FE never processed the outcome.
+    @Test
+    public void testPreSendObligationCarriesItsLabelImmediately() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        try {
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-pre-send",
+                    "audit_log_l1");
+            Assertions.assertEquals(10_000L, AuditLoader.oldestCommittedPublishFenceEventTime());
+            Assertions.assertEquals("audit_log_l1",
+                    AuditLoader.oldestCommittedPublishFenceLabels(),
+                    "the label of the in-flight attempt must be reportable at once");
+
+            // a second, label-less obligation is encoded as an unresolvable slot "-": the
+            // dead-FE reader must keep fencing for it until the retention bound
+            Deencapsulation.invoke(loader, "retainPublishFence", 20_000L, "qid-legacy");
+            Assertions.assertEquals("audit_log_l1;-",
+                    AuditLoader.oldestCommittedPublishFenceLabels(),
+                    "labels are encoded oldest-first with \"-\" for unknown identities");
+        } finally {
+            setRunningLoader(null);
+        }
+    }
+
+    // round-44 #8: the release paths. A CONFIRMED publication (the rows are readable) and
+    // a request that never reached a BE both make the pre-send obligation unnecessary; a
+    // FAILED/ambiguous outcome keeps it, exactly as before.
+    @Test
+    public void testPreSendObligationIsReleasedOnlyForDecidedOutcomes() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        try {
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-a", "audit_log_a");
+            Deencapsulation.invoke(loader, "retainPublishFence", 30_000L, "qid-b", "audit_log_b");
+            Assertions.assertEquals("audit_log_a;audit_log_b",
+                    AuditLoader.oldestCommittedPublishFenceLabels());
+
+            // outcome A resolved (confirmed publication / never delivered): ONLY A's
+            // obligation is released, B keeps fencing with its own label
+            Deencapsulation.invoke(loader, "releasePublishAttempt", "audit_log_a",
+                    "the stream load CONFIRMED its publication");
+            Assertions.assertEquals(30_000L, AuditLoader.oldestCommittedPublishFenceEventTime(),
+                    "the OTHER batch must keep fencing");
+            Assertions.assertEquals("audit_log_b",
+                    AuditLoader.oldestCommittedPublishFenceLabels());
+
+            // an unknown label releases nothing
+            Deencapsulation.invoke(loader, "releasePublishAttempt", "no-such-label", "test");
+            Assertions.assertEquals(30_000L, AuditLoader.oldestCommittedPublishFenceEventTime());
+            Deencapsulation.invoke(loader, "releasePublishAttempt", "", "test");
+            Assertions.assertEquals(30_000L, AuditLoader.oldestCommittedPublishFenceEventTime());
+        } finally {
+            setRunningLoader(null);
+        }
+    }
+
     private static AuditEvent internalEvent(long timestamp) {
         return new AuditEvent.AuditEventBuilder()
                 .setQueryId("internal-" + timestamp)

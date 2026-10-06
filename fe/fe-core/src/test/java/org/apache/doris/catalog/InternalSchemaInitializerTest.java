@@ -510,6 +510,65 @@ class InternalSchemaInitializerTest {
     }
 
     /**
+     * Round-44 schema invariants:
+     *
+     * - #15: the compact id high-water-mark table (spm_baselines_hwm) is part of the
+     *   create path, gates completion itself (an upgraded cluster already HAS the older
+     *   SPM tables, so without its own check the table would never be created and every
+     *   create would keep reading the unbounded reservation history) and takes part in
+     *   the replica upgrade;
+     * - #7: the horizon table carries the committed fences' LABELS, so a GONE FE's fence
+     *   is resolved transaction by transaction instead of expiring on the age bound.
+     */
+    @Test
+    public void testRound44SchemaObjects() throws Exception {
+        // #15: the compact high-water-mark table
+        Database db = Mockito.mock(Database.class);
+        Mockito.when(db.getTable(InternalSchema.SPM_BASELINES_HWM_TBL_NAME))
+                .thenReturn(Optional.empty());
+        Assertions.assertTrue(InternalSchemaInitializer.isSpmBaselinesHwmTableMissing(db),
+                "a cluster where only spm_baselines_hwm is absent must not count as initialized");
+        Mockito.when(db.getTable(InternalSchema.SPM_BASELINES_HWM_TBL_NAME))
+                .thenReturn(Optional.of(Mockito.mock(Table.class)));
+        Assertions.assertFalse(InternalSchemaInitializer.isSpmBaselinesHwmTableMissing(db),
+                "an existing spm_baselines_hwm table must not block completion");
+
+        Method method = InternalSchemaInitializer.class.getDeclaredMethod(
+                "getSpmBaselinesHwmCreateSql");
+        method.setAccessible(true);
+        String sql = (String) method.invoke(null);
+        Assertions.assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS"
+                        + " `internal`.`__internal_schema`.`spm_baselines_hwm`"),
+                "the completion gate re-runs createTbl(): it must create the table: " + sql);
+        Assertions.assertTrue(sql.contains("`last_id`"),
+                "the compact record carries the newest allocated id: " + sql);
+        Assertions.assertTrue(sql.contains("`update_time`"),
+                "the record's write instant is kept: " + sql);
+        Assertions.assertFalse(sql.contains("UNIQUE KEY"),
+                "the record is append-only (a superseded row never regresses the MAX): " + sql);
+        Assertions.assertEquals(3, InternalSchema.getCopiedSchema(
+                        InternalSchema.SPM_BASELINES_HWM_TBL_NAME).size(),
+                "the copied schema carries exactly id / last_id / update_time");
+        Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
+                        .contains(InternalSchema.SPM_BASELINES_HWM_TBL_NAME),
+                "losing the hosting BE must not make the id watermark unreadable");
+
+        // #7: the committed fences' labels
+        Assertions.assertTrue(InternalSchema.SPM_AUDIT_HORIZON_SCHEMA.stream()
+                        .anyMatch(def -> "committed_fence_labels".equalsIgnoreCase(def.getName())),
+                "the horizon table must carry the committed batches' labels");
+        Assertions.assertTrue(InternalSchemaInitializer.SPM_AUDIT_HORIZON_UPGRADE_COLUMNS
+                        .containsKey("committed_fence_labels"),
+                "an upgraded cluster must gain the labels column");
+        Method horizonMethod = InternalSchemaInitializer.class.getDeclaredMethod(
+                "getSpmAuditHorizonCreateSql");
+        horizonMethod.setAccessible(true);
+        String horizonSql = (String) horizonMethod.invoke(null);
+        Assertions.assertTrue(horizonSql.contains("`committed_fence_labels`"),
+                "the create text must carry the labels column: " + horizonSql);
+    }
+
+    /**
      * The durable checkpoint INSERT (PlanCaptureManager#CHECKPOINT_INSERT_SQL) binds its
      * VALUES by POSITION against the NAMED column list, so that list must stay one-to-one
      * with the canonical schema order. Dropping the list (a bare positional INSERT) or

@@ -17,9 +17,7 @@
 
 package org.apache.doris.nereids.spm;
 
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.manager.SessionBaselineStore;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -41,10 +39,6 @@ import org.junit.jupiter.api.Test;
  *   silently lose every row of p2.
  */
 public class SPMRound26SafetyTest {
-
-    private static LogicalPlan parse(String sql) {
-        return (LogicalPlan) new NereidsParser().parseSingle(sql);
-    }
 
     // ==================== #6: plan-side scan selections are rejected ====================
 
@@ -94,16 +88,38 @@ public class SPMRound26SafetyTest {
     }
 
     /**
-     * A manual plan over its OWN table set stays accepted: only a table BOTH statements
-     * read can carry a divergent selection, so a bind-side table the plan never touches
-     * (the privilege guard's secret-table bind planned over a public table) is no
-     * mismatch - the plan-side tables are covered by the schema fingerprint.
+     * round-44 #11 (REPLACING the former "tables only in the bind are not compared"
+     * acceptance): a manual plan may not read a table the BIND text never reads. The
+     * former rationale ("the plan-side tables are covered by the schema fingerprint")
+     * was exactly the hole: with t={1} and u={9}, a caller matching the bind text over t
+     * replayed the frozen plan over u and received 9, and the fingerprint of the stable
+     * union of both tables matched on CREATE and on replay, so no other check saw it.
+     * Every plan-side source must map to the bind side - the privilege-guard scenario
+     * (bind on a protected table, plan on a public one) is now rejected where it is
+     * authored.
      */
     @Test
-    public void testTablesOnlyInTheBindAreNotCompared() throws Exception {
+    public void testTablesOnlyInTheBindAreRejected() {
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                () -> new SPMPlanner().buildBaseline(
+                        "SELECT k FROM secret_table WHERE k = 1",
+                        "SELECT k FROM public_table WHERE k = 1"));
+        Assertions.assertTrue(failure.getMessage() != null
+                        && failure.getMessage().contains("public_table")
+                        && failure.getMessage().contains("never reads"),
+                failure.getMessage());
+    }
+
+    /**
+     * The SAME tables under the same filters / outputs stay accepted: the guard rejects
+     * plan-side sources the bind never reads, not differently qualified references to
+     * the same source set.
+     */
+    @Test
+    public void testSameTableSetStaysAccepted() throws Exception {
         BaselinePlan plan = new SPMPlanner().buildBaseline(
                 "SELECT k FROM secret_table WHERE k = 1",
-                "SELECT k FROM public_table WHERE k = 1");
+                "SELECT k FROM secret_table WHERE k = 1");
         Assertions.assertEquals("SELECT k FROM secret_table WHERE k = 1", plan.getBindSql());
     }
 

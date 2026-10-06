@@ -92,22 +92,23 @@ suite("test_spm_review_round35", "spm") {
     try {
         // ==================== #3: a cap on ANOTHER input is not justified ====================
         // bind caps spm_r35_a (the caller's own placement); the manual plan caps
-        // spm_r35_b instead. The (limit, offset) VALUES match on both sides, so the old
-        // multiset check accepted the pairing.
+        // spm_r35_b instead AND projects the other join side's column. Round-44 #9/#10
+        // made such a pair impossible to CREATE at all: the plan's output column (a.k)
+        // is not the bind's (b.g), so a matching caller could receive another column's
+        // values - the case is rejected where the divergence is authored instead of
+        // being skipped (and the row kept) at replay.
         String capOnA = "SELECT b.g FROM (SELECT k FROM spm_r35_a ORDER BY k LIMIT 1) x" +
                 " JOIN spm_r35_b b ON x.k = b.g ORDER BY b.g LIMIT 1"
         String capOnB = "SELECT a.k FROM spm_r35_a a" +
                 " JOIN (SELECT g FROM spm_r35_b ORDER BY g LIMIT 1) y ON a.k = y.g" +
                 " ORDER BY a.k LIMIT 1"
-        List<List<Object>> created3 = sql(
-                """CREATE GLOBAL BASELINE PLAN '${capOnA}' WITH '${capOnB}'""")
-        assertEquals(1, created3.size(), "CREATE should return one row, got: ${created3}")
-        long id3 = Long.parseLong(created3[0][0].toString())
-        // round-41 #9: an inner cap of the manual plan that has NO counterpart in the
-        // caller's tree skips the candidate even at the captured outer limit - the
-        // frozen cap on spm_r35_b would truncate the wrong input
-        assertTrue(!explainOf(capOnA).contains("SPM baseline hit: id=${id3}"),
-                "a cap on ANOTHER input must skip the candidate: ${explainOf(capOnA)}")
+        test {
+            sql """CREATE GLOBAL BASELINE PLAN '${capOnA}' WITH '${capOnB}'"""
+            exception "output column"
+        }
+        // with the row rejected the caller's own query plans and runs normally
+        assertTrue(!explainOf(capOnA).contains("SPM baseline hit"),
+                "a rejected CREATE leaves no candidate to hit: ${explainOf(capOnA)}")
         order_qt_r35_moved_cap_exact """
             SELECT b.g FROM (SELECT k FROM spm_r35_a ORDER BY k LIMIT 1) x
             JOIN spm_r35_b b ON x.k = b.g ORDER BY b.g LIMIT 1

@@ -538,6 +538,100 @@ public class AuditPublicationHorizonTest {
                 "a committed-but-unreadable batch is part of the fence");
     }
 
+    // ==================== round-44 #7: a dead FE's fence is resolved by label ==========
+
+    /**
+     * The reviewer's case: a follower reports a Publish Timeout batch at 10:00 and dies
+     * while its transaction stays COMMITTED / unreadable. The 30-minute age bound dropped
+     * the ONLY marker protecting it, the leader checkpointed an empty window, and the
+     * batch's later publication fell behind every later overlap. With the batch LABELS in
+     * the row, the fence survives on the TRANSACTION's outcome: COMMITTED keeps fencing
+     * whatever the age.
+     */
+    @Test
+    public void testCommittedFenceOfAGoneFeSurvivesTheAgeBoundWhenItsLabelIsCommitted() {
+        long now = System.currentTimeMillis();
+        long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
+                - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        AuditLoader.transactionStatusForTest = label -> "COMMITTED";
+        try {
+            AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                    new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L, "audit_log_l1"});
+            Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                    "a COMMITTED transaction may still publish: the fence must not expire"
+                            + " on the age bound (a dead FE cannot re-report)");
+        } finally {
+            AuditLoader.transactionStatusForTest = null;
+        }
+    }
+
+    /**
+     * The terminal outcomes RELEASE the dead FE's fence: a VISIBLE transaction's rows are
+     * readable (the batch is published), an ABORTED one can never publish. A MIXED list
+     * keeps fencing while ANY entry is unresolved.
+     */
+    @Test
+    public void testTerminalLabelReleasesTheDeadFesFence() {
+        long now = System.currentTimeMillis();
+        long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
+                - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        try {
+            AuditLoader.transactionStatusForTest = label -> "VISIBLE";
+            AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                    new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L, "audit_log_l1"});
+            Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                    "a VISIBLE transaction's rows are readable: nothing to fence");
+
+            AuditLoader.transactionStatusForTest = label -> "ABORTED";
+            Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                    "an ABORTED transaction can never publish");
+
+            // mixed: the second entry is still COMMITTED - the fence stays
+            AuditLoader.transactionStatusForTest = label ->
+                    "audit_log_l1".equals(label) ? "VISIBLE" : "COMMITTED";
+            AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                    new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L,
+                            "audit_log_l1;audit_log_l2"});
+            Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                    "while ANY listed batch is unresolved the fence stays");
+        } finally {
+            AuditLoader.transactionStatusForTest = null;
+        }
+    }
+
+    /**
+     * An UNRESOLVABLE identity ("-" or a label the transaction manager does not know)
+     * keeps the OLD bound as the last resort: a genuinely lost batch (the request never
+     * created a transaction) must not freeze the capture forever, while the same row
+     * inside its bound still fences.
+     */
+    @Test
+    public void testUnresolvableLabelKeepsTheBoundAsTheLastResort() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        AuditLoader.transactionStatusForTest = label -> null;
+        try {
+            // young: fences although the label cannot be resolved
+            AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                    new Object[] {"fe-dead", 20_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1,
+                            "", 20_000L, "-"});
+            Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                    "an unresolvable identity is not proof of loss while the bound holds");
+
+            // past the bound: assumed lost, exactly like the live loader's fallback
+            long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
+                    - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+            AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                    new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L, "audit_log_legacy"});
+            Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                    "an unresolvable identity past the retention bound is assumed lost");
+        } finally {
+            AuditLoader.transactionStatusForTest = null;
+        }
+    }
+
     // ==================== round-40 #2: stale rows keep their zones =====================
 
     /**
