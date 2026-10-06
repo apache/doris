@@ -1193,8 +1193,8 @@ public class StmtExecutor {
 
     // Finalize an Arrow Flight query whose coordinator was kept alive across the
     // GetFlightInfo -> DoGet phases: close the coordinator (releasing what its scan nodes held for
-    // the BE - external-table batch SplitSources, a remote Doris scan's Flight SQL session - and
-    // the query queue slot) and then unregister the query. See #62259.
+    // the BE - the split sources of a batch scan, and a remote Doris scan's Flight SQL session with
+    // them - and the query queue slot) and then unregister the query. See #62259.
     public void finalizeArrowFlightQuery() {
         try {
             if (coord != null) {
@@ -1718,24 +1718,19 @@ public class StmtExecutor {
                 profile.getSummaryProfile().setTempStartTime();
                 // The client pulls the results from the BE later (Arrow Flight SQL's DoGet). Only a
                 // scan the BE keeps depending on the FE for still needs the coordinator after this
-                // point: an external-table scan in batch mode fetches its splits lazily from the
-                // split source the coordinator holds (#62259), and a remote Doris scan keeps the
-                // Flight SQL session open on the other frontend whose query the BE reads
-                // (RemoteDorisScanNode); closing the coordinator here would release either too early
-                // and break DoGet. Such a coordinator is closed later by ConnectContext: on the
-                // session's next query, on teardown, or by the idle reaper in checkTimeout. The
-                // trade-off is that its query queue slot and query registration stay held until
-                // then. Every other query closes its coordinator in the finally block below and
-                // releases both right away, the BE buffering its results independently of the
-                // coordinator (#67503). A short-circuit point query is the one case with a different
-                // coordBase, and it cannot reach here: it has no Arrow result on either side, so
-                // LogicalResultSinkToShortCircuitPointQuery keeps a Flight session on the normal
-                // execution path (ProtocolAdapter.supportsShortCircuitPointQuery, #67368).
+                // point: a scan in batch mode fetches its splits lazily from the split assignment the
+                // coordinator holds (#62259) - for a remote Doris scan, the endpoints of the query the
+                // assignment's Flight SQL session runs on the other frontend - and closing the
+                // coordinator here would release it too early and break DoGet. Such a coordinator is
+                // closed later by ConnectContext: on the session's next query, on teardown, or by the
+                // idle reaper in checkTimeout. The trade-off is that its query queue slot and query
+                // registration stay held until then. Every other query closes its coordinator in the
+                // finally block below and releases both right away, the BE buffering its results
+                // independently of the coordinator (#67503). A short-circuit point query is the one
+                // case with a different coordBase, and it cannot reach here: it has no Arrow result on
+                // either side, so LogicalResultSinkToShortCircuitPointQuery keeps a Flight session on
+                // the normal execution path (ProtocolAdapter.supportsShortCircuitPointQuery, #67368).
                 if (coordBase == coord && coord.mustOutliveDispatch()) {
-                    // The coordinator outlives this statement, and with it what its scan nodes hold
-                    // for the BE: the statement's own end must not stop them (StatementContext.close
-                    // is the fallback for a plan no coordinator owns), the coordinator's close does.
-                    statementContext.handOverScanNodesToDeferredCoordinator(planner.getScanNodes());
                     deferForArrowFlight();
                 }
                 return;

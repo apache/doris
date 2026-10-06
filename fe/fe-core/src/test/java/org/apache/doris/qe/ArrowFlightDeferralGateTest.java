@@ -34,8 +34,8 @@ import java.util.List;
 /**
  * The predicate behind the Arrow Flight deferral gate in StmtExecutor.executeAndSendResult (#67503):
  * a coordinator has to outlive GetFlightInfo only when the BE still depends on one of its scans
- * after dispatch - here an external-table scan in batch mode holding a batch split source (#62259).
- * The other reason, a remote Doris scan's Flight SQL session, is covered by RemoteDorisScanNodeTest.
+ * after dispatch - here a scan in batch mode holding a batch split source (#62259). A remote Doris
+ * scan is one, its Flight SQL session held by the same split assignment (RemoteDorisScanNodeTest).
  */
 public class ArrowFlightDeferralGateTest {
 

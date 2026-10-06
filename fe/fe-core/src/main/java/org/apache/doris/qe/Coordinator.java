@@ -811,9 +811,9 @@ public class Coordinator implements CoordInterface {
      * Whether the BE still depends on this coordinator after {@link #exec()} returned, so it must
      * not be closed until the BE has finished scanning: one of its scan nodes holds something on
      * the FE that the BE scans with and that {@link #close()} releases
-     * ({@link ScanNode#coordinatorMustOutliveDispatch()}) - the split source an external-table
-     * scan in batch mode fetches its splits from lazily, or the Flight SQL session a remote Doris
-     * scan keeps open on the other frontend. Arrow Flight SQL uses this to decide whether a
+     * ({@link ScanNode#coordinatorMustOutliveDispatch()}) - the split source a scan in batch mode
+     * fetches its splits from lazily, and what produced the splits, such as the Flight SQL session
+     * of a remote Doris scan on the other frontend. Arrow Flight SQL uses this to decide whether a
      * query's coordinator has to outlive GetFlightInfo, the client pulling the results from the BE
      * later in DoGet. See #62259.
      */

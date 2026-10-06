@@ -140,10 +140,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
      * scanning, so that the coordinator - closing it releases what the node holds, through
      * {@link #stop()} - has to stay alive until the BE has finished scanning, even after the FE is
      * done dispatching the query. Here: a batch {@link SplitSource} the BE fetches its splits from
-     * lazily (external-table batch mode, see {@link SplitGenerator#isBatchMode()}); the BE's next
-     * split fetch fails once the source is released. A subclass holding another such resource
-     * adds its own reason, e.g. the Flight SQL session a remote Doris scan keeps open on the other
-     * frontend for the query the BE reads (RemoteDorisScanNode).
+     * lazily (batch mode, see {@link SplitGenerator#isBatchMode()}); the BE's next split fetch
+     * fails once the source is released. Its split assignment also holds what produced the splits:
+     * for a remote Doris scan, the Flight SQL session on the other frontend whose query the BE
+     * reads, which ends what that query still runs there once it is closed.
      */
     public boolean coordinatorMustOutliveDispatch() {
         return splitAssignment != null;
