@@ -39,7 +39,7 @@ import org.mockito.Mockito;
 import java.util.List;
 
 /**
- * Round 16: the EXPLAIN fallback must replan the ORIGINAL tree from FRESH planner state.
+ * The EXPLAIN fallback must replan the ORIGINAL tree from FRESH planner state.
  *
  * The retry used to reuse the StatementContext of the abandoned rewritten plan and
  * clear only privChecked. The first pass can leave hintForcePreAggOn (a plan-side

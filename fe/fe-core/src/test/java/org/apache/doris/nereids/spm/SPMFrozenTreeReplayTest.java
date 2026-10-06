@@ -193,7 +193,7 @@ public class SPMFrozenTreeReplayTest {
     }
 
     /**
-     * round-41 #1: the caller-label realignment must not descend PAST the node that
+     * The caller-label realignment must not descend PAST the node that
      * produces the caller's rows. An aggregate-rooted query (GROUP BY without a
      * projection above the aggregate) has no root project, so the walk used to cross the
      * aggregate and land on the INNER derived-table project, renaming its items position
@@ -242,7 +242,7 @@ public class SPMFrozenTreeReplayTest {
     }
 
     /**
-     * round-41 #9: equal OUTER limits do not make a manual plan equivalent - its INNER cap
+     * Equal OUTER limits do not make a manual plan equivalent - its INNER cap
      * can truncate a DIFFERENT slice before the caller's own sort (ORDER BY ASC LIMIT 2
      * inside, then a descending outer sort). The candidate must be skipped although both
      * trees ask for LIMIT 2.
@@ -265,7 +265,7 @@ public class SPMFrozenTreeReplayTest {
     }
 
     /**
-     * Control for round-41 #9: a frozen plan whose caps are exactly the caller's own (a
+     * Control for: a frozen plan whose caps are exactly the caller's own (a
      * single top-level TopN) keeps hitting.
      */
     @Test
@@ -286,8 +286,8 @@ public class SPMFrozenTreeReplayTest {
     }
 
     /**
-     * round-42 #5: matching the CAPTURED limit VALUE is not a contract. A manual plan
-     * {@code 'SELECT k FROM t1'} freezes a text with NO limit node at all - mergeLimits
+     * Matching the CAPTURED limit VALUE is not a contract. A manual plan
+     * 'SELECT k FROM t1' freezes a text with NO limit node at all - mergeLimits
      * only replaces the VALUE of a cap that aligns positionally, it cannot ADD a missing
      * one - so a LIMIT 2 caller used to be answered with EVERY row. The candidate must be
      * skipped unless the replayed tree actually carries the caller's cap.
@@ -312,7 +312,7 @@ public class SPMFrozenTreeReplayTest {
     }
 
     /**
-     * round-42 #11: the CALLER's own nested caps must survive the replay as well. A manual
+     * The CALLER's own nested caps must survive the replay as well. A manual
      * plan that kept only the OUTER cap passed the one-directional containment
      * (replayed caps ⊆ caller caps) although the replayed tree answers with the outer
      * cap ALONE: the caller's INNER cap used to truncate a different slice first, so the
@@ -339,7 +339,7 @@ public class SPMFrozenTreeReplayTest {
     }
 
     /**
-     * round-42 #11: a cap's identity is (value, occurrence, AGGREGATE-BELOW, ORDER-BY
+     * A cap's identity is (value, occurrence, AGGREGATE-BELOW, ORDER-BY
      * SLICE), not the value alone. A manual plan whose inner TOP-N sorts a DIFFERENT
      * direction truncates a different slice; the previous value-only key matched it and
      * answered an ascending caller with the descending slice.
@@ -364,7 +364,7 @@ public class SPMFrozenTreeReplayTest {
     }
 
     /**
-     * round-41 #2: a real global UDF named like the marker whose FIRST argument is not the
+     * A real global UDF named like the marker whose FIRST argument is not the
      * marker id must still have its OTHER arguments substituted. The old early return left
      * a genuine nested marker in the tree, and the residue scan then rejected a persisted
      * frozen baseline that has no parameterized-tree fallback.
@@ -695,7 +695,7 @@ public class SPMFrozenTreeReplayTest {
         }
     }
 
-    /** Like {@link #allExprSqls} but also recurses into subquery PLANS. */
+    /** Like allExprSqls but also recurses into subquery PLANS. */
     private static String allExprSqlsDeep(LogicalPlan plan) {
         StringBuilder sb = new StringBuilder();
         collectExprSqlsDeep(plan, sb);

@@ -87,7 +87,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private long currentBlockId = 0;
 
     /**
-     * Enclosing query-block ids (see {@link #enterQueryBlock()}): a nested block's id is
+     * Enclosing query-block ids (see enterQueryBlock()): a nested block's id is
      * restored on exit, so SIBLING derived tables / CTE bodies get distinct ids while the
      * enclosing block numbering resumes - the same discipline the subquery-expression
      * blocks already followed.
@@ -96,7 +96,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /**
      * Projection ITEM positions of the SELECT-list slots currently being visited (see
-     * {@link #enterProjectionItem(int)}): {@code SELECT 1 AS x, 1 AS y} must give its two
+     * enterProjectionItem(int)): SELECT 1 AS x, 1 AS y must give its two
      * literals different placeholder ids although value, parent structure and child
      * position coincide (see PlaceholderExpr#matches).
      */
@@ -134,9 +134,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /**
      * The whole-tree parameterization transform: the builder IS an
-     * {@link SPMPlanTreeSupport.ExprTransform}, so the plan walk can hand it the query
+     * SPMPlanTreeSupport.ExprTransform, so the plan walk can hand it the query
      * BLOCK and projection ITEM scopes of the expressions it visits (see
-     * {@link SPMPlanTreeSupport.ExprTransform#enterQueryBlock()}). Passing a bare lambda
+     * SPMPlanTreeSupport.ExprTransform#enterQueryBlock()). Passing a bare lambda
      * instead would lose those scopes and merge independent literals into one placeholder
      * id.
      */
@@ -185,9 +185,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /**
      * Enters a nested query block (see
-     * {@link org.apache.doris.nereids.spm.SPMPlanTreeSupport.ExprTransform#enterQueryBlock()}):
+     * org.apache.doris.nereids.spm.SPMPlanTreeSupport.ExprTransform#enterQueryBlock()):
      * the block gets its own monotonic id, the enclosing one is restored by
-     * {@link #exitQueryBlock()}.
+     * exitQueryBlock().
      */
     @Override
     public void enterQueryBlock() {

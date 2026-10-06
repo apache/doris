@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 /**
- * Eighteenth review round: the CREATE inputs (row policies), the CTE merge guard, the
+ * The CREATE inputs (row policies), the CTE merge guard, the
  * SPM settings a forwarded statement must carry, and the session-baseline carrier.
  *
  * - The frozen plan is optimized in the CREATOR's context: leaving the CHECK ROW POLICY /
@@ -154,7 +154,7 @@ public class SPMRound18SafetyTest {
     // ==================== #7: session baselines travel with the forward ====================
 
     /**
-     * round-23 #6: the post-plan replay validation must keep the matched baseline (or
+     * The post-plan replay validation must keep the matched baseline (or
      * fail): re-fetching by id can silently miss it after a concurrent DROP / refresh,
      * and returning then would skip the schema check exactly when a table DDL may have
      * committed between the pre-match validation and the replay planning.
@@ -199,7 +199,7 @@ public class SPMRound18SafetyTest {
         Assertions.assertFalse(payload.isEmpty(), "an enabled row must be carried");
 
         ConnectContext masterCtx = new ConnectContext();
-        // the import follows the statement's enable_spm_rewrite (round-26: with rewrite
+        // the import follows the statement's enable_spm_rewrite (with rewrite
         // disabled a baseline can never be consulted, so nothing is rebuilt)
         masterCtx.getSessionVariable().setEnableSpmRewrite(true);
         SPMForwardedSession.importInto(masterCtx, payload);

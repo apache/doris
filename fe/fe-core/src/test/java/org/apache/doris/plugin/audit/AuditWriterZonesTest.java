@@ -24,16 +24,16 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Round-39 #3: the audit WRITER's zone history - every zone an audit row was actually
+ * The audit WRITER's zone history - every zone an audit row was actually
  * RENDERED in, sampled at the render - is what lets the SPM capture require a window pass
  * in zones it never observed itself (two zone changes between two cycles).
  *
- * Round-40 #4: eviction is tied to the DURABLE CAPTURE PROGRESS
- * ({@code spm_capture_checkpoint.last_scan_timestamp}), not to an age TTL: a zone that
+ * Eviction is tied to the DURABLE CAPTURE PROGRESS
+ * (spm_capture_checkpoint.last_scan_timestamp), not to an age TTL: a zone that
  * still owns a row of an uncompleted window must stay in the required set however old it
  * is, and may only be dropped once the capture watermark has passed its last use.
  *
- * Round-41 #6: covered-through ALONE is not enough - a zone enters the set when a row is
+ * Covered-through ALONE is not enough - a zone enters the set when a row is
  * rendered in it, but the shared report that lets every node count on the zone happens
  * one REPORTER TICK later. A capture cycle that sampled the previous shared set and then
  * checkpointed past the render instant used to drop the zone, so a later window no longer
@@ -43,10 +43,10 @@ import java.util.Set;
 public class AuditWriterZonesTest {
 
     /**
-     * round-43 #5: the zone an audit row of one instant was RENDERED in is the registered
+     * The zone an audit row of one instant was RENDERED in is the registered
      * zone whose last use is the FIRST one at or after that instant. The publish-fence
      * probe renders its bound in exactly that zone: the audit table stores the writer's
-     * LOCAL wall clock, so after a {@code SET GLOBAL time_zone} a bound rendered in the
+     * LOCAL wall clock, so after a SET GLOBAL time_zone a bound rendered in the
      * current zone is hours away from the stored one and the probe can never confirm a
      * (perfectly visible) row.
      */
@@ -87,12 +87,12 @@ public class AuditWriterZonesTest {
             AuditWriterZones.note("UTC", now + 1_000L);
             // an epoch whose rows a COMPLETED window already consumed: it can own no
             // uncompleted row any more - but it is only evictable once a CONFIRMED
-            // shared report (round-41 #6) has carried it to the other nodes
+            // shared report has carried it to the other nodes
             AuditWriterZones.note("America/New_York", now - 120_000L);
             Assertions.assertTrue(AuditWriterZones.snapshot().containsKey("America/New_York"),
                     "an uncovered report obligation keeps the covered zone in the set");
 
-            // a CONFIRMED shared report carrying the covered epoch retires it (round-41 #6)
+            // a CONFIRMED shared report carrying the covered epoch retires it
             AuditWriterZones.markReported(Set.of("UTC", "Asia/Tokyo", "America/New_York"));
 
             Map<String, Long> zones = AuditWriterZones.snapshot();
@@ -114,7 +114,7 @@ public class AuditWriterZonesTest {
     }
 
     /**
-     * round-41 #6: a FRESH zone whose render instant the capture has already checkpointed
+     * A FRESH zone whose render instant the capture has already checkpointed
      * past must still be listed. The zone set enters the report the moment a row renders
      * in it, but the CONFIRMED shared report that lets every node count on the zone comes
      * one reporter tick later; a capture cycle that sampled the previous shared set,
@@ -154,7 +154,7 @@ public class AuditWriterZonesTest {
     }
 
     /**
-     * Round-40 #4: an OLD zone that still owns rows of an uncompleted window is not
+     * An OLD zone that still owns rows of an uncompleted window is not
      * dropped. A pending capture window can survive scanner failures / withheld
      * publications for many hours, so the previous 24h TTL could prune a zone whose rows
      * the window still scans - the follower then reported the pruned set and a leader
@@ -173,7 +173,7 @@ public class AuditWriterZonesTest {
             Assertions.assertEquals(Set.of("America/New_York"), AuditWriterZones.zones(),
                     "a zone the capture has not passed must stay required, however old it is");
 
-            // round-41 #6: the covered filter alone must NOT drop it - the shared report
+            // The covered filter alone must NOT drop it - the shared report
             // that lets every node settle the zone may still be in flight
             AuditWriterZones.captureCoveredThroughForTest = () -> now;
             Assertions.assertEquals(Set.of("America/New_York"), AuditWriterZones.zones(),
@@ -203,7 +203,7 @@ public class AuditWriterZonesTest {
 
     /**
      * The soft bound only drops zones the capture has already passed; a zone that still
-     * owns an unconsumed row is never evicted, even when the cap would want it (round-40
+     * owns an unconsumed row is never evicted, even when the cap would want it
      * #4 - the old LRU dropped the very zone the pending window needed).
      */
     @Test
@@ -217,7 +217,7 @@ public class AuditWriterZonesTest {
             for (int i = 0; i < 10; i++) {
                 AuditWriterZones.note("covered-" + i, covered - 1_000L - i);
             }
-            // ... but only AFTER a confirmed shared report named them (round-41 #6): the
+            // ... but only AFTER a confirmed shared report named them: the
             // report obligation of a just-registered zone outlives the covered filter
             for (int i = 0; i < 10; i++) {
                 AuditWriterZones.markReported(Set.of("covered-" + i));
@@ -248,7 +248,7 @@ public class AuditWriterZonesTest {
     }
 
     /**
-     * round-44 #12: the eviction floor must be ROLLBACK-SAFE. The checkpoint is
+     * The eviction floor must be ROLLBACK-SAFE. The checkpoint is
      * append-only and the capture can REWIND to an earlier pending window at any time, so
      * the floor is the MINIMUM of the token-greatest progress and the most-behind pending
      * window's start: evicting by a merely-newest watermark dropped a zone whose render

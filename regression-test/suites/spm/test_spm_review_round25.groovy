@@ -19,7 +19,7 @@ import org.apache.doris.regression.util.JdbcUtils
 
 suite("test_spm_review_round25", "spm") {
 
-    // Twenty-fifth review round: the output-label contract of a manual plan and the
+    // The output-label contract of a manual plan and the
     // LIMIT contract of a replay whose own limit the positional merge cannot reach.
     //
     //  - #3: a manual plan that renders a BARE bind column under another label
@@ -94,27 +94,32 @@ suite("test_spm_review_round25", "spm") {
                     + " must not leak through the frozen sink)")
     assertEquals([[1]], labelRows, "the replayed rows stay the manual plan's rows")
 
-    // ==================== #4: a caller limit the replay cannot carry is not served ====================
-    // round-44 #10 pins the top-level ORDER BY contract at CREATE time and a matching
-    // caller must share the bind's digest, so the bind carries no ORDER BY; the manual
-    // plan keeps its own LIMIT below the DISTINCT, where the positional merge cannot
-    // align it
+    // ==================== #4: a manual plan may not change the operator tree ====================
+    // A manual plan that keeps its own LIMIT below a DISTINCT has a DIFFERENT tree than
+    // the bind (a DISTINCT plus a nested sort / cap the caller's query never had), so the
+    // CREATE is now rejected: a caller asking a LARGER limit would silently receive the
+    // captured one row. The runtime-side shape probe that skips such candidates persisted
+    // by older versions is covered by SPMRound25SafetyTest.
     String limitedBind = "SELECT k FROM spm_r25_l LIMIT 1"
     String distinctPlan =
             "SELECT DISTINCT k FROM (SELECT k FROM spm_r25_l ORDER BY k LIMIT 1) s"
-    long limitedId = createBaseline(limitedBind, distinctPlan)
-    // the captured limit itself is served by the plan's own placement
-    assertTrue(explainOf(limitedBind).contains("SPM baseline hit: id=${limitedId}"),
-            "the exact bind must hit: " + explainOf(limitedBind))
-    assertEquals([[1]], sql(limitedBind))
+    test {
+        sql 'CREATE GLOBAL BASELINE PLAN "' + limitedBind + '" WITH "' + distinctPlan + '"'
+        exception "align"
+    }
+    // no candidate was stored: both the exact query and the larger limit run their own tree
+    assertTrue(!explainOf(limitedBind).contains("SPM baseline hit"),
+            "a rejected CREATE leaves no candidate: " + explainOf(limitedBind))
+    def limitedRows = sql(limitedBind)
+    assertEquals(1, limitedRows.size(), "the caller's own LIMIT must be honored: " + limitedRows)
+    assertEquals([1], limitedRows*.get(0).sort(),
+            "the caller's own plan returns the first row: " + limitedRows)
 
-    // a larger caller limit: the DISTINCT above the inner LIMIT 1 cannot receive the
-    // transferred value, so the replay would return the CAPTURED one row instead of two
+    // the larger caller limit: with no captured candidate it must return its own two rows
     String largerLimit = "SELECT k FROM spm_r25_l LIMIT 2"
     String largerExplain = explainOf(largerLimit)
-    assertTrue(!largerExplain.contains("SPM baseline hit: id=${limitedId}"),
-            "the candidate must be skipped: its plan cannot carry the caller's LIMIT: "
-                    + largerExplain)
+    assertTrue(!largerExplain.contains("SPM baseline hit"),
+            "no candidate may serve the larger limit: " + largerExplain)
     def largerRows = sql(largerLimit)
     assertEquals(2, largerRows.size(),
             "the caller's own limit must be honored (two rows, not the captured one)")

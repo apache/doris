@@ -30,7 +30,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Tenth review round: the durable checkpoint must never step over retries it cannot
+ * The durable checkpoint must never step over retries it cannot
  * carry.
  *
  * One default audit page holds up to 500 rows and a transient catalog / store outage
@@ -92,7 +92,7 @@ public class PlanCaptureCheckpointTruncationTest {
                     50L, 999L, "cursor-z", "qid-z", "tail-a", "tail-z");
             Map<String, String> params = persist(manager);
 
-            // #7 (round 16): the JSON budget is NOT the trigger - the restore assigns the
+            // #7: the JSON budget is NOT the trigger - the restore assigns the
             // checkpoint cursor as the anchor of EVERY queued entry, so the durable cursor
             // must sit before the oldest queued row even when all of them fit the payload
             Assertions.assertEquals("49", params.get("lastScan"),
@@ -112,7 +112,7 @@ public class PlanCaptureCheckpointTruncationTest {
     }
 
     /**
-     * #7 (round 16): a 64-to-65 transition across TWO handoffs. A checkpoint whose retry
+     * #7: a 64-to-65 transition across TWO handoffs. A checkpoint whose retry
      * state FITS the budget (64 entries) used to persist the LIVE cursor - past all
      * queued rows. The restored leader takes that cursor as the anchor of every restored
      * entry, so when its 65th failure truncates the JSON, the rewind lands AFTER the

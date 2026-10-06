@@ -41,12 +41,12 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Round-25 review fixes that live in {@link SPMPlanTreeSupport} / the replay contract:
+ * Review fixes that live in SPMPlanTreeSupport / the replay contract:
  *
- * - #3: a BARE bind column ({@code CREATE BASELINE PLAN 'SELECT k FROM t' WITH 'SELECT
- *   k AS other FROM t'}) exposes no label at all through outputLabelOf, so the frozen
- *   sink's captured alias {@code other} leaked out as the caller's JDBC column label
- *   instead of being realigned to {@code k}.
+ * - #3: a BARE bind column (CREATE BASELINE PLAN 'SELECT k FROM t' WITH 'SELECT
+ *   k AS other FROM t') exposes no label at all through outputLabelOf, so the frozen
+ *   sink's captured alias other leaked out as the caller's JDBC column label
+ *   instead of being realigned to k.
  * - #4: the replay transfer of the caller's top-level LIMIT / OFFSET is a POSITIONAL
  *   merge; a manual plan may keep its own limit below a node the merge cannot align
  *   (DISTINCT over an inner limit). The helper below is the shape probe the guard uses.
@@ -108,7 +108,7 @@ public class SPMRound25SafetyTest {
     }
 
     /**
-     * The frozen plan may project {@code *} while the caller names a bare column (the
+     * The frozen plan may project * while the caller names a bare column (the
      * decompiled single-table plan does exactly that). A star carries NO label - its
      * expansion happens at binding - so the position must be left alone: wrapping it in a
      * rename built an Alias over an unbound star and the analyzer rejected the whole tree

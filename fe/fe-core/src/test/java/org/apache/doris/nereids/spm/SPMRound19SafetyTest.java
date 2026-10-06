@@ -33,9 +33,9 @@ import org.mockito.Mockito;
 import java.util.List;
 
 /**
- * Nineteenth review round: the hidden expression sources of the metadata guard.
+ * The hidden expression sources of the metadata guard.
  *
- * - The ASOF {@code USING} join keeps its MATCH_CONDITION outside getExpressions(): an
+ * - The ASOF USING join keeps its MATCH_CONDITION outside getExpressions(): an
  *   alias UDF used only as the temporal boundary must be fingerprinted like any other
  *   call, otherwise redefining it changes which right row a direct ASOF query picks
  *   while the frozen boundary still replays.
@@ -68,7 +68,7 @@ public class SPMRound19SafetyTest {
         return relation;
     }
 
-    /** A session whose statement context resolves the bind-side relation to {@code bind}. */
+    /** A session whose statement context resolves the bind-side relation to bind. */
     private static ConnectContext contextResolvingTo(TableIf bind) {
         ConnectContext ctx = new ConnectContext();
         StatementContext statementContext = Mockito.mock(StatementContext.class);

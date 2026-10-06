@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round20", "spm") {
 
-    // Twentieth review round: end-to-end coverage for the scope-aware guards.
+    // End-to-end coverage for the scope-aware guards.
     //
     // Covered here:
     //  - a WITH alias shadowing a same-named CATALOG VIEW must not make the view guard

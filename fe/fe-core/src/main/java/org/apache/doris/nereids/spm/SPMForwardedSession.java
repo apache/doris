@@ -21,7 +21,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.spm.manager.SessionBaselineStore;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.gson.Gson;
@@ -37,18 +36,18 @@ import java.util.Map;
 /**
  * Carries the enabled SESSION-scope baselines of a forwarding connection to the master FE.
  *
- * <p>A SESSION baseline is created on the FE the connection is attached to
- * ({@code CREATE SESSION BASELINE PLAN} never forwards) and lives only in that
- * {@link SessionBaselineStore}. A SELECT that must be FORWARDED (the observer cannot read,
+ * A SESSION baseline is created on the FE the connection is attached to
+ * (CREATE SESSION BASELINE PLAN never forwards) and lives only in that
+ * SessionBaselineStore. A SELECT that must be FORWARDED (the observer cannot read,
  * or forwarding is forced) returns before local SPM matching, and the master executes it in
- * a fresh {@link ConnectContext} with an EMPTY session store - so the very baseline the
+ * a fresh ConnectContext with an EMPTY session store - so the very baseline the
  * connection created was never used. The observer therefore attaches the rows to the
- * forwarded request (see {@code FEOpExecutor#fillForwardRequest}) and the master rebuilds
+ * forwarded request (see FEOpExecutor#fillForwardRequest) and the master rebuilds
  * them into its context's store before the statement is planned
- * ({@code ConnectProcessor#proxyExecute}).
+ * (ConnectProcessor#proxyExecute).
  *
- * <p>The payload always comes from the store right before forwarding (the variable is
- * overwritten there), so a client cannot inject rows with a plain {@code SET}, and the
+ * The payload always comes from the store right before forwarding (the variable is
+ * overwritten there), so a client cannot inject rows with a plain SET, and the
  * ADMIN-authorized CREATE remains the only way a row is created.
  */
 public final class SPMForwardedSession {
@@ -56,12 +55,12 @@ public final class SPMForwardedSession {
     /**
      * The forward payload's CHARACTER budget (the JSON text carried in the session variable
      * of the forwarded statement). The payload is part of a Thrift
-     * {@code TMasterOpRequest} whose default message limit is 100 MiB - an unbounded
+     * TMasterOpRequest whose default message limit is 100 MiB - an unbounded
      * serialization of a session holding enough ADMIN-created baselines (each with BOTH SQL
      * texts) made EVERY forwarded statement on that connection fail with a transport error.
      *
-     * <p>The budget is enforced where the rows are CREATED
-     * ({@link SessionBaselineStore#createBaseline} rejects a row that would exceed it), not
+     * The budget is enforced where the rows are CREATED
+     * (SessionBaselineStore#createBaseline rejects a row that would exceed it), not
      * while serializing: a row that was silently DROPPED here still participates in local
      * matching, so the same connection rewrote the statement locally with its SESSION
      * baseline yet planned the FORWARDED statement without it (falling through to a GLOBAL
@@ -73,11 +72,11 @@ public final class SPMForwardedSession {
     public static final int MAX_PAYLOAD_CHARS = 8 * 1024 * 1024;
 
     /**
-     * Characters the JSON ARRAY enclosure ({@code []}) adds to the payload (round-42 #4).
-     * The session store's admission check AND {@link #serialize} must account for it with
+     * Characters the JSON ARRAY enclosure ([]) adds to the payload.
+     * The session store's admission check AND serialize must account for it with
      * the SAME number: a store that admitted rows summing exactly to the row budget used
      * to serialize two characters MORE than the budget and every rewrite-enabled
-     * statement forwarded from that connection failed in {@code serialize}.
+     * statement forwarded from that connection failed in serialize.
      */
     public static final int PAYLOAD_ENCLOSURE_CHARS = 2;
 
@@ -87,8 +86,8 @@ public final class SPMForwardedSession {
     }
 
     /**
-     * The exact number of payload characters ONE row contributes (see {@link #serialize}):
-     * the JSON of {@link #toPayloadRow} plus the array separator. Used by the session
+     * The exact number of payload characters ONE row contributes (see serialize):
+     * the JSON of toPayloadRow plus the array separator. Used by the session
      * store to bound what it accepts, so serialization can always carry every row.
      *
      * @param plan the baseline
@@ -100,7 +99,7 @@ public final class SPMForwardedSession {
 
     /**
      * Serializes the ENABLED rows of the session store. The store rejects a creation that
-     * would exceed {@link #MAX_PAYLOAD_CHARS} (see {@link SessionBaselineStore}), so every
+     * would exceed MAX_PAYLOAD_CHARS (see SessionBaselineStore), so every
      * enabled row is carried and the rewrite context is IDENTICAL on this FE and on the
      * master that receives the forwarded statement. Reaching the budget here means the
      * store invariant broke (a row was registered without the check): fail the statement
@@ -163,11 +162,11 @@ public final class SPMForwardedSession {
      * is the CURRENT observer store, so the import REPLACES this context's content: a row
      * dropped on the observer must not survive on the master.
      *
-     * <p>Malformed payloads / unparsable rows are skipped with a warning - SPM must never
+     * Malformed payloads / unparsable rows are skipped with a warning - SPM must never
      * break the statement it is attached to.
      *
      * @param ctx     the master-side context of the forwarded statement
-     * @param payload the payload of {@link SessionVariable#SPM_FORWARDED_SESSION_BASELINES}
+     * @param payload the payload of the SPM_FORWARDED_SESSION_BASELINES session variable
      */
     public static void importInto(ConnectContext ctx, String payload) {
         if (ctx == null || payload == null) {

@@ -120,7 +120,7 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         return pattern;
     }
 
-    /** Builds the LIKE matcher of one operand; {@code null} means "LIKE omitted". */
+    /** Builds the LIKE matcher of one operand; null means "LIKE omitted". */
     static java.util.regex.Pattern buildLikeMatcher(String pattern)
             throws AnalysisException {
         if (pattern == null) {
@@ -220,8 +220,8 @@ public class ShowBaselinePlansCommand extends ShowCommand {
      * bind_sql / plan_sql / source / status / scope), or a MySQL LIKE match on
      * source / status / scope / bindSql / planSql when the pattern operand was given.
      *
-     * <p>The LIKE chain covers every column the WHERE form accepts, so
-     * {@code SHOW BASELINE PLANS LIKE 'SESSION'} finds a session baseline whose SQL text
+     * The LIKE chain covers every column the WHERE form accepts, so
+     * SHOW BASELINE PLANS LIKE 'SESSION' finds a session baseline whose SQL text
      * does not spell "SESSION" (it used to be missing from the chain, so the pattern only
      * ever matched a baseline that happened to carry the word inside its SQL).
      *
@@ -262,10 +262,10 @@ public class ShowBaselinePlansCommand extends ShowCommand {
     /**
      * The LIKE chain: an operand matches a baseline when it matches the stored bind SQL,
      * the stored plan SQL or one of the metadata values the WHERE form filters on
-     * (source / status / scope), so {@code SHOW BASELINE PLANS LIKE 'SESSION'} finds a
+     * (source / status / scope), so SHOW BASELINE PLANS LIKE 'SESSION' finds a
      * session baseline whose SQL text does not spell "SESSION".
      *
-     * <p>MySQL LIKE semantics: % and _ are wildcards and the pattern must match the WHOLE
+     * MySQL LIKE semantics: % and _ are wildcards and the pattern must match the WHOLE
      * value; the matcher escapes literal regex characters (see buildLikeMatcher), so a
      * SQL-shaped operand like '%SELECT * FROM%' is matchable and % spans the newlines the
      * stored SQL text is printed with.

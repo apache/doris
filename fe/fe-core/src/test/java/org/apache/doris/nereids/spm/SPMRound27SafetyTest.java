@@ -28,7 +28,7 @@ import java.util.BitSet;
 import java.util.List;
 
 /**
- * Round-27 review fixes without their own regression suite:
+ * Review fixes without their own regression suite:
  *
  * - #1 / #4 (SPMPlanTreeSupport, LogicalPlanBuilder): the REPLAY of a frozen plan used to
  *   be planned by the ordinary planner with the session's FULL rule set, while the frozen
@@ -45,7 +45,7 @@ import java.util.List;
  *   "no supported column" shapes), and the authoritative-SHOW refresh lives in
  *   BaselineManagerConcurrencyTest.
  * - #2 (SPMPlanTreeSupport): scan selectors are compared per table IN STATEMENT ORDER: a
- *   bind over {@code t PARTITION(p1) a CROSS JOIN t PARTITION(p2) b} with a manual plan
+ *   bind over t PARTITION(p1) a CROSS JOIN t PARTITION(p2) b with a manual plan
  *   that swaps p1 / p2 between the occurrences was accepted by the per-table multiset
  *   comparison; the two texts disagree as soon as a partition content changes, so the
  *   ambiguous swap is rejected.

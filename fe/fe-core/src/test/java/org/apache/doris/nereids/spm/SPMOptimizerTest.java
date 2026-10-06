@@ -58,7 +58,7 @@ public class SPMOptimizerTest {
     }
 
     /**
-     * round-23 #3: a declared UNIQUE key feeds DataTrait FDs, so ORDER BY key
+     * A declared UNIQUE key feeds DataTrait FDs, so ORDER BY key
      * elimination can collapse "ORDER BY a, b LIMIT 1" to "ORDER BY a LIMIT 1" and the
      * frozen SQL keeps the reduced order. Dropping the declaration changes no value the
      * fingerprint hashes - the rule must stay excluded.
@@ -71,7 +71,7 @@ public class SPMOptimizerTest {
     }
 
     /**
-     * round-40 #13: ELIMINATE_GROUP_BY rewrites a GROUP BY into a row-wise projection on
+     * ELIMINATE_GROUP_BY rewrites a GROUP BY into a row-wise projection on
      * a DECLARED UNIQUE key (DataTrait uniqueness the constraint feeds, which
      * schemaFingerprint does not capture). After DROP CONSTRAINT + a duplicate-key insert
      * the original query returns one summed row while the frozen replay would return two
@@ -87,7 +87,7 @@ public class SPMOptimizerTest {
     }
 
     /**
-     * round-40 #11: OLAP_SCAN_PARTITION_PRUNE freezes the CURRENT partition set (it can
+     * OLAP_SCAN_PARTITION_PRUNE freezes the CURRENT partition set (it can
      * even emit an empty relation, decompiled as WHERE FALSE), while an ADD PARTITION
      * changes nothing schemaFingerprint hashes - the frozen baseline then keeps returning
      * zero rows instead of the new partition's rows. Excluded together with
@@ -277,7 +277,7 @@ public class SPMOptimizerTest {
         }
     }
 
-    // ==================== round-38 #1: the nested statement context is closed ====================
+    // ====================: the nested statement context is closed ====================
 
     /**
      * The nested statement context installed while the baseline plan is produced OWNS
@@ -336,7 +336,7 @@ public class SPMOptimizerTest {
         }
     }
 
-    /** A statement context that records its own close (round-38 #1 test). */
+    /** A statement context that records its own close ( test). */
     private static final class TrackingStatementContext extends StatementContext {
         private boolean closed;
 

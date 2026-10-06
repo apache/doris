@@ -234,7 +234,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Per-decompile generated-column-name state: when a decompiled output column has no
-     * clean user alias it is exported under a generated {@code c_<seq>} name (c_1, c_2, ...),
+     * clean user alias it is exported under a generated c_N name (c_1, c_2, ...),
      * assigned in decompile order and memoized by the output ExprId so every reference
      * to the same column prints the same alias. A fresh per-decompile sequence (instead
      * of embedding the analyzer's ExprId) keeps the generated names small, readable and
@@ -246,10 +246,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Normalized names already visible in the CURRENT decompile: user aliases and the
      * preserved source columns of the relations a generated name gets exported next to.
-     * A generated {@code c_<seq>} must avoid them - the counter alone only keeps the
-     * GENERATED names apart, so a source column literally named {@code c_1} (or a group-by
-     * item / user alias of that name) could end up next to {@code sum(v) AS c_1} or
-     * {@code MARK_SLOT c_1}: two ExprIds registered under one visible name make the
+     * A generated c_N must avoid them - the counter alone only keeps the
+     * GENERATED names apart, so a source column literally named c_1 (or a group-by
+     * item / user alias of that name) could end up next to sum(v) AS c_1 or
+     * MARK_SLOT c_1: two ExprIds registered under one visible name make the
      * enclosing projection / result sink read an AMBIGUOUS column from the derived
      * relation after reload. Project / window outputs repair duplicates afterwards
      * (dedupeSelectOutputNames); the join (MARK_SLOT / explicit projection) and aggregate
@@ -259,7 +259,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Rejects freezing when any expression of the plan carries a
-     * SessionVarGuardExpr (see {@link #containsSessionVarGuard}): the guard holds the
+     * SessionVarGuardExpr (see containsSessionVarGuard): the guard holds the
      * alias-UDF DEFINITION's saved session variables and has no SQL rendering.
      *
      * @param plan the physical plan about to be decompiled
@@ -903,7 +903,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 // subquery): the columns are referenceable, so rewrite the outer SELECT
                 // list to the user column order in place (preserving ORDER BY / LIMIT) -
                 // UNLESS a re-labelled alias would SHADOW a name the ORDER BY references
-                // (round-41 #11): "c_3 AS b" next to "ORDER BY b" rebinds the sort to the
+                // "c_3 AS b" next to "ORDER BY b" rebinds the sort to the
                 // alias although the clause was rendered against the base column b. Then
                 // the relabel moves to the wrapper below, where the clause keeps its own
                 // query block and the aliases cannot capture it.
@@ -953,7 +953,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 // child's SELECT list does not export are added to it first (see
                 // hoistableOrderBy); a key that cannot be exported, or that a relabelled
                 // wrapper alias would capture, keeps the clause inside the child - its own
-                // query block still resolves it (round-41 #1/#11). ORDER BY and LIMIT
+                // query block still resolves it. ORDER BY and LIMIT
                 // always move TOGETHER: a limit without its order picks arbitrary rows.
                 String hoisted = sinkOrderBy.isEmpty() ? ""
                         : hoistableOrderBy(child, sinkOrderBy, ordered, true);
@@ -987,15 +987,15 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Quotes an identifier for use as executable SQL text whenever it is not a plain
-     * unquotable identifier: a column named {@code a-b} must be emitted as {@code `a-b`},
+     * unquotable identifier: a column named a-b must be emitted as `a-b`,
      * otherwise the frozen projection re-parses as the subtraction a - b. A name that
      * looks plain can still be a RESERVED keyword (a legal quoted column named
-     * {@code from} must not be emitted bare - the parser tokenizes that as the FROM
+     * from must not be emitted bare - the parser tokenizes that as the FROM
      * keyword rather than an identifier), so the keyword check decides as well.
      * Embedded backticks are doubled. Unquotable names stay verbatim, so ordinary
      * schemas keep byte-identical frozen SQL. Also used for result-column labels (the
      * expression text of an un-aliased output column such as
-     * {@code round((sun_sales1 / sun_sales2), 2)} is wrapped so the frozen planSql can
+     * round((sun_sales1 / sun_sales2), 2) is wrapped so the frozen planSql can
      * carry the original column header verbatim).
      */
     public static String quoteIdentifier(String name) {
@@ -1030,7 +1030,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Fully-qualified name of a table with every COMPONENT quoted separately
-     * (catalog.db.table). {@code getNameWithFullQualifiers()} FLATTENS a legal quoted
+     * (catalog.db.table). getNameWithFullQualifiers() FLATTENS a legal quoted
      * component such as `t.a` into "internal.db.t.a", and splitting that on every dot
      * would emit FOUR identifiers instead of the intended three-part name with `t.a`
      * quoted as ONE component - a manually created frozen baseline carrying that broken
@@ -1160,13 +1160,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * accepts them after the table name
      * (optScanParams, materializedViewName, tableSnapshot, specifiedPartition, sample):
      *
-     * <ul>
-     * <li>olap scans: {@code @paramType(...)} parameters (binlog reads), the partition list
+     * olap scans: @paramType(...) parameters (binlog reads), the partition list
      *     when the scan reads a strict non-empty subset of the table partitions, and
-     *     {@code TABLESAMPLE};</li>
-     * <li>file scans: {@code @paramType(...)} parameters, {@code FOR VERSION/TIME AS OF}
-     *     snapshots and {@code TABLESAMPLE}.</li>
-     * </ul>
+     *     TABLESAMPLE;
+     * file scans: @paramType(...) parameters, FOR VERSION/TIME AS OF
+     *     snapshots and TABLESAMPLE.
      *
      * Dropping any of them would silently change what the frozen planSql reads: a
      * "FROM t PARTITION(p1)" baseline would replay over every partition, a snapshot read
@@ -1202,13 +1200,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * OLAP partition selection: the ids of a user-written {@code PARTITION(...)} /
-     * {@code TEMPORARY PARTITION(...)} list are frozen as that very clause - including
+     * OLAP partition selection: the ids of a user-written PARTITION(...) /
+     * TEMPORARY PARTITION(...) list are frozen as that very clause - including
      * when the pin happens to cover every partition that exists right now (a cardinality
      * test would drop the clause and a later ADD PARTITION would let the pinned query
      * silently read the new partition) and including the temporary namespace (a temp pin
      * replayed as a formal PARTITION(name) binds the wrong partition or fails to bind).
-     * Partition pruning also shrinks {@code selectedPartitionIds} without any user pin,
+     * Partition pruning also shrinks selectedPartitionIds without any user pin,
      * so only the manual provenance is ever rendered; a pruned scan re-derives its
      * selection by replay. Ids are sorted so the frozen text is deterministic (the
      * matcher compares the selection as a set).
@@ -1239,8 +1237,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * OLAP tablet pin: {@code TABLET(id, ...)} is frozen when the user wrote it. Bucket
-     * pruning also fills {@code selectedTabletIds}, so only the manual provenance is
+     * OLAP tablet pin: TABLET(id, ...) is frozen when the user wrote it. Bucket
+     * pruning also fills selectedTabletIds, so only the manual provenance is
      * rendered; without the clause a replayed scan would read every tablet of the
      * selected partitions and could return rows the captured query excluded. Ids are
      * sorted (the matcher compares the tablet list as a set).
@@ -1302,7 +1300,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * The {@code @paramType(...)} read parameters (incremental / branch / tag / options /
+     * The @paramType(...) read parameters (incremental / branch / tag / options /
      * snapshot / reset): the map form when the parameters carry key/value pairs, otherwise
      * the bare identifier list form. Dropping them would replay a different (e.g.
      * non-incremental) read than the captured one.
@@ -1355,8 +1353,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * PhysicalGenerate: LATERAL VIEW clauses over the child relation - one clause per
-     * generator. The parser wraps every user-written {@code LATERAL VIEW ...} into its
-     * own single-generator node, while {@code MergeGenerates} (for two independent
+     * generator. The parser wraps every user-written LATERAL VIEW ... into its
+     * own single-generator node, while MergeGenerates (for two independent
      * views) folds stacked nodes into one node carrying several generators; the
      * executor rolls several functions over each child row, i.e. a cartesian expansion,
      * which is exactly what stacked LATERAL VIEWs express (MergeGenerates only merges
@@ -1501,7 +1499,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * PhysicalCTEConsumer: emits {@code FROM <cte alias>} - a reference to the WITH
+     * PhysicalCTEConsumer: emits FROM the CTE alias - a reference to the WITH
      * definition registered by the producer - and maps the consumer output slots onto
      * the body's registered column references. Each reference gets its own subquery
      * alias (t_N), so two consumers of one CTE can appear side by side (self join)
@@ -1708,7 +1706,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * PhysicalEmptyRelation: a relation that is statically known to return no rows.
-     * Rendered as SELECT CAST(NULL AS &lt;type&gt;) ... FROM (SELECT 1) WHERE FALSE so parent
+     * Rendered as a NULL value cast to the column's type (SELECT ... FROM (SELECT 1) WHERE FALSE)
+     * so parent
      * operators can still reference its output columns AND each column keeps its DECLARED
      * type: defaulting every column to INT 1 (a) makes the frozen text fail to analyze once
      * the placeholder substitution types another branch (e.g. DATEV2), and (b) lets a
@@ -2399,14 +2398,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Whether the aggregate expression is a partial (product-buffer) local aggregate.
      *
-     * <p>The ONLY reliable provenance is the aggregation MODE: the physical plan keeps the
+     * The ONLY reliable provenance is the aggregation MODE: the physical plan keeps the
      * USER'S function instance in every stage (a partial_sum buffer is a Sum expression
-     * with {@code aggMode.productAggregateBuffer}), and the "partial_" text is synthesized
-     * when the buffer stage is RENDERED ({@link AggregateExpression#computeToSql()}). A
+     * with aggMode.productAggregateBuffer), and the "partial_" text is synthesized
+     * when the buffer stage is RENDERED (AggregateExpression#computeToSql()). A
      * name test therefore misclassifies a user UDAF whose own name starts with
-     * {@code partial_}: its one-phase GLOBAL aggregate looked like an execution-only
+     * partial_: its one-phase GLOBAL aggregate looked like an execution-only
      * intermediate stage, the whole aggregate was folded away and the frozen SQL degraded
-     * to {@code SELECT * FROM t} (wrong cardinality AND columns on every later hit).
+     * to SELECT * FROM t (wrong cardinality AND columns on every later hit).
      */
     private static boolean isPartialAggregate(AggregateExpression aggExpr) {
         return aggExpr.getAggregateParam().aggMode.productAggregateBuffer;
@@ -2465,9 +2464,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * so it collapses into a plain count(*) instead of leaking as the invalid
      * count(partial_count(*)) / count(count()).
      *
-     * <p>The slot form is decided by PROVENANCE, never by the name alone: a slot the
+     * The slot form is decided by PROVENANCE, never by the name alone: a slot the
      * child relation EXPORTS as a column is a data argument no matter what it is called
-     * (a quoted user column named {@code count()} - legal under
+     * (a quoted user column named count() - legal under
      * enable_unicode_name_support - froze as count(*) and every baseline hit then counted
      * ROWS where the column is NULL, changing the value). Only a slot the relation does
      * not export (an execution-only buffer) may collapse.
@@ -2545,13 +2544,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * The DISTINCT keys SplitAggMultiPhase placed below a final aggregate stage: every
      * ELIMINATED aggregate stage of the child chain groups by (the user's group keys +
      * the DISTINCT arguments), so the keys that are NOT this stage's own are exactly
-     * those distinct arguments. SplitAggDistinct rewrites {@code sum(DISTINCT x)} into a
-     * final {@code sum(x)} whose isDistinct is CLEARED (the lower stage's grouping IS the
+     * those distinct arguments. SplitAggDistinct rewrites sum(DISTINCT x) into a
+     * final sum(x) whose isDistinct is CLEARED (the lower stage's grouping IS the
      * deduplication); the decompiler folds that stage away, so consuming the key directly
      * (no lower partial buffer) is the only remaining evidence of the user's DISTINCT and
      * has to restore it - otherwise the frozen SQL sums the key's multiplicity instead of
-     * its distinct values (reviewer round 32 #6: {@code SELECT k, SUM(DISTINCT x), SUM(y)
-     * GROUP BY k} with two x = 2 rows froze {@code sum(distinct x)} as {@code sum(x)} and
+     * its distinct values (SELECT k, SUM(DISTINCT x), SUM(y)
+     * GROUP BY k with two x = 2 rows froze sum(distinct x) as sum(x) and
      * returned 4 instead of 2). A plain aggregate riding along the same stage consumes
      * the lower stage's partial buffer (see localAggParams), never a bare key, so it
      * stays plain.
@@ -2580,7 +2579,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Whether one aggregate of a DISTINCT_GLOBAL stage consumes a bare (non-buffer) dedup
      * key - the direct-key form of a DISTINCT aggregate whose isDistinct was cleared (see
-     * {@link #dedupKeysBelow}). Arguments that resolve to a LOWER partial buffer are the
+     * dedupKeysBelow). Arguments that resolve to a LOWER partial buffer are the
      * merge chain of a riding-along / lower-stage aggregate and are never dedup keys.
      */
     private boolean consumesDedupKey(List<Expression> args, Set<ExprId> dedupKeyIds) {
@@ -2659,7 +2658,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * name; an aggregate function is rewritten (partial references replaced by their
      * input expression, e.g. sum(partial_sum(x)#N) -> sum(x)) and given a stable
      * reference name (the user alias when it is a clean identifier, else a generated
-     * {@code c_<seq>}) so upper layers reference the aggregate output column without
+     * c_N) so upper layers reference the aggregate output column without
      * re-printing the function.
      */
     private void appendAggSelect(SQLRelation relation, SQLRelation child, NamedExpression output,
@@ -2781,8 +2780,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     // invent DISTINCT for the other aggregates.
                     distinct = "count".equalsIgnoreCase(aggName);
                 }
-                // The GROUPED distinct shape ({@code ... SUM(DISTINCT x), SUM(y) GROUP BY
-                // k}: the split's dedup stage groups by (k, x) and the final SUM consumes
+                // The GROUPED distinct shape (... SUM(DISTINCT x), SUM(y) GROUP BY
+                // k): the split's dedup stage groups by (k, x) and the final SUM consumes
                 // the key x DIRECTLY with no lower buffer) leaves no buffer provenance at
                 // all: the dedup key below the stage is the only evidence (see
                 // dedupKeysBelow). A riding-along aggregate consumes a lower partial
@@ -2817,7 +2816,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * A clean user alias (e.g. "sum_qty"), otherwise a generated {@code c_<seq>} that is
+     * A clean user alias (e.g. "sum_qty"), otherwise a generated c_N that is
      * unique within the decompiled SQL (see generatedColumnName).
      */
     private String stableRef(NamedExpression namedExpression) {
@@ -2825,8 +2824,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * Same as {@link #stableRef(NamedExpression)} with the in-scope exported names the
-     * generated fallback must avoid (a preserved source column named {@code c_1}).
+     * Same as stableRef(NamedExpression) with the in-scope exported names the
+     * generated fallback must avoid (a preserved source column named c_1).
      */
     private String stableRef(NamedExpression namedExpression, Collection<String> scope) {
         if (namedExpression instanceof Alias) {
@@ -2846,7 +2845,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Assigns (once per ExprId) a compact alias for a generated output column:
-     * {@code c_<seq>} where seq grows over the current decompile. Memoized by the
+     * c_N where N grows over the current decompile. Memoized by the
      * ExprId so later references to the same column reuse the alias. The sequence is
      * reset at the start of every toSQL(Plan) call, so the produced SQL only
      * needs the aliases to be unique within itself and the numbers stay small and
@@ -2857,9 +2856,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * Same as {@link #generatedColumnName(ExprId)} with the in-scope exported names of
+     * Same as generatedColumnName(ExprId) with the in-scope exported names of
      * the target relation: candidates colliding with a preserved source column / user
-     * alias are skipped (see {@link #reservedOutputNames}).
+     * alias are skipped (see reservedOutputNames).
      */
     private String generatedColumnName(ExprId exprId, Collection<String> scope) {
         String existing = generatedColumnNames.get(exprId);
@@ -2966,11 +2965,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * Whether {@code outer} is the merge stage of the same distributed TopN as
-     * {@code inner} (the local stage), so that its ORDER BY / LIMIT may be written onto
-     * the same relation. Nereids builds MERGE(limit=L, offset=O) -&gt; [Distribute] -&gt;
+     * Whether outer is the merge stage of the same distributed TopN as
+     * inner (the local stage), so that its ORDER BY / LIMIT may be written onto
+     * the same relation. Nereids builds MERGE(limit=L, offset=O) -> [Distribute] ->
      * LOCAL(limit=L+O, offset=0), so the local stage must have kept EXACTLY L+O rows:
-     * the old {@code inner.limit &lt;= outer.limit} test was false for every positive
+     * the old inner.limit <= outer.limit test was false for every positive
      * offset (the pair was then serialized as a semantic inner LIMIT L+O and outer
      * LIMIT L OFFSET O, and a later replay - SPM matching ignores the top-level values -
      * stayed capped at L+O inputs), and it was true for unrelated SEMANTIC pairs
@@ -2991,7 +2990,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Overflow-safe identity of a distributed TopN continuation:
-     * {@code inner.limit == outer.limit + outer.offset}. The sum must not be computed
+     * inner.limit == outer.limit + outer.offset. The sum must not be computed
      * when it would overflow - an unlimited stage carries Long.MAX_VALUE, and any
      * addition to it wraps negative and could match a garbage local limit.
      *
@@ -3165,7 +3164,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // the pair on the OUTER query is semantically identical and preserves the user's
         // clauses at the root. It runs AFTER the SELECT list is composed: the hoist must
         // dodge any reference the wrapper's own output aliases would capture, and that
-        // needs their final names (see hoistableOrderBy, round-41 #1/#11).
+        // needs their final names (see hoistableOrderBy).
         String childOrderBy = child.getOrderBy();
         String childLimit = child.getLimit();
         if (!childOrderBy.isEmpty() || !childLimit.isEmpty()) {
@@ -3319,24 +3318,22 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Prepares the child's ORDER BY for a move onto the wrapper, or refuses the hoist.
      *
-     * <p>The clause text was rendered against the CHILD scope; moving it up must keep every
-     * reference resolvable (round-41 #1: a fully QUOTED column name {@code `a b`} is a
+     * The clause text was rendered against the CHILD scope; moving it up must keep every
+     * reference resolvable (a fully QUOTED column name `a b` is a
      * perfectly resolvable reference and must not force the clause to stay buried inside a
      * derived table, where a no-LIMIT sort is re-planned as a droppable hint and the replay
      * returns unordered rows) and must keep every reference bound to the SAME column:
      *
-     * <ul>
-     *   <li>a reference the child's SELECT list does not export is exported from the
-     *       child, keeping its own name;</li>
-     *   <li>a reference whose name the child exports for a DIFFERENT expression, or that a
+     *   a reference the child's SELECT list does not export is exported from the
+     *       child, keeping its own name;
+     *   a reference whose name the child exports for a DIFFERENT expression, or that a
      *       wrapper output alias shadows with a different expression, is exported under a
-     *       FRESH name and rewritten in the clause (round-41 #11): an {@code ORDER BY b}
-     *       hoisted above {@code SELECT a AS b} would otherwise bind to that alias - the
+     *       FRESH name and rewritten in the clause: an ORDER BY b
+     *       hoisted above SELECT a AS b would otherwise bind to that alias - the
      *       original sorts by the base column b, the replay by a, and the two rows differ.
-     *       The normalised comparison (round-41 #14) keeps an already-exported quoted key
-     *       ({@code a-b}) from being appended a second time, which exposed two identical
-     *       columns and made every outer reference ambiguous.</li>
-     * </ul>
+     *       The normalised comparison keeps an already-exported quoted key
+     *       (a-b) from being appended a second time, which exposed two identical
+     *       columns and made every outer reference ambiguous.
      *
      * @param child          the relation whose ORDER BY is hoisted
      * @param orderBy        the rendered ORDER BY text
@@ -3436,8 +3433,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Whether any reference of the clause would be captured by a RE-LABELLED alias of the
      * same query block: the in-place sink rewrite renames an output to the caller label
-     * ({@code c_3 AS b}), and a same-block {@code ORDER BY b} would then bind to that alias
-     * instead of the column the clause was rendered against (round-41 #11).
+     * (c_3 AS b), and a same-block ORDER BY b would then bind to that alias
+     * instead of the column the clause was rendered against.
      */
     private static boolean orderByShadowedByRelabel(SQLRelation child, String orderBy,
             List<Pair<ExprId, String>> relabelledOutputs) {
@@ -3495,7 +3492,6 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * with another identifier, skipping single-quoted literals and other backtick-quoted
      * identifiers: used when a hoisted ORDER BY key must be re-pointed at a fresh export
      * because its own name would bind to a descending output alias of the wrapper
-     * (round-41 #11).
      */
     private static String replaceStandaloneReference(String sql, String name, String replacement) {
         boolean quotedName = name.startsWith("`") && name.endsWith("`") && name.length() >= 2;
@@ -3643,9 +3639,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * Column.SHADOW_NAME_PREFIX. Any new internal column added to Column under one of
      * these prefixes is covered automatically.
      *
-     * <p>GROUPING_ID is deliberately NOT part of this name family: it is a legal USER
+     * GROUPING_ID is deliberately NOT part of this name family: it is a legal USER
      * column name, and the rollup execution marker is told apart by provenance instead
-     * (see {@link #isRollupGroupingIdMarker}).
+     * (see isRollupGroupingIdMarker).
      */
     private static boolean isSystemColumnName(String name) {
         return name != null
@@ -3657,7 +3653,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * Whether a slot is the ROLLUP execution marker rather than a user column: the marker
      * is a synthetic GROUPING_ID slot (Repeat.COL_GROUPING_ID) that NO relation
      * exports, while a table column of that name is registered by its scan (see
-     * {@link #visitPhysicalRelation}). Skipping the marker by name alone dropped a real
+     * visitPhysicalRelation). Skipping the marker by name alone dropped a real
      * column named GROUPING_ID from the frozen child SELECT while the outer projection
      * still referenced it, so the baseline failed to bind
      * ("Unknown column 'GROUPING_ID' in 'table list'") on every replay.
@@ -3673,7 +3669,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Appends one projection SELECT item: a plain column pass-through keeps its (child)
      * reference name; an expression is emitted as "expr AS [name]" where the name is the
-     * user alias (clean identifier) or a generated {@code c_<seq>}.
+     * user alias (clean identifier) or a generated c_N.
      */
     private void appendProjectSelect(SQLRelation relation, SQLRelation child, NamedExpression projectExpr,
             List<Pair<ExprId, String>> selects) {
@@ -3768,7 +3764,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * PhysicalUnion / PhysicalExcept / PhysicalIntersect: join the child queries with
      * the corresponding operator and the quantifier of the PHYSICAL node (see
-     * {@link #setOperationKeyword}).
+     * setOperationKeyword).
      */
     @Override
     public SQLRelation visitPhysicalUnion(PhysicalUnion union, Void context) {

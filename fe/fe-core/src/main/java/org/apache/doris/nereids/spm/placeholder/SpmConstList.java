@@ -77,7 +77,7 @@ public class SpmConstList extends Expression implements AlwaysNotNullable {
 
     /**
      * Rebuilds the placeholder with new children (see
-     * {@link SpmConstVar#withChildren} for why the base implementation cannot be
+     * SpmConstVar#withChildren for why the base implementation cannot be
      * used). An unchanged value list returns the same node; otherwise the
      * placeholder id is kept and only the readability payload is updated.
      */

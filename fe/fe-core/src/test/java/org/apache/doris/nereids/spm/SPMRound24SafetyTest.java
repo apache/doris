@@ -41,11 +41,11 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Twenty-fourth review round: the fallback-replay hint contract, the catalog-aware
+ * The fallback-replay hint contract, the catalog-aware
  * bind-table lookup of the schema fingerprint and the linear subquery walk.
  *
- * - {@link SPMPlanTreeSupport#stripSelectHints} removed EVERY LogicalSelectHint from the
- *   in-memory fallback tree, so a plan SQL with {@code /*+ ORDERED *}{@code /} (stored as
+ * - SPMPlanTreeSupport#stripSelectHints removed EVERY LogicalSelectHint from the
+ *   in-memory fallback tree, so a plan SQL with an ORDERED hint (stored as
  *   the authored fallback whenever the decompiler rejects a node, e.g. the
  *   PhysicalAssertNumRows of a scalar subquery) lost the join-order hint the baseline
  *   exists to enforce. Only the captured SET_VAR payloads may go.
@@ -149,7 +149,7 @@ public class SPMRound24SafetyTest {
         return relation;
     }
 
-    /** A session whose statement context resolves every bind relation to {@code real}. */
+    /** A session whose statement context resolves every bind relation to real. */
     private static ConnectContext contextResolvingTo(TableIf real) {
         ConnectContext ctx = new ConnectContext();
         StatementContext statementContext = Mockito.mock(StatementContext.class);

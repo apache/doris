@@ -284,9 +284,9 @@ public class SessionBaselineStoreTest {
     }
 
     /**
-     * round-42 #4: the admission bound must count the payload's ENCLOSING "[]" as well -
+     * The admission bound must count the payload's ENCLOSING "[]" as well -
      * the store admitted a row that pushed the SERIALIZED payload two characters over
-     * {@link SPMForwardedSession#MAX_PAYLOAD_CHARS}, and the serializer then failed the
+     * SPMForwardedSession#MAX_PAYLOAD_CHARS, and the serializer then failed the
      * forwarded statement loudly. The bound is EXACT now: a payload of exactly the budget
      * is accepted and serializes, one character more is rejected at registration.
      */

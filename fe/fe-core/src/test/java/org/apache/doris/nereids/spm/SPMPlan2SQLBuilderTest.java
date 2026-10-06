@@ -272,7 +272,7 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * Round-27: two occurrences of one table whose FROM texts DIFFER (each carries its
+     * Two occurrences of one table whose FROM texts DIFFER (each carries its
      * own scan pin) are still a SELF join. The FROM-text comparison missed them, so the
      * frozen text carried the same table twice WITHOUT aliases - the analyzer rejects it
      * on replay ("Not unique table/alias: 't1'"), i.e. a pinned self-join baseline could
@@ -295,7 +295,7 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * Round-27: when the column names collide, EVERY column is referenced through its
+     * When the column names collide, EVERY column is referenced through its
      * side's qualifier - which a composite FROM (a scan carrying a pin) cannot provide.
      * The wrapper alias is now allocated BEFORE the FROM fragments are materialized; the
      * old order emitted the pinned scans inline while the references used the alias
@@ -493,7 +493,7 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * round-34 #4: a residual LEFT NULL_AWARE ANTI JOIN whose LEFT side is a
+     * A residual LEFT NULL_AWARE ANTI JOIN whose LEFT side is a
      * pinned-partition scan (a COMPOSITE FROM that needs a wrapper) and whose sides share a
      * column NAME. The probe must be qualified with the alias of the WRAPPED left relation,
      * and the outer FROM must expose that same alias: leftSql used to be captured BEFORE
@@ -670,7 +670,7 @@ public class SPMPlan2SQLBuilderTest {
     // ==================== user names that collide with execution-internal markers ====================
 
     /**
-     * Round-31 #1: a user UDAF whose own name starts with "partial_" is NOT an internal
+     * A user UDAF whose own name starts with "partial_" is NOT an internal
      * execution stage. The physical plan keeps the USER'S function in every stage - the
      * "partial_" text is only a RENDERING of a buffer aggregate mode - so the name test
      * classified this one-phase GLOBAL aggregate as an intermediate stage, discarded the
@@ -701,7 +701,7 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(agg);
         Assertions.assertTrue(sql.contains("partial_myagg(v)"),
                 "the user aggregate must survive the decompile under its OWN name: " + sql);
-        // round-32 #7: a UDAF carries its DATABASE (JavaUdaf#getDbName) and the frozen SQL
+        // A UDAF carries its DATABASE (JavaUdaf#getDbName) and the frozen SQL
         // must keep the qualifier - freezing db1.f(v) as f(v) let FunctionRegistry resolve
         // the replay under ANOTHER current database to a same-signature db2.f with a
         // different implementation.
@@ -710,10 +710,10 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * Round-31 #2: a quoted user column named {@code count()} is a DATA argument, not the
+     * A quoted user column named count is a DATA argument, not the
      * count-star buffer. The buffer slot is decided by PROVENANCE - a slot the child
      * relation does not export - while this column is registered by its scan. The name
-     * test alone froze {@code count(`count()`)} as count(*), so every later baseline hit
+     * test alone froze count(`count()`) as count(*), so every later baseline hit
      * counted ROWS where the column is NULL (the review example returned 3 instead of 2).
      */
     @Test
@@ -738,9 +738,9 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * Round-31 #2 (the other side of the same provenance rule): an EXECUTION-ONLY buffer
+     * (the other side of the same provenance rule): an EXECUTION-ONLY buffer
      * slot - named after the count-star SQL but exported by NO relation - still collapses
-     * into count(*), so the fix does not leak {@code count(partial_count(*))} into the
+     * into count(*), so the fix does not leak count(partial_count(*)) into the
      * frozen SQL.
      */
     @Test
@@ -764,7 +764,7 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * Round-31 #6: a legal user column named GROUPING_ID must flow through projections.
+     * A legal user column named GROUPING_ID must flow through projections.
      * Only the synthetic ROLLUP marker is dropped, told apart by provenance (no relation
      * exports it) rather than by the name: the name test removed the column from the
      * frozen child SELECT while the outer projection still referenced it, so every replay
@@ -1473,7 +1473,7 @@ public class SPMPlan2SQLBuilderTest {
      * Constant-only UNION with DUPLICATE output names (including a case-variant pair:
      * identifiers are case-insensitive): every constant branch must alias each
      * duplicated output to the UNIQUE positional reference the set registered -
-     * emitting `AS x` twice left the result sink's {@code c_<ExprId>} references
+     * emitting `AS x` twice left the result sink's c_ExprId references
      * pointing at nonexistent columns and the frozen SQL failed re-analysis after
      * reload.
      */
@@ -1602,7 +1602,7 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * round-22 #4: a legal column named `a as b` (it CONTAINS the alias token). The inner
+     * A legal column named `a as b` (it CONTAINS the alias token). The inner
      * window exports it as a quoted pass-through item, an UPPER window consumes the
      * child's SELECT list - and the naive lastIndexOf(" as ") matched INSIDE the
      * backticks, registering "b`" as the reference so the next frozen layer no longer
@@ -1930,8 +1930,8 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * round-32 #6: the GROUPED distinct shape. {@code SELECT k, SUM(DISTINCT x), SUM(y)
-     * GROUP BY k} is split into a final DISTINCT_GLOBAL {@code sum(x)} (isDistinct CLEARED)
+     * The GROUPED distinct shape. SELECT k, SUM(DISTINCT x), SUM(y)
+     * GROUP BY k is split into a final DISTINCT_GLOBAL sum(x) (isDistinct CLEARED)
      * above a dedup stage grouping by (k, x) - and this final SUM consumes the key x
      * DIRECTLY (INPUT_TO_RESULT, no lower partial buffer), so the buffer provenance the
      * test above exercises has nothing to mark. The keys the eliminated dedup stage groups
@@ -2357,7 +2357,7 @@ public class SPMPlan2SQLBuilderTest {
 
     /**
      * An explicit CAST keeps the type's SQL form (toSql), not its diagnostic toString: a
-     * STRUCT frozen as STRUCT&lt;StructField[...]&gt; cannot be re-parsed after a reload.
+     * STRUCT frozen as a STRUCT with StructField[...] entries cannot be re-parsed after a reload.
      */
     @Test
     public void testExplicitStructCastUsesSqlTypeForm() {
@@ -2404,7 +2404,7 @@ public class SPMPlan2SQLBuilderTest {
         Assertions.assertEquals("`my-db`.`my-fn`", SPMExprSqlBuilder.functionName(udf),
                 "the function name component is quoted independently as well");
 
-        // round-41 #8: a GLOBAL UDF has NO database qualifier, and its registered name is
+        // A GLOBAL UDF has NO database qualifier, and its registered name is
         // not necessarily a plain identifier (my-fn) - emitting it bare made the frozen
         // text re-parse as a SUBTRACTION (there is no parameterized-tree fallback for a
         // persisted frozen row, so the baseline could never replay)
@@ -2412,7 +2412,7 @@ public class SPMPlan2SQLBuilderTest {
         Assertions.assertEquals("`my-fn`", SPMExprSqlBuilder.functionName(udf),
                 "an unqualified GLOBAL UDF name must still be quoted when needed");
 
-        // round-41 #15: a user function NAMED like the SPM placeholder marker would be
+        // A user function NAMED like the SPM placeholder marker would be
         // indistinguishable from a genuine marker in the frozen text - the freeze must
         // refuse it instead of storing a text the replay either mis-substitutes or
         // rejects as an unresolved marker
@@ -2559,7 +2559,7 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * round-41 #1: a fully QUOTED column name is a resolvable ORDER BY reference - the
+     * A fully QUOTED column name is a resolvable ORDER BY reference - the
      * hoist must not leave the user's sort buried inside a derived table, where a no-LIMIT
      * sort is a droppable hint at replay and the rows come back unordered.
      */
@@ -2579,7 +2579,7 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * round-41 #11: hoisting the child's "ORDER BY b" (the BASE column) above a wrapper
+     * Hoisting the child's "ORDER BY b" (the BASE column) above a wrapper
      * that EXPORTS an alias named b would rebind the sort to that alias: the original
      * sorts by the base column, the replay would sort by the alias' expression. The
      * key is shadowed, so the clause must keep its own query block.
@@ -2604,7 +2604,7 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * round-41 #11 control: without a shadowing alias the hoist still happens - the
+     * control: without a shadowing alias the hoist still happens - the
      * clause lands at the statement tail where the base column it names stays
      * resolvable.
      */
@@ -2626,7 +2626,7 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * round-41 #14: an already-exported QUOTED sort key (a-b) must be recognised through
+     * An already-exported QUOTED sort key (a-b) must be recognised through
      * the backticks - appending it a second time exposed two identical columns in the
      * derived table and made every outer reference ambiguous.
      */

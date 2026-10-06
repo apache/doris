@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 /**
- * Eleventh review round: matching / decompile safety.
+ * Matching / decompile safety.
  *
  * - The distributed TopN fold must test the EXACT continuation identity
  *   (inner.limit == outer.limit + outer.offset, overflow-safe instead of the old

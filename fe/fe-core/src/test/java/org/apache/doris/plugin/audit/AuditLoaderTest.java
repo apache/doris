@@ -77,7 +77,7 @@ public class AuditLoaderTest {
     }
 
     /**
-     * round-34 #7: the queue -> batch transfer must be ATOMIC with the horizon read. The
+     * The queue -> batch transfer must be ATOMIC with the horizon read. The
      * old worker polled the event (it left the queue) and only then assembled it into the
      * batch (still unaccounted): a reader running in between saw it in NEITHER structure
      * and reported "nothing outstanding" while an accepted event was unpublished - the SPM
@@ -216,7 +216,7 @@ public class AuditLoaderTest {
         Assertions.assertEquals(names.size() - 1, names.indexOf("stmt"));
     }
 
-    // round-32 #12: the SPM capture overlaps its scan window by the LOCAL loader's
+    // The SPM capture overlaps its scan window by the LOCAL loader's
     // outstanding queue horizon. The horizon is the OLDEST event the loader has accepted but
     // not published yet - the assembled batch counts as well, and enqueue order is NOT
     // event-time order (the upstream hold releases events by completion), so every queued
@@ -257,7 +257,7 @@ public class AuditLoaderTest {
                 "no running loader = no known delay");
     }
 
-    // round-36 #2: a stream load can return Publish Timeout AFTER commit while its rows
+    // A stream load can return Publish Timeout AFTER commit while its rows
     // stay unreadable. The batch must be fenced until publication is confirmed - the
     // previous unconditional batch reset let the capture advance past those rows, so
     // their late publication landed behind the watermark.
@@ -310,7 +310,7 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-39 #2: EVERY timed-out batch is retained and confirmed SEPARATELY. Keeping
+    // EVERY timed-out batch is retained and confirmed SEPARATELY. Keeping
     // only the OLDEST batch's sample released the whole fence when that sample became
     // visible although a newer batch B could still be committed but unreadable; the
     // capture then checkpointed past B and once the watermark moved, later windows could
@@ -356,7 +356,7 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-36 #2 / round-40 #9: the response is the only evidence of the load's real
+    // /: the response is the only evidence of the load's real
     // outcome, and only a COMPLETE, parseable Success response proves publication. An
     // unreadable body says nothing - the earlier "does not contain 'publish timeout'"
     // test treated it as published, so a committed Publish Timeout whose body read
@@ -391,7 +391,7 @@ public class AuditLoaderTest {
                 "an unparsable body is ambiguous, never published");
     }
 
-    // round-40 #8: the zone a row's time column is RENDERED in is the zone that must be
+    // The zone a row's time column is RENDERED in is the zone that must be
     // registered for it - two independent reads of the global time_zone could observe a
     // `SET GLOBAL time_zone` in between (and back before the next report), leaving the
     // row stored under a zone nobody had registered and a capture skipping it forever.
@@ -427,7 +427,7 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-40 #10: a Publish-Timeout batch is COMMITTED, so closing this FE must not
+    // A Publish-Timeout batch is COMMITTED, so closing this FE must not
     // clear its durable fence - the rows may become readable after the FE stopped. With
     // no such batch the row IS cleared (the capture must not wait for a gone FE).
     @Test
@@ -467,7 +467,7 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-42 #7: the OLDEST pending fence must keep fencing even after it was EVICTED
+    // The OLDEST pending fence must keep fencing even after it was EVICTED
     // from the bounded list - dropping it released the fence of the oldest committed
     // batch (its rows can still become readable).
     @Test
@@ -491,7 +491,7 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-37 #7: internal statements (e.g. the horizon reporter's own SQL) are never
+    // Internal statements (e.g. the horizon reporter's own SQL) are never
     // captured, so they must not fence progress - otherwise the reporter's writes keep
     // their own FE's fence (and thereby further writes) alive forever on an idle FE.
     @Test
@@ -518,7 +518,7 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-43 #8 (AuditLoader 746): elapsed time is NOT proof of loss - a Publish Timeout
+    // (AuditLoader 746): elapsed time is NOT proof of loss - a Publish Timeout
     // batch can stay COMMITTED and unreadable beyond the age bound while the publish
     // daemon keeps retrying. The fence is released by the transaction OUTCOME
     // (VISIBLE / ABORTED); only an unresolvable state keeps the age bound as the last
@@ -580,7 +580,7 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-43 #6 (AuditLoader 675): the overflow aggregate cleared EVERY member when the
+    // (AuditLoader 675): the overflow aggregate cleared EVERY member when the
     // FIRST one's 30-minute window elapsed. A committed batch that overflowed into it at
     // minute 29 lost its fence at minute 30 - without any visibility proof and before its
     // own deadline - and the capture could checkpoint past a row that publishes later.
@@ -631,7 +631,7 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-43 #7 (AuditLoader 790): the probe must ask for the audit time the row was
+    // (AuditLoader 790): the probe must ask for the audit time the row was
     // actually WRITTEN with. The audit table stores the writer's local wall clock, so
     // after `SET GLOBAL time_zone` a bound rendered in the CURRENT zone is hours away from
     // the stored one and a perfectly visible row can never be confirmed - the fence then
@@ -664,7 +664,7 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-44 #8: the obligation of a batch is recorded BEFORE the load is sent, so the
+    // The obligation of a batch is recorded BEFORE the load is sent, so the
     // shared horizon row names the possible transaction (its LABEL) from the first moment
     // the request could leave the FE. A crash between the send and its response then
     // leaves a resolvable trace instead of an unfenced batch: the reader resolves the
@@ -693,7 +693,7 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-44 #8: the release paths. A CONFIRMED publication (the rows are readable) and
+    // The release paths. A CONFIRMED publication (the rows are readable) and
     // a request that never reached a BE both make the pre-send obligation unnecessary; a
     // FAILED/ambiguous outcome keeps it, exactly as before.
     @Test
@@ -721,6 +721,99 @@ public class AuditLoaderTest {
             Assertions.assertEquals(30_000L, AuditLoader.oldestCommittedPublishFenceEventTime());
             Deencapsulation.invoke(loader, "releasePublishAttempt", "", "test");
             Assertions.assertEquals(30_000L, AuditLoader.oldestCommittedPublishFenceEventTime());
+        } finally {
+            setRunningLoader(null);
+        }
+    }
+
+    /**
+     * The report's snapshot-to-write sequence must be SERIALIZED with the fence mutations
+     * (the loader monitor): a batch retained while a report had computed - or was about
+     * to write - an OLDER snapshot could otherwise be written over by that report, and if
+     * this FE then dies the reader sees committed_fence_ms = 0 and drops the row, letting
+     * the capture checkpoint past a still-unreadable audit event.
+     */
+    @Test
+    public void testReportSnapshotAndWriteAreSerializedAgainstFenceMutations() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setRunningLoader(loader);
+        CountDownLatch insideWriter = new CountDownLatch(1);
+        CountDownLatch releaseWriter = new CountDownLatch(1);
+        AuditPublicationHorizon.localHorizonWriterForTest = horizon -> {
+            insideWriter.countDown();
+            try {
+                releaseWriter.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return true;
+        };
+        java.util.concurrent.atomic.AtomicBoolean retained =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        Thread reporter = new Thread(() -> AuditPublicationHorizon.reportLocalHorizon(123L));
+        Thread mutator = new Thread(() -> {
+            try {
+                Deencapsulation.invoke(loader, "retainPublishFence", 5_000L, "qid-x",
+                        "label-x");
+                retained.set(true);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+        try {
+            reporter.start();
+            Assertions.assertTrue(insideWriter.await(10, TimeUnit.SECONDS),
+                    "the report must reach its write step");
+            mutator.start();
+            Thread.sleep(300);
+            Assertions.assertFalse(retained.get(),
+                    "the fence mutation must WAIT for the report's snapshot-to-write"
+                            + " section: an older report may not overwrite a newer fence");
+            releaseWriter.countDown();
+            reporter.join(10_000);
+            mutator.join(10_000);
+            Assertions.assertTrue(retained.get(), "the mutation resumes after the report");
+            Assertions.assertEquals(5_000L,
+                    AuditLoader.oldestCommittedPublishFenceEventTime(),
+                    "the retained fence is the surviving obligation");
+        } finally {
+            releaseWriter.countDown();
+            AuditPublicationHorizon.localHorizonWriterForTest = null;
+            setRunningLoader(null);
+        }
+    }
+
+    /**
+     * The overflowed batches' LABELS must survive into the settlement list (see
+     * oldestCommittedPublishFenceLabels): without them a dead FE's row could look SETTLED
+     * while the overflowed transaction is still COMMITTED and unreadable - the capture
+     * then checkpoints past a row that publishes afterwards.
+     */
+    @Test
+    public void testOverflowedFenceLabelsSurviveIntoTheSettlementList() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setRunningLoader(loader);
+        try {
+            for (int i = 0; i <= AuditLoader.MAX_PENDING_PUBLISH_FENCES; i++) {
+                Deencapsulation.invoke(loader, "retainPublishFence", 20_000L + i,
+                        "qid-" + i, "label-" + i);
+            }
+            Assertions.assertEquals(20_000L,
+                    AuditLoader.oldestCommittedPublishFenceEventTime(),
+                    "the overflowed batch keeps fencing");
+            String labels = AuditLoader.oldestCommittedPublishFenceLabels();
+            Assertions.assertTrue(labels.startsWith("label-0;"),
+                    "the overflowed batch's label must come first: " + labels);
+
+            // taking the aggregate past the label bound contributes the UNRESOLVED marker
+            // (which keeps the fence until the survival bound) instead of losing identities
+            for (int i = 0; i < AuditLoader.MAX_AGGREGATED_FENCE_LABELS + 1; i++) {
+                Deencapsulation.invoke(loader, "retainPublishFence", 50_000L + i,
+                        "qid-b" + i, "label-b" + i);
+            }
+            labels = AuditLoader.oldestCommittedPublishFenceLabels();
+            Assertions.assertTrue(Arrays.asList(labels.split(";", -1)).contains("-"),
+                    "a lost label must be carried as the unresolved marker: " + labels);
         } finally {
             setRunningLoader(null);
         }

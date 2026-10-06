@@ -32,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Round-44 review fixes of the durable create / drop fences:
+ * Review fixes of the durable create / drop fences:
  *
  * - #3: the forwarded CREATE's outcome expectation is identified by the STATEMENT QUERY
  *   ID (the master persists the DECOMPILED plan text, so the submitted planSql only
@@ -64,12 +64,12 @@ public class BaselineManagerRound44Test {
         final Map<Long, BaselinePlan> rows = new ConcurrentHashMap<>();
         /** The LATEST sequence-table record per key: {id, atMillis, unconfirmed, dropped}. */
         final Map<String, long[]> records = new ConcurrentHashMap<>();
-        /** Every appended tombstone as {@code id|digest|planSqlHash} (append-only). */
+        /** Every appended tombstone as id|digest|planSqlHash (append-only). */
         final List<String> tombstones = new CopyOnWriteArrayList<>();
         /** Every INSERT fails BEFORE committing (an ambiguous write). */
         boolean failInsert;
         /**
-         * The UNCONFIRMED-marker write fails / lags (round-44 #5's gap): only the plain
+         * The UNCONFIRMED-marker write fails / lags ( gap): only the plain
          * pre-INSERT reservation is left as the identity record.
          */
         boolean suppressMarkers;
@@ -100,7 +100,7 @@ public class BaselineManagerRound44Test {
             reservedHighWater = Math.max(reservedHighWater, id);
         }
 
-        /** The plain pre-INSERT reservation (round-44 #5): an identity record. */
+        /** The plain pre-INSERT reservation: an identity record. */
         @Override
         public void reserveId(long id, String bindSqlDigest, long planSqlHash,
                 long reserveTimeMs) {
@@ -114,7 +114,7 @@ public class BaselineManagerRound44Test {
         public void notePendingSeqState(String bindSqlDigest, long planSqlHash, long id,
                 long atMillis) {
             if (suppressMarkers) {
-                return; // the marker write failed / lagged - the reviewer's round-44 #5 gap
+                return; // the marker write failed / lagged - the reviewer's gap
             }
             records.put(key(bindSqlDigest, planSqlHash), new long[] {id, atMillis, 1, 0});
         }

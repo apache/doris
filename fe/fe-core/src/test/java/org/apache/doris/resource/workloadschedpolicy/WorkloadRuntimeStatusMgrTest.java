@@ -419,7 +419,7 @@ public class WorkloadRuntimeStatusMgrTest {
         return mgr.getQueryStatisticsMap();
     }
 
-    // round-36 #3: a completed query the manager still HOLDS (it enters the pipeline
+    // A completed query the manager still HOLDS (it enters the pipeline
     // before the audit event processor / any audit loader sees it, and is only released
     // after query_audit_log_timeout_ms) must be part of the SPM capture's publication
     // fence - otherwise its row lands behind the advanced scan watermark.
@@ -437,7 +437,7 @@ public class WorkloadRuntimeStatusMgrTest {
                 "the OLDEST held event fences, regardless of submission order");
     }
 
-    // round-37 #1: getQueryNeedAudit removes the ready events from the list BEFORE the
+    // GetQueryNeedAudit removes the ready events from the list BEFORE the
     // caller hands them to the audit event processor. Until that handoff returns the
     // events are still unpublished and must keep fencing: a concurrent reader that sees
     // them in NEITHER structure would let the capture advance past their rows.
@@ -467,7 +467,7 @@ public class WorkloadRuntimeStatusMgrTest {
         }
     }
 
-    // round-37 #7: internal statements (statistics refreshes, the horizon reporter's own
+    // Internal statements (statistics refreshes, the horizon reporter's own
     // SQL, ...) are never captured, so they must not fence progress.
     @Test
     public void testInternalAuditEventsDoNotFenceThePublicationHorizon() {

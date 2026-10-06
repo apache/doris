@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round3", "spm") {
 
-    // Third review round:
+
     //  - capture interval / batch size must reject non-positive values through the SQL
     //    SET path (zero disables scanning forever / LIMIT 0 skips every eligible row)
     //  - a LATERAL VIEW over a WRAPPED child (derived table with WHERE + LIMIT) must keep

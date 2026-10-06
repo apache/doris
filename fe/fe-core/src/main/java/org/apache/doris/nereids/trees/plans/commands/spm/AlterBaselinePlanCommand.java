@@ -103,7 +103,7 @@ public class AlterBaselinePlanCommand extends Command implements Forward {
      * without waiting for the next BaselineRefreshDaemon cycle. The refresh is CONFIRMED:
      * the local metadata is synchronized with the master first (the forward carries no
      * journal wait of its own), a pre-DDL in-flight load is fenced, the requested durable
-     * STATUS is confirmed before the snapshot may publish (round-39 #14: a DISABLE can
+     * STATUS is confirmed before the snapshot may publish (a DISABLE can
      * return success while its DISABLED row is committed but unreadable, and republishing
      * the old ENABLED snapshot kept replaying it) and an unconfirmable read surfaces as a
      * retryable failure instead of silently keeping the old status locally.

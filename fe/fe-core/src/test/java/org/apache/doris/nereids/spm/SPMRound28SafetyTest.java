@@ -33,25 +33,25 @@ import org.junit.jupiter.api.Test;
 import java.util.BitSet;
 
 /**
- * Round-28 review fixes without their own regression suite:
+ * Review fixes without their own regression suite:
  *
  * - #1 (SPMPlanTreeSupport, stripCheckPolicy): the policy markers of a relation inside a
- *   SUBQUERY plan live in {@code SubqueryExpr.queryPlan}, which the children-only walk
+ *   SUBQUERY plan live in SubqueryExpr.queryPlan, which the children-only walk
  *   never visited. CREATE's nested analyzer therefore expanded the CREATOR's row policy
  *   on that relation into an ordinary filter INSIDE the frozen SQL - a GLOBAL baseline
  *   authored by a non-root ADMIN with a policy on u served every other user the creator's
  *   filter on u. The strip now also walks the expression-owned plans (and fails closed if
  *   a marker survives).
  * - #5 (StatementContext#resetPlannerStateForReplan): the SPM replay rule mask
- *   ({@code spmExcludedRules} plus the cached {@code disableRules}) stayed installed when
+ *   (spmExcludedRules plus the cached disableRules) stayed installed when
  *   the fallback re-planned the ORIGINAL statement, so an original aggregate with an
  *   eligible refreshed MTMV scanned base tables instead of using ordinary MV planning.
  * - #8 (same reset): the abandoned pass's session-variable changes (a plan-side ORDERED
- *   hint sets {@code disable_join_reorder}, the planner assigns
- *   {@code runtime_filter_wait_time_ms}, a plan-side SET_VAR sets its key) are recorded as
+ *   hint sets disable_join_reorder, the planner assigns
+ *   runtime_filter_wait_time_ms, a plan-side SET_VAR sets its key) are recorded as
  *   "single set var" originals and were only reverted at statement END - the fallback ran
- *   with them, and a leaked {@code disable_join_reorder} marks the CALLER's own
- *   {@code LEADING(a b)} hint UNUSED.
+ *   with them, and a leaked disable_join_reorder marks the CALLER's own
+ *   LEADING(a b) hint UNUSED.
  */
 public class SPMRound28SafetyTest {
 
@@ -74,7 +74,7 @@ public class SPMRound28SafetyTest {
 
     /**
      * The reviewer's shape: the subquery's relation u carries the parse-time marker inside
-     * {@code SubqueryExpr.queryPlan}. Stripping only children()/CTE bodies left it in
+     * SubqueryExpr.queryPlan. Stripping only children()/CTE bodies left it in
      * place, and the nested analyzer then expanded the CREATOR's policy on u into the
      * frozen SQL.
      */
@@ -104,7 +104,7 @@ public class SPMRound28SafetyTest {
     }
 
     /**
-     * {@code SELECT * REPLACE(...)} payloads own their subquery plans OUTSIDE children():
+     * SELECT * REPLACE(...) payloads own their subquery plans OUTSIDE children():
      * a policy on the payload's relation must not be frozen either.
      */
     @Test
@@ -144,9 +144,9 @@ public class SPMRound28SafetyTest {
     // ==================== #8: abandoned session changes are restored ====================
 
     /**
-     * A plan-side ORDERED hint switches {@code disable_join_reorder} on "for this
+     * A plan-side ORDERED hint switches disable_join_reorder on "for this
      * statement"; the fallback must not inherit it, otherwise the CALLER's own
-     * {@code LEADING(a b)} hint is marked UNUSED and the ordinary fallback picks another
+     * LEADING(a b) hint is marked UNUSED and the ordinary fallback picks another
      * join order.
      */
     @Test

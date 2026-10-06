@@ -31,11 +31,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Round-40 review fixes without their own regression suite:
+ * Review fixes without their own regression suite:
  *
  * - #1 (SPMPlanTreeSupport#rowLimitsWithin): the retained-LIMIT guard keyed each cap by
  *   (limit, offset, input relations) only. Two occurrences of the SAME table were
- *   therefore interchangeable: a manual plan that moved {@code ORDER BY k LIMIT 1} from
+ *   therefore interchangeable: a manual plan that moved ORDER BY k LIMIT 1 from
  *   derived alias a to alias b passed the multiset check against a caller whose own cap
  *   sat under a, and the raised-limit variant truncated the WRONG side (t={1,2} yields
  *   (1,1),(2,1) instead of (1,1),(1,2)). Every input now carries its per-name
@@ -69,8 +69,8 @@ public class SPMRound40SafetyTest {
 
     /**
      * The reviewer's case: bind caps the derived table aliased a; the manual plan moved
-     * the same {@code ORDER BY k LIMIT 1} to the derived table aliased b, and both read
-     * the same table t - both inner caps used to key as {@code 1:0:t}, so a caller
+     * the same ORDER BY k LIMIT 1 to the derived table aliased b, and both read
+     * the same table t - both inner caps used to key as 1:0:t, so a caller
      * raising only the outer LIMIT was accepted and the replay truncated b instead of a.
      * The occurrence-ordinal keys must reject the pairing (the caller's own query then
      * plans normally, which is always safe).

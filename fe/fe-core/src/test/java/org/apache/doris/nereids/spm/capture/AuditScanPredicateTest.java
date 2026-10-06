@@ -29,7 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Round-30 #1: the completion-aware window lower bound must actually ADMIT the row it
+ * The completion-aware window lower bound must actually ADMIT the row it
  * exists for.
  *
  * audit_log.time is the query's START, so a query started 11:50 that only finishes after
@@ -79,7 +79,7 @@ public class AuditScanPredicateTest {
     }
 
     /**
-     * round-37 #8: both {@code time} and {@code query_time} are millisecond values, so the
+     * Both time and query_time are millisecond values, so the
      * duration must not be truncated to whole seconds. The reviewer's row: started
      * 11:50:00.900, lasted 299100 ms - it truly completes at 11:55:00.000, exactly the next
      * window's (overlap) start. The previous CAST(query_time / 1000) computed 11:54:59.900
@@ -146,8 +146,8 @@ public class AuditScanPredicateTest {
     }
 
     /**
-     * round-32 #13: the completion floor is derived from the window-start INSTANT in the
-     * scan zone - subtracting from the civil {@code LocalDateTime} landed an hour off
+     * The completion floor is derived from the window-start INSTANT in the
+     * scan zone - subtracting from the civil LocalDateTime landed an hour off
      * after a spring-forward transition, and the too-late floor rejected a row inside the
      * promised 24 hour lookback on EVERY later scan (the reviewer's ~23h40m query).
      */
@@ -179,8 +179,8 @@ public class AuditScanPredicateTest {
     }
 
     /**
-     * round-41 #5: at a FALL-BACK transition the rendered ranges are
-     * {@code [01:45, 02:00)} then {@code [01:00, 01:15)}; bounding the whole scan by the
+     * At a FALL-BACK transition the rendered ranges are
+     * [01:45, 02:00) then [01:00, 01:15); bounding the whole scan by the
      * LAST segment end (01:15) discarded every row of the FIRST segment - a query started
      * 01:50 PDT whose row the rollback published was invisible to the scan, which then
      * checkpointed past it.
@@ -251,12 +251,12 @@ public class AuditScanPredicateTest {
             int at = leaf.indexOf(">= '");
             Assertions.assertTrue(at > 0, "unexpected completion leaf: " + leaf);
             String bound = leaf.substring(at + 4, leaf.indexOf('\'', at + 4));
-            // the completion is time + query_time at MILLISECOND precision (round-37 #8;
+            // the completion is time + query_time at MILLISECOND precision
             // the swing is an extra duration widening, in the expression's unit)
             long completionMicros = queryTimeMs * 1000 + swingMicrosOf(leaf);
             LocalDateTime completion = LocalDateTime.parse(time, TS)
                     .plus(completionMicros, ChronoUnit.MICROS);
-            // round-41 #12: the published bounds carry MILLIS and a boundary value must
+            // The published bounds carry MILLIS and a boundary value must
             // compare EQUAL to its rendered bound - the string comparison of the old
             // evaluator ranked "11:55:00" below "11:55:00.000" (SQL compares DATETIME
             // values, so the evaluator parses both sides)
@@ -317,7 +317,7 @@ public class AuditScanPredicateTest {
         return false;
     }
 
-    /** Splits on a top-level {@code separator} (no enclosing parentheses, no literals). */
+    /** Splits on a top-level separator (no enclosing parentheses, no literals). */
     private static List<String> splitTopLevel(String text, String separator) {
         List<String> parts = new ArrayList<>();
         int depth = 0;

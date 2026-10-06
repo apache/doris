@@ -58,9 +58,9 @@ public class AuditEventProcessor {
     private static final long QUEUE_POLL_INTERVAL_MILLIS = 100L;
 
     /**
-     * Guards {@link #processingEvent} TOGETHER with {@link #eventQueue}: the
+     * Guards processingEvent TOGETHER with eventQueue: the
      * queue-to-in-flight transfer, the in-flight release and the fence read are one
-     * linearized state (round-37 #2). Producers never take it (the queue has its own
+     * linearized state. Producers never take it (the queue has its own
      * lock), so a busy fence reader can never block an event submission, and the worker
      * only holds it for the transfer / release - its idle wait happens outside.
      */
@@ -68,10 +68,10 @@ public class AuditEventProcessor {
 
     /**
      * The event the worker has DEQUEUED and is currently handing to the audit plugins,
-     * or null between events. A plugin (​{@link AuditLogBuilder}, the builtin audit
+     * or null between events. A plugin (​AuditLogBuilder, the builtin audit
      * loader, ...) runs with the event OUT of the queue, so a horizon built from the
      * queue alone would report "nothing outstanding" while an accepted event is still
-     * unpublished (round-36 #3). Written and read under {@link #inFlightLock}.
+     * unpublished. Written and read under inFlightLock.
      */
     private volatile AuditEvent processingEvent;
 
@@ -113,20 +113,20 @@ public class AuditEventProcessor {
     }
 
     /**
-     * Start time (epoch millis, the {@code time} column of {@code audit_log}) of the
+     * Start time (epoch millis, the time column of audit_log) of the
      * OLDEST audit event this processor has QUEUED or is currently processing, 0 when it
      * has neither. Part of the SPM capture's publication fence: a completed query enters
      * this queue before any audit loader sees it, and a plugin can stall while its event
-     * is already dequeued (round-36 #3).
+     * is already dequeued.
      *
-     * <p>The queue and the in-flight slot are read as ONE atomic snapshot (round-37 #2):
+     * The queue and the in-flight slot are read as ONE atomic snapshot:
      * the worker moves an event from the queue into the in-flight slot under the same
      * lock, so the read can never see the event in neither and report "nothing
      * outstanding" for an accepted-but-unpublished event.
      *
-     * <p>INTERNAL events are excluded: the capture only scans {@code is_internal = false}
+     * INTERNAL events are excluded: the capture only scans is_internal = false
      * rows, so an internal statement (e.g. the horizon reporter's own SQL) must not keep
-     * fencing progress (round-37 #7).
+     * fencing progress.
      */
     public long oldestQueuedOrInFlightEventTime() {
         long oldest = 0;
@@ -190,7 +190,7 @@ public class AuditEventProcessor {
                         // The dequeue and the in-flight publication are ONE step: a fence
                         // read must never observe the event in NEITHER the queue (poll
                         // already returned) NOR the in-flight slot (not yet assigned)
-                        // (round-37 #2).
+
                         processingEvent = auditEvent;
                     }
                 }

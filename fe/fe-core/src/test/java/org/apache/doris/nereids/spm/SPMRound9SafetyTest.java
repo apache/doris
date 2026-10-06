@@ -52,7 +52,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Ninth review round: matching-safety / frozen-SQL / reload tests.
+ * Matching-safety / frozen-SQL / reload tests.
  *
  * Covered here:
  *  - the USING join's out-of-band MATCH_CONDITION is scanned for unreplaced placeholders by

@@ -28,12 +28,12 @@ import org.junit.jupiter.api.Test;
 import java.util.HashMap;
 
 /**
- * Twelfth review round: matching / parser safety.
+ * Matching / parser safety.
  *
- * - SELECT-hint payloads are part of the baseline match. {@code LogicalSelectHint} has no
+ * - SELECT-hint payloads are part of the baseline match. LogicalSelectHint has no
  *   expressions and its toDigest() drops the hint list, so the class + child comparison
  *   accepted two query blocks that differ ONLY in a hint value. A SET_VAR hint however
- *   changes how the query is analyzed / planned - {@code time_zone} / {@code sql_mode}
+ *   changes how the query is analyzed / planned - time_zone / sql_mode
  *   change the RESULT - so the match must include the complete hint list of every block.
  * - SHOW BASELINE PLANS LIKE must decode the raw SQL string literal (doubled quotes /
  *   backslash escapes) before PatternMatcher; only stripping the surrounding quotes

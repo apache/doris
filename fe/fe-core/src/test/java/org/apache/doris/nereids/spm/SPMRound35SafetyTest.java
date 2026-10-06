@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Round-35 review fixes:
+ * Review fixes:
  *
  * - #3 (SPMPlanTreeSupport#rowLimitsWithin): the retained-LIMIT check compared the
  *   multiset of (limit, offset) VALUES only, so a manual plan capping a different input
@@ -75,7 +75,7 @@ public class SPMRound35SafetyTest {
     // ==================== #4: caps outside children() ====================
 
     /**
-     * A cap inside a CTE body lives in {@code LogicalCTE.extraPlans()}: the caller
+     * A cap inside a CTE body lives in LogicalCTE.extraPlans(): the caller
      * raising only the outer limit must not keep the frozen body cap, which would return
      * one row instead of two.
      */
@@ -112,9 +112,9 @@ public class SPMRound35SafetyTest {
 
     /**
      * The bare forms must be rejected at freeze time exactly like their parenthesized
-     * counterparts: the parser builds bound leaves ({@code CurrentDate} /
-     * {@code CurrentTime} / {@code Now}), so a baseline for
-     * {@code SELECT CURRENT_DATE AS d FROM t} would otherwise serve the CREATE date to
+     * counterparts: the parser builds bound leaves (CurrentDate /
+     * CurrentTime / Now), so a baseline for
+     * SELECT CURRENT_DATE AS d FROM t would otherwise serve the CREATE date to
      * every later matching query.
      */
     @Test

@@ -40,23 +40,21 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Round-36: the cluster-wide audit PUBLICATION horizon.
+ * The cluster-wide audit PUBLICATION horizon.
  *
- * <ul>
- *   <li>#1: the fence is the minimum over the local pipeline AND the fresh per-FE rows
- *       reported into {@code spm_audit_horizon} - the capture runs on the leader, whose
+ *   #1: the fence is the minimum over the local pipeline AND the fresh per-FE rows
+ *       reported into spm_audit_horizon - the capture runs on the leader, whose
  *       own loader cannot see a follower's backlog. A row whose reporter went silent is
  *       ignored (the events are gone with it), and an unreadable table fails the read
- *       closed instead of silently dropping the fence.</li>
- *   <li>#3: the local value covers the stages BEFORE the loader as well: a completed
- *       query sits in {@link WorkloadRuntimeStatusMgr} first, and the
- *       {@link AuditEventProcessor} can hold an event in its queue or in-flight while a
- *       plugin runs - the loader being empty proves nothing.</li>
- *   <li>round-38 #2: an OVERDUE row is only dropped when its FE is provably GONE; a
+ *       closed instead of silently dropping the fence.
+ *   #3: the local value covers the stages BEFORE the loader as well: a completed
+ *       query sits in WorkloadRuntimeStatusMgr first, and the
+ *       AuditEventProcessor can hold an event in its queue or in-flight while a
+ *       plugin runs - the loader being empty proves nothing.
+ *   An OVERDUE row is only dropped when its FE is provably GONE; a
  *       live - or undecidable - reporter fails the read closed instead of silently
  *       releasing the fence, because its pipeline may still owe events (and its last
- *       confirmed value can already be stale).</li>
- * </ul>
+ *       confirmed value can already be stale).
  */
 public class AuditPublicationHorizonTest {
 
@@ -77,10 +75,7 @@ public class AuditPublicationHorizonTest {
     @AfterEach
     public void tearDown() {
         mockedEnv.close();
-        AuditPublicationHorizon.horizonRowsReaderForTest = null;
-        AuditPublicationHorizon.localHorizonWriterForTest = null;
-        AuditPublicationHorizon.feAliveProbeForTest = null;
-        AuditPublicationHorizon.reporterNamesForTest = null;
+        AuditPublicationHorizon.resetForTest();
         AuditWriterZones.captureCoveredThroughForTest = null;
         AuditWriterZones.resetForTest();
     }
@@ -91,6 +86,80 @@ public class AuditPublicationHorizonTest {
                 .setTimestamp(timestamp)
                 .setStmt("select 1")
                 .build();
+    }
+
+    /**
+     * A RESTART must not retire the previous incarnation's unresolved obligations: the
+     * shared row is keyed by the stable fe_name, while the new process starts with empty
+     * pending fences and writer zones. Its first idle report must merge the carried
+     * COMMITTED fence (with its labels) and the rendering zones - and it may release the
+     * fence once the listed transaction resolves terminal.
+     */
+    @Test
+    public void testRestartMergesThePreviousIncarnationsFenceAndZones() {
+        AuditLoader.transactionStatusForTest = label -> "COMMITTED";
+        List<Long> reported = new ArrayList<>();
+        AuditPublicationHorizon.localHorizonWriterForTest = horizon -> {
+            reported.add(horizon);
+            return true;
+        };
+        try {
+            long updatedAt = System.currentTimeMillis();
+            AuditPublicationHorizon.ownRowRestoreReaderForTest = () -> Collections.singletonList(
+                    new Object[] {0L, updatedAt, "America/New_York=123", 9_000L, "label-old"});
+
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "the idle report is confirmed by the scripted writer");
+            Assertions.assertEquals(Collections.singletonList(9_000L), reported,
+                    "the carried COMMITTED fence must fence the new incarnation's report");
+            Assertions.assertTrue(AuditWriterZones.zones().contains("America/New_York"),
+                    "the carried rendering zone must stay required: " + AuditWriterZones.zones());
+
+            // the transaction resolves terminal: the carried fence is retired
+            AuditLoader.transactionStatusForTest = label -> "VISIBLE";
+            reported.clear();
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(0L));
+            Assertions.assertEquals(Collections.singletonList(0L), reported,
+                    "a VISIBLE transaction releases the carried fence");
+        } finally {
+            AuditLoader.transactionStatusForTest = null;
+        }
+    }
+
+    /**
+     * A clean close must KEEP the row while the writer-zone history is not covered by
+     * durable capture progress: a follower can publish a row rendered in -05:00 and close
+     * with no pending batch - deleting the row would leave the leader's process-local UTC
+     * registry to checkpoint past that visible row without a pass that can find it.
+     */
+    @Test
+    public void testCleanCloseKeepsTheRowForUncoveredWriterZones() {
+        List<Long> reported = new ArrayList<>();
+        AuditPublicationHorizon.localHorizonWriterForTest = horizon -> {
+            reported.add(horizon);
+            return true;
+        };
+        // nothing to carry: no re-report (and, with no shared table, no delete I/O either)
+        AuditPublicationHorizon.clearLocalReport();
+        Assertions.assertTrue(reported.isEmpty(),
+                "nothing to carry: the close owes no re-report");
+
+        AuditWriterZones.note("America/New_York", System.currentTimeMillis());
+        Assertions.assertTrue(AuditWriterZones.anyZoneNeedingCoverage(),
+                "a fresh rendering zone is still uncovered");
+        AuditPublicationHorizon.clearLocalReport();
+        Assertions.assertEquals(Collections.singletonList(0L), reported,
+                "the uncovered zone keeps the row: the close re-reports it instead of"
+                        + " deleting the only copy");
+
+        // once the zone was REPORTED and durable capture progress covers it, the close
+        // may de-register again
+        AuditWriterZones.markReported(Collections.singletonList("America/New_York"));
+        AuditWriterZones.captureCoveredThroughForTest = () -> Long.MAX_VALUE;
+        reported.clear();
+        AuditPublicationHorizon.clearLocalReport();
+        Assertions.assertTrue(reported.isEmpty(),
+                "covered zones no longer pin the row");
     }
 
     // ==================== #3: the pre-loader stages are part of the local horizon ======
@@ -180,11 +249,11 @@ public class AuditPublicationHorizonTest {
                         + " shutting-down FE's row back into the shared table: " + reports);
     }
 
-    // ==================== round-37 #5: unconfirmed writes are retried ====================
+    // ====================: unconfirmed writes are retried ====================
 
     /**
      * A report is TRUE only when the written state is readable back from the shared table
-     * (round-37 #5): SQL OK can still leave a COMMITTED INSERT unpublished, and the
+     * SQL OK can still leave a COMMITTED INSERT unpublished, and the
      * previous void return let the reporter remember the value as reported anyway - an
      * old unpublished event then had no master-visible fence until the 60s keepalive.
      */
@@ -211,7 +280,7 @@ public class AuditPublicationHorizonTest {
             Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(4_242L),
                     "a read-back that does not match the report is NOT confirmed");
 
-            // an IDLE REGISTRATION must be READABLE (round-42 #12): the row's ABSENCE
+            // an IDLE REGISTRATION must be READABLE: the row's ABSENCE
             // reads as "this FE never registered", so it can NOT confirm a zero report
             statistics.when(() -> StatisticsUtil.executeQuery(
                             Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
@@ -239,7 +308,7 @@ public class AuditPublicationHorizonTest {
 
     /**
      * An unconfirmed write must be reported as false, so the reporter does NOT remember it
-     * (round-37 #5) and retries it on the next tick.
+     * and retries it on the next tick.
      */
     @Test
     public void testUnconfirmedWriteReportsFalseThroughTheSeam() {
@@ -249,9 +318,9 @@ public class AuditPublicationHorizonTest {
     }
 
     /**
-     * round-42 #3: a ZERO report is an IDLE REGISTRATION and must UPSERT the row - the
+     * A ZERO report is an IDLE REGISTRATION and must UPSERT the row - the
      * old path DELETED it, so a live FE with nothing outstanding was indistinguishable
-     * from an FE that never registered (and round-42 #12 fails the cluster read closed
+     * from an FE that never registered (and fails the cluster read closed
      * for those).
      */
     @Test
@@ -284,7 +353,7 @@ public class AuditPublicationHorizonTest {
     }
 
     /**
-     * round-42 #12: a live FE with NO row is not "nothing outstanding" - its pipeline may
+     * A live FE with NO row is not "nothing outstanding" - its pipeline may
      * still owe events (or a committed batch may still publish), so the cluster horizon
      * must fail CLOSED (retryable) instead of reading the absence as a zero fence. Once
      * the FE registers - a zero row IS a registration - the read succeeds again.
@@ -308,7 +377,7 @@ public class AuditPublicationHorizonTest {
     }
 
     /**
-     * Round-43 #2: an idle row is NOT "no fence". It vouches for its FE's pipeline only
+     * An idle row is NOT "no fence". It vouches for its FE's pipeline only
      * up to the instant it was written; contributing NOTHING let the capture advance past
      * that instant, and an event the FE accepted immediately after reporting idle (but
      * before its next report tick) could publish into a window the capture had already
@@ -331,7 +400,7 @@ public class AuditPublicationHorizonTest {
     }
 
     /**
-     * Round-43 #2 (overdue half): an OVERDUE zero row of a LIVE FE is just as
+     * (overdue half): an OVERDUE zero row of a LIVE FE is just as
      * untrustworthy as a positive one - the FE may have captured events since its last
      * report. Skipping the row BEFORE the staleness check trusted the stale zero and let
      * the capture advance past those events.
@@ -348,8 +417,8 @@ public class AuditPublicationHorizonTest {
     }
 
     /**
-     * Round-43 #3: liveness means MEMBERSHIP, not the heartbeat flag. An RPC heartbeat
-     * error sets {@code isAlive()} false while the FE (and its audit loader) still run and
+     * Liveness means MEMBERSHIP, not the heartbeat flag. An RPC heartbeat
+     * error sets isAlive() false while the FE (and its audit loader) still run and
      * may hold a queued event: releasing its fence let the capture checkpoint past the
      * event before it published. Only absence from the membership proves the events died
      * with the FE.
@@ -377,7 +446,7 @@ public class AuditPublicationHorizonTest {
     }
 
     /**
-     * Round-43 #3 (membership half): the registered-row requirement covers EVERY member,
+     * (membership half): the registered-row requirement covers EVERY member,
      * including one whose heartbeat flag is currently false - excluding it read the
      * not-yet-registered gap as "no obligation".
      */
@@ -398,7 +467,7 @@ public class AuditPublicationHorizonTest {
                         + " flag is false");
     }
 
-    // ==================== round-37 #4: a fixed zone for update_time ====================
+    // ====================: a fixed zone for update_time ====================
 
     /**
      * update_time is a zone-less DATETIME shared between FEs that may render their local
@@ -417,7 +486,7 @@ public class AuditPublicationHorizonTest {
                 "reading a row back yields the same instant");
     }
 
-    // ==================== round-37 #7: internal events never fence ======================
+    // ====================: internal events never fence ======================
 
     /**
      * Internal statements (e.g. the horizon reporter's own SQL) are never captured, so
@@ -449,7 +518,7 @@ public class AuditPublicationHorizonTest {
                 "the internal event stays out of the fence at every stage");
     }
 
-    // ==================== round-38 #2: an overdue row of a LIVE fe fails closed =========
+    // ====================: an overdue row of a LIVE fe fails closed =========
 
     /**
      * A follower's keepalive upserts can fail for minutes while the FE still holds a
@@ -496,11 +565,11 @@ public class AuditPublicationHorizonTest {
                         + " event it still owes");
     }
 
-    // ==================== round-40 #10: committed fences survive their FE ===============
+    // ====================: committed fences survive their FE ===============
 
     /**
      * A batch whose stream load reported Publish Timeout is COMMITTED but unreadable: its
-     * rows can publish AFTER the FE died, so the {@code committed_fence_ms} marker keeps
+     * rows can publish AFTER the FE died, so the committed_fence_ms marker keeps
      * the fence alive past the FE - dropping the row at death let the capture checkpoint
      * past rows that then appeared behind the watermark. After the SAME bound the loader
      * itself applies the batch is conclusively lost and the fence releases.
@@ -538,7 +607,7 @@ public class AuditPublicationHorizonTest {
                 "a committed-but-unreadable batch is part of the fence");
     }
 
-    // ==================== round-44 #7: a dead FE's fence is resolved by label ==========
+    // ====================: a dead FE's fence is resolved by label ==========
 
     /**
      * The reviewer's case: a follower reports a Publish Timeout batch at 10:00 and dies
@@ -632,7 +701,7 @@ public class AuditPublicationHorizonTest {
         }
     }
 
-    // ==================== round-40 #2: stale rows keep their zones =====================
+    // ====================: stale rows keep their zones =====================
 
     /**
      * The writer zones of an OVERDUE row stay part of the required scan set until

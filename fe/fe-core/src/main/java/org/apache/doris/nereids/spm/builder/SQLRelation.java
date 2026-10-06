@@ -97,8 +97,8 @@ public class SQLRelation {
      * table like "(a UNION ALL b) t_3"). A set-operation relation is such a derived
      * table: its FROM fragment is the parenthesized set expression itself, so the alias
      * must sit INSIDE the FROM text (a derived table without an alias is a parse error)
-     * and {@link #toRelationSQL()} must return that fragment as-is instead of wrapping
-     * the whole query block again. {@link #newAlias()} still records the alias for column
+     * and toRelationSQL() must return that fragment as-is instead of wrapping
+     * the whole query block again. newAlias() still records the alias for column
      * qualification.
      */
     private boolean fromCarriesAlias = false;
@@ -118,7 +118,7 @@ public class SQLRelation {
 
     /**
      * Marks which catalog relation (table) this relation reads (see
-     * {@link #isSameRelation}).
+     * isSameRelation).
      *
      * @param relationIdentity the rendered qualified table name of the scan
      */
@@ -213,7 +213,7 @@ public class SQLRelation {
 
     /**
      * Marks the FROM fragment as an ALREADY-ALIASED derived table: the alias allocated by
-     * {@link #newAlias()} lives inside the FROM text (see {@link #fromCarriesAlias}).
+     * newAlias() lives inside the FROM text (see fromCarriesAlias).
      */
     public void markFromCarriesAlias() {
         fromCarriesAlias = true;

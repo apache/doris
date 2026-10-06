@@ -17,17 +17,16 @@
 
 suite("test_spm_review_round40", "spm") {
 
-    // Fortieth review round.
+    // Fortieth .
     //
     // SQL-visible fixes covered here:
-    //  - #1: the retained-LIMIT guard now identifies a cap by its OCCURRENCE (the
-    //    derived-alias / set-operand chain), not only by (limit, offset, relations):
-    //    a manual plan that moved ORDER BY k LIMIT 1 to another same-table occurrence
-    //    can no longer be replayed for a caller whose own cap sits elsewhere - the
-    //    candidate is SKIPPED and the caller's query returns its own rows.
-    //    round-41 #9: the inner-cap walk runs even when the outer LIMIT equals the
-    //    captured one, so the EXACT query of #1 skips too (the exact slice assertion is
-    //    pinned by order_qt_r40_moved_cap_exact).
+    //  - #1: a cap is identified by its OCCURRENCE (the derived-alias / set-operand
+    //    chain), not only by (limit, offset, relations): a manual plan that moved
+    //    ORDER BY k LIMIT 1 to another same-table occurrence is now REJECTED at CREATE
+    //    (its operator tree diverges from the bind's), and the retained-LIMIT guard
+    //    still SKIPS such candidates persisted by older versions while the caller's
+    //    query returns its own rows (pinned by order_qt_r40_moved_cap_exact /
+    //    order_qt_r40_moved_cap).
     //  - #6: the sequence identity column is an unbounded STRING now; a bind whose
     //    canonical digest exceeds 4096 chars used to fail the reservation INSERT, so a
     //    valid GLOBAL CREATE errored before writing anything.
@@ -76,8 +75,9 @@ suite("test_spm_review_round40", "spm") {
         // ==================== #1: a cap moved between same-table occurrences ====================
         // bind caps the derived table aliased a (the caller's own placement); the manual
         // plan moved the same ORDER BY k LIMIT 1 to the derived table aliased b while
-        // both read spm_r40_t - the old (limit, offset, relations) key could not tell
-        // the two inner caps apart.
+        // both read spm_r40_t. Such a pair is now REJECTED at CREATE: the plan's operator
+        // tree (the cap on the OTHER occurrence) diverges from the bind's, so no candidate
+        // is stored and every caller runs its own plan.
         String capOnA = "SELECT a.k AS ak, b.k AS bk" +
                 " FROM (SELECT k FROM spm_r40_t ORDER BY k LIMIT 1) a" +
                 " CROSS JOIN (SELECT k FROM spm_r40_t) b ORDER BY ak, bk LIMIT 1"
@@ -85,16 +85,12 @@ suite("test_spm_review_round40", "spm") {
                 " FROM (SELECT k FROM spm_r40_t) a" +
                 " CROSS JOIN (SELECT k FROM spm_r40_t ORDER BY k LIMIT 1) b" +
                 " ORDER BY ak, bk LIMIT 1"
-        List<List<Object>> created1 = sql(
-                """CREATE GLOBAL BASELINE PLAN '${capOnA}' WITH '${capOnB}'""")
-        assertEquals(1, created1.size(), "CREATE should return one row, got: ${created1}")
-        long id1 = Long.parseLong(created1[0][0].toString())
-        // round-41 #9: the manual plan's inner cap sits on the OTHER occurrence than the
-        // caller's, so the replay cannot carry the caller's LIMIT contract even at the
-        // captured limit (the cap would truncate the wrong side) - the exact query must
-        // skip the candidate and run its own, correct plan
-        assertTrue(!explainOf(capOnA).contains("SPM baseline hit: id=${id1}"),
-                "an inner cap on ANOTHER occurrence must skip the candidate: ${explainOf(capOnA)}")
+        test {
+            sql """CREATE GLOBAL BASELINE PLAN '${capOnA}' WITH '${capOnB}'"""
+            exception "align"
+        }
+        assertTrue(!explainOf(capOnA).contains("SPM baseline hit"),
+                "a rejected moved-cap CREATE leaves no candidate: ${explainOf(capOnA)}")
         order_qt_r40_moved_cap_exact """
             SELECT a.k AS ak, b.k AS bk
             FROM (SELECT k FROM spm_r40_t ORDER BY k LIMIT 1) a
@@ -102,12 +98,11 @@ suite("test_spm_review_round40", "spm") {
             ORDER BY ak, bk LIMIT 1
         """
 
-        // the VARIANT (outer limit 1 -> 2) must NOT be rewritten: the frozen cap on the
-        // b occurrence would truncate the wrong side (a={1,2}, b={1} instead of a={1},
-        // b={1,2}) and return (1,1),(2,1) instead of (1,1),(1,2)
+        // the VARIANT (outer limit 1 -> 2) also runs its own plan (a={1}, b={1,2}:
+        // (1,1),(1,2)), never a frozen cap on the other occurrence
         String variant1 = capOnA.replace("ORDER BY ak, bk LIMIT 1", "ORDER BY ak, bk LIMIT 2")
         assertTrue(!explainOf(variant1).contains("SPM baseline hit"),
-                "a cap on ANOTHER occurrence must skip the candidate: ${explainOf(variant1)}")
+                "no candidate may serve the moved-cap variant: ${explainOf(variant1)}")
         order_qt_r40_moved_cap """
             SELECT a.k AS ak, b.k AS bk
             FROM (SELECT k FROM spm_r40_t ORDER BY k LIMIT 1) a

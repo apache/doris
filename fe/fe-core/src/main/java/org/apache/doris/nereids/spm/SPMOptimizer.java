@@ -201,7 +201,7 @@ public class SPMOptimizer {
             // FALSE. ADD PARTITION p99 + a 99 row changes no value schemaFingerprint
             // hashes (the table id and base columns are unchanged), so the same query
             // kept hitting the frozen baseline and returned zero rows instead of the
-            // new row (reviewer round-40 #11). Excluding the rule keeps the live scan +
+            // new row. Excluding the rule keeps the live scan +
             // filter in the captured plan; the frozen SQL carries no partition pin
             // (only a MANUAL PARTITION(...) is ever rendered), so the replay re-derives
             // the selection against the partition set of ITS time - exactly like a
@@ -210,10 +210,10 @@ public class SPMOptimizer {
     );
 
     /**
-     * Test seam (round-38 #1): the factory that creates the nested statement context the
+     * Test seam: the factory that creates the nested statement context the
      * baseline plan is produced under, so a unit test can observe that it is CLOSED on
      * both the success and the failure path. Null in production (a plain
-     * {@link StatementContext} is created).
+     * StatementContext is created).
      */
     @VisibleForTesting
     static volatile BiFunction<ConnectContext, String, StatementContext>
@@ -241,23 +241,23 @@ public class SPMOptimizer {
      * Installs the REPLAY-side rule mask on a replaying statement's context: every
      * MATERIALIZED_VIEW rewrite is forbidden while the frozen plan is re-planned.
      *
-     * <p>The frozen plan was produced under the SPM whitelist (see {@link #optimize}) -
+     * The frozen plan was produced under the SPM whitelist (see optimize) -
      * every MV rewrite excluded - so its fingerprint pins the SOURCE tables. The replay
      * is normally planned with the session's full rule set, and an MV that became
      * eligible AFTER the baseline was created (the reported case: an async MTMV over the
      * very query, built and refreshed later) then substitutes the MV's storage table for
      * the source table. The post-plan fingerprint guard
-     * ({@code SPMPlanner#verifyReplayMetadata}, which pins the frozen plan's tables)
-     * rejects its own replay and, with the default {@code enable_spm_fallback=false}, the
+     * (SPMPlanner#verifyReplayMetadata, which pins the frozen plan's tables)
+     * rejects its own replay and, with the default enable_spm_fallback=false, the
      * SELECT fails although the source table has not changed.
      *
-     * <p>The mask is deliberately NARROWER than the CREATE-side whitelist: it forbids
+     * The mask is deliberately NARROWER than the CREATE-side whitelist: it forbids
      * exactly the rules that SUBSTITUTE one table for another. The remaining
      * SPM-excluded rules are optimization opportunities that a re-plan may legally take
      * (they either keep the frozen tables - salt join, structural rewrites, predicate
      * inference - or their absence would break semantics: ELIMINATE_LIMIT turns the
      * CALLER's LIMIT 0 into an empty relation, and a full CREATE mask forbids it, which
-     * replayed {@code LIMIT 0} as one row). Rules that REMOVE a table (UK / FK join
+     * replayed LIMIT 0 as one row). Rules that REMOVE a table (UK / FK join
      * elimination, aggregate-to-constant) keep their established fail-closed behavior:
      * the fingerprint mismatch surfaces through the caller's fallback policy.
      *
@@ -271,7 +271,7 @@ public class SPMOptimizer {
 
     /**
      * The replay mask: one bit per materialized-view rewrite rule
-     * ({@link RuleType#isMaterializedViewRule()}, so newly added MV rules are covered
+     * (RuleType#isMaterializedViewRule(), so newly added MV rules are covered
      * automatically).
      *
      * @return the forbidden-rule mask of the whole MV family
@@ -496,7 +496,7 @@ public class SPMOptimizer {
             sessionVar.inlineCTEReferencedThreshold = originalInlineCteThreshold;
             sessionVar.cteInlineMode = originalCteInlineMode;
             ctx.setStatementContext(originalCtx);
-            // Round-38 #1: the nested statement context OWNS everything the nested plan
+            // The nested statement context OWNS everything the nested plan
             // registered on it - the connector scope an external (e.g. Iceberg) bind
             // installed, whose table-cache lease / tracked tables are released only by
             // close() (connectorStatementScope.closeAll), plus its planner resources
@@ -512,7 +512,7 @@ public class SPMOptimizer {
     /**
      * Creates the nested statement context of one baseline-plan optimization. The context
      * is closed in the caller's finally (see
-     * {@link #nestedStatementContextFactoryForTest} for the test seam).
+     * nestedStatementContextFactoryForTest for the test seam).
      */
     private static StatementContext createNestedStatementContext(ConnectContext ctx,
             String originSql) {

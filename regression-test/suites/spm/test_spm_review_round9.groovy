@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round9", "spm") {
 
-    // Ninth review round: end-to-end checks for
+    // End-to-end checks for
     //  - the one-row LIMIT sibling rule (LIMIT 1 / LIMIT 0 replay)
     //  - replay-time context expressions being rejected at CREATE time
     //  - the persisted creation sql_mode (PIPES_AS_CONCAT)

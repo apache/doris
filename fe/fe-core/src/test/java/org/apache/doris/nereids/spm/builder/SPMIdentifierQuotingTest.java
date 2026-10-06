@@ -23,8 +23,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Identifier quoting of the frozen SQL: every metadata component (catalog / db / table /
  * column) is emitted as an identifier, never as raw SQL text. Doris allows quoted names
- * containing operators, so a column {@code `a-b`} frozen as {@code SELECT a-b} would be
- * re-parsed at replay as the subtraction {@code a - b} and could return a different
+ * containing operators, so a column `a-b` frozen as SELECT a-b would be
+ * re-parsed at replay as the subtraction a - b and could return a different
  * value; embedded backticks are doubled so the quoted form round-trips.
  *
  * Plain names stay verbatim so ordinary schemas keep byte-identical frozen SQL.

@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round26", "spm") {
 
-    // Twenty-sixth review round: the manual plan may not choose its own SCAN SELECTION.
+    // The manual plan may not choose its own SCAN SELECTION.
     //
     //  - #6: bind 'SELECT k FROM t' WITH 'SELECT k FROM t PARTITION(p1)' is initially
     //    equivalent (only p1 exists), but after ADD PARTITION p2 the UNPINNED caller

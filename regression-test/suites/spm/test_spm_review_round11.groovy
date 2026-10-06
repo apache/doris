@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round11", "spm") {
 
-    // Eleventh review round: end-to-end checks for
+    // End-to-end checks for
     //  - the distributed TopN fold: a captured LIMIT 200 OFFSET 1 must freeze as ONE
     //    semantic LIMIT (MERGE(200,1) -> LOCAL(201,0) is one plan), so a later matched
     //    LIMIT 300 OFFSET 1 really returns 300 rows instead of being capped at 201

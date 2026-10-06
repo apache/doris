@@ -155,7 +155,7 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
             }
             // NOT the marker: a real global UDF of the same name whose first argument is
             // not an integer literal. Its OTHER arguments may still carry genuine markers
-            // (round-41 #2) - returning the call unchanged left them substituted never,
+            // - returning the call unchanged left them substituted never,
             // and the residue scan then rejected a persisted frozen baseline that has no
             // parameterized-tree fallback. Fall through and rebuild the arguments.
         }

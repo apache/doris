@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round27", "spm") {
 
-    // Twenty-seventh review round: replay side stability and the SHOW / CREATE surfaces.
+    // Replay side stability and the SHOW / CREATE surfaces.
     //
     //  - #1: a baseline is produced under the SPM rule whitelist (every MV rewrite
     //    excluded), so its fingerprint freezes the SOURCE table. The replay used to be

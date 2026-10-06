@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 /**
- * Tenth review round: master-handoff safety of the global baseline store.
+ * Master-handoff safety of the global baseline store.
  *
  * - Id allocation is collision-safe: an already-running forwarded CREATE / capture cycle
  *   dispatched by an OLD master is fenced by the CURRENT leadership, and when the probe
@@ -84,31 +84,31 @@ public class BaselineManagerConcurrencyTest {
         private boolean injectOnFirstProbe;
         private long injectedId = -1;
         /**
-         * The id high-water mark of the append-only SEQUENCE table (round-32 #2): the ids
+         * The id high-water mark of the append-only SEQUENCE table: the ids
          * the create path has RESERVED, which survive a DROP of the row that held them -
          * exactly the durable state the baselines table's own MAX(id) loses.
          */
         private long reservedHighWater;
         /**
          * The LATEST identity record of each key, in the shape production reads it
-         * ({@code (last_id, reserve_time, unconfirmed, dropped)}): the plain pre-INSERT
-         * reservation every create appends (round-44 #5 - while its row is unreadable
+         * ((last_id, reserve_time, unconfirmed, dropped)): the plain pre-INSERT
+         * reservation every create appends ( - while its row is unreadable
          * and the record young it FENCES, exactly like the explicit marker), replaced by
          * the UNCONFIRMED marker of an ambiguous write or by a DROP TOMBSTONE.
          */
         private final Map<String, long[]> keyedReservations = new ConcurrentHashMap<>();
 
         /**
-         * When set, every by-id read AFTER an identity delete fails (round-35 #1): the
+         * When set, every by-id read AFTER an identity delete fails: the
          * lingering-row cleanup of a DROP cannot be completed.
          */
         private boolean failReadAfterDelete;
         private boolean deleted;
         /** When set, every identity delete removes the row and THEN reports an error
-         *  (a COMMITTED delete whose statement timed out - round-41 #10). */
+         *  (a COMMITTED delete whose statement timed out - ). */
         private boolean failDeleteAfterCommit;
         /** When set, every identity delete reports an error WITHOUT removing the row
-         *  (an ambiguous delete whose commit is unknown - round-41 #10). */
+         *  (an ambiguous delete whose commit is unknown - ). */
         private boolean failDeleteKeepingRow;
 
         private static String seqKey(String bindSqlDigest, long planSqlHash) {
@@ -126,7 +126,7 @@ public class BaselineManagerConcurrencyTest {
         }
 
         /**
-         * The identity-carrying reservation (round-39 #4; round-44 #5: it RECORDS the
+         * The identity-carrying reservation (it RECORDS the
          * identity - production reads the latest record of the key, so a plain
          * reservation whose row stays unreadable fences a cross-FE retry for the durable
          * bound even when the explicit marker write failed / lagged).
@@ -147,7 +147,7 @@ public class BaselineManagerConcurrencyTest {
                     new long[] {id, atMillis, 1, 0});
         }
 
-        /** The DROP TOMBSTONE of one identity (round-42 #9 / round-44 #4). */
+        /** The DROP TOMBSTONE of one identity ( / ). */
         @Override
         public void appendDroppedMarker(long id, String bindSqlDigest, long planSqlHash,
                 long atMillis) {
@@ -163,13 +163,13 @@ public class BaselineManagerConcurrencyTest {
                     entry[0], entry[1], entry[2] == 1, entry[3] == 1);
         }
 
-        /** Round-40 #7: the marker DELETE of a resolved ambiguous write. */
+        /** The marker DELETE of a resolved ambiguous write. */
         @Override
         public void retirePendingSeqState(String bindSqlDigest, long planSqlHash, long markerId) {
             long[] entry = keyedReservations.get(seqKey(bindSqlDigest, planSqlHash));
             if (entry != null && entry[0] == markerId) {
                 // the UNCONFIRMED row is DELETEd; the plain pre-INSERT reservation row of
-                // the same attempt stays behind (round-44 #5) - it keeps the id and the
+                // the same attempt stays behind - it keeps the id and the
                 // watermark, just without the marker semantics
                 keyedReservations.put(seqKey(bindSqlDigest, planSqlHash),
                         new long[] {entry[0], entry[1], 0, 0});
@@ -177,7 +177,7 @@ public class BaselineManagerConcurrencyTest {
         }
 
         /**
-         * Ages EVERY identity record (round-44: the fence of a plain reservation bounds a
+         * Ages EVERY identity record (the fence of a plain reservation bounds a
          * RECENT unresolved write - a create that happened long ago must not defer a
          * legitimate re-create of its key).
          */
@@ -188,7 +188,7 @@ public class BaselineManagerConcurrencyTest {
             }
         }
 
-        /** The table-wide newest stored update_time (round-39 #9). */
+        /** The table-wide newest stored update_time. */
         @Override
         public long newestStoredUpdateSecond() {
             long max = 0;
@@ -294,10 +294,10 @@ public class BaselineManagerConcurrencyTest {
     // ==================== #1: deterministic id-collision resolution ====================
 
     /**
-     * round-32 #2: a DROP must not make the id reusable. The baselines table's own MAX(id)
+     * A DROP must not make the id reusable. The baselines table's own MAX(id)
      * loses the highest id with its row, so a FE that never saw that row (a follower
      * promoting after the drop) would hand the id to a DIFFERENT baseline - and a delayed
-     * {@code DROP BASELINE PLAN IF EXISTS N} retry for the old row would delete the new
+     * DROP BASELINE PLAN IF EXISTS N retry for the old row would delete the new
      * one. The append-only id sequence outlives the row.
      */
     @Test
@@ -538,7 +538,7 @@ public class BaselineManagerConcurrencyTest {
         return plan;
     }
 
-    // ==================== confirmed post-forward DDL refresh (round-13) ====================
+    // ==================== confirmed post-forward DDL refresh ====================
 
     /**
      * loaded == true and the post-DDL read fails transiently: the old best-effort refresh
@@ -631,7 +631,7 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== status publishes only after durable success (round-14) ====================
+    // ==================== status publishes only after durable success ====================
 
     /**
      * The live object must NOT flip before the durable row exists: matching readers do
@@ -702,7 +702,7 @@ public class BaselineManagerConcurrencyTest {
             updater.join(10_000);
             Assertions.assertNotNull(failure.get(),
                     "the failed INSERT must surface (ALTER reports failure)");
-            // round-41 #7: a read cannot PROVE the INSERT wrote nothing (publication of a
+            // A read cannot PROVE the INSERT wrote nothing (publication of a
             // committed row lags), so the obsolete entry must stop serving matching and
             // the id stays fenced until the table shows the outcome - keeping the old
             // ENABLED state live let this FE replay a baseline whose committed DISABLED
@@ -717,7 +717,7 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== promotion window / stale fingerprint (round 16) ====================
+    // ==================== promotion window / stale fingerprint ====================
 
     /** A protocol store recording every write it receives. */
     private static final class RecordingProtocolStore
@@ -859,10 +859,10 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== round-24: handoff fencing of the status flip ====================
+    // ====================: handoff fencing of the status flip ====================
 
     /**
-     * Status store simulating both round-24 races: a handoff landing between the flip's
+     * Status store simulating both races: a handoff landing between the flip's
      * two writes (the delayed DELETE) and a DROP completing while the ALTER was stalled
      * (the conditional INSERT finds no previous row).
      */
@@ -909,7 +909,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-24: the DELETE half of a status flip is fenced like the identity delete. An
+     * The DELETE half of a status flip is fenced like the identity delete. An
      * old master can run ALTER N ENABLED->DISABLED, insert the DISABLED row and be
      * demoted before its DELETE(ENABLED) executes; the new master then completes ALTER N
      * ENABLE (INSERT ENABLED + DELETE DISABLED) and the delayed DELETE would remove the
@@ -948,7 +948,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-24: the INSERT half of a status flip is CONDITIONAL on the previous-status
+     * The INSERT half of a status flip is CONDITIONAL on the previous-status
      * row. A DROP that completed while the ALTER was stalled (the old master passed its
      * leadership check, then lost the master before its INSERT landed) must not be
      * resurrected: the conditional statement writes nothing and the ALTER fails retryably
@@ -1027,10 +1027,10 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== round-25: forwarded-DDL visibility and collision fencing ====================
+    // ====================: forwarded-DDL visibility and collision fencing ====================
 
     /**
-     * round-25 #1: the post-forward refresh must SYNCHRONIZE with the master BEFORE it
+     * The post-forward refresh must SYNCHRONIZE with the master BEFORE it
      * reads the snapshot. A forwarded GLOBAL DDL (FORWARD_NO_SYNC) carries no journal wait
      * of its own, so a follower's still-visible OLD version would be read and published as
      * the "confirmed" post-DDL state - after a DROP the removed baseline would keep being
@@ -1071,7 +1071,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * Round-28 #3: the post-forward journal synchronization is part of the FAIL-CLOSED
+     * The post-forward journal synchronization is part of the FAIL-CLOSED
      * path. A forwarded GLOBAL DROP / DISABLE can commit on the master before
      * afterForwardToMaster reaches the refresh, so a sync timeout must not leave the
      * published cache as it is: loaded, baselines and the hash index would keep the old
@@ -1124,7 +1124,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * Round-28 #6: the whole-table snapshot read is PAGINATED, because one SELECT * over a
+     * The whole-table snapshot read is PAGINATED, because one SELECT * over a
      * table without a retention cap had to return every row inside the fixed per-query
      * timeout - once the snapshot outgrew it the read failed as a whole and never
      * converged. The loop walks the id space with an INCLUSIVE lower bound, so an id
@@ -1160,9 +1160,9 @@ public class BaselineManagerConcurrencyTest {
 
     /**
      * A faithful page reader over an in-memory table (see
-     * {@link BaselineManager#collectSnapshotPages}): rows with {@code id >= pageStart}
-     * (every row for the first page), ordered by id, skipping {@code offset} rows and
-     * returning at most {@code pageSize} of them.
+     * BaselineManager#collectSnapshotPages): rows with id >= pageStart
+     * (every row for the first page), ordered by id, skipping offset rows and
+     * returning at most pageSize of them.
      */
     private static BaselineManager.SnapshotPageReader tableReader(
             Map<Long, List<BaselinePlan>> table, int pageSize) {
@@ -1176,7 +1176,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-33 #4: an id group can hold MORE rows than one snapshot page. The ALTER
+     * An id group can hold MORE rows than one snapshot page. The ALTER
      * protocol deliberately keeps the old-status row when its delete fails, so repeated
      * opposite-status failures grow the group by one row per flip. The walk must read the
      * WHOLE group (row offset within the inclusive bound): jumping past it after the first
@@ -1217,8 +1217,8 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-38 #3: an OFFSET continuation that lands inside an id group is only sound when
-     * the page order is a TOTAL order over that group's rows. With {@code ORDER BY `id`}
+     * An OFFSET continuation that lands inside an id group is only sound when
+     * the page order is a TOTAL order over that group's rows. With ORDER BY `id`
      * alone the engine may return a repeated id's rows in ANY order in EVERY execution
      * (SQL promises nothing for equal sort keys): page one ends on the OLD row of the
      * group, the continuation's OFFSET then re-reads that row and skips the NEWER one -
@@ -1260,7 +1260,7 @@ public class BaselineManagerConcurrencyTest {
      * A page reader emulating an engine that HONORS the ORDER BY the manager requested but
      * is FREE to order rows that remain tied under it differently in every execution (SQL
      * promises nothing for equal sort keys): on the second and later calls it reverses
-     * every run of rows that tie under the DECLARED order. Under {@code ORDER BY `id`} that
+     * every run of rows that tie under the DECLARED order. Under ORDER BY `id` that
      * reproduces the reviewer's reordering (the two rows of one id tie); under the total
      * order the rows no longer tie, so the same engine cannot re-order them and the
      * continuation reads the group completely.
@@ -1333,7 +1333,7 @@ public class BaselineManagerConcurrencyTest {
     /**
      * Reverses every maximal run of rows that remain EQUAL under the declared order - the
      * engine may emit such rows in any order in any execution (see
-     * {@link #tieReorderingReader}).
+     * tieReorderingReader).
      */
     private static void reverseTiedRuns(List<ResultRow> rows, List<String> keys) {
         java.util.Comparator<ResultRow> comparator = comparatorOf(keys);
@@ -1349,7 +1349,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-33 #4 (fail-closed side): the fence alone cannot see a TRUNCATED page - a
+     * (fail-closed side): the fence alone cannot see a TRUNCATED page - a
      * partial result looks exactly like a short, completed page. The loop reads every row
      * exactly once, so the rows it read must equal the fence's row count; when they do not
      * (e.g. an internal-query row limit cancelled a page and dropped its whole result),
@@ -1384,7 +1384,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-33 #1: a status flip whose INSERT reported SQL OK with the transaction
+     * A status flip whose INSERT reported SQL OK with the transaction
      * COMMITTED - only the PUBLICATION lags past every probe - IS durable, and the
      * old-status row is still readable because the DELETE half never ran. Keeping the OLD
      * cached status (which the old-row reconciliation below does, since it cannot confirm
@@ -1433,7 +1433,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-33 #2: a CREATE whose INSERT committed but stayed unreadable is remembered as
+     * A CREATE whose INSERT committed but stayed unreadable is remembered as
      * a pending create. When the referenced table changes (ALTER TABLE t ADD COLUMN x)
      * before the client retries, the retry carries the NEW schema fingerprint. Matching
      * the pending write by digest + planSql alone adopted the OLD-fingerprint row and
@@ -1480,10 +1480,10 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * Round-31 #3: the paginated snapshot must describe ONE state of the table. The loop
+     * The paginated snapshot must describe ONE state of the table. The loop
      * issues one SELECT per page and the internal table offers no read view, so a DDL
-     * committing between two pages would be merged into a state that never existed: the
-     * review example reads ENABLED low-id A on page 1, the master drops A and creates
+     * committing between two pages would be merged into a state that never existed: a
+     * concrete example reads ENABLED low-id A on page 1, the master drops A and creates
      * high-id B, page 2 reads B - the published map kept BOTH, so SHOW reported the
      * completed DROP and matching replayed A until the next refresh. The fence (MAX(id) /
      * COUNT(*) / MAX(update_time)) is read before AND after the loop; when it moved, the
@@ -1532,7 +1532,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * Round-31 #3 (fail-closed side): a table that never stays stable while its snapshot is
+     * (fail-closed side): a table that never stays stable while its snapshot is
      * read must NOT be published - a mixed state would let a dropped / re-created baseline
      * keep replaying until the next refresh. The read gives up after its bounded retries
      * with a RETRYABLE error (every caller re-reads on its next cycle).
@@ -1563,7 +1563,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-25 #2: when the id-collision repair loses leadership the CREATE must FAIL. The
+     * When the id-collision repair loses leadership the CREATE must FAIL. The
      * competing row is a DIFFERENT baseline another master already returned under the same
      * id, so publishing / returning the id with both rows alive would let a reload pick the
      * other incarnation - this caller's baseline would silently not exist.
@@ -1652,10 +1652,10 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== SHOW uses the confirmed read (round-15) ====================
+    // ==================== SHOW uses the confirmed read ====================
 
     /**
-     * round-42 #9: a DROP TOMBSTONE must filter a durable row a delayed status write
+     * A DROP TOMBSTONE must filter a durable row a delayed status write
      * revived. The status flip INSERTs the new row BEFORE deleting the old one, so a
      * demoted master's in-flight INSERT can commit AFTER the DROP removed the row - its
      * conditional precondition ran against the pre-DROP snapshot and Doris cannot
@@ -1704,7 +1704,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-43 #1: right after a completed DROP, a fresh FE filters the dropped row from
+     * Right after a completed DROP, a fresh FE filters the dropped row from
      * its snapshot with the readable tombstone while a by-KEY lookup (the cached
      * duplicate / the durable-key read) still sees the pre-delete row during the delete's
      * publication delay. Adopting it reported CREATE success for the dropped baseline -
@@ -1749,7 +1749,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-43 #1 (pending-create half): a committed-but-unreadable CREATE is ADOPTED by
+     * (pending-create half): a committed-but-unreadable CREATE is ADOPTED by
      * id when its row finally publishes. If the identity was DROPPED in the meantime (the
      * delayed row and the tombstone are both readable, only the DELETE lags), adopting it
      * reported success for the dropped baseline. The retry must allocate a FRESH identity
@@ -1796,7 +1796,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-43 #1 (ALTER half): the cache-miss reconciliation of an ALTER must not adopt a
+     * (ALTER half): the cache-miss reconciliation of an ALTER must not adopt a
      * row whose DROP completed - the row only lags its own delete, and reporting the ALTER
      * against it would modify a baseline on its way out.
      */
@@ -1829,7 +1829,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-42 #2: a forwarded CREATE's outcome fence cannot name the master's id (the
+     * A forwarded CREATE's outcome fence cannot name the master's id (the
      * follower cannot know which id the master allocated), so the expectation matches ANY
      * id that carries the created bind+plan TEXT - and a snapshot without it does not
      * satisfy the fence.
@@ -1855,7 +1855,7 @@ public class BaselineManagerConcurrencyTest {
      * SHOW BASELINE PLANS used the ASYNCHRONOUS getAllBaselines(): right after startup / a
      * promotion (empty map, load not finished) it listed ZERO rows although durable
      * baselines existed, and a failed read never converged. The command now requires a
-     * confirmed read (confirmGlobalRowsForShow, the same path round-27 exercises for
+     * confirmed read (confirmGlobalRowsForShow, the same path exercises for
      * GLOBAL DDL completed on another FE); the query-matching read stays nonblocking and
      * empty.
      */
@@ -1890,10 +1890,10 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== authoritative SHOW rows (round-27) ====================
+    // ==================== authoritative SHOW rows ====================
 
     /**
-     * Round-27: on a NON-master FE whose cache is already loaded, ensureLoadedConfirmed()
+     * On a NON-master FE whose cache is already loaded, ensureLoadedConfirmed
      * returned immediately and getAllBaselines() copied the OLD map - so a GLOBAL DDL the
      * master completed after this FE's load stayed invisible (a completed DROP stayed
      * listed) until the next refresh daemon cycle. The SHOW path now re-reads the durable
@@ -1937,7 +1937,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * Round-27: when the authoritative read fails, SHOW must fail retryably instead of
+     * When the authoritative read fails, SHOW must fail retryably instead of
      * printing the old cache as if it were confirmed. The published cache is NOT
      * invalidated (no committed write is known to have happened, unlike the
      * forwarded-DDL path), so query matching keeps its state and the next SHOW retries.
@@ -1969,19 +1969,19 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== unresolved deletes / temporary markers (round-18) ====================
-    // ==================== unresolved deletes / temporary markers (round-18) ====================
+    // ==================== unresolved deletes / temporary markers ====================
+    // ==================== unresolved deletes / temporary markers ====================
 
     /** Scripted identity store: the durable rows plus injectable read / delete failures. */
     private static final class IdentityStoreSimulator
             implements BaselineManager.IdAllocatorStoreForTest {
         private final Map<Long, BaselinePlan> rows = new java.util.concurrent.ConcurrentHashMap<>();
-        /** The DROP TOMBSTONES (round-42 #9) this FE appended, as id|digest|planSqlHash. */
+        /** The DROP TOMBSTONES this FE appended, as id|digest|planSqlHash. */
         private final List<String> dropped = new java.util.concurrent.CopyOnWriteArrayList<>();
         private boolean failDelete;
         private boolean failRead;
 
-        /** Appends the tombstone a completed DROP of {@code row} would have written. */
+        /** Appends the tombstone a completed DROP of row would have written. */
         void appendTombstone(BaselinePlan row) {
             dropped.add(row.getId() + "|" + row.getBindSqlDigest() + "|"
                     + org.apache.doris.nereids.spm.SPMUtils.hashOf(row.getPlanSql()));
@@ -2028,7 +2028,7 @@ public class BaselineManagerConcurrencyTest {
 
     /**
      * A failed DELETE whose reconciliation READ also fails must NOT be reported as a
-     * success, and the possibly-deleted entry must leave the matchable cache (round-41
+     * success, and the possibly-deleted entry must leave the matchable cache
      * #10): the committed delete may merely lag its publication, and keeping the entry
      * let ordinary queries replay a baseline the user dropped until a refresh. The fence
      * holds the id out of every applied snapshot until a durable readback resolves it.
@@ -2078,7 +2078,7 @@ public class BaselineManagerConcurrencyTest {
 
     /**
      * The temporary-table marker inside ordinary TEXT (a predicate literal like
-     * {@code s = '_#TEMP#_'} or a comment) is NOT a temporary-relation reference: the old
+     * s = '_#TEMP#_' or a comment) is NOT a temporary-relation reference: the old
      * raw substring test rejected the persisted bind SQL on every refresh, so the
      * baseline silently vanished from every FE although its row stayed durable.
      */
@@ -2108,7 +2108,7 @@ public class BaselineManagerConcurrencyTest {
                 "0", "0", "false", ""));
     }
 
-    // ==================== promotion-window reconciliation (round-19) ====================
+    // ==================== promotion-window reconciliation ====================
 
     /**
      * A promoted follower can have loaded=true with a snapshot that MISSES a row created
@@ -2202,7 +2202,7 @@ public class BaselineManagerConcurrencyTest {
         private boolean failOldDeleteAfterCommit;
         private boolean failOldDeleteWithoutCommit;
         /**
-         * When set together with {@link #failOldDeleteWithoutCommit}, the reconciliation
+         * When set together with failOldDeleteWithoutCommit, the reconciliation
          * reads that follow the failed delete are UNCONFIRMABLE as well (every count
          * throws): the outcome is then genuinely unknown.
          */
@@ -2322,9 +2322,9 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-34 #1: SQL OK does NOT prove the conditional INSERT wrote a row. Across a
+     * SQL OK does NOT prove the conditional INSERT wrote a row. Across a
      * handoff the old leader can precheck ENABLED, pause, and then run its
-     * {@code INSERT ... SELECT ... WHERE status = 'ENABLED'} AFTER the new master disabled
+     * INSERT ... SELECT ... WHERE status = 'ENABLED' AFTER the new master disabled
      * the baseline: the statement matches nothing, and if the new master re-ENABLEs before
      * the old leader checks, the previous row is present AGAIN - the old "previous row is
      * gone" conflict check stays silent while every new-status probe fails, so treating the
@@ -2361,8 +2361,8 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-34 #5: the internal DATETIME stores only SECONDS. A DISABLE followed by an
-     * ENABLE inside one second left EQUAL durable timestamps, and {@code pickDurableWinner}
+     * The internal DATETIME stores only SECONDS. A DISABLE followed by an
+     * ENABLE inside one second left EQUAL durable timestamps, and pickDurableWinner
      * prefers DISABLED on a tie - the refresh / restart silently reversed the later ENABLE
      * while this FE served it. A flip therefore advances its row past the newest existing
      * stored SECOND.
@@ -2406,7 +2406,7 @@ public class BaselineManagerConcurrencyTest {
 
     /**
      * The affected-row signal of the conditional status INSERT (see
-     * {@code BaselineManager#insertWroteRows}): 0 means the statement matched no
+     * BaselineManager#insertWroteRows): 0 means the statement matched no
      * previous-status row and wrote NOTHING, anything else (including "unknown") counts as
      * written and is then subject to the visibility confirmation.
      */
@@ -2422,7 +2422,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-30 #2 / round-34 #2: an UNCONFIRMABLE old-row delete can no longer lose the
+     * /: an UNCONFIRMABLE old-row delete can no longer lose the
      * only other durable version - the confirmed INSERT alone decides the winner, so both
      * rows stay and the cache follows the new status.
      */
@@ -2455,7 +2455,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-30 #4: a status ROUND TRIP (ENABLED at T0 -> DISABLE at T1 -> ENABLE at T2)
+     * A status ROUND TRIP (ENABLED at T0 -> DISABLE at T1 -> ENABLE at T2)
      * leaves every compared field at its T0 value, so the refresh discarded the fresh T2
      * row and kept reporting the stale T0 object forever (SHOW included). The persisted
      * update_time takes part in the comparison at the table's SECOND precision.
@@ -2491,7 +2491,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-30 #7: an INSERT can report SQL OK (committed) while no read sees the row. The
+     * An INSERT can report SQL OK (committed) while no read sees the row. The
      * CREATE fails retryably - but the id IS consumed. A client retry that allocated a
      * second id would write the same baseline twice: both rows publish under different
      * ids, and dropping the id the client was told about leaves the other one ACTIVE. The
@@ -2543,7 +2543,7 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== round-22: write visibility is confirmed ====================
+    // ====================: write visibility is confirmed ====================
 
     /**
      * An internal INSERT can report OK with the transaction merely COMMITTED: the create
@@ -2637,10 +2637,10 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== round-41: pending mutation fences ====================
+    // ====================: pending mutation fences ====================
 
     /**
-     * round-41 #7: the conditional status INSERT may commit while its row stays unreadable
+     * The conditional status INSERT may commit while its row stays unreadable
      * (the statement reported an error and the old row is still the only readable one).
      * Reconciling against that readable row left the OLD status replayable until a later
      * refresh; now the entry is fenced out - matching falls back - until the durable table
@@ -2685,7 +2685,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-41 #13: a committed DISABLE whose new row is temporarily unreadable must
+     * A committed DISABLE whose new row is temporarily unreadable must
      * survive a daemon snapshot that still carries the old ENABLED row.
      */
     @Test
@@ -2726,7 +2726,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-41 #10: an identity DELETE whose outcome is UNKNOWN (it reported an error
+     * An identity DELETE whose outcome is UNKNOWN (it reported an error
      * while the row is still readable - the delete may have committed with its
      * publication lagging) must not leave the dropped baseline replayable: the entry
      * leaves the cache immediately, and the fence keeps a later stale snapshot from
@@ -2767,7 +2767,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-41 #10, committed variant: the DELETE removed the row and THEN reported an
+     * committed variant: the DELETE removed the row and THEN reported an
      * error (a statement timeout after commit). The reported error still surfaces on a
      * retry-able path, but the drop itself is treated as landed (the row is gone) and the
      * fence keeps a stale snapshot from bringing it back.
@@ -2805,7 +2805,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-41 #13: a completed DROP whose delete publication lags every probe must not be
+     * A completed DROP whose delete publication lags every probe must not be
      * re-added by a later daemon snapshot that still contains the row.
      */
     @Test
@@ -2840,7 +2840,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-41 #3: a forwarded GLOBAL DDL whose expected outcome never becomes visible is
+     * A forwarded GLOBAL DDL whose expected outcome never becomes visible is
      * RETAINED as a fence - a later read on THIS FE (SHOW's confirmed read, the daemon)
      * must keep masking the contradicting old row, not just the forwarded statement.
      */
@@ -2877,7 +2877,7 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== round-23: durable identity reconciliation ====================
+    // ====================: durable identity reconciliation ====================
 
     /**
      * A REUSED id must not let the CREATE duplicate fast path hand back an id whose
@@ -2898,7 +2898,7 @@ public class BaselineManagerConcurrencyTest {
             reused.setId(originalId);
             reused.setStatus(BaselineStatus.ENABLED);
             store.replaceRows(originalId, List.of(reused));
-            // the reuse happened long AFTER the original create: the round-44 #5 fence
+            // the reuse happened long AFTER the original create: the fence
             // bounds a RECENT unresolved write, so the legit re-create must not defer
             store.ageReservations(6 * 60 * 1000L);
 
@@ -3005,7 +3005,7 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== round-20: ALTER cache-miss / winner reconciliation ====================
+    // ====================: ALTER cache-miss / winner reconciliation ====================
 
     /**
      * A promoted follower can serve a snapshot that PREDATES a CREATE the previous
@@ -3162,7 +3162,7 @@ public class BaselineManagerConcurrencyTest {
             Assertions.assertThrows(RuntimeException.class,
                     () -> manager.updateStatus(id, BaselineStatus.DISABLED),
                     "an INSERT that never committed must not be confirmed by the OLD row");
-            // round-41 #7: the outcome is unproven (a committed row may merely lag its
+            // The outcome is unproven (a committed row may merely lag its
             // publication), so the ENABLED entry stops serving matching and the id is
             // fenced until the table shows the outcome - the old row's presence must
             // never be read as confirmation of the requested status
@@ -3181,11 +3181,11 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== round-26 #4: the load slot is claimed before spawning ====================
+    // ====================: the load slot is claimed before spawning ====================
 
     /**
-     * Concurrent SPM queries used to check {@code loaded} / {@code loadInProgress} and
-     * then each start an {@code spm-baseline-async-load} thread; only the CAS winner
+     * Concurrent SPM queries used to check loaded / loadInProgress and
+     * then each start an spm-baseline-async-load thread; only the CAS winner
      * INSIDE the thread performed the read, every other thread exited immediately - a
      * query burst (worst while the internal table is unreadable) created a throwaway
      * thread per caller. The slot is now claimed atomically at SCHEDULING time: while
@@ -3233,7 +3233,7 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== round-26 #5: the create-path dedup is INDEXED ====================
+    // ====================: the create-path dedup is INDEXED ====================
 
     /**
      * Every GLOBAL CREATE filtered (bind_sql_digest, plan_sql) in SQL, but the table is
@@ -3304,10 +3304,10 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== round-35: drop eviction + transition evidence ================
+    // ====================: drop eviction + transition evidence ================
 
     /**
-     * round-35 #1: persistDeleteByIdentity CONFIRMS the requested row is gone, then
+     * PersistDeleteByIdentity CONFIRMS the requested row is gone, then
      * wipeDurableRowsById reads the table AGAIN to clean up a lingering OTHER
      * incarnation. When that cleanup read fails, the DROP reported the failure but the
      * cached ENABLED entry stayed in the map - ordinary queries kept matching and
@@ -3346,11 +3346,11 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-35 #2: a previously failed old-row DELETE can leave a STALE row of the OLD
-     * status beside the winner (round-30 keeps both rows when the delete outcome is
+     * A previously failed old-row DELETE can leave a STALE row of the OLD
+     * status beside the winner ( keeps both rows when the delete outcome is
      * unknown). The status-only evidence then accepted that stale row as the publication
      * of an ENABLE whose conditional INSERT ABORTED: the probe found the leftover ENABLED
-     * row of the failed DISABLE and {@code confirmInsertVisible} agreed, so a failed
+     * row of the failed DISABLE and confirmInsertVisible agreed, so a failed
      * DISABLED delete published ENABLED + success while a durable reload still picks the
      * DISABLED winner. The attempted STORED SECOND is the discriminator: a flip stores
      * its row strictly later than every row it met.
@@ -3388,7 +3388,7 @@ public class BaselineManagerConcurrencyTest {
 
     /**
      * The visibility confirmation of a JUST-WRITTEN row asks for the ATTEMPTED stored
-     * second (round-35 #2): a simulator that models the stale-row case implements the
+     * second: a simulator that models the stale-row case implements the
      * three-argument form and must receive the attempted row's update time.
      */
     @Test
@@ -3426,10 +3426,10 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    // ==================== round-39: unresolved creates, identity, epochs ====================
+    // ====================: unresolved creates, identity, epochs ====================
 
     /**
-     * round-39 #11: an INSERT error may be raised AFTER a commit (a statement timeout),
+     * An INSERT error may be raised AFTER a commit (a statement timeout),
      * so it must surface as an UNCONFIRMED write: the create remembers the attempted
      * identity, the retry DEFERS (or adopts) instead of allocating a SECOND id, and no
      * baseline is published while the outcome is unresolved.
@@ -3478,7 +3478,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-39 #4: the promotion reload must NOT clear the pending-create registry - the
+     * The promotion reload must NOT clear the pending-create registry - the
      * reload cannot see an unpublished row, so the identity it describes is still the only
      * guard against a second id.
      */
@@ -3511,7 +3511,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-39 #4 (cross-FE): the retry after a TRUE leader transfer runs on an FE whose
+     * (cross-FE): the retry after a TRUE leader transfer runs on an FE whose
      * in-memory registry is empty. The identity-carrying id RESERVATION in the shared
      * sequence table is the durable fence: while its row is still unreadable the retry
      * defers instead of allocating a second id.
@@ -3554,7 +3554,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-39 #12: when the pending-create registry is FULL a NEW create fails admission
+     * When the pending-create registry is FULL a NEW create fails admission
      * BEFORE it writes; an unresolved identity is never EVICTED. Evicting the oldest entry
      * let a retry of that key see its reserved sequence id but neither its row nor a
      * pending record - it allocated a new id and both rows later published ENABLED.
@@ -3592,7 +3592,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-40 #5: a FULL registry of committed-but-unpublished creates must not keep
+     * A FULL registry of committed-but-unpublished creates must not keep
      * rejecting the retry of one of ITS OWN keys. The retry now resolves the remembered
      * write before the capacity check: the row had long become readable, so the record is
      * adopted (and retired) instead of throwing "registry is full".
@@ -3623,10 +3623,10 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-40 #5: a create of a DIFFERENT key while the registry is full RECONCILES the
+     * A create of a DIFFERENT key while the registry is full RECONCILES the
      * records first - their rows became readable (or their fence expired) and they stop
      * fencing - instead of refusing admission forever. Nothing is evicted while still
-     * unresolved (round-39 #12 keeps that property).
+     * unresolved ( keeps that property).
      */
     @Test
     public void testFullRegistryReconcilesPublishedCreatesForANewKey() {
@@ -3658,7 +3658,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-40 #7: adopting the committed row of an ambiguous create must RETIRE its
+     * Adopting the committed row of an ambiguous create must RETIRE its
      * durable marker. Left behind, the marker made a DROP + immediate re-CREATE of the
      * same bind/plan defer for the whole marker fence: the probe found the old marker and
      * the (dropped) row's absence and reported "still awaiting publication".
@@ -3707,7 +3707,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-40 #12: the durable adoption must check the reserved row's SCHEMA
+     * The durable adoption must check the reserved row's SCHEMA
      * FINGERPRINT. L1 committed under F1 and missed its probes; L2 takes over, an ALTER
      * TABLE changes the schema to F2, and the retry on L2 finds the now-readable F1 row.
      * Adopting it would report success for a baseline every replay rejects as stale - the
@@ -3755,7 +3755,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * Fills the pending-create registry with {@code 64} KEY-distinct ambiguous creates
+     * Fills the pending-create registry with 64 KEY-distinct ambiguous creates
      * (every INSERT throws before committing) and returns the id each attempt reserved.
      */
     private static List<Long> fillPendingRegistry(BaselineManager manager,
@@ -3771,7 +3771,7 @@ public class BaselineManagerConcurrencyTest {
         return reservedIds;
     }
 
-    /** Makes every committed-but-invisible row of {@link #fillPendingRegistry} readable. */
+    /** Makes every committed-but-invisible row of fillPendingRegistry readable. */
     private static void publishPendingRows(SimulatedStore store, String prefix,
             List<Long> reservedIds) {
         for (int i = 0; i < reservedIds.size(); i++) {
@@ -3782,7 +3782,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-39 #7: the leadership is re-checked immediately before the id RESERVATION and
+     * The leadership is re-checked immediately before the id RESERVATION and
      * immediately before the ROW write. A demoted FE could pass the loop-top check and
      * pause; the new master then created the same key under N+1, and the old FE's
      * forwarded INSERT left TWO enabled baselines for it.
@@ -3817,7 +3817,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-39 #9: after rapid flips gave ANOTHER baseline a FUTURE stored update_time,
+     * After rapid flips gave ANOTHER baseline a FUTURE stored update_time,
      * flipping this one used to keep update_time = now - dwarfed by the future row - so
      * neither MAX(id), COUNT(*) nor MAX(update_time) (the paginated snapshot fence)
      * changed and a refresh could merge two states while the fence accepted the mix. The
@@ -3852,7 +3852,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-39 #5: the conditional status INSERT matches the CACHED row's IDENTITY as
+     * The conditional status INSERT matches the CACHED row's IDENTITY as
      * well. With the cache holding B/id N while the durable winner is A/id N (a delayed
      * old-leader INSERT), matching only (id, previousStatus) wrote B's cached SQL with a
      * later timestamp - and the identity-scoped old-row DELETE cannot remove A, so a
@@ -3896,7 +3896,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-39 #14: a forwarded GLOBAL DDL's outcome is CONFIRMED before the snapshot may
+     * A forwarded GLOBAL DDL's outcome is CONFIRMED before the snapshot may
      * publish. A GLOBAL DISABLE can return success while its DISABLED row is committed but
      * unreadable; republishing the old ENABLED snapshot kept replaying a baseline the
      * master already disabled on that connection. The bounded re-reads converge when the
@@ -3947,7 +3947,7 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * Identity-keyed status store (round-39 #5): the conditional INSERT mirrors the
+     * Identity-keyed status store: the conditional INSERT mirrors the
      * durable statement's (id, previousStatus, digest, planSql) condition, so a flip can
      * only land on the SAME incarnation it was computed from.
      */

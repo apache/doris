@@ -112,8 +112,8 @@ public class AuditStreamLoader {
     }
 
     /**
-     * One response body read: the text plus whether it was read to its END (round-40
-     * #9). An {@code IOException} mid-read leaves a partial body that carries NO
+     * One response body read: the text plus whether it was read to its END
+     * #9). An IOException mid-read leaves a partial body that carries NO
      * evidence about the transaction - the caller's publication check must treat it as
      * AMBIGUOUS instead of "no publish timeout in it, so published".
      */
@@ -160,8 +160,8 @@ public class AuditStreamLoader {
     }
 
     /**
-     * Allocates the label of the NEXT batch (round-44 #8): the caller records the
-     * batch's obligation under this label BEFORE {@link #loadBatch} can send anything,
+     * Allocates the label of the NEXT batch: the caller records the
+     * batch's obligation under this label BEFORE loadBatch can send anything,
      * so a crash between the send and its response leaves a durable, resolvable trace of
      * the possible transaction instead of an unfenced batch. The returned label is the
      * one the request will carry (it already includes the audit prefix).
@@ -173,7 +173,7 @@ public class AuditStreamLoader {
     /**
      * One un-prefixed label text (static: the format is testable without an Env, and the
      * allocation carries no state - uniqueness rests on the millisecond + FE identity
-     * components, exactly as before round-44 #8).
+     * components, exactly as before).
      */
     static String nextLabel(String feIdentity) {
         Calendar calendar = Calendar.getInstance();
@@ -185,15 +185,15 @@ public class AuditStreamLoader {
     }
 
     /**
-     * One stream load under a CALLER-allocated label (round-44 #8, see
-     * {@link #allocateLabel}); the two-argument form allocates its own.
+     * One stream load under a CALLER-allocated label (see
+     * allocateLabel); the two-argument form allocates its own.
      *
      * @param allocatedLabel the label the request carries (the caller may already have
      *                       recorded an obligation for it)
      */
     public LoadResponse loadBatch(StringBuilder sb, String clusterToken, String allocatedLabel) {
         String label = allocatedLabel;
-        // Round-43 #6: whether the batch could have reached a TRANSACTION at all. Only a
+        // Whether the batch could have reached a TRANSACTION at all. Only a
         // delivered request can have committed rows that might publish later - a failure
         // before the body was written needs no fence, and the fence resolution resolves
         // the terminal state of the transaction by LABEL.
@@ -253,20 +253,20 @@ public class AuditStreamLoader {
         public String respMsg;
         public String respContent;
         /**
-         * Whether {@link #respContent} was read to its END (round-40 #9): a body the
+         * Whether respContent was read to its END: a body the
          * reader gave up on says NOTHING about the transaction, so the publication check
          * must keep fencing for it. Constructor callers that hand in a complete string
-         * get {@code true}.
+         * get true.
          */
         public boolean contentComplete;
         /**
-         * The load LABEL of this batch (round-43 #6): the transaction manager resolves
+         * The load LABEL of this batch: the transaction manager resolves
          * the transaction's TERMINAL state by label, so a Publish-Timeout fence can be
          * released on an ABORTED/VISIBLE outcome instead of on elapsed time.
          */
         public String label = "";
         /**
-         * Whether the request was (at least partially) DELIVERED to the BE (round-43
+         * Whether the request was (at least partially) DELIVERED to the BE
          * #6): only then can a transaction exist whose outcome is worth resolving. A
          * failure before the body was written (token acquisition, the FE redirect, a
          * connect error) cannot have committed anything, so it needs no fence.

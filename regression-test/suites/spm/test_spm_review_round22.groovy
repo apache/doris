@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round22", "spm") {
 
-    // Twenty-second review round: end-to-end coverage for the frozen-SQL output-name
+    // End-to-end coverage for the frozen-SQL output-name
     // parsing and the runtime-context rejection.
     //
     // Covered here:

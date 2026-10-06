@@ -34,7 +34,7 @@ import org.mockito.Mockito;
 import java.util.List;
 
 /**
- * Fifteenth review round: the bind / plan INPUT walks and the parse mode.
+ * The bind / plan INPUT walks and the parse mode.
  *
  * - The function dependency walk must reach `* REPLACE` payloads (they live OUTSIDE
  *   children()) on the bind side AND cover the functions used only by the stored plan.
@@ -64,7 +64,7 @@ public class SPMRound15SafetyTest {
         return table;
     }
 
-    /** A session whose statement context resolves the bind-side relation to {@code bind}. */
+    /** A session whose statement context resolves the bind-side relation to bind. */
     private static ConnectContext contextResolvingTo(TableIf bind) {
         ConnectContext ctx = new ConnectContext();
         StatementContext statementContext = Mockito.mock(StatementContext.class);
@@ -159,12 +159,12 @@ public class SPMRound15SafetyTest {
     }
 
     /**
-     * round-30 #8: CLOCK FUNCTIONS are the same creator-time class of value. FE constant
+     * CLOCK FUNCTIONS are the same creator-time class of value. FE constant
      * folding evaluates now() / current_timestamp() from the CREATE statement's start time
      * (DateTimeAcquire#currentDateTime uses ConnectContext#getStartTimeInstant), and the
      * decompiler stores that literal in the frozen planFrozen SQL: a baseline for
-     * {@code SELECT now() AS ts FROM t1} returned the CREATE timestamp on every later
-     * matching query, and {@code WHERE event_time < now()} replayed with a stale cutoff.
+     * SELECT now() AS ts FROM t1 returned the CREATE timestamp on every later
+     * matching query, and WHERE event_time < now() replayed with a stale cutoff.
      */
     @Test
     public void testCreatorTimeClockFunctionsAreDetected() {
@@ -195,7 +195,7 @@ public class SPMRound15SafetyTest {
     }
 
     /**
-     * round-23 #11: NULLABILITY is part of the schema fingerprint - SPM leaves
+     * NULLABILITY is part of the schema fingerprint - SPM leaves
      * ELIMINATE_NOT_NULL enabled, so a NOT NULL column's "v IS NOT NULL" filter freezes
      * away, and ALTER TABLE ... MODIFY COLUMN v INT NULL (no name / type change) must
      * invalidate the baseline.
@@ -208,7 +208,7 @@ public class SPMRound15SafetyTest {
     }
 
     /**
-     * round-23 #11, upgrade compatibility: the nullability flag lives in its OWN entry
+     * upgrade compatibility: the nullability flag lives in its OWN entry
      * section, so an entry persisted before that section existed still matches the
      * current one - introducing the check must not invalidate every already persisted
      * baseline (a flag hashed INTO the column list would have changed every hash).

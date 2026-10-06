@@ -59,10 +59,10 @@ public class PlaceholderExpr {
     /**
      * POSITION of the SELECT-list item the literal was found in, or -1 when it is not
      * below a projection item (filters, join conditions, ...). Value + parent structure
-     * + child position do not distinguish {@code SELECT 1 AS x, 1 AS y}: both literals
+     * + child position do not distinguish SELECT 1 AS x, 1 AS y: both literals
      * sit at child 0 of an Alias whose parent signature omits the alias name, so they
      * used to share one placeholder id and a variant with different values per column
-     * could never match (reviewer round 32 #9).
+     * could never match.
      */
     private final int projectItem;
 
@@ -152,7 +152,7 @@ public class PlaceholderExpr {
     /**
      * Same as the four-argument overload with an explicit projection item position: a
      * literal below a DIFFERENT SELECT-list item of the same block never reuses this id
-     * even when value / parent / child position coincide (see {@link #projectItem}).
+     * even when value / parent / child position coincide (see projectItem).
      */
     public boolean matches(Expression expr, Expression parent, int childIndex, long blockId,
             int projectItem) {

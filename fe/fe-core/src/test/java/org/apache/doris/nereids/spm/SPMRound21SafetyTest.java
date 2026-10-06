@@ -39,7 +39,7 @@ import org.mockito.Mockito;
 import java.util.List;
 
 /**
- * Twenty-first review round: session-free stored-text parsing, cache-free fingerprint
+ * Session-free stored-text parsing, cache-free fingerprint
  * resolution and the EXPLAIN forwarding policy.
  *
  * - A stored bindSQL carrying a JOIN distribute hint must parse WITHOUT a session

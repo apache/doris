@@ -353,16 +353,16 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * default database. A GLOBAL UDF has no qualifier, and its registered name is not
      * necessarily a plain identifier (my-fn): emitting it bare produced frozen text the
      * parser reads as a subtraction, and a persisted frozen row has no parameterized-tree
-     * fallback - the baseline could never replay (round-41 #8).
+     * fallback - the baseline could never replay.
      *
-     * <p>A user function NAMED like the SPM placeholder marker is refused here (round-41
+     * A user function NAMED like the SPM placeholder marker is refused here
      * #15): its rendered call would be indistinguishable from a genuine
-     * {@code _spm_const_var(id) / _spm_const_list(id)} marker, so the replay could either
+     * _spm_const_var(id) / _spm_const_list(id) marker, so the replay could either
      * substitute the real call with a user literal or reject the frozen baseline as an
      * unresolved marker. Refusing the decompile keeps the ORIGINAL planSql (provenance
      * planFrozen=false) as the baseline's replayable fallback.
      *
-     * <p>Package-visible for tests.
+     * Package-visible for tests.
      */
     @VisibleForTesting
     public static String functionName(Function function) {

@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round28", "spm") {
 
-    // Twenty-eighth review round: the creator's row policy must never enter the frozen
+    // The creator's row policy must never enter the frozen
     // SQL - including for a relation INSIDE A SUBQUERY.
     //
     //  - #1: for "SELECT k FROM t WHERE k IN (SELECT k FROM u)" the nested relation's

@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round24", "spm") {
 
-    // Twenty-fourth review round: the plan-selection hint of a NON-FROZEN replay and the
+    // The plan-selection hint of a NON-FROZEN replay and the
     // namespace-qualified bind-table pinning.
     //
     //  - a plan SQL with /*+ LEADING(...) */ and a NON-aggregated scalar subquery makes

@@ -47,6 +47,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -56,6 +57,9 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -127,8 +131,8 @@ public class InternalSchemaInitializer extends Thread {
         // leader-handoff cursor.
         ensureSpmCaptureCheckpointColumnsExist();
         // ... and for the two SPM side tables: the id reservation rows carry the pending
-        // create's identity (round-39 #4) and the horizon rows carry each FE's audit
-        // writer zone history (round-39 #3); the writers always fill them.
+        // create's identity and the horizon rows carry each FE's audit
+        // writer zone history; the writers always fill them.
         ensureSpmBaselinesSeqColumnsExist();
         ensureSpmAuditHorizonColumnsExist();
         for (String tblName : REPLICA_UPGRADED_INTERNAL_TABLES) {
@@ -138,7 +142,7 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Internal tables whose replica count is raised towards
-     * {@link StatisticConstants#STATISTIC_INTERNAL_TABLE_REPLICA_NUM}. The SPM tables carry
+     * StatisticConstants#STATISTIC_INTERNAL_TABLE_REPLICA_NUM. The SPM tables carry
      * cluster-wide state: with the default minimum replication of 1 they are created
      * single-replica, and losing the hosting BE would make every global baseline
      * unavailable, erase the only capture handoff cursor, make the id watermark / every
@@ -483,7 +487,7 @@ public class InternalSchemaInitializer extends Thread {
         SPM_BASELINES_UPGRADE_COLUMNS.put("plan_frozen",
                 ScalarType.createType(PrimitiveType.BOOLEAN));
         // STRING, not VARCHAR(4096): the fingerprint concatenates one entry per distinct
-        // referenced table with no length cap (round-41 #4), so a bounded column would
+        // referenced table with no length cap, so a bounded column would
         // fail the baseline INSERT for wide multi-table queries.
         SPM_BASELINES_UPGRADE_COLUMNS.put("schema_fingerprint",
                 ScalarType.createType(PrimitiveType.STRING));
@@ -491,7 +495,7 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Waits until the spm_baselines table carries every column of
-     * {@link #SPM_BASELINES_UPGRADE_COLUMNS}: a transient ALTER failure (BE / tablet not
+     * SPM_BASELINES_UPGRADE_COLUMNS: a transient ALTER failure (BE / tablet not
      * ready) must be retried HERE - run() calls this once and the replica-upgrade loop
      * never comes back, so a one-shot call left an upgraded cluster without the columns
      * until a restart although BaselineManager always reads / writes them (baseline load
@@ -516,7 +520,7 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
-     * Testable retry skeleton of {@link #ensureSpmBaselinesColumnsExist}: waits until the
+     * Testable retry skeleton of ensureSpmBaselinesColumnsExist: waits until the
      * columns are observed, retrying a failed alter. A first ALTER failure followed by a
      * success must converge WITHOUT a restart.
      *
@@ -560,7 +564,7 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
-     * Adds every missing column of {@link #SPM_BASELINES_UPGRADE_COLUMNS} to a
+     * Adds every missing column of SPM_BASELINES_UPGRADE_COLUMNS to a
      * PRE-EXISTING spm_baselines table (one ALTER per column). Idempotent: columns that
      * already exist are left untouched, and a partially upgraded table gains only the
      * remainder. Throws on failure - the caller's retry loop owns the retry policy.
@@ -615,11 +619,11 @@ public class InternalSchemaInitializer extends Thread {
      * The definition of ONE upgraded SPM column (baselines / capture checkpoint): an added
      * column is always a VALUE column.
      *
-     * <p>The key flag must be FALSE. An ADD COLUMN flagged as KEY lands AFTER the existing
+     * The key flag must be FALSE. An ADD COLUMN flagged as KEY lands AFTER the existing
      * value columns in the altered schema, and the schema-change validator rejects any key
      * column that follows a value column ("Invalid column order. value should be after
      * key"): the ALTER threw, the initializer's wait loop retried the same column every
-     * {@code resource_not_ready_sleep_seconds} forever, and an in-place upgraded cluster
+     * resource_not_ready_sleep_seconds forever, and an in-place upgraded cluster
      * never gained the columns its reader / writer already use - the baselines table stayed
      * broken until a restart with a modified table or a drop + fresh create.
      */
@@ -677,7 +681,7 @@ public class InternalSchemaInitializer extends Thread {
         SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("scan_zone",
                 ScalarType.createType(PrimitiveType.STRING));
         // leader_epoch / write_seq are NOT upgrade columns: they are the new APPEND-ONLY
-        // key (round-42 #8). A pre-append-only table (no write_seq) is DROPPED and
+        // key. A pre-append-only table (no write_seq) is DROPPED and
         // recreated by ensureSpmCaptureCheckpointColumnsExist - its UNIQUE-key(id)
         // merge-on-write layout is the very hazard the model removes, so it is never
         // ALTERed into the new one.
@@ -685,11 +689,11 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * The intended PHYSICAL position of every upgraded checkpoint column: the column of
-     * {@link InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA} it must follow. cursor_tail
+     * InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA it must follow. cursor_tail
      * sits BEFORE failed_attempts / retry_queue / update_time in the canonical schema, so
      * a plain append leaves an upgraded table with an order no freshly created table ever
      * has. The name-addressed reader / writer survive that, but a positional
-     * {@code INSERT ... VALUES} does not (see PlanCaptureManager#CHECKPOINT_INSERT_SQL):
+     * INSERT ... VALUES does not (see PlanCaptureManager#CHECKPOINT_INSERT_SQL):
      * restoring the canonical order keeps the two layouts identical.
      */
     @VisibleForTesting
@@ -708,7 +712,7 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
-     * The {@link ColumnPosition} of one upgraded checkpoint column, or null for a plain
+     * The ColumnPosition of one upgraded checkpoint column, or null for a plain
      * APPEND (the null-ColumnPosition semantics of AddColumnOp). The anchor of every
      * upgrade column has been part of the checkpoint table since BEFORE that column was
      * introduced, so an upgraded table always carries it; a table created by an even
@@ -716,7 +720,7 @@ public class InternalSchemaInitializer extends Thread {
      * anyway.
      *
      * @param column          the upgraded column (a key of
-     *                        {@link #SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS})
+     *                        SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS)
      * @param existingColumns the LOWERCASE names already present in the table
      */
     @VisibleForTesting
@@ -729,13 +733,47 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
+     * The checkpoint payload columns that carry RESUME state, in the canonical schema
+     * order minus the append-only key and update_time (see
+     * InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA): a pre-append-only table's row is
+     * copied over exactly these columns so the model rewrite cannot lose an unconsumed
+     * window (see readCheckpointStateForModelUpgrade).
+     */
+    @VisibleForTesting
+    static final List<String> SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS = Arrays.asList(
+            "last_scan_timestamp", "pending_window_start", "pending_window_end",
+            "cursor_query_time", "cursor_time", "cursor_query_id", "cursor_tail",
+            "failed_attempts", "retry_queue", "min_query_time_ms", "min_scan_rows",
+            "include_pattern", "exclude_pattern", "scan_zone");
+
+    /** The payload columns whose carried values are numeric (the rest are text). */
+    private static final Set<String> SPM_CAPTURE_CHECKPOINT_NUMERIC_COLUMNS = Sets.newHashSet(
+            "last_scan_timestamp", "pending_window_start", "pending_window_end",
+            "cursor_query_time", "min_query_time_ms", "min_scan_rows");
+
+    /** Bound of the model-upgrade carry read (one bounded row of the old table). */
+    private static final int SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS = 10;
+
+    /** How often the carry INSERT is retried after the table was recreated. */
+    private static final int MAX_CHECKPOINT_CARRY_ATTEMPTS = 3;
+
+    /**
      * Waits until the spm_capture_checkpoint table carries every column of
-     * {@link #SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS}: like the baselines upgrade, a
+     * SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS: like the baselines upgrade, a
      * transient ALTER failure (BE / tablet not ready) must be retried HERE - run() calls
-     * this once and the replica-upgrade loop never comes back.
+     * this once and the replica-upgrade loop never comes back. A pre-append-only table
+     * is DROPPED and recreated (see checkpointTableModelOutdated), with its row carried
+     * over first so the model rewrite cannot lose capture progress.
      */
     static void ensureSpmCaptureCheckpointColumnsExist() {
-        // The MODEL check is part of the gate (round-42 #8): a pre-append-only table
+        // The payload of a pre-append-only row (a pending window's bounds, cursor, retry
+        // queue and render zone) is carried into the recreated table: the model drop
+        // below is the only place it could be lost, and an unconsumed truncated window
+        // would otherwise never be scanned again (see readCheckpointStateForModelUpgrade).
+        Map<String, String> carriedState = null;
+        boolean carryRead = false;
+        int carryAttempts = 0;
+        // The MODEL check is part of the gate: a pre-append-only table
         // carries every UPGRADE column (they were added by earlier builds), so the
         // column set alone would declare it ready and the drop/recreate below would
         // never run - every checkpoint INSERT then failed on the missing write_seq.
@@ -746,7 +784,25 @@ public class InternalSchemaInitializer extends Thread {
                     // (or the create gate never saw it): createTbl() ran BEFORE this
                     // method and never runs again, so the recreation happens here
                     createTable(getSpmCaptureCheckpointCreateSql());
+                    if (carriedState != null) {
+                        carryAttempts++;
+                        if (restoreCarriedCheckpointRow(carriedState)) {
+                            carriedState = null;
+                        } else if (carryAttempts >= MAX_CHECKPOINT_CARRY_ATTEMPTS) {
+                            LOG.warn("SPM: giving up carrying the pre-append-only {} row into"
+                                            + " the append-only model after {} attempts;"
+                                            + " capture re-derives its window from durable"
+                                            + " progress",
+                                    InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME,
+                                    carryAttempts);
+                            carriedState = null;
+                        }
+                    }
                 } else if (checkpointTableModelOutdated()) {
+                    if (!carryRead) {
+                        carriedState = readCheckpointStateForModelUpgrade();
+                        carryRead = true;
+                    }
                     dropSpmCaptureCheckpointTable();
                 } else {
                     upgradeSpmCaptureCheckpointSchema();
@@ -755,7 +811,13 @@ public class InternalSchemaInitializer extends Thread {
                 LOG.warn("SPM: failed to upgrade the spm_capture_checkpoint table,"
                         + " will retry", t);
             }
-            if (spmCaptureCheckpointColumnsExist()) {
+            // The loop may only end on a table that is BOTH complete and on the
+            // append-only model, with nothing left to carry: an old UNIQUE-key table
+            // already carries every UPGRADE column, so a columns-only check let one
+            // failed drop stop this one-shot initializer with the old table - and every
+            // checkpoint INSERT then failed on the missing write_seq until a restart.
+            if (checkpointUpgradeComplete(spmCaptureCheckpointColumnsExist(),
+                    checkpointTableModelOutdated(), carriedState != null)) {
                 return;
             }
             try {
@@ -766,6 +828,170 @@ public class InternalSchemaInitializer extends Thread {
         }
     }
 
+    /**
+     * Whether the checkpoint model rewrite is DONE: the table carries every upgraded
+     * column, sits on the append-only model, and nothing is left to carry over (see
+     * ensureSpmCaptureCheckpointColumnsExist). A columns-only completion check would end
+     * the one-shot initializer on a pre-append-only table whose drop failed once - it
+     * already carries every UPGRADE column - and every checkpoint INSERT then fails on
+     * the missing write_seq until a restart.
+     *
+     * @param columnsExist  every SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS member is there
+     * @param modelOutdated the table is still the old UNIQUE-key model
+     * @param statePending  a carried row is still waiting to be restored
+     */
+    @VisibleForTesting
+    static boolean checkpointUpgradeComplete(boolean columnsExist, boolean modelOutdated,
+            boolean statePending) {
+        return columnsExist && !modelOutdated && !statePending;
+    }
+
+    /**
+     * Reads the OLD checkpoint table's row before the model drop recreates it: the row
+     * is the only copy of an UNCONSUMED pending window (bounds, cursor, retry queue,
+     * thresholds and the zone its bounds were rendered in), and the capture resumes
+     * from it after a restart. Dropping the table without carrying it made the new
+     * process load no row and derive its window from the CURRENT interval, so the
+     * pending window's unconsumed tail was never scanned.
+     *
+     * Only the payload columns the old table actually HAS are read (a model that
+     * predates some upgrade columns carries whatever state exists); an idle / never
+     * written checkpoint has no row and returns null.
+     *
+     * @return the carried payload values, or null when there is nothing to carry
+     */
+    private static Map<String, String> readCheckpointStateForModelUpgrade() throws Exception {
+        Table table = internalSchemaTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);
+        if (table == null) {
+            return null;
+        }
+        Set<String> existing = table.getBaseSchema().stream()
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        List<String> available = new ArrayList<>();
+        for (String column : SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS) {
+            if (existing.contains(column)) {
+                available.add(column);
+            }
+        }
+        if (available.isEmpty()) {
+            return null;
+        }
+        StringBuilder select = new StringBuilder("SELECT ");
+        for (String column : available) {
+            if (select.length() > "SELECT ".length()) {
+                select.append(", ");
+            }
+            select.append('`').append(column).append('`');
+        }
+        select.append(" FROM `").append(FeConstants.INTERNAL_DB_NAME).append("`.`")
+                .append(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME)
+                .append("` WHERE `id` = 1 LIMIT 1");
+        List<ResultRow> rows = StatisticsUtil.executeQuery(select.toString(),
+                Collections.emptyMap(), SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS);
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        ResultRow row = rows.get(0);
+        Map<String, String> state = new LinkedHashMap<>();
+        for (int index = 0; index < available.size(); index++) {
+            state.put(available.get(index), row.getWithDefault(index, ""));
+        }
+        LOG.info("SPM: carrying the pre-append-only {} row (pending window [{}, {})) into the"
+                        + " recreated append-only table",
+                InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME,
+                state.get("pending_window_start"), state.get("pending_window_end"));
+        return state;
+    }
+
+    /**
+     * Writes one carried payload back into the freshly recreated append-only table as
+     * its first row: until the capture writes its own (greater) token, the reader
+     * resolves to the carried state, so a takeover resumes the SAME pending window
+     * instead of deriving a later one over its unconsumed tail.
+     *
+     * @return whether the row was written (false = retryable; the caller keeps the state)
+     */
+    private static boolean restoreCarriedCheckpointRow(Map<String, String> state) {
+        try {
+            String insert = buildCarriedCheckpointInsert(state, currentJournalEpoch());
+            StatisticsUtil.execUpdate(insert, Collections.emptyMap(),
+                    SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS);
+            LOG.info("SPM: restored the pre-append-only checkpoint row into the recreated"
+                    + " append-only table");
+            return true;
+        } catch (Throwable t) {
+            LOG.warn("SPM: failed to carry the pre-append-only checkpoint row into the"
+                    + " recreated table, will retry: {}", t.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * The journal id of the carried row's write token (0 when unreadable: an unreadable
+     * id only LOWERS the token, and the capture's next write supersedes the carried row
+     * either way).
+     */
+    private static long currentJournalEpoch() {
+        try {
+            Long journalId = Env.getCurrentEnv().getMaxJournalId();
+            return journalId == null ? 0L : journalId;
+        } catch (Throwable t) {
+            LOG.debug("SPM: cannot read the journal id for the carried checkpoint row: {}",
+                    t.getMessage());
+            return 0L;
+        }
+    }
+
+    /**
+     * The INSERT that writes one carried payload into the freshly recreated append-only
+     * table as its first row: until the capture writes its own (greater) token, the reader
+     * resolves to the carried state, so a takeover resumes the SAME pending window
+     * instead of deriving a later one over its unconsumed tail. Name-addressed like the
+     * capture's own write (the physical column order of an upgraded table may differ from
+     * a freshly created one), numeric cells unquoted, text cells escaped.
+     *
+     * @param state the carried payload (see readCheckpointStateForModelUpgrade)
+     * @param epoch the row's leader_epoch token
+     * @return the INSERT statement
+     */
+    @VisibleForTesting
+    static String buildCarriedCheckpointInsert(Map<String, String> state, long epoch) {
+        StringBuilder columns = new StringBuilder("(`id`, `leader_epoch`, `write_seq`,"
+                + " `update_time`");
+        StringBuilder values = new StringBuilder("(1, ").append(epoch).append(", 0, NOW()");
+        for (String column : SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS) {
+            String value = state.get(column);
+            if (value == null) {
+                continue;
+            }
+            columns.append(", `").append(column).append('`');
+            values.append(", ");
+            if (SPM_CAPTURE_CHECKPOINT_NUMERIC_COLUMNS.contains(column)) {
+                values.append(parseCarriedNumber(value));
+            } else {
+                values.append('\'').append(StatisticsUtil.escapeSQL(value)).append('\'');
+            }
+        }
+        columns.append(')');
+        values.append(')');
+        return "INSERT INTO `" + FeConstants.INTERNAL_DB_NAME + "`.`"
+                + InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME + "` "
+                + columns + " VALUES " + values;
+    }
+
+    /** One numeric carried cell; a blank / unparsable value falls back to 0. */
+    private static long parseCarriedNumber(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(text.trim());
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
     /** Whether the spm_capture_checkpoint table is there at all (upgrade loop helper). */
     private static boolean spmCaptureCheckpointTableExists() {
         return internalSchemaTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME) != null;
@@ -773,7 +999,7 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Whether the existing spm_capture_checkpoint table predates the APPEND-ONLY model
-     * (round-42 #8): a table without the {@code write_seq} column is the old
+     * a table without the write_seq column is the old
      * UNIQUE-key(id) + merge-on-write layout, which is DROPPED and recreated instead of
      * ALTERed - keeping the unique key while adding write_seq would preserve the very
      * hazard the model removes (a delayed lower-epoch write REPLACED the newest row).
@@ -829,7 +1055,7 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
-     * Adds the missing column of {@link #SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS} to a
+     * Adds the missing column of SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS to a
      * PRE-EXISTING spm_capture_checkpoint table (one ALTER per attempt). Idempotent:
      * a column that already exists is left untouched. Throws on failure - the caller's
      * retry loop owns the retry policy.
@@ -887,14 +1113,14 @@ public class InternalSchemaInitializer extends Thread {
      * table (new clusters get them from the create SQL): bind_sql_digest / plan_sql_hash /
      * reserve_time let a create's id reservation carry the baseline's identity, which is
      * how the DURABLE unresolved-create fence of BaselineManager finds a committed but
-     * unpublished write after a leader handoff / restart (round-39 #4).
+     * unpublished write after a leader handoff / restart.
      */
     @VisibleForTesting
     static final Map<String, ScalarType> SPM_BASELINES_SEQ_UPGRADE_COLUMNS = new LinkedHashMap<>();
 
     static {
         // STRING, not a fixed VARCHAR: the digest is the canonical rendering of the WHOLE
-        // bind statement without a length cap (round-40 #6, see
+        // bind statement without a length cap (see
         // InternalSchema#SPM_BASELINES_SEQ_SCHEMA); a >4096-char bind failed the
         // reservation INSERT although a fresh table's column accepts it.
         SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("bind_sql_digest",
@@ -908,7 +1134,7 @@ public class InternalSchemaInitializer extends Thread {
         // fence. NULL (pre-marker rows) is treated as "not unconfirmed".
         SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("unconfirmed",
                 ScalarType.createType(PrimitiveType.BIGINT));
-        // 1 = a DROP TOMBSTONE (round-42 #9): keeps a delayed status INSERT from
+        // 1 = a DROP TOMBSTONE: keeps a delayed status INSERT from
         // resurrecting a dropped baseline (see InternalSchema#SPM_BASELINES_SEQ_SCHEMA).
         // NULL (pre-marker rows) is treated as "not dropped".
         SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("dropped",
@@ -919,11 +1145,11 @@ public class InternalSchemaInitializer extends Thread {
      * The columns an UPGRADED cluster must gain on a pre-existing spm_audit_horizon table
      * (new clusters get them from the create SQL): writer_zones carries the audit
      * writer's zone history of that FE, so the capture can require a window pass in every
-     * zone that may own rows (round-39 #3); committed_fence_ms marks the oldest batch
+     * zone that may own rows; committed_fence_ms marks the oldest batch
      * whose publication outcome is AMBIGUOUS, so the fence survives the FE's death - its
-     * committed rows can still publish (round-40 #10); committed_fence_labels lists the
+     * committed rows can still publish; committed_fence_labels lists the
      * labels of those batches, so a dead FE's fence is resolved per transaction instead
-     * of expiring on the age bound alone (round-44 #7).
+     * of expiring on the age bound alone.
      */
     @VisibleForTesting
     static final Map<String, ScalarType> SPM_AUDIT_HORIZON_UPGRADE_COLUMNS = new LinkedHashMap<>();
@@ -939,7 +1165,7 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Waits until the spm_baselines_seq table carries every column of
-     * {@link #SPM_BASELINES_SEQ_UPGRADE_COLUMNS} (transient ALTER failures are retried
+     * SPM_BASELINES_SEQ_UPGRADE_COLUMNS (transient ALTER failures are retried
      * HERE - run() calls this once and never comes back).
      */
     static void ensureSpmBaselinesSeqColumnsExist() {
@@ -949,7 +1175,7 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Waits until the spm_audit_horizon table carries every column of
-     * {@link #SPM_AUDIT_HORIZON_UPGRADE_COLUMNS}.
+     * SPM_AUDIT_HORIZON_UPGRADE_COLUMNS.
      */
     static void ensureSpmAuditHorizonColumnsExist() {
         ensureSpmUpgradeColumns(SPM_AUDIT_HORIZON_UPGRADE_COLUMNS, "spm_audit_horizon",
@@ -1145,7 +1371,7 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * CREATE SQL of the SPM plan-capture checkpoint table: APPEND-ONLY rows keyed by
-     * {@code (leader_epoch, write_seq)} (round-42 #8). Every write is a plain INSERT whose
+     * (leader_epoch, write_seq). Every write is a plain INSERT whose
      * row carries the writer's next token; the reader takes the GREATEST row, so a stale
      * writer's delayed row can only be IGNORED - it can never replace the newest
      * checkpoint (the old UNIQUE-key(id) merge-on-write UPSERT treated a late write from a
@@ -1211,7 +1437,7 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
-     * CREATE SQL of the COMPACT SPM baseline id high-water-mark table (round-44 #15):
+     * CREATE SQL of the COMPACT SPM baseline id high-water-mark table:
      * append-only rows (id = 1) carrying the newest allocated id, pruned after every
      * write. It answers the id watermark read in one bounded scan however many creates
      * the cluster has served (see InternalSchema#SPM_BASELINES_HWM_TBL_NAME).
@@ -1391,7 +1617,7 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
 
-        // 4c-2. check the compact id high-water-mark table (round-44 #15) the same way:
+        // 4c-2. check the compact id high-water-mark table the same way:
         // without it every create falls back to the unbounded history read.
         if (isSpmBaselinesHwmTableMissing(db)) {
             return false;
@@ -1399,7 +1625,7 @@ public class InternalSchemaInitializer extends Thread {
 
         // 4d. check the audit publication horizon table the same way: the capture reads its
         // rows to fence a follower's still-unpublished backlog, so an upgraded cluster must
-        // gain it too (round-36 #1).
+        // gain it too.
         if (isSpmAuditHorizonTableMissing(db)) {
             return false;
         }
@@ -1426,7 +1652,7 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Whether the SPM plan-capture checkpoint internal table is absent. Package-visible for
-     * the upgrade test, exactly like {@link #isSpmBaselinesTableMissing}.
+     * the upgrade test, exactly like isSpmBaselinesTableMissing.
      *
      * @param db the internal schema database
      * @return true when spm_capture_checkpoint does not exist yet
@@ -1438,7 +1664,7 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Whether the SPM baseline id sequence internal table is absent. Package-visible for
-     * the upgrade test, exactly like {@link #isSpmBaselinesTableMissing}.
+     * the upgrade test, exactly like isSpmBaselinesTableMissing.
      *
      * @param db the internal schema database
      * @return true when spm_baselines_seq does not exist yet
@@ -1450,7 +1676,7 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Whether the compact SPM id high-water-mark internal table is absent. Package-visible
-     * for the upgrade test, exactly like {@link #isSpmBaselinesTableMissing}.
+     * for the upgrade test, exactly like isSpmBaselinesTableMissing.
      *
      * @param db the internal schema database
      * @return true when spm_baselines_hwm does not exist yet
@@ -1462,7 +1688,7 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Whether the audit publication horizon internal table is absent. Package-visible for
-     * the upgrade test, exactly like {@link #isSpmBaselinesTableMissing}.
+     * the upgrade test, exactly like isSpmBaselinesTableMissing.
      *
      * @param db the internal schema database
      * @return true when spm_audit_horizon does not exist yet

@@ -37,11 +37,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Tenth review round: provenance / parser-mode / placeholder-forgery tests.
+ * Provenance / parser-mode / placeholder-forgery tests.
  *
  * Covered here:
  *  - a QUALIFIED user UDF call shaped like the internal placeholder marker
- *    ({@code db._spm_const_var(1)}) is never classified as (or replaced like) a frozen
+ *    (db._spm_const_var(1)) is never classified as (or replaced like) a frozen
  *    placeholder, for both marker names (plan_frozen provenance + the namespace check);
  *  - the persisted planSql mode is honoured when the plan tree is rebuilt: a raw
  *    fallback text is re-parsed with the CREATOR's mode, the decompiled rendering with

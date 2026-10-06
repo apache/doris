@@ -80,7 +80,7 @@ import java.util.function.Supplier;
 public class PlanCaptureManager extends MasterDaemon {
 
     /**
-     * Test seam replacing the live leadership probe of {@link #persistCheckpoint} (null in
+     * Test seam replacing the live leadership probe of persistCheckpoint (null in
      * production). A capture cycle runs on the master, but an in-flight cycle can reach
      * its checkpoint write AFTER a handoff (the daemon checks isMaster only at the cycle
      * start), which a unit test cannot interleave otherwise.
@@ -139,7 +139,7 @@ public class PlanCaptureManager extends MasterDaemon {
     /**
      * In-memory budget of the queued retry candidates, in statement characters (the
      * dominant part of a queued entry; the statement text is what the leader FE holds).
-     * One drain of {@link #MAX_PAGES_PER_CYCLE} pages can enqueue up to a page budget of
+     * One drain of MAX_PAGES_PER_CYCLE pages can enqueue up to a page budget of
      * failures per page, so a transient external-metadata outage (every capture fails
      * with "table metadata unavailable") would otherwise retain tens of thousands of full
      * statements - hundreds of megabytes - before the first cohort reaches its third
@@ -151,14 +151,14 @@ public class PlanCaptureManager extends MasterDaemon {
     private static final long MAX_QUEUED_FAILURE_CHARS = 64L * 1024 * 1024;
 
     /**
-     * Test seam overriding {@link #MAX_QUEUED_FAILURE_CHARS} (null = the production
+     * Test seam overriding MAX_QUEUED_FAILURE_CHARS (null = the production
      * budget): a unit test cannot queue tens of megabytes of statements just to reach it.
-     * Written through {@link #setQueuedFailureBudgetForTest}.
+     * Written through setQueuedFailureBudgetForTest.
      */
     private static volatile Long queuedFailureBudgetForTest;
 
     /**
-     * Queued failures replayed in ONE cycle (see {@link #replayQueuedFailures}): replanning
+     * Queued failures replayed in ONE cycle (see replayQueuedFailures): replanning
      * a whole outage-sized queue every wakeup would keep the FE busy for the length of the
      * outage itself.
      */
@@ -174,9 +174,9 @@ public class PlanCaptureManager extends MasterDaemon {
     private static final int MAX_CAPTURE_ATTEMPTS = 3;
 
     /**
-     * The fixed {@code id} value every checkpoint row carries: uniqueness is the
-     * {@code (leader_epoch, write_seq)} token now (round-42 #8), not the id, but the
-     * predicate ({@code WHERE id = 1}) stays valid for rows written by older builds.
+     * The fixed id value every checkpoint row carries: uniqueness is the
+     * (leader_epoch, write_seq) token now, not the id, but the
+     * predicate (WHERE id = 1) stays valid for rows written by older builds.
      */
     private static final long CHECKPOINT_ID = 1L;
 
@@ -188,9 +188,9 @@ public class PlanCaptureManager extends MasterDaemon {
             "`__internal_schema`.`spm_capture_checkpoint`";
 
     /**
-     * The checkpoint columns every read expects, in the order {@link #applyCheckpointRow}
+     * The checkpoint columns every read expects, in the order applyCheckpointRow
      * consumes them. Shared by the TOKEN query and the pending-window query so the two
-     * can never drift apart (round-43 #7).
+     * can never drift apart.
      */
     private static final String CHECKPOINT_COLUMN_LIST =
             "`last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
@@ -201,8 +201,8 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * The read takes the lexicographically GREATEST row of the append-only table
-     * (round-42 #8): {@code (leader_epoch, write_seq)} is the row's write token. The
-     * previous {@code ORDER BY update_time LIMIT 1} was ambiguous between the newest row
+     * (leader_epoch, write_seq) is the row's write token. The
+     * previous ORDER BY update_time LIMIT 1 was ambiguous between the newest row
      * and whatever a delayed stale write (a demoted FE whose INSERT committed late) had
      * put next to it. update_time only breaks an EXACT token tie (two same-epoch writers
      * resumed from the same row), where the more recently committed row is the better
@@ -216,7 +216,7 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " LIMIT 1";
 
     /**
-     * The companion read of {@link #CHECKPOINT_SELECT_SQL} (round-43 #7): the
+     * The companion read of CHECKPOINT_SELECT_SQL: the
      * MOST-BEHIND PENDING window, i.e. the reservation whose unconsumed prefix reaches
      * furthest into the past. The token ordering alone HIDES such a row forever when its
      * INSERT commits only after a later leader read the table as empty: leader A reserves
@@ -224,7 +224,7 @@ public class PlanCaptureManager extends MasterDaemon {
      * appends [09:10,12:10) with a higher token - and A's row, once it DOES publish, is
      * never the token-greatest one again. The 09:05 row inside A's unconsumed prefix then
      * falls outside B's window and every later overlap: skipped permanently. A pending
-     * row (start &gt; 0, start &lt; end) is a window its writer has NOT fully consumed,
+     * row (start > 0, start < end) is a window its writer has NOT fully consumed,
      * so it is read here regardless of its token; the same-start tie prefers the writer
      * that progressed furthest (higher token, later commit).
      */
@@ -238,17 +238,17 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " `write_seq` DESC, `update_time` DESC LIMIT 1";
 
     /**
-     * One APPEND of the checkpoint (round-42 #8): a plain INSERT whose row carries the
-     * writer's next {@code (leader_epoch, write_seq)} token. The previous statement was a
+     * One APPEND of the checkpoint: a plain INSERT whose row carries the
+     * writer's next (leader_epoch, write_seq) token. The previous statement was a
      * conditional UPSERT against UNIQUE-key(id) + merge-on-write, which made a demoted
      * leader's late (forwarded) write REPLACE the new master's row - the newer checkpoint
      * (including a queued retry for a late audit row) was destroyed, and the epoch
      * condition that was supposed to refuse it could not fire reliably (the condition is
      * evaluated at execution time, not commit time, and its refusal then aborted the
      * new leader's own drain). Append-only makes the same write harmless: it adds an
-     * OLDER row that the reader's ORDER BY never picks. The row's {@code leader_epoch} is
-     * the FE's max journal id (see {@link #currentLeaderEpoch}); {@code write_seq} orders
-     * the writes of one epoch (seeded from the loaded row, see {@link #applyCheckpointRow}).
+     * OLDER row that the reader's ORDER BY never picks. The row's leader_epoch is
+     * the FE's max journal id (see currentLeaderEpoch); write_seq orders
+     * the writes of one epoch (seeded from the loaded row, see applyCheckpointRow).
      *
      * The target columns are listed EXPLICITLY: the PHYSICAL order of an upgraded table
      * can differ from a freshly created one, and a positional INSERT then shifts every
@@ -271,7 +271,7 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " '${includePattern}', '${excludePattern}', '${scanZone}', NOW())";
 
     /**
-     * Best-effort garbage collection of the append-only checkpoint (round-42 #8): removes
+     * Best-effort garbage collection of the append-only checkpoint: removes
      * the rows the just-written one supersedes - strictly older epochs, plus same-epoch
      * rows with a lower write_seq. Correctness never depends on it (the reader's ORDER BY
      * ignores stale rows), so failures are swallowed by the caller.
@@ -290,8 +290,8 @@ public class PlanCaptureManager extends MasterDaemon {
     private long lastScanTimestamp = 0;
 
     /**
-     * The write token of the append-only checkpoint rows (round-42 #8): this process's
-     * last {@code write_seq}, seeded by {@link #applyCheckpointRow} from the row it
+     * The write token of the append-only checkpoint rows: this process's
+     * last write_seq, seeded by applyCheckpointRow from the row it
      * loaded and advanced by every CONFIRMED write. See the seeding comment there for
      * why the loaded row must raise it.
      */
@@ -299,13 +299,13 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * The session time_zone (zone ID) the most recent scan PASS rendered its window bounds
-     * in - the zone the audited rows' {@code time} columns are stored in. Empty = never
+     * in - the zone the audited rows' time columns are stored in. Empty = never
      * scanned (a fresh process follows the global zone). audit_log keeps the WRITER's
      * local rendering, so a global time_zone change makes the already published rows
      * invisible to bounds rendered in the new zone: while this differs from the current
      * global zone, the next pass re-renders the window in this zone first and only then in
-     * the new one (see {@link #resolveScanPassZone} and the exhaustion branch of
-     * {@link #runCaptureCycle}). Persisted with the checkpoint so a takeover resumes the
+     * the new one (see resolveScanPassZone and the exhaustion branch of
+     * runCaptureCycle). Persisted with the checkpoint so a takeover resumes the
      * same rendering.
      */
     private String lastScanZone = "";
@@ -322,7 +322,7 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * The FILTER SNAPSHOT the pending window was opened with (null while none is pending).
-     * The audit SQL and the in-memory {@link PlanCaptureFilter#shouldCapture} stage must
+     * The audit SQL and the in-memory PlanCaptureFilter#shouldCapture stage must
      * judge one window's rows by the SAME thresholds: a `SET GLOBAL
      * plan_capture_min_query_time_ms` between two pages of the same window otherwise made
      * the SQL return rows the stale filter rejected terminally (they were consumed,
@@ -360,8 +360,8 @@ public class PlanCaptureManager extends MasterDaemon {
     private final Map<String, CapturedQuery> failedCaptureQueue = new LinkedHashMap<>();
 
     /**
-     * Statement characters currently retained by {@link #failedCaptureQueue} (see
-     * {@link #MAX_QUEUED_FAILURE_CHARS}). Guarded by the capture daemon thread (all
+     * Statement characters currently retained by failedCaptureQueue (see
+     * MAX_QUEUED_FAILURE_CHARS). Guarded by the capture daemon thread (all
      * mutations happen inside a cycle) plus the test seams.
      */
     private long queuedFailureChars = 0;
@@ -369,13 +369,13 @@ public class PlanCaptureManager extends MasterDaemon {
     /**
      * Pre-page checkpoint state of the page a queued retry was FIRST seen on: the durable
      * checkpoint must never move past an entry that the persisted JSON drops
-     * ({@link #MAX_PERSISTED_RETRIES}) - keyset pagination has already moved beyond its
+     * (MAX_PERSISTED_RETRIES) - keyset pagination has already moved beyond its
      * audit row, so only a cursor BEFORE that row can reach it after a restart / handoff.
      * First-wins (pages only move forward) and evicted together with the queue.
      */
     private final Map<String, RetryAnchor> failedCaptureAnchors = new LinkedHashMap<>();
 
-    /** One pre-page checkpoint state (see {@link #failedCaptureAnchors}). */
+    /** One pre-page checkpoint state (see failedCaptureAnchors). */
     private static final class RetryAnchor {
         final long lastScanTimestamp;
         final long windowStart;
@@ -388,7 +388,7 @@ public class PlanCaptureManager extends MasterDaemon {
         /**
          * The zone THIS page's bounds / cursor were RENDERED in. The anchor describes a
          * position of the audit stream, and that position is only reachable when it is
-         * rendered in the same zone again (see {@link #resolveScanPassZone}): persisting
+         * rendered in the same zone again (see resolveScanPassZone): persisting
          * the CURRENT cycle's zone beside an earlier window's bounds made a takeover
          * scan those bounds in a zone the rows were never written under, and the omitted
          * retries (the ones the truncated queue could not carry) stayed unreachable.
@@ -429,7 +429,7 @@ public class PlanCaptureManager extends MasterDaemon {
     /**
      * The pre-page state (watermark + window bounds + cursor) the CURRENT cycle's scan
      * started from. It is the durable fallback persisted when the retry state is
-     * truncated by {@link #MAX_PERSISTED_RETRIES} (see persistCheckpoint): the durable
+     * truncated by MAX_PERSISTED_RETRIES (see persistCheckpoint): the durable
      * cursor must never move past retries the checkpoint can no longer carry, otherwise
      * a restart / leader handoff neither replays them from the queue nor re-reads their
      * audit rows (the keyset cursor is beyond them and they can age outside the
@@ -445,17 +445,17 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * The zone the CURRENT page's bounds / cursor were rendered in (the pass zone of the
-     * cycle that opened the page, see {@link #resolveScanPassZone}). It travels with
-     * {@link #currentPageAnchor()} and is persisted whenever the retry state rewinds the
+     * cycle that opened the page, see resolveScanPassZone). It travels with
+     * currentPageAnchor() and is persisted whenever the retry state rewinds the
      * durable cursor to a page anchor: a takeover must re-render those bounds in the
      * SAME zone, otherwise the audit rows written under the anchor's rendering are
-     * invisible to the re-scan (see {@link RetryAnchor#scanZone}).
+     * invisible to the re-scan (see RetryAnchor#scanZone).
      */
     private String pageStartZoneId = "";
 
     /**
      * The FILTER SNAPSHOT the CURRENT page was scanned with (the same value handed to
-     * {@link AuditLogScanner#scan}). It travels with {@link #currentPageAnchor()} and is
+     * AuditLogScanner#scan). It travels with currentPageAnchor() and is
      * persisted whenever the retry state rewinds the durable cursor to an anchor: the
      * rows of that page were admitted (or filtered) by THESE thresholds / patterns, so a
      * takeover must re-scan the rewound range with the same eligibility - judging the
@@ -480,7 +480,7 @@ public class PlanCaptureManager extends MasterDaemon {
      * yet). The windows of one process form a CONTIGUOUS range - the first is derived
      * around the loaded watermark, and every later one starts one overlap behind its
      * predecessor's end - so from this instant on, the chain has scanned or will scan
-     * everything. That is exactly the knowledge the checkpoint read needs (round-43 #7)
+     * everything. That is exactly the knowledge the checkpoint read needs
      * to tell a STALE pending row of a window this chain already consumed (the
      * append-only table keeps the reservation row of every window forever) from an
      * EARLIER leader's window whose unconsumed prefix was never scanned - the latter must
@@ -493,7 +493,7 @@ public class PlanCaptureManager extends MasterDaemon {
      * Checkpoint read / write seams. Production talks to the internal table through
      * StatisticsUtil; tests replace them to simulate a failing first read and to observe
      * the exact statements a persist issues. The production READ resolves to the earlier
-     * pending window when one is still un-accounted-for (see {@link #readCheckpointRow}).
+     * pending window when one is still un-accounted-for (see readCheckpointRow).
      */
     private Supplier<List<ResultRow>> checkpointReader = this::readCheckpointRow;
 
@@ -505,9 +505,9 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * Raised when the conditional UPSERT REFUSED the write: the durable row carries a
-     * newer leader_epoch than the writer's (round-39 #16). The affected-row count of the
+     * newer leader_epoch than the writer's. The affected-row count of the
      * real statement is the only signal, so the production writer translates it here and
-     * {@link #persistCheckpoint()} treats it as a failed write.
+     * persistCheckpoint() treats it as a failed write.
      */
     @VisibleForTesting
     static final class CheckpointWriteRefusedException extends RuntimeException {
@@ -526,11 +526,18 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * Whether a scripted checkpoint read / write seam is installed (tests only). The
-     * leadership fence of {@link #persistCheckpoint} guards LIVE writes: a scripted store
+     * leadership fence of persistCheckpoint guards LIVE writes: a scripted store
      * stands in for the internal table, exactly like the simulator stores in
      * BaselineManager.assertLeaderForWrite.
      */
     private boolean checkpointSeamsForTest = false;
+
+    /**
+     * Test seam for the prune's visibility gate (tests only): null means the scripted
+     * store's just-written row is READABLE (see writtenCheckpointVisible), so tests
+     * that do not care about the gate keep the previous prune behavior.
+     */
+    private java.util.function.BooleanSupplier checkpointWrittenVisibleForTest = null;
 
     /**
      * Whether the cloud-mode warning was already logged (the gate fires every cycle).
@@ -553,12 +560,12 @@ public class PlanCaptureManager extends MasterDaemon {
      * outstanding), i.e. one this FE's loader owes, one still held / queued before the
      * loader of any FE, or a follower's batch whose load reported Publish Timeout. The
      * capture runs on the leader alone, so only the shared view can fence a follower's
-     * backlog (round-36 #1). Production reads the live shared table; tests replace it.
+     * backlog. Production reads the live shared table; tests replace it.
      */
     private LongSupplier auditQueueHorizon = AuditPublicationHorizon::clusterHorizon;
 
     /**
-     * The zones the CLUSTER's audit writers have rendered rows in (round-39 #3): a window
+     * The zones the CLUSTER's audit writers have rendered rows in: a window
      * only completes after a pass in EVERY one of them (plus the current global zone),
      * because rows stored under a zone that is no longer current are invisible to bounds
      * rendered in the current zone. Production reads the shared table (+ this FE's live
@@ -567,7 +574,7 @@ public class PlanCaptureManager extends MasterDaemon {
     private Supplier<Set<String>> auditWriterZones = AuditPublicationHorizon::clusterWriterZones;
 
     /**
-     * The zones this pending window already COMPLETED a pass in (round-39 #3/#13). Seeded
+     * The zones this pending window already COMPLETED a pass in. Seeded
      * with the pass zone the durable checkpoint describes, and reset whenever the window
      * is completed or abandoned. In-memory only: a takeover that restores the pending
      * window re-scans zone passes it cannot remember - duplicates are filtered by the
@@ -576,7 +583,7 @@ public class PlanCaptureManager extends MasterDaemon {
     private final Set<String> scannedZonesInWindow = new LinkedHashSet<>();
 
     /**
-     * The fencing token of the checkpoint UPSERT (round-39 #16): the max journal id of
+     * The fencing token of the checkpoint UPSERT: the max journal id of
      * this FE - a cluster-wide monotonic clock - so a demoted leader's write (which
      * FORWARDS and executes on the new master) is refused by the STATEMENT itself when
      * the stored row carries a newer epoch. Production reads the live environment; tests
@@ -703,7 +710,7 @@ public class PlanCaptureManager extends MasterDaemon {
             // record (the write path shares the same internal table the read failed on).
             // Whether THIS cycle is the one that resolved the durable checkpoint: the load
             // read applies the SAME choice the re-read below makes, so re-reading it
-            // immediately would only duplicate the query (round-43 #7).
+            // immediately would only duplicate the query.
             boolean resolvedCheckpointThisCycle = !checkpointLoaded;
             if (!loadCheckpointIfNeeded()) {
                 // The read failed and recorded nothing, so this process still has no window.
@@ -737,7 +744,7 @@ public class PlanCaptureManager extends MasterDaemon {
 
             long currentTime = System.currentTimeMillis();
             // The CLUSTER-WIDE publication fence: the oldest audit event ANY FE has
-            // accepted but not published yet (round-36 #1: the local loader queue alone
+            // accepted but not published yet (the local loader queue alone
             // cannot see a follower's backlog - the capture runs on the leader, and the
             // follower's row would land behind the advanced watermark). An unreadable
             // shared table means the fence is INCOMPLETE, so the cycle is skipped and
@@ -746,14 +753,14 @@ public class PlanCaptureManager extends MasterDaemon {
             Set<String> clusterWriterZones;
             try {
                 publicationHorizon = auditQueueHorizon.getAsLong();
-                // the writer zones travel with the SAME fail-closed read (round-39 #3):
+                // the writer zones travel with the SAME fail-closed read:
                 // an unreadable zone set must not complete a window any more than an
                 // unreadable horizon may advance past it
                 Set<String> zones = auditWriterZones.get();
                 clusterWriterZones = zones == null ? Collections.emptySet() : zones;
             } catch (RuntimeException e) {
                 // The read failed and recorded nothing, so remember the window this cycle
-                // WOULD have consumed (round-39 #10): an empty checkpoint can load at
+                // WOULD have consumed: an empty checkpoint can load at
                 // 09:00, repeated horizon-read failures return here, and a 10:00 audit
                 // row may publish normally during the outage. When the reads recover at
                 // 15:00, a first window derived from [now-interval, now) alone would
@@ -797,7 +804,7 @@ public class PlanCaptureManager extends MasterDaemon {
             String currentZoneId = AuditLogScanner.auditWriteZone().getId();
             String passZoneId = resolveScanPassZone(currentZoneId);
             lastScanZone = passZoneId;
-            // The zone passes this window still OWES (round-39 #3): the pass about to run
+            // The zone passes this window still OWES: the pass about to run
             // counts as done here (it either completes this cycle or continues the same
             // window next cycle with the same rendering), and the checkpoint's pass zone
             // was seeded the same way on a takeover - so a restored pending window never
@@ -827,7 +834,7 @@ public class PlanCaptureManager extends MasterDaemon {
                     // a single audit row while the window waits. Resume PROMPTLY: leaving the
                     // daemon at the configured interval (three hours by default) delayed the
                     // retry of a window nothing was consumed from, exactly like the failed
-                    // first READ above (round-35 #6; the adoption path already set the flag,
+                    // first READ above (the adoption path already set the flag,
                     // the write / visibility failure did not).
                     pendingWindowNeedsPromptResume = true;
                     LOG.warn("Plan capture cycle skipped: the initial checkpoint row could not"
@@ -839,7 +846,7 @@ public class PlanCaptureManager extends MasterDaemon {
                 firstAttemptedWindowStart = 0;
             }
 
-            // Round-43 #7: an EARLIER leader's reservation can publish only now - after
+            // An EARLIER leader's reservation can publish only now - after
             // this process's load already read the table as empty (or read a row this
             // process has since superseded). The production read surfaces it; adopting it
             // (instead of consuming this process's derived window over it) keeps its
@@ -852,8 +859,8 @@ public class PlanCaptureManager extends MasterDaemon {
                 return;
             }
 
-            // Round-43 #7: the earliest window start THIS process actually scanned marks
-            // the beginning of the range its chain covers (see {@link #scannedFromMillis}).
+            // The earliest window start THIS process actually scanned marks
+            // the beginning of the range its chain covers (see scannedFromMillis).
             // Recorded when the pass BEGINS: from the reservation above on, the window is
             // durable (or was loaded from the store), so a crash leaves the chain resumable
             // exactly here, and every window the chain derives next stays behind it.
@@ -943,7 +950,7 @@ public class PlanCaptureManager extends MasterDaemon {
             } else if (batch.isWindowExhausted()) {
                 // The pass THIS cycle rendered completed: record its zone.
                 scannedZonesInWindow.add(passZoneId);
-                // Re-read the global writer zone AT EXHAUSTION (round-39 #13): the value
+                // Re-read the global writer zone AT EXHAUSTION: the value
                 // sampled before the page loop is stale when `SET GLOBAL time_zone` landed
                 // while the pages were scanned - a short row loaded under the NEW zone
                 // (e.g. a 12:30 UTC event stored as 20:30 under +08:00) is invisible to
@@ -952,7 +959,7 @@ public class PlanCaptureManager extends MasterDaemon {
                 // +08:00 window started around 20:55 - past the row forever.
                 String exhaustZoneId = AuditLogScanner.auditWriteZone().getId();
                 // EVERY zone that can own rows of this window must get a completed pass
-                // before the watermark advances (round-39 #3): the union of the writer
+                // before the watermark advances: the union of the writer
                 // zones the cluster reported (plus this FE's live writer history), the
                 // zone this pass rendered in and the CURRENT global zone. A window drained
                 // in UTC and +08:00 while an intermediate -05:00 epoch rendered rows is
@@ -984,7 +991,7 @@ public class PlanCaptureManager extends MasterDaemon {
                     pendingWindowNeedsPromptResume = true;
                 } else if (blocksWindowCompletion(publicationHorizon, scanEnd)) {
                     // An audit event older than the window END is STILL unpublished
-                    // (round-39 #6, round-42 #6): it may expose its row anywhere this
+                    // it may expose its row anywhere this
                     // window scans - including BELOW the position the descending keyset
                     // pagination has already walked past (a 10:30 row publishing between
                     // page one and page two sorts before the 10:00 cursor and is skipped).
@@ -1059,7 +1066,7 @@ public class PlanCaptureManager extends MasterDaemon {
             // at the default capture interval: the cycle already cleared
             // pendingWindowNeedsPromptResume and the window reservation - when one was made
             // - is durable, so this is exactly the state the prompt resume exists for
-            // (round-37 #6). The next cycle resumes the pending window (or re-derives when
+            // . The next cycle resumes the pending window (or re-derives when
             // nothing is pending, which a prompt cycle merely does earlier).
             pendingWindowNeedsPromptResume = true;
             LOG.warn("Plan capture cycle failed; the pending window is retained for a prompt resume", e);
@@ -1138,7 +1145,7 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * The in-memory budget of the retry queue (see {@link #MAX_QUEUED_FAILURE_CHARS}).
+     * The in-memory budget of the retry queue (see MAX_QUEUED_FAILURE_CHARS).
      *
      * @return the budget in statement characters
      */
@@ -1149,7 +1156,7 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * Queues a failed capture and accounts its statement size against the in-memory
-     * budget (see {@link #MAX_QUEUED_FAILURE_CHARS}).
+     * budget (see MAX_QUEUED_FAILURE_CHARS).
      *
      * @param retryKey  the tracking key
      * @param candidate the failed candidate
@@ -1173,7 +1180,7 @@ public class PlanCaptureManager extends MasterDaemon {
         }
     }
 
-    /** Approximate in-memory size of one queued statement (chars, see {@link #MAX_QUEUED_FAILURE_CHARS}). */
+    /** Approximate in-memory size of one queued statement (chars, see MAX_QUEUED_FAILURE_CHARS). */
     private static long candidateChars(CapturedQuery candidate) {
         String stmt = candidate.getStmt();
         return stmt == null ? 0L : stmt.length();
@@ -1220,7 +1227,7 @@ public class PlanCaptureManager extends MasterDaemon {
      * stays queued when it failed again); every other queued key is retried here, so a
      * failure stays reachable regardless of where the keyset cursor has moved.
      *
-     * <p>The WORK is bounded by {@link #MAX_RETRY_REPLAY_PER_CYCLE}: a metadata outage can
+     * The WORK is bounded by MAX_RETRY_REPLAY_PER_CYCLE: a metadata outage can
      * queue a whole drain's worth of failures (see MAX_QUEUED_FAILURE_CHARS), and walking
      * - let alone replanning - every one of them in each wakeup would turn one outage into
      * a sustained planning load. A queue larger than the budget is walked over the
@@ -1228,7 +1235,7 @@ public class PlanCaptureManager extends MasterDaemon {
      * queue's head keeps draining and the tail is reached within a bounded number of
      * cycles.
      *
-     * @param scannedQueryIds the tracking keys ({@link #retryKeyOf}) this cycle's page
+     * @param scannedQueryIds the tracking keys (retryKeyOf) this cycle's page
      *                        already processed
      */
     @VisibleForTesting
@@ -1274,7 +1281,7 @@ public class PlanCaptureManager extends MasterDaemon {
         }
     }
 
-    /** Evicts the {@code count} oldest entries of an insertion-ordered map. */
+    /** Evicts the count oldest entries of an insertion-ordered map. */
     private static void evictOldest(Map<String, ?> map, int count) {
         java.util.Iterator<String> it = map.keySet().iterator();
         int drop = count;
@@ -1301,7 +1308,7 @@ public class PlanCaptureManager extends MasterDaemon {
      * @param candidate              the audit candidate
      * @param eligibilityAlreadyDecided skip the FILTER stage: the candidate was already
      *                                 admitted when it was queued (see
-     *                                 {@link #handleCandidate(CapturedQuery, boolean)}),
+     *                                 handleCandidate(CapturedQuery, boolean)),
      *                                 so a configuration change in between must not turn
      *                                 the retry into a terminal rejection. The
      *                                 catalog-existence stage below still runs: it is not
@@ -1535,7 +1542,7 @@ public class PlanCaptureManager extends MasterDaemon {
                         restoredMinQueryTimeMs, restoredMinScanRows);
             }
         }
-        // The append-only write token of the row just read (round-42 #8, the two columns
+        // The append-only write token of the row just read (the two columns
         // APPENDED to the SELECT list): a process that RESUMES this checkpoint must write
         // strictly ABOVE it. The leader epoch is the max journal id, which does NOT change
         // across an FE restart, so without the seeding a same-epoch restarted leader
@@ -1710,12 +1717,13 @@ public class PlanCaptureManager extends MasterDaemon {
                 ? "" : durableFilter.getExcludePatternText()));
         params.put("scanZone", StatisticsUtil.escapeSQL(durableScanZone == null
                 ? "" : durableScanZone));
-        // the append-only write token (round-42 #8, see CHECKPOINT_INSERT_SQL): the
-        // writer's leader epoch (round-39 #16) plus this process's next write_seq. The
+        // the append-only write token (see CHECKPOINT_INSERT_SQL): the
+        // writer's leader epoch plus this process's next write_seq. The
         // counter commits only with a CONFIRMED write, so a failed write reuses its
         // token - harmless: equal tokens are equivalent rows, and a retry would write
         // the same state anyway.
-        params.put("epoch", String.valueOf(checkpointEpoch.getAsLong()));
+        final long writeEpoch = checkpointEpoch.getAsLong();
+        params.put("epoch", String.valueOf(writeEpoch));
         final long writeSeq = checkpointWriteSeq + 1;
         params.put("seq", String.valueOf(writeSeq));
         try {
@@ -1723,7 +1731,7 @@ public class PlanCaptureManager extends MasterDaemon {
             // row it supersedes stays intact whatever happens to THIS statement - the old
             // single-row UPSERT could leave the store without a checkpoint when a
             // demoted FE's forwarded write replaced the new master's row / the commit
-            // was deferred past the writer's timeout (round-42 #8).
+            // was deferred past the writer's timeout.
             // Pin the DEFAULT parser mode for the write: escapeSQL doubles backslashes,
             // which only decode back in that mode - under a global NO_BACKSLASH_ESCAPES
             // the stored JSON / SQL text would keep the doubled bytes (and a doubled
@@ -1737,8 +1745,8 @@ public class PlanCaptureManager extends MasterDaemon {
                 return null;
             });
         } catch (CheckpointWriteRefusedException refused) {
-            // The statement reported NO written row (round-39 #16 defensive path): the
-            // append-only INSERT has no refusing WHERE clause any more (round-42 #8), so
+            // The statement reported NO written row ( defensive path): the
+            // append-only INSERT has no refusing WHERE clause any more, so
             // this only fires on a store oddity or a test seam. Treat it as a failed
             // write: the drain stops, the window stays pending with its cursor, and the
             // next cycle retries.
@@ -1751,20 +1759,35 @@ public class PlanCaptureManager extends MasterDaemon {
             return false;
         }
         checkpointWriteSeq = writeSeq;
-        pruneStaleCheckpointRows(params);
         durableCheckpointObserved = true;
+        pruneStaleCheckpointRows(params, writeEpoch, writeSeq);
         return true;
     }
 
     /**
      * Best-effort prune of the append-only checkpoint rows the just-written row SUPERSEDES
-     * (round-42 #8): strictly older epochs, plus same-epoch rows with a lower write_seq.
-     * The row just written is never its own victim ({@code seq} is its token), and the
+     * strictly older epochs, plus same-epoch rows with a lower write_seq.
+     * The row just written is never its own victim (seq is its token), and the
      * reader's ORDER BY ignores whatever a failed prune leaves behind - so this runs
      * OUTSIDE the checkpoint write's try/catch: the row IS durable, and a GC error must
      * not be reported as a failed checkpoint (which would stop the drain).
+     *
+     * The prune itself is gated on the just-written row being READABLE: a plain
+     * append can return SQL OK while its row is still unreadable, and deleting the rows
+     * it supersedes in that state removes the last READABLE pending-window reservation.
+     * A new leader then loads an empty store and derives a later window; worse, if the
+     * delayed row publishes after that leader's adoption read, the next prune of the new
+     * leader deletes the older-epoch row before any cycle can adopt it - the first
+     * window's unconsumed tail is lost permanently. The superseded rows are themselves
+     * harmless while unreadable (the reader orders by token), so they stay until this
+     * append is confirmed.
      */
-    private void pruneStaleCheckpointRows(Map<String, String> params) {
+    private void pruneStaleCheckpointRows(Map<String, String> params, long epoch, long writeSeq) {
+        if (!writtenCheckpointVisible(epoch, writeSeq)) {
+            LOG.info("SPM capture checkpoint prune deferred: the row {}:{} is not readable"
+                    + " yet; the superseded rows stay until it is", epoch, writeSeq);
+            return;
+        }
         try {
             SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {
                 try {
@@ -1782,6 +1805,44 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
+     * Whether the checkpoint row this process just wrote is READABLE (the token query
+     * resolves to it): the precondition of the prune above. A bounded read-back, like the
+     * reservation's visibility probe - internal publication can lag the successful
+     * statement, and the confirmation must name THIS row ({@code epoch}:{@code writeSeq}),
+     * not merely any readable row.
+     */
+    private boolean writtenCheckpointVisible(long epoch, long writeSeq) {
+        java.util.function.BooleanSupplier seam = checkpointWrittenVisibleForTest;
+        if (seam != null) {
+            return seam.getAsBoolean();
+        }
+        if (checkpointSeamsForTest) {
+            // scripted reader / writer tests own the store: there is no publication lag
+            // to observe, so the confirmation degrades to the previous best-effort prune
+            return true;
+        }
+        for (int attempt = 0; attempt < CHECKPOINT_VISIBILITY_ATTEMPTS; attempt++) {
+            try {
+                ResultRow newest = firstCheckpointRow(CHECKPOINT_SELECT_SQL);
+                if (newest != null
+                        && parseLongValue(newest.get(14)) == epoch
+                        && parseLongValue(newest.get(15)) == writeSeq) {
+                    return true;
+                }
+            } catch (Exception e) {
+                LOG.debug("SPM capture checkpoint visibility probe failed: {}", e.getMessage());
+            }
+            try {
+                Thread.sleep(CHECKPOINT_VISIBILITY_RETRY_MILLIS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
      * First-cycle reservation with VISIBILITY confirmation. An internal INSERT can return
      * SQL OK with transaction status COMMITTED although the publication timed out (the
      * default return mode is committed), so a successful write does not prove the row is
@@ -1790,7 +1851,7 @@ public class PlanCaptureManager extends MasterDaemon {
      * permanently skip the unconsumed tail of a truncated page (the failed-UPSERT abort
      * does not cover this OK/COMMITTED path). The write is followed by a bounded read-back
      * through the same reader the load path uses; until the row is visible the cycle is
-     * skipped and {@code durableCheckpointObserved} stays false, so the next cycle
+     * skipped and durableCheckpointObserved stays false, so the next cycle
      * re-persists (idempotent UPSERT) and re-confirms.
      *
      * @return true when the reservation is durable AND readable (or persistence is off)
@@ -1883,24 +1944,24 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * Adopts one foreign checkpoint row as THIS process's progress (round-39 #5,
-     * round-43 #7): apply the state, write it back (this process's own reservation may
+     * Adopts one foreign checkpoint row as THIS process's progress
+     * apply the state, write it back (this process's own reservation may
      * already be queued behind the foreign row, and until the adopted state is written
      * back a later takeover could read the superseded window), and resume PROMPTLY. The
      * caller aborts the cycle: consuming this process's derived window over the adopted
      * one would permanently skip the adopted window's unconsumed prefix.
      *
-     * <p>Round-44 #14: every caller rejected the SAME-state cases first, so the adopted
+     * Every caller rejected the SAME-state cases first, so the adopted
      * window is always a DIFFERENT one - and the zone-pass credit belongs to the window
-     * (see {@link #clearPendingWindow}). Keeping this process's passes falsely credits
+     * (see clearPendingWindow). Keeping this process's passes falsely credits
      * zones for the adopted window: a leader that staged its own derived window in UTC
      * (the pass marks its rendering zone before scanning) and then adopted an earlier
-     * reservation with {@code scan_zone = -05:00} resumed the adopted window in -05:00
+     * reservation with scan_zone = -05:00 resumed the adopted window in -05:00
      * only, while UTC stayed marked as covered - a 09:05 row rendered in UTC was never
      * scanned, the completeness check passed, and the watermark advanced over it. The
      * set is therefore reset to the adopted window's baseline: the resumed pass re-seeds
-     * its OWN zone ({@code lastScanZone} → pass zone, see
-     * {@link #resolveScanPassZone}) and every other required zone must earn a real pass.
+     * its OWN zone (lastScanZone → pass zone, see
+     * resolveScanPassZone) and every other required zone must earn a real pass.
      */
     private void adoptCheckpointRow(ResultRow row) {
         scannedZonesInWindow.clear();
@@ -1910,13 +1971,13 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * Round-43 #7: adopts an EARLIER pending window that surfaced AFTER the load. The
+     * Adopts an EARLIER pending window that surfaced AFTER the load. The
      * load consults the checkpoint once; without this step a reservation whose INSERT
      * commits later (a demoted master's forwarded write, an internal-schema publication
      * that timed out) stays invisible to every later read of the token-greatest row, and
      * the unconsumed prefix of its window - the rows before this process's derived window
      * start - is skipped permanently. The production reader surfaces such a row (see
-     * {@link #readCheckpointRow}); this method turns it into the same adoption the
+     * readCheckpointRow); this method turns it into the same adoption the
      * reservation phase performs: apply the earlier state, write it back so the store
      * converges to it, and let the caller abort the cycle and resume PROMPTLY.
      *
@@ -1964,7 +2025,7 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * Whether one resolved checkpoint row IS a pending window: a window its writer never
-     * fully consumed (round-43 #7). Size-safe: rows fabricated by tests / written by an
+     * fully consumed. Size-safe: rows fabricated by tests / written by an
      * older build can carry fewer than the three leading columns.
      */
     private static boolean isPendingWindowRow(ResultRow row) {
@@ -1977,13 +2038,13 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * The production checkpoint read (round-43 #7): the row a read must resolve to is NOT
+     * The production checkpoint read: the row a read must resolve to is NOT
      * always the token-greatest one. The append-only table keeps an EARLIER leader's
      * pending reservation even when its INSERT commits only after this process's first
      * read, and the token ordering then hides it forever - see
-     * {@link #CHECKPOINT_SELECT_PENDING_SQL}. The read therefore also asks for the
+     * CHECKPOINT_SELECT_PENDING_SQL. The read therefore also asks for the
      * most-behind pending window and prefers it over the newest progress unless
-     * {@link #chooseCheckpointRow} decides otherwise.
+     * chooseCheckpointRow decides otherwise.
      *
      * @return the resolved row as a one-element list (empty when the store has no row)
      */
@@ -2008,24 +2069,22 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * Which of the two candidate rows a read resolves to (round-43 #7; pure so the
+     * Which of the two candidate rows a read resolves to (pure so the
      * priority is testable without a store).
      *
-     * <p>The most-behind pending row WINS - it names a window whose unconsumed prefix no
+     * The most-behind pending row WINS - it names a window whose unconsumed prefix no
      * token-greater row accounts for - UNLESS
-     * <ul>
-     *   <li>it is not a pending window ({@code start <= 0} or {@code start >= end}): the
-     *       token row is the state to resume;</li>
-     *   <li>it carries the SAME window as the newest row: both describe one state, and
-     *       the higher token is at least as new;</li>
-     *   <li>it IS the window this process already consumes (the current
-     *       {@code pendingWindow} bounds): there is nothing to adopt;</li>
-     *   <li>it lies inside {@code [scannedFrom, +infinity)}: this process's own window
+     *   it is not a pending window (start <= 0 or start >= end): the
+     *       token row is the state to resume;
+     *   it carries the SAME window as the newest row: both describe one state, and
+     *       the higher token is at least as new;
+     *   it IS the window this process already consumes (the current
+     *       pendingWindow bounds): there is nothing to adopt;
+     *   it lies inside [scannedFrom, +infinity): this process's own window
      *       chain (contiguous from the first window it scanned, see
-     *       {@link #scannedFromMillis}) has scanned it or will scan it - adopting a
+     *       scannedFromMillis) has scanned it or will scan it - adopting a
      *       consumed window again would re-scan the same span on every wakeup, because
-     *       the append-only table keeps its reservation row.</li>
-     * </ul>
+     *       the append-only table keeps its reservation row.
      *
      * @param newest the token-greatest row (null = none)
      * @param behind the most-behind pending row (null = none)
@@ -2094,7 +2153,7 @@ public class PlanCaptureManager extends MasterDaemon {
         return new Gson().toJson(boundedTail(attempts, MAX_PERSISTED_RETRIES));
     }
 
-    /** Decodes {@link #encodeFailedAttempts}; blank / broken input decodes to empty. */
+    /** Decodes encodeFailedAttempts; blank / broken input decodes to empty. */
     @VisibleForTesting
     public static Map<String, Integer> decodeFailedAttempts(String text) {
         return decodeJsonMap(text, new TypeToken<Map<String, Integer>>() { });
@@ -2131,7 +2190,7 @@ public class PlanCaptureManager extends MasterDaemon {
         return new Gson().toJson(encoded);
     }
 
-    /** Decodes {@link #encodeRetryQueue}; blank / broken input decodes to empty. */
+    /** Decodes encodeRetryQueue; blank / broken input decodes to empty. */
     @VisibleForTesting
     public static Map<String, CapturedQuery> decodeRetryQueue(String text) {
         Map<String, CapturedQuery> queue = new LinkedHashMap<>();
@@ -2179,7 +2238,7 @@ public class PlanCaptureManager extends MasterDaemon {
         }
     }
 
-    /** The most recent {@code limit} entries of an insertion-ordered map. */
+    /** The most recent limit entries of an insertion-ordered map. */
     private static <V> Map<String, V> boundedTail(Map<String, V> source, int limit) {
         if (source.size() <= limit) {
             return source;
@@ -2239,13 +2298,13 @@ public class PlanCaptureManager extends MasterDaemon {
     /**
      * Minimum scan-window overlap: the greater of the base five minutes and TWO of the
      * whole upstream publication delay - the audit loader batch interval
-     * ({@code audit_plugin_max_batch_interval_sec}) PLUS the delay before an event even
+     * (audit_plugin_max_batch_interval_sec) PLUS the delay before an event even
      * reaches the loader: WorkloadRuntimeStatusMgr holds a finished query's audit event
-     * until {@code query_audit_log_timeout_ms} (or, while external DML statistics are
-     * still awaited, up to {@code be_report_query_statistics_timeout_ms}) has passed, and
-     * the loader then only polls its queue every {@link AuditLoader#QUEUE_POLL_INTERVAL_MILLIS}.
+     * until query_audit_log_timeout_ms (or, while external DML statistics are
+     * still awaited, up to be_report_query_statistics_timeout_ms) has passed, and
+     * the loader then only polls its queue every AuditLoader#QUEUE_POLL_INTERVAL_MILLIS.
      *
-     * <p>A row is reachable ONLY while its event time is still inside a window's range or
+     * A row is reachable ONLY while its event time is still inside a window's range or
      * inside the overlap of a later one (pagination walks the event time DESC, so a late
      * row above the page cursor is never reached by the pending pages). With only the
      * batch interval covered, a row released later than that - a large
@@ -2256,7 +2315,7 @@ public class PlanCaptureManager extends MasterDaemon {
      * covers the query DURATION, this overlap covers the publication delay.
      *
      * @param auditBatchIntervalSec the configured audit loader batch interval (seconds)
-     * @return the overlap in milliseconds (never less than {@link #SCAN_WINDOW_OVERLAP_MS})
+     * @return the overlap in milliseconds (never less than SCAN_WINDOW_OVERLAP_MS)
      */
     static long scanWindowOverlapMs(long auditBatchIntervalSec) {
         long batchMs = Math.max(0L, auditBatchIntervalSec) * 1000L;
@@ -2271,7 +2330,7 @@ public class PlanCaptureManager extends MasterDaemon {
      * Overlap including the LOCAL audit loader's outstanding queue horizon. The delay a
      * batch interval plus the configured holds describe is a BOUNDED wait; it says nothing
      * about how long the loader itself needs to PUBLISH the events it already accepted - a
-     * slow / stalled stream load leaves them in the {@link AuditLoader} queue long after
+     * slow / stalled stream load leaves them in the AuditLoader queue long after
      * that bound, and no fixed overlap can cover an unbounded backlog (the reviewer's
      * example: a short 11:50 query missing from the 12:00 scan but loaded successfully at
      * 12:02; a five minute overlap never re-reads it again). The window is therefore never
@@ -2280,10 +2339,10 @@ public class PlanCaptureManager extends MasterDaemon {
      * re-scanned until the backlog is published.
      *
      * @param auditBatchIntervalSec the configured audit loader batch interval (seconds)
-     * @param oldestUnpublishedEventMs {@link AuditLoader#oldestUnpublishedEventTime()}
+     * @param oldestUnpublishedEventMs AuditLoader#oldestUnpublishedEventTime()
      *        (0 when the loader is not running or has nothing outstanding)
      * @param currentTimeMs the cycle's clock reading
-     * @return the overlap in milliseconds (never less than {@link #scanWindowOverlapMs(long)})
+     * @return the overlap in milliseconds (never less than scanWindowOverlapMs(long))
      */
     static long scanWindowOverlapMs(long auditBatchIntervalSec, long oldestUnpublishedEventMs,
             long currentTimeMs) {
@@ -2297,7 +2356,7 @@ public class PlanCaptureManager extends MasterDaemon {
     /**
      * Resolves the (start, end) window the next capture cycle scans.
      *
-     * A truncated cycle leaves {@code pendingStart/pendingEnd} set: the SAME window is
+     * A truncated cycle leaves pendingStart/pendingEnd set: the SAME window is
      * scanned again (from the stored cursor) until it is exhausted, because a newly
      * derived interval window would start around the pending window's end and leave every
      * row the cursor has not reached yet permanently out of scope. Without a pending
@@ -2313,13 +2372,13 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * Same as the six-argument overload, with the floor of a FAILED first checkpoint read
-     * ({@link #firstAttemptedWindowStart}): a fresh process whose first read failed must not
+     * (firstAttemptedWindowStart): a fresh process whose first read failed must not
      * skip the window that cycle would have consumed, so the first derived window starts
      * there when that is EARLIER than the interval-derived start.
      *
-     * <p>The FIRST window (no watermark yet) is widened by the overlap as well (round-39
+     * The FIRST window (no watermark yet) is widened by the overlap as well
      * #8): the overlap already folds the cluster publication horizon (see
-     * {@link #scanWindowOverlapMs(long, long, long)}), and a first pass delayed by leader
+     * scanWindowOverlapMs(long, long, long)), and a first pass delayed by leader
      * readiness must start NO LATER than the oldest event any FE still owes. A 13:00 cycle
      * with a three-hour interval and a valid 09:00 follower horizon otherwise started at
      * 10:00, and a short 09:00 row publishing before the scan fell outside both the window
@@ -2344,7 +2403,7 @@ public class PlanCaptureManager extends MasterDaemon {
     /**
      * The zone THIS cycle's scan pass renders its window bounds in.
      *
-     * <p>A window that is mid-drain keeps the rendering frozen in its cursor (the tail
+     * A window that is mid-drain keeps the rendering frozen in its cursor (the tail
      * records the zone its pages were rendered in, so a global time_zone change cannot mix
      * two renderings inside one keyset walk). A window whose pass has NOT started - a new
      * window, or one whose cursor was just reset for the zone-change re-scan - renders in
@@ -2365,7 +2424,7 @@ public class PlanCaptureManager extends MasterDaemon {
         return lastScanZone == null || lastScanZone.isEmpty() ? currentZoneId : lastScanZone;
     }
 
-    /** The first zone of {@code required} without a completed pass yet, or null (none). */
+    /** The first zone of required without a completed pass yet, or null (none). */
     private static String firstNotScanned(Set<String> required, Set<String> scanned) {
         for (String zone : required) {
             if (zone != null && !zone.isEmpty() && !scanned.contains(zone)) {
@@ -2376,22 +2435,22 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * Whether an outstanding publication fences the window's completion (round-39 #6): an
-     * event that is still unpublished with an instant INSIDE {@code [scanStart, scanEnd)}
+     * Whether an outstanding publication fences the window's completion: an
+     * event that is still unpublished with an instant INSIDE [scanStart, scanEnd)
      * may expose its row anywhere in the window when it publishes - including BELOW the
      * position the descending keyset pagination already walked past - so the drained
      * pages cannot be trusted to have seen it.
      *
-     * <p>Round-42 #6: a positive horizon BELOW the window does NOT establish that the
+     * A positive horizon BELOW the window does NOT establish that the
      * window is clear either. The horizon is the MINIMUM over all outstanding events, so
      * an older unpublished event (a long 08:30 query) MASKS a newer one inside the window
-     * (an unpublished 10:15 row): the min drops below {@code scanStart} while the 10:15
+     * (an unpublished 10:15 row): the min drops below scanStart while the 10:15
      * row is still in flight, the window would be treated as complete, and the next fixed
      * overlap can start after that row. The only sound reading of the value is "some
      * event below scanEnd is outstanding": it may own a row this window scans (rows are
      * admitted by membership OR by completion reaching the window start), so every
-     * positive horizon below {@code scanEnd} retains the window. A horizon at or after
-     * {@code scanEnd} belongs to later windows only.
+     * positive horizon below scanEnd retains the window. A horizon at or after
+     * scanEnd belongs to later windows only.
      *
      * @param publicationHorizon the cluster horizon observed at cycle start
      * @param scanEnd the window end (epoch millis)
@@ -2407,7 +2466,7 @@ public class PlanCaptureManager extends MasterDaemon {
         // the pinned threshold snapshot belongs to the window: a later window must follow
         // the globals again
         pendingWindowFilter = null;
-        // the per-window zone-pass record belongs to the window as well (round-39 #3)
+        // the per-window zone-pass record belongs to the window as well
         scannedZonesInWindow.clear();
     }
 
@@ -2428,6 +2487,7 @@ public class PlanCaptureManager extends MasterDaemon {
             }
         };
         checkpointSeamsForTest = false;
+        checkpointWrittenVisibleForTest = null;
         auditQueueHorizon = AuditPublicationHorizon::clusterHorizon;
         auditWriterZones = AuditPublicationHorizon::clusterWriterZones;
         checkpointEpoch = PlanCaptureManager::currentLeaderEpoch;
@@ -2480,9 +2540,9 @@ public class PlanCaptureManager extends MasterDaemon {
      * had not consumed yet, or clobber its retry queue on the next persist (a queued row
      * behind the revived cursor is never retried). Drop the local progress and force the
      * next cycle to RELOAD the durable checkpoint, exactly like a freshly started process
-     * ({@link #loadCheckpointIfNeeded}).
+     * (loadCheckpointIfNeeded).
      *
-     * <p>The initial-reservation confirmation of a cycle does not cover this: it protects
+     * The initial-reservation confirmation of a cycle does not cover this: it protects
      * the window THIS process is about to consume, not progress adopted from an earlier
      * mastership.
      */
@@ -2507,7 +2567,7 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * The checkpoint UPSERT's fencing token (round-39 #16): the FE's current max journal
+     * The checkpoint UPSERT's fencing token: the FE's current max journal
      * id. Journal ids are a cluster-wide MONOTONIC clock that grows across leadership
      * changes (a new master journals before it can service writes), so a demoted
      * leader's statement - which forwards to the new master and executes THERE - carries
@@ -2594,7 +2654,7 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * For tests: whether the last cycle left a window that must resume PROMPTLY (the
-     * daemon then sleeps {@link #PENDING_WINDOW_RESUME_INTERVAL_MS} instead of the
+     * daemon then sleeps PENDING_WINDOW_RESUME_INTERVAL_MS instead of the
      * configured interval).
      *
      * @return true when a pending window could not be finished by the last cycle
@@ -2606,7 +2666,7 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * For tests: the zone ID the last scan pass rendered its bounds in (see
-     * {@link #lastScanZone}) - empty when nothing was scanned yet.
+     * lastScanZone) - empty when nothing was scanned yet.
      *
      * @return the zone ID
      */
@@ -2617,7 +2677,7 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * For tests: the zone ID the NEXT cycle's scan pass will render its bounds in, given
-     * the current global zone (see {@link #resolveScanPassZone}).
+     * the current global zone (see resolveScanPassZone).
      *
      * @param currentZoneId the current global session time_zone id
      * @return the zone ID to render in
@@ -2628,7 +2688,7 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * For tests: the page budget of ONE cycle (see {@link #MAX_PAGES_PER_CYCLE}).
+     * For tests: the page budget of ONE cycle (see MAX_PAGES_PER_CYCLE).
      *
      * @return how many audit pages one wakeup may consume
      */
@@ -2638,7 +2698,7 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * For tests: overrides the queued-failure budget (see {@link #MAX_QUEUED_FAILURE_CHARS}).
+     * For tests: overrides the queued-failure budget (see MAX_QUEUED_FAILURE_CHARS).
      *
      * @param budget statement characters the queue may retain, null for the production value
      */
@@ -2731,19 +2791,30 @@ public class PlanCaptureManager extends MasterDaemon {
         this.checkpointSeamsForTest = true;
     }
 
+    /**
+     * For tests: decides whether the checkpoint row just written counts as READABLE
+     * (the gate of the prune, see writtenCheckpointVisible). Null means "probe the
+     * store" - i.e. "a scripted test's row is always considered visible".
+     */
+    @VisibleForTesting
+    public void setCheckpointWrittenVisibleForTest(
+            java.util.function.BooleanSupplier visible) {
+        this.checkpointWrittenVisibleForTest = visible;
+    }
+
     /** For tests: installs a scripted local audit loader publication horizon. */
     @VisibleForTesting
     public void setAuditQueueHorizonForTest(LongSupplier horizon) {
         this.auditQueueHorizon = horizon;
     }
 
-    /** For tests: installs a scripted cluster audit WRITER zone set (round-39 #3). */
+    /** For tests: installs a scripted cluster audit WRITER zone set. */
     @VisibleForTesting
     public void setAuditWriterZonesForTest(Supplier<Set<String>> zones) {
         this.auditWriterZones = zones;
     }
 
-    /** For tests: installs a scripted checkpoint UPSERT epoch (round-39 #16). */
+    /** For tests: installs a scripted checkpoint UPSERT epoch. */
     @VisibleForTesting
     public void setCheckpointEpochForTest(LongSupplier epoch) {
         this.checkpointEpoch = epoch;
@@ -2760,9 +2831,9 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * For tests: the append-only checkpoint INSERT (see {@link #CHECKPOINT_INSERT_SQL}).
+     * For tests: the append-only checkpoint INSERT (see CHECKPOINT_INSERT_SQL).
      * The column NAMES must stay one-to-one with
-     * {@link org.apache.doris.catalog.InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA} - the
+     * org.apache.doris.catalog.InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA - the
      * VALUES bind positionally, but against that NAMED column list - so an upgraded table
      * with a different PHYSICAL order cannot shift the values.
      */
@@ -2773,7 +2844,7 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * Whether the conditional UPSERT's affected-row count PROVES it wrote the row
-     * (round-39 #16). An unknown count (-1) is NOT proof of a refusal, so it counts as
+     * . An unknown count (-1) is NOT proof of a refusal, so it counts as
      * written (the same convention as BaselineManager#insertWroteRows).
      *
      * @param affectedRows the statement's affected-row count
@@ -2786,7 +2857,7 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * For tests: rewrites the counters used by the truncation guard in
-     * {@link #persistCheckpoint()} ({@code failedCaptureAttempts} is a map and cannot be
+     * persistCheckpoint() (failedCaptureAttempts is a map and cannot be
      * sized through the public seams), and the retry queue, plus the PRE-PAGE state the
      * durable fallback is taken from.
      */

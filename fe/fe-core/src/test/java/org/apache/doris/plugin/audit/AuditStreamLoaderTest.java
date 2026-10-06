@@ -54,7 +54,7 @@ public class AuditStreamLoaderTest {
     }
 
     /**
-     * round-44 #8: the batch label is allocated BEFORE the load is sent (its obligation
+     * The batch label is allocated BEFORE the load is sent (its obligation
      * is recorded first), so the label's shape is a contract: the audit prefix plus the
      * timestamp / FE-identity suffix. The allocation itself is stateless, which is what
      * lets the caller pre-generate it.

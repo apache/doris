@@ -142,16 +142,16 @@ public class CreateBaselinePlanCommand extends Command implements Forward {
      * unconfirmable read surfaces as a retryable failure instead of silently leaving the
      * baseline invisible here.
      *
-     * <p>Round-42 #2: the refresh additionally requires the CREATED row's identity (the
+     * The refresh additionally requires the CREATED row's identity (the
      * follower does not know the master-allocated id, but it knows the exact bind / plan
      * SQL it submitted): without the expectation the refresh accepted a stable local
      * snapshot that still LACKED the new row, and the next query of that connection
      * missed its GLOBAL baseline until the daemon caught up.
      *
-     * <p>Round-44 #3: the submitted planSql cannot identify an ordinary CREATE - the
+     * The submitted planSql cannot identify an ordinary CREATE - the
      * master persists SPMPlan2SQLBuilder's DECOMPILED rendering when it succeeds - so the
      * expectation also carries the STATEMENT QUERY ID. The forward put this statement's
-     * {@code ctx.queryId()} into the request (FEOpExecutor) and the master's execution
+     * ctx.queryId() into the request (FEOpExecutor) and the master's execution
      * context adopted it, exactly the value the CREATE stored on the row; the id survives
      * every freezing choice, so the follower confirms its own statement's row instead of
      * retrying against text equality that can never hold.

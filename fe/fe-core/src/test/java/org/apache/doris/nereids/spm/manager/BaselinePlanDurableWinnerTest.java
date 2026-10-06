@@ -76,7 +76,7 @@ public class BaselinePlanDurableWinnerTest {
     }
 
     /**
-     * Round-28 #2: the persisted create_time / update_time are zone-free DATETIME, so they
+     * The persisted create_time / update_time are zone-free DATETIME, so they
      * must be written and read as ABSOLUTE (UTC) instants. Rendering them in the host zone
      * made the stored value depend on the WRITER: an ENABLED row written at 12:00 UTC on a
      * UTC FE and the newer DISABLED row at 12:01 UTC on a UTC-8 successor stored "12:00"
@@ -137,7 +137,7 @@ public class BaselinePlanDurableWinnerTest {
     }
 
     /**
-     * round-42 #1: fully tied timestamps + status must still resolve DETERMINISTICALLY
+     * Fully tied timestamps + status must still resolve DETERMINISTICALLY
      * when the CONTENT differs. Two masters can leave two DIFFERENT rows of one id with
      * the same stored second (DATETIME has second precision), and an arbitrary pick made
      * refresh / restart / SHOW / the paginated read disagree on which row is
@@ -246,7 +246,7 @@ public class BaselinePlanDurableWinnerTest {
 
     /**
      * A delete failure that did NOT commit keeps BOTH versions, and the CONFIRMED new row
-     * decides the outcome (round-30 #2 semantics, refined by round-34 #2): the failed
+     * decides the outcome ( semantics, refined by): the failed
      * ALTER must not compensate the freshly inserted row away (when the delete had
      * actually committed and only its PUBLICATION lagged, deleting the new row would
      * leave the baseline with no durable version at all), and because the new row carries

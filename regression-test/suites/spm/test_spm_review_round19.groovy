@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round19", "spm") {
 
-    // Nineteenth review round: SQL-level regression for the frozen top-level clauses.
+    // SQL-level regression for the frozen top-level clauses.
     //
     // Covered here (end-to-end through CREATE BASELINE + EXPLAIN hit + replay result,
     // BEFORE and AFTER one periodic reload):

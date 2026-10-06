@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Twentieth review round: pre-lock resolution, CTE scoping and the hidden payloads of the
+ * Pre-lock resolution, CTE scoping and the hidden payloads of the
  * metadata / context guards.
  *
  * - The view guard and the bind-side table fingerprint must be CTE-SCOPE aware: a WITH
@@ -266,7 +266,7 @@ public class SPMRound20SafetyTest {
     /**
      * The namespace qualification must rebuild the * REPLACE payloads too: creating a
      * baseline in db1 for
-     * {@code SELECT * REPLACE((SELECT MAX(v) FROM u) AS k) FROM t} and running the same
+     * SELECT * REPLACE((SELECT MAX(v) FROM u) AS k) FROM t and running the same
      * text under db2 kept the raw "u", so digest and Level-3 matched while the frozen SQL
      * still read db1.u.
      */

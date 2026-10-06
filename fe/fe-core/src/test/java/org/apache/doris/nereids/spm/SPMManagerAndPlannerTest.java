@@ -158,7 +158,7 @@ public class SPMManagerAndPlannerTest {
 
         // Manually created baseline (no queryMs, default -1). The plan side must stay
         // ALIGNED with the bind side: a differing literal VALUE parameterizes under its
-        // own id and could never be replayed (round-23 rejects such a CREATE); the
+        // own id and could never be replayed ( rejects such a CREATE); the
         // distinct planSql only gives the row its own durable identity here.
         BaselinePlan manual = planner.buildBaseline(
                 "SELECT * FROM t1 WHERE a = 100", "SELECT * FROM t1 WHERE a = 100");
@@ -718,7 +718,7 @@ public class SPMManagerAndPlannerTest {
         String bindSql = "SELECT * FROM t1 WHERE a = 1 AND b = 2";
         // the plan text reorders the literals: a per-text rebuild would collide ids 1 / 2
         String planSql = "SELECT * FROM t1 WHERE b = 1 AND a = 2";
-        // round-23: the CREATE now REJECTS such a manual pair outright - the plan
+        // The CREATE now REJECTS such a manual pair outright - the plan
         // literals (different parent slots) never reuse the bind-side ids, so nothing
         // could ever supply their values and the stored baseline stayed permanently
         // unmatchable
@@ -825,11 +825,11 @@ public class SPMManagerAndPlannerTest {
         }
     }
 
-    // ==================== review round: authoritative reload & hint parsing ====================
+    // ==================== authoritative reload & hint parsing ====================
 
     /**
      * A forced authoritative reload must clear the PUBLISHED maps together with the
-     * {@code loaded} flag: if the reload read fails, matching must not keep reading the
+     * loaded flag: if the reload read fails, matching must not keep reading the
      * old store (it may contain baselines the previous master already disabled / dropped).
      */
     @Test

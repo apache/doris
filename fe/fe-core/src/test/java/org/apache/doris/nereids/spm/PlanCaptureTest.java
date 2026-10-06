@@ -69,7 +69,7 @@ public class PlanCaptureTest {
     }
 
     /**
-     * round-43 #7: the checkpoint read prefers an EARLIER pending window over the
+     * The checkpoint read prefers an EARLIER pending window over the
      * token-greatest row. The append-only table keeps a dead leader's reservation even
      * when its INSERT committed only after this process's empty read, and the token
      * ordering then hides it forever - consuming the derived window over it would skip the
@@ -112,7 +112,7 @@ public class PlanCaptureTest {
                 "without a behind row the token row is the state");
     }
 
-    /** One checkpoint row for the {@code chooseCheckpointRow} cases (leading columns only). */
+    /** One checkpoint row for the chooseCheckpointRow cases (leading columns only). */
     private static ResultRow checkpointRowForChooser(String lastScan, String pendingStart,
             String pendingEnd, String epoch, String seq) {
         return new ResultRow(List.of(lastScan, pendingStart, pendingEnd, "-1",
@@ -156,10 +156,10 @@ public class PlanCaptureTest {
     }
 
     /**
-     * round-34 #8: the Level 3 gate counts RESOLVED physical tables. In a session using
-     * {@code db}, {@code SELECT a.k FROM t a JOIN db.t b ON a.k = b.k} produced the strings
-     * {@code t} and {@code db.t} - the SAME physical table under two identities - so the
-     * self-join passed the {@code >= 2} table gate and was captured although the documented
+     * The Level 3 gate counts RESOLVED physical tables. In a session using
+     * db, SELECT a.k FROM t a JOIN db.t b ON a.k = b.k produced the strings
+     * t and db.t - the SAME physical table under two identities - so the
+     * self-join passed the >= 2 table gate and was captured although the documented
      * filter excludes single-table workloads. Resolving the missing qualifiers against the
      * audited namespace collapses the pair.
      */
@@ -210,7 +210,7 @@ public class PlanCaptureTest {
     }
 
     /**
-     * round-22 #3: with lower_case_table_names != 0 the analyzer resolves `t` and `T` to
+     * With lower_case_table_names!= 0 the analyzer resolves `t` and `T` to
      * the SAME physical table, so a self-join of one table must not be counted as a
      * two-table workload - the documented Level 3 filter excludes it, and a
      * case-sensitive set made the capturer create an unnecessary GLOBAL baseline.
@@ -239,7 +239,7 @@ public class PlanCaptureTest {
         Assertions.assertEquals(2, PlanCaptureFilter.extractTableNames(sql).size());
     }
 
-    // ==================== quoted dotted names / audit-mode prefilter (round-11) ====================
+    // ==================== quoted dotted names / audit-mode prefilter ====================
 
     @Test
     public void testQuotedDottedTableNameKeepsComponentBoundaries() {
@@ -723,7 +723,7 @@ public class PlanCaptureTest {
      * The checkpoint replacement used to be two separately committed statements
      * (DELETE, then INSERT): a crash / leadership loss / timeout / failed INSERT after the
      * DELETE left NO row and the next leader permanently skipped the deleted pending
-     * window's tail. Since round-42 #8 the model is APPEND-ONLY: the write is exactly one
+     * window's tail. Since the model is APPEND-ONLY: the write is exactly one
      * INSERT, and the stale rows it supersedes are removed by a separate BEST-EFFORT
      * prune whose failure cannot affect the write (the reader's ORDER BY ignores rows the
      * prune missed).
@@ -753,7 +753,38 @@ public class PlanCaptureTest {
                         + statements.get(0));
         manager.resetForTest();
     }
-    // ==================== unavailable external metadata stays retryable (round-13) ====================
+
+    /**
+     * The prune may only remove the rows the just-written one supersedes once that row is
+     * READABLE: an internal INSERT can return SQL OK while its row is still
+     * COMMITTED-but-unpublished, and deleting the last readable pending-window
+     * reservation in that state loses the window's unconsumed tail permanently (a new
+     * leader would load an empty store and derive a later window).
+     */
+    @Test
+    public void testCheckpointPruneIsDeferredUntilTheNewRowIsReadable() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        List<String> statements = new ArrayList<>();
+        manager.setCheckpointWriterForTest((sql, params) -> statements.add(sql));
+        manager.setCheckpointWrittenVisibleForTest(() -> false);
+
+        manager.persistCheckpointForTest();
+        Assertions.assertEquals(1, statements.size(),
+                "an unreadable append must not prune the rows it supersedes: " + statements);
+        Assertions.assertTrue(statements.get(0).startsWith("INSERT INTO"), statements.get(0));
+
+        // once the row is readable, the next write prunes (the superseded rows are stale
+        // by then, not the only readable progress)
+        manager.setCheckpointWrittenVisibleForTest(() -> true);
+        statements.clear();
+        manager.persistCheckpointForTest();
+        Assertions.assertEquals(2, statements.size(),
+                "a readable append prunes its superseded rows: " + statements);
+        Assertions.assertTrue(statements.get(1).startsWith("DELETE FROM"), statements.get(1));
+        manager.resetForTest();
+    }
+    // ==================== unavailable external metadata stays retryable ====================
 
     /**
      * An EXTERNAL catalog that has not finished (or failed) initializing answers null
@@ -898,7 +929,7 @@ public class PlanCaptureTest {
     }
 
     /**
-     * round-30 #6: a QUEUED failure must be retried with the eligibility decision of the
+     * A QUEUED failure must be retried with the eligibility decision of the
      * window that queued it. A transient failure (unavailable external metadata) leaves
      * the row behind the keyset cursor, so re-judging it against a configuration that
      * changed in between (raised thresholds, a new include pattern) would mark it

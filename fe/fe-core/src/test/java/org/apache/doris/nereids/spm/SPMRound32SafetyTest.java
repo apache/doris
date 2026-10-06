@@ -39,7 +39,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Round-32 review fixes without their own regression suite:
+ * Review fixes without their own regression suite:
  *
  * - #8 (SPMPlanner#limitContractPreserved): a LIMIT VARIANT replay must not expose a
  *   row-limiting cap the caller's own tree does not have. The transfer is positional, so
@@ -96,9 +96,9 @@ public class SPMRound32SafetyTest {
 
     /**
      * Two literals of one SELECT list must be distinguishable by their ITEM POSITION:
-     * {@code SELECT 1 AS x, 1 AS y} has the same value, the same child position (0 inside
+     * SELECT 1 AS x, 1 AS y has the same value, the same child position (0 inside
      * the Alias) and the same parent signature (which omits the alias name), so they used
-     * to share one placeholder and {@code SELECT 2 AS x, 3 AS y} could never match.
+     * to share one placeholder and SELECT 2 AS x, 3 AS y could never match.
      */
     @Test
     public void testIndependentProjectionLiteralsGetDistinctPlaceholderIds() {
@@ -161,9 +161,9 @@ public class SPMRound32SafetyTest {
     // ==================== #10: root SELECT star labels ====================
 
     /**
-     * {@code SELECT * FROM (SELECT k + 1 FROM t) s} keeps the star as ONE item, while the
-     * frozen sink pins the captured expansion (the {@code k + 1} header). Aligning with
-     * the EXPANDED caller labels exposes the caller's own column name ({@code k + 2}).
+     * SELECT * FROM (SELECT k + 1 FROM t) s keeps the star as ONE item, while the
+     * frozen sink pins the captured expansion (the k + 1 header). Aligning with
+     * the EXPANDED caller labels exposes the caller's own column name (k + 2).
      */
     @Test
     public void testRootStarExpandsToTheCallersDerivedLabels() {
@@ -201,7 +201,7 @@ public class SPMRound32SafetyTest {
     // ==================== #1: the forwarded session baseline payload ====================
 
     /**
-     * round-32 #1 / round-34 #3: the SESSION baselines of a forwarding connection ride in
+     * /: the SESSION baselines of a forwarding connection ride in
      * one session variable, part of a Thrift request whose default message limit is
      * 100 MiB. The budget is now enforced where the rows are CREATED - the store rejects a
      * baseline that would not fit - instead of letting serialize drop rows: a dropped row
@@ -276,7 +276,7 @@ public class SPMRound32SafetyTest {
 
     // ==================== helpers ====================
 
-    /** The placeholder id of the first literal of SELECT-list item {@code index}. */
+    /** The placeholder id of the first literal of SELECT-list item index. */
     private static long idOfProjectItem(LogicalPlan plan, int index) {
         List<NamedExpression> items = firstOutputItems(plan);
         Assertions.assertNotNull(items, "the parsed tree must carry an output list");

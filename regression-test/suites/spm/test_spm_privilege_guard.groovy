@@ -19,7 +19,7 @@ suite("test_spm_privilege_guard", "spm") {
 
     // Security regression guards for the SPM rewrite path.
     //
-    // Round-44 #11: a manual plan may only read tables the BIND text reads. The former
+    // A manual plan may only read tables the BIND text reads. The former
     // scenario - an admin-authored baseline binding the LOW-PRIVILEGE user's query on a
     // table they may NOT access (spm_guard_secret) while its frozen planSql reads a
     // table they MAY access (spm_guard_pub) - is now rejected at CREATE: a caller
@@ -81,7 +81,7 @@ suite("test_spm_privilege_guard", "spm") {
     sql """GRANT SELECT_PRIV ON ${pubTable} TO '${userName}'"""
 
     try {
-        // round-44 #11: the cross-table manual plan is rejected WHERE IT IS AUTHORED.
+        // The cross-table manual plan is rejected WHERE IT IS AUTHORED.
         // The plan reads spm_guard_pub while the bind text never does: a caller matching
         // the secret-table bind would be answered with the plan table's rows, so the
         // baseline must never be stored.

@@ -135,16 +135,16 @@ public final class SPMPlanTreeSupport {
 
     /**
      * Marker of the per-table NULLABILITY section inside one fingerprint entry (see
-     * {@link #describeTableForFingerprint}). An entry persisted before the section
-     * existed simply lacks it and is still accepted ({@link #legacyEntryOf}), so the
+     * describeTableForFingerprint). An entry persisted before the section
+     * existed simply lacks it and is still accepted (legacyEntryOf), so the
      * section can be introduced without invalidating already persisted baselines.
      */
     private static final String NULLABILITY_SECTION = "nullable:";
 
     /**
-     * The marker appended by {@link #expandedOutputLabels} behind the derivable prefix of
+     * The marker appended by expandedOutputLabels behind the derivable prefix of
      * a PARTLY derivable star expansion (see the star-expansion helper returned by
-     * {@link #alignRootOutputLabels}). Kept in the constants block: a static field may
+     * alignRootOutputLabels). Kept in the constants block: a static field may
      * not sit between methods (checkstyle DeclarationOrder).
      */
     private static final String OPEN_TAIL_LABEL = "\u0000spm-open-star-tail";
@@ -155,34 +155,34 @@ public final class SPMPlanTreeSupport {
 
         /**
          * Called while the rebuild ENTERS a nested query block (a derived table / CTE body /
-         * subquery alias), with {@link #exitQueryBlock()} in a finally block. The placeholder
+         * subquery alias), with exitQueryBlock() in a finally block. The placeholder
          * builder gives every block its own identity so two literals of DIFFERENT blocks can
          * never share one placeholder id: block 0 was previously shared by the outer query
          * and every derived table, so equal filter literals there (e.g. an outer
-         * {@code x = 1} and a derived-table {@code x = 1} whose parent signatures coincide)
+         * x = 1 and a derived-table x = 1 whose parent signatures coincide)
          * merged into one id and a variant changing only one of the values could never
-         * match (reviewer round 32 #9).
+         * match.
          */
         default void enterQueryBlock() {
         }
 
-        /** Matching exit of {@link #enterQueryBlock()}. */
+        /** Matching exit of enterQueryBlock(). */
         default void exitQueryBlock() {
         }
 
         /**
          * Called while the rebuild enters ONE projection item (SELECT-list slot) of a
-         * projection-like list, with {@link #exitProjectionItem()} in a finally block. The
+         * projection-like list, with exitProjectionItem() in a finally block. The
          * item POSITION is part of a literal's placeholder identity: the literals of
-         * {@code SELECT 1 AS x, 1 AS y} have the same value, the same child position inside
+         * SELECT 1 AS x, 1 AS y have the same value, the same child position inside
          * their Alias and (before the position existed) the same parent signature, so they
          * shared one placeholder and a variant with different values per column could never
-         * match (reviewer round 32 #9).
+         * match.
          */
         default void enterProjectionItem(int index) {
         }
 
-        /** Matching exit of {@link #enterProjectionItem(int)}. */
+        /** Matching exit of enterProjectionItem(int). */
         default void exitProjectionItem() {
         }
     }
@@ -216,9 +216,9 @@ public final class SPMPlanTreeSupport {
     };
 
     /**
-     * Expression transform of {@link #stripCheckPolicy}: strips the policy markers from
+     * Expression transform of stripCheckPolicy: strips the policy markers from
      * every plan an expression owns (IN / EXISTS / scalar subquery plans, the payloads of
-     * a {@code * REPLACE(...)}, the ASOF MATCH_CONDITION).
+     * a * REPLACE(...), the ASOF MATCH_CONDITION).
      */
     private static final ExprTransform STRIP_POLICY_IN_EXPRESSION =
             SPMPlanTreeSupport::stripPolicyOfExpression;
@@ -227,10 +227,10 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * The top-level LIMIT / OFFSET a query tree exposes to its CALLER ({@code {limit,
-     * offset}}) or null when it has none. The descent follows the wrapper chain (result
+     * The top-level LIMIT / OFFSET a query tree exposes to its CALLER ({limit,
+     * offset}) or null when it has none. The descent follows the wrapper chain (result
      * sink, sort, ...) and STOPS at a projection: a limit BELOW a projection is not the
-     * caller-visible top-level limit - and {@link #mergeLimitNode} cannot transfer the
+     * caller-visible top-level limit - and mergeLimitNode cannot transfer the
      * caller's values there either, which is exactly the situation the replay guard in
      * SPMPlanner checks with this helper.
      */
@@ -252,20 +252,20 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Whether every row-limiting node of {@code replayed} is justified by the caller's own
-     * tree {@code userPlan}: the MULTISET of (limit, offset, INPUT-IDENTITY) keys the
+     * Whether every row-limiting node of replayed is justified by the caller's own
+     * tree userPlan: the MULTISET of (limit, offset, INPUT-IDENTITY) keys the
      * replay exposes must be contained in the caller's own - a LIMIT VARIANT replay
      * transfers the caller's top-level value POSITIONALLY, so any other cap it still
      * exposes was inherited from the CAPTURED plan (or a manual plan) and would silently
-     * truncate the result of the variant (reviewer round 32 #8: the frozen
-     * {@code SELECT DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k
-     * LIMIT 2} kept the inner cap at 1 while the caller asked for two keys).
+     * truncate the result of the variant (the frozen
+     * SELECT DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k
+     * LIMIT 2 kept the inner cap at 1 while the caller asked for two keys).
      *
-     * <p>Comparing INPUT IDENTITIES rather than node paths is deliberate: the replay is a
+     * Comparing INPUT IDENTITIES rather than node paths is deliberate: the replay is a
      * MANUAL frozen plan whose structure may legitimately differ from the caller's, so
      * only what the caller itself asked for (values AND the input they truncate) can
      * justify a cap. The input identity carries the OCCURRENCE of the relation it names
-     * (round-40 #1): two caps over the same table are only equivalent when they truncate
+     * two caps over the same table are only equivalent when they truncate
      * the SAME occurrence, otherwise a cap moved between same-table occurrences passed
      * the multiset check and truncated the wrong side of e.g. a self join. The occurrence
      * is the relation's per-name ORDINAL in walk order - NOT its alias, because the
@@ -292,12 +292,12 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * The REVERSE direction of {@link #rowLimitsWithin} (round-42 #11): every cap the
+     * The REVERSE direction of rowLimitsWithin: every cap the
      * CALLER's tree asks for must survive in the replayed tree with the SAME values,
      * ordered slice and input placement. The one-directional check only rejected caps the
      * replay ADDED; a replay that DROPPED a caller cap passed (bind
-     * {@code SELECT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k LIMIT 2} vs
-     * manual plan {@code SELECT k FROM t ORDER BY k LIMIT 2}: the replay's sole outer cap
+     * SELECT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k LIMIT 2 vs
+     * manual plan SELECT k FROM t ORDER BY k LIMIT 2: the replay's sole outer cap
      * is contained in the caller's {inner, outer} set, yet for t={1,2,3} the caller
      * returns ONE row and the replay two). Positive logic: a cap can only be honored when
      * the replay demonstrably carries it.
@@ -324,18 +324,18 @@ public final class SPMPlanTreeSupport {
      * Collects every row-limiting node of the tree as (limit, offset, INPUT IDENTITIES):
      * the (limit, offset) pair ALONE is not enough - a cap of the same value can sit on a
      * different input than the caller's own cap of that value, and the positional merge
-     * leaves it there (round-35 #3: a manual plan capped t2 while the caller's own cap
+     * leaves it there (a manual plan capped t2 while the caller's own cap
      * sat on t1; with one matching t1 row and two matching t2 rows the variant returned
      * ONE row where the caller's own plan returns two). The key therefore includes every
      * relation beneath the cap, so a replayed cap only counts as one the caller also has
      * when it truncates the same input.
      *
-     * <p>The input identities alone are not enough either when the SAME table occurs more
-     * than once: a manual plan can move {@code ORDER BY k LIMIT 1} from the first table
+     * The input identities alone are not enough either when the SAME table occurs more
+     * than once: a manual plan can move ORDER BY k LIMIT 1 from the first table
      * instance to a second instance of the SAME table, and a caller raising only the
-     * outer LIMIT from 1 to 2 then compared {@code 1:0:t} against {@code 1:0:t} and
+     * outer LIMIT from 1 to 2 then compared 1:0:t against 1:0:t and
      * accepted the replay - although t={1,2} yields (1,1),(2,1) instead of (1,1),(1,2)
-     * (round-40 #1). Each input therefore carries its OCCURRENCE ORDINAL among the
+     * . Each input therefore carries its OCCURRENCE ORDINAL among the
      * relations of the same name, assigned in walk order: a cap moved to another
      * occurrence of the same input gets a different key and the variant is skipped (its
      * placement cannot be proven equivalent), which is always safe - the caller's own
@@ -344,11 +344,11 @@ public final class SPMPlanTreeSupport {
      * whose derived aliases are regenerated, while the relative order of the relation
      * occurrences is preserved.
      *
-     * <p>The walk covers the plans OUTSIDE children() as well - CTE bodies
+     * The walk covers the plans OUTSIDE children() as well - CTE bodies
      * (LogicalCTE.extraPlans()) and expression-owned subquery plans (IN / EXISTS / scalar,
-     * plus {@code * REPLACE} payloads) - a cap inside a WITH body was invisible to a
+     * plus * REPLACE payloads) - a cap inside a WITH body was invisible to a
      * children-only walk, and the caller raising only the OUTER limit kept the frozen body
-     * cap for the variant (round-35 #4). The identity set keeps a plan reachable through
+     * cap for the variant. The identity set keeps a plan reachable through
      * two paths (a filter's extraPlans() and its predicate expression) from counting the
      * same cap twice.
      */
@@ -450,18 +450,18 @@ public final class SPMPlanTreeSupport {
      * The identity of one row-limiting node: its values, its ORDERED SLICE and the
      * occurrence-tagged relations it truncates (see the collectRowLimits javadoc).
      *
-     * <p>The slice is part of the identity (round-42 #11): equal (limit, offset,
+     * The slice is part of the identity: equal (limit, offset,
      * inputs) is NOT enough when the cap truncates a DIFFERENT slice of the same input -
      * an ASC/DESC change of the TopN picks other rows, and a manual plan may keep the cap
      * at a different position of the same query block. The key therefore carries the
      * cap's sort ARITY with each key's direction and NULL placement ("-" for an
      * order-free LogicalLimit, which truncates an arbitrary slice either way).
      *
-     * <p>Two further candidate dimensions are deliberately NOT part of the key because
+     * Two further candidate dimensions are deliberately NOT part of the key because
      * they are not comparable ACROSS trees: the order keys' EXPRESSION TEXT (the caller
      * and the frozen replay are different trees whose sort keys reference per-tree slots
-     * - the TPCH q02 cap sorts by {@code c_16} in the frozen text and by
-     * {@code s_acctbal} for the caller), and whether an AGGREGATE sits below the cap (a
+     * - the TPCH q02 cap sorts by c_16 in the frozen text and by
+     * s_acctbal for the caller), and whether an AGGREGATE sits below the cap (a
      * scalar subquery exists as a materialized JOIN + aggregate in the decompiled frozen
      * text while the caller's own tree still carries it as an expression node - TPCH q02
      * was rejected by exactly that mismatch although both plans truncate the same slice).
@@ -486,7 +486,7 @@ public final class SPMPlanTreeSupport {
 
     /**
      * The OCCURRENCE-TAGGED name of every relation beneath a row-limiting node (children,
-     * CTE bodies and expression-owned subquery plans included): {@code db.t#N} with N the
+     * CTE bodies and expression-owned subquery plans included): db.t#N with N the
      * node's per-name ordinal in the tree's walk order. A subtree without a relation (a
      * FROM-less child) contributes nothing - the key then identifies the cap by its
      * values alone, exactly as the caller's equivalent cap does.
@@ -714,7 +714,7 @@ public final class SPMPlanTreeSupport {
 
         /**
          * Rebuilds an ASOF / USING join, transforming the MATCH_CONDITION. The condition is
-         * stored in {@code matchCondition}, OUTSIDE both children() and
+         * stored in matchCondition, OUTSIDE both children() and
          * getExpressions() (which returns the USING slots), so the generic pass would
          * leave its literal concrete on the bind side - the Level 3 match would then
          * compare only the USING slots and accept a user variant with a different
@@ -1239,9 +1239,9 @@ public final class SPMPlanTreeSupport {
      * then applied during ordinary replay analysis, although the matching user query is
      * hint-free and runs under -08:00 - from_unixtime returned different values.
      *
-     * <p>PLAN-SELECTION hints are the opposite case and are KEPT: the baseline exists to
+     * PLAN-SELECTION hints are the opposite case and are KEPT: the baseline exists to
      * pin the authored plan, and the non-frozen fallback replays the parameterized TREE -
-     * dropping {@code /*+ ORDERED *}{@code /} or {@code LEADING(...)} here let the replay
+     * dropping an ORDERED or LEADING(...) hint here let the replay
      * choose a different join order than the plan the baseline was created to enforce
      * (the decompiler falls back to the authored SQL whenever the physical plan cannot
      * be rendered, e.g. a PhysicalAssertNumRows produced by a scalar subquery). SET_VAR
@@ -1298,7 +1298,7 @@ public final class SPMPlanTreeSupport {
      * parameterization, the creator-context optimization then resolves them to LITERALS,
      * and the frozen SQL persists the CREATOR's value - while matching still compares the
      * ORIGINAL unbound bind tree, so a global baseline (e.g.
-     * {@code SELECT current_user(), k FROM t WHERE k = 1}) could match another user's
+     * SELECT current_user(), k FROM t WHERE k = 1) could match another user's
      * query and return the creator's identity.
      *
      * @param plan the parsed (unbound) tree
@@ -1351,7 +1351,7 @@ public final class SPMPlanTreeSupport {
             // CurrentDate / CurrentTime / Now leaves directly
             // (LogicalPlanBuilder#visitCurrentDate etc.), so the name-based UnboundFunction
             // check below never saw them and a frozen baseline served the CREATE date for
-            // every later match while the parenthesized forms were rejected (round-35 #5).
+            // every later match while the parenthesized forms were rejected.
             return true;
         }
         if (expr instanceof UnboundFunction) {
@@ -1913,7 +1913,7 @@ public final class SPMPlanTreeSupport {
      * same hint written with its keys in a different order still matches:
      *
      * - SET_VAR: variable name -> value (an empty value is the bare
-     *   {@code SET_VAR(name)} form). Variable names are matched case-insensitively (Doris
+     *   SET_VAR(name) form). Variable names are matched case-insensitively (Doris
      *   variable names are).
      * - USE_MV: the referenced table groups and the on / off flag.
      * - LEADING: the leading parameter list (ORDER-SENSITIVE: it fixes the join order)
@@ -1982,7 +1982,7 @@ public final class SPMPlanTreeSupport {
      * Structural expression comparison entry used by the AST matcher for the out-of-band
      * star payload items (EXCEPT / REPLACE): they are not reachable through children(),
      * so the matcher compares each item through here - including the explicit-alias name
-     * and derived-alias parity checks of {@link #checkExpression}.
+     * and derived-alias parity checks of checkExpression.
      *
      * @param bindExpr          the bind-side payload item
      * @param userExpr          the user-side payload item
@@ -2033,35 +2033,35 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * round-23 #7 (replay half): the frozen planSql pins the CAPTURED output labels - a
+     * (replay half): the frozen planSql pins the CAPTURED output labels - a
      * derived label (the parser's nameFromChild: the expression text with the captured
-     * literal, e.g. {@code k + 1}) is emitted by the decompiler's sink as an EXPLICIT
+     * literal, e.g. k + 1) is emitted by the decompiler's sink as an EXPLICIT
      * alias - while the matcher deliberately accepts a value variant such as
-     * {@code SELECT k + 2} for a captured {@code SELECT k + 1}. NereidsPlanner reports
+     * SELECT k + 2 for a captured SELECT k + 1. NereidsPlanner reports
      * the REPLAYED root's column names as the protocol header, so the replay must hand
      * the CALLER's own labels back instead of exposing the captured text.
      *
      * Renames the rewritten tree's caller-visible output items position by position. Both
      * trees are walked down their common wrapper chain first: a raw parse wraps every
-     * query in an {@link UnboundResultSink} (which carries NO output items of its own and
+     * query in an UnboundResultSink (which carries NO output items of its own and
      * rejects withOutputExprs) and a top-level LIMIT / TOP N sits above the projection as
      * well, so the list that reaches the caller lives on the outermost
-     * {@link LogicalProject}, {@link LogicalAggregate} / {@link LogicalWindow} (which
+     * LogicalProject, LogicalAggregate / LogicalWindow (which
      * produce the select list directly, without a separate projection above them) or on a
      * resolved sink. The shapes are already proven equal by the structural check, and an
      * arity mismatch (SELECT *, SELECT * EXCEPT(...) - the user's tree keeps the star as
      * ONE item) leaves the tree untouched, because those labels are real column names,
      * not captured expression text.
      *
-     * <p>A node that PRODUCES the caller's rows must stop the walk (round-41 #1):
+     * A node that PRODUCES the caller's rows must stop the walk:
      * descending past an aggregate without a projection above it (or past a window) used
      * to land on an INNER derived-table project and rename ITS items position by
      * position. When the frozen plan had reordered that projection (the optimizer
-     * projects the frozen {@code (C_ACCTBAL, substring(...) AS cc)} while the caller's
-     * text spells {@code (substr(...) AS cc, c_acctbal)}), the positional rename swapped
+     * projects the frozen (C_ACCTBAL, substring(...) AS cc) while the caller's
+     * text spells (substr(...) AS cc, c_acctbal)), the positional rename swapped
      * the derived column NAMES and every outer reference bound to the swapped side - the
      * replay of TPCH q22 (GROUP BY cc, sum(c_acctbal) over such a derived plan) grouped by
-     * {@code c_acctbal} and summed the country code instead. The rename must only ever
+     * c_acctbal and summed the country code instead. The rename must only ever
      * touch the node whose output items ARE the caller-visible list.
      *
      * @param rewritten the replayed tree (frozen text or parameterized fallback)
@@ -2092,11 +2092,11 @@ public final class SPMPlanTreeSupport {
         // EXPANDED projection: the capture-time plan was analyzed, so its sink pinned one
         // item per derived column, while a raw parse keeps `*` as ONE item. Expand the
         // caller's stars through its OWN child relation first, so the labels of the
-        // capture-time text can still be replaced (reviewer round 32 #10: `SELECT *` over
+        // capture-time text can still be replaced (`SELECT *` over
         // `(SELECT k + 1 FROM t) s` kept the captured `k + 1` header on the replay of the
         // `k + 2` variant, although the original query exposes `k + 2`).
         List<String> userLabels = expandedOutputLabels(userItems, userNode);
-        // Round-44 #2: a caller star whose expansion is only PARTLY derivable (a star
+        // A caller star whose expansion is only PARTLY derivable (a star
         // over a join whose leading side is a derived relation) carries the open-tail
         // marker; the derived prefix still realigns the frozen labels positionally, and
         // the positions behind the marker keep the frozen names (those are real column
@@ -2151,7 +2151,7 @@ public final class SPMPlanTreeSupport {
     }
 
     /** Rebuilds one output-carrying node with a new caller-visible item list (see
-     * {@link #carriesOutputList}). */
+     * carriesOutputList). */
     private static Plan rebuildWithOutputItems(Plan node, List<NamedExpression> items) {
         if (node instanceof LogicalProject) {
             return ((LogicalProject<?>) node).withProjects(items);
@@ -2172,7 +2172,7 @@ public final class SPMPlanTreeSupport {
      * Whether this node directly carries the caller-visible output list: a projection
      * (always), an AGGREGATE or WINDOW (their output expressions ARE the caller-visible
      * select list - the walk must stop there instead of descending into an inner query
-     * block, see {@link #alignRootOutputLabels}), or a SINK that resolves its own output
+     * block, see alignRootOutputLabels), or a SINK that resolves its own output
      * items - the unbound result sink of a raw parse holds an EMPTY list and only wraps
      * its child.
      */
@@ -2188,10 +2188,10 @@ public final class SPMPlanTreeSupport {
     /**
      * One label per caller-visible output COLUMN: a plain item contributes its own label,
      * a root STAR is expanded through the caller's own child relation (see
-     * {@link #starExpansion}).
+     * starExpansion).
      *
      * @return the labels (null entries = the position carries no derivable label), the
-     *         list ENDING with {@link #OPEN_TAIL_LABEL} when the trailing positions'
+     *         list ENDING with OPEN_TAIL_LABEL when the trailing positions'
      *         count / labels are not derivable, or null when a star's open tail cannot
      *         be placed (another item follows it)
      */
@@ -2221,7 +2221,7 @@ public final class SPMPlanTreeSupport {
     }
 
     /** One `*`'s expansion: the derivable leading labels plus whether the TRAILING
-     * positions' count / labels are unknown (see {@link #starExpansion}). */
+     * positions' count / labels are unknown (see starExpansion). */
     private static final class StarLabels {
         final List<String> labels;
         final boolean openTail;
@@ -2241,14 +2241,14 @@ public final class SPMPlanTreeSupport {
     /**
      * The labels a caller-side star expands to, derived from the CALLER's own tree: the
      * output items of the relation the star reads from (following the subquery-alias /
-     * wrapper chain), or - for a JOIN relation (round-44 #2) - the derivation of its
+     * wrapper chain), or - for a JOIN relation - the derivation of its
      * sides IN OUTPUT ORDER. A DERIVED leading side contributes its labels; a base table
      * / underivable side expands to real column names that need no realignment, so it may
      * only be the TAIL: the expansion then ends with an open tail (its arity is unknown
      * at parse time) and the positions behind the derivable prefix keep their frozen
      * names. The previous implementation returned null for every join, and a
-     * {@code SELECT *} over {@code (SELECT k + 1 ...) s CROSS JOIN u} then kept the
-     * captured frozen sink label {@code k + 1} for a {@code k + 2} caller.
+     * SELECT * over (SELECT k + 1 ...) s CROSS JOIN u then kept the
+     * captured frozen sink label k + 1 for a k + 2 caller.
      *
      * @param relation the relation the star projects from
      * @return the derivable label prefix plus whether the tail is open
@@ -2292,7 +2292,7 @@ public final class SPMPlanTreeSupport {
         return new StarLabels(List.of(), true);
     }
 
-    /** The caller-visible output list of a node that {@link #carriesOutputList}. */
+    /** The caller-visible output list of a node that carriesOutputList. */
     private static List<NamedExpression> outputItemsOf(Plan node) {
         if (node instanceof LogicalProject) {
             return ((LogicalProject<?>) node).getProjects();
@@ -2306,7 +2306,7 @@ public final class SPMPlanTreeSupport {
         return ((LogicalSink<?>) node).getOutputExprs();
     }
 
-    /** One output item renamed to {@code label}, keeping the parse-time class. */
+    /** One output item renamed to label, keeping the parse-time class. */
     private static NamedExpression renameOutputItem(NamedExpression item, String label,
             boolean nameFromChild) {
         if (item instanceof UnboundAlias) {
@@ -2327,11 +2327,11 @@ public final class SPMPlanTreeSupport {
      * The label one top-level output item exposes: its explicit alias when it has one, a
      * derived (nameFromChild) alias text, otherwise the BARE column name of a slot.
      *
-     * <p>The bare-column case is a real contract gap: a manual plan may render a bind
-     * column under another label ({@code CREATE BASELINE PLAN 'SELECT k FROM t' WITH
-     * 'SELECT k AS other FROM t'}), so the frozen sink exposes {@code other} while the
-     * caller's item stays a bare {@link UnboundSlot}. Returning null here kept the
-     * captured alias as the caller's JDBC column label instead of restoring {@code k}.
+     * The bare-column case is a real contract gap: a manual plan may render a bind
+     * column under another label (CREATE BASELINE PLAN 'SELECT k FROM t' WITH
+     * 'SELECT k AS other FROM t'), so the frozen sink exposes other while the
+     * caller's item stays a bare UnboundSlot. Returning null here kept the
+     * captured alias as the caller's JDBC column label instead of restoring k.
      */
     private static String outputLabelOf(Expression item) {
         String explicit = explicitAliasName(item);
@@ -2380,8 +2380,8 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * The user-written name of an explicit output alias ({@code Alias} or parse-time
-     * {@code UnboundAlias}), or null when the expression is not one. A nameFromChild
+     * The user-written name of an explicit output alias (Alias or parse-time
+     * UnboundAlias), or null when the expression is not one. A nameFromChild
      * fallback is the expression text rather than an identifier and does not qualify.
      */
     private static String explicitAliasName(Expression expr) {
@@ -2400,7 +2400,7 @@ public final class SPMPlanTreeSupport {
     /**
      * Compares every non-parameterizable scan identity field of a base-table relation:
      * partition selection, tablet selection, hints, index, sample, snapshot and scan
-     * parameters. {@code TableSnapshot} / {@code TableScanParams} have no value-based
+     * parameters. TableSnapshot / TableScanParams have no value-based
      * equals, so their stable textual form is compared as well.
      */
     private static boolean sameScanIdentity(UnboundRelation bind, UnboundRelation user) {
@@ -2423,7 +2423,7 @@ public final class SPMPlanTreeSupport {
      * The stable textual identity of every CONCRETE (non-parameterizable) scan selector
      * of one base-table relation - partition / tablet selection, hints, index, sample,
      * snapshot and scan parameters (each with the SAME semantics
-     * {@link #sameScanIdentity} compares: selections are multisets, sample / snapshot
+     * sameScanIdentity compares: selections are multisets, sample / snapshot
      * compare by value or text, scan parameters by type + payloads). The audit dedup
      * uses this description to keep two same-digest statements apart when their concrete
      * selectors differ: the digest renders PARTITION(p1) and PARTITION(p2) both as
@@ -2459,8 +2459,8 @@ public final class SPMPlanTreeSupport {
 
     /**
      * Selector rendering of a TABLESAMPLE clause from its FIELDS. The default
-     * {@code Object#toString} must never be used here: {@code TableSample} overrides
-     * {@code equals} / {@code hashCode} by value but not {@code toString}, so its default
+     * Object#toString must never be used here: TableSample overrides
+     * equals / hashCode by value but not toString, so its default
      * text is the IDENTITY hash - unstable across parses and process runs. It made one
      * query's audit fingerprint differ between two parses of the same statement (the
      * dedup identity then no longer collapsed them) and made a bind / plan pair carrying
@@ -2576,10 +2576,10 @@ public final class SPMPlanTreeSupport {
      * Rejects a manual plan whose SCAN SELECTORS diverge from the bind text's for any
      * table both statements read.
      *
-     * <p>The bind text is the MATCHING KEY: a caller matching it carries the BIND's
+     * The bind text is the MATCHING KEY: a caller matching it carries the BIND's
      * selection (sameScanIdentity), while the frozen plan scans the PLAN's. The pair
-     * {@code CREATE ... 'SELECT k FROM t' WITH 'SELECT k FROM t PARTITION(p1)'} is
-     * initially equivalent (only p1 exists), but after {@code ADD PARTITION p2} the
+     * CREATE ... 'SELECT k FROM t' WITH 'SELECT k FROM t PARTITION(p1)' is
+     * initially equivalent (only p1 exists), but after ADD PARTITION p2 the
      * unpinned caller still matches and the frozen plan silently reads only p1 - every
      * row in p2 disappears from the result. The mirror case silently WIDENS the result,
      * and the same holds for a plan-only TABLET() / TABLESAMPLE() / FOR TIMESTAMP AS OF
@@ -2619,7 +2619,7 @@ public final class SPMPlanTreeSupport {
                 // `t PARTITION(p1) b CROSS JOIN t PARTITION(p2) a` produced the identical
                 // list `t -> [p1, p2]`, so CREATE accepted them, and with k=1 in p1 and
                 // k=11 in p2 the bind returned (1,11) while the frozen plan returned
-                // (11,1) (round-39 #15). Each occurrence keeps its own pin, so the
+                // (11,1). Each occurrence keeps its own pin, so the
                 // pin/occurrence mapping is only verifiable when the alias-attached lists
                 // line up: a self-join occurrence carries its own PARTITION / TABLET /
                 // TABLESAMPLE / index selection, and after a partition change the replay
@@ -2653,7 +2653,7 @@ public final class SPMPlanTreeSupport {
      * SAME occurrence. A table read ONCE per statement is compared by its selector alone
      * (the alias cannot disambiguate anything, and a manual plan may name its relation
      * differently). With SEVERAL occurrences of the same table the comparison is by the
-     * pair (alias, selector) in statement order: the reversed self join of round-39 #15
+     * pair (alias, selector) in statement order: the reversed self join of
      * produced identical per-table selector lists while pinning them to swapped aliases,
      * and every replay then returned the other pairing.
      *
@@ -2689,32 +2689,34 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Rejects a manual plan whose LOGICAL query diverges from the bind text (round-44
-     * #1/#9/#10/#11). The bind text is the MATCHING KEY: any caller matching it gets the
+     * Rejects a manual plan whose LOGICAL query diverges from the bind text.
+     * The bind text is the MATCHING KEY: any caller matching it gets the
      * plan side replayed with the caller's values, so a plan that drops the caller's row
      * filter, reads another table, changes the output columns / arity or re-orders the
      * caller's uncapped result silently returns rows the caller never asked for - and
      * neither the schema fingerprint nor the scan-selector guard can see it.
      *
-     * <p>The four contracts checked here:
-     * <ul>
-     *   <li><b>sources</b>: every table the plan reads is read by the bind text - bind
-     *       {@code SELECT k FROM t} with plan {@code SELECT k FROM u} makes a caller's
-     *       t-query return u's rows (t={1}, u={9} returns 9);</li>
-     *   <li><b>output</b>: the two output lists have the same ARITY and, per position,
+     * The four contracts checked here:
+     *    sources: every table the plan reads is read by the bind text - bind
+     *       SELECT k FROM t with plan SELECT k FROM u makes a caller's
+     *       t-query return u's rows (t={1}, u={9} returns 9);
+     *    output: the two output lists have the same ARITY and, per position,
      *       the same underlying expression (only the LABEL may differ - a manual plan may
      *       render a bind column under another name and the replay restores the caller's
-     *       label). Bind {@code k} vs plan {@code v} otherwise exposes v's value under
+     *       label). Bind k vs plan v otherwise exposes v's value under
      *       the caller's name (k=1, v=9 returns 9), a wider plan changes the result
-     *       arity;</li>
-     *   <li><b>filters</b>: every row filter conjunct of the bind text (WHERE / HAVING)
+     *       arity;
+     *    filters: every row filter conjunct of the bind text (WHERE / HAVING)
      *       exists in the plan text - a dropped filter makes a caller restricted to
-     *       {@code k = 2} receive every row (e.g. {1,2});</li>
-     *   <li><b>ordering</b>: both trees expose the same TOP-LEVEL ORDER BY contract
+     *       k = 2 receive every row (e.g. {1,2});
+     *    ordering: both trees expose the same TOP-LEVEL ORDER BY contract
      *       (keys, direction, null placement, or none) - an uncapped caller keeps its
      *       ordering contract, and a plan that flips the direction returns (2,1) for the
-     *       caller that asked for (1,2).</li>
-     * </ul>
+     *       caller that asked for (1,2).
+     * After those set-wise contracts the two trees are compared NODE BY NODE and input by
+     * input (see rejectRelationalTopologyDivergence): a predicate that MOVED to another
+     * input, an operator that was added / dropped (DISTINCT, a window, a join type) and a
+     * plan that shares only part of the bind's relations all pass the set-wise checks.
      * The checks compare the two PARSED trees, so an equivalent plan written in another
      * shape (requalified columns, reordered predicates) is rejected: write both
      * statements with the same tables, filters and ordering.
@@ -2737,6 +2739,16 @@ public final class SPMPlanTreeSupport {
                             + " " + extra + " the bind text never reads. A caller matching the"
                             + " bind text (over " + bindTables + ") would be silently"
                             + " answered with those tables' rows. Write the plan over the"
+                            + " SAME tables as the bind text: " + bindSql);
+        }
+        if (!planTables.containsAll(bindTables)) {
+            java.util.Set<String> missing = new java.util.LinkedHashSet<>(bindTables);
+            missing.removeAll(planTables);
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: the plan does not read"
+                            + " table(s) " + missing + " the bind text reads. A caller"
+                            + " matching the bind text (over " + bindTables + ") would be"
+                            + " answered from the plan's tables alone. Write the plan over the"
                             + " SAME tables as the bind text: " + bindSql);
         }
         List<NamedExpression> bindItems = topLevelOutputItems(bindPlan);
@@ -2790,12 +2802,521 @@ public final class SPMPlanTreeSupport {
                             + " another order. Write the plan with the SAME ordering: "
                             + bindSql);
         }
+        // The set-wise checks above cannot see an operator that CHANGED the rows, a
+        // predicate that MOVED to another input, or an operator that was dropped: the
+        // topology proof compares the two trees node by node and input by input
+        // (see rejectRelationalTopologyDivergence).
+        rejectRelationalTopologyDivergence(bindPlan, planPlan, bindSql);
+    }
+
+    /**
+     * Proves that the manual plan's RELATIONAL TOPOLOGY equals the bind text's, operator
+     * by operator and input by input: the same relation occurrences, the same join types
+     * with the same join predicates, the same row-forming operators (aggregation / grouping
+     * keys, set-operation kind, window functions, projections, sorts / row caps) and every
+     * row filter attached to the SAME relational input.
+     *
+     * The plain CREATE BASELINE PLAN 'bind' WITH 'plan' pair stores the PLAN-side tree, and
+     * neither replay path restores the caller's shape: a caller matching the bind text is
+     * answered with the plan's rows. Every divergence this comparison rejects is therefore
+     * a silent result change:
+     *   relation occurrences / join type / ON condition: a bind
+     *       SELECT t.k FROM t LEFT JOIN u ON t.k = u.k bound to an INNER JOIN plan returns
+     *       no row for an unmatched t row although the caller returns it; a plan that OMITS
+     *       u entirely (accepted by the previous one-way table check) answers a u-reading
+     *       caller from t alone;
+     *   row-forming operators: SELECT DISTINCT k FROM t binds to a
+     *       manual SELECT k FROM t - both expose k, so the output check passed, while
+     *       t={1,1} yields one caller row and two replay rows (the DISTINCT flag sits on
+     *       the PROJECT node). The same gap admitted changed GROUP BY keys, UNION ALL
+     *       against UNION, and a changed window function beneath an outer projection;
+     *   filter placement: an EQUAL-TEXT containment check accepted SELECT k FROM t against
+     *       a plan SELECT k FROM t WHERE k IS NOT NULL (it silently drops the caller's NULL
+     *       rows), and even equal predicate text is not enough - moving u.v IS NOT NULL from
+     *       after a LEFT JOIN into the join's right input turns an unmatched left row into a
+     *       filtered one.
+     * An equivalent plan written in ANOTHER shape is rejected: the comparison must prove
+     * equivalence, not guess it - write both statements with the same relations (same names
+     * and aliases), joins, operators and filter placement.
+     *
+     * @param bindPlan the parsed (unbound) bind tree
+     * @param planPlan the parsed (unbound) plan tree (may be the same object)
+     * @param bindSql  the bind text (for the error message)
+     */
+    public static void rejectRelationalTopologyDivergence(Plan bindPlan, Plan planPlan,
+            String bindSql) {
+        if (bindPlan == planPlan) {
+            return; // one parse (bindSql == planSql): symmetric by construction
+        }
+        compareRelationalNodes(bindPlan, planPlan, "the root operator", bindSql,
+                new IdentityHashMap<>());
+    }
+
+    /**
+     * One lockstep step of rejectRelationalTopologyDivergence: the two nodes must be the
+     * SAME operator with the same payload, the same number of inputs, and recursively the
+     * same subtree under every input. Expression subqueries (IN / EXISTS / scalar
+     * subqueries in predicates and projections) and AUXILIARY plans (the WITH definitions
+     * of a LogicalCTE) are compared as plans as well, so a divergence inside a subquery's
+     * own query block or a CTE body cannot hide behind an opaque reference.
+     *
+     * @param visitedPairs the node pairs already proven equivalent (identity), so a SHARED
+     *                     or recursive CTE reference cannot recurse forever
+     */
+    private static void compareRelationalNodes(Plan bind, Plan plan, String position,
+            String bindSql, Map<Plan, Set<Plan>> visitedPairs) {
+        // SELECT hints carry no relational semantics (they decide planning knobs and the
+        // CREATE-time parse mode, not which rows come out), and the bind text may carry a
+        // SET_VAR hint its plan text does not: compare below them.
+        bind = unwrapSelectHints(bind);
+        plan = unwrapSelectHints(plan);
+        if (bind == null || plan == null) {
+            if (bind == plan) {
+                return;
+            }
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: " + position
+                            + " exists only in the " + (bind == null ? "plan" : "bind")
+                            + " text, so the plan's computation cannot be proven equivalent."
+                            + " Write both statements with the same relational structure: "
+                            + bindSql);
+        }
+        if (!visitedPairs.computeIfAbsent(bind, k -> Collections.newSetFromMap(
+                new IdentityHashMap<>())).add(plan)) {
+            return; // this node pair was already proven equivalent (shared / recursive CTE)
+        }
+        if (bind.getClass() != plan.getClass()) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: " + position
+                            + " is " + describeRelationalNode(bind) + " in the bind text but "
+                            + describeRelationalNode(plan) + " in the plan text, so the plan's"
+                            + " computation cannot be proven equivalent. Write both statements"
+                            + " with the same operators: " + bindSql);
+        }
+        compareRelationalPayload(bind, plan, position, bindSql);
+        List<Plan> bindChildren = bind.children();
+        List<Plan> planChildren = plan.children();
+        if (bindChildren.size() != planChildren.size()) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: " + position
+                            + " has " + bindChildren.size() + " input(s) in the bind text but "
+                            + planChildren.size() + " in the plan text, so the plan's computation"
+                            + " cannot be proven equivalent. Write both statements with the same"
+                            + " relational structure: " + bindSql);
+        }
+        for (int i = 0; i < bindChildren.size(); i++) {
+            compareRelationalNodes(bindChildren.get(i), planChildren.get(i),
+                    position + "'s input " + (i + 1), bindSql, visitedPairs);
+        }
+        List<? extends Plan> bindAuxiliary = bind.extraPlans();
+        List<? extends Plan> planAuxiliary = plan.extraPlans();
+        if (bindAuxiliary.size() != planAuxiliary.size()) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: " + position
+                            + " carries " + bindAuxiliary.size() + " auxiliary plan(s) (e.g."
+                            + " WITH definitions) in the bind text but " + planAuxiliary.size()
+                            + " in the plan text, so the plan's computation cannot be proven"
+                            + " equivalent. Write both statements with the same CTEs: "
+                            + bindSql);
+        }
+        for (int i = 0; i < bindAuxiliary.size(); i++) {
+            compareRelationalNodes(bindAuxiliary.get(i), planAuxiliary.get(i),
+                    position + "'s auxiliary plan " + (i + 1), bindSql, visitedPairs);
+        }
+        List<Plan> bindSubqueries = expressionSubqueryPlans(bind);
+        List<Plan> planSubqueries = expressionSubqueryPlans(plan);
+        if (bindSubqueries.size() != planSubqueries.size()) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: " + position
+                            + " carries " + bindSubqueries.size() + " expression subquery(ies)"
+                            + " in the bind text but " + planSubqueries.size() + " in the plan"
+                            + " text, so the plan's computation cannot be proven equivalent."
+                            + " Write both statements with the same subqueries: " + bindSql);
+        }
+        for (int i = 0; i < bindSubqueries.size(); i++) {
+            compareRelationalNodes(bindSubqueries.get(i), planSubqueries.get(i),
+                    position + "'s subquery " + (i + 1), bindSql, visitedPairs);
+        }
+    }
+
+    /** The payload comparison of one operator pair (same class, see
+     * compareRelationalNodes). */
+    private static void compareRelationalPayload(Plan bind, Plan plan, String position,
+            String bindSql) {
+        if (bind instanceof LogicalUsingJoin) {
+            LogicalUsingJoin<?, ?> bindJoin = (LogicalUsingJoin<?, ?>) bind;
+            LogicalUsingJoin<?, ?> planJoin = (LogicalUsingJoin<?, ?>) plan;
+            if (bindJoin.getJoinType() != planJoin.getJoinType()) {
+                throw topologyDivergence(position, "the join type differs (bind "
+                        + bindJoin.getJoinType() + ", plan " + planJoin.getJoinType() + ")",
+                        bindSql);
+            }
+            assertEquivalentTexts(position, "the USING columns",
+                    expressionTexts(bindJoin.getUsingSlots()),
+                    expressionTexts(planJoin.getUsingSlots()), bindSql);
+            return;
+        }
+        if (bind instanceof LogicalJoin) {
+            LogicalJoin<?, ?> bindJoin = (LogicalJoin<?, ?>) bind;
+            LogicalJoin<?, ?> planJoin = (LogicalJoin<?, ?>) plan;
+            if (bindJoin.getJoinType() != planJoin.getJoinType()) {
+                throw topologyDivergence(position, "the join type differs (bind "
+                        + bindJoin.getJoinType() + ", plan " + planJoin.getJoinType()
+                        + "); an unmatched row of one side survives an OUTER join but is"
+                        + " dropped by an INNER one", bindSql);
+            }
+            assertEquivalentTexts(position, "the join's ON condition",
+                    joinPredicateTexts(bindJoin), joinPredicateTexts(planJoin), bindSql);
+            return;
+        }
+        if (bind instanceof LogicalAggregate) {
+            LogicalAggregate<?> bindAggregate = (LogicalAggregate<?>) bind;
+            LogicalAggregate<?> planAggregate = (LogicalAggregate<?>) plan;
+            assertEquivalentTexts(position, "the GROUP BY keys",
+                    expressionTexts(bindAggregate.getGroupByExpressions()),
+                    expressionTexts(planAggregate.getGroupByExpressions()), bindSql);
+            assertEquivalentTexts(position, "the aggregated output expressions",
+                    labelStrippedTexts(outputItemsOf(bindAggregate)),
+                    labelStrippedTexts(outputItemsOf(planAggregate)), bindSql);
+            return;
+        }
+        if (bind instanceof LogicalRepeat) {
+            LogicalRepeat<?> bindRepeat = (LogicalRepeat<?>) bind;
+            LogicalRepeat<?> planRepeat = (LogicalRepeat<?>) plan;
+            assertEquivalentTexts(position, "the GROUPING SETS",
+                    groupingSetTexts(bindRepeat.getGroupingSets()),
+                    groupingSetTexts(planRepeat.getGroupingSets()), bindSql);
+            return;
+        }
+        if (bind instanceof LogicalWindow) {
+            LogicalWindow<?> bindWindow = (LogicalWindow<?>) bind;
+            LogicalWindow<?> planWindow = (LogicalWindow<?>) plan;
+            assertEquivalentTexts(position, "the window expressions",
+                    labelStrippedTexts(bindWindow.getWindowExpressions()),
+                    labelStrippedTexts(planWindow.getWindowExpressions()), bindSql);
+            return;
+        }
+        if (bind instanceof LogicalSetOperation) {
+            // the class equality of compareRelationalNodes already pins UNION vs
+            // INTERSECT / EXCEPT; DISTINCT vs ALL is the qualifier
+            if (!((LogicalSetOperation) bind).getQualifier()
+                    .equals(((LogicalSetOperation) plan).getQualifier())) {
+                throw topologyDivergence(position, "the set-operation kind differs (bind "
+                        + ((LogicalSetOperation) bind).getQualifier() + ", plan "
+                        + ((LogicalSetOperation) plan).getQualifier() + "); a DISTINCT union"
+                        + " collapses duplicate rows an ALL one keeps", bindSql);
+            }
+            return;
+        }
+        if (bind instanceof LogicalTopN) {
+            LogicalTopN<?> bindTopN = (LogicalTopN<?>) bind;
+            LogicalTopN<?> planTopN = (LogicalTopN<?>) plan;
+            assertOrderedTexts(position, "the order keys",
+                    sortContractOf(bindTopN.getOrderKeys()),
+                    sortContractOf(planTopN.getOrderKeys()), bindSql);
+            if (bindTopN.getLimit() != planTopN.getLimit()
+                    || bindTopN.getOffset() != planTopN.getOffset()) {
+                throw topologyDivergence(position, "the row cap differs (bind LIMIT "
+                        + bindTopN.getLimit() + " OFFSET " + bindTopN.getOffset()
+                        + ", plan LIMIT " + planTopN.getLimit() + " OFFSET "
+                        + planTopN.getOffset() + ")", bindSql);
+            }
+            return;
+        }
+        if (bind instanceof LogicalSort) {
+            assertOrderedTexts(position, "the order keys",
+                    sortContractOf(((LogicalSort<?>) bind).getOrderKeys()),
+                    sortContractOf(((LogicalSort<?>) plan).getOrderKeys()), bindSql);
+            return;
+        }
+        if (bind instanceof LogicalLimit) {
+            LogicalLimit<?> bindLimit = (LogicalLimit<?>) bind;
+            LogicalLimit<?> planLimit = (LogicalLimit<?>) plan;
+            if (bindLimit.getLimit() != planLimit.getLimit()
+                    || bindLimit.getOffset() != planLimit.getOffset()) {
+                throw topologyDivergence(position, "the row cap differs (bind LIMIT "
+                        + bindLimit.getLimit() + " OFFSET " + bindLimit.getOffset()
+                        + ", plan LIMIT " + planLimit.getLimit() + " OFFSET "
+                        + planLimit.getOffset() + ")", bindSql);
+            }
+            return;
+        }
+        if (bind instanceof org.apache.doris.nereids.trees.plans.algebra.Filter) {
+            // the SAME filter (type and conjuncts) attached to the SAME input: the
+            // one-way text containment cannot see an added plan-side predicate
+            // (SELECT k FROM t against ... WHERE k IS NOT NULL) nor a conjunct that
+            // MOVED between two inputs (u.v IS NOT NULL after a LEFT JOIN vs inside its
+            // right input)
+            org.apache.doris.nereids.trees.plans.algebra.Filter bindFilter =
+                    (org.apache.doris.nereids.trees.plans.algebra.Filter) bind;
+            org.apache.doris.nereids.trees.plans.algebra.Filter planFilter =
+                    (org.apache.doris.nereids.trees.plans.algebra.Filter) plan;
+            assertEquivalentTexts(position, "the row-filter conjuncts",
+                    flattenedConjunctTexts(bindFilter.getConjuncts()),
+                    flattenedConjunctTexts(planFilter.getConjuncts()), bindSql);
+            return;
+        }
+        if (bind instanceof LogicalProject) {
+            LogicalProject<?> bindProject = (LogicalProject<?>) bind;
+            LogicalProject<?> planProject = (LogicalProject<?>) plan;
+            // SELECT DISTINCT parses onto the PROJECT's flag (not a separate operator), so
+            // the two projections below expose the same k while t={1,1} yields one caller
+            // row and two replay rows
+            if (bindProject.isDistinct() != planProject.isDistinct()) {
+                throw topologyDivergence(position, "the DISTINCT flag differs (bind "
+                        + bindProject.isDistinct() + ", plan " + planProject.isDistinct()
+                        + "); DISTINCT collapses duplicate rows a plain projection keeps",
+                        bindSql);
+            }
+            assertOrderedTexts(position, "the projected expressions",
+                    labelStrippedTexts(outputItemsOf(bind)),
+                    labelStrippedTexts(outputItemsOf(plan)), bindSql);
+            return;
+        }
+        if (bind instanceof UnboundRelation) {
+            UnboundRelation bindRelation = (UnboundRelation) bind;
+            UnboundRelation planRelation = (UnboundRelation) plan;
+            if (!bindRelation.getNameParts().equals(planRelation.getNameParts())) {
+                throw topologyDivergence(position, "the scanned table differs (bind "
+                        + bindRelation.getNameParts() + ", plan "
+                        + planRelation.getNameParts() + "); the plan would read another"
+                        + " table's rows", bindSql);
+            }
+            return;
+        }
+        if (bind instanceof LogicalSubQueryAlias) {
+            LogicalSubQueryAlias<?> bindAlias = (LogicalSubQueryAlias<?>) bind;
+            LogicalSubQueryAlias<?> planAlias = (LogicalSubQueryAlias<?>) plan;
+            if (!Objects.equals(bindAlias.getAlias(), planAlias.getAlias())) {
+                throw topologyDivergence(position, "the alias differs (bind '"
+                        + bindAlias.getAlias() + "', plan '" + planAlias.getAlias()
+                        + "'); the caller's columns and predicates resolve through it",
+                        bindSql);
+            }
+            if (!Objects.equals(bindAlias.getColumnAliases().orElse(null),
+                    planAlias.getColumnAliases().orElse(null))) {
+                throw topologyDivergence(position, "the column aliases differ (bind "
+                        + bindAlias.getColumnAliases().orElse(null) + ", plan "
+                        + planAlias.getColumnAliases().orElse(null) + ")", bindSql);
+            }
+            if (bindAlias.isRecursiveCte() != planAlias.isRecursiveCte()) {
+                throw topologyDivergence(position, "the recursive-CTE flag differs",
+                        bindSql);
+            }
+            return;
+        }
+        if (bind instanceof LogicalGenerate) {
+            LogicalGenerate<?> bindGenerate = (LogicalGenerate<?>) bind;
+            LogicalGenerate<?> planGenerate = (LogicalGenerate<?>) plan;
+            assertEquivalentTexts(position, "the generator functions",
+                    expressionTexts(bindGenerate.getGenerators()),
+                    expressionTexts(planGenerate.getGenerators()), bindSql);
+            assertEquivalentTexts(position, "the post-generator filter",
+                    flattenedConjunctTexts(bindGenerate.getConjuncts()),
+                    flattenedConjunctTexts(planGenerate.getConjuncts()), bindSql);
+            return;
+        }
+        if (bind instanceof LogicalCTE) {
+            if (((LogicalCTE<?>) bind).isRecursive()
+                    != ((LogicalCTE<?>) plan).isRecursive()) {
+                throw topologyDivergence(position, "the recursive-CTE flag differs",
+                        bindSql);
+            }
+            return;
+        }
+        // Every remaining operator pair is pinned by its class and the lockstep input /
+        // auxiliary / subquery recursion; parse-local payload (CTE ids, relation ids) is
+        // deliberately not comparable across two parses.
+    }
+
+    /** The tree below any SELECT-hint wrappers (see compareRelationalNodes). */
+    private static Plan unwrapSelectHints(Plan node) {
+        Plan current = node;
+        while (current instanceof LogicalSelectHint && current.children().size() == 1) {
+            current = current.child(0);
+        }
+        return current;
+    }
+
+    /** The human-readable operator name of a node (topology error messages). */
+    private static String describeRelationalNode(Plan node) {
+        if (node instanceof LogicalJoin) {
+            return "a join (" + ((LogicalJoin<?, ?>) node).getJoinType() + ")";
+        }
+        if (node instanceof LogicalUsingJoin) {
+            return "a USING join (" + ((LogicalUsingJoin<?, ?>) node).getJoinType() + ")";
+        }
+        if (node instanceof LogicalAggregate) {
+            return "an aggregation / DISTINCT";
+        }
+        if (node instanceof LogicalRepeat) {
+            return "a GROUPING SETS operator";
+        }
+        if (node instanceof LogicalWindow) {
+            return "a window operator";
+        }
+        if (node instanceof LogicalSetOperation) {
+            return "a set operation (" + node.getClass().getSimpleName() + ")";
+        }
+        if (node instanceof LogicalTopN) {
+            return "a TOP-N (ORDER BY with a row cap)";
+        }
+        if (node instanceof LogicalSort) {
+            return "a sort";
+        }
+        if (node instanceof LogicalLimit) {
+            return "a LIMIT (row cap)";
+        }
+        if (node instanceof org.apache.doris.nereids.trees.plans.algebra.Filter) {
+            return "a row filter (" + node.getClass().getSimpleName() + ")";
+        }
+        if (node instanceof LogicalProject) {
+            return "a projection";
+        }
+        if (node instanceof UnboundRelation) {
+            return "a scan of " + ((UnboundRelation) node).getNameParts();
+        }
+        if (node instanceof LogicalSubQueryAlias) {
+            return "a subquery alias ('" + ((LogicalSubQueryAlias<?>) node).getAlias() + "')";
+        }
+        if (node instanceof LogicalGenerate) {
+            return "a generator (LATERAL VIEW / EXPLODE)";
+        }
+        return "a " + node.getClass().getSimpleName() + " operator";
+    }
+
+    /** The topology-divergence exception of one position (see
+     * rejectRelationalTopologyDivergence). */
+    private static org.apache.doris.nereids.exceptions.AnalysisException topologyDivergence(
+            String position, String detail, String bindSql) {
+        return new org.apache.doris.nereids.exceptions.AnalysisException(
+                "SPM cannot align the plan SQL with the bind SQL: " + position
+                        + " " + detail + ". A caller matching the bind text is answered with"
+                        + " the frozen plan's rows, so the two statements must describe the"
+                        + " SAME computation - write both with the same relations (same names"
+                        + " and aliases), joins, operators and filter placement: " + bindSql);
+    }
+
+    /** Ordered-list equality of two expression-text lists (same entries, same order). */
+    private static void assertOrderedTexts(String position, String what, List<String> bind,
+            List<String> plan, String bindSql) {
+        if (bind.equals(plan)) {
+            return;
+        }
+        throw topologyDivergence(position, what + " differ (bind " + bind + ", plan " + plan
+                + ")", bindSql);
+    }
+
+    /** Multiset equality of two expression-text lists (same entries, any order). */
+    private static void assertEquivalentTexts(String position, String what, List<String> bind,
+            List<String> plan, String bindSql) {
+        if (sameSelectionIgnoreOrder(bind, plan)) {
+            return;
+        }
+        throw topologyDivergence(position, what + " differ (bind " + bind + ", plan " + plan
+                + ")", bindSql);
+    }
+
+    /** The toSql texts of one expression list. */
+    private static List<String> expressionTexts(
+            Collection<? extends Expression> expressions) {
+        List<String> texts = new ArrayList<>(expressions.size());
+        for (Expression expression : expressions) {
+            texts.add(expression.toSql());
+        }
+        return texts;
+    }
+
+    /** The label-ignoring texts of one output-item list (see outputExpressionText). */
+    private static List<String> labelStrippedTexts(List<NamedExpression> items) {
+        List<String> texts = new ArrayList<>(items.size());
+        for (NamedExpression item : items) {
+            texts.add(outputExpressionText(item));
+        }
+        return texts;
+    }
+
+    /** The conjunct texts of one filter's predicate set, AND nodes flattened into leaves
+     * (see filterConjunctTexts). */
+    private static List<String> flattenedConjunctTexts(Collection<Expression> predicates) {
+        List<String> texts = new ArrayList<>();
+        for (Expression predicate : predicates) {
+            collectConjunctTextsInto(predicate, texts);
+        }
+        return texts;
+    }
+
+    /** One predicate's leaf texts into a list: an AND is split into its children. */
+    private static void collectConjunctTextsInto(Expression predicate, List<String> texts) {
+        if (predicate instanceof And) {
+            for (Expression child : ((And) predicate).children()) {
+                collectConjunctTextsInto(child, texts);
+            }
+            return;
+        }
+        texts.add(predicate.toSql());
+    }
+
+    /** Every join-predicate text of one join (hash / other / mark conjuncts and an
+     * explicit ON clause), so a moved or changed condition cannot pass. */
+    private static List<String> joinPredicateTexts(LogicalJoin<?, ?> join) {
+        List<String> texts = expressionTexts(join.getHashJoinConjuncts());
+        texts.addAll(expressionTexts(join.getOtherJoinConjuncts()));
+        texts.addAll(expressionTexts(join.getMarkJoinConjuncts()));
+        Optional<Expression> onClause = join.getOnClauseCondition();
+        if (onClause.isPresent()) {
+            texts.add(onClause.get().toSql());
+        }
+        return texts;
+    }
+
+    /** The GROUPING SETS rendering of one repeat operator. */
+    private static List<String> groupingSetTexts(List<List<Expression>> groupingSets) {
+        List<String> texts = new ArrayList<>(groupingSets.size());
+        for (List<Expression> groupingSet : groupingSets) {
+            texts.add(expressionTexts(groupingSet).toString());
+        }
+        return texts;
+    }
+
+    /** The direction / null-placement / expression contract of one order-key list. */
+    private static List<String> sortContractOf(List<OrderKey> keys) {
+        List<String> contract = new ArrayList<>(keys.size());
+        for (OrderKey key : keys) {
+            contract.add((key.isAsc() ? "ASC" : "DESC") + "/"
+                    + (key.isNullFirst() ? "NULLS_FIRST" : "NULLS_LAST") + ":"
+                    + key.getExpr().toSql());
+        }
+        return contract;
+    }
+
+    /** The subquery plans one node's expressions carry, in a stable order. */
+    private static List<Plan> expressionSubqueryPlans(Plan node) {
+        List<Plan> subqueries = new ArrayList<>();
+        for (Expression expression : node.getExpressions()) {
+            collectExpressionSubqueryPlans(expression, subqueries);
+        }
+        for (Expression expression : outOfBandExpressions(node)) {
+            collectExpressionSubqueryPlans(expression, subqueries);
+        }
+        return subqueries;
+    }
+
+    /** One expression's SubqueryExpr query plans, depth-first. */
+    private static void collectExpressionSubqueryPlans(Expression expression,
+            List<Plan> subqueries) {
+        if (expression instanceof SubqueryExpr) {
+            subqueries.add(((SubqueryExpr) expression).getQueryPlan());
+        }
+        for (Expression child : expression.children()) {
+            collectExpressionSubqueryPlans(child, subqueries);
+        }
     }
 
     /**
      * The caller-visible output list of one query tree: descend through single-child
      * wrappers (sink / sort / limit / subquery alias) to the node that carries the list
-     * (see {@link #carriesOutputList}); null when the tree exposes no comparable list
+     * (see carriesOutputList); null when the tree exposes no comparable list
      * (e.g. a set operation root).
      */
     private static List<NamedExpression> topLevelOutputItems(Plan root) {
@@ -2807,7 +3328,7 @@ public final class SPMPlanTreeSupport {
     }
 
     /** One output item's canonical text IGNORING its label (see
-     * {@link #rejectManualPlanDivergence}). */
+     * rejectManualPlanDivergence). */
     private static String outputExpressionText(NamedExpression item) {
         Expression expression = item;
         if (item instanceof Alias) {
@@ -2819,12 +3340,12 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Every row-filter conjunct text of one tree (each {@link LogicalFilter} or
-     * {@link LogicalHaving} anywhere in the statement, subqueries included). A
+     * Every row-filter conjunct text of one tree (each LogicalFilter or
+     * LogicalHaving anywhere in the statement, subqueries included). A
      * conjunct that IS an AND is FLATTENED into its leaves: the unbound parse of
-     * {@code WHERE k1 = 1 AND k2 IS NOT NULL} keeps ONE And node in the conjunct list
-     * (rendered as the whole {@code AND[(k1 = 1),(not k2 IS NULL)]} compound), so a
-     * containment test against the bind's single {@code (k1 = 1)} conjunct would
+     * WHERE k1 = 1 AND k2 IS NOT NULL keeps ONE And node in the conjunct list
+     * (rendered as the whole AND[(k1 = 1),(not k2 IS NULL)] compound), so a
+     * containment test against the bind's single (k1 = 1) conjunct would
      * reject a plan that genuinely carries it.
      */
     private static Set<String> filterConjunctTexts(Plan plan) {
@@ -2846,7 +3367,7 @@ public final class SPMPlanTreeSupport {
     }
 
     /** One predicate's leaf texts: an AND is split into its children (see
-     * {@link #filterConjunctTexts}). */
+     * filterConjunctTexts). */
     private static void collectConjunctTexts(Expression predicate, Set<String> conjuncts) {
         if (predicate instanceof And) {
             for (Expression child : ((And) predicate).children()) {
@@ -2859,8 +3380,8 @@ public final class SPMPlanTreeSupport {
 
     /**
      * The caller-visible top-level ORDER BY contract of one tree: one entry per order
-     * key ({@code direction/nulls:expression-text}), empty when the tree exposes no
-     * top-level sort. The descent mirrors {@link #topLevelLimitOf}: it follows the
+     * key (direction/nulls:expression-text), empty when the tree exposes no
+     * top-level sort. The descent mirrors topLevelLimitOf: it follows the
      * wrapper chain and STOPS at a projection, so a sort below a projection is not the
      * caller-visible contract.
      */
@@ -2879,31 +3400,25 @@ public final class SPMPlanTreeSupport {
         if (keys == null) {
             return List.of();
         }
-        List<String> contract = new ArrayList<>(keys.size());
-        for (OrderKey key : keys) {
-            contract.add((key.isAsc() ? "ASC" : "DESC") + "/"
-                    + (key.isNullFirst() ? "NULLS_FIRST" : "NULLS_LAST") + ":"
-                    + key.getExpr().toSql());
-        }
-        return contract;
+        return sortContractOf(keys);
     }
 
     /**
      * Whether the REPLAYED tree still exposes the caller's own top-level ORDER BY
-     * contract (round-44 #10). {@link #rowLimitsWithin} / {@link #rowLimitsSurviveReplay}
-     * only compare ROW CAPS: a caller with an UNCAPPED sort - {@code ORDER BY k ASC} and
+     * contract. rowLimitsWithin / rowLimitsSurviveReplay
+     * only compare ROW CAPS: a caller with an UNCAPPED sort - ORDER BY k ASC and
      * no LIMIT - matched a bind that also had none, so the limit contract passed without
      * ever comparing the sort and a manual / frozen plan ordering by DESC returned
      * (2,1) for the caller that asked for (1,2).
      *
-     * <p>A caller WITHOUT a top-level sort passes: an unordered result has no visible
+     * A caller WITHOUT a top-level sort passes: an unordered result has no visible
      * ordering contract to preserve (a TopN the replay carries for a caller LIMIT is
      * governed by the row-cap checks, not by this one).
      *
-     * <p>The caller's shape must be a PREFIX of the replay's: the frozen (decompiled)
+     * The caller's shape must be a PREFIX of the replay's: the frozen (decompiled)
      * optimal plan appends deterministic TIE-BREAKER keys after the caller's own - the
-     * tpch q18 frozen TopN sorts by the caller's {@code o_totalprice DESC,
-     * o_orderdate ASC} PLUS {@code c_name / c_custkey / o_orderkey} - and those extra
+     * tpch q18 frozen TopN sorts by the caller's o_totalprice DESC,
+     * o_orderdate ASC PLUS c_name / c_custkey / o_orderkey - and those extra
      * keys only refine ties the caller's ORDER BY left unspecified, while a caller key
      * DROPPED from or FLIPPED in the replay breaks the visible ordering.
      *
@@ -2923,9 +3438,9 @@ public final class SPMPlanTreeSupport {
     /**
      * The ORDER BY contract entries WITHOUT the order-key expression: the replay
      * comparison must not reject a legitimate rewrite because the order key is spelled
-     * differently across the user text and the regenerated frozen text ({@code ORDER BY
-     * 1} / {@code ORDER BY v} in the caller vs {@code ORDER BY c_1} in the frozen
-     * projection - round-42 #11's lesson: order-key expressions are not comparable
+     * differently across the user text and the regenerated frozen text (ORDER BY
+     * 1 / ORDER BY v in the caller vs ORDER BY c_1 in the frozen
+     * projection - lesson: order-key expressions are not comparable
      * across the two trees; the L3 match plus the CREATE-time full contract pin the
      * expressions themselves).
      */
@@ -2968,7 +3483,7 @@ public final class SPMPlanTreeSupport {
      * name) and kept in STATEMENT (walk) ORDER: the bind and plan texts may qualify their
      * tables differently, while a self join contributes one entry per occurrence - the
      * caller compares the lists of one table per occurrence, so a pin stays attached to
-     * the occurrence it belongs to (see {@link #scanSelectorsAligned}).
+     * the occurrence it belongs to (see scanSelectorsAligned).
      */
     private static Map<String, List<ScanSelectorOccurrence>> scanSelectorsByTable(Plan plan) {
         Map<String, List<ScanSelectorOccurrence>> byTable = new HashMap<>();
@@ -2978,9 +3493,9 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * The walk behind {@link #scanSelectorsByTable}: mirrors {@code walkPlans} (children,
+     * The walk behind scanSelectorsByTable: mirrors walkPlans (children,
      * extraPlans and expression subqueries, each node ONCE) while tracking the alias of
-     * the closest enclosing {@code LogicalSubQueryAlias} - a plain {@code FROM t a}
+     * the closest enclosing LogicalSubQueryAlias - a plain FROM t a
      * parses as an alias node wrapping the unbound relation.
      */
     private static void collectScanSelectors(Plan node, String alias,
@@ -3050,7 +3565,7 @@ public final class SPMPlanTreeSupport {
      * The WHOLE statement is inspected, not just children(): a view behind a CTE body or
      * an IN / EXISTS / scalar subquery would otherwise be missed, because those plans are
      * held by getAliasQueries() / extraPlans() / SubqueryExpr.queryPlan instead of
-     * children() (see {@link #walkPlans}).
+     * children() (see walkPlans).
      */
     public static boolean referencesView(ConnectContext ctx, Plan plan) {
         if (plan == null || ctx == null || ctx.getStatementContext() == null) {
@@ -3096,11 +3611,11 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * {@link #walkPlans} with the identity set of already-visited nodes: a node reachable
+     * walkPlans with the identity set of already-visited nodes: a node reachable
      * through TWO paths (a LogicalFilter exposes its predicate's subquery plans both
      * through extraPlans() and through the predicate expression itself) is visited ONCE.
      * Without the set the nested-subquery depth n was walked 2^n times (a 20-level
-     * {@code k = (SELECT ... WHERE k = (SELECT ...))} exceeds a million visits, and the
+     * k = (SELECT ... WHERE k = (SELECT ...)) exceeds a million visits, and the
      * bind-side fingerprint resolved every repeated table again after the match
      * deadline). Identity - not equals() - is the right key: the walkers only INSPECT the
      * tree, and a shared plan object always appears under the same CTE scope.
@@ -3143,18 +3658,18 @@ public final class SPMPlanTreeSupport {
         }
     }
 
-    /** Plan visitor for {@link #walkPlans}; the exception type is chosen by the caller. */
+    /** Plan visitor for walkPlans; the exception type is chosen by the caller. */
     public interface PlanWalker<E extends Exception> {
         void visit(Plan plan) throws E;
     }
 
-    /** Plan visitor for {@link #walkPlansScoped}: receives the CTE aliases visible at the node. */
+    /** Plan visitor for walkPlansScoped: receives the CTE aliases visible at the node. */
     private interface ScopedPlanWalker<E extends Exception> {
         void visit(Plan plan, Set<String> visibleCtes) throws E;
     }
 
     /**
-     * Like {@link #walkPlans}, but tracks the CTE aliases visible at every visited node
+     * Like walkPlans, but tracks the CTE aliases visible at every visited node
      * (mirroring AnalyzeCTE's scoping rules): a CTE's main query sees every alias of that
      * WITH, alias body i only the aliases defined before it (plus itself under a real
      * recursive CTE), nested WITH nodes extend the enclosing scope and expression
@@ -3163,7 +3678,7 @@ public final class SPMPlanTreeSupport {
      * the bind-side table fingerprint).
      *
      * @param root        the plan to start from (may be null)
-     * @param visibleCtes the CTE aliases visible at {@code root} (normalized)
+     * @param visibleCtes the CTE aliases visible at root (normalized)
      * @param visitor     called once per reachable node; may throw
      * @param <E>         the visitor's exception type, propagated to the caller
      */
@@ -3174,8 +3689,8 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * {@link #walkPlansScoped} with the identity set of already-visited nodes (see
-     * {@link #walkPlans(Plan, PlanWalker, Set)}): the same subquery plan is reachable
+     * walkPlansScoped with the identity set of already-visited nodes (see
+     * walkPlans(Plan, PlanWalker, Set)): the same subquery plan is reachable
      * through a filter's extraPlans() AND through its predicate expression, so without
      * the set a nested-subquery chain was walked exponentially often.
      */
@@ -3220,7 +3735,7 @@ public final class SPMPlanTreeSupport {
         }
     }
 
-    /** Scoped counterpart of {@link #walkSubqueryPlans} (see walkPlansScoped). */
+    /** Scoped counterpart of walkSubqueryPlans (see walkPlansScoped). */
     private static <E extends Exception> void walkSubqueryPlansScoped(Expression expression,
             Set<String> visibleCtes, ScopedPlanWalker<E> visitor, Set<Plan> visited) throws E {
         if (expression instanceof SubqueryExpr) {
@@ -3314,17 +3829,17 @@ public final class SPMPlanTreeSupport {
     /**
      * Fingerprint of the base tables referenced by a (still unbound) statement: one
      * deterministic entry per resolvable catalog relation,
-     * {@code tableName|tableId|schemaHash}, sorted and joined with ';'. CREATE persists
+     * tableName|tableId|schemaHash, sorted and joined with ';'. CREATE persists
      * it with the baseline and the rewrite validates it BEFORE replaying a frozen plan:
-     * the bind key is built from the unbound query, so {@code SELECT * FROM t WHERE k=1}
-     * keeps the same digest and Level-3 tree after {@code ALTER TABLE t ADD COLUMN extra}
+     * the bind key is built from the unbound query, so SELECT * FROM t WHERE k=1
+     * keeps the same digest and Level-3 tree after ALTER TABLE t ADD COLUMN extra
      * (or after a DROP + CREATE), while the frozen result sink still emits the
      * creator-time output columns - the matched replay would silently return the old
      * column set instead of the current star expansion. The table id also catches
      * drop / recreate (a new id), and the schema hash catches column add / drop / type
      * changes in place.
      *
-     * Resolution mirrors {@link #isViewRelation}: unresolvable relations are skipped
+     * Resolution mirrors isViewRelation: unresolvable relations are skipped
      * (the normal analysis pass reports the error). A statement without a resolvable
      * relation (SELECT 1, TVF-only, ...) yields an EMPTY fingerprint, which disables
      * the check - there is no schema identity to bind to.
@@ -3393,7 +3908,7 @@ public final class SPMPlanTreeSupport {
 
     /**
      * REPLAY-time revalidation of a frozen baseline (see
-     * {@link org.apache.doris.nereids.spm.SPMPlanner#verifyReplayMetadata}): the stored
+     * org.apache.doris.nereids.spm.SPMPlanner#verifyReplayMetadata): the stored
      * fingerprint recomputed from the metadata the REPLAYED plan was actually planned
      * with - the planned physical plan's catalog relations - plus the baseline's bind
      * tree resolved in this context. The pre-match guard runs BEFORE the query planner
@@ -3483,8 +3998,8 @@ public final class SPMPlanTreeSupport {
 
     /**
      * The expressions of one plan node that are NOT reachable through
-     * {@link Plan#getExpressions()}: today the ASOF {@code USING} join's MATCH_CONDITION
-     * ({@link LogicalUsingJoin#getMatchCondition()}). Missing it made the function
+     * Plan#getExpressions(): today the ASOF USING join's MATCH_CONDITION
+     * (LogicalUsingJoin#getMatchCondition()). Missing it made the function
      * dependency walks blind to an alias UDF used ONLY as the ASOF boundary: analysis
      * inlines its body into the frozen SQL, so redefining the UDF changes which right row
      * a direct ASOF query picks while the stored fingerprint still matches and replays
@@ -3615,7 +4130,7 @@ public final class SPMPlanTreeSupport {
 
     /**
      * Whether a candidate table's catalog matches the EXPLICIT catalog of a bind
-     * relation. Mirrors {@link #databaseMatchesQualifier}: an unknown catalog (partially
+     * relation. Mirrors databaseMatchesQualifier: an unknown catalog (partially
      * mocked table) or a qualifier without a catalog component is accepted, only a
      * PROVABLE mismatch rejects the pinned table - two catalogs may hold a database and
      * table of the same names.
@@ -3651,7 +4166,7 @@ public final class SPMPlanTreeSupport {
      * text will resolve again, so both fingerprint computations (CREATE / replay) walk
      * the SAME string and stay symmetric. The parse runs pinned to the DEFAULT mode
      * (which is also the mode a frozen text is re-parsed with, see
-     * {@code BaselinePlan#getPlanSqlMode()}), so a session that carries another mode
+     * BaselinePlan#getPlanSqlMode()), so a session that carries another mode
      * cannot produce a different name set.
      */
     private static void collectPlanTextFunctionEntries(ConnectContext ctx, String planSql,
@@ -3688,16 +4203,16 @@ public final class SPMPlanTreeSupport {
     /**
      * Whether every entry of the CURRENT bind-side fingerprint is still present in the
      * STORED one. The stored fingerprint is the bind side UNION the plan side of the
-     * frozen plan ({@link #schemaFingerprintForCreate}), and the pre-match guard runs
+     * frozen plan (schemaFingerprintForCreate), and the pre-match guard runs
      * BEFORE the query is planned - the plan side cannot be recomputed there (it is
      * revalidated after planning, see
-     * {@link org.apache.doris.nereids.spm.SPMPlanner#verifyReplayMetadata}). Membership
+     * org.apache.doris.nereids.spm.SPMPlanner#verifyReplayMetadata). Membership
      * is still fail-closed for the bind side: a DROP + CREATE (new table id) or an ALTER
      * (new schema hash) replaces an entry instead of extending the fingerprint, so the
      * new entry is no longer contained.
      *
-     * <p>A STORED entry may lack the nullability section (a row persisted before that
-     * section existed, {@link #legacyEntryOf}): such an entry accepts the CURRENT one
+     * A STORED entry may lack the nullability section (a row persisted before that
+     * section existed, legacyEntryOf): such an entry accepts the CURRENT one
      * with any nullability, because the pre-upgrade fingerprint simply did not record
      * it. A stored entry that HAS the section is compared verbatim - this is exactly how
      * "the declared nullability changed after the plan was frozen" fails closed.
@@ -3730,7 +4245,7 @@ public final class SPMPlanTreeSupport {
     /**
      * Whether a freshly computed fingerprint still describes the STORED one: either the
      * two are equal, or the stored one simply predates the nullability section (see
-     * {@link #legacyEntryOf}). Used by the post-planning replay validation, which
+     * legacyEntryOf). Used by the post-planning replay validation, which
      * compares the FULL (bind + plan side) fingerprints as two unordered sets.
      *
      * @param stored  the fingerprint persisted with the baseline
@@ -3757,7 +4272,7 @@ public final class SPMPlanTreeSupport {
 
     /**
      * The PRE-nullability format of one fingerprint entry: the trailing
-     * {@code |nullable:<flags>} section removed. A fingerprint persisted before that
+     * nullability section removed. A fingerprint persisted before that
      * section existed carries such entries; a fingerprint written since never does.
      */
     private static String legacyEntryOf(String entry) {
@@ -3953,8 +4468,8 @@ public final class SPMPlanTreeSupport {
     /**
      * Rejects creating a baseline whose BIND tree or PLAN tree references the VOLATILE
      * key(...) dependency. Both inputs are checked before optimizing / storing: the plan
-     * text may be the only text carrying the secret, and {@code KEY db.key} parses
-     * straight to a bound {@link EncryptKeyRef} - the name-only UnboundFunction check
+     * text may be the only text carrying the secret, and KEY db.key parses
+     * straight to a bound EncryptKeyRef - the name-only UnboundFunction check
      * missed it entirely, so the optimizer folded the key into the frozen plan and replay
      * served the creator's secret.
      *
@@ -4025,8 +4540,8 @@ public final class SPMPlanTreeSupport {
     /**
      * Optional value equality with a textual fallback for value types without equals.
      *
-     * <p>{@code TableSample} is compared by its VALUE equality only: it overrides
-     * {@code equals} / {@code hashCode} by value but not {@code toString}, so its default
+     * TableSample is compared by its VALUE equality only: it overrides
+     * equals / hashCode by value but not toString, so its default
      * text is the identity hash. The textual fallback was therefore wrong in BOTH
      * directions for it - two identical clauses parsed separately (bind vs plan, two
      * audit parses of one statement) compared unequal, and two DIFFERENT samples compared
@@ -4065,7 +4580,7 @@ public final class SPMPlanTreeSupport {
      * user who merely matches the same bind query would then replay the creator's policy
      * as an ordinary predicate / projection (rows disappear or values stay masked).
      *
-     * <p>The STORED parameterized trees keep their markers: an in-memory fallback replay
+     * The STORED parameterized trees keep their markers: an in-memory fallback replay
      * still evaluates the EXECUTING user's policy. A frozen text is re-parsed at replay,
      * which re-creates the markers for that user as well - so every replay keeps the
      * normal policy checks of whoever runs it, while the frozen plan itself carries none
@@ -4124,7 +4639,7 @@ public final class SPMPlanTreeSupport {
         return found[0];
     }
 
-    /** Recursive worker of {@link #STRIP_POLICY_IN_EXPRESSION}. */
+    /** Recursive worker of STRIP_POLICY_IN_EXPRESSION. */
     private static Expression stripPolicyOfExpression(Expression expr) {
         if (expr instanceof SubqueryExpr) {
             LogicalPlan subPlan = ((SubqueryExpr) expr).getQueryPlan();
@@ -4165,7 +4680,7 @@ public final class SPMPlanTreeSupport {
         return changed ? expr.withChildren(newChildren) : expr;
     }
 
-    /** Recursive worker of {@link #stripCheckPolicy}. */
+    /** Recursive worker of stripCheckPolicy. */
     private static Plan stripCheckPolicyNodes(Plan plan) {
         if (plan instanceof LogicalCTE) {
             // CTE bodies live OUTSIDE children()

@@ -28,16 +28,14 @@ package org.apache.doris.nereids.spm;
  * Syntax: CREATE [GLOBAL | SESSION] BASELINE PLAN 'bindSql' WITH 'planSql'.
  * GLOBAL is the default when neither keyword is given.
  *
- * <p>The scope of an existing baseline is uniquely determined by its id (see
- * {@link #ofId(long)}), because the two scopes allocate from disjoint id ranges:
+ * The scope of an existing baseline is uniquely determined by its id (see
+ * ofId(long)), because the two scopes allocate from disjoint id ranges:
  *
- * <ul>
- *   <li>GLOBAL: [1, {@link #SESSION_ID_BASE}) - the shared BaselineManager generator
+ *   GLOBAL: [1, SESSION_ID_BASE) - the shared BaselineManager generator
  *       allocates from 1 and the persistence-layer watermark only ever pushes it
- *       further up.</li>
- *   <li>SESSION: [{@link #SESSION_ID_BASE}, 2^63) - each FE process allocates session
- *       ids from a counter that starts at 2^62.</li>
- * </ul>
+ *       further up.
+ *   SESSION: [SESSION_ID_BASE, 2^63) - each FE process allocates session
+ *       ids from a counter that starts at 2^62.
  *
  * Therefore a session id can never collide with any GLOBAL id observed anywhere in the
  * cluster, while two FE processes may hand out the same numeric session ids - a session

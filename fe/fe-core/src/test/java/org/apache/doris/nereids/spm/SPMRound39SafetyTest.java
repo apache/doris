@@ -33,7 +33,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Round-39 review fixes without their own regression suite:
+ * Review fixes without their own regression suite:
  *
  * - #1 (SPMPlanner#limitContractPreserved): an UNBOUNDED caller must never replay a
  *   frozen plan that retains a row cap (a manual planSql 'SELECT k FROM t LIMIT 1' over
@@ -73,7 +73,7 @@ public class SPMRound39SafetyTest {
     /**
      * Hand-builds a baseline whose planSql is a frozen plan text (the equivalent of what
      * the CREATE path stores after a successful decompile), exactly like
-     * {@code SPMFrozenTreeReplayTest#frozenBaseline}.
+     * SPMFrozenTreeReplayTest#frozenBaseline.
      */
     private static BaselinePlan frozenBaseline(String bindSql, String frozenPlanSql)
             throws Exception {
@@ -98,7 +98,7 @@ public class SPMRound39SafetyTest {
      * The reviewer's case: CREATE BASELINE PLAN 'SELECT k FROM t' WITH 'SELECT k FROM t
      * LIMIT 1' passes creation (the bind is unbounded), and the later unbounded SELECT
      * matches that bind. The frozen plan RETAINS LIMIT 1; the old early return
-     * ({@code userLimit == null -> true}) skipped the retained-cap check, so the replay
+     * (userLimit == null -> true) skipped the retained-cap check, so the replay
      * silently returned ONE row instead of all rows. The candidate must be skipped.
      */
     @Test
@@ -134,9 +134,9 @@ public class SPMRound39SafetyTest {
     // ==================== #15: scan selectors are per-occurrence ====================
 
     /**
-     * The reviewer's reversed self join: bind {@code t PARTITION(p1) a CROSS JOIN
-     * t PARTITION(p2) b} and a manual plan {@code t PARTITION(p1) b CROSS JOIN
-     * t PARTITION(p2) a} both produced {@code t -> [p1, p2]} in walk order, so CREATE
+     * The reviewer's reversed self join: bind t PARTITION(p1) a CROSS JOIN
+     * t PARTITION(p2) b and a manual plan t PARTITION(p1) b CROSS JOIN
+     * t PARTITION(p2) a both produced t -> [p1, p2] in walk order, so CREATE
      * accepted them - and with k=1 in p1 and k=11 in p2 the bind returned (1,11) while the
      * frozen plan returned (11,1). The alias-attached comparison must reject the pair.
      */

@@ -47,9 +47,9 @@ public class ShowBaselinePlansCommandTest {
     }
 
     /**
-     * Round-29 #5: the LIKE chain must cover every column the WHERE form filters on. A
+     * The LIKE chain must cover every column the WHERE form filters on. A
      * SESSION baseline whose SQL text never spells "SESSION" was missing from
-     * {@code SHOW BASELINE PLANS LIKE 'SESSION'} because only the SQL text, source and
+     * SHOW BASELINE PLANS LIKE 'SESSION' because only the SQL text, source and
      * status were searched.
      */
     @Test
@@ -139,7 +139,7 @@ public class ShowBaselinePlansCommandTest {
     }
 
     /**
-     * round-34 #6: the internal DATETIME columns are stored and parsed in UTC
+     * The internal DATETIME columns are stored and parsed in UTC
      * (BaselineManager.toTs / fromTs), so SHOW must render them in UTC as well - with the
      * host zone a row stored as 12:00:00 showed 20:00:00 on an Asia/Shanghai FE and
      * 12:00:00 on a UTC one, i.e. the SAME baseline had two different create / update

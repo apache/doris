@@ -86,7 +86,7 @@ public class SPMPlanner {
     private long usedBaselineId = -1;
 
     /**
-     * The matched baseline OBJECT (see {@link #verifyReplayMetadata}): the post-plan
+     * The matched baseline OBJECT (see verifyReplayMetadata): the post-plan
      * validation must keep the fingerprint of the SAME incarnation the match used, so a
      * concurrent DROP / refresh cannot make it silently skip the check.
      */
@@ -101,7 +101,7 @@ public class SPMPlanner {
         return usedBaselineId;
     }
 
-    /** The matched baseline object (see {@link #verifyReplayMetadata}). */
+    /** The matched baseline object (see verifyReplayMetadata). */
     public BaselinePlan getUsedBaseline() {
         return usedBaseline;
     }
@@ -325,12 +325,12 @@ public class SPMPlanner {
     /**
      * Whether the CALLER's top-level LIMIT / OFFSET is honored by the replayed tree.
      *
-     * <p>Top-level limit VALUES are deliberately ignored by the match (a limit variant
+     * Top-level limit VALUES are deliberately ignored by the match (a limit variant
      * reuses the baseline and gets its own values transferred by mergeLimits), but the
      * transfer is a POSITIONAL merge: it only replaces values at nodes that align with
      * the caller's tree. A manual plan may keep its OWN limit below a node the merge
-     * cannot align - {@code bind 'SELECT k FROM t ORDER BY k LIMIT 1' WITH 'SELECT
-     * DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s'} - and replaying it for a
+     * cannot align - bind 'SELECT k FROM t ORDER BY k LIMIT 1' WITH 'SELECT
+     * DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s' - and replaying it for a
      * caller asking LIMIT 2 would then return the CAPTURED row count (one row instead of
      * two distinct keys). Such a candidate is skipped unless the caller asks for exactly
      * the captured limit / offset, in which case the plan's own placement already IS the
@@ -346,7 +346,7 @@ public class SPMPlanner {
             LogicalPlan bindTree) {
         long[] userLimit = SPMPlanTreeSupport.topLevelLimitOf(userPlan);
         if (userLimit == null) {
-            // The caller asks for NO top-level cap (round-39 #1): the capture-side LIMIT
+            // The caller asks for NO top-level cap: the capture-side LIMIT
             // VALUES are NOT the caller's contract here, so the replay must carry no
             // row-limiting node at all. A manual planSql like 'SELECT k FROM t LIMIT 1'
             // frozen over an unbounded bind otherwise passed creation and this early
@@ -355,7 +355,7 @@ public class SPMPlanner {
         }
         if (Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(replayed))) {
             // The caller's own top-level limit is in place. Every OTHER cap the replay
-            // still exposes must be one the caller's own tree also has (round-41 #9):
+            // still exposes must be one the caller's own tree also has:
             // equal OUTER limits do not make the plans equivalent - a manual plan
             // 'SELECT k FROM (SELECT k FROM t ORDER BY k ASC LIMIT 2) s ORDER BY k DESC
             // LIMIT 2' passes the single-scan CREATE guard and answers a LIMIT 2 caller
@@ -363,7 +363,7 @@ public class SPMPlanner {
             // truncates a DIFFERENT slice before the outer sort. Only the captured caps
             // themselves may justify the replay's caps - the captured (bind) tree is
             // what the caller's own tree structurally matched, so an identical-text
-            // baseline keeps passing. Round-42 #11 additionally requires the CALLER's
+            // baseline keeps passing. additionally requires the CALLER's
             // caps to survive: 'SELECT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s
             // ORDER BY k LIMIT 2' against a manual plan carrying only the outer cap
             // passed the one-directional check (replayed caps ⊆ caller caps) although
@@ -371,7 +371,7 @@ public class SPMPlanner {
             return SPMPlanTreeSupport.rowLimitsWithin(replayed, userPlan)
                     && SPMPlanTreeSupport.rowLimitsSurviveReplay(replayed, userPlan);
         }
-        // Round-42 #5: matching the CAPTURED limit VALUE is not enough - the replayed tree
+        // Matching the CAPTURED limit VALUE is not enough - the replayed tree
         // must actually CARRY the caller's cap. A manual plan 'SELECT k FROM t' freezes a
         // text with NO limit node: mergeLimits only replaces the VALUE of a cap that
         // aligns positionally, it cannot add a missing one, so accepting this replay
@@ -629,7 +629,7 @@ public class SPMPlanner {
             // bind text is the matching key, so a divergent selection silently changes
             // which rows the replayed baseline reads.
             SPMPlanTreeSupport.rejectScanSelectorMismatch(bindPlan, planPlan, bindSql);
-            // Round-44 #1/#9/#10/#11: the plan must implement the SAME logical query as
+            // The plan must implement the SAME logical query as
             // the bind text (same sources, output expressions / arity, row filters and
             // top-level ordering) - see the guard for the silent result changes it
             // prevents.
@@ -660,7 +660,7 @@ public class SPMPlanner {
     /**
      * The parser-relevant sql_mode bits of the CREATING session (see
      * BaselinePlan#getCreatorSqlMode): re-parsing the stored bindSql under the default
-     * mode can change its meaning (PIPES_AS_CONCAT: {@code a || b} is concat(a, b), not
+     * mode can change its meaning (PIPES_AS_CONCAT: a || b is concat(a, b), not
      * a boolean Or).
      */
     private static long creatorSqlMode() {
@@ -676,7 +676,7 @@ public class SPMPlanner {
      * serve every other user the creator's identity / variables. Clock functions are the
      * same class of value: FE constant folding evaluates now() / current_timestamp() from
      * the CREATE statement's start time (see DateTimeAcquire), so a baseline for
-     * {@code SELECT now() AS ts FROM t} returned the CREATE timestamp on every later
+     * SELECT now() AS ts FROM t returned the CREATE timestamp on every later
      * matching query.
      */
     private static void rejectReplayContextExpressions(LogicalPlan bindPlan, LogicalPlan planPlan,
@@ -784,7 +784,7 @@ public class SPMPlanner {
         // text is the matching key, so a divergent selection silently changes which rows
         // the replayed baseline reads (and the fingerprint cannot see the selectors).
         SPMPlanTreeSupport.rejectScanSelectorMismatch(bindPlan, planPlan, bindSql);
-        // Round-44 #1/#9/#10/#11: the plan must implement the SAME logical query as the
+        // The plan must implement the SAME logical query as the
         // bind text (same sources, output expressions / arity, row filters and top-level
         // ordering) - a plan that drops a filter / reads another table / renames an
         // output column / flips the sort silently changes a matching caller's result.
@@ -916,7 +916,7 @@ public class SPMPlanner {
     }
 
     /**
-     * The freeze step's result: the planSql text plus its provenance. {@code decompiled}
+     * The freeze step's result: the planSql text plus its provenance. decompiled
      * is false when the user-supplied planSql text was kept (decompiler rejected the
      * physical plan, or the plan references a view) - such text is user-authored and
      * reloads with the CREATOR's parser mode, and it must never be replayed as frozen
@@ -1111,7 +1111,7 @@ public class SPMPlanner {
 
     /**
      * Rebuilds the transient parameterized trees with an explicit mode for the plan text
-     * (see {@link BaselinePlan#getPlanSqlMode()}): the planSql is SPM's decompiled
+     * (see BaselinePlan#getPlanSqlMode()): the planSql is SPM's decompiled
      * rendering when the freeze succeeded (MODE_DEFAULT) or the user's raw fallback text
      * (the CREATOR's mode) when the physical plan could not be decompiled - re-parsing
      * that fallback under the default mode would turn a PIPES_AS_CONCAT clause into a
@@ -1199,9 +1199,9 @@ public class SPMPlanner {
     /**
      * Whether a STORED planSql is a FROZEN (placeholder-carrying) text, honouring the
      * PERSISTED provenance when the row carries it (see
-     * {@link BaselinePlan#getPlanFrozen()}): an explicit flag removes every
+     * BaselinePlan#getPlanFrozen()): an explicit flag removes every
      * classification guess, so a raw-fallback text that merely CONTAINS a placeholder
-     * name (e.g. a real {@code db._spm_const_var(1)} UDF call) keeps its parameterized
+     * name (e.g. a real db._spm_const_var(1) UDF call) keeps its parameterized
      * fallback tree instead of being replayed as frozen SQL. Pre-column rows fall back
      * to the parse-based classifier.
      *
@@ -1240,7 +1240,7 @@ public class SPMPlanner {
 
     /**
      * Parses a STORED SQL text with an explicit parser mode (see
-     * {@link #parseStoredSelect(String)}): SPM-authored texts are pinned to
+     * parseStoredSelect(String)): SPM-authored texts are pinned to
      * MODE_DEFAULT, a user-authored bindSql keeps the mode it was created with.
      */
     private static LogicalPlan parseStoredSelect(String sql, long sqlMode) {

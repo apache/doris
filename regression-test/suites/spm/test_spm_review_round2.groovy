@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round2", "spm") {
 
-    // Second review round: SQL-level regression for the frozen-SQL / matching fixes.
+    // SQL-level regression for the frozen-SQL / matching fixes.
     //
     // Covered here (end-to-end through CREATE BASELINE + EXPLAIN hit + replay result):
     //  - constant UNION branches survive the freeze (a dropped SELECT 1 row)

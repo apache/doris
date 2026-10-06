@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round29", "spm") {
 
-    // Twenty-ninth review round.
+
     //
     // SQL-visible fixes covered here:
     //  - #1: a TABLESAMPLE clause is rendered from its FIELDS, never from Object#toString.

@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 /**
  * SessionBaselineStore - per-connection storage of SESSION-scope baselines.
  *
- * A {@code CREATE SESSION BASELINE PLAN} baseline never touches the shared
+ * A CREATE SESSION BASELINE PLAN baseline never touches the shared
  * __internal_schema.spm_baselines table: it lives in this store, which hangs off the
  * ConnectContext that created it. Other sessions never see it, BaselineRefreshDaemon /
  * auto capture never touch it, and it is discarded together with the connection. The
@@ -75,9 +75,9 @@ public class SessionBaselineStore {
 
     /**
      * Payload characters the CURRENT rows take when this connection's baselines are
-     * forwarded (see {@link SPMForwardedSession#payloadRowChars}). The bound is enforced at
+     * forwarded (see SPMForwardedSession#payloadRowChars). The bound is enforced at
      * CREATION - a store that accepts more than the forwarded payload can carry forced
-     * {@code serialize} to drop rows, and a dropped row still participates in LOCAL
+     * serialize to drop rows, and a dropped row still participates in LOCAL
      * matching: the same statement was rewritten here but planned without that baseline on
      * the master (a silently different rewrite context). Every accepted row (ENABLED or
      * not: a later ALTER ENABLE must stay forwardable) therefore always fits.
@@ -107,7 +107,7 @@ public class SessionBaselineStore {
 
     /**
      * Imports a baseline carried over from the connection's own FE
-     * ({@link org.apache.doris.nereids.spm.SPMForwardedSession}) under its ORIGINAL id.
+     * (org.apache.doris.nereids.spm.SPMForwardedSession) under its ORIGINAL id.
      * The id is what the originating session uses for SHOW / ALTER / DROP and what a
      * forwarded EXPLAIN reports as its SPM hit; allocating a fresh id here (as a plain
      * create does) made the reported hit unmanageable from the user's session and
@@ -131,7 +131,7 @@ public class SessionBaselineStore {
     }
 
     /**
-     * Duplicate validation shared by {@link #createBaseline} / {@link #importBaseline}: an
+     * Duplicate validation shared by createBaseline / importBaseline: an
      * identical (bindSqlHash, digest, planSql, fingerprint) row returns its id
      * ("IF NOT EXISTS" semantics), a same-key row under an OLD fingerprint is retired.
      *
@@ -173,7 +173,7 @@ public class SessionBaselineStore {
         long usedChars = forwardedPayloadChars
                 - (replaced == null ? 0 : SPMForwardedSession.payloadRowChars(replaced));
         // The ENCLOSURE (the serialized payload's leading "[]") counts against the same
-        // budget (round-42 #4): the store admitted a row at exactly the row budget while
+        // budget: the store admitted a row at exactly the row budget while
         // SPMForwardedSession.serialize needed two characters more and rejected the same
         // store on every forwarded statement.
         if (usedChars + rowChars + SPMForwardedSession.PAYLOAD_ENCLOSURE_CHARS

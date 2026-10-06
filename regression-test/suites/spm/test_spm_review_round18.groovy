@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round18", "spm") {
 
-    // Eighteenth review round: SQL-level regression for the create-input / reload fixes.
+    // SQL-level regression for the create-input / reload fixes.
     //
     // Covered here (end-to-end through CREATE BASELINE + EXPLAIN hit + replay result):
     //  - EXPLAIN must revalidate the frozen baseline AFTER planning (like a query does):
@@ -72,7 +72,7 @@ suite("test_spm_review_round18", "spm") {
     }
 
     // ==================== EXPLAIN revalidates the replayed baseline (comment 5) ====================
-    // round-44 #11: a manual plan may only read tables the BIND text reads, so the old
+    // A manual plan may only read tables the BIND text reads, so the old
     // cross-table pair (bind spm_r18_t1, plan spm_r18_p1) is now rejected at CREATE -
     // the reviewer's "SELECT k FROM t / SELECT k FROM u" case. The equivalent
     // same-table scenario keeps the coverage: the baseline pins the table's schema and

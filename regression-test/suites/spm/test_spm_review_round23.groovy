@@ -19,7 +19,7 @@ import org.apache.doris.regression.util.JdbcUtils
 
 suite("test_spm_review_round23", "spm") {
 
-    // Twenty-third review round: e2e coverage for the derived-label contract, the
+    // E2e coverage for the derived-label contract, the
     // create-time plan alignment and the schema-fingerprint nullability.
     //
     // Covered here:

@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round21", "spm") {
 
-    // Twenty-first review round: end-to-end coverage for the statement
+    // End-to-end coverage for the statement
     // re-parse safety and the join distribute-hint handling.
     //
     // Covered here:

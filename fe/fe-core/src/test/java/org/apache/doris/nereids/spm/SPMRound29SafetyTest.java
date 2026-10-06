@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Round-29 review fixes without their own regression suite:
+ * Review fixes without their own regression suite:
  *
  * - #1 (SPMPlanTreeSupport, sameScanIdentity / describeScanSelector): TableSample
  *   overrides equals / hashCode by value but NOT toString, so its default text is the
@@ -64,7 +64,7 @@ public class SPMRound29SafetyTest {
     /**
      * The two clauses are IDENTICAL, but they come from two separate parses - which is
      * exactly what a baseline with a bind text and a plan text does. Comparing the
-     * default {@code Object#toString} (the identity hash) made them "different", so
+     * default Object#toString (the identity hash) made them "different", so
      * CREATE's scan-selector mismatch guard rejected a legitimate baseline and the audit
      * fingerprint of one statement depended on the parse instance.
      */
@@ -88,7 +88,7 @@ public class SPMRound29SafetyTest {
     }
 
     /**
-     * The values the reviewer used to show that the sample fields' {@code Objects.hash}
+     * The values the reviewer used to show that the sample fields' Objects.hash
      * is not an identity: different samples must never compare or render equal.
      */
     @Test

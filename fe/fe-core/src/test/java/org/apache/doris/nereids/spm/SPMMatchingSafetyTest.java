@@ -97,7 +97,7 @@ public class SPMMatchingSafetyTest {
         return SPMPlanTreeSupport.check(bind, user, new HashMap<Long, Expression>());
     }
 
-    /** As {@link #matches}, but the bind side goes through the PRODUCTION
+    /** As matches, but the bind side goes through the PRODUCTION
      * parameterization (a raw parse carries no placeholders at all). */
     private static boolean matchesParameterized(String bindSql, String userSql) throws Exception {
         BaselinePlan baseline = new SPMPlanner().buildBaseline(bindSql, bindSql);
@@ -105,7 +105,7 @@ public class SPMMatchingSafetyTest {
                 new HashMap<Long, Expression>());
     }
 
-    // ==================== round-23 observations ====================
+    // ==================== observations ====================
 
     @Test
     public void testUnorderedOrPairingBacktracksForALaterPlaceholderUse() throws Exception {
@@ -113,7 +113,7 @@ public class SPMMatchingSafetyTest {
         Assertions.assertTrue(matchesParameterized(bind,
                 "SELECT (a = 3 OR a = 4) AS c FROM t WHERE a = 4"),
                 "a pairing that satisfies BOTH placeholder uses must be found");
-        // round-32 #9: the SELECT-list literal and the WHERE literal of the bind tree are
+        // The SELECT-list literal and the WHERE literal of the bind tree are
         // INDEPENDENT placeholders (different projection-item / no-item scopes), so a
         // variant that changes each site independently is a legitimate match - the old
         // identity shared one id between the two sites and rejected it.
@@ -170,7 +170,7 @@ public class SPMMatchingSafetyTest {
                 () -> new SPMPlanner().buildBaseline(
                         "SELECT * FROM t a WHERE a.k = 1",
                         "SELECT * FROM t b WHERE b.k = 1"));
-        // the renamed alias is rejected by the round-44 divergence guard (the conjunct
+        // the renamed alias is rejected by the divergence guard (the conjunct
         // texts no longer match) or - when that guard is not reached - by the placeholder
         // alignment; both messages say "cannot align"
         Assertions.assertTrue(failure.getMessage() != null
@@ -199,7 +199,7 @@ public class SPMMatchingSafetyTest {
     // ==================== derived-table TopN is part of the match ====================
 
     /**
-     * round-22 #6: a derived table's ORDER BY ... LIMIT (LogicalTopN) is not reachable by
+     * A derived table's ORDER BY ... LIMIT (LogicalTopN) is not reachable by
      * the positional limit merge once the frozen join order differs from the user's - the
      * limited derived table pairs with the OTHER relation and the class-mismatch guard
      * leaves the captured slice. Nested TopN limits must therefore take part in the exact
@@ -620,7 +620,7 @@ public class SPMMatchingSafetyTest {
                 () -> parse("SHOW BASELINE PLANS WHERE id > 1"));
         Assertions.assertThrows(AnalysisException.class,
                 () -> parse("SHOW BASELINE PLANS WHERE unknown_column = 1"));
-        // round-27: an equality whose LHS is not one of the supported columns (`1 = 1`,
+        // An equality whose LHS is not one of the supported columns (`1 = 1`,
         // `id + 0 = 1`) used to be read as a LIKE pattern ('1'): the true predicate
         // searched SQL / status / source text for 1 instead of being rejected with the
         // advertised analysis error
@@ -1104,7 +1104,7 @@ public class SPMMatchingSafetyTest {
         return ctx;
     }
 
-    // ==================== review round: mixed IN / ASOF / conjunct order / sink ====================
+    // ==================== mixed IN / ASOF / conjunct order / sink ====================
 
     /** Parameterizes a parsed tree with the SPM placeholder builder. */
     private static LogicalPlan param(String sql) {

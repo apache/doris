@@ -23,14 +23,14 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Round-29 #2: the scan-selector pre-filter of the audit dedup identity.
+ * The scan-selector pre-filter of the audit dedup identity.
  *
  * The audit digest MASKS every selector value (PARTITION(p1) and PARTITION(p2) both
  * render as PARTITION(?)), while SPM compares the selectors CONCRETELY
  * (sameScanIdentity / sameScanParams), so the concrete fingerprint must join the identity
  * for every statement that can carry one. The gate named "FOR TIMESTAMP", a form the
  * grammar does not accept: time-travel statements (FOR VERSION AS OF / FOR TIME AS OF) and
- * relation scan parameters ({@code t @incr(...)} / {@code @branch(...)} / {@code @tag(...)})
+ * relation scan parameters (t @incr(...) / @branch(...) / @tag(...))
  * therefore never got a fingerprint, and two same-digest variants collapsed into ONE
  * identity - one of the two baselines was silently dropped by the capture.
  */
@@ -70,9 +70,9 @@ public class AuditDedupIdentityTest {
     }
 
     /**
-     * round-41 #16: {@code audit_log.stmt} is the statement AS SUBMITTED, so the
-     * multi-token gates ({@code LATERAL VIEW}, {@code FOR TIME AS OF}, {@code FOR VERSION
-     * AS OF}) must survive a line break between their tokens. The gate compared against
+     * Audit_log.stmt is the statement AS SUBMITTED, so the
+     * multi-token gates (LATERAL VIEW, FOR TIME AS OF, FOR VERSION
+     * AS OF) must survive a line break between their tokens. The gate compared against
      * the raw upper-cased text, so a selector on its own line was missed, the fingerprint
      * stayed off the dedup identity, and two variants differing only in the masked
      * argument (split delimiter, snapshot) collapsed into one baseline.

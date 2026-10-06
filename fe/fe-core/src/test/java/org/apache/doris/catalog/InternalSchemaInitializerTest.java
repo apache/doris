@@ -35,9 +35,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -306,7 +309,7 @@ class InternalSchemaInitializerTest {
         Assertions.assertFalse(InternalSchemaInitializer.isSpmCaptureCheckpointTableMissing(db),
                 "an existing spm_capture_checkpoint table must not block completion");
 
-        // round-32 #2: the id sequence table gates completion the same way - without it the
+        // The id sequence table gates completion the same way - without it the
         // create path cannot read / advance its high-water mark
         Mockito.when(db.getTable(InternalSchema.SPM_BASELINES_SEQ_TBL_NAME))
                 .thenReturn(Optional.empty());
@@ -317,7 +320,7 @@ class InternalSchemaInitializerTest {
         Assertions.assertFalse(InternalSchemaInitializer.isSpmBaselinesSeqTableMissing(db),
                 "an existing spm_baselines_seq table must not block completion");
 
-        // round-36 #1: the audit publication horizon table gates completion the same way -
+        // The audit publication horizon table gates completion the same way -
         // without it the capture cannot fence progress with a follower's backlog
         Mockito.when(db.getTable(InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME))
                 .thenReturn(Optional.empty());
@@ -393,7 +396,7 @@ class InternalSchemaInitializerTest {
     }
 
     /**
-     * The checkpoint table must be an APPEND-ONLY DUPLICATE-key table (round-42 #8):
+     * The checkpoint table must be an APPEND-ONLY DUPLICATE-key table:
      * every write adds a row whose (leader_epoch, write_seq) token supersedes the previous
      * one, so a demoted FE's delayed write is a harmless extra row the reader never picks.
      * The old UNIQUE-key(id) merge-on-write layout made that same write REPLACE the new
@@ -475,7 +478,7 @@ class InternalSchemaInitializerTest {
     }
 
     /**
-     * Round-40 schema invariants:
+     * schema invariants:
      *
      * - #6: the seq identity column stores the FULL canonical bind digest (SPMPlanner
      *   has no length cap, and spm_baselines.bind_sql_digest is STRING): a fixed VARCHAR
@@ -510,7 +513,7 @@ class InternalSchemaInitializerTest {
     }
 
     /**
-     * Round-44 schema invariants:
+     * schema invariants:
      *
      * - #15: the compact id high-water-mark table (spm_baselines_hwm) is part of the
      *   create path, gates completion itself (an upgraded cluster already HAS the older
@@ -588,7 +591,7 @@ class InternalSchemaInitializerTest {
                 "the INSERT must list its target columns: " + sql);
         Assertions.assertEquals(canonical, sql.substring(listStart + 1, listEnd),
                 "the INSERT column list must match the schema order: " + sql);
-        // round-42 #8: the write is a plain APPEND - a VALUES tuple against the NAMED
+        // The write is a plain APPEND - a VALUES tuple against the NAMED
         // target list - carrying the (leader_epoch, write_seq) token. There is NO epoch
         // condition / subquery any more: the statement cannot be refused, and a stale
         // writer's row is simply never selected.
@@ -636,7 +639,86 @@ class InternalSchemaInitializerTest {
     }
 
     /**
-     * Round-31 #5: SET GLOBAL accepts ANY compiling regex for
+     * The retry loop may only end on a table that is BOTH complete and on the append-only
+     * model: an old UNIQUE-key table already carries every UPGRADE column, so a failed
+     * drop once stopped the one-shot initializer with that table - every checkpoint INSERT
+     * then failed on the missing write_seq until an FE restart.
+     */
+    @Test
+    public void testCheckpointUpgradeCompletionRequiresTheModel() {
+        Assertions.assertFalse(
+                InternalSchemaInitializer.checkpointUpgradeComplete(true, true, false),
+                "an old UNIQUE-key table with every column must NOT end the loop");
+        Assertions.assertFalse(
+                InternalSchemaInitializer.checkpointUpgradeComplete(true, true, true),
+                "nor while its state is still to be carried");
+        Assertions.assertFalse(
+                InternalSchemaInitializer.checkpointUpgradeComplete(false, false, false),
+                "nor before the columns exist");
+        Assertions.assertFalse(
+                InternalSchemaInitializer.checkpointUpgradeComplete(true, false, true),
+                "nor while a carried row is still waiting to be written back");
+        Assertions.assertTrue(
+                InternalSchemaInitializer.checkpointUpgradeComplete(true, false, false),
+                "complete + append-only + nothing carried: done");
+    }
+
+    /** The carried payload is EXACTLY the resume state of the old row. */
+    @Test
+    public void testCarryPayloadCoversTheCanonicalSchema() {
+        List<String> expected = InternalSchema.SPM_CAPTURE_CHECKPOINT_SCHEMA.stream()
+                .map(def -> def.getName().toLowerCase(Locale.ROOT))
+                .filter(name -> !Arrays.asList("leader_epoch", "write_seq", "id", "update_time")
+                        .contains(name))
+                .collect(Collectors.toList());
+        Assertions.assertEquals(expected,
+                InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS,
+                "the carried payload must be the pending_window / cursor / retry / filter /"
+                        + " zone state (the append-only token and update_time are re-created)");
+    }
+
+    /**
+     * Replacing the old checkpoint table must carry the pending window / cursor / retry
+     * state into the recreated append-only table as its first readable row: an empty new
+     * table made the capture load no row and derive its window from the CURRENT interval,
+     * so the old window's unconsumed tail was never scanned.
+     */
+    @Test
+    public void testCarriedCheckpointInsertKeepsEveryPayloadColumn() {
+        Map<String, String> state = new LinkedHashMap<>();
+        state.put("last_scan_timestamp", "1000");
+        state.put("pending_window_start", "900");
+        state.put("pending_window_end", "1100");
+        state.put("cursor_query_time", "950");
+        state.put("cursor_time", "2026-01-01 00:00:00");
+        state.put("cursor_query_id", "qid-tail");
+        state.put("cursor_tail", "{\"k\":1}");
+        state.put("failed_attempts", "{}");
+        state.put("retry_queue", "[]");
+        state.put("min_query_time_ms", "5");
+        state.put("min_scan_rows", "7");
+        state.put("include_pattern", "t.*");
+        state.put("exclude_pattern", "");
+        state.put("scan_zone", "America/New_York");
+        String insert = InternalSchemaInitializer.buildCarriedCheckpointInsert(state, 42L);
+        Assertions.assertTrue(insert.startsWith("INSERT INTO `__internal_schema`."
+                        + "`spm_capture_checkpoint`"), insert);
+        for (String column : InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS) {
+            Assertions.assertTrue(insert.contains("`" + column + "`"),
+                    "carried column " + column + " missing: " + insert);
+        }
+        Assertions.assertTrue(insert.contains("VALUES (1, 42, 0, NOW()"),
+                "the carried row is the first (lowest-token) row: " + insert);
+        Assertions.assertTrue(insert.contains("1000, 900, 1100"),
+                "numeric cells stay unquoted: " + insert);
+        Assertions.assertTrue(insert.contains("'qid-tail'")
+                        && insert.contains("'{\"k\":1}'")
+                        && insert.contains("'America/New_York'"),
+                "text cells are quoted as-is: " + insert);
+    }
+
+    /**
+     * SET GLOBAL accepts ANY compiling regex for
      * plan_capture_include_pattern / plan_capture_exclude_pattern, so a fixed
      * VARCHAR(4096) made a valid 4097-byte pattern fail the reservation INSERT - the
      * capture cycle then returned before scanning, with the pattern still accepted by SET.
@@ -661,7 +743,7 @@ class InternalSchemaInitializerTest {
     }
 
     /**
-     * Round-31 (found while verifying #5): every upgraded SPM column is a VALUE column.
+     * (found while verifying #5): every upgraded SPM column is a VALUE column.
      * An ADD COLUMN flagged KEY lands AFTER the existing value columns, and the schema
      * change validator rejects any key column that follows a value column
      * ("Invalid column order. value should be after key"): the ALTER threw, the wait loop

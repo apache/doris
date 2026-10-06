@@ -39,7 +39,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Thirteenth review round: the schema fingerprint must follow the function the call
+ * The schema fingerprint must follow the function the call
  * ACTUALLY resolves to.
  *
  * The old lookup always searched ctx.getDatabase() (ignoring the WRITTEN qualifier),

@@ -149,19 +149,18 @@ suite("test_spm_baseline_ddl", "spm") {
     assertEquals(2, ownBaselines().size(),
             "duplicate create must not add a baseline")
 
-    // same bind, different plan -> allowed to coexist. The plan side may only use the
-    // literals the bind side supplies (its own placeholder ids), so the extra predicate
-    // here is literal-free: an added `k2 = 99` would parameterize under an id no user
-    // query can ever resolve (see the rejection case below).
-    List<List<Object>> createAltPlanRes = sql """CREATE GLOBAL BASELINE PLAN
-        'select * from spm_t1 where k1 = 1'
-        WITH 'select * from spm_t1 where k1 = 1 and k2 is not null'"""
-    long altPlanId = Long.parseLong(createAltPlanRes[0][0].toString())
-    assertTrue(altPlanId != simpleId,
-            "a different planSql must create a new baseline id, got: ${altPlanId}")
-
-    assertEquals(3, ownBaselines().size(),
-            "different planSql for the same bind is allowed")
+    // Same bind, a plan with an EXTRA predicate is NOT a provable equivalent: the frozen
+    // plan filters rows the bind text never filtered (plan ... AND k2 IS NOT NULL
+    // silently drops the caller's NULL rows), so the CREATE is rejected. The same holds
+    // when the extra predicate carries a literal the bind side never supplies (k2 = 99).
+    test {
+        sql """CREATE GLOBAL BASELINE PLAN
+            'select * from spm_t1 where k1 = 1'
+            WITH 'select * from spm_t1 where k1 = 1 and k2 is not null'"""
+        exception "align"
+    }
+    assertEquals(2, ownBaselines().size(),
+            "a rejected extra-predicate plan must not add a baseline")
 
     // a plan side that introduces placeholder literals the bind side never supplies
     // would be stored without any way to resolve them at replay (values are extracted
@@ -172,7 +171,7 @@ suite("test_spm_baseline_ddl", "spm") {
             WITH 'select * from spm_t1 where k1 = 1 and k2 = 99'"""
         exception "align"
     }
-    assertEquals(3, ownBaselines().size(),
+    assertEquals(2, ownBaselines().size(),
             "a rejected create must not add a baseline")
 
     // ==================== ALTER: disable / enable ====================
@@ -201,7 +200,7 @@ suite("test_spm_baseline_ddl", "spm") {
             "GLOBAL baseline must be persisted to the internal table")
 
     // the SESSION baseline takes precedence over the structurally identical GLOBAL
-    // baseline (altPlanId, literal-free extra predicate) for this connection
+    // baseline (simpleId) for this connection
     sql """set enable_spm_rewrite = true"""
     String sessionHit = sql("""EXPLAIN SELECT * FROM spm_t1 WHERE k1 = 1 AND k2 = 2""").toString()
     assertTrue(sessionHit.contains("SPM baseline hit: id=${multiId}, scope=SESSION"),
@@ -224,8 +223,7 @@ suite("test_spm_baseline_ddl", "spm") {
     assertFalse(afterDropHit.contains("SPM baseline hit"),
             "the dropped SESSION baseline must no longer rewrite this session, got: ${afterDropHit}")
     String globalHit = sql("""EXPLAIN SELECT * FROM spm_t1 WHERE k1 = 3""").toString()
-    assertTrue(globalHit.contains("SPM baseline hit: id=${simpleId}")
-                    || globalHit.contains("SPM baseline hit: id=${altPlanId}"),
+    assertTrue(globalHit.contains("SPM baseline hit: id=${simpleId}"),
             "a GLOBAL baseline must keep rewriting after the session baseline is dropped, got: ${globalHit}")
     sql """set enable_spm_rewrite = false"""
 

@@ -68,7 +68,7 @@ public class PlanCaptureCycleHandoffTest {
         private final String returnCursorTime;
         private final String returnCursorQueryId;
         private final String returnCursorTail;
-        /** when set, every scan() throws it (a failing audit scan, round-37 #6). */
+        /** when set, every scan throws it (a failing audit scan). */
         private RuntimeException scanError;
         /** invoked at the END of every scan() call, before returning (mid-pass hooks). */
         private Runnable onScan;
@@ -136,7 +136,7 @@ public class PlanCaptureCycleHandoffTest {
             List<String> statements = new ArrayList<>();
             manager.setCheckpointWriterForTest((sql, params) -> {
                 if (!sql.startsWith("INSERT")) {
-                    // the best-effort prune rides the same seam (round-42 #8): only the
+                    // the best-effort prune rides the same seam: only the
                     // APPEND is a checkpoint write
                     return;
                 }
@@ -186,7 +186,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-43 #7: a reservation that becomes readable AFTER this process's load must
+     * A reservation that becomes readable AFTER this process's load must
      * still be adopted. The load reads the checkpoint once, and the token-greatest row
      * never surfaces the earlier one again (its INSERT committed late, after the empty
      * read); without the re-read the 09:05 event inside the earlier window's unconsumed
@@ -260,10 +260,10 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-44 #14: the zone-pass credit belongs to the WINDOW. This process staged its
+     * The zone-pass credit belongs to the WINDOW. This process staged its
      * own derived window in UTC (the pass about to run is credited at once), then adopted
      * an earlier leader's pending window whose row was RENDERED in another zone
-     * ({@code scan_zone = America/New_York}). Without resetting the credit the resumed
+     * (scan_zone = America/New_York). Without resetting the credit the resumed
      * pass in America/New_York counted UTC as covered: the completeness check passed
      * although the adopted window's UTC span was never scanned, and the checkpoint
      * advanced permanently over a row rendered in UTC inside it.
@@ -336,7 +336,7 @@ public class PlanCaptureCycleHandoffTest {
 
     /**
      * The reader seam of a checkpoint store: a row is readable only AFTER the writer
-     * made it visible (see {@link #checkpointRow}), so the reservation confirmation
+     * made it visible (see checkpointRow), so the reservation confirmation
      * exercises the same read path the load does.
      */
     private static ResultRow checkpointRow(Map<String, String> params) {
@@ -352,7 +352,7 @@ public class PlanCaptureCycleHandoffTest {
                 params.getOrDefault("minScanRows", "-1"),
                 params.getOrDefault("includePattern", ""),
                 params.getOrDefault("excludePattern", ""),
-                // scan_zone plus the round-42 #8 write token are APPENDED to the real
+                // scan_zone plus the write token are APPENDED to the real
                 // SELECT list: a row round-tripped through the seams carries them too, so
                 // the writer's next token continues above the loaded one
                 params.getOrDefault("scanZone", ""),
@@ -385,7 +385,7 @@ public class PlanCaptureCycleHandoffTest {
             List<Map<String, String>> persisted = new ArrayList<>();
             manager.setCheckpointWriterForTest((sql, params) -> {
                 if (!sql.startsWith("INSERT")) {
-                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    // the best-effort prune is not a checkpoint write
                     return;
                 }
                 persisted.add(new HashMap<>(params));
@@ -464,7 +464,7 @@ public class PlanCaptureCycleHandoffTest {
             List<Map<String, String>> persisted = new ArrayList<>();
             manager.setCheckpointWriterForTest((sql, params) -> {
                 if (!sql.startsWith("INSERT")) {
-                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    // the best-effort prune is not a checkpoint write
                     return;
                 }
                 if (writes.incrementAndGet() == 1) {
@@ -532,7 +532,7 @@ public class PlanCaptureCycleHandoffTest {
             List<Map<String, String>> persisted = new ArrayList<>();
             manager.setCheckpointWriterForTest((sql, params) -> {
                 if (!sql.startsWith("INSERT")) {
-                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    // the best-effort prune is not a checkpoint write
                     return;
                 }
                 if (writes.incrementAndGet() == 1) {
@@ -583,7 +583,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-36 #1: the cluster-wide publication horizon is read through the shared
+     * The cluster-wide publication horizon is read through the shared
      * per-FE fence table. When that read fails, the fence is INCOMPLETE - advancing the
      * watermark could drop a follower's still-unpublished row - so the cycle is skipped
      * and rescheduled PROMPTLY instead of waiting a full interval.
@@ -614,7 +614,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-37 #6: an EXCEPTION during the cycle (e.g. {@code scanner.scan} timing out)
+     * An EXCEPTION during the cycle (e.g. scanner.scan timing out)
      * must not leave the next wakeup at the default capture interval. The cycle already
      * cleared pendingWindowNeedsPromptResume and its window reservation is durable, so the
      * error path must set the prompt flag again: the next cycle resumes the pending window
@@ -667,7 +667,7 @@ public class PlanCaptureCycleHandoffTest {
             AtomicInteger writes = new AtomicInteger();
             manager.setCheckpointWriterForTest((sql, params) -> {
                 if (!sql.startsWith("INSERT")) {
-                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    // the best-effort prune is not a checkpoint write
                     return;
                 }
                 writes.incrementAndGet();
@@ -691,7 +691,7 @@ public class PlanCaptureCycleHandoffTest {
                     ? List.of() : List.of(checkpointRow(visible.get())));
             manager.setCheckpointWriterForTest((sql, params) -> {
                 if (!sql.startsWith("INSERT")) {
-                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    // the best-effort prune is not a checkpoint write
                     return;
                 }
                 writes.incrementAndGet();
@@ -707,10 +707,10 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-22 #5 + round-32 #11: a NON-EMPTY read is not proof the reservation became
+     * +: a NON-EMPTY read is not proof the reservation became
      * visible - the visible row may be the OLD master's reservation (published after its
      * demotion). Confirming "some row exists" would consume OUR window and the final
-     * UPSERT would replace the old master's still-unconsumed pending window. Round-32 makes
+     * UPSERT would replace the old master's still-unconsumed pending window. makes
      * that row the WINDOW TO CONSUME: it is adopted (with its cursor / retry state), the
      * cycle aborts, and the earlier window is consumed next - never replaced by the derived
      * one.
@@ -762,7 +762,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-25 #5: the FINAL progress UPSERT is fenced by leadership. A demoted FE's local
+     * The FINAL progress UPSERT is fenced by leadership. A demoted FE's local
      * cursor / retry queue is OBSOLETE - the new master may have advanced or REWOUND the
      * durable checkpoint (it can queue a retry for a late audit row the old cursor had not
      * reached yet) - and a forwarded UPSERT would replace that queue and cursor with ours.
@@ -780,7 +780,7 @@ public class PlanCaptureCycleHandoffTest {
             AtomicInteger writes = new AtomicInteger();
             manager.setCheckpointWriterForTest((sql, params) -> {
                 if (!sql.startsWith("INSERT")) {
-                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    // the best-effort prune is not a checkpoint write
                     return;
                 }
                 writes.incrementAndGet();
@@ -813,7 +813,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-25 #5: a RE-PROMOTED FE must drop its obsolete in-memory progress and reload
+     * A RE-PROMOTED FE must drop its obsolete in-memory progress and reload
      * the durable checkpoint before capturing again. The other leader may have advanced or
      * (for queued retries) rewound it, so resuming from the stale local cursor would skip
      * exactly the rows that leader queued (or re-consume rows it already handled).
@@ -862,7 +862,7 @@ public class PlanCaptureCycleHandoffTest {
         }
     }
 
-    // ==================== round-29 #3 / #4: drain, prompt resume, pinned thresholds ====================
+    // ====================: drain, prompt resume, pinned thresholds ====================
 
     /**
      * A scanner stub with a REPEATING (truncated) page and an exhaust page it switches to
@@ -890,7 +890,7 @@ public class PlanCaptureCycleHandoffTest {
             this.truncatedPages = pages;
         }
 
-        /** Truncates the NEXT {@code pages} calls (the counter is cumulative). */
+        /** Truncates the NEXT pages calls (the counter is cumulative). */
         void truncateNextPages(int pages) {
             this.truncatedPages = calls.get() + pages;
         }
@@ -1118,7 +1118,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-30 #9: the page drain must PAUSE when the retry queue holds more than the
+     * The page drain must PAUSE when the retry queue holds more than the
      * leader FE should retain. A metadata outage makes every capture fail, so a 50-page
      * drain could otherwise enqueue tens of thousands of full statements in one wakeup -
      * and the unconsumed pages must stay reachable while the replay burns the queue down.
@@ -1177,7 +1177,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-31 #4: the REWOUND retry window carries the FILTER SNAPSHOT of the page its
+     * The REWOUND retry window carries the FILTER SNAPSHOT of the page its
      * oldest queued failure was first seen on. A W1 scan queues 65 transient failures; the
      * checkpoint keeps the oldest W1 pre-page cursor but the durable JSON retains only 64
      * entries - and W1's exhaustion clears the pending-window filter. Persisting the
@@ -1260,10 +1260,10 @@ public class PlanCaptureCycleHandoffTest {
         }
     }
 
-    // ==================== round-32: resume scheduling, reservation takeover, zones ====================
+    // ====================: resume scheduling, reservation takeover, zones ====================
 
     /**
-     * round-32 #4: an EXHAUSTED window with retries still queued keeps the SHORT resume
+     * An EXHAUSTED window with retries still queued keeps the SHORT resume
      * interval. replayQueuedFailures burns at most 1,000 entries per cycle, so a window
      * that exhausts while holding an outage-sized queue would otherwise sleep a full
      * capture interval (three hours by default) between every 1,000 retries - a 25,000
@@ -1328,7 +1328,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-32 #15: a FAILED first checkpoint read must not lose the window it would have
+     * A FAILED first checkpoint read must not lose the window it would have
      * consumed. The read fails while the internal table initializes; a later cycle deriving
      * its OWN [now - interval, now) would permanently skip every eligible short row of the
      * first attempted window (no later overlap reaches behind a NEW window's start).
@@ -1395,7 +1395,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-32 #11: a reservation the PREVIOUS leader wrote but that only becomes readable
+     * A reservation the PREVIOUS leader wrote but that only becomes readable
      * later must be ADOPTED, not replaced. Leader A commits [09:00, 12:00) but its row is
      * still unreadable when B promotes and derives [09:10, 12:10); the single-row UPSERT
      * would replace A's record and an eligible 09:05 row would fall outside B's window and
@@ -1451,7 +1451,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-32 #11 (probe half): the visibility probes of the reservation must adopt a
+     * (probe half): the visibility probes of the reservation must adopt a
      * FOREIGN row that surfaces while probing - ignoring it (\"not ours\") let the cycle
      * consume the derived window although the earlier leader's pending window was now
      * readable.
@@ -1496,7 +1496,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-32 #3: after a global time_zone change the window is rendered in the PREVIOUS
+     * After a global time_zone change the window is rendered in the PREVIOUS
      * zone first - the rows published before the change are stored with the old rendering
      * and are invisible to bounds rendered in the new zone (an empty page would exhaust the
      * window and advance the watermark past them forever). The following pass revisits the
@@ -1567,7 +1567,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-33 #3: the durable checkpoint must carry the scan zone of the state it
+     * The durable checkpoint must carry the scan zone of the state it
      * REWINDS to. With retries queued, persistCheckpoint rewinds the bounds / cursor to
      * the OLDEST queued entry's pre-page anchor - a page of an EARLIER window. Persisting
      * the CURRENT pass's zone beside that anchor made a takeover render the earlier
@@ -1631,7 +1631,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-32 #12: the scan overlap grows to the LOCAL audit loader's outstanding queue
+     * The scan overlap grows to the LOCAL audit loader's outstanding queue
      * horizon. A fixed overlap only covers the CONFIGURED waits; the loader can still hold
      * the row of an 11:50 query while the 12:00 window advances, and only re-reading that
      * instant keeps it capturable.
@@ -1680,11 +1680,11 @@ public class PlanCaptureCycleHandoffTest {
         }
     }
 
-    // ============ round-39: zone passes, mid-drain publication, epoch fence ============
+    // ============: zone passes, mid-drain publication, epoch fence ============
 
     /**
-     * round-39 #13: the writer zone compared AT EXHAUSTION must be re-read there, not the
-     * sample taken before the page loop. A {@code SET GLOBAL time_zone} landing WHILE the
+     * The writer zone compared AT EXHAUSTION must be re-read there, not the
+     * sample taken before the page loop. A SET GLOBAL time_zone landing WHILE the
      * pages are scanned stores newly published rows under the NEW zone (a 12:30 UTC event
      * as 20:30); the stale comparison skipped the re-scan, the window checkpointed at
      * 13:00, and the next (new-zone) window started around 20:55 - past the row forever.
@@ -1734,7 +1734,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-39 #3: TWO zone changes between two cycles (UTC -> America/New_York ->
+     * TWO zone changes between two cycles (UTC -> America/New_York ->
      * Asia/Tokyo). The capture never OBSERVES the intermediate zone (no cycle ran while
      * it was current) - the cluster's writer-zone history (here: the scripted supplier,
      * in production the publication-horizon table's per-FE writer_zones column) is what
@@ -1790,7 +1790,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-39 #6: a row that publishes BETWEEN the pages of one drain sorts BELOW the
+     * A row that publishes BETWEEN the pages of one drain sorts BELOW the
      * descending keyset cursor and is skipped; once the horizon clears, the next window's
      * fixed overlap only reaches behind a NEW watermark and cannot recover it. The window
      * must stay pending - re-scanned from its top - while an outstanding event's instant
@@ -1838,7 +1838,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-42 #6: a positive horizon BELOW the window does NOT prove the window is clear
+     * A positive horizon BELOW the window does NOT prove the window is clear
      * either. The horizon is the MINIMUM over all outstanding events, so an older
      * unpublished event (e.g. a long query started an hour ago) MASKS a newer one inside
      * the window: the min sits below scanStart while the in-window row is still in
@@ -1897,9 +1897,9 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-39 #16 / round-42 #8: a checkpoint write the store did NOT land - the
+     * /: a checkpoint write the store did NOT land - the
      * writer's ZERO-affected-row signal,
-     * {@link PlanCaptureManager.CheckpointWriteRefusedException} - must abort the cycle:
+     * PlanCaptureManager.CheckpointWriteRefusedException - must abort the cycle:
      * consuming further pages while the reservation is not durable is exactly what the
      * handoff fence exists to prevent. (Since #8 the append-only INSERT cannot be refused
      * by an epoch condition any more; the exception remains the writer's generic "the
@@ -1951,7 +1951,7 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-42 #8: the checkpoint is append-only, so a process RESUMING a row must write a
+     * The checkpoint is append-only, so a process RESUMING a row must write a
      * strictly GREATER write token. The leader epoch is the max journal id, which does NOT
      * change across an FE restart - without seeding the counter from the loaded row, a
      * restarted same-epoch leader would store (epoch, 1) BELOW the durable (epoch, 7) and

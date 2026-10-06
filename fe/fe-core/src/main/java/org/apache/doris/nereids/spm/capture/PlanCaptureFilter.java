@@ -75,7 +75,7 @@ public class PlanCaptureFilter {
      * none). The compiled form cannot be persisted: a pending capture window pins its
      * whole filter snapshot - including these two - so a restored window keeps routing
      * candidates through the patterns it was opened with (a later
-     * {@code SET GLOBAL plan_capture_include_pattern} would otherwise terminally filter
+     * SET GLOBAL plan_capture_include_pattern would otherwise terminally filter
      * away rows the window's already-consumed pages had admitted).
      */
     private final String includePatternText;
@@ -129,7 +129,7 @@ public class PlanCaptureFilter {
     /**
      * The minimum query time (ms) this filter was built with. The audit scan renders the
      * SAME value into its SQL, so one filter instance is one threshold snapshot shared by
-     * the SQL stage and the in-memory {@link #shouldCapture} stage.
+     * the SQL stage and the in-memory shouldCapture stage.
      *
      * @return the minimum query time in milliseconds
      */
@@ -139,7 +139,7 @@ public class PlanCaptureFilter {
 
     /**
      * The minimum scanned rows this filter was built with (see
-     * {@link #getMinQueryTimeMs()}).
+     * getMinQueryTimeMs()).
      *
      * @return the minimum scan rows
      */
@@ -149,7 +149,7 @@ public class PlanCaptureFilter {
 
     /**
      * The table include regex this filter was built with (empty = all tables), i.e. the
-     * pattern text a pending window must keep even after a {@code SET GLOBAL} change.
+     * pattern text a pending window must keep even after a SET GLOBAL change.
      *
      * @return the configured include pattern text
      */
@@ -201,7 +201,7 @@ public class PlanCaptureFilter {
         return matchesTablePattern(tables);
     }
 
-    /** Result of one namespace-aware table existence check (see {@link #checkAllTablesExist}). */
+    /** Result of one namespace-aware table existence check (see checkAllTablesExist). */
     public enum TableLookup {
         /** every requested table resolved */
         EXISTS,
@@ -246,7 +246,7 @@ public class PlanCaptureFilter {
     }
 
     /**
-     * Boolean variant of {@link #checkAllTablesExist} (callers / tests that treat every
+     * Boolean variant of checkAllTablesExist (callers / tests that treat every
      * non-EXISTS outcome as "not capturable").
      *
      * @param tables          distinct table full names
@@ -336,7 +336,7 @@ public class PlanCaptureFilter {
 
     /**
      * Splits a (possibly quoted) dotted name into components (inverse of
-     * {@link #joinNameParts}): dots inside backticks do not split, doubled backticks
+     * joinNameParts): dots inside backticks do not split, doubled backticks
      * unescape to one.
      */
     private static List<String> splitQualifiedName(String fullName) {
@@ -403,11 +403,11 @@ public class PlanCaptureFilter {
     }
 
     /**
-     * As {@link #extractTableNames(String)}, resolving every reference that omits its
+     * As extractTableNames(String), resolving every reference that omits its
      * catalog / database against the AUDITED session's namespace. Without that the SAME
      * physical table appears under two identities - `SELECT a.k FROM t a JOIN db.t b` in
      * a session using db yields both `t` and `db.t` - and the Level 3
-     * {@code >= 2 distinct tables} gate admitted a single-table (self-join) workload,
+     * >= 2 distinct tables gate admitted a single-table (self-join) workload,
      * which then got a GLOBAL baseline.
      *
      * @param sql     the query text
@@ -441,11 +441,11 @@ public class PlanCaptureFilter {
 
     /**
      * Deduplicates references that RESOLVE to the same physical table (see
-     * {@link #extractTableNames(String, String, String)}): {@code t} and {@code db.t} in a
+     * extractTableNames(String, String, String)): t and db.t in a
      * session using db are ONE table, and counting them separately admitted a
      * single-table self-join through the Level 3 gate. The FIRST spelling in sorted order
      * is kept, so the Level 4 / 5 checks still see the reference AS WRITTEN -
-     * {@link #tableExists} deliberately treats an unverifiable (one-part) name as
+     * tableExists deliberately treats an unverifiable (one-part) name as
      * existing, and returning a fully resolved name would turn a transient metadata gap
      * into a definitive MISSING verdict.
      */

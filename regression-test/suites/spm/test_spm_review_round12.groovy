@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round12", "spm") {
 
-    // Twelfth review round: end-to-end checks for
+    // End-to-end checks for
     //  - the checkpoint column layout: the durable UPSERT must address its columns by
     //    NAME (a table upgraded from the old layout carries cursor_tail after update_time,
     //    where a positional INSERT wrote the tail JSON into failed_attempts), and the
@@ -117,7 +117,7 @@ suite("test_spm_review_round12", "spm") {
     assertEquals('0', replaced[2].toString(), "the retry count must follow the replacement")
 
     // The REAL checkpoint table must carry the canonical physical order: the APPEND-ONLY
-    // key (leader_epoch, write_seq) FIRST - like a fresh create (round-42 #8: the reader
+    // key (leader_epoch, write_seq) FIRST - like a fresh create (the reader
     // takes the greatest token, so a stale writer can only add an ignored row), then the
     // historical payload columns with cursor_tail AFTER cursor_query_id and scan_zone
     // AFTER exclude_pattern.

@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Round-26 review fixes without their own regression suite:
+ * Review fixes without their own regression suite:
  *
  * - #2: restoring the forwarded SESSION baselines must be skipped when the statement
  *   has rewrite disabled - the import runs BEFORE StmtExecutor checks
@@ -88,7 +88,7 @@ public class SPMRound26SafetyTest {
     }
 
     /**
-     * round-44 #11 (REPLACING the former "tables only in the bind are not compared"
+     * (REPLACING the former "tables only in the bind are not compared"
      * acceptance): a manual plan may not read a table the BIND text never reads. The
      * former rationale ("the plan-side tables are covered by the schema fingerprint")
      * was exactly the hole: with t={1} and u={9}, a caller matching the bind text over t
@@ -126,7 +126,7 @@ public class SPMRound26SafetyTest {
     /**
      * The comparison is per-table and IN STATEMENT ORDER: the two occurrences of a self
      * joined table are compared one by one, so a swap of the pin between occurrences is
-     * rejected as ambiguous (round-27: the multiset was equal, but after a partition
+     * rejected as ambiguous (the multiset was equal, but after a partition
      * change the bind pair and the replayed pairing diverge), while pinning only ONE of
      * them is rejected as a mismatch.
      */

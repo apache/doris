@@ -35,7 +35,7 @@ import org.apache.doris.qe.SqlModeHelper;
  *   CREATE BASELINE PLAN stores the queryId of the CREATE statement itself and auto
  *   capture the queryId of the captured query, so the audit_log row (db / user / timing /
  *   the full stmt text) of the originating statement can be looked up through
- *   {@code SELECT ... FROM __internal_schema.audit_log WHERE query_id = '<query_id>'}.
+ *   a SELECT over __internal_schema.audit_log filtered by this query_id.
  *   For auto-captured baselines the audit row carries the very stmt text that was
  *   stored here as bindSql (the capture pipeline reads bindSql from audit_log verbatim),
  *   so the two texts can be compared directly.
@@ -94,7 +94,7 @@ public class BaselinePlan {
     /**
      * The parser-relevant sql_mode bits of the CREATING session (persisted in the
      * `sql_mode` column). The stored bindSql is USER-authored text: re-parsing it under
-     * MODE_DEFAULT could change its meaning - under PIPES_AS_CONCAT {@code a || b} is
+     * MODE_DEFAULT could change its meaning - under PIPES_AS_CONCAT a || b is
      * concat(a, b), while a default-mode parse produces a boolean Or - so the reloaded
      * bind tree would still be found by the stored digest but fail Level-3 structural
      * matching against every CONCAT-mode query. 0 / missing (pre-column rows) means
@@ -118,7 +118,7 @@ public class BaselinePlan {
      * Whether the stored planSql is the SPM decompiled, placeholder-carrying text that
      * is replayed as FROZEN SQL. Null for pre-column rows = classify by parsing.
      * Persisting the provenance explicitly keeps a raw-fallback text that merely
-     * CONTAINS a placeholder-like call (e.g. a real UDF named {@code db._spm_const_var})
+     * CONTAINS a placeholder-like call (e.g. a real UDF named db._spm_const_var)
      * from being misclassified as frozen after a reload: such a row keeps its
      * parameterized fallback tree, and the replacer would otherwise substitute the
      * caller's literal for the real function call.
@@ -276,7 +276,7 @@ public class BaselinePlan {
 
     /**
      * Returns the parser-relevant sql_mode bits of the creating session (see the field
-     * javadoc); {@link SqlModeHelper#MODE_DEFAULT} when unknown.
+     * javadoc); SqlModeHelper#MODE_DEFAULT when unknown.
      *
      * @return the creation sql_mode bits
      */

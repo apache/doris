@@ -45,19 +45,19 @@ public class InternalSchema {
     /**
      * Name of the SPM baseline id sequence internal table: append-only rows recording the
      * ids the create path has ALLOCATED. The id of a baseline must never be handed out
-     * twice, but {@code MAX(id)} of the baselines table loses the highest id as soon as
+     * twice, but MAX(id) of the baselines table loses the highest id as soon as
      * its row is DROPped - a FE that never saw that id (a follower promoting after the
      * drop) would allocate it again for a DIFFERENT baseline, and a delayed
-     * {@code DROP BASELINE PLAN IF EXISTS N} retry would then delete the new baseline.
+     * DROP BASELINE PLAN IF EXISTS N retry would then delete the new baseline.
      * The sequence survives the delete, so the watermark read is the MAX of BOTH.
      */
     public static final String SPM_BASELINES_SEQ_TBL_NAME = "spm_baselines_seq";
 
     /**
-     * Name of the COMPACT SPM baseline id high-water-mark internal table (round-44 #15):
+     * Name of the COMPACT SPM baseline id high-water-mark internal table:
      * a tiny append-only table whose surviving rows carry the newest allocated id. The
      * append-only sequence history grows by one row per create forever, so its
-     * {@code MAX(last_id)} - the only unbounded read on the id-allocation path, and the
+     * MAX(last_id) - the only unbounded read on the id-allocation path, and the
      * one that made GLOBAL CREATE fail once the scan outgrew its fixed timeout - is
      * answered from here: every allocation appends its id, superseded rows are pruned,
      * and a cluster upgraded from before this table pays the legacy history read ONCE.
@@ -340,7 +340,7 @@ public class InternalSchema {
         // that still emits the creator-time output columns. STRING, not VARCHAR(4096):
         // the entry list grows with every DISTINCT referenced table and has no length
         // cap (a valid UNION ALL over dozens of long-named tables exceeds 4096 chars),
-        // and a persistence failure here fails the whole GLOBAL CREATE (round-41 #4 -
+        // and a persistence failure here fails the whole GLOBAL CREATE ( -
         // same precedent as the seq table's bind_sql_digest). NULLABLE (NULL / empty =
         // a pre-column row: no validation possible).
         SPM_BASELINES_SCHEMA.add(new ColumnDef("schema_fingerprint",
@@ -357,7 +357,7 @@ public class InternalSchema {
         // yet is invisible to the durable-key dedup, so a retry running on another FE
         // (leader handoff / restart, where the in-memory pending registry is empty) must
         // find and respect the reservation here instead of allocating a second id for the
-        // same baseline (round-39 #4). Rows written before these columns existed carry
+        // same baseline. Rows written before these columns existed carry
         // NULL and are skipped by the identity lookup; they reach no in-flight create
         // anyway (they are long published), and reserve_time NULL ages them out.
         SPM_BASELINES_SEQ_SCHEMA = new ArrayList<>();
@@ -371,19 +371,19 @@ public class InternalSchema {
         // is STRING for the same reason), and a valid SELECT with hundreds of projected
         // expressions exceeds 4096 chars. A fixed VARCHAR then failed the RESERVATION
         // INSERT (which runs before the baseline row), so a valid GLOBAL CREATE errored
-        // out before writing anything (round-40 #6).
+        // out before writing anything.
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("bind_sql_digest",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("plan_sql_hash",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("reserve_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NULLABLE));
-        // 1 = the marker of an AMBIGUOUS create (round-39 #4): only these rows drive the
+        // 1 = the marker of an AMBIGUOUS create: only these rows drive the
         // durable pending-create fence - a plain reservation exists for every create
         // (successful ones included) and must never block a legitimate re-create.
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("unconfirmed",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
-        // 1 = a DROP TOMBSTONE (round-42 #9): the identity of a baseline this FE deleted.
+        // 1 = a DROP TOMBSTONE: the identity of a baseline this FE deleted.
         // A demoted master's in-flight status INSERT can commit AFTER the DROP removed the
         // row (its conditional precondition ran against the pre-DROP snapshot and Doris
         // cannot re-check it at commit) - the revived row would look like an ACTIVE
@@ -394,7 +394,7 @@ public class InternalSchema {
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("dropped",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
 
-        // The COMPACT id high-water mark (round-44 #15, see
+        // The COMPACT id high-water mark (see
         // SPM_BASELINES_HWM_TBL_NAME): append-only rows (id = 1) carrying the newest
         // allocated id, so the id watermark read stays bounded however many creates the
         // cluster has served. The rows are pruned after every write (best effort); the
@@ -407,7 +407,7 @@ public class InternalSchema {
         SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
 
-        // SPM plan-capture checkpoint (APPEND-ONLY, round-42 #8; every row carries the
+        // SPM plan-capture checkpoint (APPEND-ONLY, every row carries the
         // fixed id = 1): the truncated window bounds, the FULL cursor (time, query_time,
         // query_id + the encoded tie-breaker tail) and the retry state survive a leader
         // handoff / FE restart. JSON text for the two maps keeps the encoding trivial
@@ -429,9 +429,9 @@ public class InternalSchema {
         // under it become unreachable (see PlanCaptureManager).
         SPM_CAPTURE_CHECKPOINT_SCHEMA = new ArrayList<>();
         // (leader_epoch, write_seq) is the row's WRITE TOKEN and the table's key: the
-        // writer's max journal id (round-39 #16) plus a per-process write counter. The
+        // writer's max journal id plus a per-process write counter. The
         // reader takes the GREATEST row. A demoted FE's write forwards to the new master
-        // and executes there, where no statement precondition can stop it (round-42 #8) -
+        // and executes there, where no statement precondition can stop it -
         // under the old single-row UNIQUE model it could only be REFUSED, and a refusal
         // the fenced writer did not expect (or a timeout AFTER the deferred commit) left
         // the store without its newest row. Append-only turns the same delayed write into
@@ -498,16 +498,16 @@ public class InternalSchema {
         // (zoneId=lastRenderedMillis pairs, see AuditWriterZones): audit_log.time stores
         // the writer's local rendering, so the capture must scan a window in EVERY zone
         // that can own rows before completing it - a zone change is invisible to the
-        // leader's own observations when it happens between two capture cycles (round-39
+        // leader's own observations when it happens between two capture cycles
         // #3). committed_fence_ms is the oldest batch this FE sent whose outcome is
         // AMBIGUOUS (Publish Timeout / an error that may hide a commit): such a batch's
         // rows can still PUBLISH after the FE dies, so the reader must keep fencing for
         // it even when the FE is provably gone - only an ordinary (never sent) backlog
-        // dies with its FE (round-40 #10). committed_fence_labels lists the load
+        // dies with its FE. committed_fence_labels lists the load
         // labels of those batches (oldest first, "-" for an unknown label): a DEAD FE
         // cannot re-report, so the reader resolves each transaction by its label and
         // keeps the fence until the LAST of them is terminal instead of releasing it
-        // on the age bound alone (round-44 #7).
+        // on the age bound alone.
         SPM_AUDIT_HORIZON_SCHEMA = new ArrayList<>();
         SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("fe_name",
                 ScalarType.createVarchar(128), ColumnNullableType.NOT_NULLABLE));

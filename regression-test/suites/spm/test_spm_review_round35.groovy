@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round35", "spm") {
 
-    // Thirty-fifth review round.
+    // Thirty-.
     //
     // SQL-visible fixes covered here:
     //  - #3: the retained-LIMIT check must compare WHERE a cap applies, not only its
@@ -34,7 +34,7 @@ suite("test_spm_review_round35", "spm") {
     //    leaves, so the parenthesized rejections did not cover them: a baseline for
     //    'SELECT CURRENT_DATE AS d FROM t' froze the CREATE date and served it to every
     //    later matching query. CREATE GLOBAL BASELINE PLAN rejects them now.
-    //  - round-41 #9: the inner-cap walk now runs even when the caller's outer LIMIT
+    //  -: the inner-cap walk now runs even when the caller's outer LIMIT
     //    EQUALS the captured one, so the exact-limit queries of #3 / #4 skip as well
     //    (their caps have no counterpart in the caller's tree) and run their own plan.
 
@@ -92,7 +92,7 @@ suite("test_spm_review_round35", "spm") {
     try {
         // ==================== #3: a cap on ANOTHER input is not justified ====================
         // bind caps spm_r35_a (the caller's own placement); the manual plan caps
-        // spm_r35_b instead AND projects the other join side's column. Round-44 #9/#10
+        // spm_r35_b instead AND projects the other join side's column.
         // made such a pair impossible to CREATE at all: the plan's output column (a.k)
         // is not the bind's (b.g), so a matching caller could receive another column's
         // values - the case is rejected where the divergence is authored instead of
@@ -127,20 +127,21 @@ suite("test_spm_review_round35", "spm") {
 
         // ==================== #4: a cap inside a CTE body is seen ====================
         // bind's WITH body has NO cap; the manual plan's body caps the CTE at one row.
-        // The caller raising only the OUTER limit must not keep that body cap.
+        // Such a pair is now REJECTED at CREATE: the plan's CTE-body tree diverges from
+        // the bind's (the cap has no counterpart in the caller's tree), so no candidate
+        // may be stored in the first place.
         String cteNoBodyCap = "WITH c AS (SELECT v FROM spm_r35_c)" +
                 " SELECT v FROM c ORDER BY v LIMIT 1"
         String cteWithBodyCap = "WITH c AS (SELECT v FROM spm_r35_c ORDER BY v LIMIT 1)" +
                 " SELECT v FROM c ORDER BY v LIMIT 1"
-        List<List<Object>> created4 = sql(
-                """CREATE GLOBAL BASELINE PLAN '${cteNoBodyCap}' WITH '${cteWithBodyCap}'""")
-        assertEquals(1, created4.size(), "CREATE should return one row, got: ${created4}")
-        long id4 = Long.parseLong(created4[0][0].toString())
-        // round-41 #9: the manual plan's CTE BODY cap has no counterpart in the
-        // caller's tree, so the exact query skips the candidate as well
-        assertTrue(!explainOf(cteNoBodyCap).contains("SPM baseline hit: id=${id4}"),
-                "a cap inside the WITH body must skip the candidate:" +
-                        " ${explainOf(cteNoBodyCap)}")
+        test {
+            sql """CREATE GLOBAL BASELINE PLAN '${cteNoBodyCap}' WITH '${cteWithBodyCap}'"""
+            exception "align"
+        }
+        // no row was stored: the exact query and the limit variant both run their own
+        // tree instead of a captured body cap
+        assertTrue(!explainOf(cteNoBodyCap).contains("SPM baseline hit"),
+                "a rejected CTE-body-cap pair leaves no candidate: ${explainOf(cteNoBodyCap)}")
         order_qt_r35_cte_body_cap_exact """
             WITH c AS (SELECT v FROM spm_r35_c)
             SELECT v FROM c ORDER BY v LIMIT 1

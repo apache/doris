@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round8", "spm") {
 
-    // Eighth review round: SQL-level regression for the matching / frozen-SQL fixes.
+    // SQL-level regression for the matching / frozen-SQL fixes.
     //
     // Covered here (end-to-end through CREATE BASELINE + EXPLAIN hit + replay result):
     //  - a MIXED IN list (a IN (1, b)) keeps the parameterized literal arm, so a replay

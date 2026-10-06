@@ -46,56 +46,53 @@ import java.util.function.Supplier;
 
 /**
  * The cluster-wide AUDIT PUBLICATION HORIZON: the start time (epoch millis, the
- * {@code time} column of {@code audit_log}) of the oldest audit event that any FE has
+ * time column of audit_log) of the oldest audit event that any FE has
  * accepted but not yet PUBLISHED. The SPM capture scans the shared audit table from the
  * leader, so it uses this value as a progress FENCE: its next scan window must still
  * start at or before it, otherwise a row an FE still owes falls behind the advanced
  * watermark and is never captured.
  *
- * <p>Three layers make the fence complete:
- * <ul>
- *   <li>{@link #localHorizon()} folds THIS FE's whole audit pipeline: completed queries
- *       still held by the {@link WorkloadRuntimeStatusMgr} (they enter the pipeline
- *       before any loader sees them), the {@link AuditEventProcessor} queue and its
+ * Three layers make the fence complete:
+ *   localHorizon folds THIS FE's whole audit pipeline: completed queries
+ *       still held by the WorkloadRuntimeStatusMgr (they enter the pipeline
+ *       before any loader sees them), the AuditEventProcessor queue and its
  *       in-flight event (a plugin can stall while an event is dequeued), and the
- *       {@link AuditLoader} queue / assembled batch / not-yet-visible batch (a stream
+ *       AuditLoader queue / assembled batch / not-yet-visible batch (a stream
  *       load can report Publish Timeout after commit). The stages are read
- *       UPSTREAM-FIRST (round-37 #3): every handoff enqueues the event downstream
+ *       UPSTREAM-FIRST: every handoff enqueues the event downstream
  *       BEFORE the upstream stage stops covering it, so an event transferred between
  *       two reads can never fall in the gap - it is either still seen upstream or
  *       already seen downstream. Each stage keeps the event owned across its own
  *       handoff as well (the manager holds dequeued events until the processor call
- *       returns, the processor dequeues and publishes in-flight atomically - round-37
- *       #1/#2).</li>
- *   <li>each FE REPORTS its local horizon into the shared
- *       {@link InternalSchema#SPM_AUDIT_HORIZON_TBL_NAME} table, so a follower's
+ *       returns, the processor dequeues and publishes in-flight atomically).
+ *   each FE REPORTS its local horizon into the shared
+ *       InternalSchema#SPM_AUDIT_HORIZON_TBL_NAME table, so a follower's
  *       backlog is visible to the leader that runs the capture. INTERNAL statements
  *       (including the reporter's own SQL) are not part of either side: the capture
- *       never scans {@code is_internal = true} rows, so including them would only let
+ *       never scans is_internal = true rows, so including them would only let
  *       the reporter's writes fence (and thereby re-trigger) themselves forever on an
- *       idle FE (round-37 #7).</li>
- *   <li>{@link #clusterHorizon()} is the MINIMUM over the local value and the FRESH
+ *       idle FE.
+ *   clusterHorizon is the MINIMUM over the local value and the FRESH
  *       rows of that table; a row the reporter stopped refreshing is only IGNORED
  *       when its FE is provably GONE (the events died with it). A live FE whose
  *       keepalive writes fail - or one whose liveness cannot be decided - makes the
  *       read FAIL CLOSED instead: its pipeline may still owe events (and may even
  *       have gained events with OLDER start times), so neither the stale value may
- *       be trusted nor the fence released (round-38 #2) - and liveness means
+ *       be trusted nor the fence released - and liveness means
  *       MEMBERSHIP, not the heartbeat flag, whose transient false must not release a
- *       running FE's fence (round-43 #3). An IDLE row (zero fence) contributes its
- *       own report INSTANT rather than nothing (round-43 #2): the row vouches for its
+ *       running FE's fence. An IDLE row (zero fence) contributes its
+ *       own report INSTANT rather than nothing: the row vouches for its
  *       FE's pipeline only up to the moment it was written, and an event captured
- *       right after it may still be unpublished.</li>
- *   <li>a COMMITTED batch whose rows are only not readable yet (Publish Timeout) keeps
- *       fencing even after its FE died: its {@code committed_fence_ms} marker survives
- *       the death for the same bound the loader itself applies (round-40 #10), and its
- *       batches' load labels ride along (round-44 #7) so the reader resolves each
+ *       right after it may still be unpublished.
+ *   a COMMITTED batch whose rows are only not readable yet (Publish Timeout) keeps
+ *       fencing even after its FE died: its committed_fence_ms marker survives
+ *       the death for the same bound the loader itself applies, and its
+ *       batches' load labels ride along so the reader resolves each
  *       transaction and keeps the marker until the LAST one is terminal (VISIBLE /
  *       ABORTED) - a dead FE cannot re-report, and expiring the marker on the age bound
  *       alone lost a batch that published just after it. The FEs' writer-zone history in
  *       that row is kept for exactly as long as durable capture progress has not passed
- *       it, so no uncompleted window loses its zone (round-40 #2).</li>
- * </ul>
+ *       it, so no uncompleted window loses its zone.
  */
 public final class AuditPublicationHorizon {
 
@@ -109,21 +106,21 @@ public final class AuditPublicationHorizon {
      * whose liveness cannot be decided) the read FAILS CLOSED instead: the reporter's
      * writes can fail for minutes while the FE still owes its events, and its pipeline
      * may even hold NEW events with older start times than the last reported value
-     * (round-38 #2). Must be comfortably larger than the reporter's keepalive interval
-     * ({@link AuditLoader#HORIZON_KEEPALIVE_MILLIS}).
+     * . Must be comfortably larger than the reporter's keepalive interval
+     * (AuditLoader#HORIZON_KEEPALIVE_MILLIS).
      */
     public static final long ROW_STALE_MILLIS = 5 * 60 * 1000L;
 
     /**
      * How long the committed-publication fence of a PROVABLY GONE FE keeps fencing when
-     * its transaction CANNOT be resolved by label (round-40 #10; round-44 #7 made this
+     * its transaction CANNOT be resolved by label (made this
      * the LAST RESORT instead of the rule): a batch whose stream load reported Publish
      * Timeout is COMMITTED, and its rows can become readable AFTER the FE died -
      * dropping the fence at death would let the capture checkpoint past them. A row that
      * carries its batches' labels keeps fencing on the TRANSACTION outcome (only
      * VISIBLE / ABORTED releases it, whatever the age); the bound applies to the labels
      * the transaction manager cannot resolve at all, where it deliberately mirrors the
-     * loader's own fallback ({@link AuditLoader#PUBLISH_FENCE_MAX_MILLIS}) so a
+     * loader's own fallback (AuditLoader#PUBLISH_FENCE_MAX_MILLIS) so a
      * genuinely lost batch cannot freeze the capture forever.
      */
     public static final long COMMITTED_FENCE_SURVIVAL_MILLIS =
@@ -135,17 +132,17 @@ public final class AuditPublicationHorizon {
                     + FeConstants.INTERNAL_DB_NAME + "`."
                     + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "`";
     private static final String SELECT_OWN_ROW_SQL = "SELECT `horizon_ms`, `writer_zones`,"
-            + " `committed_fence_ms`, `committed_fence_labels` FROM `"
+            + " `committed_fence_ms`, `committed_fence_labels`, `update_time` FROM `"
             + FeConstants.INTERNAL_DB_NAME + "`."
             + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "` WHERE `fe_name` = '${feName}'";
     // ONE atomic statement per report: the table is a merge-on-write UNIQUE KEY(`fe_name`)
     // table, so an INSERT of an existing fe_name IS the update of that FE's row - there is
     // no window (a crash, or a reader between two statements) in which the row is MISSING
-    // while the follower still owes an old event (round-37 #9: the previous DELETE+INSERT
+    // while the follower still owes an old event (the previous DELETE+INSERT
     // committed separately and the leader could read no row in between). A zero horizon
     // with an EMPTY writer-zone registry deletes the row instead (also one statement): a
     // missing row and a zero row are the same "nothing outstanding" to every reader. A
-    // zero horizon WITH recorded zones keeps the row (round-39 #3): the capture still
+    // zero horizon WITH recorded zones keeps the row: the capture still
     // needs this FE's zone history for windows it has not completed, and deleting the row
     // would drop exactly that knowledge.
     private static final String UPSERT_OWN_ROW_SQL = "INSERT INTO `" + FeConstants.INTERNAL_DB_NAME + "`."
@@ -159,7 +156,7 @@ public final class AuditPublicationHorizon {
     private static final int IO_TIMEOUT_SECONDS = 10;
 
     /**
-     * update_time is rendered AND parsed in UTC (round-37 #4): the column is a zone-less
+     * update_time is rendered AND parsed in UTC: the column is a zone-less
      * DATETIME crossing FEs that may render their local wall time in different zones, so
      * the previous both-sides-local rendering made a fresh row look hours old to a reader
      * in another zone (discarded as stale, dropping that follower's fence). A fixed zone
@@ -185,18 +182,45 @@ public final class AuditPublicationHorizon {
 
     /**
      * Test seam enumerating the OTHER alive FEs that must have registered a row (see
-     * {@link #verifyEveryLiveReporterRegistered}); null falls back to the live membership
+     * verifyEveryLiveReporterRegistered); null falls back to the live membership
      * view, which unit tests do not have.
      */
     @VisibleForTesting
     static volatile Supplier<Set<String>> reporterNamesForTest;
 
     /**
-     * Test seam: the liveness of the FE behind a reported fence row ({@code null} =
-     * undecidable; see {@link #reportingFeAlive}). Null in production.
+     * Test seam: the liveness of the FE behind a reported fence row (null =
+     * undecidable; see reportingFeAlive). Null in production.
      */
     @VisibleForTesting
     static volatile Function<String, Boolean> feAliveProbeForTest;
+
+    /**
+     * Test seam: THIS FE's own shared row as read at startup (see
+     * restoreCarriedPublicationState). Each row is the tuple [horizon (Long),
+     * update_time (Long, epoch millis), writer_zones (String), committed_fence_ms (Long),
+     * committed_fence_labels (String)]. Null in production (the real read queries the
+     * shared table).
+     */
+    @VisibleForTesting
+    static volatile Supplier<List<Object[]>> ownRowRestoreReaderForTest;
+
+    /**
+     * The committed fence THIS FE's PREVIOUS incarnation reported and that is not
+     * resolved yet (see restoreCarriedPublicationState): the restarted process starts
+     * with an empty pending list and empty writer-zone registry, while the shared row -
+     * keyed by the stable fe_name - is the only copy of a batch that was COMMITTED and
+     * unreadable when the process went down. The first zero / empty UPSERT would
+     * otherwise replace that fence (a pending window ending before the idle report could
+     * then complete while the old load is still unreadable) and the old rendering zones
+     * (a window scanned only in UTC while an older -05:00 row remains).
+     */
+    private static volatile long carriedCommittedFence = 0;
+    private static volatile String carriedCommittedFenceLabels = "";
+    private static volatile long carriedCommittedFenceUpdatedAt = 0;
+
+    /** Whether the previous incarnation's row was already read (once per process). */
+    private static volatile boolean carriedStateRestored = false;
 
     private AuditPublicationHorizon() {
     }
@@ -206,7 +230,7 @@ public final class AuditPublicationHorizon {
      * outstanding: the MINIMUM over every stage of the local pipeline (see the class
      * javadoc). Cheap - no I/O - so callers may poll it.
      *
-     * <p>The stages are read UPSTREAM-FIRST (round-37 #3): the pre-loader stages before
+     * The stages are read UPSTREAM-FIRST: the pre-loader stages before
      * the loader. A downstream stage enqueues an event BEFORE the upstream stage
      * releases it, so reading upstream first means an event transferred between the two
      * reads is either still seen upstream (it has not transferred yet) or already seen
@@ -220,7 +244,7 @@ public final class AuditPublicationHorizon {
     }
 
     /**
-     * The stages BEFORE the audit loader, read UPSTREAM-FIRST (round-37 #3): the runtime
+     * The stages BEFORE the audit loader, read UPSTREAM-FIRST: the runtime
      * status manager (a completed query enters its list before the processor sees it, and
      * its dequeued events stay fenced until the processor call returns) and then the
      * processor (whose dequeued-in-flight event is published atomically with the
@@ -253,10 +277,10 @@ public final class AuditPublicationHorizon {
 
     /**
      * The fence the CAPTURE uses: the minimum over this FE's own pipeline and the fresh
-     * rows every other FE reported. Throws {@link IllegalStateException} when the shared
+     * rows every other FE reported. Throws IllegalStateException when the shared
      * table cannot be read or when the fence is INCOMPLETE (a live reporter's overdue row)
-     * - the caller must NOT advance without a complete fence (round-36 #1: an unreadable
-     * follower row is exactly the hole this guards; round-38 #2 added the overdue-live
+     * - the caller must NOT advance without a complete fence (an unreadable
+     * follower row is exactly the hole this guards; added the overdue-live
      * reporter, whose last confirmed value may already be stale).
      */
     public static long clusterHorizon() {
@@ -266,12 +290,12 @@ public final class AuditPublicationHorizon {
 
     /**
      * The zones the CLUSTER's audit writers have RENDERED rows in - this FE's own live
-     * history plus every fresh reporter row's registered zones (round-39 #3). The SPM
+     * history plus every fresh reporter row's registered zones. The SPM
      * capture must render a window pass in every one of them before completing the
      * window: rows stored under a zone that is no longer current are invisible to bounds
      * rendered in the current zone, and a zone change BETWEEN two capture cycles is
      * invisible to the capture's own start/end comparisons. A read failure fails closed
-     * exactly like {@link #clusterHorizon()}.
+     * exactly like clusterHorizon().
      *
      * @return the zone IDs that may own audit rows
      */
@@ -283,7 +307,7 @@ public final class AuditPublicationHorizon {
 
     /**
      * The zones registered in the rows of the shared table. A row's zones stay REQUIRED
-     * until the DURABLE CAPTURE PROGRESS has passed the row's last refresh (round-40 #2):
+     * until the DURABLE CAPTURE PROGRESS has passed the row's last refresh:
      * a follower can publish a row under a zone and then stop reporting (crash, stalled
      * keepalive) while an uncompleted capture window still contains that row - dropping
      * its zone here let a UTC leader exhaust the window scanning only its own zones and
@@ -350,7 +374,7 @@ public final class AuditPublicationHorizon {
      * The minimum horizon over the FRESH rows of the shared table (0 when none / when
      * every overdue row belongs to a FE that is provably gone). A read failure - or an
      * overdue row of a live / undecidable reporter - propagates as a retryable
-     * {@link IllegalStateException} (see {@link #reportingFeAlive}).
+     * IllegalStateException (see reportingFeAlive).
      */
     private static long remoteHorizon() {
         List<Object[]> rows;
@@ -400,21 +424,21 @@ public final class AuditPublicationHorizon {
             long committedFence = row.length > 4 && row[4] != null ? (Long) row[4] : 0L;
             String fenceLabels = row.length > 5 && row[5] != null ? (String) row[5] : "";
             // The ROW's earliest obligation is the MINIMUM of its horizon and its
-            // committed fence (round-42 #3): both are lower bounds on "events that may
+            // committed fence: both are lower bounds on "events that may
             // still be missing", so the earlier one fences. (The reporter's write already
             // folds them; a row written by an older build can still carry a horizon that
             // OVERSTATES the committed fence, and taking the max kept that overstatement.)
             long fence = minPositive(horizon, committedFence);
             boolean overdue = updatedAt <= 0 || now - updatedAt > ROW_STALE_MILLIS;
             if (overdue) {
-                // Round-38 #2: an OVERDUE row does NOT mean its FE is gone - its keepalive
+                // An OVERDUE row does NOT mean its FE is gone - its keepalive
                 // upserts can fail for minutes while the FE still holds the events, and
                 // its pipeline may even have GAINED events with older start times - so the
                 // stale VALUE cannot be trusted either. Only a KNOWN-GONE FE releases its
                 // fence (the events died with it); a live - or an undecidable - reporter
                 // fails this read closed, and the capture skips the cycle and retries
                 // promptly instead of checkpointing past the unread fence. This check runs
-                // BEFORE the zero-fence shortcut (round-43 #2): an overdue ZERO row of a
+                // BEFORE the zero-fence shortcut: an overdue ZERO row of a
                 // live FE is just as untrustworthy as a positive one - the FE may have
                 // captured events since its last report, and trusting the stale zero let
                 // the capture advance past them.
@@ -422,8 +446,8 @@ public final class AuditPublicationHorizon {
                 if (Boolean.FALSE.equals(alive)) {
                     if (committedFence > 0
                             && !committedFenceSettled(fenceLabels, updatedAt, now)) {
-                        // Round-40 #10: the batch is COMMITTED, so its rows can become
-                        // readable even though the FE is dead. Round-44 #7: the fence
+                        // The batch is COMMITTED, so its rows can become
+                        // readable even though the FE is dead.: the fence
                         // survives on the TRANSACTION's outcome, not on the age bound -
                         // the labels the row carries resolve each batch's state, and
                         // only terminal (VISIBLE / ABORTED) transactions release it. A
@@ -450,7 +474,7 @@ public final class AuditPublicationHorizon {
                         : "still alive") + "; the capture must retry on a later cycle");
             }
             if (fence <= 0) {
-                // Round-43 #2: an IDLE row is NOT "no fence". It proves only that its FE
+                // An IDLE row is NOT "no fence". It proves only that its FE
                 // had nothing outstanding at `updatedAt`; whatever was captured AFTER that
                 // instant may still be unpublished (the next report tick is up to a few
                 // seconds away, a stuck load far longer). Contributing the row's report
@@ -463,7 +487,7 @@ public final class AuditPublicationHorizon {
             }
             oldest = minPositive(oldest, fence);
         }
-        // Round-42 #12: the row set must cover every LIVE audit-producing FE. A live
+        // The row set must cover every LIVE audit-producing FE. A live
         // follower whose first report failed holds no row even though it can carry a
         // committed, unreadable batch; interpreting that gap as a zero horizon let a
         // capture window checkpoint past the row that publishes later. Idle FEs register
@@ -475,7 +499,7 @@ public final class AuditPublicationHorizon {
 
     /**
      * Verifies that every ALIVE frontend (other than this FE, whose own pipeline is
-     * covered by {@link #localHorizon()}) has a row in the shared table (round-42 #12).
+     * covered by localHorizon) has a row in the shared table.
      * Without a live membership view / a seam the requirement cannot be verified and is
      * skipped (the shared table is not authoritative in that state either).
      *
@@ -505,7 +529,7 @@ public final class AuditPublicationHorizon {
 
     /**
      * The names of the alive FEs that run an audit loader, EXCLUDING this FE (whose
-     * obligations fold in through {@link #localHorizon()}), or null when the membership
+     * obligations fold in through localHorizon()), or null when the membership
      * cannot be enumerated.
      */
     private static Set<String> liveReporterNames() {
@@ -525,12 +549,12 @@ public final class AuditPublicationHorizon {
             String self = AuditLoader.selfFeName();
             Set<String> names = new LinkedHashSet<>();
             for (Frontend frontend : frontends) {
-                // Round-43 #3: MEMBERSHIP decides who must have registered - NOT the
+                // MEMBERSHIP decides who must have registered - NOT the
                 // heartbeat flag. `isAlive()` is false whenever the last heartbeat or an
                 // RPC failed, which is exactly the state in which a still-running FE's
                 // row (and its committed batch) is missing from the table: excluding it
                 // here read the not-yet-registered gap as "no obligation", the very
-                // failure round-42 #12 exists to catch. A member with a failed heartbeat
+                // failure exists to catch. A member with a failed heartbeat
                 // is simply a reporter whose row is (still) overdue - handled by the
                 // per-row liveness logic, not by dropping it from the obligation set.
                 if (frontend.getNodeName() != null
@@ -545,15 +569,15 @@ public final class AuditPublicationHorizon {
     }
 
     /**
-     * Whether the FE that reported a fence row can still publish something: {@code null}
+     * Whether the FE that reported a fence row can still publish something: null
      * when that cannot be decided (no live environment / no membership view / a failed
-     * lookup), and {@code false} ONLY when the FE is provably gone - it is no longer a
+     * lookup), and false ONLY when the FE is provably gone - it is no longer a
      * member of the cluster. Called for OVERDUE rows only: the capture runs on the
      * leader, whose frontend list tracks every member, so a row whose FE is absent from
      * the membership is a leftover whose events died with that FE (see
-     * {@link #remoteHorizon}, round-38 #2).
+     * remoteHorizon).
      *
-     * <p>Round-43 #3: a MEMBER whose {@code isAlive()} is false is still alive enough to
+     * A MEMBER whose isAlive is false is still alive enough to
      * hold events - the flag drops on a single failed heartbeat / RPC while the process
      * keeps running - so it must NOT release its fence. Only absence from the membership
      * (dropped / decommissioned / replaced) proves the events died with the FE.
@@ -584,19 +608,19 @@ public final class AuditPublicationHorizon {
     }
 
     /**
-     * Whether the committed fence of a PROVABLY GONE FE is SETTLED (round-44 #7): every
+     * Whether the committed fence of a PROVABLY GONE FE is SETTLED: every
      * batch the row lists is either TERMINAL (VISIBLE - its rows are readable; ABORTED -
      * it can never publish) or unresolvable with the retention bound elapsed (the same
-     * last resort the live loader applies, round-43 #6/#8: a label the transaction
+     * last resort the live loader applies, a label the transaction
      * manager does not know - the request never got as far as creating a transaction -
      * cannot be proven lost, so it keeps fencing until the bound). A batch still
      * COMMITTED / PRECOMMITTED keeps its fence REGARDLESS OF AGE: the publish daemon can
      * make its rows readable at any moment, and a dead FE can no longer re-report, so
-     * releasing the marker on the age bound alone (round-40 #10) lost exactly the
+     * releasing the marker on the age bound alone lost exactly the
      * publication that arrived just after it.
      *
-     * <p>While ANY listed batch keeps fencing, the row contributes its full
-     * {@code committed_fence_ms} (the MINIMUM over all its batches, settled ones
+     * While ANY listed batch keeps fencing, the row contributes its full
+     * committed_fence_ms (the MINIMUM over all its batches, settled ones
      * included): the resolution has no per-batch event times, and over-fencing merely
      * delays the capture while under-fencing would skip an event.
      *
@@ -635,34 +659,208 @@ public final class AuditPublicationHorizon {
     }
 
     /**
+     * Reads THIS FE's own shared row ONCE per process, before the first report, and
+     * merges what the restarted process cannot know any more: the previous
+     * incarnation's unresolved committed fence (with its labels) and its writer-zone
+     * registry. The row is keyed by the stable fe_name, so it IS this FE's state, and a
+     * restart does not retire it - empty process memory is not a resolution. A read
+     * failure leaves the restore pending (retried on the next tick); an absent row
+     * means there is nothing to carry.
+     */
+    private static void restoreCarriedPublicationState() {
+        if (carriedStateRestored) {
+            return;
+        }
+        List<Object[]> ownRows = readOwnRowsForRestore();
+        if (ownRows == null) {
+            return; // unreadable: retry on the next report tick
+        }
+        carriedStateRestored = true;
+        if (ownRows.isEmpty()) {
+            return; // no row: nothing to carry
+        }
+        Object[] row = ownRows.get(0);
+        if (row == null || row.length < 5 || row[1] == null) {
+            return;
+        }
+        long updatedAt = ((Number) row[1]).longValue();
+        // The zones traveled in a CONFIRMED report of the previous incarnation and are
+        // re-registered (see AuditWriterZones#restore): without them the first zero /
+        // empty report of this process scans future windows in the CURRENT zone only,
+        // while an older row rendered under another zone remains invisible.
+        AuditWriterZones.restore(AuditWriterZones.decodePairs((String) row[2]));
+        long fence = ((Number) row[3]).longValue();
+        if (fence <= 0) {
+            return;
+        }
+        carriedCommittedFence = fence;
+        carriedCommittedFenceLabels = row[4] == null ? "" : (String) row[4];
+        // An unparsable update_time must not make the fence look ancient: aged from the
+        // restart it keeps its full survival window (fail closed).
+        carriedCommittedFenceUpdatedAt = updatedAt > 0 ? updatedAt : System.currentTimeMillis();
+        LOG.info("audit publication horizon: carrying the committed fence {} of the previous"
+                        + " incarnation (labels '{}') until its transactions are resolved",
+                fence, carriedCommittedFenceLabels);
+    }
+
+    /**
+     * The carried fence while it is still UNRESOLVED: 0 and cleared once every listed
+     * transaction is terminal / beyond the bound. It is aged by the PREVIOUS row's last
+     * refresh, exactly like the reader ages it.
+     */
+    private static long liveCarriedCommittedFence(long now) {
+        if (carriedCommittedFence <= 0) {
+            return 0;
+        }
+        if (committedFenceSettled(carriedCommittedFenceLabels, carriedCommittedFenceUpdatedAt,
+                now)) {
+            LOG.info("audit publication horizon: the committed fence {} carried from the"
+                            + " previous incarnation is settled (labels '{}'): releasing it",
+                    carriedCommittedFence, carriedCommittedFenceLabels);
+            carriedCommittedFence = 0;
+            carriedCommittedFenceLabels = "";
+            carriedCommittedFenceUpdatedAt = 0;
+            return 0;
+        }
+        return carriedCommittedFence;
+    }
+
+    /** Concatenates two ';'-joined fence-label lists, skipping blank members. */
+    private static String mergeFenceLabels(String first, String second) {
+        if (first == null || first.trim().isEmpty()) {
+            return second == null ? "" : second.trim();
+        }
+        if (second == null || second.trim().isEmpty()) {
+            return first.trim();
+        }
+        return first.trim() + ";" + second.trim();
+    }
+
+    /**
+     * THIS FE's own shared row for the startup merge (see
+     * restoreCarriedPublicationState): null when the read FAILED (retry), otherwise the
+     * parsed row(s) in the seam shape - horizon, update_time (millis), writer_zones,
+     * committed_fence_ms, committed_fence_labels.
+     */
+    private static List<Object[]> readOwnRowsForRestore() {
+        Supplier<List<Object[]>> seam = ownRowRestoreReaderForTest;
+        if (seam != null) {
+            List<Object[]> rows = seam.get();
+            return rows == null ? Collections.emptyList() : rows;
+        }
+        if (!sharedTableAvailable()) {
+            return Collections.emptyList(); // no live environment: nothing to carry
+        }
+        try {
+            Map<String, String> params = new HashMap<>();
+            params.put("feName", StatisticsUtil.escapeSQL(AuditLoader.selfFeName()));
+            List<ResultRow> result = StatisticsUtil.executeQuery(SELECT_OWN_ROW_SQL, params,
+                    IO_TIMEOUT_SECONDS);
+            List<Object[]> rows = new ArrayList<>();
+            if (result != null) {
+                for (ResultRow resultRow : result) {
+                    List<String> values = resultRow.getValues();
+                    if (values == null || values.size() < 5) {
+                        continue;
+                    }
+                    rows.add(new Object[] {
+                            parseLongOrZero(values.get(0)),
+                            parseUpdateTimeOrZero(values.get(4)),
+                            values.get(1) == null ? "" : values.get(1),
+                            parseLongOrZero(values.get(2)),
+                            values.get(3) == null ? "" : values.get(3).trim()});
+                }
+            }
+            return rows;
+        } catch (Exception e) {
+            LOG.warn("audit publication horizon: cannot read this FE's own row for the"
+                    + " restart merge: {}", e.getMessage());
+            return null; // retry on the next tick
+        }
+    }
+
+    /** One numeric cell of the own-row restore read (blank / NULL = 0). */
+    private static long parseLongOrZero(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(text.trim());
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    /** The own row's update_time in epoch millis (an unparsable rendering = 0). */
+    private static long parseUpdateTimeOrZero(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return 0L;
+        }
+        try {
+            return parseUpdateTime(text.trim());
+        } catch (RuntimeException e) {
+            return 0L;
+        }
+    }
+
+    /**
      * Publishes THIS FE's current horizon into the shared table (one row per FE) and
      * returns whether the written state is CONFIRMED readable from it. Called by the
      * audit loader's reporter thread on change and on its keepalive cadence; the caller
      * may remember the value as reported only when this returns true, so a failed (or
      * not yet visible) write is retried on the next tick instead of being treated as
-     * done until the 60s keepalive (round-37 #5: SQL OK can still leave a COMMITTED
+     * done until the 60s keepalive (SQL OK can still leave a COMMITTED
      * INSERT unpublished, and the previous void return silently swallowed failures the
      * reporter had already recorded as reported).
      *
-     * <p>Each report is ONE atomic statement (round-37 #9): a merge-on-write upsert of
+     * Each report is ONE atomic statement: a merge-on-write upsert of
      * the FE's row for a positive horizon, a single DELETE for zero. A reader can never
      * observe the row missing while it is being refreshed by the old value.
+     *
+     * The whole snapshot-to-write sequence runs under the loader's fence monitor (see
+     * AuditLoader#withPublicationFenceLock): a batch retained between the fence snapshot
+     * and the UPSERT (the load thread can durably report the batch's own label before
+     * sending it) would otherwise be written over by this older report.
      *
      * @param horizon the local horizon (0 = nothing outstanding: the row is deleted
      *                unless the WRITER-ZONE set or a committed publish fence keeps it)
      * @return whether the written state is confirmed visible in the shared table
      */
     public static boolean reportLocalHorizon(long horizon) {
-        // A COMMITTED-but-unreadable batch must survive this FE's death (round-40 #10):
+        return AuditLoader.withPublicationFenceLock(() -> reportLocalHorizonLocked(horizon));
+    }
+
+    /** The body of reportLocalHorizon, run with the publication-fence monitor held. */
+    private static boolean reportLocalHorizonLocked(long horizon) {
+        // A COMMITTED-but-unreadable batch must survive this FE's death:
         // the fence is folded in HERE, at write time, so even a report computed before the
         // batch timed out (a stale zero, or the close path's clear) cannot DELETE or
-        // understate it - this is what keeps the crash/close gap closed. Round-44 #7: the
+        // understate it - this is what keeps the crash/close gap closed.: the
         // batches' load LABELS travel with the fence, so a reader that finds the FE gone
         // can resolve each transaction's outcome instead of expiring the marker on the
         // age bound alone.
         long committedFence = AuditLoader.oldestCommittedPublishFenceEventTime();
         String committedLabels = AuditLoader.oldestCommittedPublishFenceLabels();
-        // EVERY locally known obligation is folded with minPositive (round-42 #3): the
+        // The PREVIOUS incarnation's unresolved fence and zones are merged in before
+        // the first write of this process (see restoreCarriedPublicationState): the
+        // restarted process has empty in-memory fences and zones, and its first idle
+        // report must not retire obligations the shared row is the only copy of.
+        long now = System.currentTimeMillis();
+        restoreCarriedPublicationState();
+        long carriedFence = liveCarriedCommittedFence(now);
+        if (carriedFence > 0) {
+            if (committedFence <= 0) {
+                committedFence = carriedFence;
+                committedLabels = carriedCommittedFenceLabels;
+            } else {
+                // both fence - keep the EARLIER value and BOTH label sets: the reader
+                // releases the fence only once every listed transaction is terminal
+                committedFence = minPositive(committedFence, carriedFence);
+                committedLabels = mergeFenceLabels(carriedCommittedFenceLabels,
+                        committedLabels);
+            }
+        }
+        // EVERY locally known obligation is folded with minPositive: the
         // caller's value can be a PARTIAL report (AuditLoader.reportCommittedFence passes
         // only the batch fence), and taking the MAX of (value, committed fence) OVERSTATED
         // the shared horizon whenever an OLDER event was still upstream - a queued 09:55
@@ -686,13 +884,13 @@ public final class AuditPublicationHorizon {
         try {
             Map<String, String> params = new HashMap<>();
             params.put("feName", StatisticsUtil.escapeSQL(feName));
-            // the writer-zone snapshot travels with every report (round-39 #3), and a
+            // the writer-zone snapshot travels with every report, and a
             // ZERO-horizon report KEEPS the row while zones are registered: the capture
             // still needs them for windows it has not completed, so deleting the row
             // would drop exactly that knowledge
             String writerZones = AuditWriterZones.encode();
             // ALWAYS upsert the row - a ZERO-horizon report is an EXPLICIT IDLE
-            // REGISTRATION (round-42 #12): the cluster check treats a live FE without a
+            // REGISTRATION: the cluster check treats a live FE without a
             // row as an INCOMPLETE horizon (its first report may have failed while it
             // holds a committed, unreadable batch), so absence must mean "never
             // reported / not visible", never "nothing owed". The clean-close path
@@ -706,7 +904,7 @@ public final class AuditPublicationHorizon {
             boolean confirmed = ownRowConfirms(feName, effectiveHorizon, writerZones,
                     committedFence, committedLabels);
             if (confirmed) {
-                // Only a CONFIRMED report makes the zones known to the capture (round-41
+                // Only a CONFIRMED report makes the zones known to the capture
                 // #6): the registry keeps a fresh zone outside the covered-through filter
                 // until this point, so it cannot be dropped before it was ever shared.
                 AuditWriterZones.markReported(AuditWriterZones.decode(writerZones));
@@ -720,16 +918,37 @@ public final class AuditPublicationHorizon {
     }
 
     /**
-     * De-registers this FE's shared row (graceful shutdown): the FE no longer produces
-     * audit rows, so its absence must not read as "an unreported live reporter". A
-     * pending COMMITTED-but-unreadable batch still keeps the row (round-40 #10): its
-     * rows can publish after this FE stops, so its fence must survive it - the fold at
-     * write time (round-42 #3) keeps the row whenever the committed fence is positive.
+     * De-registers this FE's shared row (graceful shutdown) UNLESS the row still carries
+     * state that only it can hold. A pending COMMITTED-but-unreadable batch keeps the row
+     * (its rows can publish after this FE stops, so its fence must survive it - the fold
+     * at write time keeps the row whenever the committed fence is positive), and the
+     * WRITER-ZONE record stays until resolved capture progress covers its last use: a
+     * follower can publish a row rendered in -05:00, drain and close with no pending
+     * committed batch, and deleting the row would leave the leader's process-local
+     * registry with UTC only - capture checkpoints past the visible -05:00 row without a
+     * pass that can find it.
+     *
+     * The check and the re-report run under the fence monitor (see reportLocalHorizon),
+     * so a batch retained concurrently cannot slip between the check and the write.
      */
     public static void clearLocalReport() {
+        AuditLoader.withPublicationFenceLock(() -> {
+            clearLocalReportLocked();
+            return Boolean.TRUE;
+        });
+    }
+
+    /** The body of clearLocalReport, run with the publication-fence monitor held. */
+    private static void clearLocalReportLocked() {
+        long now = System.currentTimeMillis();
+        restoreCarriedPublicationState();
         long committedFence = AuditLoader.oldestCommittedPublishFenceEventTime();
-        if (committedFence > 0) {
-            reportLocalHorizon(0L);
+        long carriedFence = liveCarriedCommittedFence(now);
+        if (committedFence > 0 || carriedFence > 0
+                || AuditWriterZones.anyZoneNeedingCoverage()) {
+            // The row is the only durable copy of these obligations: an explicit zero
+            // re-report refreshes it (and re-carries the zones) instead of deleting it.
+            reportLocalHorizonLocked(0L);
             return;
         }
         if (!sharedTableAvailable()) {
@@ -747,12 +966,12 @@ public final class AuditPublicationHorizon {
 
     /**
      * Re-reads THIS FE's row and checks it matches what was just written: the horizon
-     * value, the WRITER-ZONE SET (round-40 #3: a zero-horizon report carrying a NEW zone
+     * value, the WRITER-ZONE SET (a zero-horizon report carrying a NEW zone
      * set is indistinguishable from the old row by the horizon alone - if the UPSERT
      * committed without being readable, the reporter would record the new zones as
      * reported and the capture could checkpoint in the gap without scanning the new
-     * zone), the COMMITTED fence (round-40 #10: an unreadable marker would let a crash
-     * drop the fence) and its LABELS (round-44 #7: an unreadable labels write would leave
+     * zone), the COMMITTED fence (an unreadable marker would let a crash
+     * drop the fence) and its LABELS (an unreadable labels write would leave
      * a dead FE's fence unresolvable, which is exactly the age-bound release this column
      * exists to replace). A read failure is an UNCONFIRMED write - the caller retries.
      */
@@ -783,7 +1002,7 @@ public final class AuditPublicationHorizon {
                     && sameText(readBackZones, writerZones)
                     && sameText(readBackLabels, committedLabels);
         }
-        // An IDLE REGISTRATION must be VISIBLE (round-42 #12): the cluster check reads
+        // An IDLE REGISTRATION must be VISIBLE: the cluster check reads
         // the row's ABSENCE as "the FE never registered", so a zero report is confirmed
         // only once the row itself can be read back - an unconfirmed zero would stop the
         // reporter's retries while the leader keeps failing the cycle closed.
@@ -799,7 +1018,7 @@ public final class AuditPublicationHorizon {
     }
 
     /**
-     * Renders the shared row's update_time in the FIXED UTC zone (round-37 #4): the
+     * Renders the shared row's update_time in the FIXED UTC zone: the
      * column is zone-less, so both the write and the read pin the same explicit zone
      * instead of each FE's local one.
      */
@@ -808,7 +1027,7 @@ public final class AuditPublicationHorizon {
         return UPDATE_TIME_UTC_FORMATTER.format(Instant.ofEpochMilli(epochMillis));
     }
 
-    /** Parses the shared row's update_time rendering (see {@link #renderUpdateTime}). */
+    /** Parses the shared row's update_time rendering (see renderUpdateTime). */
     @VisibleForTesting
     static long parseUpdateTime(String text) {
         return LocalDateTime.parse(text, UPDATE_TIME_PATTERN).toInstant(ZoneOffset.UTC).toEpochMilli();
@@ -833,5 +1052,22 @@ public final class AuditPublicationHorizon {
             return current;
         }
         return current == 0 || candidate < current ? candidate : current;
+    }
+
+    /**
+     * For tests: clears every seam AND the carried previous-incarnation state, so one
+     * test's fake row cannot leak into the next (restore runs only once per process).
+     */
+    @VisibleForTesting
+    static void resetForTest() {
+        horizonRowsReaderForTest = null;
+        localHorizonWriterForTest = null;
+        reporterNamesForTest = null;
+        feAliveProbeForTest = null;
+        ownRowRestoreReaderForTest = null;
+        carriedCommittedFence = 0;
+        carriedCommittedFenceLabels = "";
+        carriedCommittedFenceUpdatedAt = 0;
+        carriedStateRestored = false;
     }
 }

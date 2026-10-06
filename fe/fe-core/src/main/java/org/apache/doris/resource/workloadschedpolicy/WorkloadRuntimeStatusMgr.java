@@ -65,7 +65,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     // getQueryNeedAudit removes them from queryAuditEventList before the caller enqueues
     // them into the processor, so without this set a concurrent reader of the publication
     // fence would see the event in NEITHER structure and could conclude that nothing is
-    // outstanding (round-37 #1). Guarded by queryAuditEventLock, like the list.
+    // outstanding. Guarded by queryAuditEventLock, like the list.
     private final Set<AuditEvent> inFlightAuditEvents = Collections.newSetFromMap(new IdentityHashMap<>());
     private volatile long lastWarnTime;
 
@@ -116,7 +116,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     // accepted the event (the processor's own fence covers it from the
                     // enqueue) or discarded it (it will never be published): until then
                     // the event is this manager's responsibility, so it keeps fencing
-                    // (round-37 #1).
+
                     releaseInFlightAuditEvent(auditEvent);
                 }
                 if (!ret) {
@@ -184,22 +184,22 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     }
 
     /**
-     * Start time (epoch millis, the {@code time} column of {@code audit_log}) of the
+     * Start time (epoch millis, the time column of audit_log) of the
      * OLDEST completed query this FE still holds for auditing, 0 when it holds none.
      *
-     * <p>A completed query enters {@code queryAuditEventList} BEFORE the audit event
+     * A completed query enters queryAuditEventList BEFORE the audit event
      * processor - and therefore before any audit loader or the shared table - sees it,
-     * and it stays here until {@code query_audit_log_timeout_ms} expires (or the expected
+     * and it stays here until query_audit_log_timeout_ms expires (or the expected
      * backends reported). The SPM capture's publication fence must include it: otherwise
      * the row's release lands behind the capture's advanced scan watermark and the query
-     * is never captured (round-36 #3). The events already DEQUEUED for the processor
-     * ({@link #inFlightAuditEvents}) are held too: they left the list but the processor
-     * does not cover them until the handoff returns (round-37 #1).
+     * is never captured. The events already DEQUEUED for the processor
+     * (inFlightAuditEvents) are held too: they left the list but the processor
+     * does not cover them until the handoff returns.
      *
-     * <p>INTERNAL events (spm horizon reports, statistics refreshes, ...) are excluded:
-     * the capture only ever scans {@code is_internal = false} rows, so fencing progress
+     * INTERNAL events (spm horizon reports, statistics refreshes, ...) are excluded:
+     * the capture only ever scans is_internal = false rows, so fencing progress
      * for a row that can never be captured would only let the reporter's own internal
-     * statements keep refreshing this FE's fence forever (round-37 #7).
+     * statements keep refreshing this FE's fence forever.
      */
     public long oldestHeldAuditEventTime() {
         long oldest = 0;
@@ -288,7 +288,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     externalDmlAuditBackendIds.remove(ae);
                     // the event is handed to the audit event processor only by the CALLER
                     // of this method: keep it fenced here until that handoff returned
-                    // (round-37 #1)
+
                     inFlightAuditEvents.add(ae);
                 }
             }

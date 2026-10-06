@@ -33,7 +33,7 @@ import org.mockito.Mockito;
 import java.util.List;
 
 /**
- * Fourteenth review round: the frozen-baseline metadata guard and the replan state.
+ * The frozen-baseline metadata guard and the replan state.
  *
  * - The CREATE fingerprint must hash the metadata snapshot the OPTIMIZED PLAN was
  *   built with (its own catalog relations) and must include tables referenced only by
@@ -68,7 +68,7 @@ public class SPMRound14SafetyTest {
         return relation;
     }
 
-    /** A session whose statement context resolves the bind-side relation to {@code bind}. */
+    /** A session whose statement context resolves the bind-side relation to bind. */
     private static ConnectContext contextResolvingTo(TableIf bind) {
         ConnectContext ctx = new ConnectContext();
         StatementContext statementContext = Mockito.mock(StatementContext.class);

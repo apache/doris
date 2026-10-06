@@ -20,16 +20,16 @@ package org.apache.doris.nereids.spm.matcher;
 /**
  * Bounded backtracking over the UNORDERED pairing choices of one Level 3 match.
  *
- * <p>Compound predicates / conjunct multisets are compared by searching a pairing
+ * Compound predicates / conjunct multisets are compared by searching a pairing
  * between the bind-side operands (placeholders) and the user-side operands (literals).
  * A pairing that succeeds locally can still break a LATER use of the same placeholder
- * id: capture {@code SELECT (a = 1 OR a = 2) AS c FROM t WHERE a = 1} and match
- * {@code SELECT (a = 3 OR a = 4) AS c FROM t WHERE a = 4} - the projection is visited
+ * id: capture SELECT (a = 1 OR a = 2) AS c FROM t WHERE a = 1 and match
+ * SELECT (a = 3 OR a = 4) AS c FROM t WHERE a = 4 - the projection is visited
  * first and greedy pairing binds the shared id to 3, then the filter needs 4. The
  * transactional rollback inside a single pairing cannot repair a choice made in an
  * EARLIER node.
  *
- * <p>The driver therefore re-runs the whole check a bounded number of times; each
+ * The driver therefore re-runs the whole check a bounded number of times; each
  * unordered choice point records how many options it had, and the retry advances a
  * mixed-radix odometer over those choices, changing the pairing order at the recorded
  * sites. The search is deliberately bounded (both in attempts and in recorded choice
@@ -74,7 +74,7 @@ public final class MatchAttempt {
     }
 
     /**
-     * Rotation offset for one unordered choice with {@code count} options: 0 keeps the
+     * Rotation offset for one unordered choice with count options: 0 keeps the
      * natural order, larger values start the search at a later candidate.
      */
     public static int offset(int count) {

@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round31", "spm") {
 
-    // Thirty-first review round.
+    // Thirty-.
     //
     // SQL-visible fixes covered here:
     //  - #2: a quoted user column named `count()` is a DATA argument. The decompiler

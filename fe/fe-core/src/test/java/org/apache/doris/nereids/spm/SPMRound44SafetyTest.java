@@ -29,14 +29,14 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 /**
- * Round-44 review fixes without their own regression suite: the manual-baseline plan
- * contract. A CREATE GLOBAL BASELINE PLAN binds one query shape to a frozen plan text,
+ * The manual-baseline plan contract (review fixes without their own regression
+ * suite). A CREATE GLOBAL BASELINE PLAN binds one query shape to a frozen plan text,
  * and the earlier guards only compared the SCAN SELECTIONS and the row caps: a plan that
  * dropped the caller's row filter, read another table, changed the output columns / arity
- * or re-ordered the caller's result was stored and replayed silently (#1/#9/#10/#11).
+ * or re-ordered the caller's result was stored and replayed silently.
  * The repair compares the two PARSED trees at CREATE - same sources, same output
  * expressions (labels may differ), bind filters contained in the plan, same top-level
- * ORDER BY contract - and re-checks the ordering at replay (#10).
+ * ORDER BY contract - and re-checks the ordering at replay.
  */
 public class SPMRound44SafetyTest {
 
@@ -52,9 +52,9 @@ public class SPMRound44SafetyTest {
     // ==================== #1: bind-side filters ====================
 
     /**
-     * The reviewer's case: bind {@code SELECT k FROM t WHERE k = 1} to plan
-     * {@code SELECT k FROM t} introduces no unmatched placeholder and passed the scan
-     * guard, but a later {@code WHERE k = 2} query matched the bind tree while the
+     * The reviewer's case: bind SELECT k FROM t WHERE k = 1 to plan
+     * SELECT k FROM t introduces no unmatched placeholder and passed the scan
+     * guard, but a later WHERE k = 2 query matched the bind tree while the
      * frozen plan returned every row of t ({1,2} instead of {2}).
      */
     @Test
@@ -80,7 +80,7 @@ public class SPMRound44SafetyTest {
     // ==================== #9: output expressions / arity ====================
 
     /**
-     * Binding {@code SELECT k} to plan {@code SELECT v} renames the replayed v column to
+     * Binding SELECT k to plan SELECT v renames the replayed v column to
      * k while KEEPING v's expression: on t(k=1,v=9) a matching caller received k=9. The
      * output expressions must be equivalent; only the LABEL may differ.
      */
@@ -114,7 +114,7 @@ public class SPMRound44SafetyTest {
     // ==================== #11: plan-side sources ====================
 
     /**
-     * The reviewer's case: bind {@code SELECT k FROM t}, plan {@code SELECT k FROM u}.
+     * The reviewer's case: bind SELECT k FROM t, plan SELECT k FROM u.
      * With t={1} and u={9}, a matching query of t replayed u and returned 9; the create
      * / replay schema fingerprints both include the stable union of t and u, so they
      * never caught it.
@@ -141,8 +141,8 @@ public class SPMRound44SafetyTest {
     // ==================== #10: ordering ====================
 
     /**
-     * A manual baseline could bind {@code ... ORDER BY k ASC} to plan
-     * {@code ... ORDER BY k DESC}: CREATE accepted the same scan, both trees have no row
+     * A manual baseline could bind ... ORDER BY k ASC to plan
+     * ... ORDER BY k DESC: CREATE accepted the same scan, both trees have no row
      * cap, and the replay passed the limit contract without comparing the sort - for
      * t={1,2} the caller requesting (1,2) received (2,1).
      */
@@ -204,11 +204,11 @@ public class SPMRound44SafetyTest {
 
     /**
      * The reviewer's case: a baseline on
-     * {@code SELECT * FROM (SELECT k + 1 FROM t) s CROSS JOIN u} matched the
-     * {@code k + 2} caller, but the label derivation returned null at the join and the
-     * captured frozen sink label {@code k + 1} stayed - the caller received the wrong
+     * SELECT * FROM (SELECT k + 1 FROM t) s CROSS JOIN u matched the
+     * k + 2 caller, but the label derivation returned null at the join and the
+     * captured frozen sink label k + 1 stayed - the caller received the wrong
      * result-column header. The caller's expansion derives the DERIVED leading side
-     * ({@code k + 2}) and leaves the underivable trailing side's real column names alone.
+     * (k + 2) and leaves the underivable trailing side's real column names alone.
      */
     @Test
     public void testStarOverJoinAlignsTheDerivableLeadingSide() {

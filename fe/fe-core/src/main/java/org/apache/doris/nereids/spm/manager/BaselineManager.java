@@ -72,7 +72,7 @@ import java.util.stream.Collectors;
  * Corresponds to design doc section 6.6. Manages the CRUD of baselines and maintains
  * two query structures:
  *
- * - hashIndex: {@code Map<Long, List<Long>>}, bindSqlHash -> baseline id list. Level 1
+ * - hashIndex: bindSqlHash (Long) -> baseline id list (List of Long). Level 1
  *   coarse filtering with O(1) lookup.
  * - baselines: id -> BaselinePlan in-memory storage (Phase 1 MVP). Phase 2 persists it
  *   to the __internal_schema.spm_baselines internal table (see design doc 6.14).
@@ -124,7 +124,7 @@ public class BaselineManager {
 
         /**
          * The CONDITIONAL insert half of a status flip: mirrors the durable
-         * {@code INSERT ... SELECT ... WHERE id / status} statement - the new-status row
+         * INSERT ... SELECT ... WHERE id / status statement - the new-status row
          * must NOT be written once the previous-status row is gone (the caller then
          * refuses the flip, which is how the DROP-while-ALTER-stalled conflict surfaces).
          * The default keeps the unconditional simulators working: their scenarios always
@@ -139,7 +139,7 @@ public class BaselineManager {
 
         /**
          * The newest stored update_time of the WHOLE simulated table, in epoch SECONDS
-         * (0 = none): the updateStatus bump reads this (round-39 #9), so a simulator that
+         * (0 = none): the updateStatus bump reads this, so a simulator that
          * keeps future-bumped update_times must expose them for the bump to apply - the
          * default keeps simulators that never store future times working.
          *
@@ -169,11 +169,10 @@ public class BaselineManager {
         }
 
         /**
-         * The identity-carrying reservation (round-39 #4): routes to the simulator's own
-         * storage of {@link #pendingSeqReservation}. The default keeps simulators that
+         * The identity-carrying reservation: routes to the simulator's own
+         * storage of pendingSeqReservation. The default keeps simulators that
          * model no keyed reservations working. The record fences a retry of the same key
          * while its id stays unreadable and it is younger than the durable fence
-         * (round-44 #5).
          *
          * @param id           the reserved id
          * @param bindSqlDigest the baseline's bind digest
@@ -186,8 +185,8 @@ public class BaselineManager {
         }
 
         /**
-         * Records the DURABLE pending marker of an ambiguous create (round-39 #4): the
-         * same identity-carrying append with {@code unconfirmed = 1}. The default keeps
+         * Records the DURABLE pending marker of an ambiguous create: the
+         * same identity-carrying append with unconfirmed = 1. The default keeps
          * simulators without keyed reservations working.
          *
          * @param bindSqlDigest the baseline's bind digest
@@ -202,8 +201,8 @@ public class BaselineManager {
         /**
          * The latest identity record of one baseline in the simulated sequence table, or
          * null: the durable unconfirmed-create fence of
-         * {@link #resolveDurablePendingCreate} reads it. Either the explicit UNCONFIRMED
-         * marker of an ambiguous write, or - round-44 #5 - the plain reservation row
+         * resolveDurablePendingCreate reads it. Either the explicit UNCONFIRMED
+         * marker of an ambiguous write, or - the plain reservation row
          * appended before every baseline write (the marker wins when both exist). The
          * default keeps simulators without keyed records working (no record = no fence).
          *
@@ -217,7 +216,7 @@ public class BaselineManager {
 
         /**
          * Retires the durable UNCONFIRMED marker of a RESOLVED ambiguous write
-         * (round-40 #7): the simulated equivalent of the marker DELETE. The default
+         * the simulated equivalent of the marker DELETE. The default
          * keeps simulators without keyed markers working.
          *
          * @param bindSqlDigest the baseline's bind digest
@@ -229,7 +228,7 @@ public class BaselineManager {
         }
 
         /**
-         * Records a DROP TOMBSTONE (round-42 #9): the append-only identity of a baseline
+         * Records a DROP TOMBSTONE: the append-only identity of a baseline
          * the DROP removed. The default keeps simulators without tombstones working (the
          * load filter then finds no marker).
          *
@@ -243,7 +242,7 @@ public class BaselineManager {
         }
 
         /**
-         * The recorded DROP TOMBSTONES as {@code id|bindSqlDigest|planSqlHash} keys; the
+         * The recorded DROP TOMBSTONES as id|bindSqlDigest|planSqlHash keys; the
          * load filter ignores rows matching one. The default keeps simulators working.
          *
          * @return the recorded tombstone keys (empty when none)
@@ -254,8 +253,7 @@ public class BaselineManager {
 
         /**
          * The newest stored update_time of the WHOLE simulated table, in epoch SECONDS
-         * (0 = none): see {@link StatusProtocolStoreForTest#newestStoredUpdateSecond()}
-         * (round-39 #9).
+         * (0 = none): see StatusProtocolStoreForTest#newestStoredUpdateSecond()
          *
          * @return the newest stored update_time in seconds, 0 when unavailable
          */
@@ -277,7 +275,23 @@ public class BaselineManager {
     public static volatile IdAllocatorStoreForTest idAllocatorStoreForTest;
 
     /**
-     * Test seam replacing the live leadership probe of {@link #assertLeaderForWrite}
+     * Test seam for the compact id high-water-mark RECORD (the value of SELECT_HWM_SQL),
+     * null = the internal table. A scripted value also stands in for the legacy history
+     * read: the seam answers the whole watermark decision (see readCompactIdWatermark).
+     */
+    @VisibleForTesting
+    public static volatile java.util.function.LongSupplier hwmRecordReadForTest;
+
+    /**
+     * Test seam for the scoped sequence-tail read (the value SELECT_SEQ_TAIL_SQL
+     * returns), null = the internal table. Only consulted with hwmRecordReadForTest
+     * installed - the seam pair models the two stores the watermark read consults.
+     */
+    @VisibleForTesting
+    public static volatile java.util.function.LongSupplier seqTailReadForTest;
+
+    /**
+     * Test seam replacing the live leadership probe of assertLeaderForWrite
      * (null in production). The store simulators bypass the live fence by design, so
      * without this seam a unit test cannot interleave a master handoff with an in-flight
      * write (the insert / delete halves of a status flip).
@@ -287,7 +301,7 @@ public class BaselineManager {
 
     /**
      * Test seam for the read-back visibility confirmation of a reported-successful write
-     * (see {@link #confirmInsertVisible}): one call is ONE probe attempt, true = the row
+     * (see confirmInsertVisible): one call is ONE probe attempt, true = the row
      * (insert) or its status row is READABLE, false = not yet visible. A test
      * decrements an invisible window here to simulate the COMMITTED-but-not-yet-published
      * state the real store exposes. Null in production.
@@ -300,7 +314,7 @@ public class BaselineManager {
          * The confirmation of a row JUST WRITTEN additionally checks the ATTEMPTED
          * STORED SECOND: the requested status ALONE is weak evidence (a previously
          * failed old-row delete can leave a STALE row of that very status behind, see
-         * {@link #observedInsertRowIsOurs}). The default delegates to the two-argument
+         * observedInsertRowIsOurs). The default delegates to the two-argument
          * form so a simulator that models only the visibility window of one row keeps
          * its semantics.
          *
@@ -320,7 +334,7 @@ public class BaselineManager {
     /**
      * Test seam replacing the snapshot READ of the load path (loadFromInternalTable /
      * the promotion reload): lets a unit test return a controlled snapshot and, together
-     * with {@link #snapshotReadStartedHookForTest}, invalidate the store WHILE a load is
+     * with snapshotReadStartedHookForTest, invalidate the store WHILE a load is
      * still inside its read - the stale snapshot must then be discarded instead of
      * republished. Null in production.
      */
@@ -329,7 +343,7 @@ public class BaselineManager {
 
     /**
      * Test seam counting the background load threads that were actually STARTED by
-     * {@link #scheduleAsyncLoad} (one per load-slot claim). A query burst must coalesce
+     * scheduleAsyncLoad (one per load-slot claim). A query burst must coalesce
      * onto the in-flight load instead of starting one thread per caller, which this
      * counter makes observable. Null in production.
      */
@@ -338,7 +352,7 @@ public class BaselineManager {
 
     /**
      * Test seam replacing the journal synchronization of
-     * {@link #refreshAfterForwardedDdl} and {@link #confirmGlobalRowsForShow} (null in
+     * refreshAfterForwardedDdl and confirmGlobalRowsForShow (null in
      * production): the real sync asks the master for its max journal id and waits
      * locally, which a unit test cannot do. A test whose snapshot reader returns a
      * PRE-DDL snapshot until this seam ran proves the sync happens BEFORE the snapshot
@@ -383,31 +397,31 @@ public class BaselineManager {
 
     /**
      * First page of a whole-table snapshot: ordered by id so the pagination can continue
-     * with {@link #SELECT_PAGE_SQL} from the last row read. The order must be a TOTAL
-     * order over the rows of ONE id - {@code (update_time, status)} break the id ties
-     * (round-38 #3) and the CONTENT columns break the remaining ties (round-42 #1): two
+     * with SELECT_PAGE_SQL from the last row read. The order must be a TOTAL
+     * order over the rows of ONE id - (update_time, status) break the id ties
+     * and the CONTENT columns break the remaining ties: two
      * masters can leave two DIFFERENT rows of one id with the same stored second and the
      * same status (a delayed INSERT committing after a handoff collision), and with
-     * {@code ORDER BY `id`} alone the engine may return such rows in ANY order in EVERY
+     * ORDER BY `id` alone the engine may return such rows in ANY order in EVERY
      * execution, so an OFFSET continuation landing inside the group could re-read one row
      * and skip another while the row COUNT - the completeness proof - stays unchanged.
      * Rows equal in EVERY column remain interchangeable (they resolve to the same
-     * {@link #pickDurableWinner} outcome).
+     * pickDurableWinner outcome).
      */
     private static final String SELECT_ALL_ORDERED_SQL =
             SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE + " ORDER BY `id`, `update_time`, `status`,"
                     + " `bind_sql_digest`, `plan_sql`, `bind_sql`";
 
     /**
-     * One continuation page of a whole-table snapshot: every row with {@code id >=
-     * &#36;{lastId}}, ordered by id and SKIPPING the first {@code ${offset}} rows of that
+     * One continuation page of a whole-table snapshot: every row with id >=
+     * ${lastId}, ordered by id and SKIPPING the first ${offset} rows of that
      * range. The offset is what keeps an id group larger than one page readable: a
      * repeated opposite-status ALTER failure leaves one more row under the id every time,
-     * so the group can outgrow {@link #SNAPSHOT_PAGE_SIZE} rows - a jump past it would
+     * so the group can outgrow SNAPSHOT_PAGE_SIZE rows - a jump past it would
      * omit the rows behind the first page, possibly the newest durable status. The order
-     * must remain a TOTAL order within one id (see {@link #SELECT_ALL_ORDERED_SQL}) or a
+     * must remain a TOTAL order within one id (see SELECT_ALL_ORDERED_SQL) or a
      * tie order that differs between the two queries can make the offset skip a row of
-     * the interrupted group (round-38 #3, content tie-breakers added round-42 #1).
+     * the interrupted group (content tie-breakers added).
      */
     private static final String SELECT_PAGE_SQL = SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE
             + " WHERE `id` >= ${lastId} ORDER BY `id`, `update_time`, `status`,"
@@ -415,7 +429,7 @@ public class BaselineManager {
             + " LIMIT ${pageSize} OFFSET ${offset}";
 
     /**
-     * Rows per snapshot page (see {@link #readPersistedSnapshot}). Bounds what ONE
+     * Rows per snapshot page (see readPersistedSnapshot). Bounds what ONE
      * internal query has to return, so a growing table can no longer make the whole
      * snapshot read fail against a fixed timeout.
      */
@@ -423,7 +437,7 @@ public class BaselineManager {
 
     /**
      * Fence re-reads a paginated snapshot read is allowed before it fails closed (see
-     * {@link #readStableSnapshot}): one DDL overlapping the loop then converges on the
+     * readStableSnapshot): one DDL overlapping the loop then converges on the
      * retry, while a table that never stays stable must not be published as a snapshot.
      */
     private static final int SNAPSHOT_STABILITY_ATTEMPTS = 3;
@@ -433,24 +447,24 @@ public class BaselineManager {
     private static final String SELECT_MAX_ID_SQL = "SELECT MAX(`id`) FROM " + SPM_BASELINES_TABLE;
 
     /**
-     * The compact id high-water mark (round-44 #15): a tiny append-only table whose rows
+     * The compact id high-water mark: a tiny append-only table whose rows
      * carry the newest allocated id. The append-only HISTORY table
-     * ({@link InternalSchema#SPM_BASELINES_SEQ_TBL_NAME}) grows by one row per create
-     * forever, so its {@code MAX(last_id)} - the only unbounded read on the create path -
+     * (InternalSchema#SPM_BASELINES_SEQ_TBL_NAME) grows by one row per create
+     * forever, so its MAX(last_id) - the only unbounded read on the create path -
      * was replaced: every allocation also records itself here (pruning the superseded
      * rows), and a pre-upgrade cluster only pays the legacy full read ONCE (see
-     * {@link #readPersistedWatermark}).
+     * readPersistedWatermark).
      */
     private static final String SELECT_HWM_SQL = "SELECT MAX(`last_id`) FROM "
             + SPM_BASELINES_HWM_TABLE + " WHERE `id` = 1";
 
-    /** Append one high-water-mark row (see {@link #SELECT_HWM_SQL}). */
+    /** Append one high-water-mark row (see SELECT_HWM_SQL). */
     private static final String INSERT_HWM_SQL = "INSERT INTO " + SPM_BASELINES_HWM_TABLE
             + " (`id`, `last_id`, `update_time`) VALUES (1, ${lastId}, NOW())";
 
     /**
-     * Best-effort prune of the compact high-water-mark rows (see {@link #SELECT_HWM_SQL}):
-     * removes the rows the just-written one supersedes, so the surviving {@code MAX} read
+     * Best-effort prune of the compact high-water-mark rows (see SELECT_HWM_SQL):
+     * removes the rows the just-written one supersedes, so the surviving MAX read
      * stays a scan of a handful of rows. Correctness never depends on it - the read takes
      * the MAX - so failures are swallowed.
      */
@@ -458,14 +472,24 @@ public class BaselineManager {
             + " WHERE `last_id` < ${lastId}";
 
     /**
+     * The scoped CONFIRMATION of SELECT_HWM_SQL (see readCompactIdWatermark): the
+     * highest reservation VISIBLE beyond the recorded mark. The sequence table's key
+     * starts with (id, last_id), so the read scans only the rows past the mark - a
+     * healthy cluster has none, and a stale record never hides a reservation whose
+     * HWM write was lost or is still unreadable.
+     */
+    private static final String SELECT_SEQ_TAIL_SQL = "SELECT MAX(`last_id`) FROM "
+            + SPM_BASELINES_SEQ_TABLE + " WHERE `id` = 1 AND `last_id` > ${floor}";
+
+    /**
      * The id high-water mark that OUTLIVES the rows (see
-     * {@link InternalSchema#SPM_BASELINES_SEQ_TBL_NAME}): MAX(last_id) over the append-only
+     * InternalSchema#SPM_BASELINES_SEQ_TBL_NAME): MAX(last_id) over the append-only
      * reservation rows. Kept as the ONE-TIME legacy fallback of
-     * {@link #readPersistedWatermark} (a cluster created before the compact high-water
+     * readPersistedWatermark (a cluster created before the compact high-water
      * mark table exists); the per-create path reads the bounded
-     * {@link #SELECT_HWM_SQL} instead. The baselines table's own MAX(id) falls back to a
+     * SELECT_HWM_SQL instead. The baselines table's own MAX(id) falls back to a
      * lower value as soon as its highest row is DROPped, and an id reused for a DIFFERENT
-     * baseline would let a delayed {@code DROP BASELINE PLAN IF EXISTS N} retry delete the
+     * baseline would let a delayed DROP BASELINE PLAN IF EXISTS N retry delete the
      * new baseline.
      */
     private static final String SELECT_SEQ_ID_SQL = "SELECT MAX(`last_id`) FROM "
@@ -479,8 +503,8 @@ public class BaselineManager {
             + " ${unconfirmed}, 0)";
 
     /**
-     * Appends a DROP TOMBSTONE (round-42 #9): the identity of a baseline this FE just
-     * removed, with {@code dropped = 1}. A demoted master's in-flight status INSERT can
+     * Appends a DROP TOMBSTONE: the identity of a baseline this FE just
+     * removed, with dropped = 1. A demoted master's in-flight status INSERT can
      * commit AFTER the DROP deleted the row - its conditional precondition ran against
      * the pre-DROP snapshot, and Doris cannot re-check it at durable commit - and the
      * revived row would make the dropped baseline ACTIVE again on every loader. The
@@ -496,8 +520,8 @@ public class BaselineManager {
             + " 0, 1)";
 
     /**
-     * Reads the DROP TOMBSTONES of the GIVEN ids (see {@link #INSERT_SEQ_DROPPED_SQL},
-     * round-44 #13): the append-only sequence table retains every {@code dropped = 1} row
+     * Reads the DROP TOMBSTONES of the GIVEN ids (see INSERT_SEQ_DROPPED_SQL,
+     * the append-only sequence table retains every dropped = 1 row
      * forever, so an unrestricted read built a HashSet of the FULL historical drop set on
      * every load / refresh - with a small active set and heavy CREATE / DROP churn the
      * read grew without bound and, once it timed out, follower caches stopped
@@ -509,41 +533,46 @@ public class BaselineManager {
             + " `plan_sql_hash` FROM " + SPM_BASELINES_SEQ_TABLE + " WHERE `dropped` = 1"
             + " AND `last_id` IN (${ids})";
 
-    /** How many ids one scoped tombstone read carries (see {@link #SELECT_SEQ_DROPPED_SQL}). */
+    /** How many ids one scoped tombstone read carries (see SELECT_SEQ_DROPPED_SQL). */
     private static final int DROPPED_MARKER_ID_CHUNK = 256;
 
     /**
      * The LATEST identity-carrying row of one baseline: the durable half of the
-     * unresolved-create fence (round-39 #4, round-44 #5, see
-     * {@link #resolveDurablePendingCreate}). BOTH kinds of rows fence while their write's
+     * unresolved-create fence (see
+     * resolveDurablePendingCreate). BOTH kinds of rows fence while their write's
      * outcome is unresolved:
-     * <ul>
-     *   <li>{@code unconfirmed = 1}: the marker of a create whose INSERT outcome was
-     *       AMBIGUOUS;</li>
-     *   <li>a PLAIN reservation ({@code unconfirmed = 0}): the row every create appends
+     *   unconfirmed = 1: the marker of a create whose INSERT outcome was
+     *       AMBIGUOUS;
+     *   a PLAIN reservation (unconfirmed = 0): the row every create appends
      *       BEFORE its INSERT. Its separate ambiguous marker can fail / lag (that write
      *       is best effort), and a cross-FE retry that sees neither the baseline row nor
      *       the marker then allocated a SECOND id whose committed row later published a
      *       duplicate; the pre-INSERT reservation is the one record that always exists,
      *       so it fences too - but only while its row is not readable and its age is
-     *       inside the fence bound.</li>
-     *   <li>{@code dropped = 1}: a tombstone (a completed DROP or a condemned abandoned
-     *       write) RESOLVED the identity - no fence, the key may be created again.</li>
-     * </ul>
-     * The latest row wins (a tombstone appended after the reservation means resolved);
-     * within one stored second the tombstone, then the marker, then the plain row wins.
+     *       inside the fence bound.
+     *   dropped = 1: a tombstone (a completed DROP or a condemned abandoned
+     *       write) RESOLVED the identity - no fence, the key may be created again.
+     * The NEWEST IDENTITY wins (highest last_id): ids name the successive
+     * incarnations of one key, and reserve_time has only SECOND precision - a DROP of
+     * id N followed by a re-create as N+1 within the same stored second used to sort
+     * N's dropped = 1 tombstone BEFORE N+1's reservation, so resolveDurablePendingCreate
+     * read the key as resolved, skipped the pending fence of N+1's committed-but-
+     * unreadable INSERT, and allocated N+2 (both ENABLED rows could then publish).
+     * Within one identity the latest state wins: a tombstone (appended after the
+     * reservation) means resolved; the same-second order is tombstone, then marker,
+     * then the plain row.
      */
     private static final String SELECT_PENDING_SEQ_SQL = "SELECT `last_id`, `reserve_time`,"
             + " `unconfirmed`, `dropped` FROM "
             + SPM_BASELINES_SEQ_TABLE + " WHERE `bind_sql_digest` = '${bindSqlDigest}'"
             + " AND `plan_sql_hash` = ${planSqlHash}"
-            + " ORDER BY `reserve_time` DESC, `dropped` DESC, `unconfirmed` DESC,"
-            + " `last_id` DESC LIMIT 1";
+            + " ORDER BY `last_id` DESC, `reserve_time` DESC, `dropped` DESC,"
+            + " `unconfirmed` DESC LIMIT 1";
 
     /**
-     * Retires the UNCONFIRMED marker(s) of ONE resolved ambiguous write (round-40 #7):
-     * flipped by {@link #retireSeqPendingMarker}. The DELETE touches only
-     * {@code unconfirmed = 1} rows of that last_id - the plain reservation row appended
+     * Retires the UNCONFIRMED marker(s) of ONE resolved ambiguous write:
+     * flipped by retireSeqPendingMarker. The DELETE touches only
+     * unconfirmed = 1 rows of that last_id - the plain reservation row appended
      * before every create (and every other id ever reserved) stays, so MAX(last_id) and
      * with it the id watermark never fall.
      */
@@ -554,7 +583,7 @@ public class BaselineManager {
 
     /**
      * The consistency fence of the paginated snapshot read (see
-     * {@link #readStableSnapshot}): the id high-water mark, the row count and the newest
+     * readStableSnapshot): the id high-water mark, the row count and the newest
      * update_time of the WHOLE table, read before AND after the page loop. An internal
      * paginated snapshot issues one SELECT per page and the internal table has no
      * long-lived read view, so a CREATE / ALTER / DROP committing between two pages would
@@ -571,7 +600,7 @@ public class BaselineManager {
 
     /**
      * Reads every durable row carrying ONE id - the collision probe of a create (see
-     * {@link #createBaseline}): the table is DUPLICATE KEY(id), so an out-of-band writer
+     * createBaseline): the table is DUPLICATE KEY(id), so an out-of-band writer
      * or a second master that started from the same watermark can have inserted a
      * DIFFERENT baseline under the id this create just allocated. Snapshot loading would
      * later collapse the two rows nondeterministically (pickDurableWinner), and dropping
@@ -624,7 +653,7 @@ public class BaselineManager {
      * before its INSERT) is never resurrected - the ALTER then fails retryably instead
      * of publishing an ACTIVE status the completed DROP had already reported removed.
      *
-     * <p>The condition matches the CACHED row's IDENTITY as well (round-39 #5): a leader
+     * The condition matches the CACHED row's IDENTITY as well: a leader
      * handoff can leave this FE caching B/id N while a delayed old-leader INSERT made
      * A/id N the durable winner. Matching (id, previousStatus) alone then wrote B's
      * cached SQL with a later timestamp - and the following identity-scoped DELETE
@@ -651,7 +680,7 @@ public class BaselineManager {
     /**
      * The newest stored update_time of the WHOLE table: the status-flip bump advances
      * the new row past this value (see updateStatus), which is what makes every flip move
-     * the {@link #SELECT_SNAPSHOT_FENCE_SQL} fence (round-39 #9).
+     * the SELECT_SNAPSHOT_FENCE_SQL fence.
      */
     private static final String SELECT_MAX_UPDATE_TIME_SQL = "SELECT MAX(`update_time`) FROM "
             + SPM_BASELINES_TABLE;
@@ -660,12 +689,12 @@ public class BaselineManager {
      * DATETIME column format (internal table create_time / update_time). The columns are
      * zone-free DATETIME, so they are written and read in UTC: the stored value denotes
      * the SAME instant on every FE, in every host zone and across DST changes (see
-     * {@link #toTs}).
+     * toTs).
      */
     private static final DateTimeFormatter TS_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    /** Message of the leadership fence (see {@link #assertLeaderForWrite}). */
+    /** Message of the leadership fence (see assertLeaderForWrite). */
     private static final String NO_LONGER_MASTER = "SPM baseline write refused: this FE is no"
             + " longer the master (retry on the new leader)";
 
@@ -688,7 +717,7 @@ public class BaselineManager {
 
     /**
      * Bounded read-back confirmation of a reported-successful durable write (see
-     * {@link #confirmInsertVisible}): the attempts times the retry delay must cover a
+     * confirmInsertVisible): the attempts times the retry delay must cover a
      * normal publication lag; a longer invisible window fails the write retryably
      * instead of publishing an id no read can ever confirm.
      */
@@ -699,7 +728,7 @@ public class BaselineManager {
 
     /**
      * Bounded confirmation attempts of a forwarded GLOBAL DDL's durable outcome (see
-     * {@link #ForwardedDdlExpectation}): a short publication lag must converge, an
+     * ForwardedDdlExpectation): a short publication lag must converge, an
      * outcome that stays invisible fails CLOSED (never republish the pre-DDL row).
      */
     private static final int FORWARDED_DDL_CONFIRM_ATTEMPTS = BASELINE_VISIBILITY_ATTEMPTS;
@@ -715,9 +744,9 @@ public class BaselineManager {
     private static final int MAX_ID_COLLISION_RETRIES = 8;
 
     /**
-     * Admission bound of {@link #pendingCreates}: an unconfirmed create is a rare (and
+     * Admission bound of pendingCreates: an unconfirmed create is a rare (and
      * manually retried) event, so a small registry is enough. When the bound is reached a
-     * NEW create fails retryably BEFORE it writes (round-39 #12) - an unresolved identity
+     * NEW create fails retryably BEFORE it writes - an unresolved identity
      * is never dropped, because evicting one re-exposes exactly that write to a duplicate
      * id on a retry.
      */
@@ -725,23 +754,22 @@ public class BaselineManager {
 
     /**
      * How long the DURABLE unconfirmed-create fence holds a retry of the same baseline
-     * ({@link #resolveDurablePendingCreate}): the fence must survive a leader handoff and
+     * (resolveDurablePendingCreate): the fence must survive a leader handoff and
      * the retry's own latency, while a row that never becomes readable must not block a
      * legitimate re-create of the key for long (the committed-row publication lag is
      * normally seconds; the previous tests of this class resolve within milliseconds).
-     * Deliberately SHORTER than {@link #PENDING_CREATE_FENCE_MILLIS}: the in-memory
+     * Deliberately SHORTER than PENDING_CREATE_FENCE_MILLIS: the in-memory
      * registry knows the exact age of the SAME FE's attempt, the durable record only a
      * likely-dead write's instant. It bounds the fence of BOTH durable identity records
      * - the explicit unconfirmed marker and the plain reservation row appended before
-     * every baseline write (round-44 #5); when it elapses with the row still unreadable,
+     * every baseline write; when it elapses with the row still unreadable,
      * the identity is condemned with a tombstone before a fresh id is allocated
-     * (round-44 #6).
      */
     private static final long DURABLE_PENDING_CREATE_FENCE_MILLIS = 5 * 60 * 1000L;
 
     /**
      * How long an unconfirmed create fences a retry of the same baseline (see
-     * {@link #pendingCreates}): the committed row is normally readable within the
+     * pendingCreates): the committed row is normally readable within the
      * visibility-confirmation budget, and a write that never becomes readable after this
      * bound is treated as LOST - fencing longer would refuse every retry of that key
      * forever. Same bound as the audit loader's Publish-Timeout fence.
@@ -751,7 +779,7 @@ public class BaselineManager {
     /**
      * How long a COMPLETED local mutation (or a forwarded GLOBAL DDL known to have
      * committed on the master) fences the persisted snapshots that contradict it
-     * (round-41 #3/#7/#10/#13): the durable write may be committed while its publication
+     * the durable write may be committed while its publication
      * still lags every local read, so a daemon snapshot / SHOW read that still returns
      * the pre-mutation row must not republish it - matching would keep serving a baseline
      * the user just dropped or disabled (and a stale snapshot must not hide a
@@ -806,7 +834,7 @@ public class BaselineManager {
      * Coalesces the internal-table loads: at most ONE read may be in flight. The query
      * path (ensureLoaded) never blocks on the table - an unavailable tablet / BE used to
      * stall every rewrite attempt for the temporary context's full analyze timeout - it
-     * just requests a background load; a failed read keeps {@code loaded=false} and is
+     * just requests a background load; a failed read keeps loaded=false and is
      * retried by the next access / refresh cycle.
      */
     private final AtomicBoolean loadInProgress = new AtomicBoolean(false);
@@ -818,8 +846,8 @@ public class BaselineManager {
     private volatile boolean persistToTable = true;
 
     /**
-     * Guards the in-memory store: {@code baselines} / {@code hashIndex} /
-     * {@code stateVersion} and the {@code loaded} state machine. Only accesses to those
+     * Guards the in-memory store: baselines / hashIndex /
+     * stateVersion and the loaded state machine. Only accesses to those
      * structures are critical sections - internal-table I/O and the CPU work derived
      * from a snapshot (digest filter, priority sort) run OUTSIDE the lock. Rewrite
      * lookups (hasBaselines + findCandidateBaselines on every query) take the read lock
@@ -835,8 +863,8 @@ public class BaselineManager {
      * BEFORE its rewrite timeout can help, so ONE slow persistence statement (each
      * auto-capture candidate issues one) would stall planning for every such query on the
      * FE. The state lock only protects in-memory validation and publication - see the
-     * two-phase structure of {@link #createBaseline} / {@link #dropBaseline} /
-     * {@link #updateStatus}. Readers never touch this lock.
+     * two-phase structure of createBaseline / dropBaseline /
+     * updateStatus. Readers never touch this lock.
      */
     private final Object writerLock = new Object();
 
@@ -853,28 +881,28 @@ public class BaselineManager {
      * every locally published row. The table allocates ids upward only, so a table whose
      * MAX(id) is not above this value has no row this store does not know: the
      * create-path key dedup can then be answered from the in-memory key index instead of
-     * scanning the whole table (see {@link #readPersistedRowsForCreate}).
+     * scanning the whole table (see readPersistedRowsForCreate).
      */
     private volatile long maxPersistedIdSeen = 0;
 
     /**
      * Creates whose INSERT reported SUCCESS but whose row was not READABLE yet (see
-     * {@link #createBaseline}): the id is consumed but invisible, so neither MAX(id) nor
+     * createBaseline): the id is consumed but invisible, so neither MAX(id) nor
      * the durable-key read can see it. A RETRY of the same CREATE must not allocate a
      * SECOND id for the same baseline - both rows would later publish under different ids
      * and dropping the id the client was told about would leave the other ACTIVE. The
      * retry ADOPTS the remembered row once it becomes readable and is DEFERRED (bounded by
-     * {@link #PENDING_CREATE_FENCE_MILLIS}) until then. Guarded by writerLock (every
-     * access runs inside it). The registry is never SHRUNK by eviction (round-39 #12):
+     * PENDING_CREATE_FENCE_MILLIS) until then. Guarded by writerLock (every
+     * access runs inside it). The registry is never SHRUNK by eviction:
      * createBaseline's admission fence refuses a new write while it is full, so an
      * unresolved identity always stays recorded until it becomes readable or its fence
-     * expires. The durable reservation rows of {@link #SPM_BASELINES_SEQ_TABLE} carry the
+     * expires. The durable reservation rows of SPM_BASELINES_SEQ_TABLE carry the
      * same identity for the cross-FE case (the retry runs on ANOTHER FE whose in-memory
-     * registry is empty - see {@link #resolveDurablePendingCreate}).
+     * registry is empty - see resolveDurablePendingCreate).
      */
     private final List<PendingCreate> pendingCreates = new ArrayList<>();
 
-    /** One committed-but-unpublished create (see {@link #pendingCreates}). */
+    /** One committed-but-unpublished create (see pendingCreates). */
     private static final class PendingCreate {
         final BaselinePlan plan;
         final long since;
@@ -888,30 +916,30 @@ public class BaselineManager {
     /**
      * Completed (or attempted) mutations whose durable outcome is not visible to this FE's
      * own reads yet: id -> the state the durable table must reach (see
-     * {@link PendingMutationFence}). While a fence is active, a persisted snapshot that
+     * PendingMutationFence). While a fence is active, a persisted snapshot that
      * CONTRADICTS it is masked - its id is skipped by the refresh diff and the local
      * post-mutation state stays - so matching never republishes a baseline the user just
      * dropped or disabled, and a stale row never overwrites a committed flip. Recorded by
-     * a completed DROP / status flip and their ambiguous-write failures (round-41
-     * #7/#10/#13) and by a forwarded GLOBAL DDL whose expected outcome did not become
-     * visible on this FE within its budget (round-41 #3). Removed when a snapshot
-     * satisfies it or after {@link #PENDING_MUTATION_FENCE_MILLIS} (write presumed lost).
-     * Never cleared by {@link #invalidatePublishedStore}: the fences describe writes THIS
-     * FE committed / observed, exactly like {@link #pendingCreates}.
+     * a completed DROP / status flip and their ambiguous-write failures, and by a
+     * forwarded GLOBAL DDL whose expected outcome did not become
+     * visible on this FE within its budget. Removed when a snapshot
+     * satisfies it or after PENDING_MUTATION_FENCE_MILLIS (write presumed lost).
+     * Never cleared by invalidatePublishedStore: the fences describe writes THIS
+     * FE committed / observed, exactly like pendingCreates.
      */
     private final Map<Long, PendingMutationFence> pendingMutationFences =
             new ConcurrentHashMap<>();
 
     /**
-     * One pending durable outcome of a local mutation (see {@link #pendingMutationFences}).
+     * One pending durable outcome of a local mutation (see pendingMutationFences).
      *
-     * <p>Round-44 #4: an ABSENCE fence may travel with the removed row's identity. The
+     * An ABSENCE fence may travel with the removed row's identity. The
      * DELETE that produced it is unconfirmed (it may have failed BEFORE commit), so NO
      * deletion marker may be written yet - a marker for a still-live row would make every
      * later load hide that row and re-issue the delete, silently completing a DROP that
      * reported failure. The identity is kept here instead: the marker is appended only
      * once a readable snapshot PROVES the row is gone (see
-     * {@link #resolvePendingMutationFences}).
+     * resolvePendingMutationFences).
      */
     private static final class PendingMutationFence {
         private final BaselineStatus expectedStatus; // null = the row must be absent
@@ -954,10 +982,10 @@ public class BaselineManager {
 
     /**
      * One identity-carrying id reservation (see
-     * {@link IdAllocatorStoreForTest#pendingSeqReservation}): the id, the instant its
+     * IdAllocatorStoreForTest#pendingSeqReservation): the id, the instant its
      * creation reserved it and what the row REPRESENTS - an ambiguous-create marker
-     * ({@code unconfirmed}), a tombstone ({@code dropped}) or the plain pre-INSERT
-     * reservation of every create (round-44 #5). The two-argument constructor keeps the
+     * (unconfirmed), a tombstone (dropped) or the plain pre-INSERT
+     * reservation of every create. The two-argument constructor keeps the
      * marker semantics for simulators that model only the ambiguous marker.
      */
     @VisibleForTesting
@@ -1035,7 +1063,7 @@ public class BaselineManager {
         // the state lock across the I/O would stall every SPM query's rewrite lookup.
         synchronized (writerLock) {
             // Resolve the remembered write of THIS key BEFORE the capacity check
-            // (round-40 #5): a full registry used to reject even a retry of one of its
+            // a full registry used to reject even a retry of one of its
             // OWN keys before resolvePendingCreate could adopt the row that had become
             // readable and retire the record - and nothing else ever reaps the registry,
             // so the FE rejected every GLOBAL CREATE until restart / leadership change.
@@ -1043,14 +1071,14 @@ public class BaselineManager {
             if (resolved.adoptedId != null) {
                 return resolved.adoptedId;
             }
-            // Admission fence BEFORE any write (round-39 #12): when the registry of
+            // Admission fence BEFORE any write: when the registry of
             // committed-but-unpublished creates is full, this CREATE must fail before it
             // can write, not after. Evicting the OLDEST pending record used to let a
             // retry of that first key see its reserved sequence id but neither its row
             // nor a pending entry - it then allocated a new id and both rows later
             // published ENABLED. Refusing admission keeps every unresolved identity
             // recorded until it becomes readable (or its fence expires). A full registry
-            // is RECONCILED first (round-40 #5): records whose row became readable (or
+            // is RECONCILED first: records whose row became readable (or
             // whose fence expired) stop fencing, so only genuinely unresolved identities
             // can refuse the write.
             if (pendingCreates.size() >= MAX_PENDING_CREATES) {
@@ -1067,7 +1095,7 @@ public class BaselineManager {
             // watermark read fails fails visibly and allocates nothing, instead of silently
             // colliding with a row written by a newer master.
             final long watermark = readPersistedWatermark();
-            // Durable half of the same fence (round-39 #4): the in-memory registry above
+            // Durable half of the same fence: the in-memory registry above
             // is per-FE, so a retry that runs on the new master after a handoff (or after
             // a restart) finds no record here although the original write COMMITTED - the
             // unconfirmed marker of the sequence table carries its identity and defers the
@@ -1116,7 +1144,7 @@ public class BaselineManager {
                 // dropped. Returning its id would report success for a baseline that is
                 // not there.
                 if (isTombstonedIdentity(duplicate)) {
-                    // Round-43 #1: the identity carries a DROP TOMBSTONE - the user's DROP
+                    // The identity carries a DROP TOMBSTONE - the user's DROP
                     // completed and the row only lags behind its own delete. Returning the
                     // cached id would report CREATE success for a baseline that disappears
                     // the moment the DELETE becomes readable.
@@ -1154,7 +1182,7 @@ public class BaselineManager {
             // extra same-key rows (partial-state survivors) are repaired away idempotently.
             // writerLock keeps another writer's INSERT/DELETE pair out of this window.
             if (persistenceEnabled() && plan.getBindSqlDigest() != null) {
-                // round-43 #1: the KEY read is a point read too - a row revived after its
+                // The KEY read is a point read too - a row revived after its
                 // own DROP must not be adopted (and must be repaired away) here either
                 List<BaselinePlan> durable = filterTombstonedDurableRows(
                         readPersistedRowsForCreate(plan, watermark));
@@ -1240,7 +1268,7 @@ public class BaselineManager {
                 // removes a DIFFERENT baseline (see reserveAllocatedId / the class javadoc
                 // "Id source"). A crash between the two leaves a harmless GAP.
                 //
-                // Re-check the leadership at the RESERVATION too (round-39 #7): this FE
+                // Re-check the leadership at the RESERVATION too: this FE
                 // can pass the check above and pause here, the new master then reads the
                 // same MAX(id) and reserves id N for a DIFFERENT key - the reservation
                 // (the id/key ownership record) must never be written by a demoted FE,
@@ -1256,13 +1284,13 @@ public class BaselineManager {
                 // pause between the reservation and this INSERT let a promoted FE create
                 // the same key under N+1, and this FE's internal INSERT (executed on the
                 // new master after forwarding) then left TWO enabled baselines for the
-                // key - each by-id collision probe sees only its own id (round-39 #7).
+                // key - each by-id collision probe sees only its own id.
                 assertLeaderForWrite();
                 try {
                     persistInsert(plan);
                 } catch (UnconfirmedInsertException unconfirmed) {
                     rememberPendingCreate(plan);
-                    // persist the SAME identity durably (round-39 #4): a retry on ANOTHER
+                    // persist the SAME identity durably: a retry on ANOTHER
                     // FE has no in-memory registry to consult
                     markSeqPendingUnconfirmed(plan);
                     throw unconfirmed;
@@ -1371,7 +1399,7 @@ public class BaselineManager {
 
     /**
      * For tests: the number of creates whose committed row is still awaiting publication
-     * (see {@link #pendingCreates}).
+     * (see pendingCreates).
      *
      * @return the size of the pending-create registry
      */
@@ -1383,10 +1411,10 @@ public class BaselineManager {
     }
 
     /**
-     * The outcome of {@link #resolvePendingCreate}: the adopted id (when a remembered
+     * The outcome of resolvePendingCreate: the adopted id (when a remembered
      * write became readable) and whether the IN-MEMORY registry accounted for this key at
      * all (adopted, retired or expired here). A HANDLED key skips the durable pending
-     * fence (round-39 #4): the durable marker can only say "some write of this key was
+     * fence: the durable marker can only say "some write of this key was
      * ambiguous once" - when this FE already retired/resolved that write in memory, the
      * marker must not re-defer the very retry that resolved it.
      */
@@ -1403,18 +1431,18 @@ public class BaselineManager {
     }
 
     /**
-     * Applies {@link #pendingCreates} to a CREATE of the same baseline (see the call site
-     * in {@link #createBaseline}): a remembered write that has become READABLE is ADOPTED
+     * Applies pendingCreates to a CREATE of the same baseline (see the call site
+     * in createBaseline): a remembered write that has become READABLE is ADOPTED
      * (its id is published and returned) while a still-invisible write DEFERS the create
      * with a retryable error instead of consuming a second id.
      *
-     * <p>The adoption reads the row back by id instead of relying on the durable-key dedup:
+     * The adoption reads the row back by id instead of relying on the durable-key dedup:
      * a failed create never published into this FE's in-memory key index, so the indexed
      * dedup would not see the committed row and would allocate a second id for the same
      * baseline.
      *
      * @param plan the CREATE's baseline
-     * @return the resolution (see {@link PendingResolution})
+     * @return the resolution (see PendingResolution)
      */
     private PendingResolution resolvePendingCreate(BaselinePlan plan) {
         if (pendingCreates.isEmpty()) {
@@ -1437,7 +1465,7 @@ public class BaselineManager {
                 }
                 // The fence expired: a write that never became readable after this bound
                 // is treated as LOST (the same convention as the audit loader's
-                // Publish-Timeout fence), but (round-44 #6) the abandoned identity is
+                // Publish-Timeout fence), but the abandoned identity is
                 // CONDEMNED first: if the write was merely invisible and its row publishes
                 // later, every load filters it (and repairs it away) instead of publishing
                 // a second enabled baseline next to the fresh one. The reserved id stays
@@ -1468,7 +1496,7 @@ public class BaselineManager {
                             pending.plan.getId(), e.getMessage());
                 }
                 // the marker described THAT write; with the row retired it must not fence
-                // a later retry either (round-40 #7)
+                // a later retry either
                 retireSeqPendingMarker(pending.plan, pending.plan.getId());
                 LOG.warn("SPM pending create of baseline {}: its schema fingerprint changed"
                                 + " ({} -> {}); replacing the stale committed row",
@@ -1478,7 +1506,7 @@ public class BaselineManager {
             }
             Long adopted = adoptReadablePendingRow(pending.plan.getId(), plan);
             if (adopted != null) {
-                // the resolution RETIRES the durable marker (round-40 #7): without this,
+                // the resolution RETIRES the durable marker: without this,
                 // the marker outlived the adoption and a DROP + immediate re-CREATE of
                 // the same bind/plan deferred for the whole marker fence (the probe saw
                 // the old marker and the now-absent row)
@@ -1495,8 +1523,8 @@ public class BaselineManager {
      * Adopts the READABLE durable row of one pending create: the row carrying the pending
      * id with THIS baseline's identity is published and its id returned; null when the id
      * no longer carries the identity (the caller falls through / allocates a fresh id).
-     * Shared by the in-memory registry ({@link #resolvePendingCreate}) and the durable
-     * reservation fence ({@link #resolveDurablePendingCreate}).
+     * Shared by the in-memory registry (resolvePendingCreate) and the durable
+     * reservation fence (resolveDurablePendingCreate).
      *
      * @param pendingId the id the pending write consumed
      * @param plan      the CREATE's baseline
@@ -1516,7 +1544,7 @@ public class BaselineManager {
     /** The durable winner among the rows of one id carrying THIS baseline's identity. */
     private static BaselinePlan readableIdentityRow(long pendingId, BaselinePlan plan) {
         BaselinePlan winner = null;
-        // Round-43 #1: a row whose identity was DROPPED is not adoptable even when it is
+        // A row whose identity was DROPPED is not adoptable even when it is
         // readable right now - the drop's own DELETE may simply not be visible yet (see
         // filterTombstonedDurableRows). Returning null makes BOTH adoption paths (the
         // in-memory registry and the durable reservation fence) allocate a fresh row
@@ -1533,12 +1561,12 @@ public class BaselineManager {
 
     /**
      * Retires the records that no longer fence when the admission bound is hit
-     * (round-40 #5): with 64 committed-but-invisible writes the registry refused EVERY
+     * with 64 committed-but-invisible writes the registry refused EVERY
      * new create - including a retry of one of those very keys - although the rows had
      * long become readable, and nothing else ever reaps it. A record whose durable row is
      * READABLE now (a retry of that key finds it through the durable-key dedup, so no id
      * can be lost) or whose fence expired (the write is treated as LOST, exactly like
-     * {@link #resolvePendingCreate}'s expiry) is dropped; still-unresolved identities
+     * resolvePendingCreate's expiry) is dropped; still-unresolved identities
      * stay recorded.
      */
     private void reconcilePendingCreates() {
@@ -1549,7 +1577,7 @@ public class BaselineManager {
                 iterator.remove();
                 // the record stops fencing; its durable marker must also be retired or a
                 // later DROP + re-CREATE of the key would defer on the stale marker
-                // (round-40 #7)
+
                 retireSeqPendingMarker(pending.plan, pending.plan.getId());
                 LOG.info("SPM pending create registry: baseline {} became readable; its"
                         + " record no longer fences", pending.plan.getId());
@@ -1557,7 +1585,7 @@ public class BaselineManager {
             }
             if (System.currentTimeMillis() - pending.since > PENDING_CREATE_FENCE_MILLIS) {
                 iterator.remove();
-                // Round-44 #6: condemn before a fresh id can be allocated - a later
+                // Condemn before a fresh id can be allocated - a later
                 // publication of this identity must not surface as a second enabled row.
                 noteDroppedSeqState(pending.plan);
                 LOG.warn("SPM pending create of baseline {}: still not readable after {} ms;"
@@ -1570,7 +1598,7 @@ public class BaselineManager {
 
     /**
      * Remembers a create whose INSERT reported success but is not readable yet (see
-     * {@link #confirmInsertVisible}): the next CREATE of the same baseline must not
+     * confirmInsertVisible): the next CREATE of the same baseline must not
      * allocate a second id for it.
      *
      * @param plan the row that was written
@@ -1581,7 +1609,7 @@ public class BaselineManager {
                 return; // already remembered by an earlier attempt
             }
         }
-        // NEVER evict an unresolved identity (round-39 #12): the admission fence of
+        // NEVER evict an unresolved identity: the admission fence of
         // createBaseline keeps the registry below MAX_PENDING_CREATES before any write, so
         // this only runs past the bound when concurrent creates grew it - the new record
         // is still retained, because evicting an OLDER identity is exactly what could
@@ -1716,13 +1744,13 @@ public class BaselineManager {
             } catch (RuntimeException e) {
                 if (!NO_LONGER_MASTER.equals(e.getMessage())) {
                     // The DELETE may have COMMITTED while its publication lags every
-                    // immediate probe (round-41 #10): the row the user just asked to
+                    // immediate probe: the row the user just asked to
                     // delete must stop matching NOW, and the fence keeps a later daemon
                     // snapshot / SHOW read from resurrecting it until the durable table
                     // shows the outcome (or the fence expires). The failure still
                     // propagates - the client may retry.
                     //
-                    // Round-44 #4: NO deletion marker here. The DELETE may just as well
+                    // NO deletion marker here. The DELETE may just as well
                     // have failed BEFORE commit (the row is live), and a tombstone would
                     // make every later load treat that live row as deleted - hiding it
                     // and re-issuing the delete, silently completing a DROP that reported
@@ -1755,13 +1783,13 @@ public class BaselineManager {
             }
             removeCachedBaseline(id);
             // A DELAYED status INSERT of a demoted master can commit AFTER this delete
-            // and revive the row (round-42 #9): the append-only tombstone makes every
+            // and revive the row: the append-only tombstone makes every
             // later load treat that incarnation as deleted, whatever the commit order.
             noteDroppedSeqState(removed);
             // Even a CONFIRMED identity delete can stay unreadable to a later local read
             // (its publication lags the confirmation): the fence keeps the refresh / a
             // SHOW reload from re-adding the dropped row until the table shows it gone
-            // (round-41 #13).
+
             recordPendingMutationFence(id, null, 0);
             return true;
         }
@@ -1769,10 +1797,10 @@ public class BaselineManager {
 
     /**
      * Removes one id from the in-memory store (baseline map + hash index) under the
-     * write lock. Shared by {@link #dropBaseline}'s happy path and its lingering-row
+     * write lock. Shared by dropBaseline's happy path and its lingering-row
      * cleanup failure path: once the identity delete is confirmed, the cached row must
      * stop being matchable / replayable no matter what the cleanup of a DIFFERENT
-     * incarnation reported (round-35 #1).
+     * incarnation reported.
      */
     private void removeCachedBaseline(long id) {
         stateLock.writeLock().lock();
@@ -1788,7 +1816,7 @@ public class BaselineManager {
     }
 
     /**
-     * See {@link #dropBaseline}: reconciles a cache miss against the durable table. The
+     * See dropBaseline: reconciles a cache miss against the durable table. The
      * rows found (a reload window can leave several) are removed by IDENTITY, so a stale
      * id can never delete an unrelated row.
      */
@@ -1803,9 +1831,9 @@ public class BaselineManager {
             }
         } catch (RuntimeException e) {
             if (!NO_LONGER_MASTER.equals(e.getMessage())) {
-                // same fence as the cached path (round-41 #10): the delete may have
+                // same fence as the cached path: the delete may have
                 // committed while its publication lags, and a delayed status INSERT may
-                // still revive the row. Round-44 #4: the tombstone is NOT written here -
+                // still revive the row.: the tombstone is NOT written here -
                 // the delete may equally have failed BEFORE commit, and a marker would
                 // then hide the still-live row and re-issue the delete on every load
                 // (silently completing a DROP that reported failure). The identities
@@ -1827,7 +1855,7 @@ public class BaselineManager {
 
     /**
      * Removes any durable row of the given id that is NOT the identity just deleted (see
-     * {@link #dropBaseline}): a promotion-window snapshot can carry an old object whose
+     * dropBaseline): a promotion-window snapshot can carry an old object whose
      * id now names a DIFFERENT baseline (the id was dropped and reused), and the DROP is
      * keyed by the user-facing id - identity-deleting only the stale object would report
      * success while the real row stays.
@@ -1845,13 +1873,13 @@ public class BaselineManager {
                     + " incarnation (digest {})", id, row.getBindSqlDigest());
             persistDeleteByIdentity(row);
             // the wiped incarnation gets its own tombstone: a still-in-flight write of
-            // THAT identity must not revive it either (round-42 #9)
+            // THAT identity must not revive it either
             noteDroppedSeqState(row);
         }
     }
 
     /**
-     * ALTER counterpart of {@link #dropDurableRowByIdIfAbsentFromCache}: reconciles a
+     * ALTER counterpart of dropDurableRowByIdIfAbsentFromCache: reconciles a
      * GLOBAL cache miss against the durable table. Env.transferToMaster sets isReady
      * BEFORE forceReloadFromInternalTable finishes, so a freshly promoted follower can
      * miss a row the previous master created durably - returning false ("does not
@@ -1865,7 +1893,7 @@ public class BaselineManager {
                 && statusProtocolStoreForTest == null) {
             return null;
         }
-        // round-43 #1: a row revived after its DROP is NOT a present baseline - the
+        // A row revived after its DROP is NOT a present baseline - the
         // drop's delete may simply not be readable yet (see filterTombstonedDurableRows)
         List<BaselinePlan> durable = filterTombstonedDurableRows(readPersistedParsedById(id));
         if (durable.isEmpty()) {
@@ -1920,12 +1948,12 @@ public class BaselineManager {
     }
 
     /**
-     * Shared reader of {@link #readPersistedById} / {@link #readPersistedParsedById}:
+     * Shared reader of readPersistedById / readPersistedParsedById:
      * seam-aware and fail-closed on read errors.
      *
      * @param id          the baseline id
-     * @param rebuildTrees whether each row is parsed like a load ({@link #parsePersistedRow})
-     *                     instead of decoded as plain scalars ({@link #fromRow})
+     * @param rebuildTrees whether each row is parsed like a load (parsePersistedRow)
+     *                     instead of decoded as plain scalars (fromRow)
      * @return the rows (possibly empty)
      */
     private static List<BaselinePlan> readPersistedRowsById(long id, boolean rebuildTrees) {
@@ -2081,7 +2109,7 @@ public class BaselineManager {
             // always the durable winner once it is written.
             //
             // The bump reads the newest stored second of the WHOLE TABLE, not just the
-            // rows of this id (round-39 #9): after rapid flips gave another baseline B a
+            // rows of this id: after rapid flips gave another baseline B a
             // future stored update_time, flipping A and C kept update_time = now -
             // dwarfed by B - so NEITHER MAX(id), COUNT(*) nor MAX(update_time) (the
             // paginated snapshot fence) changed, and a refresh could merge pages of two
@@ -2119,7 +2147,7 @@ public class BaselineManager {
                         + " not READABLE yet; the committed flip is the durable winner -"
                         + " publishing it", id);
                 // the row may stay unreadable for a while: fence the id so a stale
-                // snapshot cannot revert the committed flip (round-41 #13)
+                // snapshot cannot revert the committed flip
                 recordPendingMutationFence(id, status, newUpdateTime);
                 return true;
             } catch (RuntimeException e) {
@@ -2131,7 +2159,7 @@ public class BaselineManager {
                 // A successful read CANNOT prove the write landed nothing (publication of
                 // a committed row lags every immediate probe), so the caller's failed flip
                 // keeps the id FENCED and the obsolete entry out of matching until the
-                // durable table shows the outcome (round-41 #7): the committed DISABLED
+                // durable table shows the outcome: the committed DISABLED
                 // row may publish at any moment, and the reconciled OLD-status entry would
                 // keep being replayed until a refresh.
                 recordPendingMutationFence(id, status, newUpdateTime);
@@ -2169,7 +2197,7 @@ public class BaselineManager {
                 // already flipped until the next refresh.
                 publishStatus(plan, status, newUpdateTime);
                 // the old row may linger readable for a while: fence the id so a snapshot
-                // still dominated by it cannot revert the confirmed winner (round-41 #13)
+                // still dominated by it cannot revert the confirmed winner
                 recordPendingMutationFence(id, status, newUpdateTime);
                 if (NO_LONGER_MASTER.equals(e.getMessage())) {
                     // a fenced write is reported to the client (retrying converges: the
@@ -2187,7 +2215,7 @@ public class BaselineManager {
             }
             publishStatus(plan, status, newUpdateTime);
             // the committed row's publication may lag: fence the id until a snapshot
-            // shows the flip (round-41 #13)
+            // shows the flip
             recordPendingMutationFence(id, status, newUpdateTime);
             return true;
         }
@@ -2205,13 +2233,13 @@ public class BaselineManager {
         }
     }
 
-    /** Outcome of the durable status probe (see {@link #updateStatus}). */
+    /** Outcome of the durable status probe (see updateStatus). */
     private enum DurableStatusProbe { MATCHES, DIFFERS, ABSENT, UNKNOWN }
 
     /**
-     * The durable status of one baseline (see {@link #probeDurableStatus}): the outcome plus
+     * The durable status of one baseline (see probeDurableStatus): the outcome plus
      * the WINNING row when it could be read. The winner's update time is what a status flip
-     * must stay strictly later than (see the DATETIME second bump in {@link #updateStatus}).
+     * must stay strictly later than (see the DATETIME second bump in updateStatus).
      */
     private static final class DurableStatus {
         final DurableStatusProbe outcome;
@@ -2231,7 +2259,7 @@ public class BaselineManager {
      * Compares the EFFECTIVE durable status of one baseline with the expected one. A
      * failed status flip can leave BOTH rows behind (the old-row delete AND the
      * compensating delete failed): the load path resolves such duplicates with
-     * {@link #pickDurableWinner} (later updateTime wins, DISABLED on a tie), and the
+     * pickDurableWinner (later updateTime wins, DISABLED on a tie), and the
      * probe must apply the SAME rule - a bare “does a row with the cached status exist”
      * count reported MATCHES while the newer row carried the opposite status, so the
      * next ALTER back to the old status reported success without changing the effective
@@ -2280,7 +2308,7 @@ public class BaselineManager {
     }
 
     /**
-     * Aligns the live object with the DURABLE winner (see {@link pickDurableWinner}) before
+     * Aligns the live object with the DURABLE winner (see pickDurableWinner) before
      * a status update reports its failure: the cache may have missed an earlier flip, or
      * the failed statement may have left a NEWER row behind - leaving the stale status
      * served queries a rewrite context the durable table no longer has, which is exactly
@@ -2299,7 +2327,7 @@ public class BaselineManager {
     }
 
     /**
-     * The durable winner row of one id (see {@link pickDurableWinner}), or null when the
+     * The durable winner row of one id (see pickDurableWinner), or null when the
      * durable rows cannot be read (the count-only status seam / a metadata failure).
      */
     private static BaselinePlan readDurableWinnerOrNull(long id) {
@@ -2326,7 +2354,7 @@ public class BaselineManager {
     }
 
     /**
-     * Removes stale in-memory duplicates (see {@link #createBaseline} / {@link #updateStatus}):
+     * Removes stale in-memory duplicates (see createBaseline / updateStatus):
      * rows whose schema fingerprint no longer matches the incoming key or that the durable
      * table no longer has. Memory-only: the durable side is retired by the caller.
      */
@@ -2351,7 +2379,7 @@ public class BaselineManager {
     }
 
     /**
-     * One internal-table statement / query body; see {@link #inInternalIoMode}. */
+     * One internal-table statement / query body; see inInternalIoMode. */
     @FunctionalInterface
     private interface InternalIo<T> {
         T run() throws Exception;
@@ -2376,7 +2404,7 @@ public class BaselineManager {
         });
     }
 
-    /** Runs {@link #inInternalIoMode} and reports the effective parser mode (test seam). */
+    /** Runs inInternalIoMode and reports the effective parser mode (test seam). */
     @VisibleForTesting
     public static long internalIoModeForTest() {
         return inInternalIoMode(SqlModeHelper::currentMode);
@@ -2446,7 +2474,7 @@ public class BaselineManager {
 
     /**
      * Finds baselines by hash (internal helper). Only reads the maps and the index, so a
-     * READ lock is enough; {@link #createBaseline} calls it in its phase-1 validation.
+     * READ lock is enough; createBaseline calls it in its phase-1 validation.
      */
     private List<BaselinePlan> findByHash(long hash) {
         List<Long> ids = hashIndex.get(hash);
@@ -2490,15 +2518,15 @@ public class BaselineManager {
     }
 
     /**
-     * Confirms the GLOBAL store is LOADED. {@link #getAllBaselines()} only STARTS the
+     * Confirms the GLOBAL store is LOADED. getAllBaselines() only STARTS the
      * asynchronous load and returns the current map, so at startup or right after a
      * promotion - when that map was just cleared - a caller reported ZERO global rows even
      * though durable rows existed, and a pending or failed read never converged. This
      * uses the same load (and retryable error) the mutating DDL relies on; query matching
      * keeps ensureLoaded()'s nonblocking degradation.
      *
-     * <p>A caller whose answer must reflect GLOBAL DDL completed on ANOTHER FE uses
-     * {@link #confirmGlobalRowsForShow()} instead: "loaded" only means this FE read the
+     * A caller whose answer must reflect GLOBAL DDL completed on ANOTHER FE uses
+     * confirmGlobalRowsForShow() instead: "loaded" only means this FE read the
      * table ONCE, so a follower that finished its load before the master committed keeps
      * answering from its old map until the refresh daemon runs.
      */
@@ -2509,33 +2537,31 @@ public class BaselineManager {
     /**
      * CONFIRMED durable read for the GLOBAL rows of SHOW BASELINE PLANS (and, in tests,
      * of any caller that must observe a GLOBAL DDL completed on another FE).
-     * {@link #ensureLoadedConfirmed()} returns immediately once {@code loaded=true}, and
-     * {@link #getAllBaselines()} then copies this FE's cache, so a follower that loaded
+     * ensureLoadedConfirmed() returns immediately once loaded=true, and
+     * getAllBaselines() then copies this FE's cache, so a follower that loaded
      * BEFORE a GLOBAL DDL completed on the master kept listing its OLD map: a completed
      * CREATE was invisible and a completed DROP stayed listed until the next refresh
      * daemon cycle (and, for a failed read, indefinitely).
      *
-     * <p>The GLOBAL portion of SHOW is documented as authoritative, so this performs the
+     * The GLOBAL portion of SHOW is documented as authoritative, so this performs the
      * module's confirmed read instead:
      *
-     * <ul>
-     *   <li>the master (or a store without table persistence, whose memory IS the durable
+     *   the master (or a store without table persistence, whose memory IS the durable
      *       state) answers from its own publish - every committed GLOBAL DDL ran locally;
-     *   <li>a follower first synchronizes its metadata with the master (the same
-     *       strong-consistency mechanism a forwarded DDL and {@code syncJournalIfNeeded}
+     *   a follower first synchronizes its metadata with the master (the same
+     *       strong-consistency mechanism a forwarded DDL and syncJournalIfNeeded
      *       use), then fences every snapshot read that started before that point through
      *       the store generation;
-     *   <li>the durable rows are then read FRESH: while the store is still unpublished the
+     *   the durable rows are then read FRESH: while the store is still unpublished the
      *       read is performed inline (bounded wait for the in-flight load first, exactly
      *       like the forwarded-DDL refresh), while it is published the fresh snapshot
-     *       replaces the cache under {@code writerLock} (no local mutation can publish
+     *       replaces the cache under writerLock (no local mutation can publish
      *       meanwhile);
-     *   <li>a failed read surfaces as a retryable error - SHOW must never print a table it
+     *   a failed read surfaces as a retryable error - SHOW must never print a table it
      *       cannot confirm. The published cache is deliberately NOT invalidated: unlike a
      *       forwarded DDL, no committed write is known to have happened, so query
      *       matching keeps its current state and the read is retried (by SHOW or the
      *       refresh daemon).
-     * </ul>
      */
     public void confirmGlobalRowsForShow() {
         if (snapshotReaderForTest == null && (!persistenceEnabled()
@@ -2655,7 +2681,7 @@ public class BaselineManager {
     /**
      * For tests: prepares the store for a LOAD-path test - unloads it and clears the
      * published maps without enabling real table persistence, so
-     * {@link #loadFromInternalTable()} runs through {@link #snapshotReaderForTest}.
+     * loadFromInternalTable() runs through snapshotReaderForTest.
      */
     @VisibleForTesting
     void prepareLoadForTest() {
@@ -2670,7 +2696,7 @@ public class BaselineManager {
         }
     }
 
-    /** For tests: pins the table-persistence gate (see {@link #persistenceEnabled()}). */
+    /** For tests: pins the table-persistence gate (see persistenceEnabled()). */
     @VisibleForTesting
     void setPersistToTableForTest(boolean enabled) {
         persistToTable = enabled;
@@ -2694,6 +2720,8 @@ public class BaselineManager {
             pendingMutationFences.clear(); // (the mutation fences belong to it as well)
             statusProtocolStoreForTest = null; // and never route through a leaked test seam
             idAllocatorStoreForTest = null; // (the create-time collision seam, same reason)
+            hwmRecordReadForTest = null; // (the compact watermark seam, same reason)
+            seqTailReadForTest = null; // (the scoped sequence-tail seam, same reason)
             leaderProbeForTest = null; // (the leadership seam, same reason)
             forwardedDdlSyncForTest = null; // (the forwarded-DDL sync seam, same reason)
             durableVisibilityProbeForTest = null; // (the write-visibility seam, same reason)
@@ -2736,7 +2764,7 @@ public class BaselineManager {
 
     /**
      * Reads the table and publishes the snapshot when the caller OWNS the load slot
-     * ({@link #loadInProgress}). The read runs OUTSIDE the state lock: an internal query
+     * (loadInProgress). The read runs OUTSIDE the state lock: an internal query
      * can be slow and must not block rewrite lookups. Until the load completes no local
      * mutation can run (every mutator calls ensureLoaded first), so a concurrent second
      * load simply reads again and loses the write section's re-check.
@@ -2750,7 +2778,7 @@ public class BaselineManager {
 
     /**
      * Performs the (bounded-timeout) read and atomically publishes the result; the caller
-     * must own the load slot. Keeps {@code loaded=false} on any failure so the caller can
+     * must own the load slot. Keeps loaded=false on any failure so the caller can
      * retry (a retry is NOT a permanent "no baselines" decision: DROP ... IF EXISTS would
      * otherwise report success without deleting the durable row).
      */
@@ -2818,13 +2846,13 @@ public class BaselineManager {
      * never read the shared table synchronously, and a failed read is simply retried by
      * the next query / refresh cycle instead of blocking the current one.
      *
-     * <p>The load slot is claimed ATOMICALLY here, at scheduling time: checking
-     * {@code loadInProgress} and starting the thread were separate, so a query burst (or
-     * repeated failed reads) could start one throwaway {@code spm-baseline-async-load}
-     * thread per caller - only the CAS winner inside {@link #tryLoadNow()} performed the
+     * The load slot is claimed ATOMICALLY here, at scheduling time: checking
+     * loadInProgress and starting the thread were separate, so a query burst (or
+     * repeated failed reads) could start one throwaway spm-baseline-async-load
+     * thread per caller - only the CAS winner inside tryLoadNow() performed the
      * read, every other thread exited immediately. Reserving the slot first means a
      * caller that cannot claim it simply returns: the owner releases the slot when its
-     * read finishes ({@link #readAndPublishPossessingLoadSlot()}), so the next caller
+     * read finishes (readAndPublishPossessingLoadSlot()), so the next caller
      * retries against the fresh state.
      */
     private void scheduleAsyncLoad() {
@@ -2925,7 +2953,7 @@ public class BaselineManager {
 
     /** Replaces the in-memory store with the read snapshot (caller holds the write lock). */
     private void doLoadFromTable(Map<Long, BaselinePlan> loadedPlans) {
-        // Pending mutation fences mask contradicting rows here as well (round-41 #3): a
+        // Pending mutation fences mask contradicting rows here as well: a
         // reload after an invalidation must not republish a row whose dropped / disabled
         // outcome is still owed.
         for (Long fenced : resolvePendingMutationFences(loadedPlans)) {
@@ -3010,20 +3038,20 @@ public class BaselineManager {
 
     /**
      * CONFIRMED post-forward refresh for the CREATE / ALTER / DROP hooks
-     * ({@code afterForwardToMaster}): the DDL already committed on the master, so this FE
+     * (afterForwardToMaster): the DDL already committed on the master, so this FE
      * must publish a state that INCLUDES it (or fail retryably) before the statement
-     * returns. {@link #refreshFromInternalTable} is best-effort and has two holes:
+     * returns. refreshFromInternalTable is best-effort and has two holes:
      *
-     * - {@code loaded == false}: an older load (started BEFORE the DDL) may hold the
-     *   {@code loadInProgress} slot; the best-effort refresh returns immediately and the
+     * - loaded == false: an older load (started BEFORE the DDL) may hold the
+     *   loadInProgress slot; the best-effort refresh returns immediately and the
      *   pre-DDL snapshot can publish afterwards - a CREATE stays invisible, a DROP /
      *   disable keeps replaying locally until the daemon refresh;
-     * - {@code loaded == true}: a transient read failure is swallowed and the stale rows
+     * - loaded == true: a transient read failure is swallowed and the stale rows
      *   stay exactly as before the DDL.
      *
      * Fix: fence every snapshot whose read may predate the DDL through the store
      * generation (the in-flight load discards itself, see
-     * {@link #readAndPublishPossessingLoadSlot}) and then obtain a fresh read - an inline
+     * readAndPublishPossessingLoadSlot) and then obtain a fresh read - an inline
      * load while unpublished, or a snapshot apply while published. On failure the
      * published store is INVALIDATED (fail closed: never keep replaying a possibly
      * dropped / disabled baseline) and a retryable failure surfaces to the caller.
@@ -3034,7 +3062,7 @@ public class BaselineManager {
 
     /**
      * The DURABLE outcome a forwarded GLOBAL DDL must have produced on the master
-     * (round-39 #14). A forward runs with FORWARD_NO_SYNC and the follower's local
+     * . A forward runs with FORWARD_NO_SYNC and the follower's local
      * internal read may STILL return the pre-DDL visible version although the master
      * already committed the DDL: a GLOBAL DISABLE can return success while its DISABLED
      * row is committed but unreadable, and a DROP likewise while its DELETE publication
@@ -3048,7 +3076,7 @@ public class BaselineManager {
         private final String createdBindSql; // non-null = presence of this identity
         private final String createdPlanSql;
         /**
-         * The CREATE statement's query id (round-44 #3), recorded on the row by the
+         * The CREATE statement's query id, recorded on the row by the
          * master; "" / "NaN" = not usable as an identity (fall back to the text match).
          */
         private final String createdQueryId;
@@ -3086,18 +3114,18 @@ public class BaselineManager {
         }
 
         /**
-         * The expected outcome of a forwarded CREATE (round-42 #2): a readable row carries
+         * The expected outcome of a forwarded CREATE: a readable row carries
          * this EXACT (bindSql, planSql) identity. The follower cannot know the id - it is
          * allocated on the master - but without a requirement its refresh accepted a
          * stable local snapshot that still LACKED the new row, and the next query on the
          * same connection missed its GLOBAL baseline until the refresh daemon caught up.
          *
-         * <p>The TEXT match alone only identifies the raw-fallback rows: the master
+         * The TEXT match alone only identifies the raw-fallback rows: the master
          * persists SPMPlan2SQLBuilder's DECOMPILED planSql for an ordinary CREATE, so
          * every follower snapshot failed this comparison and the callback invalidated
-         * its cache / reported an error after bounded retries (round-44 #3). The
+         * its cache / reported an error after bounded retries. The
          * statement's query id survives every freezing choice - use
-         * {@link #created(String, String, String)} when it is available.
+         * created(String, String, String) when it is available.
          *
          * @param bindSql the forwarded CREATE's bind SQL
          * @param planSql the forwarded CREATE's plan SQL
@@ -3108,11 +3136,11 @@ public class BaselineManager {
         }
 
         /**
-         * As {@link #created(String, String)} plus the STATEMENT query id of the
-         * forwarded CREATE (round-44 #3). The master executes the forwarded statement
-         * under THIS id (the forward carries {@code ctx.queryId()} and the master's
+         * As created(String, String) plus the STATEMENT query id of the
+         * forwarded CREATE. The master executes the forwarded statement
+         * under THIS id (the forward carries ctx.queryId() and the master's
          * execution context adopts it, see FEOpExecutor #buildStmtForwardParams), and the
-         * CREATE stores {@code DebugUtil.printId(ctx.queryId())} on the row - so the
+         * CREATE stores DebugUtil.printId(ctx.queryId()) on the row - so the
          * follower, which still sees its own (pre-adoption) query id here, can identify
          * the committed row even though the persisted plan text is the DECOMPILED one.
          *
@@ -3156,7 +3184,7 @@ public class BaselineManager {
                     // The master persists the DECOMPILED plan text for an ordinary
                     // (non-fallback) CREATE, so the submitted planSql only matches when
                     // the raw fallback was frozen. The statement's QUERY ID survives
-                    // every freezing choice (round-44 #3): the forward carries this
+                    // every freezing choice: the forward carries this
                     // statement's ctx.queryId() to the master, whose execution context
                     // adopts it, and the CREATE stores it as the row's query_id.
                     if (createdPlanSql.equals(row.getPlanSql())
@@ -3172,7 +3200,7 @@ public class BaselineManager {
     }
 
     /**
-     * As {@link #refreshAfterForwardedDdl()}, with the forwarding statement's context: the
+     * As refreshAfterForwardedDdl(), with the forwarding statement's context: the
      * journal synchronization below talks to the master through it.
      *
      * @param ctx the context of the statement that was forwarded (may be null in tests)
@@ -3182,8 +3210,8 @@ public class BaselineManager {
     }
 
     /**
-     * As {@link #refreshAfterForwardedDdl(ConnectContext)}, additionally CONFIRMING the
-     * forwarded DDL's durable outcome before the snapshot is published (round-39 #14):
+     * As refreshAfterForwardedDdl(ConnectContext), additionally CONFIRMING the
+     * forwarded DDL's durable outcome before the snapshot is published:
      * the snapshot must show the expected status flip / row removal, re-read within a
      * bounded budget; an outcome that never becomes visible fails CLOSED (the published
      * cache is invalidated and a retryable error surfaces) instead of republishing the
@@ -3254,7 +3282,7 @@ public class BaselineManager {
             }
             // The journal sync orders THIS FE's metadata AFTER the master's DDL, but the
             // internal table's VISIBILITY of the DDL's own row write lags it: the expected
-            // outcome is confirmed with bounded re-reads (round-39 #14). No writer can
+            // outcome is confirmed with bounded re-reads. No writer can
             // interleave (writerLock is held) and loads return early while loaded, so an
             // accepted snapshot is authoritative for this instant.
             for (int attempt = 0; ; attempt++) {
@@ -3278,7 +3306,7 @@ public class BaselineManager {
                     // snapshot would republish the old ENABLED row after a DISABLE (or the
                     // dropped row), which ordinary queries on this connection keep
                     // replaying - fail CLOSED instead (invalidate + retryable error). The
-                    // expectation is RETAINED as a mutation fence (round-41 #3): a LATER
+                    // expectation is RETAINED as a mutation fence: a LATER
                     // read on THIS FE (SHOW's confirmed read, the refresh daemon, a
                     // post-invalidation reload) must keep masking the contradicting old
                     // row until the durable table shows the expected outcome - the
@@ -3298,11 +3326,11 @@ public class BaselineManager {
 
     /**
      * Waits until this FE's metadata includes the FORWARDED global DDL the master already
-     * completed: {@code CREATE / ALTER / DROP BASELINE PLAN} forward with
+     * completed: CREATE / ALTER / DROP BASELINE PLAN forward with
      * FORWARD_NO_SYNC, and the checkpoint-free internal reads of the refresh run locally,
      * so a follower's still-visible OLD version would be published as the confirmed
      * post-DDL state. The journal sync is the same mechanism a strong-consistency user
-     * query uses (see {@code StmtExecutor#syncJournalIfNeeded}): it asks the master for
+     * query uses (see StmtExecutor#syncJournalIfNeeded): it asks the master for
      * its max journal id and waits locally. A failure surfaces as a retryable error -
      * never as a silently published pre-DDL state.
      *
@@ -3333,7 +3361,7 @@ public class BaselineManager {
      * updateStatus publishes its in-memory flip and its version bump before a refresh can
      * reach this point, so the older row read before that update is rejected instead of
      * overwriting the newer status. Public for unit tests; production callers use
-     * {@link #refreshFromInternalTable}, which additionally serializes with the writers.
+     * refreshFromInternalTable, which additionally serializes with the writers.
      *
      * @param versionAtRead the state version observed when the snapshot read started
      * @param persisted     the snapshot to apply
@@ -3399,7 +3427,7 @@ public class BaselineManager {
         for (BaselinePlan row : persisted.values()) {
             if (fenced.contains(row.getId())) {
                 // keep the local post-mutation state (dropped / disabled / enabled) until
-                // the durable table shows the outcome (round-41 #3/#7/#10/#13)
+                // the durable table shows the outcome
                 continue;
             }
             maxId = Math.max(maxId, row.getId());
@@ -3443,7 +3471,7 @@ public class BaselineManager {
 
     /**
      * Records (or refreshes) the fence of one completed / attempted local mutation (see
-     * {@link #pendingMutationFences}).
+     * pendingMutationFences).
      *
      * @param id                          the baseline id
      * @param expectedStatus              the durable status the write must reach (null =
@@ -3459,8 +3487,8 @@ public class BaselineManager {
 
     /**
      * Records the ABSENCE fence of a DROP whose DELETE outcome is UNCONFIRMED
-     * (round-44 #4): the id is masked locally until a snapshot shows the row gone, and
-     * the removed IDENTITY travels with the fence so the deletion marker (round-42 #9)
+     * the id is masked locally until a snapshot shows the row gone, and
+     * the removed IDENTITY travels with the fence so the deletion marker
      * is appended only AFTER absence is proven - a marker written for an uncommitted
      * delete would make every later load treat the still-live row as deleted (hiding it
      * and re-issuing the delete), silently completing a DROP that reported failure.
@@ -3473,10 +3501,10 @@ public class BaselineManager {
     }
 
     /**
-     * Retains a forwarded GLOBAL DDL's expectation as a mutation fence (round-41 #3) so
+     * Retains a forwarded GLOBAL DDL's expectation as a mutation fence so
      * every LATER read on this FE keeps masking a row that contradicts it (see
-     * {@link #pendingMutationFences}). DROP / ALTER fenced by id; the CREATE's identity
-     * expectation (round-42 #2) is NOT id-keyed (the follower never learned the id) - its
+     * pendingMutationFences). DROP / ALTER fenced by id; the CREATE's identity
+     * expectation is NOT id-keyed (the follower never learned the id) - its
      * failure path already invalidates the store, and the daemon converges later.
      */
     private void recordForwardedDdlFence(ForwardedDdlExpectation expected) {
@@ -3492,8 +3520,8 @@ public class BaselineManager {
     }
 
     /**
-     * Resolves / applies the pending mutation fences against a fresh snapshot (round-41
-     * #3/#7/#10/#13): a fence whose expected outcome the snapshot shows is done and is
+     * Resolves / applies the pending mutation fences against a fresh snapshot:
+     * a fence whose expected outcome the snapshot shows is done and is
      * removed; a fence the snapshot contradicts keeps its id MASKED - neither the stale
      * row is applied nor the local post-mutation state removed - until the bound expires,
      * after which the write is presumed lost and the persisted state wins again.
@@ -3510,7 +3538,7 @@ public class BaselineManager {
         for (Map.Entry<Long, PendingMutationFence> entry : pendingMutationFences.entrySet()) {
             BaselinePlan row = persisted.get(entry.getKey());
             if (entry.getValue().isSatisfiedBy(row)) {
-                // Round-44 #4: a CONFIRMED absence completes the DROP's deletion marker
+                // A CONFIRMED absence completes the DROP's deletion marker
                 // now. The tombstone was deliberately withheld while the DELETE's outcome
                 // was unproven (it could have failed before commit); with the row proven
                 // gone it only guards the DELAYED-commit window left - a demoted master's
@@ -3538,14 +3566,14 @@ public class BaselineManager {
 
     /**
      * Reads the persistence-layer id watermark (MAX(id) of the baselines table, and
-     * {@link #SELECT_SEQ_ID_SQL}) - the id-source invariant described in the class javadoc.
+     * SELECT_SEQ_ID_SQL) - the id-source invariant described in the class javadoc.
      * Returns 0 when persistence is disabled (unit tests / internal schema db off). A
      * failed read is rethrown as a retryable error: createBaseline must never allocate an
      * id while the watermark is unknown.
      *
-     * <p>The sequence table is what keeps the watermark from going BACKWARDS when the row
+     * The sequence table is what keeps the watermark from going BACKWARDS when the row
      * holding the highest id is dropped (see
-     * {@link InternalSchema#SPM_BASELINES_SEQ_TBL_NAME}), so the watermark is the greater
+     * InternalSchema#SPM_BASELINES_SEQ_TBL_NAME), so the watermark is the greater
      * of the two. The table read is part of the same fail-visible contract: an unreadable
      * sequence fails the CREATE rather than risk handing out a used id.
      */
@@ -3574,7 +3602,7 @@ public class BaselineManager {
             throw new RuntimeException(
                     "SPM baseline id watermark read failed (retry the CREATE): " + e.getMessage(), e);
         }
-        // Round-44 #15: the SEQUENCE table's MAX(last_id) was the only unbounded read on
+        // The SEQUENCE table's MAX(last_id) was the only unbounded read on
         // this path (it scans the append-only reservation history, which grows by one row
         // per create forever, and the CREATE failed as the scan outgrew its fixed
         // timeout). The per-allocation record in the compact high-water-mark table
@@ -3585,24 +3613,52 @@ public class BaselineManager {
     }
 
     /**
-     * The compact id high-water mark (round-44 #15, see
-     * {@link #SPM_BASELINES_HWM_TABLE}): one bounded read. When the record is absent
+     * The compact id high-water mark (see
+     * SPM_BASELINES_HWM_TABLE): one bounded read. When the record is absent
      * (a cluster upgraded from before the table existed) the LEGACY full read of the
      * append-only history runs ONCE and seeds the compact record, so every later create
      * stays bounded.
      */
     private static long readCompactIdWatermark() {
+        java.util.function.LongSupplier hwmSeam = hwmRecordReadForTest;
+        if (hwmSeam != null) {
+            // scripted stores: the record value decides, and the scoped tail read answers
+            // only for a POSITIVE record (exactly like the internal tables - a cluster
+            // without the record takes the legacy history path)
+            long hwm = hwmSeam.getAsLong();
+            if (hwm <= 0) {
+                return 0;
+            }
+            long tail = seqTailReadForTest == null ? 0 : seqTailReadForTest.getAsLong();
+            return Math.max(hwm, tail);
+        }
+        long hwm;
         try {
             List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_HWM_SQL,
                     Collections.emptyMap(), INTERNAL_QUERY_TIMEOUT_SECONDS);
-            long hwm = rows == null || rows.isEmpty()
+            hwm = rows == null || rows.isEmpty()
                     ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
-            if (hwm > 0) {
-                return hwm;
-            }
         } catch (Exception e) {
             throw new RuntimeException("SPM baseline id high-water-mark read failed (retry"
                     + " the CREATE): " + e.getMessage(), e);
+        }
+        if (hwm > 0) {
+            // The compact record is NOT authoritative on its own: it, the sequence
+            // reservation and the baseline row are SEPARATE writes, and the record's own
+            // write is best effort on the seed path. A reservation already VISIBLE
+            // beyond the mark (HWM N committed but unreadable while sequence N is
+            // readable; a successor then reads the older HWM N-1 and hands N to another
+            // key, whose collision probe also misses the unpublished baseline) must
+            // therefore be confirmed against the sequence table before the mark is
+            // trusted. Bounded: see SELECT_SEQ_TAIL_SQL.
+            long tail = readSeqTail(hwm);
+            if (tail > hwm) {
+                // best effort, like the seed: raising the record keeps the next create
+                // on the bounded path
+                writeHwmRecord(tail, false);
+                return tail;
+            }
+            return hwm;
         }
         long legacy;
         try {
@@ -3622,7 +3678,42 @@ public class BaselineManager {
     }
 
     /**
-     * Appends (and prunes) the compact id high-water-mark record (round-44 #15).
+     * The highest reservation visible beyond the compact watermark (see
+     * readCompactIdWatermark). Fails closed - an unconfirmed allocation source must
+     * fail the CREATE retryably rather than let an id be reused.
+     */
+    private static long readSeqTail(long floor) {
+        Map<String, String> params = new HashMap<>();
+        params.put("floor", String.valueOf(floor));
+        try {
+            List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_SEQ_TAIL_SQL,
+                    params, INTERNAL_QUERY_TIMEOUT_SECONDS);
+            return rows == null || rows.isEmpty()
+                    ? 0 : parseWatermark(rows.get(0).getWithDefault(0, ""));
+        } catch (Exception e) {
+            throw new RuntimeException("SPM baseline id high-water-mark read failed (retry"
+                    + " the CREATE): " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * For tests: the durable pending-create lookup SQL (see SELECT_PENDING_SEQ_SQL): the
+     * NEWEST identity must be selected first, with the tombstone / marker priority applied
+     * WITHIN that identity.
+     */
+    @VisibleForTesting
+    public static String pendingSeqLookupSqlForTest() {
+        return SELECT_PENDING_SEQ_SQL;
+    }
+
+    /** For tests: the CONFIRMED compact id watermark (see readCompactIdWatermark). */
+    @VisibleForTesting
+    public static long compactIdWatermarkForTest() {
+        return readCompactIdWatermark();
+    }
+
+    /**
+     * Appends (and prunes) the compact id high-water-mark record.
      *
      * @param id     the high-water mark to record
      * @param strict whether a failed write must fail the caller (a create that consumed
@@ -3656,15 +3747,15 @@ public class BaselineManager {
 
     /**
      * Durably RESERVES an allocated id BEFORE its baseline row is written. The reservation
-     * is an append-only row of {@link InternalSchema#SPM_BASELINES_SEQ_TBL_NAME}, so the id
+     * is an append-only row of InternalSchema#SPM_BASELINES_SEQ_TBL_NAME, so the id
      * stays used even when the baseline that held it is later dropped - a Follower that
      * never saw that row (and therefore reads a LOWER MAX(id) from the baselines table)
      * must not hand the id to a different baseline, or a delayed DROP-by-id retry would
      * delete the new one. A failed reservation fails the CREATE retryably and nothing was
      * published (the caller has not inserted the row yet).
      *
-     * <p>The reservation ALSO carries the baseline's identity + instant (round-39 #4):
-     * {@link #resolveDurablePendingCreate} reads it back when a retry runs on an FE whose
+     * The reservation ALSO carries the baseline's identity + instant:
+     * resolveDurablePendingCreate reads it back when a retry runs on an FE whose
      * in-memory pending registry is empty, so a committed-but-unreadable row still fences
      * the id.
      *
@@ -3688,7 +3779,7 @@ public class BaselineManager {
         params.put("planSqlHash", String.valueOf(planSqlHash));
         params.put("reserveTime", toTs(reserveTime));
         params.put("unconfirmed", "0");
-        // Round-44 #15: record the compact high-water mark BEFORE the history row: the
+        // Record the compact high-water mark BEFORE the history row: the
         // watermark must never lag behind an id this FE handed out, and the compact
         // record is what the per-create read depends on. A failure here fails the CREATE
         // before any identity resource exists, so the retry has no reservation to defer
@@ -3704,15 +3795,15 @@ public class BaselineManager {
     }
 
     /**
-     * Appends the DURABLE marker of an AMBIGUOUS create (round-39 #4): the same
-     * identity-carrying row with {@code unconfirmed = 1}. A retry on another FE (leader
-     * handoff / restart, where the in-memory {@link #pendingCreates} registry is empty)
+     * Appends the DURABLE marker of an AMBIGUOUS create: the same
+     * identity-carrying row with unconfirmed = 1. A retry on another FE (leader
+     * handoff / restart, where the in-memory pendingCreates registry is empty)
      * reads it back and DEFERS instead of allocating a second id for a row that may
      * already be committed but not readable yet.
      *
-     * <p>Best effort by design: the create is already failing with the original
+     * Best effort by design: the create is already failing with the original
      * unconfirmed error, and re-masking it with a marker-write failure would lose the
-     * real cause. A missing marker does NOT re-open the cross-FE hole (round-44 #5):
+     * real cause. A missing marker does NOT re-open the cross-FE hole:
      * the plain reservation row written before the baseline write carries the same
      * identity and fences the retry for the same bound.
      *
@@ -3749,14 +3840,14 @@ public class BaselineManager {
     }
 
     /**
-     * Appends a DROP TOMBSTONE for one removed baseline (round-42 #9, see
-     * {@link #INSERT_SEQ_DROPPED_SQL}). Best effort with a warning: the DROP itself has
+     * Appends a DROP TOMBSTONE for one removed baseline (see
+     * INSERT_SEQ_DROPPED_SQL). Best effort with a warning: the DROP itself has
      * already been reported / fenced, and failing it now would misreport the delete's
      * outcome - the marker only closes the DELAYED-commit window, and its absence
      * degrades to the previous behavior. It is only ever written for an identity that is
      * KNOWN gone (a completed delete) or CONDEMNED (a deserted write, see
-     * {@link #condemnAbandonedIdentity}) - never for a delete whose outcome is still
-     * pending (round-44 #4).
+     * condemnAbandonedIdentity) - never for a delete whose outcome is still
+     * pending.
      *
      * @param plan the baseline this FE removed (or decided to stop matching)
      */
@@ -3769,8 +3860,8 @@ public class BaselineManager {
     }
 
     /**
-     * Appends one DROP TOMBSTONE row (see {@link #INSERT_SEQ_DROPPED_SQL}); best effort
-     * like {@link #noteDroppedSeqState}.
+     * Appends one DROP TOMBSTONE row (see INSERT_SEQ_DROPPED_SQL); best effort
+     * like noteDroppedSeqState.
      *
      * @param id            the identity's id
      * @param bindSqlDigest the identity's canonical bind digest
@@ -3799,7 +3890,7 @@ public class BaselineManager {
         }
     }
 
-    /** One bigint FLAG cell ({@code NULL} / blank = false); see {@link SeqReservation}. */
+    /** One bigint FLAG cell (NULL / blank = false); see SeqReservation. */
     private static boolean isFlagSet(ResultRow row, int index) {
         if (row.getValues().size() <= index) {
             return false;
@@ -3809,8 +3900,8 @@ public class BaselineManager {
     }
 
     /**
-     * Reads the DROP TOMBSTONES of the GIVEN ids as {@code id|bindSqlDigest|planSqlHash}
-     * keys (round-42 #9, scoped per round-44 #13). A read failure propagates: loads fail
+     * Reads the DROP TOMBSTONES of the GIVEN ids as id|bindSqlDigest|planSqlHash
+     * keys (scoped per). A read failure propagates: loads fail
      * closed rather than publishing a row that may be a resurrection.
      *
      * @param ids the ids to look up (an empty collection skips the query entirely)
@@ -3854,7 +3945,7 @@ public class BaselineManager {
         return markers;
     }
 
-    /** One scoped page of the tombstone read (see {@link #readDroppedIdentities}). */
+    /** One scoped page of the tombstone read (see readDroppedIdentities). */
     private static void readDroppedIdentitiesChunk(List<Long> ids, Set<String> markers)
             throws Exception {
         StringBuilder idList = new StringBuilder();
@@ -3882,7 +3973,7 @@ public class BaselineManager {
         }
     }
 
-    /** The ids of one row list (see {@link #readDroppedIdentities}). */
+    /** The ids of one row list (see readDroppedIdentities). */
     private static List<Long> rowIds(List<BaselinePlan> rows) {
         List<Long> ids = new ArrayList<>(rows.size());
         for (BaselinePlan row : rows) {
@@ -3893,7 +3984,7 @@ public class BaselineManager {
         return ids;
     }
 
-    /** The tombstone key of one row / plan: {@code id|bindSqlDigest|planSqlHash}. */
+    /** The tombstone key of one row / plan: id|bindSqlDigest|planSqlHash. */
     private static String droppedIdentityKey(BaselinePlan plan) {
         return plan.getId() + "|"
                 + (plan.getBindSqlDigest() == null ? "" : plan.getBindSqlDigest()) + "|"
@@ -3901,7 +3992,7 @@ public class BaselineManager {
     }
 
     /**
-     * Whether one row's identity carries a readable DROP TOMBSTONE (round-43 #1): the
+     * Whether one row's identity carries a readable DROP TOMBSTONE: the
      * user's DROP completed, so the row is not adoptable any more even while its own
      * DELETE lags its publication. A tombstone READ failure propagates (the caller fails
      * retryably instead of adopting a row it cannot clear).
@@ -3912,7 +4003,7 @@ public class BaselineManager {
     }
 
     /**
-     * Removes every row whose identity carries a DROP TOMBSTONE (round-42 #9): the row
+     * Removes every row whose identity carries a DROP TOMBSTONE: the row
      * was deleted by a completed DROP and revived afterwards by a delayed write (a
      * demoted master's in-flight status INSERT committing after the delete). Matching it
      * would make the dropped baseline ACTIVE again. The rows are also repaired away
@@ -3926,7 +4017,7 @@ public class BaselineManager {
         if (snapshot == null || snapshot.isEmpty()) {
             return snapshot == null ? Map.of() : snapshot;
         }
-        // Round-44 #13: the tombstone read is scoped to the SNAPSHOT's ids - the
+        // The tombstone read is scoped to the SNAPSHOT's ids - the
         // append-only sequence table keeps every historical drop marker, and an
         // unrestricted read grew with the CREATE / DROP churn until it timed out and
         // follower caches stopped applying later GLOBAL changes.
@@ -3955,7 +4046,7 @@ public class BaselineManager {
 
     /**
      * Removes the rows whose IDENTITY was DROPPED from a POINT read taken for adoption
-     * (round-43 #1). Reading a row back is not enough to make it adoptable: a DROP's own
+     * . Reading a row back is not enough to make it adoptable: a DROP's own
      * identity delete can lag its tombstone (the tombstone is written first, a demoted
      * master's in-flight status write revived the row, and the delete is not readable
      * yet), so the durable-key dedup of a CREATE or the by-id cache-miss reconciliation
@@ -3963,7 +4054,7 @@ public class BaselineManager {
      * success for a row that disappears the moment the delete becomes readable, and the
      * ALTER could modify an incarnation that is already gone. The row's repair delete is
      * retried here as well (best effort - a follower's read cannot write), so a point
-     * read and the snapshot load of {@link #filterResurrectedRows} can never disagree.
+     * read and the snapshot load of filterResurrectedRows can never disagree.
      *
      * @param rows the rows of one key / id read from the durable table (not mutated)
      * @return the rows without dropped identities
@@ -3996,12 +4087,12 @@ public class BaselineManager {
     }
 
     /**
-     * Retires the durable UNCONFIRMED marker(s) of a RESOLVED ambiguous write (round-40
+     * Retires the durable UNCONFIRMED marker(s) of a RESOLVED ambiguous write
      * #7): once the reserved row became readable (or was retired as stale), the identity
      * no longer fences - without this the marker outlived its resolution and rejected a
      * legitimate DROP + immediate re-CREATE of the same bind/plan for up to
-     * {@link #DURABLE_PENDING_CREATE_FENCE_MILLIS}, since the probe saw the old marker
-     * and the now-absent row. The DELETE removes only {@code unconfirmed = 1} markers of
+     * DURABLE_PENDING_CREATE_FENCE_MILLIS, since the probe saw the old marker
+     * and the now-absent row. The DELETE removes only unconfirmed = 1 markers of
      * THAT last_id; the plain reservation row appended before every create (and every
      * other id ever reserved) stays, so the sequence WATERMARK never falls. Best effort:
      * a failed delete leaves the fence in place, which only delays a re-create.
@@ -4037,19 +4128,19 @@ public class BaselineManager {
     }
 
     /**
-     * The DURABLE half of the unconfirmed-create fence (round-39 #4). The in-memory
-     * {@link #pendingCreates} registry is per-FE: after a leader handoff (or a restart)
+     * The DURABLE half of the unconfirmed-create fence. The in-memory
+     * pendingCreates registry is per-FE: after a leader handoff (or a restart)
      * the retry of a committed-but-unpublished CREATE runs on an FE that never saw the
      * write, so the durable-key read misses the unreadable row too - the retry then
      * allocated a SECOND id and both rows later published ENABLED. The UNCONFIRMED
      * MARKER the ambiguous create appended to the sequence table (see
-     * {@link #markSeqPendingUnconfirmed}) carries the baseline's identity and IS visible
+     * markSeqPendingUnconfirmed) carries the baseline's identity and IS visible
      * (the reviewer's scenario: "the sequence reservation may already be visible"): a
      * fresh marker whose baseline row is still unreadable DEFERS the retry; once the row
      * publishes it is ADOPTED, and an expired marker is treated as a lost write (see
-     * {@link #DURABLE_PENDING_CREATE_FENCE_MILLIS}).
+     * DURABLE_PENDING_CREATE_FENCE_MILLIS).
      *
-     * <p>The PLAIN reservation row fences exactly like the marker (round-44 #5): it is
+     * The PLAIN reservation row fences exactly like the marker: it is
      * appended BEFORE the baseline write, so while it is young and its id is unreadable
      * the write it describes may still be in flight - fencing on it closes the hole a
      * FAILED marker append used to leave open (a retry on another FE then allocated a
@@ -4095,7 +4186,7 @@ public class BaselineManager {
             }
             if (!Objects.equals(readable.getSchemaFingerprint(),
                     plan.getSchemaFingerprint())) {
-                // Round-40 #12: the write committed under schema F1 and an ALTER TABLE
+                // The write committed under schema F1 and an ALTER TABLE
                 // changed the schema to F2 while it was still unreadable. Adopting F1
                 // would report success for a row every replay rejects as stale - the
                 // in-memory registry path replaces exactly this case. Retire the stale
@@ -4108,7 +4199,7 @@ public class BaselineManager {
                             + " (id={}): {}", reservation.id, e.getMessage());
                 }
                 // the marker described THAT write; with the row retired it must not fence
-                // a later retry either (round-40 #7)
+                // a later retry either
                 retireSeqPendingMarker(plan, reservation.id);
                 LOG.warn("SPM durable pending create of baseline {}: its schema fingerprint"
                                 + " changed ({} -> {}); replacing the stale committed row",
@@ -4120,7 +4211,7 @@ public class BaselineManager {
             // registry, and the only way the retry returns the id the first write
             // consumed instead of allocating a second one
             publishBaseline(readable);
-            // Round-40 #7: the resolution RETIRES the durable marker. Leaving it behind
+            // The resolution RETIRES the durable marker. Leaving it behind
             // made a DROP + immediate re-CREATE of the same bind/plan defer for up to
             // DURABLE_PENDING_CREATE_FENCE_MILLIS: the probe saw the old marker and the
             // (dropped) row's absence. The marker's DELETE keeps the plain reservation
@@ -4136,7 +4227,7 @@ public class BaselineManager {
                     + " write of the same baseline (id " + reservation.id + ") is still awaiting"
                     + " publication (its id is consumed); retry the statement");
         }
-        // Round-44 #6: the fence elapsed, but elapsed time is NOT a terminal outcome -
+        // The fence elapsed, but elapsed time is NOT a terminal outcome -
         // the write may still be COMMITTED with its publication lagging, and a fresh id
         // allocated next to it would let BOTH enabled rows publish (a same-key duplicate
         // pair). The abandoned identity is therefore CONDEMNED with an append-only
@@ -4153,7 +4244,7 @@ public class BaselineManager {
     }
 
     /**
-     * Condemns one abandoned create identity (round-44 #6): the append-only tombstone of
+     * Condemns one abandoned create identity: the append-only tombstone of
      * a write this FE gave up on. If the underlying INSERT was COMMITTED and its row
      * publishes later, every load filters it (and repairs it away) - the alternative was
      * a second ENABLED row published next to the fresh baseline the retry allocated.
@@ -4169,7 +4260,7 @@ public class BaselineManager {
 
     /**
      * Reads the latest identity-carrying reservation of one baseline (see
-     * {@link #SELECT_PENDING_SEQ_SQL}); null when none / an unparsable row (a pre-identity
+     * SELECT_PENDING_SEQ_SQL); null when none / an unparsable row (a pre-identity
      * row carries NULL and never matches the filter).
      */
     private static SeqReservation readPersistedSeqReservation(String bindSqlDigest,
@@ -4208,12 +4299,12 @@ public class BaselineManager {
      * the transient trees rebuilt exactly like the startup load does. Invalid rows are
      * skipped with a warning (the next cycle retries).
      *
-     * <p>The read is PAGINATED and ordered by id: the table has no retention cap, so one
-     * {@code SELECT *} had to return every row within the fixed per-query timeout - a
+     * The read is PAGINATED and ordered by id: the table has no retention cap, so one
+     * SELECT * had to return every row within the fixed per-query timeout - a
      * snapshot that outgrew it failed as a whole and never converged (the follower kept
      * its old published cache, local baseline DDL waited behind the held writer lock, and
      * confirmed SHOW / post-forward refreshes failed on the same path forever). Each page
-     * is bounded by {@link #SNAPSHOT_PAGE_SIZE} rows and its own timeout, and the loop
+     * is bounded by SNAPSHOT_PAGE_SIZE rows and its own timeout, and the loop
      * walks the id space forward until a short page ends the snapshot.
      */
     private static Map<Long, BaselinePlan> readPersistedSnapshot() throws Exception {
@@ -4222,7 +4313,7 @@ public class BaselineManager {
                 : readStableSnapshot(BaselineManager::readSnapshotPage,
                         BaselineManager::readSnapshotFence);
         // a durable row whose identity carries a DROP TOMBSTONE must never reach the
-        // cache (round-42 #9): an in-flight status INSERT of a demoted master can commit
+        // cache: an in-flight status INSERT of a demoted master can commit
         // after the DROP deleted the row and revive it as an ACTIVE baseline
         return filterResurrectedRows(snapshot);
     }
@@ -4236,17 +4327,17 @@ public class BaselineManager {
 
     /**
      * Reads the paginated snapshot only if the table was UNCHANGED for the whole read
-     * (see {@link #SELECT_SNAPSHOT_FENCE_SQL}): the fence is read before and after the page
+     * (see SELECT_SNAPSHOT_FENCE_SQL): the fence is read before and after the page
      * loop and the read is retried while it moved. The publisher of the returned map can
      * therefore treat it as a single-point-in-time state.
      *
-     * <p>DDL is rare compared to refreshes, so one retry normally converges; a table that
+     * DDL is rare compared to refreshes, so one retry normally converges; a table that
      * never stays stable (a write storm) fails CLOSED with a retryable exception instead of
      * publishing a mixed state - every caller re-reads on the next cycle / retry (the
      * refresh daemon, SHOW, load).
      *
      * @param reader      reads one snapshot page (inclusive lower bound on the id)
-     * @param fenceReader reads the {@link SnapshotFence} token
+     * @param fenceReader reads the SnapshotFence token
      * @return the rows of one stable state, collapsed per id
      * @throws Exception when a read fails or the table never stays stable
      */
@@ -4280,7 +4371,7 @@ public class BaselineManager {
         }
     }
 
-    /** The fence of one paginated snapshot read (see {@link #readStableSnapshot}). */
+    /** The fence of one paginated snapshot read (see readStableSnapshot). */
     @VisibleForTesting
     static final class SnapshotFence {
         final long maxId;
@@ -4305,13 +4396,13 @@ public class BaselineManager {
         }
     }
 
-    /** Reads the fence token of the snapshot read (see {@link #readStableSnapshot}). */
+    /** Reads the fence token of the snapshot read (see readStableSnapshot). */
     @FunctionalInterface
     interface SnapshotFenceReader {
         SnapshotFence readFence() throws Exception;
     }
 
-    /** Reads {@link #SELECT_SNAPSHOT_FENCE_SQL} (one all-NULL row when the table is empty). */
+    /** Reads SELECT_SNAPSHOT_FENCE_SQL (one all-NULL row when the table is empty). */
     private static SnapshotFence readSnapshotFence() throws Exception {
         List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
                 SELECT_SNAPSHOT_FENCE_SQL, Collections.emptyMap(),
@@ -4330,33 +4421,33 @@ public class BaselineManager {
     }
 
     /**
-     * The pagination loop of {@link #readPersistedSnapshot}: walks the id space forward
-     * until a page comes back shorter than {@link #SNAPSHOT_PAGE_SIZE}. Every row is read
+     * The pagination loop of readPersistedSnapshot: walks the id space forward
+     * until a page comes back shorter than SNAPSHOT_PAGE_SIZE. Every row is read
      * EXACTLY ONCE and no row is ever skipped - the two properties the before/after fence
      * alone cannot see.
      *
-     * <p>The next page continues from the LAST ROW READ, not from the row after its id: the
+     * The next page continues from the LAST ROW READ, not from the row after its id: the
      * inclusive bound is the trailing row's id and the offset is the number of rows of
      * that id group already consumed. An id group larger than one page (a repeated
      * opposite-status ALTER failure leaves one more row under the id every time) is read to
      * its end instead of being cut after the first page - the omitted rows could carry the
      * NEWEST durable status, and the winner resolution would resurrect the old one.
      * Reading each row once also makes the number of rows read a VALID completeness proof:
-     * {@link #readStableSnapshot} compares it with the fence's row count, so a silently
+     * readStableSnapshot compares it with the fence's row count, so a silently
      * truncated page (e.g. an internal-query row limit cancelling the query) fails the
      * refresh closed instead of publishing a partial snapshot.
      *
-     * <p>Package-visible with an injectable page reader so the loop (which no unit test can
+     * Package-visible with an injectable page reader so the loop (which no unit test can
      * drive through the internal table) is covered directly.
      *
-     * @param reader       reads one page: every row with {@code id >= pageStart} after
-     *                     skipping {@code offset} rows of that range, in the TOTAL order
-     *                     {@code (id, update_time, status)}; a null pageStart reads the
+     * @param reader       reads one page: every row with id >= pageStart after
+     *                     skipping offset rows of that range, in the TOTAL order
+     *                     (id, update_time, status); a null pageStart reads the
      *                     first page (offset 0)
      * @param pageSize     rows per page (the production value is
-     *                     {@link #SNAPSHOT_PAGE_SIZE})
+     *                     SNAPSHOT_PAGE_SIZE)
      * @param rowsReadSink counts every row the loop actually read (see the completeness
-     *                     check of {@link #readStableSnapshot})
+     *                     check of readStableSnapshot)
      * @return the accumulated snapshot
      * @throws Exception when a page read fails (the caller retries the whole refresh)
      */
@@ -4398,7 +4489,7 @@ public class BaselineManager {
     }
 
     /**
-     * {@link #collectSnapshotPages(SnapshotPageReader, int, AtomicLong)} without the row
+     * collectSnapshotPages(SnapshotPageReader, int, AtomicLong) without the row
      * counter: for tests that only inspect the accumulated snapshot.
      */
     @VisibleForTesting
@@ -4407,16 +4498,16 @@ public class BaselineManager {
         return collectSnapshotPages(reader, pageSize, new AtomicLong());
     }
 
-    /** Reads one page of the snapshot (see {@link #collectSnapshotPages}). */
+    /** Reads one page of the snapshot (see collectSnapshotPages). */
     @FunctionalInterface
     interface SnapshotPageReader {
         List<ResultRow> readPage(Long pageStart, long offset) throws Exception;
     }
 
     /**
-     * The read of ONE snapshot page: every row with {@code id >= pageStart}, ordered by
-     * the TOTAL order {@code (id, update_time, status)} and skipping the first
-     * {@code offset} rows of that range, or the whole table (in the same order) when the
+     * The read of ONE snapshot page: every row with id >= pageStart, ordered by
+     * the TOTAL order (id, update_time, status) and skipping the first
+     * offset rows of that range, or the whole table (in the same order) when the
      * snapshot has just started.
      *
      * @param pageStart inclusive lower bound of the page id range (null = first page)
@@ -4538,7 +4629,7 @@ public class BaselineManager {
     /**
      * Whether a stored text REFERENCES the creator session's temporary-table name. The
      * marker is looked up in the PARSED relations only - never as a raw substring: an
-     * ordinary predicate / value literal ({@code s = '_#TEMP#_'}) or a comment carries the
+     * ordinary predicate / value literal (s = '_#TEMP#_') or a comment carries the
      * same characters, and the old substring test rejected such a durable row on every
      * refresh - the baseline silently disappeared from every FE although CREATE had
      * accepted it (the create-time guard inspects the RESOLVED relations).
@@ -4590,14 +4681,14 @@ public class BaselineManager {
      * the store is complete for this table, and from the durable table only when the
      * table carries a row this store has never seen.
      *
-     * <p>Every GLOBAL CREATE used to filter bind_sql_digest / plan_sql in SQL, but the
+     * Every GLOBAL CREATE used to filter bind_sql_digest / plan_sql in SQL, but the
      * table is keyed and distributed only by id: that predicate scans EVERY bucket and
      * row, while the table grows without a cap (auto capture), so the lookup eventually
      * ran into its fixed timeout and CREATE slowed down / failed as baselines
      * accumulated. The store already holds every row (the load reads them all) plus
      * every local write, and it is invalidated + reloaded on promotion / forwarded DDL,
      * so the in-memory index answers correctly whenever the table has no NEWER id than
-     * the store has seen ({@link #mustScanDurableForKey}); only a newer id - another
+     * the store has seen (mustScanDurableForKey); only a newer id - another
      * master's write, an out-of-band insert, a load that could not run - requires the
      * complete (scanned) answer, which is then paid for.
      *
@@ -4709,7 +4800,7 @@ public class BaselineManager {
             return firstDisabled ? first : second;
         }
         // Fully tied (same stored second, same status): the winner must be DETERMINISTIC
-        // (round-42 #1) - two masters can leave two DIFFERENT rows of one id with the
+        // - two masters can leave two DIFFERENT rows of one id with the
         // same stored second (a delayed INSERT committing after a handoff collision),
         // and an arbitrary pick made refresh / restart / SHOW / the paginated read
         // disagree on which row is authoritative. The CONTENT is a total,
@@ -4733,7 +4824,7 @@ public class BaselineManager {
      * Forces an authoritative reload of the internal table (master acquisition): the
      * in-memory cache may have been loaded long BEFORE this FE became master, so it can
      * miss every row the previous master wrote after that load - the create-time key
-     * dedup would then miss an existing durable baseline. {@code loaded} is cleared
+     * dedup would then miss an existing durable baseline. loaded is cleared
      * first, so a failed read keeps the lazy-retry state machine intact (the next access
      * retries; mutators fail visibly via ensureLoadedOrThrow until the read succeeds).
      */
@@ -4753,7 +4844,7 @@ public class BaselineManager {
 
     /**
      * Invalidates the published store for an authoritative reload: clears the maps
-     * together with {@code loaded}. Clearing ONLY {@code loaded} left the OLD maps visible:
+     * together with loaded. Clearing ONLY loaded left the OLD maps visible:
      * if the internal-table read failed, hasBaselines / findCandidateBaselines would retry
      * the load and then still read the populated maps - a newly promoted FE could apply a
      * baseline the previous master had already disabled or dropped. Matching now sees an
@@ -4774,7 +4865,7 @@ public class BaselineManager {
                 loaded = false;
                 baselines.clear();
                 hashIndex.clear();
-                // Pending-create records are NOT cleared here (round-39 #4): they describe
+                // Pending-create records are NOT cleared here: they describe
                 // writes THIS FE committed, and a reload cannot see an unpublished row.
                 // Clearing them let a re-promoted FE load a snapshot before the row
                 // published, see no key duplicate and assign a retry a SECOND id - both
@@ -4789,7 +4880,7 @@ public class BaselineManager {
     }
 
     /**
-     * For tests: the invalidation half of {@link #forceReloadFromInternalTable} (the
+     * For tests: the invalidation half of forceReloadFromInternalTable (the
      * production caller follows it with the reload).
      */
     @VisibleForTesting
@@ -4805,8 +4896,8 @@ public class BaselineManager {
      * fingerprint on every later refresh - so every persisted field that takes part in
      * planning / matching / replay is compared here.
      *
-     * <p>The TIMESTAMPS are NOT part of this comparison: they are adopted by
-     * {@link #copyPersistedTimestamps} instead, which keeps the object identity (and with
+     * The TIMESTAMPS are NOT part of this comparison: they are adopted by
+     * copyPersistedTimestamps instead, which keeps the object identity (and with
      * it the transient parameterized trees) while still reporting the persisted values.
      * Comparing them here would REPLACE the object on every rewrite - and IGNORING them
      * completely (the previous behavior) lost a status ROUND TRIP: a follower caches
@@ -4833,9 +4924,9 @@ public class BaselineManager {
 
     /**
      * Adopts the persisted create / update timestamps into an UNCHANGED cached object (see
-     * {@link #persistedContentChanged}).
+     * persistedContentChanged).
      *
-     * <p>The comparison is at the internal table's DATETIME (SECOND) precision: memory
+     * The comparison is at the internal table's DATETIME (SECOND) precision: memory
      * keeps millis while the row is written / read back truncated, so a raw comparison
      * would report EVERY row as rewritten every cycle.
      *
@@ -4858,7 +4949,7 @@ public class BaselineManager {
 
     /**
      * Whether two epoch-millis values are the same at the internal table's DATETIME
-     * (SECOND) precision (see {@link #copyPersistedTimestamps}).
+     * (SECOND) precision (see copyPersistedTimestamps).
      */
     private static boolean sameStoredSecond(long memoryMillis, long rowMillis) {
         return memoryMillis / 1000L == rowMillis / 1000L;
@@ -4943,10 +5034,10 @@ public class BaselineManager {
 
     /**
      * The CONDITIONAL INSERT half of a status flip (see
-     * {@link #INSERT_IF_PREVIOUS_STATUS_SQL}): the new-status row is coupled to the
+     * INSERT_IF_PREVIOUS_STATUS_SQL): the new-status row is coupled to the
      * PREVIOUS-status row still being durable.
      *
-     * <p>An ALTER dispatched before a handoff - or merely stalled - could otherwise
+     * An ALTER dispatched before a handoff - or merely stalled - could otherwise
      * INSERT the requested status AFTER the new master completed a DROP of that very
      * baseline: nothing was left to refuse it (the old row was gone, so the delete-old
      * step removed zero rows and the visibility confirmation passed), the resurrected row
@@ -4977,9 +5068,9 @@ public class BaselineManager {
 
     /**
      * Whether the conditional status INSERT actually WROTE a row: a conditional
-     * {@code INSERT ... SELECT ... WHERE ...} that matches no row reports SQL OK with ZERO
+     * INSERT ... SELECT ... WHERE ... that matches no row reports SQL OK with ZERO
      * affected rows, and that count is the only durable signal that separates "wrote
-     * nothing" from "written but not yet readable" (see {@link #updateStatus}). An
+     * nothing" from "written but not yet readable" (see updateStatus). An
      * unknown count (-1) is NOT proof of a zero write, so it counts as written and is then
      * subject to the visibility confirmation.
      */
@@ -4991,7 +5082,7 @@ public class BaselineManager {
     /**
      * Runs the conditional status INSERT and reports whether a row was actually WRITTEN.
      *
-     * <p>{@code INSERT ... SELECT ... WHERE status = previousStatus} reports SQL OK with
+     * INSERT ... SELECT ... WHERE status = previousStatus reports SQL OK with
      * ZERO affected rows when the previous-status row is gone (a concurrent DROP, or a
      * handoff flip that already moved the status away and back): the requested status was
      * NOT written and a plain visibility confirmation would misread the no-op as a
@@ -5023,7 +5114,7 @@ public class BaselineManager {
             // THE ATTEMPTED STORED SECOND is the proof it landed (the previous-status row
             // would not prove it - it is exactly the row the conditional statement must
             // not have matched; and the status ALONE could be a STALE row left by a
-            // previously failed old-row delete - round-35 #2).
+            // previously failed old-row delete - ).
             if (observedInsertRowIsOurs(p)) {
                 LOG.warn("SPM persist (status insert) reported {} but the row is durable"
                         + " (id={}); keeping it", e.getMessage(), p.getId());
@@ -5046,7 +5137,7 @@ public class BaselineManager {
                 idAllocatorStoreForTest.insert(p);
             } catch (RuntimeException e) {
                 // an ambiguous SIMULATOR outcome takes the same path as the real one
-                // (round-39 #11): the write may have landed, so it must not fail like a
+                // the write may have landed, so it must not fail like a
                 // genuine non-commit
                 throwAmbiguousInsertUnlessDurable(p, e);
             }
@@ -5078,8 +5169,8 @@ public class BaselineManager {
             // stored SECOND is the proof it landed: matching only (id, key) treated the
             // still-present OLD-status row of an ALTER as the freshly written new-status
             // row, and the status alone could be satisfied by a STALE row a previously
-            // failed old-row delete left behind (round-35 #2). An outcome that cannot be
-            // PROVEN counts as AMBIGUOUS, never as a genuine failure (round-39 #11).
+            // failed old-row delete left behind. An outcome that cannot be
+            // PROVEN counts as AMBIGUOUS, never as a genuine failure.
             throwAmbiguousInsertUnlessDurable(p, e);
         }
         // A reported SUCCESS still does not prove the row is READABLE: the default insert
@@ -5120,11 +5211,11 @@ public class BaselineManager {
 
     /**
      * A reported-successful INSERT whose row is not READABLE yet (see
-     * {@link #confirmInsertVisible}). The write itself carries EVIDENCE - the affected-row
+     * confirmInsertVisible). The write itself carries EVIDENCE - the affected-row
      * count of the conditional status INSERT, or the committed-write probe - so the caller
      * may treat it as durable: a CREATE must not hand the id out again (its retry defers
-     * instead of allocating a second id, see {@link #pendingCreates}), and a status flip
-     * may publish the row it proves (see {@link #updateStatus}).
+     * instead of allocating a second id, see pendingCreates), and a status flip
+     * may publish the row it proves (see updateStatus).
      */
     private static final class UnconfirmedInsertException extends IllegalStateException {
         UnconfirmedInsertException(String message) {
@@ -5132,7 +5223,7 @@ public class BaselineManager {
         }
 
         /**
-         * The ambiguous-output form (round-39 #11): the INSERT reported an ERROR that may
+         * The ambiguous-output form: the INSERT reported an ERROR that may
          * have been raised AFTER a commit, so the original cause travels with the
          * unconfirmed report.
          */
@@ -5177,7 +5268,7 @@ public class BaselineManager {
      * Confirms a reported-successful identity DELETE left no READABLE row behind (the
      * caller removes its cache entry only afterwards).
      *
-     * <p>An elapsed probe budget is NOT a failed delete: the statement reported SQL OK
+     * An elapsed probe budget is NOT a failed delete: the statement reported SQL OK
      * with the transaction COMMITTED (the default return mode), so the row is durably
      * GONE and only its publication lags behind the probes. Failing the DROP here was the
      * worse choice in both directions: the master kept an ACTIVE cache entry that
@@ -5212,7 +5303,7 @@ public class BaselineManager {
      * (the caller then publishes the flip). Real-store only: the status seam simulators
      * are synchronous.
      *
-     * <p>Like {@link #confirmIdentityGone}, an elapsed probe budget is NOT a failure: the
+     * Like confirmIdentityGone, an elapsed probe budget is NOT a failure: the
      * delete reported SQL OK with the transaction COMMITTED, so the row is durably gone
      * and only its publication lags. Failing here instead bounced the caller into the
      * ambiguous-outcome reconciliation (which kept both rows and reported a spurious
@@ -5255,7 +5346,7 @@ public class BaselineManager {
     }
 
     /**
-     * Outcome of one ambiguous-write reconciliation read (see {@link #probeDurableRow}).
+     * Outcome of one ambiguous-write reconciliation read (see probeDurableRow).
      */
     private enum DurablePresence { PRESENT, ABSENT, UNKNOWN }
 
@@ -5271,7 +5362,7 @@ public class BaselineManager {
 
     /**
      * Reconciles an ambiguous write: whether the durable table holds a row with this
-     * (id, key) AND - when {@code status} is given - the EXPECTED status. A read FAILURE
+     * (id, key) AND - when status is given - the EXPECTED status. A read FAILURE
      * answers UNKNOWN - never ABSENT: an absent row is the ONLY proof a DELETE landed,
      * and treating an unconfirmable read as proof let dropBaseline remove the cached row
      * and report success while the durable row stayed (the next refresh / restart
@@ -5302,9 +5393,9 @@ public class BaselineManager {
     /**
      * As above, with an optional STORED-SECOND constraint. The requested status ALONE is
      * weak evidence of a status-flip INSERT: a previously failed old-row DELETE leaves a
-     * STALE row of that very status beside the winner (round-35 #2 - a leftover ENABLED
+     * STALE row of that very status beside the winner ( - a leftover ENABLED
      * row made an ENABLE whose conditional INSERT aborted look "written"), and
-     * {@code confirmInsertVisible} then accepted the old row as the new row's
+     * confirmInsertVisible then accepted the old row as the new row's
      * publication. A flip stores its row STRICTLY LATER than every row it met (see
      * updateStatus' stored-second bump), so requiring the ATTEMPTED second distinguishes
      * the row THIS write would have produced from any older same-status row.
@@ -5354,7 +5445,7 @@ public class BaselineManager {
      * Whether a READABLE durable row proves the row THIS write attempted landed: the
      * identity AND the attempted STORED SECOND. The status alone was accepted
      * before, and a previously failed old-row delete can leave a STALE row of that very
-     * status beside the winner - the ENABLE of round-35 #2 found the leftover ENABLED
+     * status beside the winner - the ENABLE of found the leftover ENABLED
      * row of the failed DISABLE and treated its aborted conditional INSERT as written,
      * after which a failed DISABLE delete published a status no durable winner carried.
      * The flip's stored second is strictly later than every row it met (the bump in
@@ -5367,9 +5458,9 @@ public class BaselineManager {
     }
 
     /**
-     * Fails an INSERT whose outcome is AMBIGUOUS (round-39 #11). A reported error may have
+     * Fails an INSERT whose outcome is AMBIGUOUS. A reported error may have
      * been raised AFTER a commit (a statement timeout: the row is committed and merely
-     * waiting for publication), so it must travel as {@link UnconfirmedInsertException}:
+     * waiting for publication), so it must travel as UnconfirmedInsertException:
      * the create path then REMEMBERS the attempted identity and the retry defers /
      * adopts instead of allocating a SECOND id for the same baseline (whose unreadable
      * row the durable-key read cannot see). An ordinary exception left that handler
@@ -5395,8 +5486,8 @@ public class BaselineManager {
     /**
      * The newest stored update_time of the WHOLE durable table, in epoch SECONDS (0 when
      * the table holds no row / the read is unavailable). The status-flip bump advances a
-     * new row past this value, so EVERY flip moves {@code MAX(update_time)} - the snapshot
-     * fence (round-39 #9, see {@link #SELECT_MAX_UPDATE_TIME_SQL}).
+     * new row past this value, so EVERY flip moves MAX(update_time) - the snapshot
+     * fence (see SELECT_MAX_UPDATE_TIME_SQL).
      *
      * @return the newest stored second
      */
@@ -5477,10 +5568,10 @@ public class BaselineManager {
      * Removes the row(s) with the given id whose status matches the previous status AND
      * whose content matches the plan's identity (bind_sql_digest + plan_sql).
      *
-     * <p>The leadership fence matters here: an ALTER of the OLD master can reach THIS
+     * The leadership fence matters here: an ALTER of the OLD master can reach THIS
      * DELETE after a handoff while the new master already completed the opposite flip
-     * (both ALTERs pass their early checks). The delayed {@code DELETE ... WHERE id AND
-     * status=<old status>} then removed the ONLY durable row the new master had just
+     * (both ALTERs pass their early checks). The delayed DELETE ... WHERE id AND
+     * status = the old status then removed the ONLY durable row the new master had just
      * written - both ALTERs reported success and the baseline was durably gone. The
      * identity key keeps the same statement from touching a REUSED id's row as well.
      */
@@ -5531,9 +5622,9 @@ public class BaselineManager {
      * Epoch millis -> internal-table DATETIME literal ('yyyy-MM-dd HH:mm:ss'), rendered
      * in UTC.
      *
-     * <p>The columns are zone-free, and the FEs of one cluster do not share a host zone:
-     * rendering in {@code ZoneId.systemDefault()} made the stored value depend on the
-     * writer's host zone, so the duplicate-row recovery ({@link #pickDurableWinner}, which
+     * The columns are zone-free, and the FEs of one cluster do not share a host zone:
+     * rendering in ZoneId.systemDefault() made the stored value depend on the
+     * writer's host zone, so the duplicate-row recovery (pickDurableWinner, which
      * keeps the row with the LATER updateTime) compared instants written by different
      * hosts as if they were one clock - a UTC master's 12:00 ENABLED row outranked a
      * UTC-8 successor's 12:01 DISABLED row (stored 04:01), and a DST fall-back inverted
@@ -5546,7 +5637,7 @@ public class BaselineManager {
                 .format(TS_FORMAT);
     }
 
-    /** Internal-table DATETIME literal (UTC, see {@link #toTs}) -> epoch millis. */
+    /** Internal-table DATETIME literal (UTC, see toTs) -> epoch millis. */
     @VisibleForTesting
     static long fromTs(String ts) {
         return LocalDateTime.parse(ts, TS_FORMAT)

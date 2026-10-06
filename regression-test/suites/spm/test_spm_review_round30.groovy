@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round30", "spm") {
 
-    // Thirtieth review round.
+    // Thirtieth .
     //
     // SQL-visible fix covered here:
     //  - #8: a clock function is a replay-time context expression like @v /

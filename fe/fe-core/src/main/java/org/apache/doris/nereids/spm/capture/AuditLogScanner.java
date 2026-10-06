@@ -53,7 +53,7 @@ import java.util.Map;
  * so the database / catalog must take part in the dedup key.
  *
  * Pagination: the batch LIMIT is applied with a stable total-order cursor (see
- * {@link #ORDER_BY}); the caller resumes from the returned cursor until a batch comes
+ * ORDER_BY); the caller resumes from the returned cursor until a batch comes
  * back shorter than the limit (window exhausted); advancing the window past a truncated
  * batch would permanently skip every eligible row beyond the LIMIT.
  */
@@ -86,10 +86,10 @@ public class AuditLogScanner {
     private static final Logger LOG = LogManager.getLogger(AuditLogScanner.class);
 
     /**
-     * Wall-clock format of the scan bounds. MILLISECOND precision (round-41 #12):
-     * {@code audit_log.time} is DATETIMEV2(3), but a second-precision rendering of the
+     * Wall-clock format of the scan bounds. MILLISECOND precision:
+     * audit_log.time is DATETIMEV2(3), but a second-precision rendering of the
      * EXCLUSIVE upper bound dropped the fraction - a row published at 07:00:00.500 with
-     * a window end rendered as 07:00:00.900 was tested with {@code time < '07:00:00'} and
+     * a window end rendered as 07:00:00.900 was tested with time < '07:00:00' and
      * excluded although it belongs to the window. If its writer zone then changed (the
      * old zone retired after its checkpoint passed), no later window ever recovered the
      * row.
@@ -99,8 +99,8 @@ public class AuditLogScanner {
 
     /**
      * Parses a scan bound: the string-form builders may hand in a second-precision
-     * spelling ({@code 2026-01-01 11:55:00}) while the millisecond rendering is the
-     * published form (round-41 #12), so the fraction is optional HERE only - rendering
+     * spelling (2026-01-01 11:55:00) while the millisecond rendering is the
+     * published form, so the fraction is optional HERE only - rendering
      * always spells it out.
      */
     private static final DateTimeFormatter DATETIME_PARSE_FORMAT =
@@ -177,7 +177,7 @@ public class AuditLogScanner {
         private final boolean hasNamespaceKeys;
         /**
          * The session time zone the cursor's timestamp strings were RENDERED in (the
-         * audit writer's zone, see {@link #auditWriteZone()}); null in a tail written
+         * audit writer's zone, see auditWriteZone()); null in a tail written
          * before the element existed. A PENDING window keeps scanning in this zone so a
          * global time_zone change never mixes two renderings inside one window (the
          * bounds are epoch millis re-formatted every cycle, while the cursor is the
@@ -388,7 +388,7 @@ public class AuditLogScanner {
             return cursorQueryId;
         }
 
-        /** Encoded tail of the cursor (see {@link CursorTail}); empty = absent. */
+        /** Encoded tail of the cursor (see CursorTail); empty = absent. */
         public String getCursorTail() {
             return cursorTail;
         }
@@ -428,14 +428,14 @@ public class AuditLogScanner {
 
     /**
      * Scans the audit_log table within the given time window, resuming after the FULL
-     * cursor tuple (see {@link CursorTail}).
+     * cursor tuple (see CursorTail).
      *
-     * <p>The thresholds are read from the CURRENT global session variables. Only callers
+     * The thresholds are read from the CURRENT global session variables. Only callers
      * outside the capture cycle (tests, tooling) may use this overload: the cycle owns a
      * pinned snapshot of them and must pass it via
-     * {@link #scan(long, long, int, PlanCaptureFilter, long, String, String, String)}, so
+     * scan(long, long, int, PlanCaptureFilter, long, String, String, String), so
      * that the SQL stage and the in-memory
-     * {@link PlanCaptureFilter#shouldCapture} stage never compare against two different
+     * PlanCaptureFilter#shouldCapture stage never compare against two different
      * threshold sets.
      *
      * @param startTimeMs    window start (epoch millis, inclusive)
@@ -461,10 +461,10 @@ public class AuditLogScanner {
 
     /**
      * Scans the audit_log table within the given time window, resuming after the FULL
-     * cursor tuple (see {@link CursorTail}), with the thresholds of the given filter.
+     * cursor tuple (see CursorTail), with the thresholds of the given filter.
      *
-     * <p>Deriving the SQL thresholds from the SAME filter instance that later decides
-     * {@link PlanCaptureFilter#shouldCapture} is what keeps the two stages consistent: the
+     * Deriving the SQL thresholds from the SAME filter instance that later decides
+     * PlanCaptureFilter#shouldCapture is what keeps the two stages consistent: the
      * SQL returns a row exactly when the filter would accept it, so no row the filter
      * rejects is ever consumed (marked processed) and no row the filter accepts is
      * unreachable behind the cursor. Reading the globals here instead made a
@@ -497,8 +497,8 @@ public class AuditLogScanner {
      * As the eight-argument overload, with the zone the window must be rendered in when
      * its cursor does not carry one (a window whose FIRST pass runs now).
      *
-     * <p>audit_log.time is the audit WRITER's local rendering and the writer follows the
-     * global session time_zone, so after {@code SET GLOBAL time_zone} the rows published
+     * audit_log.time is the audit WRITER's local rendering and the writer follows the
+     * global session time_zone, so after SET GLOBAL time_zone the rows published
      * BEFORE the change are stored in the OLD rendering and are invisible to bounds
      * rendered in the new zone - the reviewer's example: a 10:00 UTC row stored as
      * "10:00" is searched as [17:00, 20:00) after the zone becomes +08, the (empty) page
@@ -578,7 +578,7 @@ public class AuditLogScanner {
 
     /**
      * The zone the audit WRITER rendered its timestamps in. AuditLoader formats the
-     * event time with {@link TimeUtils}, which on its own (context-less) worker thread
+     * event time with TimeUtils, which on its own (context-less) worker thread
      * falls back to the GLOBAL session variable time_zone; the scan bounds must use
      * exactly the same zone, otherwise a non-UTC host zone makes every stored row fall
      * outside the windows (or renders window bounds that match nothing).
@@ -633,7 +633,7 @@ public class AuditLogScanner {
     /**
      * Turns one page of raw audit rows into a batch with an explicit timestamp zone (the
      * zone the bounds were rendered in; it travels with the cursor so a pending window
-     * keeps its rendering, see {@link CursorTail#getZoneId()}).
+     * keeps its rendering, see CursorTail#getZoneId()).
      *
      * @param rows         the raw rows of one page
      * @param maxBatchSize the batch limit (a shorter page exhausts the window)
@@ -703,7 +703,7 @@ public class AuditLogScanner {
      * rows in the daemon's mode made their fingerprints equal although SPM compares
      * them concretely - one eligible row was discarded as a duplicate.
      *
-     * <p>Package-private for tests: the identity is the only observable of the gate.
+     * Package-private for tests: the identity is the only observable of the gate.
      *
      * @param stmt the audit statement text
      * @param digest the audit digest (null / empty falls back to the statement)
@@ -736,22 +736,20 @@ public class AuditLogScanner {
      * (PARTITION(p1) and PARTITION(p2) both render as PARTITION(?)) while SPM compares it
      * concretely (sameScanIdentity / sameScanParams), so the fingerprint must join the
      * dedup identity for exactly these statements:
-     * <ul>
-     *   <li>PARTITION / TABLET / TABLESAMPLE / INDEX: specifiedPartition, tabletList,
-     *       sample and index selectors;</li>
-     *   <li>"FOR VERSION AS OF" / "FOR TIME AS OF": tableSnapshot. The formerly checked
+     *   PARTITION / TABLET / TABLESAMPLE / INDEX: specifiedPartition, tabletList,
+     *       sample and index selectors;
+     *   "FOR VERSION AS OF" / "FOR TIME AS OF": tableSnapshot. The formerly checked
      *       "FOR TIMESTAMP" is not a form the grammar accepts, so a statement using
      *       time travel never got a fingerprint and two same-digest variants (only the
      *       version / time differs) collapsed into one identity - the capture then kept
-     *       one of them and dropped the other;</li>
-     *   <li>'@': optScanParams, the relation-level scan parameters that SPM keeps
-     *       concrete (sameScanParams compares type + payloads), i.e. the {@code @branch}
-     *       / {@code @incr} / {@code @tag} / {@code @options} forms.</li>
-     * </ul>
+     *       one of them and dropped the other;
+     *   '@': optScanParams, the relation-level scan parameters that SPM keeps
+     *       concrete (sameScanParams compares type + payloads), i.e. the @branch
+     *       / @incr / @tag / @options forms.
      * A statement mentioning none of them keeps the plain digest: the gate only has to be
      * a cheap pre-filter, over-matching costs one parse, under-matching loses identity.
      *
-     * <p>Package-private for tests.
+     * Package-private for tests.
      *
      * @param stmt the audit statement text
      * @return whether the statement needs its concrete selectors in the dedup identity
@@ -786,10 +784,10 @@ public class AuditLogScanner {
     /**
      * Whether the statement can carry concrete generator arguments (LATERAL VIEW /
      * UNNEST). Over-matching only costs one parse; under-matching drops the argument
-     * fingerprint from the dedup identity (round-41 #16: the multi-token marker must be
-     * matched across whitespace runs - see {@link #upperWithCollapsedWhitespace}).
+     * fingerprint from the dedup identity (the multi-token marker must be
+     * matched across whitespace runs - see upperWithCollapsedWhitespace).
      *
-     * <p>Package-private for tests.
+     * Package-private for tests.
      *
      * @param stmt the audit statement text
      * @return whether the statement needs its concrete generator arguments in the
@@ -806,8 +804,8 @@ public class AuditLogScanner {
 
     /**
      * Upper-cased statement with every whitespace run collapsed to one space: the
-     * multi-token gates above ({@code LATERAL VIEW}, {@code FOR TIME AS OF}) must not miss
-     * a line-break separated spelling (round-41 #16). The audit DIGEST masks the concrete
+     * multi-token gates above (LATERAL VIEW, FOR TIME AS OF) must not miss
+     * a line-break separated spelling. The audit DIGEST masks the concrete
      * generator / snapshot arguments, so a statement the gate misses keeps the plain
      * digest as its dedup identity - two slow queries differing only in a split delimiter
      * or a time-travel snapshot then share that identity and toBatch drops one, although
@@ -866,7 +864,7 @@ public class AuditLogScanner {
 
     /**
      * Builds the audit_log scan SQL with an optional resume-cursor predicate. The ORDER
-     * BY defines the stable total order the cursor walks (see {@link #ORDER_BY}): the
+     * BY defines the stable total order the cursor walks (see ORDER_BY): the
      * row EVENT time first, then every remaining identity / metric key as a durable tie
      * breaker.
      *
@@ -885,9 +883,9 @@ public class AuditLogScanner {
     }
 
     /**
-     * As {@link #buildScanSql(String, String, int, long, long, String)} with an explicit
+     * As buildScanSql(String, String, int, long, long, String) with an explicit
      * offset swing for the completion-aware lower bound (see
-     * {@link #buildScanSql(List, int, long, long, String, long)}): the single-range form a
+     * buildScanSql(List, int, long, long, String, long)): the single-range form a
      * fixed-offset zone produces.
      *
      * @param start               window start timestamp (formatted)
@@ -908,9 +906,9 @@ public class AuditLogScanner {
 
     /**
      * Builds the audit_log scan SQL for a window rendered as one or MORE monotone
-     * wall-clock ranges (see {@link #localTimeRanges}) and with the zone's offset swing
+     * wall-clock ranges (see localTimeRanges) and with the zone's offset swing
      * applied to the completion-aware lower bound (see
-     * {@link #zoneOffsetSwingSeconds}).
+     * zoneOffsetSwingSeconds).
      *
      * @param windowRanges        (start, end) wall-clock pairs of the window
      * @param maxBatchSize        LIMIT for the scan
@@ -931,11 +929,11 @@ public class AuditLogScanner {
     /**
      * As the six-argument overload with an EXPLICIT completion floor (the top-level
      * partition-pruning lower bound), rendered by the caller from the window-start
-     * INSTANT (see {@link #lateCompletionFloor}): the string form is civil arithmetic and
+     * INSTANT (see lateCompletionFloor): the string form is civil arithmetic and
      * therefore wrong across a DST transition (see
-     * {@link #completeWindowFloor(String)}).
+     * completeWindowFloor(String)).
      *
-     * @param floor the already rendered completion floor (see {@link #lateCompletionFloor})
+     * @param floor the already rendered completion floor (see lateCompletionFloor)
      * @return the scan SQL
      */
     static String buildScanSql(List<String[]> windowRanges, int maxBatchSize,
@@ -972,14 +970,14 @@ public class AuditLogScanner {
         // again). Adding the swing seconds makes the bound conservative in the admitting
         // direction, which is the safe side for a late-completion lookback.
         //
-        // The duration is added at MILLISECOND precision (round-37 #8): both `time` and
+        // The duration is added at MILLISECOND precision: both `time` and
         // `query_time` are millisecond values, and the previous CAST(query_time / 1000)
         // truncated the duration to whole seconds - a row at 11:50:00.900 lasting 299100
         // ms truly completes at 11:55:00.000 (the next overlap start) but computed as
         // 11:54:59.900 and was excluded on every later scan. Microsecond arithmetic on
         // the exact millisecond duration is exact in both directions.
         String start = windowRanges.get(0)[0];
-        // The upper bound is the GREATEST rendered end, not the last range's (round-41
+        // The upper bound is the GREATEST rendered end, not the last range's
         // #5): at a fall-back transition the ranges render as [01:45, 02:00) then
         // [01:00, 01:15), and bounding the whole scan by the LAST end (01:15) discarded
         // every row of the first range (a published 01:50 row) before the OR / completion
@@ -1012,9 +1010,9 @@ public class AuditLogScanner {
 
     /**
      * The completion floor computed from the window-start INSTANT in the scan zone: the
-     * window start minus {@link #LATE_COMPLETION_LOOKBACK_MILLIS}, rendered in the same
+     * window start minus LATE_COMPLETION_LOOKBACK_MILLIS, rendered in the same
      * zone the bounds are rendered in. Subtracting from the instant (not from the civil
-     * {@code LocalDateTime}) is what keeps the lookback exactly 24 hours across a DST
+     * LocalDateTime) is what keeps the lookback exactly 24 hours across a DST
      * transition: for a window starting 2026-03-08 03:05 PDT the civil subtraction yields
      * 03:05 PST (25 hours earlier) while the instant subtraction yields the intended
      * 02:05 PST - and a query started 02:30 PST that ran ~23h40m into the window was
@@ -1055,7 +1053,7 @@ public class AuditLogScanner {
      * window start WITHOUT a zone: civil arithmetic on the local timestamp. It is only
      * exact for a fixed-offset rendering - across a DST transition the subtraction lands
      * an hour off the intended instant - so the production scan computes the floor from
-     * the window-start INSTANT instead (see {@link #lateCompletionFloor}); this form is
+     * the window-start INSTANT instead (see lateCompletionFloor); this form is
      * kept for the string-only builders (tests, legacy single-range callers). An unparsable
      * timestamp keeps the start itself (never a LESS bounded range).
      */
@@ -1070,12 +1068,12 @@ public class AuditLogScanner {
     }
 
     /**
-     * Resume-cursor predicate of the scan total order (see {@link #ORDER_BY}): strictly
+     * Resume-cursor predicate of the scan total order (see ORDER_BY): strictly
      * "after" the last consumed row in EVERY ordered key, so a truncated batch continues
      * exactly where it stopped. Presence is decided SOLELY by the CURSOR_ABSENT sentinel:
      * the key columns are nullable and an empty value means SQL NULL (NOT "no cursor").
      *
-     * <p>NULL means "largest value" under DESC (NULLS LAST), so entering a NULL group is
+     * NULL means "largest value" under DESC (NULLS LAST), so entering a NULL group is
      * expressed through IS NULL and the chain continues with the next key. When the LAST
      * key is NULL the remaining rows of the group agree on every ordered column - they
      * are content duplicates of the cursor row (same event time, same query id, same
@@ -1088,7 +1086,7 @@ public class AuditLogScanner {
     }
 
     /**
-     * Resume-cursor predicate with the full cursor tail (see {@link CursorTail}); a blank
+     * Resume-cursor predicate with the full cursor tail (see CursorTail); a blank
      * tail (legacy cursor) falls back to the (time, query_time, query_id) prefix.
      */
     static String cursorPredicate(long cursorQueryTime, String cursorTime, String cursorQueryId,
@@ -1142,7 +1140,7 @@ public class AuditLogScanner {
         }
     }
 
-    /** Renders the strictly-after chain for keys[i..]; see {@link #cursorPredicate}. */
+    /** Renders the strictly-after chain for keys[i..]; see cursorPredicate. */
     private static String renderAfter(List<CursorKey> keys, int index) {
         if (index >= keys.size()) {
             return "1 = 1";
@@ -1171,13 +1169,13 @@ public class AuditLogScanner {
         return value.replace("'", "''");
     }
 
-    /** Formats a scan bound in the given zone (see {@link #auditWriteZone()}). */
+    /** Formats a scan bound in the given zone (see auditWriteZone()). */
     static String formatTimestamp(long epochMillis, ZoneId zone) {
         LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), zone);
         return time.format(DATETIME_FORMAT);
     }
 
-    /** Formats an instant with an EXPLICIT offset (see {@link #localTimeRanges}). */
+    /** Formats an instant with an EXPLICIT offset (see localTimeRanges). */
     private static String formatTimestampWithOffset(long epochMillis, ZoneOffset offset) {
         LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), offset);
         return time.format(DATETIME_FORMAT);
@@ -1188,9 +1186,9 @@ public class AuditLogScanner {
      * audit timestamps are compared against, splitting at every zone offset transition
      * inside the window.
      *
-     * <p>audit_log.time is the audit WRITER's local rendering, so the scan compares
+     * audit_log.time is the audit WRITER's local rendering, so the scan compares
      * strings - which is only sound while the offset stays constant inside the window.
-     * With {@code time_zone = America/Los_Angeles} the window [2026-11-01 08:45Z, 09:15Z)
+     * With time_zone = America/Los_Angeles the window [2026-11-01 08:45Z, 09:15Z)
      * renders as [01:45, 01:15): start > end, so the SQL matched NO row, the empty page
      * looked exhausted and the capture advanced its watermark past rows written in the
      * repeated hour (a row at 09:05Z / 01:05 PST stayed invisible even when its
@@ -1227,8 +1225,8 @@ public class AuditLogScanner {
     }
 
     /**
-     * The instant of the next zone offset transition strictly after {@code fromMs}, or
-     * {@code endMs} when none falls inside the window.
+     * The instant of the next zone offset transition strictly after fromMs, or
+     * endMs when none falls inside the window.
      */
     private static long nextOffsetTransition(long fromMs, long endMs, ZoneId zone) {
         java.time.zone.ZoneOffsetTransition transition =
@@ -1244,7 +1242,7 @@ public class AuditLogScanner {
      * The maximum offset swing of a zone (max offset - min offset over its whole history),
      * in seconds; 0 for a fixed-offset zone.
      *
-     * <p>Bounds {@code |offset(completion) - offset(start)|} for any two instants of the
+     * Bounds |offset(completion) - offset(start)| for any two instants of the
      * zone, which is exactly the error of the civil-time completion arithmetic below (the
      * stored start is a local rendering, adding the ELAPSED seconds to it ignores a DST
      * transition in between). The scan uses it to widen the completion-aware lower bound,

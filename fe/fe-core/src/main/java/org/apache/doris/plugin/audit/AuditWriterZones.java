@@ -37,23 +37,23 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The zone history of the audit WRITER (mirrors
- * {@code AuditLogScanner#auditWriteZone}): every zone an audit row has actually been
+ * AuditLogScanner#auditWriteZone): every zone an audit row has actually been
  * RENDERED in, with the last instant that happened.
  *
- * <p>{@code audit_log.time} stores the writer's local wall clock, so a row written under
+ * audit_log.time stores the writer's local wall clock, so a row written under
  * a zone that is no longer current is invisible to scan bounds rendered in the current
  * zone. The SPM capture therefore has to scan a window in EVERY zone that can own rows
  * before completing it - and a zone change BETWEEN two capture cycles is invisible to the
- * capture's own comparisons (round-39 #3: UTC -> -05:00 -> +08:00 between cycles, with a
+ * capture's own comparisons (UTC -> -05:00 -> +08:00 between cycles, with a
  * short 12:00Z event stored as 07:00 outside both the UTC and the +08:00 renderings).
  * Sampling the writer HERE - at the moment a row is rendered - is what records the
  * intermediate zone; the per-FE snapshot travels to the leader through the
- * publication-horizon table's {@code writer_zones} column.
+ * publication-horizon table's writer_zones column.
  *
- * <p>The registry is in-memory: after a restart the zones are re-recorded by whichever
+ * The registry is in-memory: after a restart the zones are re-recorded by whichever
  * FE still renders audit rows, and the cluster table's per-FE row keeps the previous
  * knowledge while it is being refreshed. A zone is evicted ONLY once the DURABLE CAPTURE
- * PROGRESS has passed its last use (round-40 #4): the capture may keep a window pending
+ * PROGRESS has passed its last use: the capture may keep a window pending
  * for many hours (scanner failures, withheld publications), and a zone that still owns a
  * row inside such a window must stay part of the required scan set until the window
  * completed - the previous 24h time TTL (and the 32-zone cap) removed exactly that
@@ -65,7 +65,7 @@ public final class AuditWriterZones {
     /**
      * Soft bound of the registry: beyond it the least recently used zone the capture has
      * already passed is dropped. A zone the capture has NOT passed yet is never dropped
-     * (see {@link #evictCoveredZones}) - the registry then grows by the number of zones
+     * (see evictCoveredZones) - the registry then grows by the number of zones
      * the cluster really rendered in, an inherently small set (the engine's time_zone
      * values).
      */
@@ -76,12 +76,12 @@ public final class AuditWriterZones {
     private static final ConcurrentHashMap<String, Long> WRITER_ZONES = new ConcurrentHashMap<>();
 
     /**
-     * The zones that have been part of at least one CONFIRMED shared report (round-41
+     * The zones that have been part of at least one CONFIRMED shared report
      * #6). A freshly registered zone must not be evicted by the covered-through filter
      * before the capture ever LEARNED it: the row renderer can register and publish a
      * row under a new zone -05:00, a capture cycle can sample the previous shared zone
      * set and checkpoint past the render time, and only then does the reporter tick
-     * refresh {@code coveredThrough} and encode the registry - which used to drop -05:00
+     * refresh coveredThrough and encode the registry - which used to drop -05:00
      * before it was ever reported, so later windows no longer knew the row's rendering
      * and missed it permanently. Eviction (and the covered filter) therefore requires
      * BOTH: the zone was reported at least once AND capture progress passed its last
@@ -91,8 +91,8 @@ public final class AuditWriterZones {
     private static final java.util.Set<String> REPORTED_ZONES = ConcurrentHashMap.newKeySet();
 
     /**
-     * The capture's RESOLVED progress (round-44 #12): the token-greatest checkpoint row -
-     * the same row {@code PlanCaptureManager}'s read resolves to when no earlier pending
+     * The capture's RESOLVED progress: the token-greatest checkpoint row -
+     * the same row PlanCaptureManager's read resolves to when no earlier pending
      * window is involved (the append-only table needs the token ordering; an unfiltered
      * single-row read could return ANY generation of the checkpoint, including a stale
      * progress row the best-effort prune has not removed yet).
@@ -104,8 +104,8 @@ public final class AuditWriterZones {
                     + " LIMIT 1";
 
     /**
-     * The most-behind PENDING window's start (round-44 #12): while such a row exists the
-     * capture can REWIND to it (see {@code PlanCaptureManager#readCheckpointRow}), so no
+     * The most-behind PENDING window's start: while such a row exists the
+     * capture can REWIND to it (see PlanCaptureManager#readCheckpointRow), so no
      * zone whose last render is at or after the window start may be evicted - a zone
      * dropped here disappears from the follower's next shared report exactly when the
      * leader adopts the window and needs it: the reviewer's -05:00 zone for a 09:05 row,
@@ -122,14 +122,14 @@ public final class AuditWriterZones {
 
     /**
      * How often the durable capture watermark is re-read (see
-     * {@link #refreshCaptureCoveredThrough}). The value only gates EVICTION, so a stale
+     * refreshCaptureCoveredThrough). The value only gates EVICTION, so a stale
      * (older) value merely keeps a zone longer - never drops one too early.
      */
     private static final long COVERED_THROUGH_REFRESH_MILLIS = 30_000L;
 
     /**
      * The start of the next window the SPM capture will scan
-     * ({@code spm_capture_checkpoint.last_scan_timestamp}): every audit row RENDERED
+     * (spm_capture_checkpoint.last_scan_timestamp): every audit row RENDERED
      * before this instant belongs to a COMPLETED window. 0 = no progress known (nothing
      * is evicted / dropped).
      */
@@ -156,8 +156,8 @@ public final class AuditWriterZones {
     /**
      * Records one zone the audit writer rendered a row with (the last-use instant is kept
      * per zone). A zone entering the registry is NOT yet "reported": it stays outside the
-     * covered-through filter until {@link #markReported} confirms its first shared
-     * snapshot (round-41 #6).
+     * covered-through filter until markReported confirms its first shared
+     * snapshot.
      *
      * @param zoneId   the zone ID the row was rendered in
      * @param atMillis the render instant (epoch millis)
@@ -179,7 +179,7 @@ public final class AuditWriterZones {
     /**
      * Marks the zones that were part of a CONFIRMED shared report (the horizon row was
      * read back with exactly this set, see AuditPublicationHorizon#reportLocalHorizon).
-     * Only reported zones become eligible for covered-through eviction (round-41 #6).
+     * Only reported zones become eligible for covered-through eviction.
      *
      * @param reportedZoneIds the zone IDs the confirmed report carried
      */
@@ -196,7 +196,7 @@ public final class AuditWriterZones {
 
     /**
      * Whether a zone may be dropped once capture progress passed it: it must have been
-     * part of a confirmed shared report first (round-41 #6) - otherwise the capture was
+     * part of a confirmed shared report first - otherwise the capture was
      * never told about its rendering.
      */
     private static boolean isCoveredAndReported(String zoneId, long lastUse, long covered) {
@@ -205,7 +205,7 @@ public final class AuditWriterZones {
 
     /**
      * Drops the least recently used zone(s) the durable capture has already passed
-     * (round-40 #4) while the registry is over {@link #MAX_ZONES}. A zone whose last use
+     * while the registry is over MAX_ZONES. A zone whose last use
      * is NOT covered by capture progress is left in place: it can still own a row of an
      * uncompleted window, and reporting it is what makes the capture scan that window in
      * the zone before advancing the watermark.
@@ -235,7 +235,7 @@ public final class AuditWriterZones {
     }
 
     /**
-     * The zone an audit row of {@code atMillis} was most likely RENDERED in (round-43
+     * The zone an audit row of atMillis was most likely RENDERED in
      * #5): the registered zone whose last use is the FIRST one at or after the row's
      * instant. The registry records ONE last-use per zone, so the zone in effect when the
      * row was rendered is the earliest zone whose usage reaches that instant. Used by the
@@ -265,7 +265,7 @@ public final class AuditWriterZones {
     /**
      * The zone ID the audit writer renders timestamps with: the global session
      * time_zone (the context-less loader thread falls back to it, see
-     * {@code AuditLogScanner#auditWriteZone} - keep the two in sync).
+     * AuditLogScanner#auditWriteZone - keep the two in sync).
      */
     static String currentWriterZoneId() {
         java.util.function.Supplier<String> seam = currentWriterZoneForTest;
@@ -277,10 +277,10 @@ public final class AuditWriterZones {
     }
 
     /**
-     * Re-reads {@link #coveredThrough} at most once per
-     * {@link #COVERED_THROUGH_REFRESH_MILLIS} (called from the horizon reporter's tick -
+     * Re-reads coveredThrough at most once per
+     * COVERED_THROUGH_REFRESH_MILLIS (called from the horizon reporter's tick -
      * never from the per-row render path). The value is the ROLLBACK-SAFE resolved
-     * progress (round-44 #12): the minimum of the token-greatest row's watermark and the
+     * progress: the minimum of the token-greatest row's watermark and the
      * most-behind pending window's start, because the capture can rewind to such a
      * window at any time - a zone evicted by a merely "newest" watermark could own a row
      * of the pending window. A failed read (either query) keeps the previous value: an
@@ -316,7 +316,7 @@ public final class AuditWriterZones {
     }
 
     /**
-     * The ROLLBACK-SAFE eviction floor (round-44 #12): the minimum of the resolved
+     * The ROLLBACK-SAFE eviction floor: the minimum of the resolved
      * progress and the most-behind pending window's start. While an unconsumed pending
      * window is readable, the capture can REWIND to it, so its start caps the floor even
      * when the "newest" progress has moved past it (a stale-but-readable progress row
@@ -341,7 +341,7 @@ public final class AuditWriterZones {
     /**
      * One scalar column of one watermark query; null when the store has no row / the
      * value is blank or unparsable. A failed QUERY propagates - the caller then keeps
-     * the previous floor (see {@link #refreshCaptureCoveredThrough}).
+     * the previous floor (see refreshCaptureCoveredThrough).
      */
     private static Long readWatermarkColumn(String sql) {
         List<ResultRow> rows = StatisticsUtil.executeQuery(sql, Collections.emptyMap(),
@@ -361,7 +361,7 @@ public final class AuditWriterZones {
     }
 
     /**
-     * The durable capture watermark (see {@link #coveredThrough}): 0 when nothing was
+     * The durable capture watermark (see coveredThrough): 0 when nothing was
      * captured yet. Cheap; the hot render path reads the cached value.
      */
     public static long captureCoveredThrough() {
@@ -385,13 +385,13 @@ public final class AuditWriterZones {
         return zones;
     }
 
-    /** {@link #snapshot()} as a plain zone-ID set (the capture's required-set input). */
+    /** snapshot() as a plain zone-ID set (the capture's required-set input). */
     public static Set<String> zones() {
         return new LinkedHashSet<>(snapshot().keySet());
     }
 
     /**
-     * Encodes the live registry for the per-FE horizon row: {@code zone=millis} pairs,
+     * Encodes the live registry for the per-FE horizon row: zone=millis pairs,
      * comma-separated. Zone IDs contain '/' and '_' but neither ',' nor '='.
      *
      * @return the encoded registry (empty when nothing was rendered yet)
@@ -408,7 +408,7 @@ public final class AuditWriterZones {
     }
 
     /**
-     * Parses an encoded registry (see {@link #encode}); every unparsable entry (a legacy
+     * Parses an encoded registry (see encode); every unparsable entry (a legacy
      * row, a NULL rendering) is skipped instead of failing the read.
      *
      * @param encoded the encoded registry, may be null / empty
@@ -436,6 +436,76 @@ public final class AuditWriterZones {
             zones.add(zoneId);
         }
         return zones;
+    }
+
+    /**
+     * Parses an encoded registry (see encode) into zone = last-use pairs; unparsable
+     * entries are skipped exactly like decode.
+     *
+     * @param encoded the encoded registry, may be null / empty
+     * @return the zone IDs with their last-use instants
+     */
+    public static Map<String, Long> decodePairs(String encoded) {
+        Map<String, Long> zones = new LinkedHashMap<>();
+        if (encoded == null || encoded.isEmpty()) {
+            return zones;
+        }
+        for (String entry : encoded.split(",")) {
+            int eq = entry.lastIndexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            String zoneId = entry.substring(0, eq).trim();
+            if (zoneId.isEmpty()) {
+                continue;
+            }
+            long lastUse;
+            try {
+                lastUse = Long.parseLong(entry.substring(eq + 1).trim());
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            zones.put(zoneId, lastUse);
+        }
+        return zones;
+    }
+
+    /**
+     * Re-registers the zones THIS FE's PREVIOUS incarnation had already reported: the
+     * restarted process starts with an empty registry, and its first zero / empty report
+     * would otherwise replace the shared row's zone set - a pending window ending before
+     * that report can then complete scanning only the CURRENT zone while an older row
+     * rendered under -05:00 stays invisible, and the capture checkpoints past it.
+     *
+     * The zones travelled in a CONFIRMED report before the restart, so they are marked
+     * reported (subject to the same covered-through filter as the live registry - an
+     * older last-use simply merges with max) instead of waiting for a fresh first report.
+     *
+     * @param zones the previous row's zone = last-use pairs (see decodePairs)
+     */
+    public static void restore(Map<String, Long> zones) {
+        if (zones == null || zones.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Long> entry : zones.entrySet()) {
+            String zoneId = entry.getKey();
+            if (zoneId == null || zoneId.isEmpty()) {
+                continue;
+            }
+            long lastUse = entry.getValue() == null ? 0L : entry.getValue();
+            WRITER_ZONES.merge(zoneId, lastUse, Math::max);
+            REPORTED_ZONES.add(zoneId);
+        }
+    }
+
+    /**
+     * Whether any zone in the registry may still own a row of an UNCOMPLETED capture
+     * window (see the clean-close path of AuditPublicationHorizon#clearLocalReport): the
+     * snapshot is exactly the set every report carries, so a non-empty one means the
+     * shared row is still the only copy of that knowledge.
+     */
+    public static boolean anyZoneNeedingCoverage() {
+        return !snapshot().isEmpty();
     }
 
     /** For tests: forget every recorded zone and the cached capture watermark. */

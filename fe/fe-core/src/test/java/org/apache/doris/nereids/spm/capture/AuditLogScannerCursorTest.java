@@ -129,7 +129,7 @@ public class AuditLogScannerCursorTest {
     }
 
     /**
-     * round-23 #1: the digest renders every scan selector as PARTITION(?): two slow
+     * The digest renders every scan selector as PARTITION(?): two slow
      * same-digest statements differing only in the concrete partition must NOT collapse
      * into one candidate - the survivor's baseline could never serve the discarded one
      * (sameScanIdentity requires the partition names to match).
@@ -273,12 +273,12 @@ public class AuditLogScannerCursorTest {
                 "the lower bound must also admit rows whose START predates the window but"
                         + " whose COMPLETION reaches into it: " + sql);
         // these bounds arrive as GIVEN strings (the string-form builder); the DERIVED
-        // floor is what gets rendered - round-41 #12: at millisecond precision
+        // floor is what gets rendered -: at millisecond precision
         Assertions.assertTrue(sql.contains("`time` >= '2026-01-01 11:55:00'"),
                 "the start-time bound stays: " + sql);
         Assertions.assertTrue(sql.contains("`time` < '2026-01-01 15:00:00'"),
                 "the upper bound stays start-time based: " + sql);
-        // round-23 #2: the completion branch is FLOORED, otherwise the OR admits every
+        // The completion branch is FLOORED, otherwise the OR admits every
         // old query-time partition and the range-partitioned audit table can never prune
         Assertions.assertTrue(sql.contains("`time` >= '2025-12-31 11:55:00.000'"),
                 "the completion branch must be bounded so old partitions still prune: " + sql);
@@ -714,7 +714,7 @@ public class AuditLogScannerCursorTest {
                     AuditLogScanner.auditWriteZone().getRules()
                             .getOffset(java.time.Instant.EPOCH),
                     "the audit writer's zone must be the global session time_zone");
-            // round-41 #12: rendered bounds carry MILLISECOND precision
+            // Rendered bounds carry MILLISECOND precision
             Assertions.assertEquals("1970-01-01 08:00:00.000",
                     AuditLogScanner.formatTimestamp(0L, AuditLogScanner.auditWriteZone()));
             global.setTimeZone("UTC");
@@ -782,11 +782,11 @@ public class AuditLogScannerCursorTest {
         Assertions.assertTrue(withTail.contains("`query_id` IS NULL AND"), withTail);
     }
 
-    // ==================== round-28 #4: DST-safe window bounds ====================
+    // ====================: DST-safe window bounds ====================
 
     /**
      * With a fall-back zone a UTC window renders as an INVERTED local range
-     * ({@code [01:45, 01:15)} in Los Angeles): the scan matched no row at all, the empty
+     * ([01:45, 01:15) in Los Angeles): the scan matched no row at all, the empty
      * page looked exhausted and the capture advanced its watermark past rows written in
      * the repeated hour. The window is split at the transition into monotone segments, so
      * a row written at 09:05Z (01:05 PST, the SECOND 01:05 of that day) is still inside
@@ -856,7 +856,7 @@ public class AuditLogScannerCursorTest {
         Assertions.assertFalse(sql.contains("`time` >= '2026-11-01 01:45:00.000' AND `time` <"
                         + " '2026-11-01 01:15:00.000'"),
                 "the inverted range must be gone: " + sql);
-        // round-41 #5: the top-level partition bound is the GREATEST rendered end (02:00),
+        // The top-level partition bound is the GREATEST rendered end (02:00),
         // not the last range's (01:15): the last-end bound discarded every row of the
         // first segment - including an 01:50 row published after the rollback - before
         // the OR could admit it, and the capture then checkpointed past it
@@ -864,7 +864,7 @@ public class AuditLogScannerCursorTest {
                 "the scan bound must be the greatest segment end: " + sql);
     }
 
-    // ==================== round-28 #7: absolute completion across a transition ====================
+    // ====================: absolute completion across a transition ====================
 
     /**
      * The completion-aware lower bound adds the row's ELAPSED seconds to its LOCAL start

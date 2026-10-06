@@ -17,7 +17,7 @@
 
 suite("test_spm_review_round10", "spm") {
 
-    // Tenth review round: end-to-end checks for
+    // End-to-end checks for
     //  - the two-phase LIMIT (SplitLimit) being collapsed before freezing, so a smaller
     //    captured LIMIT still honours a larger LIMIT / OFFSET of a matching query
     //  - GLOBAL baselines over temporary tables being rejected (the frozen SQL would carry
