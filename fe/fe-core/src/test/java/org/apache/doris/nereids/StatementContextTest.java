@@ -25,6 +25,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
@@ -404,6 +405,25 @@ public class StatementContextTest {
                 statementContext.getExternalMetadataPreloadResult().isPresent());
         org.junit.jupiter.api.Assertions.assertEquals(1,
                 statementContext.getExternalTablePreloadCandidateCount());
+    }
+
+    @Test
+    public void testCloseStopsTheSplitAssignmentsNoCoordinatorTookOver() {
+        StatementContext statementContext = new StatementContext();
+        SplitAssignment first = Mockito.mock(SplitAssignment.class);
+        SplitAssignment second = Mockito.mock(SplitAssignment.class);
+        statementContext.addSplitAssignmentStartedWhilePlanning(first);
+        statementContext.addSplitAssignmentStartedWhilePlanning(second);
+
+        // Each stops unless the coordinator dispatching its plan took it over.
+        statementContext.close();
+
+        Mockito.verify(first).stopIfNotDispatched();
+        Mockito.verify(second).stopIfNotDispatched();
+        // The context forgets them: nothing is left to stop afterwards, nor kept alive through it.
+        statementContext.close();
+        Mockito.verify(first, Mockito.times(1)).stopIfNotDispatched();
+        Mockito.verify(second, Mockito.times(1)).stopIfNotDispatched();
     }
 
     private CatalogIf<?> mockCatalog() {

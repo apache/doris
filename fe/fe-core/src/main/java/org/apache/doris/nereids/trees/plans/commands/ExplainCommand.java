@@ -137,7 +137,7 @@ public class ExplainCommand extends Command implements NoForward {
             } else {
                 executor.handleExplainStmt(planner.getExplainString(explainOptions), true);
             }
-            ScanNode.stopAll(planner.getScanNodes(), ctx.queryId());
+            ScanNode.stopAllUndispatched(planner.getScanNodes());
         } finally {
             if (resetTargetTableId) {
                 explainCtx.setSyntheticWriteColTargetTableId(previousTargetTableId);

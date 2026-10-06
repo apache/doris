@@ -417,12 +417,16 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
                     locationProperties, pathPartitionKeys, admissionResult,
                     Env.getCurrentEnv().getSplitSourceManager());
-            // A scan that plans with its first split starts generating splits now, while it is planned. Any other
-            // scan starts generating them when the coordinator dispatches the plan (ScanNode#start), each split
-            // setting up the params as it is assigned (splitToScanRange), before the plan reaches the backends.
+            // A scan that plans with its first split starts generating splits now, while it is planned: they are the
+            // statement's - which stops them where it drops the plan, or when it ends - unless the coordinator
+            // dispatching the plan took them over (ScanNode#start). Registered first, for a start that fails half
+            // way. Any other scan starts generating them when the coordinator dispatches the plan, each split setting
+            // up the params as it is assigned (splitToScanRange), before the plan reaches the backends.
             boolean planWithSampleSplit = needsSampleSplit();
             if (planWithSampleSplit) {
-                splitAssignment.start();
+                ConnectContext.get().getStatementContext().addSplitAssignmentStartedWhilePlanning(splitAssignment);
+                splitAssignment.startWhilePlanning(ConnectContext.get().getExecTimeoutS() * 1000L,
+                        ConnectContext.get().queryId());
             }
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();

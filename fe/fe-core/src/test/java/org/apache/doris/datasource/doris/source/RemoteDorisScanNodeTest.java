@@ -28,6 +28,7 @@ import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitSource;
 import org.apache.doris.datasource.split.SplitSourceManager;
 import org.apache.doris.datasource.split.SplitToScanRange;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -69,6 +70,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -164,6 +166,19 @@ public class RemoteDorisScanNodeTest {
                 field.setAccessible(true);
                 field.set(target, value);
                 return;
+            } catch (NoSuchFieldException e) {
+                // declared further up
+            }
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    private static Object getField(Object target, String name) throws Exception {
+        for (Class<?> c = target.getClass(); c != null; c = c.getSuperclass()) {
+            try {
+                Field field = c.getDeclaredField(name);
+                field.setAccessible(true);
+                return field.get(target);
             } catch (NoSuchFieldException e) {
                 // declared further up
             }
@@ -378,6 +393,62 @@ public class RemoteDorisScanNodeTest {
         session.close();
 
         Assertions.assertEquals(Collections.singletonList(USER), remote.closedSessions);
+    }
+
+    // A batch scan that plans with its first split - a hive or an iceberg one, whose split generators need a live
+    // connector - starts generating its splits while it is planned. A remote Doris scan made to plan that way stands
+    // in for one here, its generator queueing an endpoint of a query that ran already.
+    private RemoteDorisScanNode scanStartingWhilePlanned() throws Exception {
+        RemoteDorisScanNode node = scanNode(QUERY);
+        initForPlanning(node);
+        Mockito.doReturn(true).when(node).needsSampleSplit();
+        Mockito.doAnswer(invocation -> {
+            SplitAssignment assignment = (SplitAssignment) getField(node, "splitAssignment");
+            assignment.addToQueue(Collections.singletonList(new RemoteDorisSplit(
+                    ENDPOINT_LOCATION.getUri().toString(), ByteBuffer.wrap(QUERY.getBytes(StandardCharsets.UTF_8)))));
+            assignment.finishSchedule();
+            return null;
+        }).when(node).startSplit(Mockito.anyInt());
+        return node;
+    }
+
+    @Test
+    public void testScanStartedWhilePlannedIsStoppedWhenItsStatementEndsUndispatched() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        ConnectContext.get().setStatementContext(statementContext);
+        RemoteDorisScanNode node = scanStartingWhilePlanned();
+
+        node.createScanRangeLocations();
+
+        // Started while planned: its split source is reachable ...
+        SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+        long sourceId = splitSourceId(node.getScanRangeLocations(0).get(0));
+        Assertions.assertNotNull(manager.getSplitSource(sourceId));
+        // ... but no coordinator dispatches the plan - an EXPLAIN, the plan CREATE JOB validates, a statement refused
+        // before dispatch - and the statement stops the scan when it ends.
+        statementContext.close();
+        Assertions.assertNull(manager.getSplitSource(sourceId));
+        Assertions.assertTrue(node.cannotBeRedispatched());
+    }
+
+    @Test
+    public void testScanStartedWhilePlannedIsLeftToTheCoordinatorThatDispatchedIt() throws Exception {
+        StatementContext statementContext = new StatementContext();
+        ConnectContext.get().setStatementContext(statementContext);
+        RemoteDorisScanNode node = scanStartingWhilePlanned();
+        node.createScanRangeLocations();
+        SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+        long sourceId = splitSourceId(node.getScanRangeLocations(0).get(0));
+        Coordinator coordinator = coordinator(node);
+
+        // The coordinator dispatching the plan takes the scan over, so the end of the statement leaves it running -
+        // an Arrow Flight SQL query's coordinator outlives its statement until the client has fetched the result ...
+        ScanNode.startAll(Lists.newArrayList(node));
+        statementContext.close();
+        Assertions.assertNotNull(manager.getSplitSource(sourceId));
+        // ... and stops it when it closes.
+        coordinator.close();
+        Assertions.assertNull(manager.getSplitSource(sourceId));
     }
 
     @Test

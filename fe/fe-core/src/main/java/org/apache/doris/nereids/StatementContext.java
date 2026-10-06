@@ -38,6 +38,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
@@ -220,6 +221,16 @@ public class StatementContext implements Closeable {
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
+
+    // The split assignments the scans of this statement's plans started while they were planned (a batch scan that
+    // plans with its first split, FileQueryScanNode#needsSampleSplit), each the statement's until the coordinator
+    // dispatching its plan takes it over (SplitAssignment#start). Those no coordinator took - the plan CREATE JOB
+    // validates, a statement refused or failing before dispatch - would go on generating splits nobody fetches: they
+    // are stopped when the statement ends (stopUndispatchedSplitAssignments). A plan the statement drops while it goes
+    // on is stopped where it is dropped (ScanNode#stopAllUndispatched: EXPLAIN, the INSERT OVERWRITE probe, an INSERT
+    // planned again, DELETE, the plan a streaming insert task rewrites its TVF in). Guarded by its own monitor:
+    // registered on the planning thread, stopped on the statement's.
+    private final List<SplitAssignment> splitAssignmentsStartedWhilePlanning = new ArrayList<>();
 
     // placeholder params for prepared statement
     private List<Placeholder> placeholders = new ArrayList<>();
@@ -1125,6 +1136,34 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * Registers a split assignment a scan of this statement starts while it is planned: the statement stops it when it
+     * ends unless a coordinator took it over (see {@link #splitAssignmentsStartedWhilePlanning}).
+     */
+    public void addSplitAssignmentStartedWhilePlanning(SplitAssignment splitAssignment) {
+        synchronized (splitAssignmentsStartedWhilePlanning) {
+            splitAssignmentsStartedWhilePlanning.add(splitAssignment);
+        }
+    }
+
+    /**
+     * Stops the split assignments this statement's planning started that no coordinator took over, their plans never
+     * dispatched, and forgets them all: the context may outlive the statement (a prepared statement keeps that of its
+     * last execution), and must not keep a plan alive through them. Called when the statement ends - {@link #close()},
+     * or where it ends without closing this context: a binary COM_STMT_EXECUTE (MysqlConnectProcessor#handleExecute),
+     * an http_stream load (FrontendServiceImpl#initHttpStreamPlan) - and when an attempt of it ends that the next one
+     * plans again: a cloud re-plan (StmtExecutor#queryRetry), an attempt of a streaming insert task. Never throws
+     * (SplitAssignment#stopIfNotDispatched).
+     */
+    public void stopUndispatchedSplitAssignments() {
+        List<SplitAssignment> startedWhilePlanning;
+        synchronized (splitAssignmentsStartedWhilePlanning) {
+            startedWhilePlanning = new ArrayList<>(splitAssignmentsStartedWhilePlanning);
+            splitAssignmentsStartedWhilePlanning.clear();
+        }
+        startedWhilePlanning.forEach(SplitAssignment::stopIfNotDispatched);
+    }
+
     // CHECKSTYLE OFF
     @Override
     protected void finalize() throws Throwable {
@@ -1139,6 +1178,7 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         releasePlannerResources();
+        stopUndispatchedSplitAssignments();
         // Fallback deterministic close of the per-statement connector scope, for statements that never reach the
         // query-finish callback: external DDL / SHOW / DESCRIBE / EXPLAIN / foreground ANALYZE run via Command.run
         // with no coordinator, so PluginDrivenScanNode.getSplits never registers a primary close for them. close()

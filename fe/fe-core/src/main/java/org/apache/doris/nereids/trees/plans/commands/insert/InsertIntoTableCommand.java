@@ -79,6 +79,7 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
@@ -375,6 +376,9 @@ public class InsertIntoTableCommand extends Command
                         LOG.warn("insert plan failed {} times. query id is {}. table id changed from {} to {}",
                                 retryTimes, DebugUtil.printId(ctx.queryId()),
                                 targetTableIf.getId(), newestTargetTableIf.getId());
+                        // The next attempt plans again: this plan is dropped, so stop the split generation its scans
+                        // started while planned now, rather than when the statement ends.
+                        ScanNode.stopAllUndispatched(buildResult.planner.getScanNodes());
                         continue;
                     }
                     // Use the schema saved during planning as the schema of the original target table.
@@ -384,6 +388,7 @@ public class InsertIntoTableCommand extends Command
                                 retryTimes, DebugUtil.printId(ctx.queryId()),
                                 ctx.getStatementContext().getInsertTargetSchema(),
                                 newestTargetTableIf.getFullSchema());
+                        ScanNode.stopAllUndispatched(buildResult.planner.getScanNodes());
                         continue;
                     }
                     if (insertExecutor.requiresTransaction()) {

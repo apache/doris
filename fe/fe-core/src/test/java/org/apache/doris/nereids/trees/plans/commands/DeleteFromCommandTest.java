@@ -17,10 +17,20 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -66,6 +76,32 @@ public class DeleteFromCommandTest {
         Assertions.assertSame(fallbackException, mergedException.getCause());
         Assertions.assertEquals(1, mergedException.getSuppressed().length);
         Assertions.assertSame(initialException, mergedException.getSuppressed()[0]);
+    }
+
+    @Test
+    public void testThePlanOfADeleteIsStoppedAsSoonAsItIsPlanned() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setStatementContext(new StatementContext(ctx, new OriginStatement("delete from t where k in (...)", 0)));
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        // Planning has translated the plan: the scan of the table the predicate's subquery reads started generating
+        // its splits. The statement is then refused, or deletes by predicate, or falls back to
+        // DeleteFromUsingCommand, which plans it again: no coordinator ever takes this plan.
+        ScanNode batchScan = Mockito.mock(ScanNode.class);
+        Mockito.doThrow(new org.apache.doris.common.AnalysisException("refused by a SQL block rule"))
+                .when(executor).checkBlockRules();
+        DeleteFromCommand command = new DeleteFromCommand(ImmutableList.of("internal", "db", "t"), null,
+                false, Collections.emptyList(), Mockito.mock(LogicalPlan.class));
+
+        try (MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
+                (planner, construction) -> Mockito.when(planner.getScanNodes())
+                        .thenReturn(Collections.singletonList(batchScan)))) {
+            Exception e = Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                    () -> command.run(ctx, executor));
+            Assertions.assertTrue(e.getMessage().contains("refused by a SQL block rule"), e.getMessage());
+            Assertions.assertEquals(1, planners.constructed().size());
+        }
+
+        Mockito.verify(batchScan).stopUndispatched();
     }
 
     // Use reflection to validate the helper without exposing it only for tests.

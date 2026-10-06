@@ -79,6 +79,22 @@ public class ScanNodeDispatchTest {
     }
 
     @Test
+    public void testAPlanDroppedUndispatchedIsStoppedWithoutThrowingItsGenerationFailure() throws Exception {
+        // A batch scan started generating its splits while it was planned, and the generation failed. The statement
+        // drops the plan and goes on - an INSERT planned again, a DELETE falling back to DeleteFromUsingCommand - so
+        // the failure is not one of a query: it is logged as what it is, not thrown as a failure to stop.
+        SplitAssignment failed = new SplitAssignment(Mockito.mock(FederationBackendPolicy.class),
+                Mockito.mock(SplitGenerator.class), Mockito.mock(SplitToScanRange.class), new HashMap<>(),
+                new ArrayList<>(), false, new SplitSourceManager());
+        failed.setException(new UserException("split generation failed"));
+        ScanNode node = scanNode(failed);
+
+        Assertions.assertDoesNotThrow(() -> ScanNode.stopAllUndispatched(Lists.newArrayList(node, scanNode(null))));
+
+        Assertions.assertTrue(failed.isStop());
+    }
+
+    @Test
     public void testPlanWhoseSplitAssignmentWasStoppedCannotBeRedispatched() throws Exception {
         SplitAssignment assignment = new SplitAssignment(Mockito.mock(FederationBackendPolicy.class),
                 Mockito.mock(SplitGenerator.class), Mockito.mock(SplitToScanRange.class), new HashMap<>(),

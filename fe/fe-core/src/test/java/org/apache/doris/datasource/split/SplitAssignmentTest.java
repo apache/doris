@@ -22,6 +22,7 @@ import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
@@ -42,6 +43,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public class SplitAssignmentTest {
+
+    // The query whose planning started an assignment, which its stop names in the log.
+    private static final TUniqueId PLANNED_BY = new TUniqueId(1, 2);
 
     private FederationBackendPolicy mockBackendPolicy;
 
@@ -475,6 +479,175 @@ public class SplitAssignmentTest {
         splitAssignment.addCloseable(late);
 
         Mockito.verify(late, Mockito.times(1)).close();
+    }
+
+    @Test
+    void testCoordinatorTakesOverAnAssignmentStartedWhilePlanning() throws Exception {
+        splitAssignment.finishSchedule();
+        SplitSource source = new SplitSource(mockBackend, splitAssignment, 100);
+        // A scan that plans with its first split started generating its splits while it was planned.
+        splitAssignment.startWhilePlanning(60_000, PLANNED_BY);
+        Assertions.assertSame(source, splitSourceManager.getSplitSource(source.getUniqueId()));
+
+        // The coordinator dispatching the plan takes it over: the generator does not start again ...
+        splitAssignment.start();
+        Mockito.verify(mockSplitGenerator, Mockito.times(1)).startSplit(Mockito.anyInt());
+        // ... and the end of the statement leaves it to the coordinator, which stops it when it closes.
+        splitAssignment.stopIfNotDispatched();
+        Assertions.assertFalse(splitAssignment.isStop());
+        Assertions.assertSame(source, splitSourceManager.getSplitSource(source.getUniqueId()));
+
+        splitAssignment.stop();
+        Assertions.assertNull(splitSourceManager.getSplitSource(source.getUniqueId()));
+    }
+
+    @Test
+    void testAssignmentStartedWhilePlanningIsStoppedWhenNoCoordinatorTookItOver() throws Exception {
+        splitAssignment.finishSchedule();
+        SplitSource source = new SplitSource(mockBackend, splitAssignment, 100);
+        splitAssignment.startWhilePlanning(60_000, PLANNED_BY);
+
+        // The statement ends with the plan never dispatched: an EXPLAIN, a plan CREATE JOB validates, a statement
+        // refused before dispatch.
+        splitAssignment.stopIfNotDispatched();
+
+        Assertions.assertTrue(splitAssignment.isStop());
+        Assertions.assertNull(splitSourceManager.getSplitSource(source.getUniqueId()));
+    }
+
+    @Test
+    void testTheEndOfAStatementStopsAnAssignmentWhoseGenerationFailedWithoutThrowing() throws Exception {
+        splitAssignment.finishSchedule();
+        SplitSource source = new SplitSource(mockBackend, splitAssignment, 100);
+        splitAssignment.startWhilePlanning(60_000, PLANNED_BY);
+        splitAssignment.setException(new UserException("split generation failed"));
+
+        // No backend read the splits and the statement that planned them is over: the failure is logged rather than
+        // thrown at the end of that statement, which goes on to stop its other assignments.
+        Assertions.assertDoesNotThrow(() -> splitAssignment.stopIfNotDispatched());
+
+        Assertions.assertTrue(splitAssignment.isStop());
+        Assertions.assertNull(splitSourceManager.getSplitSource(source.getUniqueId()));
+    }
+
+    @Test
+    void testStopDropsTheSplitsNoBackendFetched() throws Exception {
+        Multimap<Backend, Split> batch = ArrayListMultimap.create();
+        batch.put(mockBackend, mockSplit);
+        Mockito.when(mockBackendPolicy.computeScanRangeAssignment(Mockito.any())).thenReturn(batch);
+        Mockito.when(mockSplitToScanRange.getScanRange(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyBoolean())).thenReturn(mockScanRangeLocations);
+        splitAssignment.addToQueue(Collections.singletonList(mockSplit));
+        splitAssignment.addToQueue(Collections.singletonList(mockSplit));
+        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
+        Assertions.assertEquals(2, queue.size());
+
+        // The coordinator stops the assignment with splits still queued: the query reached its LIMIT, say.
+        splitAssignment.stop();
+
+        // Nothing can fetch them any more, so whatever still references the assignment keeps none of them ...
+        Assertions.assertTrue(queue.isEmpty());
+        // ... nor what a generator still running queues afterwards.
+        splitAssignment.addToQueue(Collections.singletonList(mockSplit));
+        Assertions.assertTrue(queue.isEmpty());
+    }
+
+    @Test
+    void testGeneratorStopsAnAssignmentWhosePlanStayedUndispatchedPastTheTimeout() throws Exception {
+        SplitAssignment assignment = assignmentPumpedBySplitGenerator();
+        // Planned by a statement whose timeout is over by the time the backend's queue is full, and that ended
+        // without stopping the assignment (as a COM_STMT_EXECUTE or an internal statement may).
+        assignment.startWhilePlanning(0, PLANNED_BY);
+        keepPumping.countDown();
+
+        // The generator stops it rather than wait for a dispatch that will never come.
+        pumpingThread.join(30_000);
+        Assertions.assertFalse(pumpingThread.isAlive());
+        Assertions.assertTrue(assignment.isStop());
+    }
+
+    @Test
+    void testGeneratorOfADispatchedAssignmentWaitsForTheBackends() throws Exception {
+        SplitAssignment assignment = assignmentPumpedBySplitGenerator();
+        // Started while planned, by a statement whose timeout is over by the time the backend's queue is full, and
+        // taken over by the coordinator dispatching the plan.
+        assignment.startWhilePlanning(0, PLANNED_BY);
+        assignment.start();
+        keepPumping.countDown();
+
+        // The backend's queue is full: the generator waits for the backend to fetch, however long that takes.
+        while (pumpingThread.getState() != Thread.State.TIMED_WAITING) {
+            Thread.sleep(10);
+        }
+        Assertions.assertEquals(0, assignment.getAssignedSplits(mockBackend).remainingCapacity());
+        Thread.sleep(300);
+        Assertions.assertTrue(pumpingThread.isAlive());
+        Assertions.assertFalse(assignment.isStop());
+
+        // The coordinator closes.
+        assignment.stop();
+        pumpingThread.join(30_000);
+        Assertions.assertFalse(pumpingThread.isAlive());
+    }
+
+    @Test
+    void testStopDropsTheBatchAGeneratorWaitingOnAFullQueueOffersAfterIt() throws Exception {
+        SplitAssignment assignment = assignmentPumpedBySplitGenerator();
+        assignment.start();
+        keepPumping.countDown();
+        // The backend's queue is full, and the generator waits in offer for room.
+        while (pumpingThread.getState() != Thread.State.TIMED_WAITING) {
+            Thread.sleep(10);
+        }
+        BlockingQueue<Collection<TScanRangeLocations>> queue = assignment.getAssignedSplits(mockBackend);
+        Assertions.assertEquals(0, queue.remainingCapacity());
+
+        // The coordinator stops the assignment. Emptying the queue makes room, so the batch the generator was waiting
+        // to offer lands in it after stop() emptied it: the generator drops it itself, on its way out.
+        assignment.stop();
+        pumpingThread.join(30_000);
+        Assertions.assertFalse(pumpingThread.isAlive());
+        Assertions.assertTrue(queue.isEmpty(), "batches left in the queue: " + queue.size());
+    }
+
+    private Thread pumpingThread;
+    private final CountDownLatch keepPumping = new CountDownLatch(1);
+
+    // An assignment of one backend whose generator queues splits one at a time for as long as the assignment needs
+    // more, as the streaming generator of an iceberg scan does: once the backend's queue holds 10000 of them, nothing
+    // empties it but a backend's fetch. The generator queues the first split - all that starting the assignment waits
+    // for - then waits for keepPumping.
+    private SplitAssignment assignmentPumpedBySplitGenerator() throws Exception {
+        FederationBackendPolicy backendPolicy = Mockito.mock(FederationBackendPolicy.class,
+                Mockito.withSettings().stubOnly());
+        Multimap<Backend, Split> batch = ArrayListMultimap.create();
+        batch.put(mockBackend, mockSplit);
+        Mockito.when(backendPolicy.computeScanRangeAssignment(Mockito.any())).thenReturn(batch);
+        SplitGenerator splitGenerator = Mockito.mock(SplitGenerator.class);
+        SplitAssignment assignment = new SplitAssignment(backendPolicy, splitGenerator,
+                (backend, properties, split, keys, admission) -> mockScanRangeLocations,
+                locationProperties, pathPartitionKeys, true, splitSourceManager);
+        Mockito.doAnswer(invocation -> {
+            pumpingThread = new Thread(() -> {
+                try {
+                    assignment.addToQueue(Collections.singletonList(mockSplit));
+                    keepPumping.await();
+                    while (assignment.needMoreSplit()) {
+                        assignment.addToQueue(Collections.singletonList(mockSplit));
+                    }
+                } catch (UserException | InterruptedException e) {
+                    assignment.setException(new UserException(e.getMessage(), e));
+                }
+            });
+            pumpingThread.start();
+            // Starting the assignment returns once the first split is published, before it is queued: wait for that
+            // too, so that each test begins with the generator waiting for keepPumping.
+            while (pumpingThread.getState() != Thread.State.WAITING) {
+                Thread.sleep(1);
+            }
+            return null;
+        }).when(splitGenerator).startSplit(Mockito.anyInt());
+        return assignment;
     }
 
     @Test

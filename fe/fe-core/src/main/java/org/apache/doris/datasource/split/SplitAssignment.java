@@ -18,10 +18,13 @@
 package org.apache.doris.datasource.split;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Multimap;
@@ -47,8 +50,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * scan: the split sources they fetch the splits from, and what the generator opened to produce them (the Flight SQL
  * session of a remote Doris scan). {@link #start()} makes the sources reachable to the backends and starts the
  * generator, {@link #stop()} releases all of it. The coordinator dispatching the plan starts the assignment and
- * stops it when it closes or cancels (ScanNode#start, ScanNode#stopAll), so a plan nobody dispatches holds nothing -
- * unless its scan has to start generating splits while it is planned (FileQueryScanNode#needsSampleSplit).
+ * stops it when it closes or cancels (ScanNode#start, ScanNode#stopAll), so a plan nobody dispatches holds nothing.
+ * A scan that has to start generating splits while it is planned (FileQueryScanNode#needsSampleSplit) starts its
+ * assignment then ({@link #startWhilePlanning}): the assignment is the statement's until the coordinator dispatching
+ * the plan takes it over, and the statement stops it when it ends if none did ({@link #stopIfNotDispatched}).
  */
 public class SplitAssignment {
     private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
@@ -68,11 +73,21 @@ public class SplitAssignment {
 
     private UserException exception = null;
 
-    // Whether start() ran, the split sources of the backends, and what stop() closes. Guarded by lifecycleLock,
-    // under which isStopped is set as well: start() may race stop() (a coordinator cancelled while it dispatches the
-    // plan), and so may addCloseable() (a generator still opening what it hands over when the scan is stopped).
+    // Whether the generator was started, whether a coordinator took the assignment over, the split sources of the
+    // backends, and what stop() closes. Guarded by lifecycleLock, under which isStopped is set as well: start() may
+    // race stop() (a coordinator cancelled while it dispatches the plan), and so may addCloseable() (a generator still
+    // opening what it hands over when the scan is stopped).
     private final Object lifecycleLock = new Object();
     private boolean started = false;
+    // Set when the coordinator dispatching the plan takes the assignment over (start()), which owns it from then on.
+    // Until then an assignment started while its scan was planned is the statement's, and nothing fetches its splits.
+    private boolean dispatched = false;
+    // Until when the generator of an assignment started while planned waits for a coordinator to take it over, once a
+    // backend's queue is full (stopIfNeverDispatched).
+    private long undispatchedDeadlineMs = Long.MAX_VALUE;
+    // The query whose planning started the assignment (startWhilePlanning), for the logs of its stop: the generator
+    // stopping it runs on a thread of the shared executor, which knows no query.
+    private TUniqueId plannedByQueryId = null;
     private final List<SplitSource> sources = new ArrayList<>();
     private final List<Closeable> closeableResources = new ArrayList<>();
 
@@ -94,12 +109,39 @@ public class SplitAssignment {
     }
 
     /**
-     * Makes the split sources reachable to the backends and starts the generator, then waits for its first split
-     * ({@link #init()}). Called by the coordinator dispatching the plan once the query is admitted (ScanNode#start),
-     * or while planning by a scan that plans with its first split. Starts once, and a stopped assignment - its
-     * coordinator was cancelled before it got here - not at all.
+     * Starts the assignment for the coordinator dispatching the plan, once the query is admitted (ScanNode#start):
+     * makes the split sources reachable to the backends and starts the generator, then waits for its first split.
+     * Takes over an assignment its scan started while planned instead: either way the coordinator owns it from now on,
+     * and stops it when it closes or cancels. Starts once, and a stopped assignment - its coordinator was cancelled
+     * before it got here - not at all.
      */
     public void start() throws UserException {
+        synchronized (lifecycleLock) {
+            dispatched = true;
+        }
+        startOnce();
+    }
+
+    /**
+     * Starts the assignment while its scan is planned, for a scan that plans with its first split
+     * (FileQueryScanNode#needsSampleSplit). It is the statement's until the coordinator dispatching the plan takes it
+     * over ({@link #start()}), and the statement stops it when it ends if none did ({@link #stopIfNotDispatched()}).
+     * Nothing fetches its splits meanwhile, so once a backend's queue is full the generator waits for the dispatch -
+     * for undispatchedTimeoutMs at most, the timeout of the statement, past which no coordinator takes the plan any
+     * more: the generator then stops the assignment, should the statement have ended without stopping it.
+     * plannedByQueryId, the query of that statement, names it in the logs of the stop.
+     */
+    public void startWhilePlanning(long undispatchedTimeoutMs, TUniqueId plannedByQueryId) throws UserException {
+        synchronized (lifecycleLock) {
+            undispatchedDeadlineMs = System.currentTimeMillis() + undispatchedTimeoutMs;
+            this.plannedByQueryId = plannedByQueryId;
+        }
+        startOnce();
+    }
+
+    // Makes the split sources reachable to the backends and starts the generator, then waits for its first split
+    // (init()). Once, and a stopped assignment not at all.
+    private void startOnce() throws UserException {
         synchronized (lifecycleLock) {
             if (started || isStopped.get()) {
                 return;
@@ -112,7 +154,7 @@ public class SplitAssignment {
         init();
     }
 
-    // Starts the generator and waits for its first split, for start() alone: start() makes the split sources reachable
+    // Starts the generator and waits for its first split, for startOnce() alone: it makes the split sources reachable
     // first, and starts an assignment once - and a stopped one not at all.
     @VisibleForTesting
     void init() throws UserException {
@@ -161,13 +203,38 @@ public class SplitAssignment {
                 } catch (InterruptedException e) {
                     addUserException(new UserException("Failed to offer batch split by interrupted", e));
                 }
+                stopIfNeverDispatched();
             }
+        }
+        // stop() drops what is queued, but a batch offered while it ran may have landed after that.
+        if (isStopped.get()) {
+            dropQueuedSplits();
         }
     }
 
+    // The queue of the backend is full, and only that backend empties it, once a coordinator dispatched the plan. The
+    // plan of an assignment started while planned that no coordinator took over by the timeout of its statement never
+    // will be - the statement ended without stopping it, or was killed for its timeout - so the generator stops it
+    // rather than wait forever on a thread of the shared executor, holding the splits it queued.
+    private void stopIfNeverDispatched() {
+        long deadlineMs;
+        TUniqueId queryId;
+        synchronized (lifecycleLock) {
+            if (dispatched || System.currentTimeMillis() < undispatchedDeadlineMs) {
+                return;
+            }
+            deadlineMs = undispatchedDeadlineMs;
+            queryId = plannedByQueryId;
+        }
+        LOG.warn("Stop generating the splits of {}, planned by query {}: no coordinator dispatched the plan by {},"
+                + " the timeout of the statement that planned it", splitGenerator, DebugUtil.printId(queryId),
+                TimeUtils.longToTimeString(deadlineMs));
+        stopIfNotDispatched();
+    }
+
     /**
-     * Records the split source a backend fetches its splits from: reachable to the backend from {@link #start()}
-     * on - at once if the assignment has started already - until {@link #stop()}.
+     * Records the split source a backend fetches its splits from: reachable to the backend once the assignment has
+     * started ({@link #start()}, {@link #startWhilePlanning}) - at once if it has already - until {@link #stop()}.
      */
     public void registerSource(SplitSource source) {
         synchronized (lifecycleLock) {
@@ -234,16 +301,37 @@ public class SplitAssignment {
     }
 
     /**
-     * Stops the generator, makes the split sources unreachable to the backends and closes what was handed over
-     * ({@link #addCloseable}). Idempotent. A failure of the asynchronous split generation is rethrown, once all of
-     * that is released.
+     * Stops the generator, makes the split sources unreachable to the backends, drops the splits they did not fetch
+     * and closes what was handed over ({@link #addCloseable}). Idempotent. A failure of the asynchronous split
+     * generation is rethrown, once all of that is released.
      */
     public void stop() {
+        if (stopOnce(false) && exception != null) {
+            throw new RuntimeException(exception);
+        }
+    }
+
+    /**
+     * Stops the assignment ({@link #stop()}) unless a coordinator took it over ({@link #start()}): for the statement
+     * whose planning started it ({@link #startWhilePlanning}), when the statement ends. No coordinator took it by then,
+     * so its plan was never dispatched and nothing will fetch its splits. Never throws: a failure of the split
+     * generation is logged instead, as no backend read those splits and the statement that planned them is over.
+     */
+    public void stopIfNotDispatched() {
+        if (stopOnce(true) && exception != null) {
+            LOG.warn("The split generation of {}, planned by query {} and never dispatched, had failed",
+                    splitGenerator, DebugUtil.printId(plannedByQueryId), exception);
+        }
+    }
+
+    // Stops the assignment unless it is stopped already, or onlyIfNotDispatched and a coordinator took it over. Returns
+    // whether it did.
+    private boolean stopOnce(boolean onlyIfNotDispatched) {
         List<SplitSource> toUnregister;
         List<Closeable> toClose;
         synchronized (lifecycleLock) {
-            if (isStopped.get()) {
-                return;
+            if (isStopped.get() || (onlyIfNotDispatched && dispatched)) {
+                return false;
             }
             isStopped.set(true);
             toUnregister = new ArrayList<>(sources);
@@ -253,11 +341,16 @@ public class SplitAssignment {
         for (SplitSource source : toUnregister) {
             splitSourceManager.removeSplitSource(source.getUniqueId());
         }
+        dropQueuedSplits();
         toClose.forEach(this::closeQuietly);
         notifyAssignment();
-        if (exception != null) {
-            throw new RuntimeException(exception);
-        }
+        return true;
+    }
+
+    // Nothing fetches the splits of a stopped assignment, its sources being unreachable: what still references it (its
+    // scan node, and the plan of that) must not keep them on the heap.
+    private void dropQueuedSplits() {
+        assignment.values().forEach(Collection::clear);
     }
 
     public boolean isStop() {

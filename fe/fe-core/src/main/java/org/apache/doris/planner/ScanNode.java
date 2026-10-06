@@ -172,8 +172,8 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
      * pulls its splits from this frontend runs only through a coordinator's exec(), never as a plan handed to the BE
      * as it is (a stream load's). A plan nobody dispatches - an EXPLAIN, a plan built only to be inspected, a statement
      * that fails before dispatch - starts nothing here; but a scan that plans with its first split has started
-     * generating its splits already, while it was planned (FileQueryScanNode#needsSampleSplit), and goes on until
-     * something stops it.
+     * generating its splits already, while it was planned (FileQueryScanNode#needsSampleSplit). The coordinator takes
+     * that over here, and a statement stops it when it ends if no coordinator did.
      */
     public void start() throws UserException {
         if (splitAssignment != null) {
@@ -189,6 +189,17 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     public void stop() {
         if (splitAssignment != null) {
             splitAssignment.stop();
+        }
+    }
+
+    /**
+     * Releases what a plan no coordinator dispatched holds on this frontend (see {@link #stop}), for a statement that
+     * drops the plan and goes on. A failure of the split generation the scan started while it was planned is logged
+     * as one, not thrown: no backend read those splits, and the statement does not fail for them. Idempotent.
+     */
+    public void stopUndispatched() {
+        if (splitAssignment != null) {
+            splitAssignment.stopIfNotDispatched();
         }
     }
 
@@ -217,6 +228,15 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                         DebugUtil.printId(queryId), t);
             }
         }
+    }
+
+    /**
+     * Stops every scan node of a plan the statement drops without dispatching it (see {@link #stopUndispatched}):
+     * EXPLAIN, the INSERT OVERWRITE probe, an INSERT planned again, DELETE, the plan a streaming insert task rewrites
+     * its TVF in. Never throws.
+     */
+    public static void stopAllUndispatched(List<ScanNode> scanNodes) {
+        scanNodes.forEach(ScanNode::stopUndispatched);
     }
 
     protected abstract void createScanRangeLocations() throws UserException;

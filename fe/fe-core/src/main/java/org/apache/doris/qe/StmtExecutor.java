@@ -690,6 +690,9 @@ public class StmtExecutor {
                     throw e;
                 }
                 disableCloudVersionCacheOnRetry = shouldDisableCloudVersionCacheOnRetry(e.getMessage());
+                // The next attempt plans the statement again: stop what the failed attempt's planning started for a
+                // plan no coordinator dispatched now, rather than when the statement ends.
+                context.getStatementContext().stopUndispatchedSplitAssignments();
                 TUniqueId lastQueryId = queryId;
                 queryId = UniqueIdUtils.fastUniqueId();
                 int randomMillis = 10 + (int) (Math.random() * 10);
