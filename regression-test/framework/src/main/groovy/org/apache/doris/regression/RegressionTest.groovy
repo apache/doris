@@ -26,6 +26,7 @@ import org.apache.doris.regression.logger.TeamcityServiceMessageEncoder
 import org.apache.doris.regression.suite.Suite
 import org.apache.doris.regression.suite.event.EventListener
 import org.apache.doris.regression.suite.GroovyFileSource
+import org.apache.doris.regression.suite.OpenedDorisConnections
 import org.apache.doris.regression.suite.ScriptContext
 import org.apache.doris.regression.suite.ScriptSource
 import org.apache.doris.regression.suite.SqlFileSource
@@ -128,6 +129,8 @@ class RegressionTest {
             suiteExecutor.shutdown()
         }
         scriptExecutors.shutdown()
+        // Whatever a thread that outlived its suite still holds (see OpenedDorisConnections.STRAY).
+        OpenedDorisConnections.STRAY.closeAll()
         log.info("Test finished")
         
         // Print log file path again at the end
@@ -176,6 +179,15 @@ class RegressionTest {
         // anything else has to bound that wait itself, as SuiteCluster does for its doris-compose
         // subprocesses.
         Awaitility.pollInSameThread()
+        // And no Awaitility condition answers for threads it does not poll: by default every await()
+        // installs itself as the JVM's default uncaught-exception handler and rethrows, from the awaiting
+        // thread, whatever any thread of the JVM threw uncaught meanwhile. With suites running in parallel
+        // that is the wrong suite by construction (a poller test_active_queries left running failed
+        // test_partial_update_insert_schema_change, which happened to be awaiting a schema change), and
+        // the handler in place is whichever suite entered an await() last, so the same exception may just
+        // as well reach nobody. A thread's failure reaches its suite through Suite.thread() and the future
+        // it returns; a thread a suite started itself is the suite's to join and check.
+        Awaitility.doNotCatchUncaughtExceptionsByDefault()
         classloader = new GroovyClassLoader()
         compileConfig = new CompilerConfiguration()
         compileConfig.setScriptBaseClass((SuiteScript as Class).name)
