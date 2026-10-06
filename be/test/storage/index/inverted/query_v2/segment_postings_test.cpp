@@ -29,6 +29,7 @@
 #include "CLucene/index/DocRange.h"
 #include "CLucene/index/MultiReader.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
+#include "storage/index/inverted/query_v2/phrase_query/phrase_weight.h"
 #include "storage/index/inverted/query_v2/postings/listed_walk.h"
 #include "storage/index/inverted/similarity/bm25_similarity.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
@@ -240,6 +241,18 @@ public:
         return true;
     }
 
+    bool skipToBlock(int32_t target) override {
+        const size_t before = _next;
+        while (_next < _docs.size()) {
+            const size_t end = std::min(_next + _block_size, _docs.size());
+            if (std::cmp_greater_equal(_docs[end - 1], target)) {
+                break;
+            }
+            _next = end;
+        }
+        return _next != before;
+    }
+
     size_t reads = 0;
     size_t fail_read = 0;
 
@@ -249,6 +262,65 @@ private:
     std::vector<uint32_t> _block_docs;
     std::vector<uint32_t> _block_freqs;
 };
+
+class CandidatePhraseSource final : public index_query::IndexSource {
+public:
+    CandidatePhraseSource() {
+        for (size_t i = 0; i < readers.size(); ++i) {
+            auto* reader = new ChunkedPositions(i + 2);
+            for (auto& position : reader->_deltas) {
+                position += i;
+            }
+            readers[i] = reader;
+            _positions[i].reset(reader);
+        }
+    }
+
+    uint32_t doc_count() const override { return 28; }
+
+    Status open_term(std::string_view term, bool, bool,
+                     std::unique_ptr<index_query::PostingsCursor>* out) override {
+        DORIS_CHECK(term == "left" || term == "right");
+        const size_t index = term == "left" ? 0 : 1;
+        *out = std::make_unique<ClucenePostingsCursor>(std::move(_positions[index]));
+        return Status::OK();
+    }
+
+    Status expand_terms(index_query::TermPattern&, int32_t, std::vector<std::string>*) override {
+        return Status::NotSupported("This source only opens exact terms");
+    }
+
+    std::array<ChunkedPositions*, 2> readers {};
+
+private:
+    std::array<TermPositionsPtr, 2> _positions;
+};
+
+TEST_F(SegmentPostingsTest, CandidatePhraseDoesNotDecodeBlocksBeforeItsFirstCandidate) {
+    const std::wstring field = L"content";
+    const std::vector<TermInfo> terms {{.term = std::string("left"), .position = 0},
+                                       {.term = std::string("right"), .position = 1}};
+    const auto candidates = roaring::Roaring::bitmapOf(2, 11, 20);
+    for (const bool scoring : {false, true}) {
+        auto source = std::make_shared<CandidatePhraseSource>();
+        auto similarity = scoring ? std::make_shared<BM25Similarity>(2.0F, 8.0F) : nullptr;
+        PhraseWeight weight(field, terms, {.candidates = &candidates}, similarity, scoring, false);
+        QueryExecutionContext context;
+        context.segment_num_rows = source->doc_count();
+        context.field_sources.emplace(field, source);
+        auto scorer = weight.scorer(context, "");
+
+        ASSERT_EQ(scorer->doc(), 11);
+        for (const auto* reader : source->readers) {
+            EXPECT_EQ(reader->reads, 1U);
+        }
+        const float expected_score = scoring ? similarity->score(1.0F, 1) : 1.0F;
+        EXPECT_FLOAT_EQ(scorer->score(), expected_score);
+        ASSERT_EQ(scorer->advance(), 20);
+        EXPECT_FLOAT_EQ(scorer->score(), expected_score);
+        EXPECT_EQ(scorer->advance(), TERMINATED);
+    }
+}
 
 class DenseTermPositions final : public MockTermPositions {
 public:

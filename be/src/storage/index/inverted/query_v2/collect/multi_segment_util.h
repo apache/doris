@@ -97,13 +97,25 @@ inline index_query::IndexSourcePtr source_for_segment(const index_query::IndexSo
     return segments[segment_index].source;
 }
 
+inline void localize_segment_rows(roaring::Roaring& rows, uint32_t base, uint32_t count) {
+    rows.removeRange(0, base);
+    rows.removeRange(uint64_t(base) + count, uint64_t(1) << 32);
+    if (base != 0 && !rows.isEmpty()) {
+        auto* shifted = roaring::api::roaring_bitmap_add_offset(&rows.roaring, -int64_t(base));
+        if (shifted == nullptr) {
+            throw Exception(ErrorCode::MEM_ALLOC_FAILED, "Failed to rebase segment rows");
+        }
+        rows = roaring::Roaring(shifted);
+    }
+}
+
 class SegmentNullBitmapResolver final : public NullBitmapResolver {
 public:
     SegmentNullBitmapResolver(const QueryExecutionContext& source, uint32_t base, uint32_t count)
             : _source(source.null_resolver),
               _source_owner(source.null_resolver_owner),
               _base(base),
-              _end(uint64_t(base) + count) {}
+              _count(count) {}
 
     segment_v2::IndexIterator* iterator_for(const Scorer& scorer,
                                             const std::string& logical_field) const override {
@@ -112,22 +124,14 @@ public:
 
     void localize_null_rows(roaring::Roaring& rows) const override {
         _source->localize_null_rows(rows);
-        rows.removeRange(0, _base);
-        rows.removeRange(_end, uint64_t(1) << 32);
-        if (_base != 0 && !rows.isEmpty()) {
-            auto* shifted = roaring::api::roaring_bitmap_add_offset(&rows.roaring, -int64_t(_base));
-            if (shifted == nullptr) {
-                throw Exception(ErrorCode::MEM_ALLOC_FAILED, "Failed to rebase segment NULL rows");
-            }
-            rows = roaring::Roaring(shifted);
-        }
+        localize_segment_rows(rows, _base, _count);
     }
 
 private:
     const NullBitmapResolver* _source;
     std::shared_ptr<const NullBitmapResolver> _source_owner;
     uint32_t _base;
-    uint64_t _end;
+    uint32_t _count;
 };
 
 inline QueryExecutionContext create_segment_context(const QueryExecutionContext& original_ctx,
@@ -141,6 +145,7 @@ inline QueryExecutionContext create_segment_context(const QueryExecutionContext&
     }
 
     seg_ctx.segment_num_rows = segment_num_rows;
+    seg_ctx.segment_doc_base = segment_doc_base;
 
     for (const auto& [key, source] : original_ctx.source_bindings) {
         seg_ctx.source_bindings[key] = source_for_segment(source, segment_index);

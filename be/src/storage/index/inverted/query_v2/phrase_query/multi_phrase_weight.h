@@ -54,7 +54,8 @@ private:
         return slots;
     }
 
-    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) override {
+    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs,
+                               const index_query::PhraseQueryOptions& options) override {
         std::vector<std::pair<size_t, PostingsPtr>> term_postings_list;
         for (const auto& term_info : _term_infos) {
             size_t offset = term_info.position;
@@ -92,7 +93,7 @@ private:
                 term_postings_list.emplace_back(offset, std::move(union_posting));
             }
         }
-        return PhraseScorer<PostingsPtr>::create(term_postings_list, _similarity, _options,
+        return PhraseScorer<PostingsPtr>::create(term_postings_list, _similarity, options,
                                                  num_docs);
     }
 

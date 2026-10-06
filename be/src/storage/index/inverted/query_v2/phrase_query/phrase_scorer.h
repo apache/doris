@@ -44,7 +44,8 @@ public:
 
     PhraseScorer(IntersectionDocSetPtr intersection_docset, std::vector<TermState> terms,
                  size_t num_clauses, index_query::PhraseVerifier verifier,
-                 index_query::ScoringContextPtr<float> similarity);
+                 index_query::ScoringContextPtr<float> similarity,
+                 std::shared_ptr<const roaring::Roaring> candidates_owner);
     ~PhraseScorer() override;
 
     // Clauses that share a postings object read its positions once per document.
@@ -64,6 +65,7 @@ public:
     bool phrase_match();
 
 private:
+    std::shared_ptr<const roaring::Roaring> _candidates_owner;
     IntersectionDocSetPtr _intersection_docset;
     std::vector<TermState> _terms;
     index_query::PhraseVerifier _verifier;

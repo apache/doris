@@ -34,6 +34,9 @@
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 #include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
+#include "storage/index/inverted/query_v2/phrase_prefix_query/phrase_prefix_weight.h"
+#include "storage/index/inverted/query_v2/phrase_query/multi_phrase_weight.h"
+#include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
 #include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
@@ -179,6 +182,74 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithMultiReader) {
 
     _CLDECDELETE(dir0);
     _CLDECDELETE(dir1);
+}
+
+TEST_F(MultiSegmentCollectorTest, PhraseCandidatesUseTheGlobalDocumentDomain) {
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+    const std::wstring field = L"title";
+    const std::vector<TermInfo> terms {{.term = std::string("fleabag"), .position = 0},
+                                       {.term = std::string("finale"), .position = 1}};
+    const auto candidates = roaring::Roaring::bitmapOf(1, 3);
+    QueryExecutionContext context;
+    context.segment_num_rows = reader->maxDoc();
+    context.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+
+    for (const bool restricted : {false, true}) {
+        PhraseQuery query(std::make_shared<IndexQueryContext>(), field, terms,
+                          {.candidates = restricted ? &candidates : nullptr});
+        auto rows = std::make_shared<roaring::Roaring>();
+        collect_multi_segment_doc_set(query.weight(false), context, "", rows, nullptr, false);
+        EXPECT_EQ(*rows, candidates) << "restricted=" << restricted;
+    }
+
+    for (const auto& selected : {roaring::Roaring(), roaring::Roaring::bitmapOf(1, 2),
+                                 roaring::Roaring::bitmapOf(4, 0, 2, 3, 4)}) {
+        PhraseQuery query(std::make_shared<IndexQueryContext>(), field, terms,
+                          {.candidates = &selected});
+        auto rows = std::make_shared<roaring::Roaring>();
+        collect_multi_segment_doc_set(query.weight(false), context, "", rows, nullptr, false);
+        EXPECT_EQ(*rows, candidates & selected);
+    }
+}
+
+TEST_F(MultiSegmentCollectorTest, RebasedPhraseCandidatesOutliveTheirWeight) {
+    auto reader =
+            make_shared_reader(lucene::index::IndexReader::open((kTestDir + "/segment1").c_str()));
+    const std::wstring field = L"title";
+    const auto candidates = roaring::Roaring::bitmapOf(4, 0, 2, 3, 4);
+    const index_query::PhraseQueryOptions options {.candidates = &candidates};
+    const std::vector<TermInfo> terms {{.term = std::string("fleabag"), .position = 0},
+                                       {.term = std::string("finale"), .position = 1}};
+    const std::vector<TermInfo> alternatives {
+            {.term = std::string("fleabag"), .position = 0},
+            {.term = std::vector<std::string> {"premiere", "finale"}, .position = 1}};
+    QueryExecutionContext segment;
+    segment.segment_num_rows = reader->maxDoc();
+    segment.segment_doc_base = 2;
+    segment.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+    for (const bool scoring : {false, true}) {
+        auto similarity = scoring ? std::make_shared<BM25Similarity>(2.0F, 8.0F) : nullptr;
+        std::vector<WeightPtr> weights {
+                std::make_shared<PhraseWeight>(field, terms, options, similarity, scoring, false),
+                std::make_shared<MultiPhraseWeight>(field, alternatives, options, similarity,
+                                                    scoring, false),
+                std::make_shared<PhrasePrefixWeight>(
+                        field, std::vector<std::pair<size_t, std::string>> {{0, "fleabag"}},
+                        std::pair<size_t, std::string> {1, "fin"}, similarity, scoring, 50, options,
+                        false, false)};
+        for (auto& weight : weights) {
+            auto scorer = weight->scorer(segment, "");
+            weight.reset();
+            ASSERT_EQ(scorer->doc(), 1);
+            const float expected_score = scoring ? similarity->score(1.0F, 0) : 1.0F;
+            EXPECT_FLOAT_EQ(scorer->score(), expected_score);
+            EXPECT_EQ(scorer->seek(1), 1);
+            EXPECT_EQ(scorer->advance(), TERMINATED);
+        }
+    }
 }
 
 // Statistics for scoring that read no collection.

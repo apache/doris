@@ -49,6 +49,8 @@ struct PhraseQueryOptions {
     // Set once the phrase reaches `candidates`: every slot holds a term, so its rows depend on
     // them. A phrase that stops before is empty for the whole segment.
     bool* candidate_rows_consumed = nullptr;
+    // Keeps a rebased candidate bitmap alive while its scorer borrows it.
+    std::shared_ptr<const roaring::Roaring> candidates_owner = nullptr;
 };
 
 // Decides whether one document holds a phrase and how often, for every index format. Clause i

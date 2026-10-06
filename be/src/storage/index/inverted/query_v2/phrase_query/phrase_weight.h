@@ -63,7 +63,8 @@ protected:
     // The phrase's slots, in clause order.
     virtual std::vector<PhraseSlot> _slots() const = 0;
     // The phrase run one document at a time over the slots' postings.
-    virtual ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) = 0;
+    virtual ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs,
+                                       const index_query::PhraseQueryOptions& options) = 0;
 
     std::wstring _field;
     index_query::PhraseQueryOptions _options;
@@ -75,6 +76,7 @@ private:
     index_query::IndexSourcePtr _source(const QueryExecutionContext& ctx,
                                         const std::string& binding_key) const;
     static bool _lists(const index_query::IndexSource& source) { return source.batches_reads(); }
+    index_query::PhraseQueryOptions _segment_options(const QueryExecutionContext& ctx) const;
     ScorerPtr _listed_scorer(index_query::IndexSource& source, const roaring::Roaring* candidates);
 };
 
@@ -88,7 +90,8 @@ public:
 
 private:
     std::vector<PhraseSlot> _slots() const override;
-    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) override;
+    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs,
+                               const index_query::PhraseQueryOptions& options) override;
 
     std::vector<TermInfo> _term_infos;
 };

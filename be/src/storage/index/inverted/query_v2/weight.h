@@ -41,6 +41,7 @@ struct FieldBindingContext {
 
 struct QueryExecutionContext {
     uint32_t segment_num_rows = 0;
+    uint32_t segment_doc_base = 0;
     // The index sources a query reads: every bound one, by binding key, and by stored field.
     std::vector<index_query::IndexSourcePtr> sources;
     std::unordered_map<std::string, index_query::IndexSourcePtr> source_bindings;
@@ -156,9 +157,10 @@ protected:
 
     // The postings of a UTF-8 term on `source`, or null when the source lacks the term. A
     // scoring context scores them by the source's norms.
-    SegmentPostingsPtr open_postings(
-            index_query::IndexSource& source, std::string_view term, bool positions,
-            bool enable_scoring, const index_query::ScoringContextPtr<float>& similarity) const {
+    SegmentPostingsPtr open_postings(index_query::IndexSource& source, std::string_view term,
+                                     bool positions, bool enable_scoring,
+                                     const index_query::ScoringContextPtr<float>& similarity,
+                                     uint32_t first_doc = 0) const {
         if (enable_scoring && similarity != nullptr) {
             similarity->bind_norms(source.norm_lengths());
         }
@@ -166,6 +168,10 @@ protected:
         THROW_IF_ERROR(source.open_term(term, positions, enable_scoring, &cursor));
         if (cursor == nullptr) {
             return nullptr;
+        }
+        if (first_doc != 0) {
+            bool moved = false;
+            THROW_IF_ERROR(cursor->shallow_seek(first_doc, &moved));
         }
         return make_segment_postings(std::move(cursor), enable_scoring, similarity);
     }
