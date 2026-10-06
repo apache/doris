@@ -239,9 +239,7 @@ public class InsertOverwriteTableCommand extends Command
         // that plan. No coordinator ever takes this one, so what its scan nodes opened for the
         // backend while planning (a remote Doris scan's Flight SQL session on the other frontend, a
         // batch split source) is released here, before the real insert opens its own.
-        for (ScanNode scanNode : planner.getScanNodes()) {
-            scanNode.stop();
-        }
+        ScanNode.stopAll(planner.getScanNodes(), ctx.queryId());
         Plan analyzedPlan = planner.getAnalyzedPlan();
         lineagePlan = Optional.ofNullable(analyzedPlan);
         executor.checkBlockRules();

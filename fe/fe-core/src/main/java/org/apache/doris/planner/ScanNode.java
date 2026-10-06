@@ -45,6 +45,7 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.split.SplitGenerator;
@@ -60,6 +61,7 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
@@ -96,7 +98,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
     protected String sortColumn = null;
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
-    protected List<SplitSource> splitSources = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;
     protected SplitAssignment splitAssignment = null;
 
@@ -161,6 +162,60 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
      */
     public boolean cannotBeRedispatched() {
         return false;
+    }
+
+    /**
+     * Starts what the BE reads from this frontend while it scans this node: the {@link SplitAssignment} the BE fetches
+     * the splits from. The coordinator dispatching the plan starts it once the query is admitted, before the fragments
+     * are sent ({@link #startAll}), and stops it when it closes or cancels ({@link #stopAll}). So a plan whose scan
+     * pulls its splits from this frontend runs only through a coordinator's exec(), never as a plan handed to the BE
+     * as it is (a stream load's). A plan nobody dispatches - an EXPLAIN, a plan built only to be inspected, a statement
+     * that fails before dispatch - starts nothing here; but a scan that plans with its first split has started
+     * generating its splits already, while it was planned (FileQueryScanNode#needsSampleSplit), and goes on until
+     * something stops it.
+     */
+    public void start() throws UserException {
+        if (splitAssignment != null) {
+            splitAssignment.start();
+        }
+    }
+
+    /**
+     * Releases what the BE read from this frontend while it scanned this node: stops the split assignment, which
+     * unregisters its split sources and closes what its generator opened. Idempotent.
+     */
+    @Override
+    public void stop() {
+        if (splitAssignment != null) {
+            splitAssignment.stop();
+        }
+    }
+
+    /**
+     * Starts every scan node of a query being dispatched (see {@link #start}). The first failure propagates: the
+     * caller then cancels or closes the query, which stops the nodes started so far.
+     */
+    public static void startAll(List<ScanNode> scanNodes) throws UserException {
+        for (ScanNode scanNode : scanNodes) {
+            scanNode.start();
+        }
+    }
+
+    /**
+     * Stops every scan node of a query, one failing to stop not keeping the next from stopping: each releases what it
+     * holds on this frontend for the BE (see {@link #stop}), and a split assignment rethrows the failure of its
+     * asynchronous split generation - once it has released what it holds. Never throws: it runs on the query's
+     * teardown path, after the query's outcome is decided.
+     */
+    public static void stopAll(List<ScanNode> scanNodes, TUniqueId queryId) {
+        for (ScanNode scanNode : scanNodes) {
+            try {
+                scanNode.stop();
+            } catch (Throwable t) {
+                LOG.error("error happens when scan node {} stop, query id: {}", scanNode.getId(),
+                        DebugUtil.printId(queryId), t);
+            }
+        }
     }
 
     protected abstract void createScanRangeLocations() throws UserException;

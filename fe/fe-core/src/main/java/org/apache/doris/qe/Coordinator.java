@@ -801,6 +801,9 @@ public class Coordinator implements CoordInterface {
                 context.setWorkloadGroupName("");
             }
         }
+        // What the BE reads from this frontend while it scans starts now that the query is admitted, before the
+        // fragments are sent; close() and cancel() stop it.
+        ScanNode.startAll(scanNodes);
         execInternal();
     }
 
@@ -837,13 +840,7 @@ public class Coordinator implements CoordInterface {
             }
         }
 
-        try {
-            for (ScanNode scanNode : scanNodes) {
-                scanNode.stop();
-            }
-        } catch (Throwable t) {
-            LOG.error("error happens when scannode stop ", t);
-        }
+        ScanNode.stopAll(scanNodes, queryId);
     }
 
     protected void execInternal() throws Exception {
@@ -1449,16 +1446,9 @@ public class Coordinator implements CoordInterface {
         }
         // Scan cleanup is best-effort and must never escape: the terminal status and interval cancellation
         // above are already published, and a throwing scan would otherwise skip the remaining scans (and the
-        // caller's coordinator close), masking the retained reason. A scan whose first stop() threw still
-        // removes its own sources on the close-time retry because SplitAssignment.stop() is idempotent.
-        for (ScanNode scanNode : scanNodes) {
-            try {
-                scanNode.stop();
-            } catch (Throwable t) {
-                LOG.error("error happens when scannode stop during cancel, query id: {}",
-                        DebugUtil.printId(queryId), t);
-            }
-        }
+        // caller's coordinator close), masking the retained reason. A scan whose stop() threw has released its
+        // own sources all the same: SplitAssignment.stop() rethrows only once it has released what it holds.
+        ScanNode.stopAll(scanNodes, queryId);
     }
 
     public boolean isQueryCancelled() {

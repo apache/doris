@@ -23,6 +23,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -30,10 +31,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -43,10 +42,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * When file splits are supplied in batch mode, splits are generated lazily and assigned in each call of `getNextBatch`.
  * `SplitGenerator` provides the file splits, and `FederationBackendPolicy` assigns these splits to backends.
+ *
+ * <p>An assignment serves one dispatch of its plan and holds what the backends need from this frontend while they
+ * scan: the split sources they fetch the splits from, and what the generator opened to produce them (the Flight SQL
+ * session of a remote Doris scan). {@link #start()} makes the sources reachable to the backends and starts the
+ * generator, {@link #stop()} releases all of it. The coordinator dispatching the plan starts the assignment and
+ * stops it when it closes or cancels (ScanNode#start, ScanNode#stopAll), so a plan nobody dispatches holds nothing -
+ * unless its scan has to start generating splits while it is planned (FileQueryScanNode#needsSampleSplit).
  */
 public class SplitAssignment {
     private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
-    private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
     private final ConcurrentHashMap<Backend, BlockingQueue<Collection<TScanRangeLocations>>> assignment
@@ -55,12 +60,20 @@ public class SplitAssignment {
     private final Map<String, String> locationProperties;
     private final List<String> pathPartitionKeys;
     private final boolean fileCacheAdmission;
+    private final SplitSourceManager splitSourceManager;
     private final Object assignLock = new Object();
     private Split sampleSplit = null;
     private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
 
     private UserException exception = null;
+
+    // Whether start() ran, the split sources of the backends, and what stop() closes. Guarded by lifecycleLock,
+    // under which isStopped is set as well: start() may race stop() (a coordinator cancelled while it dispatches the
+    // plan), and so may addCloseable() (a generator still opening what it hands over when the scan is stopped).
+    private final Object lifecycleLock = new Object();
+    private boolean started = false;
+    private final List<SplitSource> sources = new ArrayList<>();
     private final List<Closeable> closeableResources = new ArrayList<>();
 
     public SplitAssignment(
@@ -69,16 +82,40 @@ public class SplitAssignment {
             SplitToScanRange splitToScanRange,
             Map<String, String> locationProperties,
             List<String> pathPartitionKeys,
-            boolean fileCacheAdmission) {
+            boolean fileCacheAdmission,
+            SplitSourceManager splitSourceManager) {
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
         this.splitToScanRange = splitToScanRange;
         this.locationProperties = locationProperties;
         this.pathPartitionKeys = pathPartitionKeys;
         this.fileCacheAdmission = fileCacheAdmission;
+        this.splitSourceManager = splitSourceManager;
     }
 
-    public void init() throws UserException {
+    /**
+     * Makes the split sources reachable to the backends and starts the generator, then waits for its first split
+     * ({@link #init()}). Called by the coordinator dispatching the plan once the query is admitted (ScanNode#start),
+     * or while planning by a scan that plans with its first split. Starts once, and a stopped assignment - its
+     * coordinator was cancelled before it got here - not at all.
+     */
+    public void start() throws UserException {
+        synchronized (lifecycleLock) {
+            if (started || isStopped.get()) {
+                return;
+            }
+            started = true;
+            for (SplitSource source : sources) {
+                splitSourceManager.registerSplitSource(source);
+            }
+        }
+        init();
+    }
+
+    // Starts the generator and waits for its first split, for start() alone: start() makes the split sources reachable
+    // first, and starts an assignment once - and a stopped one not at all.
+    @VisibleForTesting
+    void init() throws UserException {
         splitGenerator.startSplit(backendPolicy.numBackends());
         synchronized (assignLock) {
             final int waitIntervalTimeMillis = 100;
@@ -128,12 +165,17 @@ public class SplitAssignment {
         }
     }
 
-    public void registerSource(long uniqueId) {
-        sources.add(uniqueId);
-    }
-
-    public Set<Long> getSources() {
-        return sources;
+    /**
+     * Records the split source a backend fetches its splits from: reachable to the backend from {@link #start()}
+     * on - at once if the assignment has started already - until {@link #stop()}.
+     */
+    public void registerSource(SplitSource source) {
+        synchronized (lifecycleLock) {
+            sources.add(source);
+            if (started && !isStopped.get()) {
+                splitSourceManager.registerSplitSource(source);
+            }
+        }
     }
 
     public Split getSampleSplit() {
@@ -191,19 +233,27 @@ public class SplitAssignment {
         notifyAssignment();
     }
 
+    /**
+     * Stops the generator, makes the split sources unreachable to the backends and closes what was handed over
+     * ({@link #addCloseable}). Idempotent. A failure of the asynchronous split generation is rethrown, once all of
+     * that is released.
+     */
     public void stop() {
-        if (isStop()) {
-            return;
-        }
-        isStopped.set(true);
-        closeableResources.forEach((closeable) -> {
-            try {
-                closeable.close();
-            } catch (Exception e) {
-                LOG.warn("close resource error:{}", e.getMessage(), e);
-                // ignore
+        List<SplitSource> toUnregister;
+        List<Closeable> toClose;
+        synchronized (lifecycleLock) {
+            if (isStopped.get()) {
+                return;
             }
-        });
+            isStopped.set(true);
+            toUnregister = new ArrayList<>(sources);
+            toClose = new ArrayList<>(closeableResources);
+            closeableResources.clear();
+        }
+        for (SplitSource source : toUnregister) {
+            splitSourceManager.removeSplitSource(source.getUniqueId());
+        }
+        toClose.forEach(this::closeQuietly);
         notifyAssignment();
         if (exception != null) {
             throw new RuntimeException(exception);
@@ -214,7 +264,26 @@ public class SplitAssignment {
         return isStopped.get();
     }
 
+    /**
+     * Hands over what the backends need until the scan is over, for {@link #stop()} to close: the Flight SQL session
+     * a remote Doris query runs in. One handed over once the assignment is stopped is closed at once - the generator
+     * was still opening it when the scan was stopped, and nothing would close it later.
+     */
     public void addCloseable(Closeable resource) {
-        closeableResources.add(resource);
+        synchronized (lifecycleLock) {
+            if (!isStopped.get()) {
+                closeableResources.add(resource);
+                return;
+            }
+        }
+        closeQuietly(resource);
+    }
+
+    private void closeQuietly(Closeable resource) {
+        try {
+            resource.close();
+        } catch (Exception e) {
+            LOG.warn("close resource error:{}", e.getMessage(), e);
+        }
     }
 }

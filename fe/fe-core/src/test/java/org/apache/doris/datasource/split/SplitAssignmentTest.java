@@ -30,6 +30,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -57,6 +58,7 @@ public class SplitAssignmentTest {
     private SplitAssignment splitAssignment;
     private Map<String, String> locationProperties;
     private List<String> pathPartitionKeys;
+    private SplitSourceManager splitSourceManager;
 
     @BeforeEach
     void setUp() {
@@ -69,6 +71,7 @@ public class SplitAssignmentTest {
 
         locationProperties = new HashMap<>();
         pathPartitionKeys = new ArrayList<>();
+        splitSourceManager = new SplitSourceManager();
 
         splitAssignment = new SplitAssignment(
                 mockBackendPolicy,
@@ -76,7 +79,8 @@ public class SplitAssignmentTest {
                 mockSplitToScanRange,
                 locationProperties,
                 pathPartitionKeys,
-                true
+                true,
+                splitSourceManager
         );
     }
 
@@ -122,7 +126,8 @@ public class SplitAssignmentTest {
                 mockSplitToScanRange,
                 locationProperties,
                 pathPartitionKeys,
-                true
+                true,
+                splitSourceManager
         ));
 
         Mockito.doThrow(new UserException("Failed to get first split after waiting for 0 seconds."))
@@ -375,5 +380,89 @@ public class SplitAssignmentTest {
 
         // Init should complete immediately without waiting
         Assertions.assertDoesNotThrow(() -> splitAssignment.init());
+    }
+
+    // ==================== start() / stop() lifecycle tests ====================
+
+    @Test
+    void testSourcesAreReachableOnlyFromStartToStop() throws Exception {
+        // No split to wait for: init() returns at once.
+        splitAssignment.finishSchedule();
+        SplitSource source = new SplitSource(mockBackend, splitAssignment, 100);
+        // Planned, not dispatched: a backend could not reach the source.
+        Assertions.assertNull(splitSourceManager.getSplitSource(source.getUniqueId()));
+
+        splitAssignment.start();
+        Assertions.assertSame(source, splitSourceManager.getSplitSource(source.getUniqueId()));
+        // The source of an assignment started already is reachable at once.
+        SplitSource late = new SplitSource(mockBackend, splitAssignment, 100);
+        Assertions.assertSame(late, splitSourceManager.getSplitSource(late.getUniqueId()));
+
+        splitAssignment.stop();
+        Assertions.assertNull(splitSourceManager.getSplitSource(source.getUniqueId()));
+        Assertions.assertNull(splitSourceManager.getSplitSource(late.getUniqueId()));
+    }
+
+    @Test
+    void testStartRunsTheGeneratorOnce() throws Exception {
+        splitAssignment.finishSchedule();
+
+        splitAssignment.start();
+        splitAssignment.start();
+
+        Mockito.verify(mockSplitGenerator, Mockito.times(1)).startSplit(Mockito.anyInt());
+    }
+
+    @Test
+    void testStoppedAssignmentDoesNotStart() throws Exception {
+        // The coordinator was cancelled before it dispatched the plan.
+        SplitSource source = new SplitSource(mockBackend, splitAssignment, 100);
+        splitAssignment.stop();
+
+        splitAssignment.start();
+
+        Mockito.verify(mockSplitGenerator, Mockito.never()).startSplit(Mockito.anyInt());
+        Assertions.assertNull(splitSourceManager.getSplitSource(source.getUniqueId()));
+    }
+
+    @Test
+    void testStopClosesWhatWasHandedOverOnce() throws Exception {
+        Closeable resource = Mockito.mock(Closeable.class);
+        splitAssignment.addCloseable(resource);
+        Mockito.verify(resource, Mockito.never()).close();
+
+        splitAssignment.stop();
+        splitAssignment.stop();
+
+        Mockito.verify(resource, Mockito.times(1)).close();
+    }
+
+    @Test
+    void testWhatIsHandedOverAfterStopIsClosedAtOnce() throws Exception {
+        // The generator was still opening it when the scan was stopped.
+        splitAssignment.stop();
+        Closeable late = Mockito.mock(Closeable.class);
+
+        splitAssignment.addCloseable(late);
+
+        Mockito.verify(late, Mockito.times(1)).close();
+    }
+
+    @Test
+    void testStopReleasesEverythingBeforeRethrowingAGenerationFailure() throws Exception {
+        splitAssignment.finishSchedule();
+        SplitSource source = new SplitSource(mockBackend, splitAssignment, 100);
+        splitAssignment.start();
+        Closeable resource = Mockito.mock(Closeable.class);
+        splitAssignment.addCloseable(resource);
+        splitAssignment.setException(new UserException("split generation failed"));
+
+        RuntimeException e = Assertions.assertThrows(RuntimeException.class, () -> splitAssignment.stop());
+
+        Assertions.assertTrue(e.getMessage().contains("split generation failed"), e.getMessage());
+        Assertions.assertNull(splitSourceManager.getSplitSource(source.getUniqueId()));
+        Mockito.verify(resource, Mockito.times(1)).close();
+        // Stopped already: a second stop() has nothing left to release, and throws nothing.
+        Assertions.assertDoesNotThrow(() -> splitAssignment.stop());
     }
 }
