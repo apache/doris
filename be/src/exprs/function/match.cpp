@@ -152,6 +152,57 @@ bool match_phrase_edge_tokens(const std::vector<segment_v2::TermInfo>& data_toke
     return false;
 }
 
+template <typename Callback>
+bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::string& column_name,
+                                  const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                  const ColumnString* string_col, size_t row,
+                                  const ColumnArray::Offsets64* array_offsets,
+                                  const ColumnUInt8::Container* array_element_null_map,
+                                  Callback&& callback) {
+    const size_t begin = array_offsets ? (row == 0 ? 0 : (*array_offsets)[row - 1]) : row;
+    const size_t end = array_offsets ? (*array_offsets)[row] : row + 1;
+    int32_t unused_array_offset = 0;
+    for (size_t element = begin; element < end; ++element) {
+        if (array_element_null_map && (*array_element_null_map)[element]) {
+            continue;
+        }
+        auto tokens = function.analyse_data_token(column_name, analyzer_ctx, string_col, element,
+                                                  nullptr, unused_array_offset);
+        if (callback(tokens)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+using PhraseMatcher = bool (*)(const std::vector<segment_v2::TermInfo>&,
+                               const std::vector<segment_v2::TermInfo>&);
+
+bool match_phrase_data_tokens(const FunctionMatchBase& function, const std::string& column_name,
+                              const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                              const ColumnString* string_col, size_t row,
+                              const ColumnArray::Offsets64* array_offsets,
+                              const ColumnUInt8::Container* array_element_null_map,
+                              const std::vector<segment_v2::TermInfo>& query_tokens,
+                              PhraseMatcher matcher) {
+    std::vector<segment_v2::TermInfo> window;
+    window.reserve(query_tokens.size());
+    return for_each_data_element_tokens(
+            function, column_name, analyzer_ctx, string_col, row, array_offsets,
+            array_element_null_map, [&](std::vector<segment_v2::TermInfo>& tokens) {
+                for (auto& token : tokens) {
+                    if (window.size() == query_tokens.size()) {
+                        window.erase(window.begin());
+                    }
+                    window.emplace_back(std::move(token));
+                    if (window.size() == query_tokens.size() && matcher(window, query_tokens)) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+}
+
 } // namespace
 
 Status FunctionMatchBase::evaluate_inverted_index(
@@ -412,22 +463,24 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
         return Status::OK();
     }
 
-    auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens =
-                analyse_data_token(column_name, analyzer_ctx, string_col, i, array_offsets,
-                                   current_src_array_offset, array_element_null_map);
-
-        // TODO: more efficient impl
-        for (auto& term_info : query_tokens) {
-            auto it = std::find_if(data_tokens.begin(), data_tokens.end(),
-                                   [&](const segment_v2::TermInfo& info) {
-                                       return info.get_single_term() == term_info.get_single_term();
-                                   });
-            if (it != data_tokens.end()) {
-                result[i] = true;
-                break;
-            }
+        if (for_each_data_element_tokens(*this, column_name, analyzer_ctx, string_col, i,
+                                         array_offsets, array_element_null_map,
+                                         [&](const std::vector<segment_v2::TermInfo>& data_tokens) {
+                                             for (const auto& term_info : query_tokens) {
+                                                 auto it = std::find_if(
+                                                         data_tokens.begin(), data_tokens.end(),
+                                                         [&](const segment_v2::TermInfo& info) {
+                                                             return info.get_single_term() ==
+                                                                    term_info.get_single_term();
+                                                         });
+                                                 if (it != data_tokens.end()) {
+                                                     return true;
+                                                 }
+                                             }
+                                             return false;
+                                         })) {
+            result[i] = true;
         }
     }
 
@@ -454,27 +507,31 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
         return Status::OK();
     }
 
-    auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens =
-                analyse_data_token(column_name, analyzer_ctx, string_col, i, array_offsets,
-                                   current_src_array_offset, array_element_null_map);
-
-        // TODO: more efficient impl
-        auto find_count = 0;
-        for (auto& term_info : query_tokens) {
-            auto it = std::find_if(data_tokens.begin(), data_tokens.end(),
-                                   [&](const segment_v2::TermInfo& info) {
-                                       return info.get_single_term() == term_info.get_single_term();
-                                   });
-            if (it != data_tokens.end()) {
-                ++find_count;
-            } else {
-                break;
-            }
-        }
-
-        if (find_count == query_tokens.size()) {
+        std::vector<uint8_t> found(query_tokens.size(), 0);
+        size_t remaining = query_tokens.size();
+        if (for_each_data_element_tokens(
+                    *this, column_name, analyzer_ctx, string_col, i, array_offsets,
+                    array_element_null_map,
+                    [&](const std::vector<segment_v2::TermInfo>& data_tokens) {
+                        for (size_t token = 0; token < query_tokens.size(); ++token) {
+                            if (found[token]) {
+                                continue;
+                            }
+                            auto it = std::find_if(data_tokens.begin(), data_tokens.end(),
+                                                   [&](const segment_v2::TermInfo& info) {
+                                                       return info.get_single_term() ==
+                                                              query_tokens[token].get_single_term();
+                                                   });
+                            if (it != data_tokens.end()) {
+                                found[token] = 1;
+                                if (--remaining == 0) {
+                                    return true;
+                                }
+                            }
+                        }
+                        return false;
+                    })) {
             result[i] = true;
         }
     }
@@ -501,17 +558,10 @@ Status FunctionMatchPhrase::execute_match(
         return Status::OK();
     }
 
-    auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        const auto element_begin = array_offsets ? (*array_offsets)[i - 1] : i;
-        const auto element_end = array_offsets ? (*array_offsets)[i] : i + 1;
-        for (auto element = element_begin; element < element_end && !result[i]; ++element) {
-            if (array_element_null_map && (*array_element_null_map)[element]) {
-                continue;
-            }
-            auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, element,
-                                                  nullptr, current_src_array_offset);
-            result[i] = match_phrase_tokens(data_tokens, query_tokens);
+        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
+                                     array_element_null_map, query_tokens, match_phrase_tokens)) {
+            result[i] = true;
         }
     }
 
@@ -537,17 +587,11 @@ Status FunctionMatchPhrasePrefix::execute_match(
         return Status::OK();
     }
 
-    int32_t current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        const auto element_begin = array_offsets ? (*array_offsets)[i - 1] : i;
-        const auto element_end = array_offsets ? (*array_offsets)[i] : i + 1;
-        for (auto element = element_begin; element < element_end && !result[i]; ++element) {
-            if (array_element_null_map && (*array_element_null_map)[element]) {
-                continue;
-            }
-            auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, element,
-                                                  nullptr, current_src_array_offset);
-            result[i] = match_phrase_prefix_tokens(data_tokens, query_tokens);
+        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
+                                     array_element_null_map, query_tokens,
+                                     match_phrase_prefix_tokens)) {
+            result[i] = true;
         }
     }
 
@@ -599,26 +643,26 @@ Status FunctionMatchRegexp::execute_match(
     };
 
     try {
-        auto current_src_array_offset = 0;
         for (int i = 0; i < input_rows_count; i++) {
-            auto data_tokens =
-                    analyse_data_token(column_name, analyzer_ctx, string_col, i, array_offsets,
-                                       current_src_array_offset, array_element_null_map);
-
-            for (auto& input : data_tokens) {
-                bool is_match = false;
-                const auto& input_str = input.get_single_term();
-                if (hs_scan(database, input_str.data(), (uint32_t)input_str.size(), 0, scratch,
-                            on_match, (void*)&is_match) != HS_SUCCESS) {
-                    LOG(ERROR) << "hyperscan match failed: " << input_str;
-                    break;
-                }
-
-                if (is_match) {
-                    result[i] = true;
-                    break;
-                }
-            }
+            for_each_data_element_tokens(
+                    *this, column_name, analyzer_ctx, string_col, i, array_offsets,
+                    array_element_null_map,
+                    [&](const std::vector<segment_v2::TermInfo>& data_tokens) {
+                        for (const auto& input : data_tokens) {
+                            bool is_match = false;
+                            const auto& input_str = input.get_single_term();
+                            if (hs_scan(database, input_str.data(), (uint32_t)input_str.size(), 0,
+                                        scratch, on_match, (void*)&is_match) != HS_SUCCESS) {
+                                LOG(ERROR) << "hyperscan match failed: " << input_str;
+                                return true;
+                            }
+                            if (is_match) {
+                                result[i] = true;
+                                return true;
+                            }
+                        }
+                        return false;
+                    });
         }
     }
     _CLFINALLY({
@@ -648,17 +692,11 @@ Status FunctionMatchPhraseEdge::execute_match(
         return Status::OK();
     }
 
-    int32_t current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        const auto element_begin = array_offsets ? (*array_offsets)[i - 1] : i;
-        const auto element_end = array_offsets ? (*array_offsets)[i] : i + 1;
-        for (auto element = element_begin; element < element_end && !result[i]; ++element) {
-            if (array_element_null_map && (*array_element_null_map)[element]) {
-                continue;
-            }
-            auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, element,
-                                                  nullptr, current_src_array_offset);
-            result[i] = match_phrase_edge_tokens(data_tokens, query_tokens);
+        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
+                                     array_element_null_map, query_tokens,
+                                     match_phrase_edge_tokens)) {
+            result[i] = true;
         }
     }
 

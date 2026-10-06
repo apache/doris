@@ -467,7 +467,7 @@ TEST(FunctionMatchTest, array_offset_handling) {
     }
 }
 
-TEST(FunctionMatchTest, array_match_keeps_tokens_from_all_elements) {
+TEST(FunctionMatchTest, array_match_uses_tokens_from_all_elements) {
     TQueryOptions query_options;
     query_options.__set_enable_match_without_inverted_index(true);
     RuntimeState runtime_state(query_options, TQueryGlobals {});
@@ -503,11 +503,11 @@ TEST(FunctionMatchTest, array_match_keeps_tokens_from_all_elements) {
     check_match(match_all, "alpha tail", {1, 0, 0, 0, 0});
     check_match(match_regexp, "^alpha$", {1, 0, 0, 1, 0});
     check_match(match_phrase, "alpha token", {1, 0, 0, 1, 0});
-    check_match(match_phrase, "token tail", {0, 0, 0, 0, 0});
+    check_match(match_phrase, "token tail", {1, 0, 0, 0, 0});
     check_match(match_phrase_prefix, "alpha tok", {1, 0, 0, 1, 0});
-    check_match(match_phrase_prefix, "token tai", {0, 0, 0, 0, 0});
+    check_match(match_phrase_prefix, "token tai", {1, 0, 0, 0, 0});
     check_match(match_phrase_edge, "pha tok", {1, 0, 0, 1, 0});
-    check_match(match_phrase_edge, "ken tai", {0, 0, 0, 0, 0});
+    check_match(match_phrase_edge, "ken tai", {1, 0, 0, 0, 0});
 
     segment_v2::inverted_index::CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("keyword", {});
@@ -527,6 +527,39 @@ TEST(FunctionMatchTest, array_match_keeps_tokens_from_all_elements) {
     check_match(match_phrase, "alpha token", {1, 0, 0, 1, 0});
     check_match(match_phrase_prefix, "alpha", {1, 0, 0, 1, 0});
     check_match(match_phrase_edge, "pha", {1, 0, 0, 1, 0});
+}
+
+TEST(FunctionMatchTest, array_phrase_spans_non_null_elements) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+    auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
+
+    auto string_col = ColumnString::create();
+    for (const std::string value :
+         {"hello", "world", "hello", "hidden", "world", "hello", "there", "world"}) {
+        string_col->insert_data(value.data(), value.size());
+    }
+    ColumnArray::Offsets64 offsets = {2, 5, 8};
+    ColumnUInt8::Container null_map = {0, 0, 0, 1, 0, 0, 0, 0};
+
+    auto check_match = [&](const FunctionMatchBase& function, const std::string& query,
+                           const std::vector<uint8_t>& expected) {
+        SCOPED_TRACE(function.get_name() + ": " + query);
+        ColumnUInt8::Container result(expected.size(), 0);
+        ASSERT_TRUE(function.execute_match(context.get(), "tags", query, expected.size(),
+                                           string_col.get(), ctx.ctx.get(), &offsets, result,
+                                           &null_map)
+                            .ok());
+        for (size_t row = 0; row < expected.size(); ++row) {
+            EXPECT_EQ(result[row], expected[row]) << "row: " << row;
+        }
+    };
+    check_match(FunctionMatchPhrase {}, "hello world", {1, 1, 0});
+    check_match(FunctionMatchPhrasePrefix {}, "hello wor", {1, 1, 0});
+    check_match(FunctionMatchPhraseEdge {}, "llo wor", {1, 1, 0});
+    check_match(FunctionMatchPhrase {}, "hello hidden world", {0, 0, 0});
 }
 
 TEST(FunctionMatchTest, null_array_elements_do_not_match_hidden_payload) {
