@@ -804,5 +804,57 @@ TEST(SniiPostingsCursor, BlockPositionsMatchTheDecoderForAnySelection) {
     }
 }
 
+void expect_selection_stats(const format::PrxDecodeStats& actual,
+                            const format::PrxDecodeStats& expected) {
+    EXPECT_EQ(actual.total_docs, expected.total_docs);
+    EXPECT_EQ(actual.selected_docs, expected.selected_docs);
+    EXPECT_EQ(actual.total_positions, expected.total_positions);
+    EXPECT_EQ(actual.selected_positions, expected.selected_positions);
+}
+
+TEST(SniiPostingsCursor, FullBlockDecodeReportsOnlyTheSelectedDocuments) {
+    Fixture fixture;
+    assert_ok(fixture.open_scored());
+    for (const char* name : {"mid", "wide"}) {
+        SCOPED_TRACE(name);
+        const Term term = fixture.lookup(name);
+        const auto expected = fixture.oracle_positions(term);
+        format::PrxDecodeStats stats;
+        SniiPostingsCursor cursor(fixture.index, term.entry, term.frq_base, term.prx_base,
+                                  /*positions=*/true, /*scoring=*/false, /*norms=*/nullptr,
+                                  /*wave=*/nullptr, &stats);
+        assert_ok(cursor.open());
+        index_query::PositionsBuffer buffer;
+        format::PrxDecodeStats expected_stats;
+        while (true) {
+            index_query::PostingsBlock block;
+            bool eof = false;
+            assert_ok(cursor.next_block(&block, &eof));
+            if (eof) {
+                break;
+            }
+            std::vector<uint32_t> ordinals;
+            for (uint32_t ordinal = 0; ordinal < block.size(); ++ordinal) {
+                const size_t count = expected[expected_stats.total_docs + ordinal].size();
+                expected_stats.total_positions += count;
+                if (ordinal % 3 != 0) {
+                    ordinals.push_back(ordinal);
+                    expected_stats.selected_positions += count;
+                }
+            }
+            expected_stats.total_docs += block.size();
+            expected_stats.selected_docs += ordinals.size();
+            index_query::BlockPositions view;
+            assert_ok(cursor.block_positions(ordinals, &buffer, &view));
+            EXPECT_TRUE(view.by_ordinal);
+            expect_selection_stats(stats, expected_stats);
+            const auto decoded = stats;
+            assert_ok(cursor.block_positions(ordinals, &buffer, &view));
+            EXPECT_EQ(stats, decoded);
+        }
+        EXPECT_EQ(expected_stats.total_docs, expected.size());
+    }
+}
+
 } // namespace
 } // namespace doris::snii::reader

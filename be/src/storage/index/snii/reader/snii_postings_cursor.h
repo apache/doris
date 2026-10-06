@@ -171,8 +171,7 @@ private:
     // The docids of a listed window, decoded once per cursor when positions are wanted.
     Status _window_docids(uint32_t window, const format::WindowMeta& meta,
                           std::span<const uint32_t>* docs);
-    Status _fill_positions();
-    Status _ensure_positions();
+    Status _ensure_positions(std::span<const uint32_t> ordinals = {});
     // Decodes the positions of the current block's documents at `ordinals` only.
     Status _decode_selected(std::span<const uint32_t> ordinals, index_query::BlockPositions* out);
     index_query::PostingsBlock _block_view() const;

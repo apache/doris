@@ -523,12 +523,20 @@ index_query::PostingsBlock SniiPostingsCursor::_block_view() const {
 
 // Decodes the current block's PRX frame once, for its positions and, when scoring, its
 // frequencies and norms.
-Status SniiPostingsCursor::_fill_positions() {
+Status SniiPostingsCursor::_ensure_positions(std::span<const uint32_t> ordinals) {
+    if (_positions_decoded) {
+        return Status::OK();
+    }
     const uint32_t window = _current_window;
     RETURN_IF_ERROR(_ensure_prx(window));
     ByteSource source(_windows[window].prx);
     format::PrxDecodeContext context {.stats = _prx_stats};
-    RETURN_IF_ERROR(format::read_prx_window_csr(&source, &_pos_flat, &_pos_off, &context));
+    if (ordinals.empty() || ordinals.size() == _doc_count) {
+        RETURN_IF_ERROR(format::read_prx_window_csr(&source, &_pos_flat, &_pos_off, &context));
+    } else {
+        RETURN_IF_ERROR(format::read_prx_window_csr_for_selection(&source, ordinals, &_pos_flat,
+                                                                  &_pos_off, &context));
+    }
     if (!source.eof()) {
         return posting_corrupted("snii postings: trailing bytes after prx frame");
     }
@@ -560,13 +568,6 @@ Status SniiPostingsCursor::_fill_norms() {
         _norm_values[i] = norm;
     }
     return Status::OK();
-}
-
-Status SniiPostingsCursor::_ensure_positions() {
-    if (_positions_decoded) {
-        return Status::OK();
-    }
-    return _fill_positions();
 }
 
 Status SniiPostingsCursor::_window_docids(uint32_t window, const WindowMeta& meta,
@@ -614,7 +615,7 @@ Status SniiPostingsCursor::_decode_window(uint32_t window, index_query::Postings
     _positions_decoded = false;
     _current_window = window;
     if (_scoring) {
-        RETURN_IF_ERROR(_scores_from_prx() ? _fill_positions() : _fill_norms());
+        RETURN_IF_ERROR(_scores_from_prx() ? _ensure_positions() : _fill_norms());
     }
     *block = _block_view();
     return Status::OK();
@@ -639,7 +640,7 @@ Status SniiPostingsCursor::_decode_single(index_query::PostingsBlock* block) {
     _positions_decoded = false;
     _current_window = 0;
     if (_scoring) {
-        RETURN_IF_ERROR(_scores_from_prx() ? _fill_positions() : _fill_norms());
+        RETURN_IF_ERROR(_scores_from_prx() ? _ensure_positions() : _fill_norms());
     }
     *block = _block_view();
     return Status::OK();
@@ -781,7 +782,7 @@ Status SniiPostingsCursor::block_positions(std::span<const uint32_t> ordinals,
     if (!_positions_decoded && ordinals.size() * 2 < _doc_count) {
         return _decode_selected(ordinals, out);
     }
-    RETURN_IF_ERROR(_ensure_positions());
+    RETURN_IF_ERROR(_ensure_positions(ordinals));
     *out = {.flat = _pos_flat, .offsets = _pos_off, .by_ordinal = true};
     return Status::OK();
 }
