@@ -163,7 +163,11 @@ public class ResultReceiver {
                 // does (THRIFT_RPC_ERROR, as the ExecutionException branch below reports it), at a point
                 // where the BE has produced the rows -- and so the query's scans have read their input.
                 // StmtExecutor.handleQueryWithRetry then retries the query, which is what this exercises.
+                // Only a session's own query qualifies: the point is armed for a number of hits, which
+                // isEnable spends, and an internal query (auto-analyze, say) fetching rows at the same
+                // time would otherwise take the hit meant for the query under test.
                 if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0
+                        && ConnectContext.get() != null && !ConnectContext.get().getState().isInternal()
                         && DebugPointUtil.isEnable("ResultReceiver.getNext.dropDataBatch")) {
                     LOG.warn("debug point ResultReceiver.getNext.dropDataBatch: dropping packet {} of finstId={}",
                             pResult.getPacketSeq(), DebugUtil.printId(getRealFinstId()));
