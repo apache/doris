@@ -21,6 +21,7 @@
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
 #include "storage/index/query/phrase/phrase_verifier.h"
+#include "storage/index/query/phrase/position_stream.h"
 #include "storage/index/query/spi/scoring_context.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -32,7 +33,7 @@ template <typename TPostings>
 using PhraseScorerPtr = std::shared_ptr<PhraseScorer<TPostings>>;
 
 template <typename TPostings>
-class PhraseScorer : public Scorer {
+class PhraseScorer final : public Scorer {
 public:
     using IntersectionDocSetPtr = IntersectionPtr<TPostings, TPostings>;
 

@@ -34,7 +34,7 @@
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/spi/clucene_postings_cursor.h"
 #include "storage/index/query/fake_index_source.h"
-#include "storage/index/query/phrase/exact_phrase_stream_matcher.h"
+#include "storage/index/query/phrase/phrase_verifier.h"
 #include "storage/index/query/term_pattern.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -353,6 +353,10 @@ TEST_F(SegmentPostingsTest, StreamedPhrasePreservesRowsAcrossDifferentBlockParti
     std::array<StreamWalk, 2> walks {StreamWalk(left, rows), StreamWalk(right, rows)};
     const std::array<size_t, 2> plan {0, 1};
     const std::array<uint32_t, 2> offsets {0, 1};
+    const std::array<uint64_t, 2> costs {1, 1};
+    const index_query::PhraseVerifier verifier(std::vector<size_t>(plan.begin(), plan.end()),
+                                               offsets, costs, 0, false);
+    verifier.validate_stream(walks.size());
     const std::array<size_t, 5> left_reads {1, 2, 3, 3, 4};
     const std::array<size_t, 5> right_reads {1, 1, 2, 2, 3};
     const std::array<size_t, 5> left_ends {1, 2, 4, 4, 5};
@@ -361,9 +365,9 @@ TEST_F(SegmentPostingsTest, StreamedPhrasePreservesRowsAcrossDifferentBlockParti
         ASSERT_TRUE(walks[0].prepare().ok());
         ASSERT_TRUE(walks[1].prepare().ok());
         bool matched = false;
-        ASSERT_TRUE(index_query::match_exact_phrase_document(std::span<StreamWalk>(walks), plan,
-                                                             offsets, rows[row], &matched)
-                            .ok());
+        ASSERT_TRUE(
+                verifier.verify_stream_document(std::span<StreamWalk>(walks), rows[row], &matched)
+                        .ok());
         EXPECT_TRUE(matched);
         check_streamed_block(walks[0], *left_reader, left_ends[row], left_reads[row]);
         check_streamed_block(walks[1], *right_reader, right_ends[row], right_reads[row]);
@@ -514,6 +518,41 @@ TEST_F(SegmentPostingsTest, MaterializedPhrasePreservesPositionReadErrors) {
                 EXPECT_NE(std::string(error.what()).find("Injected phrase position read failure"),
                           std::string::npos);
             }
+        }
+    }
+}
+
+TEST_F(SegmentPostingsTest, StreamedPhrasePreservesUnreadClauseErrorsAfterPositionOverflow) {
+    class FailingPositions final : public MockTermPositions {
+    public:
+        FailingPositions() : MockTermPositions({1}, {1}, {1}, {{7}}, 1) {}
+        int32_t nextDeltaPosition() override {
+            _CLTHROWA(CL_ERR_IO, "Injected unread phrase clause failure");
+        }
+    };
+    for (uint32_t clauses : {2, 3}) {
+        SCOPED_TRACE(clauses);
+        std::vector<std::pair<size_t, SegmentPostingsPtr>> terms;
+        for (uint32_t clause = 0; clause < clauses; ++clause) {
+            TermPositionsPtr positions;
+            if (clause + 1 == clauses) {
+                positions.reset(new FailingPositions());
+            } else {
+                const uint32_t position = clause == 0 ? std::numeric_limits<uint32_t>::max() : 7;
+                positions.reset(new MockTermPositions({1}, {1}, {1}, {{position}}, 1));
+            }
+            terms.emplace_back(
+                    clause, make_segment_postings(
+                                    std::make_unique<ClucenePostingsCursor>(std::move(positions)),
+                                    false, nullptr));
+        }
+        try {
+            PhraseScorer<SegmentPostingsPtr>::create(terms, nullptr, {}, 2);
+            FAIL() << "Expected the unread phrase clause error";
+        } catch (const Exception& error) {
+            EXPECT_EQ(error.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+            EXPECT_NE(std::string(error.what()).find("Injected unread phrase clause failure"),
+                      std::string::npos);
         }
     }
 }
@@ -786,6 +825,28 @@ TEST_F(SegmentPostingsTest, CommonPositionCursorRejectsReplayAndInvalidatedBlock
     expect_position_contract_failure(
             [&] { return positions->next_position(&position, &available); });
     expect_position_contract_failure([&] { return postings.open_positions(0, &positions); });
+#endif
+}
+
+TEST_F(SegmentPostingsTest, FrequencyPaddingDoesNotExtendDocumentOrdinals) {
+    ClucenePostingsCursor postings {TermPositionsPtr(
+            new MockTermPositions({1, 3}, {2, 1, 999}, {1, 1}, {{5, 8}, {13}}, 2))};
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(postings.next_block(&block, &eof).ok());
+    ASSERT_FALSE(eof);
+    ASSERT_EQ(block.docs.size(), 2);
+    ASSERT_EQ(block.freqs.size(), 3);
+    index_query::PositionCursor* positions = nullptr;
+    ASSERT_TRUE(postings.open_positions(1, &positions).ok());
+    uint32_t position = 0;
+    bool available = false;
+    ASSERT_TRUE(positions->next_position(&position, &available).ok());
+    ASSERT_TRUE(available);
+    EXPECT_EQ(position, 13);
+    ASSERT_TRUE(positions->finish_doc().ok());
+#ifndef NDEBUG
+    expect_position_contract_failure([&] { return postings.open_positions(2, &positions); });
 #endif
 }
 

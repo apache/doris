@@ -34,6 +34,7 @@ PhraseScorer<TPostings>::PhraseScorer(IntersectionDocSetPtr intersection_docset,
     if constexpr (std::is_same_v<TPostings, SegmentPostingsPtr>) {
         if (!_similarity && _verifier.can_stream()) {
             _streams.resize(_terms.size());
+            _verifier.validate_stream(_streams.size());
         }
     }
 }
@@ -139,13 +140,15 @@ template <typename TPostings>
 bool PhraseScorer<TPostings>::phrase_match() {
     if constexpr (std::is_same_v<TPostings, SegmentPostingsPtr>) {
         if (!_streams.empty()) {
-            for (size_t i = 0; i < _terms.size(); ++i) {
-                THROW_IF_ERROR(_streams[i].reset(
-                        _terms[i].postings->cursor(),
-                        static_cast<uint32_t>(_terms[i].postings->doc_set().ordinal())));
+            auto stream = _streams.begin();
+            for (const TermState& term : _terms) {
+                THROW_IF_ERROR(
+                        stream->reset(term.postings->cursor(),
+                                      static_cast<uint32_t>(term.postings->doc_set().ordinal())));
+                ++stream;
             }
             bool matched = false;
-            THROW_IF_ERROR(_verifier.verify_stream(_streams, &matched));
+            THROW_IF_ERROR(_verifier.verify_stream(std::span(_streams), &matched));
             _phrase_count = matched ? 1.0F : 0.0F;
             return matched;
         }

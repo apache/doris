@@ -543,7 +543,7 @@ Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
                 const std::shared_ptr<roaring::Roaring>& result);
 
 // run_leaf on the CLucene field `field` of `searcher`, its errors reported as CLucene ones.
-Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
+Status run_clucene_leaf(const IndexQueryContextPtr& context, std::wstring field,
                         const index_query::logical::Node& leaf, const roaring::Roaring* candidates,
                         bool scoring, const FulltextIndexSearcherPtr& searcher,
                         const std::shared_ptr<roaring::Roaring>& result);

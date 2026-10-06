@@ -487,7 +487,7 @@ Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
     return Status::OK();
 }
 
-Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
+Status run_clucene_leaf(const IndexQueryContextPtr& context, std::wstring field,
                         const logical::Node& leaf, const roaring::Roaring* candidates, bool scoring,
                         const FulltextIndexSearcherPtr& searcher,
                         const std::shared_ptr<roaring::Roaring>& result) {
@@ -497,11 +497,12 @@ Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring&
         reader->setCompatibleRead(true);
     }
     try {
-        RETURN_IF_ERROR(run_leaf(
-                context, field, leaf, candidates, scoring,
+        auto source =
                 clucene_index_source(std::shared_ptr<lucene::index::IndexReader>(searcher, reader),
-                                     field, context->io_ctx),
-                reader->maxDoc(), result));
+                                     std::move(field), context->io_ctx);
+        const auto& source_field = source->field();
+        RETURN_IF_ERROR(run_leaf(context, source_field, leaf, candidates, scoring,
+                                 std::move(source), reader->maxDoc(), result));
     } catch (const CLuceneError& e) {
         return clucene_error_status(fmt::format("CLuceneError occurred: {}", e.what()));
     } catch (const Exception& e) {

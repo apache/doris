@@ -472,19 +472,18 @@ void expect_streamed_block(SniiPostingsCursor& cursor, const std::vector<uint32_
             std::vector<uint32_t> streamed;
             assert_ok(positions->append_remaining_positions(0, streamed));
             EXPECT_EQ(streamed, want);
-            continue;
-        }
-        if (i % 3 == 1) {
+        } else if (i % 3 == 1) {
             EXPECT_EQ(read_in_chunks(positions, 3), want);
             assert_ok(positions->finish_doc());
-            continue;
+        } else {
+            uint32_t position = 0;
+            bool available = false;
+            assert_ok(positions->next_position(&position, &available));
+            ASSERT_TRUE(available);
+            EXPECT_EQ(position, want.front());
+            assert_ok(positions->finish_doc());
         }
-        uint32_t position = 0;
-        bool available = false;
-        assert_ok(positions->next_position(&position, &available));
-        ASSERT_TRUE(available);
-        EXPECT_EQ(position, want.front());
-        assert_ok(positions->finish_doc());
+        EXPECT_EQ(cursor._streaming, i + 1 < chosen.size());
     }
 }
 

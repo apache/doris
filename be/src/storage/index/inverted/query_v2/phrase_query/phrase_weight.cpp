@@ -40,7 +40,6 @@
 #include "storage/index/query/exec/cursor_chained_postings.h"
 #include "storage/index/query/exec/term_waves.h"
 #include "storage/index/query/phrase/exact_phrase_matcher.h"
-#include "storage/index/query/phrase/exact_phrase_stream_matcher.h"
 #include "storage/index/query/phrase/phrase_verifier.h"
 #include "storage/index/query/phrase/position_span.h"
 #include "storage/index/query/spi/postings_cursor.h"
@@ -944,8 +943,9 @@ Status verify_streamed(std::span<const SlotCursors> slots, std::span<const uint3
         walks.emplace_back(*slots[slot].front(), rows, &selected[slot]);
     }
     const std::span<StreamWalk> cursors(walks);
-    index_query::validate_exact_phrase_stream_inputs(cursors, std::span(clauses.slots),
-                                                     std::span(clauses.offsets));
+    const index_query::PhraseVerifier verifier(clauses.slots, clauses.offsets, clauses.costs, 0,
+                                               false);
+    verifier.validate_stream(cursors.size());
     size_t row = 0;
     while (row < rows.size()) {
         size_t end = rows.size();
@@ -955,9 +955,7 @@ Status verify_streamed(std::span<const SlotCursors> slots, std::span<const uint3
         }
         for (; row < end; ++row) {
             bool hit = false;
-            RETURN_IF_ERROR(index_query::match_exact_phrase_document(
-                    cursors, std::span(clauses.slots), std::span(clauses.offsets), rows[row],
-                    &hit));
+            RETURN_IF_ERROR(verifier.verify_stream_document(cursors, rows[row], &hit));
             if (hit) {
                 matched->push_back(rows[row]);
             }

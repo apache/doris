@@ -836,12 +836,12 @@ Status SniiPostingsCursor::finish_doc() {
     if (!_streaming) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_stream.finish_doc());
-    if (_stream_ordinal != _stream_last) {
-        return Status::OK();
+    if (_stream_ordinal == _stream_last) {
+        RETURN_IF_ERROR(_stream.finish_doc());
+        _streaming = false;
+        return _stream.finish_frame();
     }
-    _streaming = false;
-    return _stream.finish_frame();
+    return _stream.finish_doc();
 }
 
 } // namespace doris::snii::reader

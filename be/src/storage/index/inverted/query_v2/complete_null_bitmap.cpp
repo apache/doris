@@ -26,6 +26,7 @@
 
 #include "core/custom_allocator.h"
 #include "storage/index/collection_similarity.h"
+#include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
 #include "storage/index/inverted/query_v2/scored_rows_scorer.h"
 #include "storage/index/inverted/query_v2/term_query/term_scorer.h"
 #include "storage/index/query/boolean/truth_set.h"
@@ -138,6 +139,10 @@ roaring::Roaring consume_true_rows(Scorer& scorer, uint32_t doc, const roaring::
                     visit(row, [&]() { return term->score_for_posting(frequency, norm); });
                 }));
         return result;
+    }
+    if (auto* phrase = dynamic_cast<PhraseScorer<SegmentPostingsPtr>*>(&scorer);
+        phrase != nullptr) {
+        return consume_typed_true_rows(*phrase, doc, candidates, std::forward<Visitor>(visit));
     }
     return consume_typed_true_rows(scorer, doc, candidates, std::forward<Visitor>(visit));
 }

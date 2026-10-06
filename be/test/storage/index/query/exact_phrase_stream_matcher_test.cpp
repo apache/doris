@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/query/phrase/exact_phrase_stream_matcher.h"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -32,6 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/query/phrase/phrase_verifier.h"
 #include "storage/index/query/phrase/position_span.h"
 
 namespace doris::index_query {
@@ -138,6 +137,21 @@ private:
     bool doc_finished_ = false;
 };
 
+PhraseVerifier stream_verifier(size_t cursor_count, std::span<const size_t> plan,
+                               std::span<const uint32_t> offsets) {
+    const std::vector<uint64_t> costs(plan.size(), 1);
+    PhraseVerifier verifier(std::vector<size_t>(plan.begin(), plan.end()), offsets, costs, 0,
+                            false);
+    verifier.validate_stream(cursor_count);
+    return verifier;
+}
+
+Status match_document(std::span<FakeCursor> cursors, std::span<const size_t> plan,
+                      std::span<const uint32_t> offsets, uint32_t docid, bool* matched) {
+    const auto verifier = stream_verifier(cursors.size(), plan, offsets);
+    return verifier.verify_stream_document(cursors, docid, matched);
+}
+
 template <size_t ClauseCount>
 void expect_immediate_match() {
     std::vector<FakeCursor> cursors;
@@ -151,8 +165,8 @@ void expect_immediate_match() {
     std::iota(offsets.begin(), offsets.end(), 0U);
 
     bool matched = false;
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 9, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 9, &matched);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_TRUE(matched);
@@ -174,8 +188,7 @@ TEST(ExactPhraseStreamMatcherTest, StopsAfterFirstMultiTermMatch) {
     const std::array<uint32_t, 3> offsets = {0, 1, 2};
     bool matched = false;
 
-    ASSERT_TRUE(match_exact_phrase_document(std::span(cursors), std::span(plan), std::span(offsets),
-                                            7, &matched)
+    ASSERT_TRUE(match_document(std::span(cursors), std::span(plan), std::span(offsets), 7, &matched)
                         .ok());
 
     EXPECT_TRUE(matched);
@@ -203,8 +216,8 @@ TEST(ExactPhraseStreamMatcherTest, ReusesOvershootingPositionAfterAligningLead) 
     const std::array<uint32_t, 3> offsets = {0, 1, 2};
     bool matched = false;
 
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 11, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 11, &matched);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_TRUE(matched);
@@ -226,8 +239,8 @@ TEST(ExactPhraseStreamMatcherTest, FindsLateMatchAfterLeadOvershoot) {
     const std::array<uint32_t, 3> offsets = {0, 1, 2};
     bool matched = false;
 
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 13, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 13, &matched);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_TRUE(matched);
@@ -248,8 +261,8 @@ TEST(ExactPhraseStreamMatcherTest, FinishesAllCursorsWhenNoPhraseMatches) {
     const std::array<uint32_t, 2> offsets = {0, 1};
     bool matched = true;
 
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 17, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 17, &matched);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_FALSE(matched);
@@ -273,8 +286,8 @@ TEST(ExactPhraseStreamMatcherTest, FinishesEveryCursorWhenOneCursorIsExhausted) 
     const std::array<uint32_t, 3> offsets = {0, 1, 2};
     bool matched = true;
 
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 19, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 19, &matched);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_FALSE(matched);
@@ -296,8 +309,8 @@ TEST(ExactPhraseStreamMatcherTest, MatchesWithNonzeroPositionOffsets) {
     const std::array<uint32_t, 3> offsets = {5, 7, 9};
     bool matched = false;
 
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 23, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 23, &matched);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_TRUE(matched);
@@ -312,8 +325,8 @@ TEST(ExactPhraseStreamMatcherTest, TreatsExpectedPositionOverflowAsCleanNoMatch)
     const std::array<uint32_t, 2> offsets = {7, 9};
     bool matched = true;
 
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 29, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 29, &matched);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_FALSE(matched);
@@ -334,8 +347,8 @@ TEST(ExactPhraseStreamMatcherTest, ChecksTwoWholeClausesWithTheBlockKernel) {
         cursors.emplace_back(doc_positions({{47, right}}), FakeCursor::FailurePoint::kNone, true);
         bool matched = !expected;
 
-        const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                          std::span(offsets), 47, &matched);
+        const Status status = match_document(std::span(cursors), std::span(plan),
+                                             std::span(offsets), 47, &matched);
 
         ASSERT_TRUE(status.ok()) << status.to_string();
         EXPECT_EQ(matched, expected);
@@ -352,8 +365,8 @@ TEST(ExactPhraseStreamMatcherTest, PropagatesSeekError) {
     const std::array<uint32_t, 2> offsets = {0, 1};
     bool matched = true;
 
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 31, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 31, &matched);
 
     EXPECT_TRUE(status.is<ErrorCode::IO_ERROR>()) << status.to_string();
 }
@@ -366,8 +379,8 @@ TEST(ExactPhraseStreamMatcherTest, PropagatesPositionError) {
     const std::array<uint32_t, 2> offsets = {0, 1};
     bool matched = true;
 
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 37, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 37, &matched);
 
     EXPECT_TRUE(status.is<ErrorCode::IO_ERROR>()) << status.to_string();
 }
@@ -382,8 +395,8 @@ TEST(ExactPhraseStreamMatcherTest, AttemptsEveryFinishAndReturnsFirstError) {
     const std::array<uint32_t, 3> offsets = {0, 1, 2};
     bool matched = false;
 
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 41, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 41, &matched);
 
     EXPECT_TRUE(status.is<ErrorCode::IO_ERROR>()) << status.to_string();
     EXPECT_TRUE(matched);
@@ -398,8 +411,8 @@ TEST(ExactPhraseStreamMatcherTest, RejectsRepeatedCursorIndices) {
     const std::array<size_t, 2> repeated_plan = {0, 0};
     const std::array<uint32_t, 2> offsets = {0, 1};
     GTEST_FLAG_SET(death_test_style, "threadsafe");
-    EXPECT_DEATH(static_cast<void>(validate_exact_phrase_stream_inputs(
-                         std::span(cursors), std::span(repeated_plan), std::span(offsets))),
+    EXPECT_DEATH(static_cast<void>(stream_verifier(cursors.size(), std::span(repeated_plan),
+                                                   std::span(offsets))),
                  "");
 }
 
@@ -413,8 +426,8 @@ TEST(ExactPhraseStreamMatcherTest, ReturnsFirstFinishErrorInPhraseOrder) {
     const std::array<uint32_t, 3> offsets = {0, 1, 2};
     bool matched = false;
 
-    const Status status = match_exact_phrase_document(std::span(cursors), std::span(plan),
-                                                      std::span(offsets), 53, &matched);
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 53, &matched);
 
     EXPECT_TRUE(status.is<ErrorCode::IO_ERROR>()) << status.to_string();
     EXPECT_TRUE(matched);

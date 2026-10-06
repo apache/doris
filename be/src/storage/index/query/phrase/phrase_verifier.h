@@ -30,9 +30,8 @@
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "storage/index/query/phrase/exact_phrase_matcher.h"
-#include "storage/index/query/phrase/exact_phrase_stream_matcher.h"
+#include "storage/index/query/phrase/position_math.h"
 #include "storage/index/query/phrase/position_span.h"
-#include "storage/index/query/phrase/position_stream.h"
 #include "storage/index/query/phrase/sloppy_phrase_matcher.h"
 
 namespace roaring {
@@ -95,15 +94,67 @@ public:
 
     bool can_stream() const { return can_stream_; }
 
-    Status verify_stream(std::span<PositionStream> streams, bool* matched) const {
+    void validate_stream(size_t cursor_count) const {
+        DORIS_CHECK(can_stream_);
+        for (size_t clause = 0; clause < clause_terms_.size(); ++clause) {
+            DORIS_CHECK_LT(clause_terms_[clause], cursor_count);
+            for (size_t preceding = 0; preceding < clause; ++preceding) {
+                DORIS_CHECK_NE(clause_terms_[preceding], clause_terms_[clause]);
+            }
+        }
+    }
+
+    // Cursors retain the position returned by advance_to; whole exposes the remainder only
+    // when it is fully buffered. Successful verification finishes every referenced cursor.
+    template <typename Cursor>
+    Status verify_stream(std::span<Cursor> cursors, bool* matched) const {
         DCHECK(can_stream_);
-        return match_exact_phrase_positions(streams, std::span(clause_terms_), std::span(offsets_),
-                                            matched);
+        DCHECK(matched != nullptr);
+        *matched = false;
+
+        Cursor& lead = cursors[clause_terms_.front()];
+        PhrasePositionSpan lead_span;
+        PhrasePositionSpan other_span;
+        if (clause_terms_.size() == 2 && lead.whole(&lead_span) &&
+            cursors[clause_terms_[1]].whole(&other_span)) {
+            *matched = contains_two_term_phrase(lead_span, other_span, offsets_[1]);
+            return finish_stream_document(cursors);
+        }
+        uint32_t lead_position = 0;
+        bool available = false;
+        RETURN_IF_ERROR(lead.advance_to(0, &lead_position, &available));
+        size_t clause = 1;
+        while (available && clause < clause_terms_.size()) {
+            const uint32_t offset = offsets_[clause];
+            uint32_t expected = 0;
+            if (!add_position_offset(lead_position, offset, &expected)) {
+                break;
+            }
+            uint32_t clause_position = 0;
+            RETURN_IF_ERROR(cursors[clause_terms_[clause]].advance_to(expected, &clause_position,
+                                                                      &available));
+            if (available && clause_position != expected) {
+                RETURN_IF_ERROR(
+                        lead.advance_to(clause_position - offset, &lead_position, &available));
+                clause = 1;
+                continue;
+            }
+            ++clause;
+        }
+        *matched = available && clause == clause_terms_.size();
+        return finish_stream_document(cursors);
+    }
+
+    template <typename Cursor>
+    Status verify_stream_document(std::span<Cursor> cursors, uint32_t docid, bool* matched) const {
+        for (size_t term : clause_terms_) {
+            RETURN_IF_ERROR(cursors[term].seek(docid));
+        }
+        return verify_stream(cursors, matched);
     }
 
     // `load(term, span)` reads distinct term `term`'s positions in the document and keeps them
     // valid until verify() returns. A frequency of zero means the document does not match.
-    // Inlined, it runs inside each caller's per-document loop.
     template <typename Load>
     ALWAYS_INLINE Status verify(Load load, bool collect_frequency, float* frequency) {
         if (state_ == nullptr) {
@@ -127,6 +178,18 @@ public:
     }
 
 private:
+    template <typename Cursor>
+    Status finish_stream_document(std::span<Cursor> cursors) const {
+        Status first_error;
+        for (size_t term : clause_terms_) {
+            const Status status = cursors[term].finish_doc();
+            if (!status.ok() && first_error.ok()) {
+                first_error = status;
+            }
+        }
+        return first_error;
+    }
+
     struct MatcherState {
         template <typename Load>
         Status verify(std::span<const size_t> clauses, Load load, bool collect_frequency,
