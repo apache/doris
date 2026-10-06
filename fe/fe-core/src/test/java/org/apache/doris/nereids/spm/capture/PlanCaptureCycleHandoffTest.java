@@ -186,6 +186,80 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
+     * round-43 #7: a reservation that becomes readable AFTER this process's load must
+     * still be adopted. The load reads the checkpoint once, and the token-greatest row
+     * never surfaces the earlier one again (its INSERT committed late, after the empty
+     * read); without the re-read the 09:05 event inside the earlier window's unconsumed
+     * prefix fell outside this process's derived window and every later overlap - skipped
+     * permanently. The cycle AFTER the adoption consumes the earlier window and must not
+     * re-adopt it on every wakeup.
+     */
+    @Test
+    public void testEarlierReservationReadableAfterTheLoadIsAdopted() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            AtomicReference<ResultRow> earlier = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> {
+                if (earlier.get() != null) {
+                    return List.of(earlier.get());
+                }
+                return visible.get() == null
+                        ? List.of() : List.of(checkpointRow(visible.get()));
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                if (!sql.startsWith("INSERT")) {
+                    return; // the best-effort prune is not a checkpoint write
+                }
+                visible.set(new HashMap<>(params));
+            });
+
+            // cycle 1: the store was empty - this process derives [now-interval, now) and
+            // consumes it
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get());
+            long derivedStart = scanner.windows.get(0)[0];
+            Assertions.assertTrue(derivedStart > 200L, "precondition: the derived window is"
+                    + " far behind the earlier reservation, got " + derivedStart);
+
+            // the dead leader's reservation publishes only NOW: its window [100, 200) is
+            // entirely BEFORE this process's derived one
+            earlier.set(new ResultRow(List.of("0", "100", "200", "0", "", "", "{}",
+                    "{}", "", "-1", "-1", "", "")));
+
+            // cycle 2: the earlier window is adopted instead of advancing - NOTHING is
+            // scanned while its unconsumed prefix waits
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get(),
+                    "the cycle must abort instead of consuming this process's window over"
+                            + " the earlier reservation");
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(100L, ((Number) fields[1]).longValue(),
+                    "the earlier leader's window is adopted");
+            Assertions.assertEquals(200L, ((Number) fields[2]).longValue());
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "the adopted window resumes promptly");
+
+            // cycle 3: the adopted window is consumed - and NOT re-adopted every wakeup
+            // although its reservation row stays readable
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(2, scanner.calls.get(),
+                    "the adopted window must be consumed, not adopted again");
+            Assertions.assertArrayEquals(new long[] {100L, 200L}, scanner.windows.get(1),
+                    "the resumed window is the earlier leader's");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
      * The reader seam of a checkpoint store: a row is readable only AFTER the writer
      * made it visible (see {@link #checkpointRow}), so the reservation confirmation
      * exercises the same read path the load does.

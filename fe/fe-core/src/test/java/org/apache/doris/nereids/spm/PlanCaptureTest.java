@@ -68,6 +68,57 @@ public class PlanCaptureTest {
         PlanCaptureManager.getInstance().resetForTest();
     }
 
+    /**
+     * round-43 #7: the checkpoint read prefers an EARLIER pending window over the
+     * token-greatest row. The append-only table keeps a dead leader's reservation even
+     * when its INSERT committed only after this process's empty read, and the token
+     * ordering then hides it forever - consuming the derived window over it would skip the
+     * earlier window's unconsumed prefix. The preference must NOT re-adopt a window this
+     * process already covers (its own consumed reservation row stays readable forever),
+     * nor the window it is currently consuming.
+     */
+    @Test
+    public void testCheckpointReadPrefersAnUncoveredEarlierPendingWindow() {
+        ResultRow newest = checkpointRowForChooser("500", "0", "0", "9", "7");
+        ResultRow behind = checkpointRowForChooser("0", "100", "200", "0", "8");
+
+        Assertions.assertSame(behind, PlanCaptureManager.chooseCheckpointRow(
+                newest, behind, 0, 0, 0),
+                "with nothing scanned yet, the earlier pending window wins");
+        Assertions.assertSame(newest, PlanCaptureManager.chooseCheckpointRow(
+                newest, behind, 0, 0, 50L),
+                "a window inside this process's own scan range is already covered");
+        Assertions.assertSame(behind, PlanCaptureManager.chooseCheckpointRow(
+                newest, behind, 0, 0, 150L),
+                "a window that starts BEFORE the scanned range still wins: its prefix was"
+                        + " never scanned");
+        Assertions.assertSame(newest, PlanCaptureManager.chooseCheckpointRow(
+                newest, behind, 100, 200, 0),
+                "the window this process currently consumes is not re-adopted");
+        ResultRow sameWindow = checkpointRowForChooser("0", "100", "200", "9", "9");
+        ResultRow sameWindowBehind = checkpointRowForChooser("0", "100", "200", "0", "8");
+        Assertions.assertSame(sameWindow, PlanCaptureManager.chooseCheckpointRow(
+                sameWindow, sameWindowBehind, 0, 0, 0),
+                "a behind row describing the SAME window as the newest row adds nothing");
+        ResultRow progressed = checkpointRowForChooser("500", "0", "0", "9", "9");
+        Assertions.assertSame(newest, PlanCaptureManager.chooseCheckpointRow(
+                newest, progressed, 0, 0, 0),
+                "a non-pending behind row is not a window to adopt");
+        Assertions.assertSame(behind, PlanCaptureManager.chooseCheckpointRow(
+                null, behind, 0, 0, 0),
+                "without a token row the pending window is the state to resume");
+        Assertions.assertSame(newest, PlanCaptureManager.chooseCheckpointRow(
+                newest, null, 0, 0, 0),
+                "without a behind row the token row is the state");
+    }
+
+    /** One checkpoint row for the {@code chooseCheckpointRow} cases (leading columns only). */
+    private static ResultRow checkpointRowForChooser(String lastScan, String pendingStart,
+            String pendingEnd, String epoch, String seq) {
+        return new ResultRow(List.of(lastScan, pendingStart, pendingEnd, "-1",
+                "", "", "{}", "{}", "", "-1", "-1", "", "", "", epoch, seq));
+    }
+
     // ==================== table extraction ====================
 
     @Test

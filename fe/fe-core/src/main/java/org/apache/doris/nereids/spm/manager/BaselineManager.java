@@ -1016,11 +1016,19 @@ public class BaselineManager {
                 // finishes) this cache can hold a row the previous master already
                 // dropped. Returning its id would report success for a baseline that is
                 // not there.
-                if (!persistenceEnabled() && statusProtocolStoreForTest == null
+                if (isTombstonedIdentity(duplicate)) {
+                    // Round-43 #1: the identity carries a DROP TOMBSTONE - the user's DROP
+                    // completed and the row only lags behind its own delete. Returning the
+                    // cached id would report CREATE success for a baseline that disappears
+                    // the moment the DELETE becomes readable.
+                    LOG.warn("SPM baseline create: the cached duplicate {} carries a DROP"
+                            + " tombstone (its row only lags the delete); creating a fresh"
+                            + " row", duplicate.getId());
+                    staleCacheRows.add(duplicate);
+                } else if (!persistenceEnabled() && statusProtocolStoreForTest == null
                         && idAllocatorStoreForTest == null) {
                     return duplicate.getId();
-                }
-                if (idAllocatorStoreForTest == null && statusProtocolStoreForTest != null) {
+                } else if (idAllocatorStoreForTest == null && statusProtocolStoreForTest != null) {
                     // count-only seam: it cannot compare the durable identity
                     if (durableRowCount(duplicate.getId(), duplicate.getStatus()) > 0) {
                         return duplicate.getId(); // exact duplicate -> skip
@@ -1033,10 +1041,11 @@ public class BaselineManager {
                     // old id+status probe, and returning it handed the user an id whose
                     // row is a different baseline
                     return duplicate.getId(); // exact duplicate -> skip
+                } else {
+                    LOG.warn("SPM baseline create: the cached duplicate {} is gone durably"
+                            + " (promotion window); creating a fresh row", duplicate.getId());
+                    staleCacheRows.add(duplicate);
                 }
-                LOG.warn("SPM baseline create: the cached duplicate {} is gone durably"
-                        + " (promotion window); creating a fresh row", duplicate.getId());
-                staleCacheRows.add(duplicate);
             }
             // Durable-key check: the in-memory index can be stale (e.g. a follower that
             // loaded=true before becoming master missed rows written after its last
@@ -1046,8 +1055,10 @@ public class BaselineManager {
             // extra same-key rows (partial-state survivors) are repaired away idempotently.
             // writerLock keeps another writer's INSERT/DELETE pair out of this window.
             if (persistenceEnabled() && plan.getBindSqlDigest() != null) {
-                List<BaselinePlan> durable =
-                        readPersistedRowsForCreate(plan, watermark);
+                // round-43 #1: the KEY read is a point read too - a row revived after its
+                // own DROP must not be adopted (and must be repaired away) here either
+                List<BaselinePlan> durable = filterTombstonedDurableRows(
+                        readPersistedRowsForCreate(plan, watermark));
                 if (!durable.isEmpty()) {
                     List<BaselinePlan> sameFingerprint = new ArrayList<>();
                     List<BaselinePlan> staleRows = new ArrayList<>();
@@ -1402,7 +1413,13 @@ public class BaselineManager {
     /** The durable winner among the rows of one id carrying THIS baseline's identity. */
     private static BaselinePlan readableIdentityRow(long pendingId, BaselinePlan plan) {
         BaselinePlan winner = null;
-        for (BaselinePlan row : readPersistedParsedById(pendingId)) {
+        // Round-43 #1: a row whose identity was DROPPED is not adoptable even when it is
+        // readable right now - the drop's own DELETE may simply not be visible yet (see
+        // filterTombstonedDurableRows). Returning null makes BOTH adoption paths (the
+        // in-memory registry and the durable reservation fence) allocate a fresh row
+        // instead of resurrecting the dropped incarnation.
+        for (BaselinePlan row : filterTombstonedDurableRows(
+                readPersistedParsedById(pendingId))) {
             if (!sameIdentity(row, plan)) {
                 continue; // the id carries a DIFFERENT baseline: never adopt it
             }
@@ -1734,7 +1751,9 @@ public class BaselineManager {
                 && statusProtocolStoreForTest == null) {
             return null;
         }
-        List<BaselinePlan> durable = readPersistedParsedById(id);
+        // round-43 #1: a row revived after its DROP is NOT a present baseline - the
+        // drop's delete may simply not be readable yet (see filterTombstonedDurableRows)
+        List<BaselinePlan> durable = filterTombstonedDurableRows(readPersistedParsedById(id));
         if (durable.isEmpty()) {
             return null;
         }
@@ -3561,6 +3580,16 @@ public class BaselineManager {
     }
 
     /**
+     * Whether one row's identity carries a readable DROP TOMBSTONE (round-43 #1): the
+     * user's DROP completed, so the row is not adoptable any more even while its own
+     * DELETE lags its publication. A tombstone READ failure propagates (the caller fails
+     * retryably instead of adopting a row it cannot clear).
+     */
+    private static boolean isTombstonedIdentity(BaselinePlan plan) {
+        return plan != null && readDroppedIdentities().contains(droppedIdentityKey(plan));
+    }
+
+    /**
      * Removes every row whose identity carries a DROP TOMBSTONE (round-42 #9): the row
      * was deleted by a completed DROP and revived afterwards by a delayed write (a
      * demoted master's in-flight status INSERT committing after the delete). Matching it
@@ -3596,6 +3625,48 @@ public class BaselineManager {
             }
         }
         return filtered;
+    }
+
+    /**
+     * Removes the rows whose IDENTITY was DROPPED from a POINT read taken for adoption
+     * (round-43 #1). Reading a row back is not enough to make it adoptable: a DROP's own
+     * identity delete can lag its tombstone (the tombstone is written first, a demoted
+     * master's in-flight status write revived the row, and the delete is not readable
+     * yet), so the durable-key dedup of a CREATE or the by-id cache-miss reconciliation
+     * could hand back a baseline the user already dropped - the CREATE then reported
+     * success for a row that disappears the moment the delete becomes readable, and the
+     * ALTER could modify an incarnation that is already gone. The row's repair delete is
+     * retried here as well (best effort - a follower's read cannot write), so a point
+     * read and the snapshot load of {@link #filterResurrectedRows} can never disagree.
+     *
+     * @param rows the rows of one key / id read from the durable table (not mutated)
+     * @return the rows without dropped identities
+     */
+    private static List<BaselinePlan> filterTombstonedDurableRows(List<BaselinePlan> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return rows == null ? new ArrayList<>() : rows;
+        }
+        Set<String> tombstones = readDroppedIdentities();
+        if (tombstones.isEmpty()) {
+            return rows;
+        }
+        List<BaselinePlan> surviving = new ArrayList<>(rows.size());
+        for (BaselinePlan row : rows) {
+            if (row == null || !tombstones.contains(droppedIdentityKey(row))) {
+                surviving.add(row);
+                continue;
+            }
+            LOG.warn("SPM ignores and repairs a durable baseline {} revived after its DROP"
+                    + " (an in-flight write committed after the delete)", row.getId());
+            try {
+                persistDeleteByIdentity(row);
+            } catch (RuntimeException e) {
+                LOG.warn("SPM cannot repair the revived baseline {} yet ({}); it stays"
+                        + " hidden until the next leader repairs it", row.getId(),
+                        e.getMessage());
+            }
+        }
+        return surviving;
     }
 
     /**

@@ -518,6 +518,152 @@ public class AuditLoaderTest {
         }
     }
 
+    // round-43 #8 (AuditLoader 746): elapsed time is NOT proof of loss - a Publish Timeout
+    // batch can stay COMMITTED and unreadable beyond the age bound while the publish
+    // daemon keeps retrying. The fence is released by the transaction OUTCOME
+    // (VISIBLE / ABORTED); only an unresolvable state keeps the age bound as the last
+    // resort, so a genuinely lost batch cannot fence the capture forever.
+    @Test
+    public void testCommittedFenceOutlivesTheAgeBoundUntilTerminal() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        java.util.concurrent.atomic.AtomicReference<String> status =
+                new java.util.concurrent.atomic.AtomicReference<>("COMMITTED");
+        AuditLoader.publishVisibilityProbeForTest = (eventTime, queryId) -> false;
+        AuditLoader.transactionStatusForTest = label -> status.get();
+        long base = System.currentTimeMillis();
+        long pastBound = base + AuditLoader.PUBLISH_FENCE_MAX_MILLIS + 1;
+        try {
+            AuditLoader.publishFenceClockForTest = () -> base;
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-committed",
+                    "audit_log_label");
+            AuditLoader.publishFenceClockForTest = () -> pastBound;
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(10_000L, AuditLoader.oldestUnpublishedEventTime(),
+                    "a COMMITTED transaction keeps fencing past the age bound: its publish"
+                            + " daemon may still make the rows readable");
+
+            // the daemon gives up / the transaction is aborted: NOW the fence may go
+            status.set("ABORTED");
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                    "an ABORTED transaction can never publish");
+
+            // VISIBLE releases as well - the rows ARE there, a failing probe
+            // notwithstanding
+            Deencapsulation.invoke(loader, "retainPublishFence", 30_000L, "qid-visible",
+                    "audit_log_label");
+            status.set("VISIBLE");
+            AuditLoader.publishFenceClockForTest =
+                    () -> base + 2 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS + 2;
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                    "a VISIBLE transaction's rows are readable by definition");
+
+            // an UNRESOLVABLE outcome (no transaction manager / no record of the label)
+            // falls back to the retention bound
+            AuditLoader.publishFenceClockForTest = () -> base + 3 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS;
+            Deencapsulation.invoke(loader, "retainPublishFence", 50_000L, "qid-lost",
+                    "audit_log_label");
+            status.set(null);
+            AuditLoader.publishFenceClockForTest =
+                    () -> base + 4 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS + 1;
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                    "an unresolvable outcome keeps the age bound as the last resort");
+        } finally {
+            AuditLoader.publishVisibilityProbeForTest = null;
+            AuditLoader.transactionStatusForTest = null;
+            AuditLoader.publishFenceClockForTest = null;
+            setRunningLoader(null);
+        }
+    }
+
+    // round-43 #6 (AuditLoader 675): the overflow aggregate cleared EVERY member when the
+    // FIRST one's 30-minute window elapsed. A committed batch that overflowed into it at
+    // minute 29 lost its fence at minute 30 - without any visibility proof and before its
+    // own deadline - and the capture could checkpoint past a row that publishes later.
+    // The aggregate must outlive its NEWEST member's own deadline.
+    @Test
+    public void testOverflowAggregateKeepsEachBatchThroughItsOwnDeadline() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        AuditLoader.publishVisibilityProbeForTest = (eventTime, queryId) -> false;
+        long base = System.currentTimeMillis();
+        try {
+            AuditLoader.publishFenceClockForTest = () -> base;
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-oldest");
+            // minute 29: a burst of later, individually unreadable batches overflows the
+            // bounded list and pushes the oldest batch into the aggregate
+            long overflowAt = base + AuditLoader.PUBLISH_FENCE_MAX_MILLIS - 60_000L;
+            AuditLoader.publishFenceClockForTest = () -> overflowAt;
+            for (int i = 0; i < AuditLoader.MAX_PENDING_PUBLISH_FENCES + 5; i++) {
+                Deencapsulation.invoke(loader, "retainPublishFence", 20_000L + i, "qid-" + i);
+            }
+            Assertions.assertEquals(AuditLoader.MAX_PENDING_PUBLISH_FENCES,
+                    loader.pendingPublishFenceCountForTest(),
+                    "the retained list itself stays bounded");
+
+            // minute 31: the OLDEST batch's own 30-minute window elapsed, but the batch
+            // overflowed at minute 29 keeps its fence until minute 59
+            AuditLoader.publishFenceClockForTest =
+                    () -> base + AuditLoader.PUBLISH_FENCE_MAX_MILLIS + 60_000L;
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(10_000L, AuditLoader.oldestCommittedPublishFenceEventTime(),
+                    "an overflowed batch keeps its fence through its OWN deadline");
+            Assertions.assertEquals(10_000L, AuditLoader.oldestUnpublishedEventTime(),
+                    "the LOCAL horizon (the faster of the two capture surfaces) covers the"
+                            + " aggregate as well");
+
+            // past EVERY member's deadline the aggregate releases (best effort: the
+            // sample rows cannot be probed individually once the list is bounded)
+            AuditLoader.publishFenceClockForTest =
+                    () -> base + 2 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS + 60_000L;
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(0L, AuditLoader.oldestCommittedPublishFenceEventTime(),
+                    "after every member's own window the aggregate releases");
+        } finally {
+            AuditLoader.publishVisibilityProbeForTest = null;
+            AuditLoader.publishFenceClockForTest = null;
+            setRunningLoader(null);
+        }
+    }
+
+    // round-43 #7 (AuditLoader 790): the probe must ask for the audit time the row was
+    // actually WRITTEN with. The audit table stores the writer's local wall clock, so
+    // after `SET GLOBAL time_zone` a bound rendered in the CURRENT zone is hours away from
+    // the stored one and a perfectly visible row can never be confirmed - the fence then
+    // held the capture for the whole retention window.
+    @Test
+    public void testFenceKeepsTheWriterZoneAndTheProbeRendersWithIt() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        long eventTime = 1_780_000_000_000L;
+        AuditWriterZones.resetForTest();
+        try {
+            // the row was rendered while America/New_York was the writer's zone
+            AuditWriterZones.note("America/New_York", eventTime + 1_000L);
+            Deencapsulation.invoke(loader, "retainPublishFence", eventTime, "qid-zone",
+                    "audit_log_zone");
+            Assertions.assertEquals("America/New_York",
+                    loader.oldestPublishFenceWriterZoneForTest(),
+                    "the fence must carry the zone its sample row was rendered in");
+            Assertions.assertEquals(
+                    TimeUtils.longToTimeStringWithms(eventTime, "America/New_York"),
+                    AuditLoader.renderProbeEventTime(eventTime, "America/New_York"),
+                    "the probe bound is rendered in the WRITER zone, not the current one");
+            Assertions.assertEquals(TimeUtils.longToTimeStringWithms(eventTime),
+                    AuditLoader.renderProbeEventTime(eventTime, ""),
+                    "an unknown zone falls back to the default rendering");
+        } finally {
+            AuditWriterZones.resetForTest();
+            setRunningLoader(null);
+        }
+    }
+
     private static AuditEvent internalEvent(long timestamp) {
         return new AuditEvent.AuditEventBuilder()
                 .setQueryId("internal-" + timestamp)

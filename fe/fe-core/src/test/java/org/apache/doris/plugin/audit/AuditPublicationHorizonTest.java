@@ -24,6 +24,7 @@ import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.system.Frontend;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -300,8 +301,101 @@ public class AuditPublicationHorizonTest {
 
         AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
                 new Object[] {"fe-b", 0L, now});
-        Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
-                "a registered idle FE contributes no fence");
+        Assertions.assertEquals(now, AuditPublicationHorizon.clusterHorizon(),
+                "an idle registration fences its own REPORT INSTANT (round-43 #2): it"
+                        + " proves only that nothing was outstanding when it was written, and"
+                        + " an event captured right after it may still be unpublished");
+    }
+
+    /**
+     * Round-43 #2: an idle row is NOT "no fence". It vouches for its FE's pipeline only
+     * up to the instant it was written; contributing NOTHING let the capture advance past
+     * that instant, and an event the FE accepted immediately after reporting idle (but
+     * before its next report tick) could publish into a window the capture had already
+     * consumed. The row's REPORT TIME is therefore part of the cluster minimum.
+     */
+    @Test
+    public void testIdleRowContributesItsReportInstantToTheClusterMinimum() {
+        long now = System.currentTimeMillis();
+        long busyFence = now - 600_000L;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Arrays.asList(
+                new Object[] {"fe-idle", 0L, now - 1_000L},
+                new Object[] {"fe-busy", busyFence, now});
+        Assertions.assertEquals(busyFence, AuditPublicationHorizon.clusterHorizon(),
+                "the busy row's older fence still wins the minimum");
+
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-idle", 0L, now - 1_000L});
+        Assertions.assertEquals(now - 1_000L, AuditPublicationHorizon.clusterHorizon(),
+                "with only an idle row left, the minimum is its report instant");
+    }
+
+    /**
+     * Round-43 #2 (overdue half): an OVERDUE zero row of a LIVE FE is just as
+     * untrustworthy as a positive one - the FE may have captured events since its last
+     * report. Skipping the row BEFORE the staleness check trusted the stale zero and let
+     * the capture advance past those events.
+     */
+    @Test
+    public void testOverdueIdleRowOfALiveFeFailsClosed() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> true;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-live", 0L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "a live FE's un-refreshed ZERO row must skip the cycle, not be trusted");
+    }
+
+    /**
+     * Round-43 #3: liveness means MEMBERSHIP, not the heartbeat flag. An RPC heartbeat
+     * error sets {@code isAlive()} false while the FE (and its audit loader) still run and
+     * may hold a queued event: releasing its fence let the capture checkpoint past the
+     * event before it published. Only absence from the membership proves the events died
+     * with the FE.
+     */
+    @Test
+    public void testHeartbeatFlagDoesNotReleaseTheFenceOfAMember() {
+        long now = System.currentTimeMillis();
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getNodeName()).thenReturn("fe-self");
+        Frontend member = Mockito.mock(Frontend.class);
+        Mockito.when(member.getNodeName()).thenReturn("fe-member");
+        Mockito.when(member.isAlive()).thenReturn(false); // a failed heartbeat / RPC
+        Mockito.when(env.getFrontends(Mockito.any())).thenReturn(List.of(member));
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-member", now - 20_000L,
+                        now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "a member with a failed heartbeat still runs - its queued event must keep"
+                        + " fencing");
+        Assertions.assertTrue(failure.getMessage().contains("fe-member"),
+                "the failure names the member: " + failure.getMessage());
+    }
+
+    /**
+     * Round-43 #3 (membership half): the registered-row requirement covers EVERY member,
+     * including one whose heartbeat flag is currently false - excluding it read the
+     * not-yet-registered gap as "no obligation".
+     */
+    @Test
+    public void testMembershipWithoutAHeartbeatStillMustRegister() {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getNodeName()).thenReturn("fe-self");
+        Frontend member = Mockito.mock(Frontend.class);
+        Mockito.when(member.getNodeName()).thenReturn("fe-quiet");
+        Mockito.when(member.isAlive()).thenReturn(false);
+        Mockito.when(env.getFrontends(Mockito.any())).thenReturn(List.of(member));
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        AuditPublicationHorizon.horizonRowsReaderForTest = Collections::emptyList;
+        Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "a member without a row must fail the read closed even when its heartbeat"
+                        + " flag is false");
     }
 
     // ==================== round-37 #4: a fixed zone for update_time ====================

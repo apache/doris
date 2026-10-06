@@ -157,6 +157,11 @@ public class AuditStreamLoader {
 
     public LoadResponse loadBatch(StringBuilder sb, String clusterToken) {
         String label = genLabel();
+        // Round-43 #6: whether the batch could have reached a TRANSACTION at all. Only a
+        // delivered request can have committed rows that might publish later - a failure
+        // before the body was written needs no fence, and the fence resolution resolves
+        // the terminal state of the transaction by LABEL.
+        boolean sent = false;
 
         HttpURLConnection feConn = null;
         HttpURLConnection beConn = null;
@@ -178,6 +183,9 @@ public class AuditStreamLoader {
             beConn = getConnection(location, label, clusterToken);
             // send data to be
             writeCompressedBody(beConn.getOutputStream(), sb);
+            // the body is on the wire: whatever happens to the response now, a
+            // transaction may exist on the BE side
+            sent = true;
 
             // get respond
             status = beConn.getResponseCode();
@@ -188,13 +196,13 @@ public class AuditStreamLoader {
             LOG.info("AuditLoader plugin load with label: {}, response code: {}, msg: {}, content: {}",
                     label, status, respMsg, response);
 
-            return new LoadResponse(status, respMsg, response, content.complete);
+            return new LoadResponse(status, respMsg, response, content.complete, label, true);
 
         } catch (Exception e) {
             e.printStackTrace();
             String err = "failed to load audit via AuditLoader plugin with label: " + label;
             LOG.warn(err, e);
-            return new LoadResponse(-1, e.getMessage(), err);
+            return new LoadResponse(-1, e.getMessage(), err, false, label, sent);
         } finally {
             if (feConn != null) {
                 feConn.disconnect();
@@ -225,6 +233,19 @@ public class AuditStreamLoader {
          * get {@code true}.
          */
         public boolean contentComplete;
+        /**
+         * The load LABEL of this batch (round-43 #6): the transaction manager resolves
+         * the transaction's TERMINAL state by label, so a Publish-Timeout fence can be
+         * released on an ABORTED/VISIBLE outcome instead of on elapsed time.
+         */
+        public String label = "";
+        /**
+         * Whether the request was (at least partially) DELIVERED to the BE (round-43
+         * #6): only then can a transaction exist whose outcome is worth resolving. A
+         * failure before the body was written (token acquisition, the FE redirect, a
+         * connect error) cannot have committed anything, so it needs no fence.
+         */
+        public boolean sent = true;
 
         public LoadResponse(int status, String respMsg, String respContent) {
             this(status, respMsg, respContent, true);
@@ -236,6 +257,13 @@ public class AuditStreamLoader {
             this.respMsg = respMsg;
             this.respContent = respContent;
             this.contentComplete = contentComplete;
+        }
+
+        public LoadResponse(int status, String respMsg, String respContent,
+                boolean contentComplete, String label, boolean sent) {
+            this(status, respMsg, respContent, contentComplete);
+            this.label = label == null ? "" : label;
+            this.sent = sent;
         }
 
         @Override

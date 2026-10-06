@@ -1665,6 +1665,131 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
+     * round-43 #1: right after a completed DROP, a fresh FE filters the dropped row from
+     * its snapshot with the readable tombstone while a by-KEY lookup (the cached
+     * duplicate / the durable-key read) still sees the pre-delete row during the delete's
+     * publication delay. Adopting it reported CREATE success for the dropped baseline -
+     * and the row vanished once the DELETE became readable. Every adoption path must
+     * detect the tombstone, repair the remnant away and allocate a FRESH identity.
+     */
+    @Test
+    public void testCreateDoesNotAdoptATombstonedByKeyRow() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        IdentityStoreSimulator store = new IdentityStoreSimulator();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselineManager.snapshotReaderForTest = () -> Map.of(41L,
+                    withId(baseline("d-key", "p-key"), 41L));
+            manager.setPersistToTableForTest(true);
+            manager.prepareLoadForTest();
+            manager.loadFromInternalTable();
+            Assertions.assertEquals(1, manager.getAllBaselines().size(), "precondition: loaded");
+
+            // the DROP completed (its tombstone is readable) and the row's own DELETE lags
+            // behind: the cache AND the by-key read still see the incarnation
+            BaselinePlan remnant = withId(baseline("d-key", "p-key"), 41L);
+            store.rows.put(41L, remnant);
+            store.appendTombstone(remnant);
+
+            long fresh = manager.createBaseline(baseline("d-key", "p-key"));
+            Assertions.assertNotEquals(41L, fresh,
+                    "a tombstoned by-key row must not be adopted as the duplicate");
+            Assertions.assertEquals(1, store.rows.size(),
+                    "exactly the fresh row stays durable: " + store.rows.keySet());
+            Assertions.assertTrue(store.rows.containsKey(fresh),
+                    "the fresh identity is durable: " + store.rows.keySet());
+            Assertions.assertNull(manager.getBaseline(41L),
+                    "the dropped incarnation must not stay matchable");
+            Assertions.assertNotNull(manager.getBaseline(fresh));
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-43 #1 (pending-create half): a committed-but-unreadable CREATE is ADOPTED by
+     * id when its row finally publishes. If the identity was DROPPED in the meantime (the
+     * delayed row and the tombstone are both readable, only the DELETE lags), adopting it
+     * reported success for the dropped baseline. The retry must allocate a FRESH identity
+     * and retire the remnant.
+     */
+    @Test
+    public void testPendingCreateDoesNotAdoptATombstonedRow() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        IdentityStoreSimulator store = new IdentityStoreSimulator();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselineManager.durableVisibilityProbeForTest = (id, status) -> false;
+            BaselinePlan first = baseline("d-pending", "p-pending");
+            RuntimeException failed = Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.createBaseline(first));
+            Assertions.assertTrue(failed.getMessage().contains("not readable"),
+                    failed.getMessage());
+            long pendingId = store.rows.keySet().iterator().next();
+            Assertions.assertEquals(1, manager.pendingCreateCountForTest(),
+                    "the committed identity must be remembered");
+
+            // the row publishes - but its DROP completed in the meantime (only the DELETE
+            // lags behind)
+            BaselinePlan remnant = store.rows.get(pendingId);
+            store.appendTombstone(remnant);
+            BaselineManager.durableVisibilityProbeForTest = null;
+
+            long fresh = manager.createBaseline(baseline("d-pending", "p-pending"));
+            Assertions.assertNotEquals(pendingId, fresh,
+                    "a tombstoned pending-create row must not be adopted");
+            Assertions.assertFalse(store.rows.containsKey(pendingId),
+                    "the dropped incarnation must be repaired away: " + store.rows.keySet());
+            Assertions.assertEquals(1, store.rows.size(),
+                    "exactly the fresh row stays durable: " + store.rows.keySet());
+            Assertions.assertNotNull(manager.getBaseline(fresh));
+            Assertions.assertEquals(0, manager.pendingCreateCountForTest(),
+                    "the resolved fence must not linger");
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-43 #1 (ALTER half): the cache-miss reconciliation of an ALTER must not adopt a
+     * row whose DROP completed - the row only lags its own delete, and reporting the ALTER
+     * against it would modify a baseline on its way out.
+     */
+    @Test
+    public void testAlterDoesNotAdoptATombstonedCacheMissRow() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        IdentityStoreSimulator store = new IdentityStoreSimulator();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselineManager.snapshotReaderForTest = () -> Map.of();
+            manager.setPersistToTableForTest(true);
+            manager.prepareLoadForTest();
+            manager.loadFromInternalTable();
+            Assertions.assertEquals(0, manager.getAllBaselines().size(), "precondition: empty");
+
+            BaselinePlan remnant = withId(baseline("d-alter", "p-alter"), 51L);
+            store.rows.put(51L, remnant);
+            store.appendTombstone(remnant);
+
+            Assertions.assertFalse(manager.updateStatus(51L, BaselineStatus.DISABLED),
+                    "a tombstoned durable row must read as absent, not be adopted");
+            Assertions.assertTrue(store.rows.isEmpty(),
+                    "the revived remnant must be repaired away: " + store.rows.keySet());
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
      * round-42 #2: a forwarded CREATE's outcome fence cannot name the master's id (the
      * follower cannot know which id the master allocated), so the expectation matches ANY
      * id that carries the created bind+plan TEXT - and a snapshot without it does not

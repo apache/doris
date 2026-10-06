@@ -210,6 +210,34 @@ public final class AuditWriterZones {
     }
 
     /**
+     * The zone an audit row of {@code atMillis} was most likely RENDERED in (round-43
+     * #5): the registered zone whose last use is the FIRST one at or after the row's
+     * instant. The registry records ONE last-use per zone, so the zone in effect when the
+     * row was rendered is the earliest zone whose usage reaches that instant. Used by the
+     * publish-fence visibility probe, which must ask for the audit time the row was
+     * actually written with - rendering the bound in the CURRENT global zone turned an
+     * observable row into an unconfirmable one after a `SET GLOBAL time_zone`.
+     *
+     * @param atMillis the row's event instant (epoch millis)
+     * @return the rendering zone, or null when the registry cannot answer
+     */
+    static String zoneOfRenderTime(long atMillis) {
+        if (atMillis <= 0) {
+            return null;
+        }
+        String bestZone = null;
+        long bestLastUse = Long.MAX_VALUE;
+        for (Map.Entry<String, Long> entry : WRITER_ZONES.entrySet()) {
+            long lastUse = entry.getValue() == null ? 0L : entry.getValue();
+            if (lastUse >= atMillis && lastUse < bestLastUse) {
+                bestLastUse = lastUse;
+                bestZone = entry.getKey();
+            }
+        }
+        return bestZone;
+    }
+
+    /**
      * The zone ID the audit writer renders timestamps with: the global session
      * time_zone (the context-less loader thread falls back to it, see
      * {@code AuditLogScanner#auditWriteZone} - keep the two in sync).

@@ -42,6 +42,38 @@ import java.util.Set;
  */
 public class AuditWriterZonesTest {
 
+    /**
+     * round-43 #5: the zone an audit row of one instant was RENDERED in is the registered
+     * zone whose last use is the FIRST one at or after that instant. The publish-fence
+     * probe renders its bound in exactly that zone: the audit table stores the writer's
+     * LOCAL wall clock, so after a {@code SET GLOBAL time_zone} a bound rendered in the
+     * current zone is hours away from the stored one and the probe can never confirm a
+     * (perfectly visible) row.
+     */
+    @Test
+    public void testZoneOfRenderTimePicksTheZoneInEffectAtTheInstant() {
+        AuditWriterZones.resetForTest();
+        try {
+            long t0 = 1_780_000_000_000L;
+            AuditWriterZones.note("UTC", t0 + 10_000L);            // rendered until t0+10s
+            AuditWriterZones.note("Asia/Tokyo", t0 + 40_000L);     // ... then in Tokyo
+            AuditWriterZones.note("America/New_York", t0 + 90_000L);
+
+            Assertions.assertEquals("UTC", AuditWriterZones.zoneOfRenderTime(t0 + 9_000L),
+                    "a row of t0+9s was rendered under UTC (the first use reaching past it)");
+            Assertions.assertEquals("Asia/Tokyo",
+                    AuditWriterZones.zoneOfRenderTime(t0 + 15_000L),
+                    "after the UTC epoch ended, the earliest still-reaching use is Tokyo's");
+            Assertions.assertEquals("America/New_York",
+                    AuditWriterZones.zoneOfRenderTime(t0 + 50_000L),
+                    "a row between the Tokyo and New York epochs belongs to New York");
+            Assertions.assertNull(AuditWriterZones.zoneOfRenderTime(0),
+                    "no instant = no answer (the caller falls back to the default zone)");
+        } finally {
+            AuditWriterZones.resetForTest();
+        }
+    }
+
     @Test
     public void testZoneHistoryKeepsTheLastUsePerZoneAndDropsCoveredOnes() {
         AuditWriterZones.resetForTest();

@@ -188,6 +188,18 @@ public class PlanCaptureManager extends MasterDaemon {
             "`__internal_schema`.`spm_capture_checkpoint`";
 
     /**
+     * The checkpoint columns every read expects, in the order {@link #applyCheckpointRow}
+     * consumes them. Shared by the TOKEN query and the pending-window query so the two
+     * can never drift apart (round-43 #7).
+     */
+    private static final String CHECKPOINT_COLUMN_LIST =
+            "`last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
+                    + " `cursor_query_time`, `cursor_time`, `cursor_query_id`,"
+                    + " `failed_attempts`, `retry_queue`, `cursor_tail`,"
+                    + " `min_query_time_ms`, `min_scan_rows`, `include_pattern`,"
+                    + " `exclude_pattern`, `scan_zone`, `leader_epoch`, `write_seq`";
+
+    /**
      * The read takes the lexicographically GREATEST row of the append-only table
      * (round-42 #8): {@code (leader_epoch, write_seq)} is the row's write token. The
      * previous {@code ORDER BY update_time LIMIT 1} was ambiguous between the newest row
@@ -197,15 +209,33 @@ public class PlanCaptureManager extends MasterDaemon {
      * guess.
      */
     private static final String CHECKPOINT_SELECT_SQL =
-            "SELECT `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
-                    + " `cursor_query_time`, `cursor_time`, `cursor_query_id`,"
-                    + " `failed_attempts`, `retry_queue`, `cursor_tail`,"
-                    + " `min_query_time_ms`, `min_scan_rows`, `include_pattern`,"
-                    + " `exclude_pattern`, `scan_zone`, `leader_epoch`, `write_seq` FROM "
+            "SELECT " + CHECKPOINT_COLUMN_LIST + " FROM "
                     + CHECKPOINT_TABLE
                     + " WHERE `id` = " + CHECKPOINT_ID
                     + " ORDER BY `leader_epoch` DESC, `write_seq` DESC, `update_time` DESC"
                     + " LIMIT 1";
+
+    /**
+     * The companion read of {@link #CHECKPOINT_SELECT_SQL} (round-43 #7): the
+     * MOST-BEHIND PENDING window, i.e. the reservation whose unconsumed prefix reaches
+     * furthest into the past. The token ordering alone HIDES such a row forever when its
+     * INSERT commits only after a later leader read the table as empty: leader A reserves
+     * [09:00,12:00), its row is still unreadable when B promotes and reads nothing, B
+     * appends [09:10,12:10) with a higher token - and A's row, once it DOES publish, is
+     * never the token-greatest one again. The 09:05 row inside A's unconsumed prefix then
+     * falls outside B's window and every later overlap: skipped permanently. A pending
+     * row (start &gt; 0, start &lt; end) is a window its writer has NOT fully consumed,
+     * so it is read here regardless of its token; the same-start tie prefers the writer
+     * that progressed furthest (higher token, later commit).
+     */
+    private static final String CHECKPOINT_SELECT_PENDING_SQL =
+            "SELECT " + CHECKPOINT_COLUMN_LIST + " FROM "
+                    + CHECKPOINT_TABLE
+                    + " WHERE `id` = " + CHECKPOINT_ID
+                    + " AND `pending_window_start` > 0"
+                    + " AND `pending_window_start` < `pending_window_end`"
+                    + " ORDER BY `pending_window_start` ASC, `leader_epoch` DESC,"
+                    + " `write_seq` DESC, `update_time` DESC LIMIT 1";
 
     /**
      * One APPEND of the checkpoint (round-42 #8): a plain INSERT whose row carries the
@@ -446,12 +476,26 @@ public class PlanCaptureManager extends MasterDaemon {
     private boolean durableCheckpointObserved = false;
 
     /**
+     * The EARLIEST window start this process has begun scanning (0 = nothing is covered
+     * yet). The windows of one process form a CONTIGUOUS range - the first is derived
+     * around the loaded watermark, and every later one starts one overlap behind its
+     * predecessor's end - so from this instant on, the chain has scanned or will scan
+     * everything. That is exactly the knowledge the checkpoint read needs (round-43 #7)
+     * to tell a STALE pending row of a window this chain already consumed (the
+     * append-only table keeps the reservation row of every window forever) from an
+     * EARLIER leader's window whose unconsumed prefix was never scanned - the latter must
+     * be adopted, the former must not be re-scanned forever. In-memory only: a fresh
+     * process starts over and re-evaluates the table on its own.
+     */
+    private long scannedFromMillis = 0;
+
+    /**
      * Checkpoint read / write seams. Production talks to the internal table through
      * StatisticsUtil; tests replace them to simulate a failing first read and to observe
-     * the exact statements a persist issues.
+     * the exact statements a persist issues. The production READ resolves to the earlier
+     * pending window when one is still un-accounted-for (see {@link #readCheckpointRow}).
      */
-    private Supplier<List<ResultRow>> checkpointReader = () -> StatisticsUtil.executeQuery(
-            CHECKPOINT_SELECT_SQL, Collections.emptyMap(), CHECKPOINT_IO_TIMEOUT_SECONDS);
+    private Supplier<List<ResultRow>> checkpointReader = this::readCheckpointRow;
 
     /** One checkpoint write statement. */
     @VisibleForTesting
@@ -657,6 +701,10 @@ public class PlanCaptureManager extends MasterDaemon {
             // persisting anything: writing a freshly derived window while the previous
             // leader's unconsumed tail is still unreadable would overwrite its only
             // record (the write path shares the same internal table the read failed on).
+            // Whether THIS cycle is the one that resolved the durable checkpoint: the load
+            // read applies the SAME choice the re-read below makes, so re-reading it
+            // immediately would only duplicate the query (round-43 #7).
+            boolean resolvedCheckpointThisCycle = !checkpointLoaded;
             if (!loadCheckpointIfNeeded()) {
                 // The read failed and recorded nothing, so this process still has no window.
                 // Remember the window this cycle WOULD have consumed and retry promptly: the
@@ -789,6 +837,28 @@ public class PlanCaptureManager extends MasterDaemon {
                 // the reservation is durable and readable: the remembered first attempted
                 // window is now covered by a durable record and must not widen anything
                 firstAttemptedWindowStart = 0;
+            }
+
+            // Round-43 #7: an EARLIER leader's reservation can publish only now - after
+            // this process's load already read the table as empty (or read a row this
+            // process has since superseded). The production read surfaces it; adopting it
+            // (instead of consuming this process's derived window over it) keeps its
+            // unconsumed prefix reachable. Without this step the prefix - the rows between
+            // the earlier window's start and this process's window start - was skipped
+            // permanently, because later reads only ever saw the token-greatest row.
+            if (!resolvedCheckpointThisCycle && adoptEarlierPendingCheckpoint()) {
+                LOG.warn("Plan capture cycle skipped: an earlier pending checkpoint window"
+                        + " surfaced and was adopted");
+                return;
+            }
+
+            // Round-43 #7: the earliest window start THIS process actually scanned marks
+            // the beginning of the range its chain covers (see {@link #scannedFromMillis}).
+            // Recorded when the pass BEGINS: from the reservation above on, the window is
+            // durable (or was loaded from the store), so a crash leaves the chain resumable
+            // exactly here, and every window the chain derives next stays behind it.
+            if (scannedFromMillis == 0 || scanStart < scannedFromMillis) {
+                scannedFromMillis = scanStart;
             }
 
             // Drain this window with a BOUNDED number of pages: one page per wakeup would
@@ -1808,13 +1878,172 @@ public class PlanCaptureManager extends MasterDaemon {
                 + " window [{}, {})",
                 parseLongValue(row.get(1)), parseLongValue(row.get(2)),
                 reservationStart, reservationEnd);
+        adoptCheckpointRow(row);
+        return true;
+    }
+
+    /**
+     * Adopts one foreign checkpoint row as THIS process's progress (round-39 #5,
+     * round-43 #7): apply the state, write it back (this process's own reservation may
+     * already be queued behind the foreign row, and until the adopted state is written
+     * back a later takeover could read the superseded window), and resume PROMPTLY. The
+     * caller aborts the cycle: consuming this process's derived window over the adopted
+     * one would permanently skip the adopted window's unconsumed prefix.
+     */
+    private void adoptCheckpointRow(ResultRow row) {
         applyCheckpointRow(row);
-        // Write the adopted state back: this process's own reservation may already be
-        // queued behind the foreign row in the single-row store, and until the adopted
-        // state is written back a later takeover could read our (stale) window instead.
         persistCheckpoint();
         pendingWindowNeedsPromptResume = true;
+    }
+
+    /**
+     * Round-43 #7: adopts an EARLIER pending window that surfaced AFTER the load. The
+     * load consults the checkpoint once; without this step a reservation whose INSERT
+     * commits later (a demoted master's forwarded write, an internal-schema publication
+     * that timed out) stays invisible to every later read of the token-greatest row, and
+     * the unconsumed prefix of its window - the rows before this process's derived window
+     * start - is skipped permanently. The production reader surfaces such a row (see
+     * {@link #readCheckpointRow}); this method turns it into the same adoption the
+     * reservation phase performs: apply the earlier state, write it back so the store
+     * converges to it, and let the caller abort the cycle and resume PROMPTLY.
+     *
+     * @return true when the caller must abort the cycle (adopted, or the store could not
+     *         be re-read: without the read no earlier window can be ruled out)
+     */
+    private boolean adoptEarlierPendingCheckpoint() {
+        if (!checkpointPersistenceEnabled()) {
+            return false;
+        }
+        List<ResultRow> rows;
+        try {
+            rows = checkpointReader.get();
+        } catch (Exception e) {
+            LOG.warn("SPM capture: the checkpoint re-read before this cycle's window failed"
+                    + " (retrying promptly): {}", e.getMessage());
+            return true; // fail closed: an unreadable store must not advance the watermark
+        }
+        if (rows == null || rows.isEmpty()) {
+            return false;
+        }
+        ResultRow row = rows.get(0);
+        if (!isPendingWindowRow(row)) {
+            return false; // the resolved row is plain progress, not a pending window
+        }
+        long start = parseLongValue(row.get(1));
+        long end = parseLongValue(row.get(2));
+        if (start == pendingWindowStart && end == pendingWindowEnd) {
+            return false; // the window this process is already consuming
+        }
+        if (scannedFromMillis > 0 && start >= scannedFromMillis) {
+            // Inside what THIS process has already scanned or will scan (see
+            // scannedFromMillis): the stale reservation row of a CONSUMED window stays
+            // readable in the append-only table, and adopting it again would re-scan the
+            // same span on every wakeup. Only a row naming an EARLIER, unscanned prefix
+            // is new information.
+            return false;
+        }
+        LOG.warn("SPM capture: a pending checkpoint window of an earlier leader is readable"
+                + " NOW (window [{}, {})); adopting it before advancing this process's"
+                + " progress", start, end);
+        adoptCheckpointRow(row);
         return true;
+    }
+
+    /**
+     * Whether one resolved checkpoint row IS a pending window: a window its writer never
+     * fully consumed (round-43 #7). Size-safe: rows fabricated by tests / written by an
+     * older build can carry fewer than the three leading columns.
+     */
+    private static boolean isPendingWindowRow(ResultRow row) {
+        if (row == null || row.getValues().size() < 3) {
+            return false;
+        }
+        long start = parseLongValue(row.get(1));
+        long end = parseLongValue(row.get(2));
+        return start > 0 && start < end;
+    }
+
+    /**
+     * The production checkpoint read (round-43 #7): the row a read must resolve to is NOT
+     * always the token-greatest one. The append-only table keeps an EARLIER leader's
+     * pending reservation even when its INSERT commits only after this process's first
+     * read, and the token ordering then hides it forever - see
+     * {@link #CHECKPOINT_SELECT_PENDING_SQL}. The read therefore also asks for the
+     * most-behind pending window and prefers it over the newest progress unless
+     * {@link #chooseCheckpointRow} decides otherwise.
+     *
+     * @return the resolved row as a one-element list (empty when the store has no row)
+     */
+    private List<ResultRow> readCheckpointRow() {
+        ResultRow newest = firstCheckpointRow(CHECKPOINT_SELECT_SQL);
+        ResultRow behind = firstCheckpointRow(CHECKPOINT_SELECT_PENDING_SQL);
+        ResultRow chosen = chooseCheckpointRow(newest, behind, pendingWindowStart,
+                pendingWindowEnd, scannedFromMillis);
+        if (chosen != null && chosen != newest && LOG.isDebugEnabled()) {
+            LOG.debug("SPM capture checkpoint read: preferring the earlier pending window"
+                    + " [{}, {}) over the token-greatest progress",
+                    parseLongValue(chosen.get(1)), parseLongValue(chosen.get(2)));
+        }
+        return chosen == null ? Collections.emptyList() : Collections.singletonList(chosen);
+    }
+
+    /** The first row of one checkpoint query; null when the store has none. */
+    private static ResultRow firstCheckpointRow(String sql) {
+        List<ResultRow> rows = StatisticsUtil.executeQuery(sql, Collections.emptyMap(),
+                CHECKPOINT_IO_TIMEOUT_SECONDS);
+        return rows == null || rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /**
+     * Which of the two candidate rows a read resolves to (round-43 #7; pure so the
+     * priority is testable without a store).
+     *
+     * <p>The most-behind pending row WINS - it names a window whose unconsumed prefix no
+     * token-greater row accounts for - UNLESS
+     * <ul>
+     *   <li>it is not a pending window ({@code start <= 0} or {@code start >= end}): the
+     *       token row is the state to resume;</li>
+     *   <li>it carries the SAME window as the newest row: both describe one state, and
+     *       the higher token is at least as new;</li>
+     *   <li>it IS the window this process already consumes (the current
+     *       {@code pendingWindow} bounds): there is nothing to adopt;</li>
+     *   <li>it lies inside {@code [scannedFrom, +infinity)}: this process's own window
+     *       chain (contiguous from the first window it scanned, see
+     *       {@link #scannedFromMillis}) has scanned it or will scan it - adopting a
+     *       consumed window again would re-scan the same span on every wakeup, because
+     *       the append-only table keeps its reservation row.</li>
+     * </ul>
+     *
+     * @param newest the token-greatest row (null = none)
+     * @param behind the most-behind pending row (null = none)
+     * @param currentPendingStart this process's current pending window start
+     * @param currentPendingEnd this process's current pending window end
+     * @param scannedFrom the earliest window start THIS process began scanning (0 = none)
+     * @return the row the read resolves to
+     */
+    @VisibleForTesting
+    public static ResultRow chooseCheckpointRow(ResultRow newest, ResultRow behind,
+            long currentPendingStart, long currentPendingEnd, long scannedFrom) {
+        if (behind == null || !isPendingWindowRow(behind)) {
+            return newest; // nothing behind, or the behind row is not a pending window
+        }
+        if (newest == null) {
+            return behind;
+        }
+        long behindStart = parseLongValue(behind.get(1));
+        long behindEnd = parseLongValue(behind.get(2));
+        if (newest.getValues().size() > 2
+                && behindStart == parseLongValue(newest.get(1))
+                && behindEnd == parseLongValue(newest.get(2))) {
+            return newest; // the same window: the higher token is at least as new
+        }
+        if (behindStart == currentPendingStart && behindEnd == currentPendingEnd) {
+            return newest; // the window this process already consumes
+        }
+        if (scannedFrom > 0 && behindStart >= scannedFrom) {
+            return newest; // already scanned / will be scanned by this process's chain
+        }
+        return behind;
     }
 
     /**
@@ -2178,8 +2407,7 @@ public class PlanCaptureManager extends MasterDaemon {
         // (setFilterForTest) must not leak it into the next test's candidates
         this.filter = buildFilterFromGlobal();
         // restore the production read / write seams (tests replace them)
-        checkpointReader = () -> StatisticsUtil.executeQuery(
-                CHECKPOINT_SELECT_SQL, Collections.emptyMap(), CHECKPOINT_IO_TIMEOUT_SECONDS);
+        checkpointReader = this::readCheckpointRow;
         checkpointWriter = (sql, params) -> {
             QueryState state = StatisticsUtil.execUpdate(sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
             if (state != null && !checkpointWriteAccepted(state.getAffectedRows())) {
@@ -2228,6 +2456,7 @@ public class PlanCaptureManager extends MasterDaemon {
         queuedFailureChars = 0;
         checkpointLoaded = false;
         durableCheckpointObserved = false;
+        scannedFromMillis = 0;
     }
 
     /**

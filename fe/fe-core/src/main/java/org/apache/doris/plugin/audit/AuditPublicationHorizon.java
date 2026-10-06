@@ -80,7 +80,12 @@ import java.util.function.Supplier;
  *       keepalive writes fail - or one whose liveness cannot be decided - makes the
  *       read FAIL CLOSED instead: its pipeline may still owe events (and may even
  *       have gained events with OLDER start times), so neither the stale value may
- *       be trusted nor the fence released (round-38 #2).</li>
+ *       be trusted nor the fence released (round-38 #2) - and liveness means
+ *       MEMBERSHIP, not the heartbeat flag, whose transient false must not release a
+ *       running FE's fence (round-43 #3). An IDLE row (zero fence) contributes its
+ *       own report INSTANT rather than nothing (round-43 #2): the row vouches for its
+ *       FE's pipeline only up to the moment it was written, and an event captured
+ *       right after it may still be unpublished.</li>
  *   <li>a COMMITTED batch whose rows are only not readable yet (Publish Timeout) keeps
  *       fencing even after its FE died: its {@code committed_fence_ms} marker survives
  *       the death for the same bound the loader itself applies (round-40 #10) - the
@@ -388,17 +393,19 @@ public final class AuditPublicationHorizon {
             // folds them; a row written by an older build can still carry a horizon that
             // OVERSTATES the committed fence, and taking the max kept that overstatement.)
             long fence = minPositive(horizon, committedFence);
-            if (fence <= 0) {
-                continue; // nothing outstanding: a zero row needs no fence
-            }
-            if (updatedAt <= 0 || now - updatedAt > ROW_STALE_MILLIS) {
+            boolean overdue = updatedAt <= 0 || now - updatedAt > ROW_STALE_MILLIS;
+            if (overdue) {
                 // Round-38 #2: an OVERDUE row does NOT mean its FE is gone - its keepalive
                 // upserts can fail for minutes while the FE still holds the events, and
                 // its pipeline may even have GAINED events with older start times - so the
                 // stale VALUE cannot be trusted either. Only a KNOWN-GONE FE releases its
                 // fence (the events died with it); a live - or an undecidable - reporter
                 // fails this read closed, and the capture skips the cycle and retries
-                // promptly instead of checkpointing past the unread fence.
+                // promptly instead of checkpointing past the unread fence. This check runs
+                // BEFORE the zero-fence shortcut (round-43 #2): an overdue ZERO row of a
+                // live FE is just as untrustworthy as a positive one - the FE may have
+                // captured events since its last report, and trusting the stale zero let
+                // the capture advance past them.
                 Boolean alive = reportingFeAlive(feName);
                 if (Boolean.FALSE.equals(alive)) {
                     if (committedFence > 0
@@ -424,6 +431,18 @@ public final class AuditPublicationHorizon {
                         + " " + horizon + ") has not been refreshed for " + (now - updatedAt)
                         + " ms while the FE is " + (alive == null ? "not confirmably gone"
                         : "still alive") + "; the capture must retry on a later cycle");
+            }
+            if (fence <= 0) {
+                // Round-43 #2: an IDLE row is NOT "no fence". It proves only that its FE
+                // had nothing outstanding at `updatedAt`; whatever was captured AFTER that
+                // instant may still be unpublished (the next report tick is up to a few
+                // seconds away, a stuck load far longer). Contributing the row's report
+                // INSTANT keeps every window that reaches past it under the re-scan
+                // overlap until that later event is itself reported - skipping the row
+                // outright let the capture checkpoint past an event the idle report never
+                // vouched for.
+                oldest = minPositive(oldest, updatedAt);
+                continue;
             }
             oldest = minPositive(oldest, fence);
         }
@@ -489,7 +508,15 @@ public final class AuditPublicationHorizon {
             String self = AuditLoader.selfFeName();
             Set<String> names = new LinkedHashSet<>();
             for (Frontend frontend : frontends) {
-                if (frontend.isAlive() && frontend.getNodeName() != null
+                // Round-43 #3: MEMBERSHIP decides who must have registered - NOT the
+                // heartbeat flag. `isAlive()` is false whenever the last heartbeat or an
+                // RPC failed, which is exactly the state in which a still-running FE's
+                // row (and its committed batch) is missing from the table: excluding it
+                // here read the not-yet-registered gap as "no obligation", the very
+                // failure round-42 #12 exists to catch. A member with a failed heartbeat
+                // is simply a reporter whose row is (still) overdue - handled by the
+                // per-row liveness logic, not by dropping it from the obligation set.
+                if (frontend.getNodeName() != null
                         && !frontend.getNodeName().equals(self)) {
                     names.add(frontend.getNodeName());
                 }
@@ -501,12 +528,18 @@ public final class AuditPublicationHorizon {
     }
 
     /**
-     * Whether the FE that reported a fence row is still ALIVE: {@code null} when that
-     * cannot be decided (no live environment / no membership view / a failed lookup), and
-     * {@code false} ONLY when the FE is provably gone. Called for OVERDUE rows only: the
-     * capture runs on the leader, whose frontend list tracks every member's heartbeat, so
-     * a row whose FE is absent from the membership is a leftover whose events died with
-     * that FE (see {@link #remoteHorizon}, round-38 #2).
+     * Whether the FE that reported a fence row can still publish something: {@code null}
+     * when that cannot be decided (no live environment / no membership view / a failed
+     * lookup), and {@code false} ONLY when the FE is provably gone - it is no longer a
+     * member of the cluster. Called for OVERDUE rows only: the capture runs on the
+     * leader, whose frontend list tracks every member, so a row whose FE is absent from
+     * the membership is a leftover whose events died with that FE (see
+     * {@link #remoteHorizon}, round-38 #2).
+     *
+     * <p>Round-43 #3: a MEMBER whose {@code isAlive()} is false is still alive enough to
+     * hold events - the flag drops on a single failed heartbeat / RPC while the process
+     * keeps running - so it must NOT release its fence. Only absence from the membership
+     * (dropped / decommissioned / replaced) proves the events died with the FE.
      */
     private static Boolean reportingFeAlive(String feName) {
         Function<String, Boolean> probe = feAliveProbeForTest;
@@ -524,7 +557,7 @@ public final class AuditPublicationHorizon {
             }
             for (Frontend frontend : frontends) {
                 if (feName.equals(frontend.getNodeName())) {
-                    return frontend.isAlive();
+                    return Boolean.TRUE; // still a member: do NOT trust its stale value
                 }
             }
             return Boolean.FALSE; // not a member any more: dropped / decommissioned

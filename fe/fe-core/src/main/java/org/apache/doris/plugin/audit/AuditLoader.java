@@ -17,6 +17,7 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DigitalVersion;
@@ -32,6 +33,7 @@ import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Queues;
@@ -110,27 +112,46 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     /**
      * The AGGREGATE fence of the batches dropped by the {@link #MAX_PENDING_PUBLISH_FENCES}
-     * bound (round-42 #7): the earliest event time among them plus the earliest
-     * {@code since}. Removing the oldest entry outright released its fence without ANY
-     * visibility probe - a sustained Publish-Timeout rate then let the capture advance
-     * past an event that was still committed-but-unreadable, and the pinned window can
-     * never widen back to include it. The aggregate keeps fencing until its own retention
-     * bound elapses (the bound the FIRST dropped batch was already running on), so the
-     * memory stays bounded while the protection survives. Guarded by the loader monitor.
+     * bound (round-42 #7): the earliest event time among them plus the deadline of the
+     * batch dropped LATEST (round-43 #4). Removing the oldest entry outright released its
+     * fence without ANY visibility probe - a sustained Publish-Timeout rate then let the
+     * capture advance past an event that was still committed-but-unreadable, and the
+     * pinned window can never widen back to include it. The aggregate must outlive EVERY
+     * member's OWN retention window: expiring with the FIRST dropped batch's deadline
+     * released a batch that overflowed at minute 29 already at minute 30, before its own
+     * 30-minute bound and without any visibility proof. Guarded by the loader monitor.
      */
     private long droppedPublishFenceTime = 0;
-    private long droppedPublishFenceSince = 0;
+    private long droppedPublishFenceUntil = 0;
 
     /** One committed-but-unreadable batch (see {@link #pendingPublishFences}). */
     private static final class PublishFence {
         final long oldestEventTime;
         final String queryId;
         final long since;
+        /**
+         * The load label of the batch's transaction (round-43 #6): the terminal state
+         * (ABORTED / VISIBLE) is resolved by label once the retention bound elapsed, so
+         * the fence is released on an OUTCOME, never on elapsed time alone. Empty when
+         * unknown (the fence then keeps fencing until the sample row is readable).
+         */
+        final String label;
+        /**
+         * The zone the sample row's {@code time} column was RENDERED in (round-43 #5):
+         * the visibility probe must ask for that audit time, not for a rendering in the
+         * current global zone - after a `SET GLOBAL time_zone` the probe used to look for
+         * a wall clock hours away from the stored one and could never confirm a row that
+         * was perfectly visible. Null / empty = fall back to the default rendering.
+         */
+        final String writerZoneId;
 
-        PublishFence(long oldestEventTime, String queryId, long since) {
+        PublishFence(long oldestEventTime, String queryId, long since, String label,
+                String writerZoneId) {
             this.oldestEventTime = oldestEventTime;
             this.queryId = queryId == null ? "" : queryId;
             this.since = since;
+            this.label = label == null ? "" : label;
+            this.writerZoneId = writerZoneId == null ? "" : writerZoneId;
         }
     }
 
@@ -179,6 +200,14 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     /** Test seam: the clock of the publish-fence bookkeeping (null = the real clock). */
     @VisibleForTesting
     static volatile java.util.function.LongSupplier publishFenceClockForTest;
+
+    /**
+     * Test seam: the TERMINAL transaction status of a load label (round-43 #6); null =
+     * undecidable. One call resolves one fence's outcome; null in production (the real
+     * resolver reads the transaction manager).
+     */
+    @VisibleForTesting
+    static volatile java.util.function.Function<String, String> transactionStatusForTest;
 
     /** The clock of the publish-fence bookkeeping (see {@link #publishFenceClockForTest}). */
     private static long publishFenceNow() {
@@ -371,7 +400,12 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     oldest = eventTime;
                 }
             }
-            return oldest;
+            // The bounded-out batches (round-42 #7) are accepted-but-unpublished too, so
+            // they belong to the LOCAL horizon exactly like the batch / queue entries:
+            // the shared-row report already folds the aggregate in as the committed fence
+            // (round-43 #4 keeps it until its newest member's own deadline), but a
+            // transient report failure must not let the local path understate the fence.
+            return minPositive(oldest, liveDroppedPublishFence());
         }
     }
 
@@ -515,6 +549,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             // whether the load's outcome was CONFIRMED published; null = the batch was
             // never sent (an earlier failure), so there is nothing to fence
             Boolean published = null;
+            // the load label + whether the request reached a BE (round-43 #6): the fence
+            // resolution needs the label, and a request that never left the FE cannot
+            // have committed anything
+            String fenceLabel = "";
+            boolean fenceSent = false;
             try {
                 String token = "";
                 try {
@@ -530,6 +569,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     LOG.debug("audit loader response: {}", response);
                 }
                 published = batchPublicationConfirmed(response);
+                fenceLabel = response.label;
+                fenceSent = response.sent;
                 if (!published) {
                     LOG.warn("audit loader: the stream load of {} event(s) is not confirmed"
                             + " published ({}); its rows keep fencing the capture progress"
@@ -544,8 +585,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 }
                 discardLogNum += auditLogNum;
             } finally {
-                if (published != null && !published) {
-                    retainPublishFence(batchOldest, batchQueryId);
+                if (published != null && !published && fenceSent) {
+                    // only a DELIVERED request can have created a transaction (round-43
+                    // #6): a failure before the body was written cannot have committed
+                    // anything, and fencing it would keep the capture behind forever
+                    retainPublishFence(batchOldest, batchQueryId, fenceLabel);
                 }
                 // make a new string builder to receive following events.
                 resetBatch(currentTime);
@@ -599,12 +643,31 @@ public class AuditLoader extends Plugin implements AuditPlugin {
      * total wait of every batch stays bounded by {@link #PUBLISH_FENCE_MAX_MILLIS}.
      */
     private void retainPublishFence(long batchOldest, String batchQueryId) {
+        retainPublishFence(batchOldest, batchQueryId, "");
+    }
+
+    /**
+     * Retains the fence of one unconfirmed batch with its transaction label (round-43
+     * #6): the label lets {@link #confirmPublishFence} resolve the transaction's TERMINAL
+     * outcome once the retention bound elapsed. The zone the sample row was RENDERED in
+     * travels with the fence as well (round-43 #5).
+     *
+     * @param batchOldest the batch's oldest event time (0 = nothing to fence)
+     * @param batchQueryId the sample row's query id ("" = not probeable)
+     * @param label        the stream-load label, "" when the request never reached a BE
+     */
+    private void retainPublishFence(long batchOldest, String batchQueryId, String label) {
         if (batchOldest <= 0) {
             return;
         }
+        // the zone the sample row's time column was rendered in (round-43 #5): the
+        // registry records the LAST use per zone, so the zone in effect at the batch's
+        // oldest event is the first zone whose usage reaches that instant
+        String writerZoneId = AuditWriterZones.zoneOfRenderTime(batchOldest);
         synchronized (this) {
             pendingPublishFences.add(new PublishFence(batchOldest,
-                    batchQueryId == null ? "" : batchQueryId, publishFenceNow()));
+                    batchQueryId == null ? "" : batchQueryId, publishFenceNow(), label,
+                    writerZoneId));
             while (pendingPublishFences.size() > MAX_PENDING_PUBLISH_FENCES) {
                 PublishFence dropped = pendingPublishFences.remove(0);
                 // the dropped batch keeps fencing through the AGGREGATE (round-42 #7):
@@ -648,37 +711,38 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     /**
-     * Merges one bounded-out batch into the dropped-fence aggregate (round-42 #7): the
-     * aggregate carries the EARLIEST dropped event time and the EARLIEST retention start,
-     * so it expires no later than the first dropped batch would have.
+     * Merges one bounded-out batch into the dropped-fence aggregate (round-42 #7,
+     * round-43 #4): the aggregate carries the EARLIEST dropped event time and the LATEST
+     * member's own retention deadline, so NO member loses its fence before its own
+     * {@link #PUBLISH_FENCE_MAX_MILLIS} window elapsed.
      */
     private void aggregateDroppedFence(PublishFence dropped) {
         if (droppedPublishFenceTime == 0 || dropped.oldestEventTime < droppedPublishFenceTime) {
             droppedPublishFenceTime = dropped.oldestEventTime;
         }
-        if (droppedPublishFenceSince == 0 || dropped.since < droppedPublishFenceSince) {
-            droppedPublishFenceSince = dropped.since;
-        }
+        droppedPublishFenceUntil = Math.max(droppedPublishFenceUntil,
+                dropped.since + PUBLISH_FENCE_MAX_MILLIS);
     }
 
     /**
-     * The still-valid dropped-fence aggregate, or 0 once its own retention bound elapsed
-     * (the sample rows of the aggregated batches cannot be probed individually without
-     * re-growing the list, so the bound - not a read-back - releases it, exactly like the
-     * per-batch fallback in {@link #confirmPublishFence}). Clears itself lazily under the
-     * monitor.
+     * The still-valid dropped-fence aggregate, or 0 once EVERY member's own retention
+     * bound elapsed (round-43 #4: the batch overflowed at minute 29 keeps its share of
+     * the aggregate until minute 59; the sample rows of the aggregated batches cannot be
+     * probed individually without re-growing the list, so the deadlines - not a
+     * read-back - release it, exactly like the per-batch fallback in
+     * {@link #confirmPublishFence}). Clears itself lazily under the monitor.
      */
     private long liveDroppedPublishFence() {
         if (droppedPublishFenceTime == 0) {
             return 0;
         }
-        if (publishFenceNow() - droppedPublishFenceSince > PUBLISH_FENCE_MAX_MILLIS) {
+        if (publishFenceNow() > droppedPublishFenceUntil) {
             LOG.warn("audit loader: the aggregated dropped-publish fence of event time {} is"
-                            + " released after {} ms; the aggregated batches are assumed"
-                            + " lost",
+                            + " released after every member's own {} ms bound elapsed; the"
+                            + " aggregated batches are assumed lost",
                     droppedPublishFenceTime, PUBLISH_FENCE_MAX_MILLIS);
             droppedPublishFenceTime = 0;
-            droppedPublishFenceSince = 0;
+            droppedPublishFenceUntil = 0;
             return 0;
         }
         return droppedPublishFenceTime;
@@ -720,11 +784,13 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     /**
      * Releases the fence of EVERY pending batch whose sample row is READABLE (each batch
-     * is confirmed INDIVIDUALLY, round-39 #2), and the fences whose
-     * {@link #PUBLISH_FENCE_MAX_MILLIS} bound elapsed with the row never appearing (that
-     * batch was lost - fencing forever would freeze the capture instead of protecting
-     * anything). Called by the load worker on every tick; unconfirmable probes keep their
-     * fence.
+     * is confirmed INDIVIDUALLY, round-39 #2), and the fences whose transaction reached a
+     * TERMINAL state that cannot publish any more (round-43 #6). Elapsed time ALONE is
+     * not such a state: a Publish-Timeout transaction is COMMITTED and the BE's publish
+     * daemon keeps retrying, so releasing the only fence on the age bound could miss an
+     * event that publishes just after - the outcome (VISIBLE / ABORTED) is resolved by
+     * the batch's load label instead. Unconfirmable probes keep their fence. Called by
+     * the load worker on every tick.
      */
     private void confirmPublishFence() {
         List<PublishFence> pending;
@@ -738,15 +804,91 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         for (PublishFence fence : pending) {
             boolean visible = publishVisibilityProbeForTest != null
                     ? publishVisibilityProbeForTest.isVisible(fence.oldestEventTime, fence.queryId)
-                    : publishFenceRowVisible(fence.oldestEventTime, fence.queryId);
+                    : publishFenceRowVisible(fence);
             if (visible) {
                 releasePublishFence(fence, "its rows are readable now");
                 continue;
             }
             if (now - fence.since > PUBLISH_FENCE_MAX_MILLIS) {
-                releasePublishFence(fence, "its rows are still unreadable after "
-                        + PUBLISH_FENCE_MAX_MILLIS + " ms; assuming the batch was lost");
+                String status = transactionStatusForLabel(fence.label);
+                if (isTerminalTransactionStatus(status)) {
+                    releasePublishFence(fence, "its transaction is terminal (" + status
+                            + "): the rows can no longer appear");
+                } else if ("COMMITTED".equals(status) || "PRECOMMITTED".equals(status)) {
+                    // Round-43 #8: elapsed time is NOT proof of loss. A Publish-Timeout
+                    // batch stays COMMITTED while the publish daemon keeps retrying, so
+                    // releasing the only fence at the bound could miss an event that
+                    // publishes a minute later. The fence is released by the OUTCOME
+                    // (VISIBLE / ABORTED), which the transaction manager reports once the
+                    // retry stops.
+                    LOG.warn("audit loader: the publish fence of event time {} is older"
+                                    + " than {} ms, but its transaction is still {}: keeping"
+                                    + " the fence - the publish daemon may make its rows"
+                                    + " readable at any moment",
+                            fence.oldestEventTime, PUBLISH_FENCE_MAX_MILLIS, status);
+                } else {
+                    // The outcome cannot be resolved at all (no transaction manager, no
+                    // record of the label - e.g. the load never got as far as creating a
+                    // transaction - or a state that can no longer commit). Exactly like
+                    // the overflow aggregate above, the retention bound stays the LAST
+                    // resort so a genuinely lost batch cannot fence the capture forever.
+                    releasePublishFence(fence, "its transaction state is unknowable ("
+                            + (status == null ? "unresolved" : status) + ") and the "
+                            + PUBLISH_FENCE_MAX_MILLIS + " ms retention elapsed; assuming"
+                            + " the batch was lost");
+                }
             }
+        }
+    }
+
+    /**
+     * Whether a transaction status is TERMINAL for the publish fence (round-43 #6): a
+     * VISIBLE transaction's rows are readable (the probe may merely have failed to
+     * confirm them), an ABORTED one can never publish. Everything else - including an
+     * undecidable state - keeps fencing.
+     */
+    private static boolean isTerminalTransactionStatus(String status) {
+        return "VISIBLE".equals(status) || "ABORTED".equals(status);
+    }
+
+    /**
+     * The transaction status of one audit batch, resolved by its load label (round-43
+     * #6), or null when it cannot be resolved. The audit stream load is sent to THIS
+     * FE's own endpoint, so the transaction (if the request was delivered) is registered
+     * in the internal schema's transaction manager and its state is decidable here.
+     *
+     * @param label the load label ("" = nothing to resolve)
+     * @return {@code VISIBLE} / {@code ABORTED} / {@code COMMITTED} / ... , or null
+     */
+    @VisibleForTesting
+    static String transactionStatusForLabel(String label) {
+        java.util.function.Function<String, String> seam = transactionStatusForTest;
+        if (seam != null) {
+            return seam.apply(label);
+        }
+        if (label == null || label.isEmpty()) {
+            return null;
+        }
+        try {
+            Env env = Env.getCurrentEnv();
+            if (env == null || env.getInternalCatalog() == null) {
+                return null;
+            }
+            Database db = env.getInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
+            if (db == null) {
+                return null;
+            }
+            Long txnId = env.getGlobalTransactionMgr().getTransactionId(db.getId(), label);
+            if (txnId == null) {
+                return null;
+            }
+            TransactionState state = env.getGlobalTransactionMgr()
+                    .getTransactionState(db.getId(), txnId);
+            return state == null ? null : state.getTransactionStatus().name();
+        } catch (Throwable t) {
+            LOG.warn("audit loader: cannot resolve the transaction state of label {}: {}",
+                    label, t.getMessage());
+            return null;
         }
     }
 
@@ -771,6 +913,17 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         return oldestPendingPublishFenceEventTime();
     }
 
+    /** For tests: the writer zone carried by the OLDEST pending fence ("" = unknown). */
+    @VisibleForTesting
+    String oldestPublishFenceWriterZoneForTest() {
+        synchronized (this) {
+            for (PublishFence fence : pendingPublishFences) {
+                return fence.writerZoneId;
+            }
+        }
+        return "";
+    }
+
     /** For tests: how many batches currently fence progress (see #pendingPublishFences). */
     @VisibleForTesting
     int pendingPublishFenceCountForTest() {
@@ -779,15 +932,22 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         }
     }
 
-    /** Real visibility probe of a fenced batch: is its sample audit row readable yet? */
-    private static boolean publishFenceRowVisible(long eventTime, String queryId) {
-        if (queryId == null || queryId.isEmpty()) {
-            return false; // nothing to probe: only the bounded retention releases the fence
+    /**
+     * Real visibility probe of a fenced batch: is its sample audit row readable yet? The
+     * bound is rendered in the zone the row was WRITTEN with (round-43 #5): the audit
+     * table stores the writer's local wall clock, so after a `SET GLOBAL time_zone` the
+     * same instant rendered in the current zone is hours away from the stored one and the
+     * probe could never confirm the (perfectly visible) row.
+     */
+    private static boolean publishFenceRowVisible(PublishFence fence) {
+        if (fence.queryId.isEmpty()) {
+            return false; // nothing to probe: only the terminal resolution releases the fence
         }
         try {
             Map<String, String> params = new HashMap<>();
-            params.put("queryId", StatisticsUtil.escapeSQL(queryId));
-            params.put("eventTime", TimeUtils.longToTimeStringWithms(eventTime));
+            params.put("queryId", StatisticsUtil.escapeSQL(fence.queryId));
+            params.put("eventTime", renderProbeEventTime(fence.oldestEventTime,
+                    fence.writerZoneId));
             List<ResultRow> rows = StatisticsUtil.executeQuery(PUBLISH_PROBE_SQL, params,
                     PUBLISH_PROBE_TIMEOUT_SECONDS);
             return rows != null && !rows.isEmpty();
@@ -797,6 +957,23 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             }
             return false; // unconfirmable: keep fencing
         }
+    }
+
+    /**
+     * The probe's {@code time} bound for one fence: the instant rendered in the zone the
+     * row was written with, falling back to the default rendering when the zone is
+     * unknown (round-43 #5). Package-visible for tests.
+     *
+     * @param eventTime    the fence's oldest event time
+     * @param writerZoneId the zone the row was rendered in ("" = unknown)
+     * @return the rendered bound
+     */
+    @VisibleForTesting
+    static String renderProbeEventTime(long eventTime, String writerZoneId) {
+        if (writerZoneId == null || writerZoneId.isEmpty()) {
+            return TimeUtils.longToTimeStringWithms(eventTime);
+        }
+        return TimeUtils.longToTimeStringWithms(eventTime, writerZoneId);
     }
 
     /**
