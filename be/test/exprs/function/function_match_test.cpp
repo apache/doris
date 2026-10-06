@@ -501,6 +501,7 @@ TEST(FunctionMatchTest, array_match_uses_tokens_from_all_elements) {
     check_match(match_any, "alpha", {1, 0, 0, 1, 0});
     check_match(match_any, "omega", {0, 1, 0, 0, 0});
     check_match(match_all, "alpha tail", {1, 0, 0, 0, 0});
+    check_match(match_all, "alpha alpha", {1, 0, 0, 1, 0});
     check_match(match_regexp, "^alpha$", {1, 0, 0, 1, 0});
     check_match(match_phrase, "alpha token", {1, 0, 0, 1, 0});
     check_match(match_phrase, "token tail", {1, 0, 0, 0, 0});
@@ -527,6 +528,7 @@ TEST(FunctionMatchTest, array_match_uses_tokens_from_all_elements) {
     check_match(match_phrase, "alpha token", {1, 0, 0, 1, 0});
     check_match(match_phrase_prefix, "alpha", {1, 0, 0, 1, 0});
     check_match(match_phrase_edge, "pha", {1, 0, 0, 1, 0});
+    check_match(match_any, "", {0, 0, 0, 1, 0});
 }
 
 TEST(FunctionMatchTest, array_phrase_spans_non_null_elements) {
@@ -560,6 +562,70 @@ TEST(FunctionMatchTest, array_phrase_spans_non_null_elements) {
     check_match(FunctionMatchPhrasePrefix {}, "hello wor", {1, 1, 0});
     check_match(FunctionMatchPhraseEdge {}, "llo wor", {1, 1, 0});
     check_match(FunctionMatchPhrase {}, "hello hidden world", {0, 0, 0});
+}
+
+TEST(FunctionMatchTest, long_repeated_phrase_miss) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+    auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
+
+    std::string value;
+    for (int i = 0; i < 10000; ++i) {
+        value += "alpha ";
+    }
+    std::string query;
+    for (int i = 0; i < 999; ++i) {
+        query += "alpha ";
+    }
+    query += "beta";
+
+    auto string_col = ColumnString::create();
+    string_col->insert_data(value.data(), value.size());
+    ColumnUInt8::Container result(1, 0);
+    FunctionMatchPhrase match_phrase;
+    ASSERT_TRUE(match_phrase
+                        .execute_match(context.get(), "tags", query, 1, string_col.get(),
+                                       ctx.ctx.get(), nullptr, result)
+                        .ok());
+    EXPECT_EQ(result[0], 0);
+}
+
+TEST(FunctionMatchTest, long_phrase_modes_cross_bitset_word) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+    auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
+
+    std::string value;
+    std::string phrase;
+    std::string edge = "pha ";
+    for (int i = 0; i < 64; ++i) {
+        value += "alpha ";
+        phrase += "alpha ";
+        if (i > 0) {
+            edge += "alpha ";
+        }
+    }
+    value += "beta";
+    phrase += "beta";
+    edge += "bet";
+
+    auto string_col = ColumnString::create();
+    string_col->insert_data(value.data(), value.size());
+    auto check_match = [&](const FunctionMatchBase& function, const std::string& query) {
+        SCOPED_TRACE(function.get_name());
+        ColumnUInt8::Container result(1, 0);
+        ASSERT_TRUE(function.execute_match(context.get(), "tags", query, 1, string_col.get(),
+                                           ctx.ctx.get(), nullptr, result)
+                            .ok());
+        EXPECT_EQ(result[0], 1);
+    };
+    check_match(FunctionMatchPhrase {}, phrase);
+    check_match(FunctionMatchPhrasePrefix {}, phrase.substr(0, phrase.size() - 1));
+    check_match(FunctionMatchPhraseEdge {}, edge);
 }
 
 TEST(FunctionMatchTest, null_array_elements_do_not_match_hidden_payload) {

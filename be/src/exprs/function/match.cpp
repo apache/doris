@@ -19,6 +19,10 @@
 
 #include <hs/hs.h>
 
+#include <cstdint>
+#include <unordered_map>
+#include <unordered_set>
+
 #include "core/field.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -44,113 +48,82 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
     return analyzer_ctx;
 }
 
-bool match_phrase_tokens(const std::vector<segment_v2::TermInfo>& data_tokens,
-                         const std::vector<segment_v2::TermInfo>& query_tokens) {
-    bool matched = false;
-    auto data_it = data_tokens.begin();
-    while (data_it != data_tokens.end()) {
-        data_it = std::find_if(data_it, data_tokens.end(), [&](const segment_v2::TermInfo& info) {
-            return info.get_single_term() == query_tokens[0].get_single_term();
-        });
-        if (data_it != data_tokens.end()) {
-            matched = true;
-            auto data_it_next = ++data_it;
-            auto query_it = query_tokens.begin() + 1;
-            while (query_it != query_tokens.end()) {
-                if (data_it_next == data_tokens.end() ||
-                    data_it_next->get_single_term() != query_it->get_single_term()) {
-                    matched = false;
-                    break;
-                }
-                query_it++;
-                data_it_next++;
+enum class PhraseMode { EXACT, PREFIX, EDGE };
+
+class StreamingPhraseMatcher {
+public:
+    StreamingPhraseMatcher(const std::vector<segment_v2::TermInfo>& query_tokens, PhraseMode mode)
+            : _mode(mode),
+              _query_size(query_tokens.size()),
+              _last_word((_query_size - 1) / 64),
+              _last_bit(uint64_t {1} << ((_query_size - 1) % 64)),
+              _state(_last_word + 1, 0),
+              _first_term(query_tokens.front().get_single_term()),
+              _last_term(query_tokens.back().get_single_term()) {
+        for (size_t pos = 0; pos < _query_size; ++pos) {
+            if ((_mode == PhraseMode::PREFIX && pos == _query_size - 1) ||
+                (_mode == PhraseMode::EDGE && (pos == 0 || pos == _query_size - 1))) {
+                continue;
             }
-
-            if (matched) {
-                break;
-            }
-        }
-    }
-
-    return matched;
-}
-
-bool match_phrase_prefix_tokens(const std::vector<segment_v2::TermInfo>& data_tokens,
-                                const std::vector<segment_v2::TermInfo>& query_tokens) {
-    if (data_tokens.size() < query_tokens.size()) {
-        return false;
-    }
-    const auto dis_count = data_tokens.size() - query_tokens.size();
-
-    for (size_t j = 0; j < dis_count + 1; j++) {
-        if (data_tokens[j].get_single_term() == query_tokens[0].get_single_term() ||
-            query_tokens.size() == 1) {
-            bool match = true;
-            for (size_t k = 0; k < query_tokens.size(); k++) {
-                const std::string& data_token = data_tokens[j + k].get_single_term();
-                const std::string& query_token = query_tokens[k].get_single_term();
-                if (k == query_tokens.size() - 1) {
-                    if (!data_token.starts_with(query_token)) {
-                        match = false;
-                        break;
-                    }
-                } else {
-                    if (data_token != query_token) {
-                        match = false;
-                        break;
-                    }
-                }
-            }
-            if (match) {
-                return true;
+            auto& words = _exact_masks[query_tokens[pos].get_single_term()];
+            const size_t word = pos / 64;
+            const uint64_t bit = uint64_t {1} << (pos % 64);
+            if (!words.empty() && words.back().first == word) {
+                words.back().second |= bit;
+            } else {
+                words.emplace_back(word, bit);
             }
         }
     }
-    return false;
-}
 
-bool match_phrase_edge_tokens(const std::vector<segment_v2::TermInfo>& data_tokens,
-                              const std::vector<segment_v2::TermInfo>& query_tokens) {
-    if (data_tokens.size() < query_tokens.size()) {
-        return false;
-    }
-    const auto dis_count = data_tokens.size() - query_tokens.size();
+    void reset_row() { _has_tokens = false; }
 
-    for (size_t j = 0; j < dis_count + 1; j++) {
-        bool match = true;
-        if (query_tokens.size() == 1) {
-            if (data_tokens[j].get_single_term().find(query_tokens[0].get_single_term()) ==
-                std::string::npos) {
-                match = false;
-            }
-        } else {
-            for (size_t k = 0; k < query_tokens.size(); k++) {
-                const std::string& data_token = data_tokens[j + k].get_single_term();
-                const std::string& query_token = query_tokens[k].get_single_term();
-                if (k == 0) {
-                    if (!data_token.ends_with(query_token)) {
-                        match = false;
-                        break;
-                    }
-                } else if (k == query_tokens.size() - 1) {
-                    if (!data_token.starts_with(query_token)) {
-                        match = false;
-                        break;
-                    }
-                } else {
-                    if (data_token != query_token) {
-                        match = false;
-                        break;
-                    }
-                }
-            }
+    bool feed(const std::string& term) {
+        if (!_has_tokens) {
+            std::fill(_state.begin(), _state.end(), 0);
+            _has_tokens = true;
         }
-        if (match) {
-            return true;
+        const auto mask_it = _exact_masks.find(term);
+        const auto* mask_words = mask_it == _exact_masks.end() ? nullptr : &mask_it->second;
+        size_t mask_index = 0;
+        const bool first_matches = _mode == PhraseMode::EDGE &&
+                                   (_query_size == 1 ? term.find(_first_term) != std::string::npos
+                                                     : term.ends_with(_first_term));
+        const bool last_matches =
+                (_mode == PhraseMode::PREFIX || (_mode == PhraseMode::EDGE && _query_size > 1)) &&
+                term.starts_with(_last_term);
+
+        uint64_t carry = 1;
+        for (size_t word = 0; word < _state.size(); ++word) {
+            uint64_t mask = 0;
+            if (mask_words && mask_index < mask_words->size() &&
+                (*mask_words)[mask_index].first == word) {
+                mask = (*mask_words)[mask_index++].second;
+            }
+            if (word == 0 && first_matches) {
+                mask |= 1;
+            }
+            if (word == _last_word && last_matches) {
+                mask |= _last_bit;
+            }
+            const uint64_t next_carry = _state[word] >> 63;
+            _state[word] = ((_state[word] << 1) | carry) & mask;
+            carry = next_carry;
         }
+        return (_state[_last_word] & _last_bit) != 0;
     }
-    return false;
-}
+
+private:
+    PhraseMode _mode;
+    size_t _query_size;
+    size_t _last_word;
+    uint64_t _last_bit;
+    std::vector<uint64_t> _state;
+    std::string _first_term;
+    std::string _last_term;
+    std::unordered_map<std::string, std::vector<std::pair<size_t, uint64_t>>> _exact_masks;
+    bool _has_tokens = false;
+};
 
 template <typename Callback>
 bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::string& column_name,
@@ -168,6 +141,9 @@ bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::
         }
         auto tokens = function.analyse_data_token(column_name, analyzer_ctx, string_col, element,
                                                   nullptr, unused_array_offset);
+        if (tokens.empty()) {
+            continue;
+        }
         if (callback(tokens)) {
             return true;
         }
@@ -175,32 +151,23 @@ bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::
     return false;
 }
 
-using PhraseMatcher = bool (*)(const std::vector<segment_v2::TermInfo>&,
-                               const std::vector<segment_v2::TermInfo>&);
-
 bool match_phrase_data_tokens(const FunctionMatchBase& function, const std::string& column_name,
                               const InvertedIndexAnalyzerCtx* analyzer_ctx,
                               const ColumnString* string_col, size_t row,
                               const ColumnArray::Offsets64* array_offsets,
                               const ColumnUInt8::Container* array_element_null_map,
-                              const std::vector<segment_v2::TermInfo>& query_tokens,
-                              PhraseMatcher matcher) {
-    std::vector<segment_v2::TermInfo> window;
-    window.reserve(query_tokens.size());
-    return for_each_data_element_tokens(
-            function, column_name, analyzer_ctx, string_col, row, array_offsets,
-            array_element_null_map, [&](std::vector<segment_v2::TermInfo>& tokens) {
-                for (auto& token : tokens) {
-                    if (window.size() == query_tokens.size()) {
-                        window.erase(window.begin());
-                    }
-                    window.emplace_back(std::move(token));
-                    if (window.size() == query_tokens.size() && matcher(window, query_tokens)) {
-                        return true;
-                    }
-                }
-                return false;
-            });
+                              StreamingPhraseMatcher& matcher) {
+    matcher.reset_row();
+    return for_each_data_element_tokens(function, column_name, analyzer_ctx, string_col, row,
+                                        array_offsets, array_element_null_map,
+                                        [&](const std::vector<segment_v2::TermInfo>& tokens) {
+                                            for (const auto& token : tokens) {
+                                                if (matcher.feed(token.get_single_term())) {
+                                                    return true;
+                                                }
+                                            }
+                                            return false;
+                                        });
 }
 
 } // namespace
@@ -463,18 +430,17 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
         return Status::OK();
     }
 
+    std::unordered_set<std::string> query_terms;
+    for (const auto& token : query_tokens) {
+        query_terms.emplace(token.get_single_term());
+    }
+
     for (int i = 0; i < input_rows_count; i++) {
         if (for_each_data_element_tokens(*this, column_name, analyzer_ctx, string_col, i,
                                          array_offsets, array_element_null_map,
                                          [&](const std::vector<segment_v2::TermInfo>& data_tokens) {
-                                             for (const auto& term_info : query_tokens) {
-                                                 auto it = std::find_if(
-                                                         data_tokens.begin(), data_tokens.end(),
-                                                         [&](const segment_v2::TermInfo& info) {
-                                                             return info.get_single_term() ==
-                                                                    term_info.get_single_term();
-                                                         });
-                                                 if (it != data_tokens.end()) {
+                                             for (const auto& info : data_tokens) {
+                                                 if (query_terms.contains(info.get_single_term())) {
                                                      return true;
                                                  }
                                              }
@@ -507,24 +473,26 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
         return Status::OK();
     }
 
+    std::unordered_map<std::string, size_t> query_term_ids;
+    for (const auto& token : query_tokens) {
+        query_term_ids.emplace(token.get_single_term(), query_term_ids.size());
+    }
+    std::vector<size_t> last_seen_row;
+
     for (int i = 0; i < input_rows_count; i++) {
-        std::vector<uint8_t> found(query_tokens.size(), 0);
-        size_t remaining = query_tokens.size();
+        size_t remaining = query_term_ids.size();
         if (for_each_data_element_tokens(
                     *this, column_name, analyzer_ctx, string_col, i, array_offsets,
                     array_element_null_map,
                     [&](const std::vector<segment_v2::TermInfo>& data_tokens) {
-                        for (size_t token = 0; token < query_tokens.size(); ++token) {
-                            if (found[token]) {
-                                continue;
-                            }
-                            auto it = std::find_if(data_tokens.begin(), data_tokens.end(),
-                                                   [&](const segment_v2::TermInfo& info) {
-                                                       return info.get_single_term() ==
-                                                              query_tokens[token].get_single_term();
-                                                   });
-                            if (it != data_tokens.end()) {
-                                found[token] = 1;
+                        if (last_seen_row.empty()) {
+                            last_seen_row.resize(query_term_ids.size(), 0);
+                        }
+                        for (const auto& info : data_tokens) {
+                            auto it = query_term_ids.find(info.get_single_term());
+                            if (it != query_term_ids.end() &&
+                                last_seen_row[it->second] != static_cast<size_t>(i) + 1) {
+                                last_seen_row[it->second] = static_cast<size_t>(i) + 1;
                                 if (--remaining == 0) {
                                     return true;
                                 }
@@ -558,9 +526,10 @@ Status FunctionMatchPhrase::execute_match(
         return Status::OK();
     }
 
+    StreamingPhraseMatcher matcher(query_tokens, PhraseMode::EXACT);
     for (int i = 0; i < input_rows_count; i++) {
         if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                                     array_element_null_map, query_tokens, match_phrase_tokens)) {
+                                     array_element_null_map, matcher)) {
             result[i] = true;
         }
     }
@@ -587,10 +556,10 @@ Status FunctionMatchPhrasePrefix::execute_match(
         return Status::OK();
     }
 
+    StreamingPhraseMatcher matcher(query_tokens, PhraseMode::PREFIX);
     for (int i = 0; i < input_rows_count; i++) {
         if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                                     array_element_null_map, query_tokens,
-                                     match_phrase_prefix_tokens)) {
+                                     array_element_null_map, matcher)) {
             result[i] = true;
         }
     }
@@ -692,10 +661,10 @@ Status FunctionMatchPhraseEdge::execute_match(
         return Status::OK();
     }
 
+    StreamingPhraseMatcher matcher(query_tokens, PhraseMode::EDGE);
     for (int i = 0; i < input_rows_count; i++) {
         if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                                     array_element_null_map, query_tokens,
-                                     match_phrase_edge_tokens)) {
+                                     array_element_null_map, matcher)) {
             result[i] = true;
         }
     }
