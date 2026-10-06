@@ -45,14 +45,8 @@ inline constexpr std::array<float, 256> kByteNormLengths = [] {
     return lengths;
 }();
 
-// One part of a source split by segment, with the first docid its documents map to.
-struct IndexSegment {
-    IndexSourcePtr source;
-    uint32_t doc_base = 0;
-};
-
 // One field's index as the engine reads it: postings by term, the dictionary by pattern and
-// the documents still alive. A format adapter implements it over one segment of one field.
+// the documents still alive. Every source uses the Doris segment's document IDs.
 class IndexSource {
 public:
     virtual ~IndexSource() = default;
@@ -132,9 +126,6 @@ public:
         (void)doc;
         return true;
     }
-
-    // The parts of a source split by segment, in docid order; empty when it is one segment.
-    virtual std::vector<IndexSegment> segments() const { return {}; }
 };
 
 } // namespace doris::index_query

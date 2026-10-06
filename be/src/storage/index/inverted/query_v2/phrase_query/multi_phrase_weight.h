@@ -54,8 +54,7 @@ private:
         return slots;
     }
 
-    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs,
-                               const index_query::PhraseQueryOptions& options) override {
+    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) override {
         std::vector<std::pair<size_t, PostingsPtr>> term_postings_list;
         for (const auto& term_info : _term_infos) {
             size_t offset = term_info.position;
@@ -64,7 +63,7 @@ private:
                                              /*positions=*/true, _enable_scoring, _similarity);
                 if (posting) {
                     if (posting->size_hint() > SPARSE_TERM_DOC_THRESHOLD) {
-                        auto loaded_posting = LoadedPostings::load(*posting);
+                        auto loaded_posting = LoadedPostings::load(*posting, _enable_scoring);
                         term_postings_list.emplace_back(offset, std::move(loaded_posting));
                     } else {
                         term_postings_list.emplace_back(offset, std::move(posting));
@@ -80,7 +79,7 @@ private:
                                                  _similarity);
                     if (posting) {
                         if (posting->size_hint() <= SPARSE_TERM_DOC_THRESHOLD) {
-                            postings.push_back(LoadedPostings::load(*posting));
+                            postings.push_back(LoadedPostings::load(*posting, _enable_scoring));
                         } else {
                             postings.push_back(posting);
                         }
@@ -93,7 +92,7 @@ private:
                 term_postings_list.emplace_back(offset, std::move(union_posting));
             }
         }
-        return PhraseScorer<PostingsPtr>::create(term_postings_list, _similarity, options,
+        return PhraseScorer<PostingsPtr>::create(term_postings_list, _similarity, _options,
                                                  num_docs);
     }
 

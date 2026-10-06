@@ -41,14 +41,12 @@ struct FieldBindingContext {
 
 struct QueryExecutionContext {
     uint32_t segment_num_rows = 0;
-    uint32_t segment_doc_base = 0;
     // The index sources a query reads: every bound one, by binding key, and by stored field.
     std::vector<index_query::IndexSourcePtr> sources;
     std::unordered_map<std::string, index_query::IndexSourcePtr> source_bindings;
     std::unordered_map<std::wstring, index_query::IndexSourcePtr> field_sources;
     std::unordered_map<std::string, FieldBindingContext> binding_fields;
     const NullBitmapResolver* null_resolver = nullptr;
-    std::shared_ptr<const NullBitmapResolver> null_resolver_owner;
 };
 
 class Weight {

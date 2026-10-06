@@ -41,8 +41,6 @@ public:
     virtual ~NullBitmapResolver() = default;
     virtual segment_v2::IndexIterator* iterator_for(const Scorer& scorer,
                                                     const std::string& logical_field) const = 0;
-    // Converts field-wide NULL row IDs to this resolver's local document space.
-    virtual void localize_null_rows(roaring::Roaring& /*rows*/) const {}
 };
 
 class Scorer : public DocSet {

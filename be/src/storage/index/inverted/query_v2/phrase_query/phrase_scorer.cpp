@@ -25,10 +25,8 @@ template <typename TPostings>
 PhraseScorer<TPostings>::PhraseScorer(IntersectionDocSetPtr intersection_docset,
                                       std::vector<TermState> terms, size_t num_clauses,
                                       index_query::PhraseVerifier verifier,
-                                      index_query::ScoringContextPtr<float> similarity,
-                                      std::shared_ptr<const roaring::Roaring> candidates_owner)
-        : _candidates_owner(std::move(candidates_owner)),
-          _intersection_docset(std::move(intersection_docset)),
+                                      index_query::ScoringContextPtr<float> similarity)
+        : _intersection_docset(std::move(intersection_docset)),
           _terms(std::move(terms)),
           _verifier(std::move(verifier)),
           _num_clauses(num_clauses),
@@ -78,8 +76,7 @@ ScorerPtr PhraseScorer<TPostings>::create(
     }
     auto scorer = std::make_shared<PhraseScorer<TPostings>>(
             make_intersection<TPostings>(clause_postings, num_docs, options.candidates),
-            std::move(terms), clause_postings.size(), std::move(verifier), similarity,
-            options.candidates_owner);
+            std::move(terms), clause_postings.size(), std::move(verifier), similarity);
     if (scorer->doc() != TERMINATED && !scorer->phrase_match()) {
         scorer->advance();
     }

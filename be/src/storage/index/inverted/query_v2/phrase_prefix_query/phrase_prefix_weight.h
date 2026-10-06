@@ -61,8 +61,7 @@ private:
         return slots;
     }
 
-    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs,
-                               const index_query::PhraseQueryOptions& options) override {
+    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) override {
         std::vector<std::pair<size_t, PostingsPtr>> all_postings;
         for (const auto& [offset, term] : _phrase_terms) {
             PostingsPtr posting =
@@ -82,7 +81,7 @@ private:
             return std::make_shared<EmptyScorer>();
         }
         all_postings.emplace_back(_prefix.first, std::move(tail));
-        return PhraseScorer<PostingsPtr>::create(all_postings, _similarity, options, num_docs);
+        return PhraseScorer<PostingsPtr>::create(all_postings, _similarity, _options, num_docs);
     }
 
     // The terms `text` matches as a `kind` pattern, in dictionary order.

@@ -75,9 +75,7 @@ public:
             return nullptr;
         }
 
-        auto local_rows = std::make_shared<roaring::Roaring>(*bitmap_ptr);
-        resolver->localize_null_rows(*local_rows);
-        return local_rows;
+        return std::make_shared<roaring::Roaring>(*bitmap_ptr);
     }
 };
 

@@ -29,7 +29,6 @@
 #include "common/check.h"
 #include "common/exception.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
-#include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
 #include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 #include "storage/index/inverted/query_v2/const_score_query/const_score_scorer.h"
 #include "storage/index/inverted/query_v2/nullable_scorer.h"
@@ -70,26 +69,13 @@ index_query::IndexSourcePtr SlotPhraseWeight::_source(const QueryExecutionContex
 ScorerPtr SlotPhraseWeight::scorer(const QueryExecutionContext& ctx,
                                    const std::string& binding_key) {
     auto source = _source(ctx, binding_key);
-    const auto options = _segment_options(ctx);
-    ScorerPtr scorer = _lists(*source) ? _listed_scorer(*source, options.candidates)
-                                       : _streamed_scorer(*source, ctx.segment_num_rows, options);
+    ScorerPtr scorer = _lists(*source) ? _listed_scorer(*source, _options.candidates)
+                                       : _streamed_scorer(*source, ctx.segment_num_rows);
     if (_nullable) {
         auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
         return make_nullable_scorer(scorer, logical_field, ctx.null_resolver);
     }
     return scorer;
-}
-
-index_query::PhraseQueryOptions SlotPhraseWeight::_segment_options(
-        const QueryExecutionContext& ctx) const {
-    auto options = _options;
-    if (options.candidates != nullptr && ctx.segment_doc_base != 0) {
-        auto rows = std::make_shared<roaring::Roaring>(*options.candidates);
-        localize_segment_rows(*rows, ctx.segment_doc_base, ctx.segment_num_rows);
-        options.candidates = rows.get();
-        options.candidates_owner = std::move(rows);
-    }
-    return options;
 }
 
 // Only an unscored phrase lists its rows for a conjunction: a scored one scores them itself.
@@ -104,16 +90,15 @@ index_query::TruthSet SlotPhraseWeight::listed_rows(const QueryExecutionContext&
                                                     const roaring::Roaring* candidates) {
     auto source = _source(ctx, binding_key);
     DORIS_CHECK(_lists(*source));
-    const auto options = _segment_options(ctx);
     // The scan's candidates narrow the conjunction's for the rows listed; the UNKNOWN rows
     // are the field's among the conjunction's candidates, as the streamed phrase reports them.
     const roaring::Roaring* listed = candidates;
     std::optional<roaring::Roaring> narrowed;
-    if (options.candidates != nullptr) {
+    if (_options.candidates != nullptr) {
         if (candidates == nullptr) {
-            listed = options.candidates;
+            listed = _options.candidates;
         } else {
-            narrowed = *candidates & *options.candidates;
+            narrowed = *candidates & *_options.candidates;
             listed = &*narrowed;
         }
     }
@@ -147,11 +132,10 @@ std::vector<PhraseSlot> PhraseWeight::_slots() const {
     return slots;
 }
 
-ScorerPtr PhraseWeight::_streamed_scorer(index_query::IndexSource& source, uint32_t num_docs,
-                                         const index_query::PhraseQueryOptions& options) {
+ScorerPtr PhraseWeight::_streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) {
     std::vector<std::pair<size_t, SegmentPostingsPtr>> term_postings_list;
-    const uint32_t first_doc = options.candidates != nullptr && !options.candidates->isEmpty()
-                                       ? options.candidates->minimum()
+    const uint32_t first_doc = _options.candidates != nullptr && !_options.candidates->isEmpty()
+                                       ? _options.candidates->minimum()
                                        : 0;
     for (const auto& term_info : _term_infos) {
         size_t offset = term_info.position;
@@ -163,7 +147,7 @@ ScorerPtr PhraseWeight::_streamed_scorer(index_query::IndexSource& source, uint3
             return std::make_shared<EmptyScorer>();
         }
     }
-    return PhraseScorer<SegmentPostingsPtr>::create(term_postings_list, _similarity, options,
+    return PhraseScorer<SegmentPostingsPtr>::create(term_postings_list, _similarity, _options,
                                                     num_docs);
 }
 

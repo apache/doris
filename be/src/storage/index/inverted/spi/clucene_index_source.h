@@ -19,7 +19,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -38,8 +37,7 @@ struct IOContext;
 
 namespace doris::segment_v2 {
 
-// A CLucene reader as the engine's source for one field. A reader split by segment exposes
-// its sub-readers as sources of their own.
+// A CLucene reader as the engine's source for one field, preserving its global document IDs.
 class CluceneIndexSource final : public index_query::IndexSource {
 public:
     // `owner` keeps `reader` alive: the reader itself, or the reader whose segment it is.
@@ -54,7 +52,6 @@ public:
                         std::vector<std::string>* out) override;
     std::span<const float> norm_lengths() const override;
     bool is_live(uint32_t doc) const override;
-    std::vector<index_query::IndexSegment> segments() const override;
 
     lucene::index::IndexReader* reader() const { return _reader; }
     const std::wstring& field() const { return _field; }
@@ -64,8 +61,6 @@ private:
     lucene::index::IndexReader* _reader;
     std::wstring _field;
     const io::IOContext* _io_ctx;
-    // The sub-reader sources, built on the first request.
-    mutable std::optional<std::vector<index_query::IndexSegment>> _segments;
 };
 
 // A reader owned elsewhere, as the shared pointer the sources take.

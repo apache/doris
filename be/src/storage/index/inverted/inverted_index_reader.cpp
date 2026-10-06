@@ -450,7 +450,7 @@ Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
                set->min_should_match == 0) {
         terms = set->terms;
     }
-    if (!terms.empty() && (!scoring || terms.size() > 1) && source->segments().empty()) {
+    if (!terms.empty() && (!scoring || terms.size() > 1)) {
         SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
         if (!scoring) {
             index_query::RoaringDocIdSink sink(*result);

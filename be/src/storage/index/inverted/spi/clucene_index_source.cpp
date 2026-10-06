@@ -30,9 +30,7 @@
 #endif
 #include <CLucene.h>
 #include <CLucene/index/IndexReader.h>
-#include <CLucene/index/MultiReader.h>
 #include <CLucene/index/Term.h>
-#include <CLucene/index/_MultiSegmentReader.h>
 #ifdef __clang__
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
@@ -48,22 +46,6 @@
 #include "storage/index/query/term_pattern.h"
 
 namespace doris::segment_v2 {
-
-namespace {
-
-// The sub-readers of a reader split by segment, or null.
-const lucene::util::ArrayBase<lucene::index::IndexReader*>* sub_readers(
-        lucene::index::IndexReader* reader) {
-    if (auto* multi_segment = dynamic_cast<lucene::index::MultiSegmentReader*>(reader)) {
-        return multi_segment->getSubReaders();
-    }
-    if (auto* multi = dynamic_cast<lucene::index::MultiReader*>(reader)) {
-        return multi->getSubReaders();
-    }
-    return nullptr;
-}
-
-} // namespace
 
 CluceneIndexSource::CluceneIndexSource(std::shared_ptr<lucene::index::IndexReader> owner,
                                        lucene::index::IndexReader* reader, std::wstring field,
@@ -156,30 +138,6 @@ std::span<const float> CluceneIndexSource::norm_lengths() const {
 
 bool CluceneIndexSource::is_live(uint32_t doc) const {
     return !_reader->isDeleted(static_cast<int32_t>(doc));
-}
-
-std::vector<index_query::IndexSegment> CluceneIndexSource::segments() const {
-    if (_segments.has_value()) {
-        return *_segments;
-    }
-    std::vector<index_query::IndexSegment> segments;
-    if (const auto* subs = sub_readers(_reader); subs != nullptr) {
-        const int32_t* starts = nullptr;
-        if (auto* multi_segment = dynamic_cast<lucene::index::MultiSegmentReader*>(_reader)) {
-            starts = multi_segment->getStarts();
-        }
-        segments.reserve(subs->length);
-        uint32_t base = 0;
-        for (size_t i = 0; i < subs->length; ++i) {
-            lucene::index::IndexReader* sub = (*subs)[i];
-            segments.push_back(
-                    {.source = std::make_shared<CluceneIndexSource>(_owner, sub, _field, _io_ctx),
-                     .doc_base = starts != nullptr ? static_cast<uint32_t>(starts[i]) : base});
-            base += static_cast<uint32_t>(sub->maxDoc());
-        }
-    }
-    _segments = std::move(segments);
-    return *_segments;
 }
 
 std::shared_ptr<CluceneIndexSource> clucene_index_source(

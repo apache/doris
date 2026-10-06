@@ -96,7 +96,6 @@ protected:
 
 TEST_F(SniiIndexSourceTest, CountsTheDocuments) {
     EXPECT_EQ(_source->doc_count(), 9000U);
-    EXPECT_TRUE(_source->segments().empty());
     EXPECT_TRUE(_source->is_live(0));
 }
 

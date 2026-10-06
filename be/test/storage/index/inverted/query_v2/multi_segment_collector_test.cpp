@@ -30,9 +30,9 @@
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
+#include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
-#include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
 #include "storage/index/inverted/query_v2/phrase_prefix_query/phrase_prefix_weight.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_weight.h"
@@ -41,6 +41,9 @@
 #include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/snii/reader/snii_index_source.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii_query_test_util.h"
 
 CL_NS_USE(index)
 CL_NS_USE(store)
@@ -75,7 +78,9 @@ public:
 
 private:
     static void create_test_index(const std::string& dir, const std::vector<std::string>& docs,
-                                  int32_t max_buffered_docs = 100) {
+                                  int32_t max_buffered_docs = 100,
+                                  const std::string& field_name = "title",
+                                  bool store_norms = false) {
         CustomAnalyzerConfig::Builder builder;
         builder.with_tokenizer_config("standard", {});
         auto custom_analyzer_config = builder.build();
@@ -92,9 +97,11 @@ private:
         auto char_string_reader = std::make_shared<lucene::util::SStringReader<char>>();
         auto* doc = _CLNEW lucene::document::Document();
         int32_t field_config = lucene::document::Field::STORE_NO;
-        field_config |= lucene::document::Field::INDEX_NONORMS;
+        if (!store_norms) {
+            field_config |= lucene::document::Field::INDEX_NONORMS;
+        }
         field_config |= lucene::document::Field::INDEX_TOKENIZED;
-        auto field_name_w = StringHelper::to_wstring("title");
+        auto field_name_w = StringHelper::to_wstring(field_name);
         auto* field = _CLNEW lucene::document::Field(field_name_w.c_str(), field_config);
         field->setOmitTermFreqAndPositions(false);
         doc->add(*field);
@@ -215,11 +222,13 @@ TEST_F(MultiSegmentCollectorTest, PhraseCandidatesUseTheGlobalDocumentDomain) {
     }
 }
 
-TEST_F(MultiSegmentCollectorTest, RebasedPhraseCandidatesOutliveTheirWeight) {
-    auto reader =
-            make_shared_reader(lucene::index::IndexReader::open((kTestDir + "/segment1").c_str()));
+TEST_F(MultiSegmentCollectorTest, PhraseCandidatesRemainValidAfterWeightDestruction) {
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
     const std::wstring field = L"title";
-    const auto candidates = roaring::Roaring::bitmapOf(4, 0, 2, 3, 4);
+    const auto candidates = roaring::Roaring::bitmapOf(3, 2, 3, 4);
     const index_query::PhraseQueryOptions options {.candidates = &candidates};
     const std::vector<TermInfo> terms {{.term = std::string("fleabag"), .position = 0},
                                        {.term = std::string("finale"), .position = 1}};
@@ -228,7 +237,6 @@ TEST_F(MultiSegmentCollectorTest, RebasedPhraseCandidatesOutliveTheirWeight) {
             {.term = std::vector<std::string> {"premiere", "finale"}, .position = 1}};
     QueryExecutionContext segment;
     segment.segment_num_rows = reader->maxDoc();
-    segment.segment_doc_base = 2;
     segment.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
     for (const bool scoring : {false, true}) {
         auto similarity = scoring ? std::make_shared<BM25Similarity>(2.0F, 8.0F) : nullptr;
@@ -243,11 +251,49 @@ TEST_F(MultiSegmentCollectorTest, RebasedPhraseCandidatesOutliveTheirWeight) {
         for (auto& weight : weights) {
             auto scorer = weight->scorer(segment, "");
             weight.reset();
-            ASSERT_EQ(scorer->doc(), 1);
+            ASSERT_EQ(scorer->doc(), 3);
             const float expected_score = scoring ? similarity->score(1.0F, 0) : 1.0F;
             EXPECT_FLOAT_EQ(scorer->score(), expected_score);
-            EXPECT_EQ(scorer->seek(1), 1);
+            EXPECT_EQ(scorer->seek(3), 3);
             EXPECT_EQ(scorer->advance(), TERMINATED);
+        }
+    }
+}
+
+TEST_F(MultiSegmentCollectorTest, MaterializedPhrasePostingsPreserveDocumentNorms) {
+    const std::vector<std::string> docs {"fleabag finale", "fleabag other",
+                                         "fleabag news many more words",
+                                         "fleabag finale plus many more words to extend length"};
+    const std::vector<TermInfo> exact {{.term = std::string("fleabag"), .position = 0},
+                                       {.term = std::string("finale"), .position = 1}};
+    const std::vector<TermInfo> alternatives {
+            {.term = std::string("fleabag"), .position = 0},
+            {.term = std::vector<std::string> {"finale", "missing"}, .position = 1}};
+    for (const int32_t max_buffered_docs : {100, 2}) {
+        SCOPED_TRACE(max_buffered_docs);
+        const auto directory = kTestDir + "/norms_" + std::to_string(max_buffered_docs);
+        ASSERT_TRUE(io::global_local_filesystem()->create_directory(directory).ok());
+        create_test_index(directory, docs, max_buffered_docs, "title", true);
+        auto reader = make_shared_reader(lucene::index::IndexReader::open(directory.c_str()));
+        QueryExecutionContext context;
+        context.segment_num_rows = 4;
+        context.field_sources.emplace(L"title", clucene_index_source(reader, L"title", nullptr));
+        auto similarity = std::make_shared<BM25Similarity>(2.0F, 8.0F);
+        const index_query::PhraseQueryOptions options;
+        const std::vector<WeightPtr> weights {
+                std::make_shared<PhraseWeight>(L"title", exact, options, similarity, true, false),
+                std::make_shared<MultiPhraseWeight>(L"title", alternatives, options, similarity,
+                                                    true, false)};
+        for (const auto& weight : weights) {
+            auto scorer = weight->scorer(context, "");
+            for (const auto& [doc, length] : {std::pair<uint32_t, int32_t> {0, 2}, {3, 9}}) {
+                ASSERT_EQ(scorer->doc(), doc);
+                const auto norm = BM25Similarity::int_to_byte4(length);
+                EXPECT_EQ(scorer->norm(), norm);
+                EXPECT_FLOAT_EQ(scorer->score(), similarity->score(1.0F, norm));
+                scorer->advance();
+            }
+            EXPECT_EQ(scorer->doc(), TERMINATED);
         }
     }
 }
@@ -261,6 +307,182 @@ public:
     }
     float get_or_calculate_avg_dl(const std::wstring& /*field_name*/) override { return 2.0F; }
 };
+
+static void check_collected_scores(const CollectionSimilarityPtr& similarity,
+                                   const roaring::Roaring& expected,
+                                   const std::map<uint32_t, float>& expected_scores) {
+    ASSERT_EQ(similarity->_bm25_scores.size(), expected.cardinality());
+    for (uint32_t doc : expected) {
+        EXPECT_FLOAT_EQ(similarity->_bm25_scores.at(doc), expected_scores.at(doc));
+    }
+}
+
+static void check_boolean_top_k(const QueryExecutionContext& context, OperatorType op,
+                                const std::function<WeightPtr(bool)>& make_weight,
+                                const std::map<uint32_t, float>& expected_scores) {
+    for (const bool use_wand : {false, true}) {
+        for (const bool deleted : {false, true}) {
+            auto rows = std::make_shared<roaring::Roaring>();
+            auto similarity = std::make_shared<CollectionSimilarity>();
+            auto deletes =
+                    deleted ? std::make_shared<roaring::Roaring>(roaring::Roaring::bitmapOf(1, 3))
+                            : nullptr;
+            collect_multi_segment_top_k(make_weight(true), context, "", 1, rows, similarity,
+                                        use_wand, deletes);
+            auto selected = roaring::Roaring::bitmapOf(1, 3);
+            if (deleted) {
+                selected = op == OperatorType::OP_OR ? roaring::Roaring::bitmapOf(1, 0)
+                                                     : roaring::Roaring();
+            }
+            EXPECT_EQ(*rows, selected);
+            check_collected_scores(similarity, selected, expected_scores);
+        }
+    }
+}
+
+static void check_boolean_collection(const QueryExecutionContext& context) {
+    auto query_context = std::make_shared<IndexQueryContext>();
+    query_context->collection_statistics = std::make_shared<FixedCollectionStatistics>();
+    const auto make_clauses = [&]() {
+        return std::vector<QueryPtr> {
+                std::make_shared<TermQuery>(query_context, L"title", "fleabag"),
+                std::make_shared<TermQuery>(query_context, L"body", "selected")};
+    };
+    std::map<uint32_t, float> expected_scores;
+    for (const auto& clause : make_clauses()) {
+        auto scorer = clause->weight(true)->scorer(context, "");
+        for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
+            expected_scores[doc] += scorer->score();
+        }
+    }
+    for (const auto op : {OperatorType::OP_AND, OperatorType::OP_OR}) {
+        SCOPED_TRACE(static_cast<int>(op));
+        const auto make_weight = [&](bool scoring) {
+            OperatorBooleanQueryBuilder builder(op);
+            for (const auto& clause : make_clauses()) {
+                builder.add(clause);
+            }
+            return builder.build()->weight(scoring);
+        };
+        const auto expected = op == OperatorType::OP_AND ? roaring::Roaring::bitmapOf(1, 3)
+                                                         : roaring::Roaring::bitmapOf(2, 0, 3);
+        for (const bool scoring : {false, true}) {
+            auto rows = std::make_shared<roaring::Roaring>();
+            auto similarity = std::make_shared<CollectionSimilarity>();
+            collect_multi_segment_doc_set(make_weight(scoring), context, "", rows, similarity,
+                                          scoring);
+            EXPECT_EQ(*rows, expected);
+            if (scoring) {
+                check_collected_scores(similarity, expected, expected_scores);
+            }
+        }
+        check_boolean_top_k(context, op, make_weight, expected_scores);
+    }
+}
+
+TEST_F(MultiSegmentCollectorTest, MixedIndexSegmentLayoutsUseGlobalDocumentIds) {
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+
+    snii::snii_test::MemoryFile file;
+    snii::writer::SniiIndexInput input;
+    input.index_id = 7;
+    input.index_suffix = "Body";
+    input.config = snii::format::IndexConfig::kDocsPositions;
+    input.doc_count = 4;
+    input.terms = {snii::snii_test::make_term("selected", {{.docid = 3, .positions = {0}}})};
+    snii::writer::SniiCompoundWriter writer(&file);
+    ASSERT_TRUE(writer.add_logical_index(input).ok());
+    ASSERT_TRUE(writer.finish().ok());
+    snii::reader::SniiSegmentReader segment;
+    snii::reader::LogicalIndexReader index;
+    ASSERT_TRUE(snii::reader::SniiSegmentReader::open(&file, &segment).ok());
+    ASSERT_TRUE(segment.open_index(input.index_id, input.index_suffix, &index).ok());
+
+    const auto title = clucene_index_source(reader, L"title", nullptr);
+    const auto body = std::make_shared<snii::reader::SniiIndexSource>(index);
+    ASSERT_EQ(title->doc_count(), 4);
+    ASSERT_EQ(body->doc_count(), 4);
+    QueryExecutionContext context;
+    context.segment_num_rows = 4;
+    context.sources = {title, body};
+    context.field_sources.emplace(L"title", title);
+    context.field_sources.emplace(L"body", body);
+    check_boolean_collection(context);
+}
+
+TEST_F(MultiSegmentCollectorTest, DifferentCluceneLayoutsUseGlobalDocumentIds) {
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+    const auto title = clucene_index_source(reader, L"title", nullptr);
+    for (const int32_t max_buffered_docs : {100, 3, 2}) {
+        SCOPED_TRACE(max_buffered_docs);
+        const auto directory = kTestDir + "/body_" + std::to_string(max_buffered_docs);
+        ASSERT_TRUE(io::global_local_filesystem()->create_directory(directory).ok());
+        create_test_index(directory, {"other", "other", "other", "selected"}, max_buffered_docs,
+                          "body");
+        auto body_reader = make_shared_reader(lucene::index::IndexReader::open(directory.c_str()));
+        ASSERT_STREQ(body_reader->getObjectName(),
+                     max_buffered_docs == 100 ? "SegmentReader" : "MultiSegmentReader");
+        const auto body = clucene_index_source(body_reader, L"body", nullptr);
+        QueryExecutionContext context;
+        context.segment_num_rows = 4;
+        context.sources = {title, body};
+        context.field_sources.emplace(L"title", title);
+        context.field_sources.emplace(L"body", body);
+        check_boolean_collection(context);
+    }
+}
+
+TEST_F(MultiSegmentCollectorTest, BitmapConditionsUseGlobalDocumentIds) {
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+    QueryExecutionContext context;
+    context.segment_num_rows = 4;
+    context.field_sources.emplace(L"title", clucene_index_source(reader, L"title", nullptr));
+    auto query_context = std::make_shared<IndexQueryContext>();
+    query_context->collection_statistics = std::make_shared<FixedCollectionStatistics>();
+    for (const bool unknown_field : {false, true}) {
+        auto true_rows = std::make_shared<roaring::Roaring>();
+        auto null_rows = std::make_shared<roaring::Roaring>();
+        if (unknown_field) {
+            null_rows->addRange(0, 4);
+        } else {
+            true_rows->add(3);
+            null_rows->add(2);
+        }
+        for (const auto op : {OperatorType::OP_AND, OperatorType::OP_OR}) {
+            const bool conjunction = op == OperatorType::OP_AND;
+            auto expected = roaring::Roaring::bitmapOf(2, 0, 3);
+            if (conjunction) {
+                expected = unknown_field ? roaring::Roaring() : roaring::Roaring::bitmapOf(1, 3);
+            }
+            auto expected_nulls =
+                    conjunction ? roaring::Roaring() : roaring::Roaring::bitmapOf(1, 2);
+            if (unknown_field) {
+                expected_nulls = conjunction ? roaring::Roaring::bitmapOf(2, 0, 3)
+                                             : roaring::Roaring::bitmapOf(2, 1, 2);
+            }
+            for (const bool scoring : {false, true}) {
+                OperatorBooleanQueryBuilder builder(op);
+                builder.add(std::make_shared<TermQuery>(query_context, L"title", "fleabag"));
+                builder.add(std::make_shared<BitSetQuery>(true_rows, null_rows));
+                auto rows = std::make_shared<roaring::Roaring>();
+                roaring::Roaring nulls;
+                collect_multi_segment_doc_set(builder.build()->weight(scoring), context, "", rows,
+                                              nullptr, scoring, &nulls);
+                EXPECT_EQ(*rows, expected);
+                EXPECT_EQ(nulls, expected_nulls);
+            }
+        }
+    }
+}
 
 // Each segment's scored rows reach the similarity in the global docid domain, with the scores
 // its scorer gives them one row at a time: a term's rows read a postings block at a time, a
@@ -292,13 +514,10 @@ TEST_F(MultiSegmentCollectorTest, ScoredRowsReachTheSimilarityInTheGlobalDocIdDo
     for (size_t i = 0; i < std::size(queries); ++i) {
         std::map<uint32_t, float> expected;
         const auto stepped = queries[i]()->weight(true);
-        for_each_index_segment(
-                context, "", [&](const QueryExecutionContext& segment, uint32_t doc_base) {
-                    auto scorer = stepped->scorer(segment, "");
-                    for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
-                        expected[doc + doc_base] = scorer->score();
-                    }
-                });
+        auto scorer = stepped->scorer(context, "");
+        for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
+            expected[doc] = scorer->score();
+        }
         auto rows = std::make_shared<roaring::Roaring>();
         auto similarity = std::make_shared<CollectionSimilarity>();
         collect_multi_segment_doc_set(queries[i]()->weight(true), context, "", rows, similarity,
@@ -338,7 +557,7 @@ TEST_F(MultiSegmentCollectorTest, DeletedDocumentsDoNotShrinkTheLocalDocIdDomain
     EXPECT_TRUE(actual->contains(1));
 }
 
-TEST_F(MultiSegmentCollectorTest, GlobalNullRowsAreSlicedIntoEachLocalDocIdDomain) {
+TEST_F(MultiSegmentCollectorTest, NullRowsKeepTheirGlobalDocumentIds) {
     create_test_index(kTestDir + "/segment1", {"", "fleabag finale"});
     ValueArray<lucene::index::IndexReader*> readers(2);
     readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
@@ -361,15 +580,7 @@ TEST_F(MultiSegmentCollectorTest, GlobalNullRowsAreSlicedIntoEachLocalDocIdDomai
     EXPECT_FALSE(actual->contains(2));
 
     roaring::Roaring actual_nulls;
-    for_each_index_segment(context, "", [&](const QueryExecutionContext& local, uint32_t base) {
-        auto scorer = weight->scorer(local);
-        const auto* nulls = scorer->get_null_bitmap(local.null_resolver);
-        if (nulls != nullptr) {
-            for (const auto row : *nulls) {
-                actual_nulls.add(base + row);
-            }
-        }
-    });
+    collect_multi_segment_doc_set(weight, context, "", actual, nullptr, false, &actual_nulls);
     EXPECT_EQ(actual_nulls.cardinality(), 1);
     EXPECT_TRUE(actual_nulls.contains(2));
 }
@@ -398,27 +609,6 @@ TEST_F(MultiSegmentCollectorTest, AnAbsentTermKeepsTheFieldsNullRowsUnknown) {
         EXPECT_FALSE(rows->contains(2));
         EXPECT_EQ(nulls.cardinality(), 1);
         EXPECT_TRUE(nulls.contains(2));
-    }
-}
-
-TEST_F(MultiSegmentCollectorTest, LocalNullRangesPreserveCompressionAndUint32Boundary) {
-    SegmentDomainNullResolver resolver;
-    QueryExecutionContext context;
-    context.null_resolver = &resolver;
-    for (const auto& [base, count] : {std::pair<uint32_t, uint32_t> {65535, 1000000},
-                                      std::pair<uint32_t, uint32_t> {UINT32_MAX - 11, 12}}) {
-        roaring::Roaring global_rows;
-        global_rows.addRange(base, uint64_t(base) + count);
-        global_rows.add(0);
-        global_rows.add(UINT32_MAX);
-        const auto original = global_rows;
-        SegmentNullBitmapResolver local(context, base, count);
-        local.localize_null_rows(global_rows);
-        EXPECT_EQ(global_rows.cardinality(), count);
-        EXPECT_TRUE(global_rows.containsRange(0, count));
-        EXPECT_LE(global_rows.getSizeInBytes(), 256);
-        EXPECT_TRUE(original.contains(base));
-        EXPECT_TRUE(original.contains(UINT32_MAX));
     }
 }
 
@@ -470,7 +660,7 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithSegmentedFieldBinding) {
     auto* multi_segment_directory = FSDirectory::getDirectory(multi_segment_dir.c_str());
     auto field_reader =
             make_shared_reader(lucene::index::IndexReader::open(multi_segment_directory, true));
-    ASSERT_GT(clucene_index_source(field_reader, L"title", nullptr)->segments().size(), 1);
+    ASSERT_STREQ(field_reader->getObjectName(), "MultiSegmentReader");
 
     auto index_query_context = std::make_shared<IndexQueryContext>();
     auto field = StringHelper::to_wstring("title");

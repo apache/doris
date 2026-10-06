@@ -45,16 +45,22 @@ LoadedPostings::LoadedPostings(std::vector<uint32_t> doc_ids,
 }
 
 template <typename TPostings>
-LoadedPostingsPtr LoadedPostings::load(TPostings& segment_postings) {
+LoadedPostingsPtr LoadedPostings::load(TPostings& segment_postings, bool scoring) {
     auto loaded = std::make_shared<LoadedPostings>();
 
     uint32_t num_docs = segment_postings.size_hint();
     loaded->_doc_ids.reserve(num_docs);
     loaded->_position_offsets.reserve(num_docs + 1);
+    if (scoring) {
+        loaded->_norms.reserve(num_docs);
+    }
 
     while (segment_postings.doc() != TERMINATED) {
         loaded->_position_offsets.push_back(static_cast<uint32_t>(loaded->_positions.size()));
         loaded->_doc_ids.push_back(segment_postings.doc());
+        if (scoring) {
+            loaded->_norms.push_back(segment_postings.norm());
+        }
         segment_postings.append_positions_with_offset(0, loaded->_positions);
         segment_postings.advance();
     }
@@ -114,7 +120,7 @@ uint32_t LoadedPostings::freq() const {
 }
 
 uint32_t LoadedPostings::norm() const {
-    return 1;
+    return _norms.empty() ? 1 : _norms[_cursor];
 }
 
 void LoadedPostings::append_positions_with_offset(uint32_t offset, std::vector<uint32_t>& output) {
@@ -130,6 +136,7 @@ void LoadedPostings::append_positions_with_offset(uint32_t offset, std::vector<u
     }
 }
 
-template LoadedPostingsPtr LoadedPostings::load<SegmentPostings>(SegmentPostings& segment_postings);
+template LoadedPostingsPtr LoadedPostings::load<SegmentPostings>(SegmentPostings& segment_postings,
+                                                                 bool scoring);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

@@ -34,7 +34,7 @@ public:
     ~LoadedPostings() override = default;
 
     template <typename TPostings>
-    static LoadedPostingsPtr load(TPostings& segment_postings);
+    static LoadedPostingsPtr load(TPostings& segment_postings, bool scoring);
 
     uint32_t advance() override;
     uint32_t seek(uint32_t target) override;
@@ -47,6 +47,7 @@ public:
 
 private:
     std::vector<uint32_t> _doc_ids;
+    std::vector<uint32_t> _norms;
     std::vector<uint32_t> _position_offsets;
     std::vector<uint32_t> _positions;
     size_t _cursor = 0;
