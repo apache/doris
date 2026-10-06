@@ -57,6 +57,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class SplitAssignment {
     private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
+    private static final int MAX_QUEUED_BATCHES_PER_BACKEND = 10000;
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
     private final ConcurrentHashMap<Backend, BlockingQueue<Collection<TScanRangeLocations>>> assignment
@@ -194,8 +195,7 @@ public class SplitAssignment {
                         fileCacheAdmission));
             }
             while (needMoreSplit()) {
-                BlockingQueue<Collection<TScanRangeLocations>> queue =
-                        assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000));
+                BlockingQueue<Collection<TScanRangeLocations>> queue = queueOf(backend);
                 try {
                     if (queue.offer(locations, 100, TimeUnit.MILLISECONDS)) {
                         break;
@@ -270,12 +270,18 @@ public class SplitAssignment {
         }
     }
 
+    // The queue of the batches assigned to backend, created by whichever comes first: the generator assigning the
+    // backend a batch, or the backend fetching. Bounded either way, so that a generator getting ahead of a backend
+    // waits for it (appendBatch) rather than holding the splits of a whole table on this frontend.
+    private BlockingQueue<Collection<TScanRangeLocations>> queueOf(Backend backend) {
+        return assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(MAX_QUEUED_BATCHES_PER_BACKEND));
+    }
+
     public BlockingQueue<Collection<TScanRangeLocations>> getAssignedSplits(Backend backend) throws UserException {
         if (exception != null) {
             throw exception;
         }
-        BlockingQueue<Collection<TScanRangeLocations>> splits = assignment.computeIfAbsent(backend,
-                be -> new LinkedBlockingQueue<>());
+        BlockingQueue<Collection<TScanRangeLocations>> splits = queueOf(backend);
         if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
             return null;
         }

@@ -368,6 +368,16 @@ public class SplitAssignmentTest {
         Assertions.assertNotNull(splitAssignment.getSampleSplit());
     }
 
+    @Test
+    void testQueueOfABackendThatFetchesBeforeItsFirstSplitIsBoundedToo() throws Exception {
+        // A backend fetches before the generator has assigned it anything ...
+        BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
+
+        // ... and the queue it creates is the one the generator queues into for it: bounded, as when the generator
+        // creates it, so that a generator getting ahead of that backend waits for it.
+        Assertions.assertEquals(10000, queue.remainingCapacity());
+    }
+
     // ==================== SplitSource.getNextBatch() tests ====================
 
     @Test
