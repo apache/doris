@@ -377,4 +377,41 @@ public class BaselineManagerRound44Test {
         Assertions.assertFalse(noId.isSatisfiedBy(Map.of(45L, nan)),
                 "an unusable query id must not match every row the master stored as NaN");
     }
+
+    /**
+     * The idempotent duplicate CREATE: the master answers it from the EXISTING row of
+     * an earlier statement, whose query id belongs to that first statement, whose raw
+     * plan text is the DECOMPILED rendering and whose bind text may be spaced
+     * differently - every raw arm of the expectation fails. The canonical bind digest
+     * (see SPMPlanner#canonicalBindDigest) is the identity both creates share by
+     * construction, so it confirms the durable outcome locally.
+     */
+    @Test
+    public void testForwardedDuplicateCreateIsConfirmedByTheCanonicalDigest() {
+        BaselineManager.ForwardedDdlExpectation duplicate =
+                BaselineManager.ForwardedDdlExpectation.created(
+                        "SELECT k FROM t1 WHERE k = 1", "SELECT k FROM t1 WHERE k = 1",
+                        "qid-second", "digest-of-this-shape");
+
+        BaselinePlan existing = baseline("digest-of-this-shape", "DECOMPILED FROZEN TEXT");
+        existing.setId(46L);
+        existing.setQueryId("qid-first");
+        Assertions.assertTrue(duplicate.isSatisfiedBy(Map.of(46L, existing)),
+                "the duplicate's expectation is confirmed by the shared digest");
+
+        BaselinePlan anotherShape = baseline("another-digest", "DECOMPILED FROZEN TEXT");
+        anotherShape.setId(47L);
+        anotherShape.setQueryId("qid-first");
+        Assertions.assertFalse(duplicate.isSatisfiedBy(Map.of(47L, anotherShape)),
+                "a differently shaped row must not satisfy the expectation");
+
+        // without a digest the raw fallback stays in force - and this is exactly the row
+        // it cannot see (another statement's query id, a decompiled plan text)
+        BaselineManager.ForwardedDdlExpectation withoutDigest =
+                BaselineManager.ForwardedDdlExpectation.created(
+                        "SELECT k FROM t1 WHERE k = 1", "SELECT k FROM t1 WHERE k = 1",
+                        "qid-second");
+        Assertions.assertFalse(withoutDigest.isSatisfiedBy(Map.of(46L, existing)),
+                "documenting the gap the digest closes");
+    }
 }

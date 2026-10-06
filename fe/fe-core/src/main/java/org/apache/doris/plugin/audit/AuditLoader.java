@@ -1170,6 +1170,21 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         }
     }
 
+    /**
+     * Whether the reporter must (re-)send this FE's row on this tick: a CHANGED horizon /
+     * committed fence, a changed writer-zone set, or the KEEPALIVE cadence. An IDLE row
+     * (zero horizon, no zones, no fence) is refreshed like any other: the reader treats an
+     * OVERDUE row of a LIVE FE as unreadable and fails EVERY capture cycle closed, and the
+     * default capture interval (three hours) is far beyond the staleness bound - an idle,
+     * healthy cluster that stopped refreshing its zero registration could therefore never
+     * advance capture.
+     */
+    @VisibleForTesting
+    static boolean shouldReportHorizon(boolean changed, boolean zonesChanged, long lastReportAt,
+            long now) {
+        return changed || zonesChanged || now - lastReportAt >= HORIZON_KEEPALIVE_MILLIS;
+    }
+
     private class LoadWorker implements Runnable {
 
         public LoadWorker() {
@@ -1206,9 +1221,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     /**
      * Reports THIS FE's audit publication horizon into the shared table so the leader
      * that runs the capture sees a follower's backlog. It writes when the
-     * value CHANGED and re-reports an unchanged non-zero value on the keepalive cadence
-     * (the reader ignores rows whose reporter went silent). A zero horizon is reported
-     * once (which removes the row).
+     * value CHANGED and re-reports an unchanged value on the keepalive cadence
+     * (the reader ignores rows whose reporter went silent), INCLUDING an idle zero row:
+     * an overdue row of a LIVE FE fails the reader closed, so an idle cluster that
+     * stopped refreshing its registration could never advance capture.
      */
     private class HorizonReporter implements Runnable {
 
@@ -1251,9 +1267,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 long committed = oldestCommittedPublishFenceEventTime();
                 boolean changed = horizon != lastReported || committed != lastReportedCommitted;
                 boolean zonesChanged = !zones.equals(lastReportedZones);
-                boolean keepAlive = (horizon > 0 || !zones.isEmpty() || committed > 0)
-                        && now - lastReportAt >= HORIZON_KEEPALIVE_MILLIS;
-                if (changed || zonesChanged || keepAlive) {
+                if (shouldReportHorizon(changed, zonesChanged, lastReportAt, now)) {
                     // Remember the value only when the shared row CONFIRMS it
                     // #5): a failed / not-yet-visible write must be retried on the next
                     // tick, otherwise an old unpublished event would have no

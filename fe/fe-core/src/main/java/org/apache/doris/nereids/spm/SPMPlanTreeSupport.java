@@ -2849,7 +2849,7 @@ public final class SPMPlanTreeSupport {
             return; // one parse (bindSql == planSql): symmetric by construction
         }
         compareRelationalNodes(bindPlan, planPlan, "the root operator", bindSql,
-                new IdentityHashMap<>());
+                new IdentityHashMap<>(), true);
     }
 
     /**
@@ -2862,9 +2862,13 @@ public final class SPMPlanTreeSupport {
      *
      * @param visitedPairs the node pairs already proven equivalent (identity), so a SHARED
      *                     or recursive CTE reference cannot recurse forever
+     * @param labelRelaxed whether this position is the ALIGNABLE root output list (see
+     *                     alignRootOutputLabels: only that list may render a bare column
+     *                     under another label; every nested list keeps its name-to-
+     *                     expression mapping because parents resolve through it)
      */
     private static void compareRelationalNodes(Plan bind, Plan plan, String position,
-            String bindSql, Map<Plan, Set<Plan>> visitedPairs) {
+            String bindSql, Map<Plan, Set<Plan>> visitedPairs, boolean labelRelaxed) {
         // SELECT hints carry no relational semantics (they decide planning knobs and the
         // CREATE-time parse mode, not which rows come out), and the bind text may carry a
         // SET_VAR hint its plan text does not: compare below them.
@@ -2893,7 +2897,7 @@ public final class SPMPlanTreeSupport {
                             + " computation cannot be proven equivalent. Write both statements"
                             + " with the same operators: " + bindSql);
         }
-        compareRelationalPayload(bind, plan, position, bindSql);
+        compareRelationalPayload(bind, plan, position, bindSql, labelRelaxed);
         List<Plan> bindChildren = bind.children();
         List<Plan> planChildren = plan.children();
         if (bindChildren.size() != planChildren.size()) {
@@ -2905,8 +2909,12 @@ public final class SPMPlanTreeSupport {
                             + " relational structure: " + bindSql);
         }
         for (int i = 0; i < bindChildren.size(); i++) {
+            // the alignable root list may pass through single-input wrappers (a LIMIT /
+            // sort / subquery alias above the output-carrying node); once the carrying
+            // node is reached, everything below it resolves through its names
             compareRelationalNodes(bindChildren.get(i), planChildren.get(i),
-                    position + "'s input " + (i + 1), bindSql, visitedPairs);
+                    position + "'s input " + (i + 1), bindSql, visitedPairs,
+                    labelRelaxed && bindChildren.size() == 1 && !carriesOutputList(bind));
         }
         List<? extends Plan> bindAuxiliary = bind.extraPlans();
         List<? extends Plan> planAuxiliary = plan.extraPlans();
@@ -2921,7 +2929,7 @@ public final class SPMPlanTreeSupport {
         }
         for (int i = 0; i < bindAuxiliary.size(); i++) {
             compareRelationalNodes(bindAuxiliary.get(i), planAuxiliary.get(i),
-                    position + "'s auxiliary plan " + (i + 1), bindSql, visitedPairs);
+                    position + "'s auxiliary plan " + (i + 1), bindSql, visitedPairs, false);
         }
         List<Plan> bindSubqueries = expressionSubqueryPlans(bind);
         List<Plan> planSubqueries = expressionSubqueryPlans(plan);
@@ -2935,14 +2943,14 @@ public final class SPMPlanTreeSupport {
         }
         for (int i = 0; i < bindSubqueries.size(); i++) {
             compareRelationalNodes(bindSubqueries.get(i), planSubqueries.get(i),
-                    position + "'s subquery " + (i + 1), bindSql, visitedPairs);
+                    position + "'s subquery " + (i + 1), bindSql, visitedPairs, false);
         }
     }
 
     /** The payload comparison of one operator pair (same class, see
-     * compareRelationalNodes). */
+     * compareRelationalNodes); labelRelaxed = the alignable root output list. */
     private static void compareRelationalPayload(Plan bind, Plan plan, String position,
-            String bindSql) {
+            String bindSql, boolean labelRelaxed) {
         if (bind instanceof LogicalUsingJoin) {
             LogicalUsingJoin<?, ?> bindJoin = (LogicalUsingJoin<?, ?>) bind;
             LogicalUsingJoin<?, ?> planJoin = (LogicalUsingJoin<?, ?>) plan;
@@ -2954,6 +2962,19 @@ public final class SPMPlanTreeSupport {
             assertEquivalentTexts(position, "the USING columns",
                     expressionTexts(bindJoin.getUsingSlots()),
                     expressionTexts(planJoin.getUsingSlots()), bindSql);
+            // an ASOF join stores its MATCH_CONDITION beside the USING slots: at an EQUAL
+            // timestamp l.d >= r.d picks the right row l.d > r.d skips - the replay
+            // would choose another row while every other check passes
+            Optional<Expression> bindMatch = bindJoin.getMatchCondition();
+            Optional<Expression> planMatch = planJoin.getMatchCondition();
+            if (bindMatch.isPresent() != planMatch.isPresent()
+                    || (bindMatch.isPresent() && !bindMatch.get().toSql()
+                            .equals(planMatch.get().toSql()))) {
+                throw topologyDivergence(position, "the match condition differs (bind "
+                        + (bindMatch.isPresent() ? bindMatch.get().toSql() : "none")
+                        + ", plan " + (planMatch.isPresent() ? planMatch.get().toSql() : "none")
+                        + "); an ASOF join picks its right row with it", bindSql);
+            }
             return;
         }
         if (bind instanceof LogicalJoin) {
@@ -2965,6 +2986,19 @@ public final class SPMPlanTreeSupport {
                         + "); an unmatched row of one side survives an OUTER join but is"
                         + " dropped by an INNER one", bindSql);
             }
+            // a MARK join keeps an unmatched left row with a mark slot while the plain
+            // semi / anti form removes (or keeps) it: the same JoinType and ON predicate
+            // do NOT make them interchangeable
+            if (bindJoin.isMarkJoin() != planJoin.isMarkJoin()) {
+                throw topologyDivergence(position, "the MARK-join form differs (bind mark="
+                        + bindJoin.isMarkJoin() + ", plan mark=" + planJoin.isMarkJoin()
+                        + "); the mark form preserves an unmatched left row with a mark"
+                        + " slot the plain form drops", bindSql);
+            }
+            if (bindJoin.isMarkJoin()) {
+                assertOrderedTexts(position, "the mark slot",
+                        markSlotTexts(bindJoin), markSlotTexts(planJoin), bindSql);
+            }
             assertEquivalentTexts(position, "the join's ON condition",
                     joinPredicateTexts(bindJoin), joinPredicateTexts(planJoin), bindSql);
             return;
@@ -2975,9 +3009,11 @@ public final class SPMPlanTreeSupport {
             assertEquivalentTexts(position, "the GROUP BY keys",
                     expressionTexts(bindAggregate.getGroupByExpressions()),
                     expressionTexts(planAggregate.getGroupByExpressions()), bindSql);
-            assertEquivalentTexts(position, "the aggregated output expressions",
-                    labelStrippedTexts(outputItemsOf(bindAggregate)),
-                    labelStrippedTexts(outputItemsOf(planAggregate)), bindSql);
+            // POSITION and NAME are semantic here: MIN(k) x vs MAX(k) y is another value
+            // for the caller's x, and only an ALIGNABLE root list may rename
+            assertOrderedTexts(position, "the aggregated output expressions",
+                    namedTexts(outputItemsOf(bindAggregate), labelRelaxed),
+                    namedTexts(outputItemsOf(planAggregate), labelRelaxed), bindSql);
             return;
         }
         if (bind instanceof LogicalRepeat) {
@@ -2986,14 +3022,19 @@ public final class SPMPlanTreeSupport {
             assertEquivalentTexts(position, "the GROUPING SETS",
                     groupingSetTexts(bindRepeat.getGroupingSets()),
                     groupingSetTexts(planRepeat.getGroupingSets()), bindSql);
+            // the repeat's OUTPUT mapping (one column per grouping set position) must
+            // match as well: it decides which column a parent reads
+            assertOrderedTexts(position, "the grouping-set output expressions",
+                    namedTexts(bindRepeat.getOutputExpressions(), labelRelaxed),
+                    namedTexts(planRepeat.getOutputExpressions(), labelRelaxed), bindSql);
             return;
         }
         if (bind instanceof LogicalWindow) {
             LogicalWindow<?> bindWindow = (LogicalWindow<?>) bind;
             LogicalWindow<?> planWindow = (LogicalWindow<?>) plan;
-            assertEquivalentTexts(position, "the window expressions",
-                    labelStrippedTexts(bindWindow.getWindowExpressions()),
-                    labelStrippedTexts(planWindow.getWindowExpressions()), bindSql);
+            assertOrderedTexts(position, "the window expressions",
+                    namedTexts(bindWindow.getWindowExpressions(), labelRelaxed),
+                    namedTexts(planWindow.getWindowExpressions(), labelRelaxed), bindSql);
             return;
         }
         if (bind instanceof LogicalSetOperation) {
@@ -3068,9 +3109,27 @@ public final class SPMPlanTreeSupport {
                         + "); DISTINCT collapses duplicate rows a plain projection keeps",
                         bindSql);
             }
+            // k AS x, v AS y vs k AS y, v AS x: the ordered EXPRESSIONS alone are equal
+            // (k, v) while the names a parent resolves through are swapped - keep the
+            // (name, expression) mapping everywhere except the alignable root list
             assertOrderedTexts(position, "the projected expressions",
-                    labelStrippedTexts(outputItemsOf(bind)),
-                    labelStrippedTexts(outputItemsOf(plan)), bindSql);
+                    namedTexts(outputItemsOf(bind), labelRelaxed),
+                    namedTexts(outputItemsOf(plan), labelRelaxed), bindSql);
+            return;
+        }
+        if (bind instanceof UnboundTVFRelation) {
+            // a table function carries its PROPERTIES (numbers("number"="10")): the class
+            // equality alone accepts another property map, and a matching 10-row caller
+            // would replay the plan's 20-row generation
+            UnboundTVFRelation bindTvf = (UnboundTVFRelation) bind;
+            UnboundTVFRelation planTvf = (UnboundTVFRelation) plan;
+            String bindFunction = tvfText(bindTvf);
+            String planFunction = tvfText(planTvf);
+            if (!bindFunction.equals(planFunction)) {
+                throw topologyDivergence(position, "the table function differs (bind "
+                        + bindFunction + ", plan " + planFunction + "); the plan would"
+                        + " generate other rows", bindSql);
+            }
             return;
         }
         if (bind instanceof UnboundRelation) {
@@ -3108,12 +3167,35 @@ public final class SPMPlanTreeSupport {
         if (bind instanceof LogicalGenerate) {
             LogicalGenerate<?> bindGenerate = (LogicalGenerate<?>) bind;
             LogicalGenerate<?> planGenerate = (LogicalGenerate<?>) plan;
-            assertEquivalentTexts(position, "the generator functions",
+            assertOrderedTexts(position, "the generator functions",
                     expressionTexts(bindGenerate.getGenerators()),
                     expressionTexts(planGenerate.getGenerators()), bindSql);
             assertEquivalentTexts(position, "the post-generator filter",
                     flattenedConjunctTexts(bindGenerate.getConjuncts()),
                     flattenedConjunctTexts(planGenerate.getConjuncts()), bindSql);
+            // LATERAL VIEW ... AS x vs AS y: the generated columns are new NAMES the
+            // caller resolves through (star alignment cannot derive them), so both the
+            // arity and the names must match. A return-many-column generator's output
+            // slot carries an INTERNAL statement-scoped name while the AS names sit in
+            // expandColumnAlias; a single-name generator's slot IS the alias.
+            List<Slot> bindGenerated = bindGenerate.getGeneratorOutput();
+            List<Slot> planGenerated = planGenerate.getGeneratorOutput();
+            if (bindGenerated.size() != planGenerated.size()) {
+                throw topologyDivergence(position, "the generator output arity differs (bind "
+                        + bindGenerated.size() + " column(s), plan " + planGenerated.size()
+                        + ")", bindSql);
+            }
+            assertOrderedTexts(position, "the generated column aliases",
+                    expandColumnAliasTexts(bindGenerate.getExpandColumnAlias()),
+                    expandColumnAliasTexts(planGenerate.getExpandColumnAlias()), bindSql);
+            boolean aliasesCarryNames = bindGenerate.getExpandColumnAlias().stream()
+                    .anyMatch(aliases -> !aliases.isEmpty())
+                    || planGenerate.getExpandColumnAlias().stream()
+                            .anyMatch(aliases -> !aliases.isEmpty());
+            if (!aliasesCarryNames) {
+                assertOrderedTexts(position, "the generated column names",
+                        slotNames(bindGenerated), slotNames(planGenerated), bindSql);
+            }
             return;
         }
         if (bind instanceof LogicalCTE) {
@@ -3232,6 +3314,53 @@ public final class SPMPlanTreeSupport {
         List<String> texts = new ArrayList<>(items.size());
         for (NamedExpression item : items) {
             texts.add(outputExpressionText(item));
+        }
+        return texts;
+    }
+
+    /** One output list's "nameexpression" pairs; only with labelRelaxed the
+     * label part is dropped (see outputExpressionText). */
+    private static List<String> namedTexts(List<NamedExpression> items, boolean labelRelaxed) {
+        if (labelRelaxed) {
+            return labelStrippedTexts(items);
+        }
+        List<String> texts = new ArrayList<>(items.size());
+        for (NamedExpression item : items) {
+            String label = outputLabelOf(item);
+            texts.add((label == null ? "" : label) + '\u0001' + outputExpressionText(item));
+        }
+        return texts;
+    }
+
+    /** The mark-slot names of a MARK join, in order (see compareRelationalPayload).
+     * The unbound tree has no output list yet, so the name comes from the parse-time
+     * mark reference itself. */
+    private static List<String> markSlotTexts(LogicalJoin<?, ?> join) {
+        List<String> texts = new ArrayList<>();
+        join.getMarkJoinSlotReference().ifPresent(reference -> texts.add(reference.toSql()));
+        return texts;
+    }
+
+    /** One TVF relation's function name plus its (sorted) property map as one text. */
+    private static String tvfText(UnboundTVFRelation relation) {
+        return relation.getFunctionName() + '|'
+                + new java.util.TreeMap<>(relation.getProperties().getMap());
+    }
+
+    /** The names of one slot list, in order. */
+    private static List<String> slotNames(List<? extends Slot> slots) {
+        List<String> names = new ArrayList<>(slots.size());
+        for (Slot slot : slots) {
+            names.add(slot.getName());
+        }
+        return names;
+    }
+
+    /** One text per generator output's AS-name list, in order (see the GENERATE branch). */
+    private static List<String> expandColumnAliasTexts(List<List<String>> aliases) {
+        List<String> texts = new ArrayList<>(aliases.size());
+        for (List<String> alias : aliases) {
+            texts.add(String.join(",", alias));
         }
         return texts;
     }

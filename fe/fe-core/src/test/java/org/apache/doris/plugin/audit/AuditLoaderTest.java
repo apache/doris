@@ -819,6 +819,30 @@ public class AuditLoaderTest {
         }
     }
 
+    /**
+     * An idle cluster never changes the horizon (a zero row is the healthy state), so
+     * a change-only report let the shared registration go stale while the FE stayed
+     * alive: the capture reader then treats a LIVE FE's overdue row as unreadable and
+     * fails every capture cycle closed. The keepalive re-reports an unchanged value on
+     * the cadence - including the idle zero.
+     */
+    @Test
+    public void testIdleHorizonIsReReportedOnTheKeepaliveCadence() {
+        long now = 1_000_000L;
+        Assertions.assertTrue(AuditLoader.shouldReportHorizon(true, false, now, now),
+                "a changed value is reported immediately");
+        Assertions.assertTrue(AuditLoader.shouldReportHorizon(false, true, now, now),
+                "a changed writer-zone set is reported immediately");
+        long belowCadence = now + AuditLoader.HORIZON_KEEPALIVE_MILLIS - 1;
+        Assertions.assertFalse(AuditLoader.shouldReportHorizon(false, false, now, belowCadence),
+                "an unchanged value below the cadence is not re-sent");
+        long due = now + AuditLoader.HORIZON_KEEPALIVE_MILLIS;
+        Assertions.assertTrue(AuditLoader.shouldReportHorizon(false, false, now, due),
+                "the idle zero must be re-reported once the cadence elapses");
+        Assertions.assertTrue(AuditLoader.shouldReportHorizon(false, false, now, due + 5L),
+                "an overdue keepalive stays due until a report confirms");
+    }
+
     private static AuditEvent internalEvent(long timestamp) {
         return new AuditEvent.AuditEventBuilder()
                 .setQueryId("internal-" + timestamp)

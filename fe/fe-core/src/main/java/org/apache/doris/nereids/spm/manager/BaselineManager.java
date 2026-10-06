@@ -3080,27 +3080,41 @@ public class BaselineManager {
          * master; "" / "NaN" = not usable as an identity (fall back to the text match).
          */
         private final String createdQueryId;
+        /**
+         * The CANONICAL (namespace-qualified, value-free) bind digest this CREATE
+         * persists: the stable identity an idempotent duplicate shares with its EXISTING
+         * row, whose query id (the FIRST statement's), decompiled plan text and raw bind
+         * text (possibly other whitespace) all mismatch. "" = not computable here (fall
+         * back to the raw checks).
+         */
+        private final String createdBindDigest;
 
         private ForwardedDdlExpectation(long id, BaselineStatus status) {
-            this(id, status, null, null, "");
+            this(id, status, null, null, "", "");
         }
 
         private ForwardedDdlExpectation(String createdBindSql, String createdPlanSql) {
-            this(0, null, createdBindSql, createdPlanSql, "");
+            this(0, null, createdBindSql, createdPlanSql, "", "");
         }
 
         private ForwardedDdlExpectation(String createdBindSql, String createdPlanSql,
                 String createdQueryId) {
-            this(0, null, createdBindSql, createdPlanSql, createdQueryId);
+            this(0, null, createdBindSql, createdPlanSql, createdQueryId, "");
+        }
+
+        private ForwardedDdlExpectation(String createdBindSql, String createdPlanSql,
+                String createdQueryId, String createdBindDigest) {
+            this(0, null, createdBindSql, createdPlanSql, createdQueryId, createdBindDigest);
         }
 
         private ForwardedDdlExpectation(long id, BaselineStatus status, String createdBindSql,
-                String createdPlanSql, String createdQueryId) {
+                String createdPlanSql, String createdQueryId, String createdBindDigest) {
             this.id = id;
             this.status = status;
             this.createdBindSql = createdBindSql;
             this.createdPlanSql = createdPlanSql;
             this.createdQueryId = createdQueryId == null ? "" : createdQueryId;
+            this.createdBindDigest = createdBindDigest == null ? "" : createdBindDigest;
         }
 
         /** The expected outcome of a forwarded DROP: no readable row carries the id. */
@@ -3155,6 +3169,28 @@ public class BaselineManager {
                     planSql == null ? "" : planSql, statementQueryId);
         }
 
+        /**
+         * As created(String, String, String) plus the CANONICAL BIND DIGEST of the
+         * forwarded CREATE (see SPMPlanner#canonicalBindDigest). The digest is the identity
+         * every create of this shape shares: an IDEMPOTENT duplicate CREATE returns the
+         * master's EXISTING row, whose query id belongs to the FIRST statement and whose
+         * raw plan text is the DECOMPILED one - with different whitespace the raw bind
+         * text differs as well - so only the canonical digest confirms the durable
+         * outcome and can be computed locally (the raw checks remain as a fallback for
+         * callers without a digest).
+         *
+         * @param bindSql          the forwarded CREATE's bind SQL
+         * @param planSql          the forwarded CREATE's plan SQL
+         * @param statementQueryId the statement's query id ("" = match the text only)
+         * @param bindDigest       the canonical bind digest ("" = not available)
+         * @return the presence expectation
+         */
+        public static ForwardedDdlExpectation created(String bindSql, String planSql,
+                String statementQueryId, String bindDigest) {
+            return new ForwardedDdlExpectation(bindSql == null ? "" : bindSql,
+                    planSql == null ? "" : planSql, statementQueryId, bindDigest);
+        }
+
         public long getId() {
             return id;
         }
@@ -3177,7 +3213,15 @@ public class BaselineManager {
                 // row.
                 boolean queryIdUsable = !createdQueryId.isEmpty()
                         && !"NaN".equals(createdQueryId);
+                boolean digestUsable = !createdBindDigest.isEmpty();
                 for (BaselinePlan row : snapshot.values()) {
+                    // The CANONICAL DIGEST is the identity every create of this shape
+                    // shares: an idempotent duplicate returns the EXISTING row, whose
+                    // query id, DECOMPILED plan text and (differently spaced) raw bind
+                    // text all mismatch while the digest is equal by construction.
+                    if (digestUsable && createdBindDigest.equals(row.getBindSqlDigest())) {
+                        return true;
+                    }
                     if (!createdBindSql.equals(row.getBindSql())) {
                         continue;
                     }

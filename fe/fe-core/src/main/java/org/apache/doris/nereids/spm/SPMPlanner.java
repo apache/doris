@@ -1055,6 +1055,41 @@ public class SPMPlanner {
         return baseline;
     }
 
+    /**
+     * The canonical (namespace-qualified, value-free) bind digest a CREATE of bindSql
+     * persists (see assembleBaseline), computed WITHOUT the optimize / decompile halves.
+     * The follower's forwarded-CREATE confirmation uses it as the statement's stable
+     * identity (see BaselineManager.ForwardedDdlExpectation#created(String, String,
+     * String, String)): an IDEMPOTENT duplicate CREATE is answered by the master with the
+     * EXISTING row, whose query id belongs to the FIRST statement and whose raw plan /
+     * bind texts are the frozen ones - possibly with different whitespace - while the
+     * canonical digest is equal by construction. The forwarded request carries the
+     * statement's catalog / database and session variables to the master
+     * (MasterOpExecutor sets db / defaultCatalog, ProtocolAdapter the variables), so the
+     * digest computed here over the SAME text under the SAME parse mode equals the stored
+     * one.
+     *
+     * @param ctx     the forwarding statement's context (may be null in tests)
+     * @param bindSql the forwarded CREATE's bind SQL
+     * @return the digest, or "" when the text cannot be parsed / hashed here (the caller
+     *         then falls back to the raw identity checks)
+     */
+    public static String canonicalBindDigest(ConnectContext ctx, String bindSql) {
+        try {
+            final long creatorMode = SqlModeHelper.currentMode();
+            LogicalPlan bindPlan = parseSelectIsolated(creatorMode, bindSql,
+                    "SPM bindSql must be a SELECT statement: " + bindSql);
+            return SPMPlanTreeSupport.canonicalSpmDigest(SPMPlanTreeSupport
+                    .namespaceQualified(bindPlan, captureCatalogName(ctx),
+                            captureDatabaseName(ctx)).toSpmDigest());
+        } catch (Throwable t) {
+            LOG.debug("SPM cannot precompute the canonical bind digest of a forwarded"
+                    + " CREATE ({}); the confirmation falls back to the raw identity"
+                    + " checks", t.getMessage());
+            return "";
+        }
+    }
+
     /** Parses a single SQL text into an unbound logical plan (rejects non-SELECT). */
     private static LogicalPlan parseSelect(String sql, String errorMessage) throws UserException {
         Plan parsed = new NereidsParser().parseSingle(sql);
