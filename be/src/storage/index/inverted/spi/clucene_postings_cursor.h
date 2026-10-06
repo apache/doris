@@ -33,14 +33,41 @@ namespace doris::segment_v2 {
 class ClucenePostingsCursor final : public index_query::PostingsCursor,
                                     public index_query::PositionCursor {
 public:
-    explicit ClucenePostingsCursor(TermDocsPtr iter) : _iter(std::move(iter)) { _check_iterator(); }
-    explicit ClucenePostingsCursor(TermPositionsPtr iter) {
-        _raw_positions = iter.get();
-        _iter = std::move(iter);
+    struct Partition {
+        TermDocsPtr iter;
+        lucene::index::TermPositions* positions = nullptr;
+        uint32_t begin = 0;
+        uint32_t end = 0;
+    };
+
+    explicit ClucenePostingsCursor(Partition part)
+            : _single_iter(std::move(part.iter)),
+              _iter(_single_iter.get()),
+              _raw_positions(part.positions) {
         _check_iterator();
+        _doc_freq = _iter->docFreq();
     }
 
-    uint32_t doc_freq() const override { return _iter->docFreq(); }
+    explicit ClucenePostingsCursor(TermDocsPtr iter)
+            : ClucenePostingsCursor(Partition {.iter = std::move(iter)}) {}
+
+    explicit ClucenePostingsCursor(TermPositionsPtr iter) {
+        _raw_positions = iter.get();
+        _single_iter = std::move(iter);
+        _iter = _single_iter.get();
+        _check_iterator();
+        _doc_freq = _iter->docFreq();
+    }
+
+    explicit ClucenePostingsCursor(std::vector<Partition> partitions)
+            : _partitions(std::move(partitions)) {
+        for (const auto& part : _partitions) {
+            _doc_freq += part.iter->docFreq();
+        }
+        _select_partition(0);
+    }
+
+    uint32_t doc_freq() const override { return _doc_freq; }
 
     Status next_block(index_query::PostingsBlock* out, bool* eof) override {
         *out = {};
@@ -48,9 +75,13 @@ public:
         _position_open = false;
         _position_remaining = 0;
         try {
-            *eof = !_iter->readBlock(&_block) || _block.doc_many_size_ == 0;
+            while (_iter != nullptr && (!_iter->readBlock(&_block) || _block.doc_many_size_ == 0)) {
+                _select_partition(_partition + 1);
+            }
+            *eof = _iter == nullptr;
             _bound.reset();
             if (!*eof) {
+                _globalize_block();
                 if (_raw_positions != nullptr) {
                     DORIS_CHECK(_block.freq_many != nullptr);
                     DORIS_CHECK_GE(_block.freq_many_size_, _block.doc_many_size_);
@@ -87,7 +118,19 @@ public:
 
     Status shallow_seek(uint32_t target, bool* moved) override {
         try {
-            *moved = _iter->skipToBlock(target);
+            size_t next = _partition;
+            while (next < _partitions.size() && target >= _partitions[next].end) {
+                ++next;
+            }
+            *moved = next != _partition;
+            if (*moved) {
+                _select_partition(next);
+            }
+            if (_iter != nullptr) {
+                const bool skipped =
+                        _iter->skipToBlock(target > _doc_base ? target - _doc_base : 0);
+                *moved = *moved || skipped;
+            }
             if (*moved) {
                 _bound.reset();
                 _block_available = false;
@@ -101,12 +144,21 @@ public:
     }
 
     index_query::BlockBound current_block_bound() const override {
+        if (_iter == nullptr) {
+            return {};
+        }
         if (!_bound) {
             const int32_t last = _iter->getLastDocInBlock();
             _bound = {.last_doc = static_cast<uint32_t>(last),
                       .max_freq = _iter->getMaxBlockFreq(),
                       .max_norm = _iter->getMaxBlockNorm(),
                       .last_doc_known = last >= 0 && last != INT_MAX};
+            if (_bound->last_doc_known) {
+                _bound->last_doc += _doc_base;
+            } else if (!_partitions.empty()) {
+                _bound->last_doc = _partitions[_partition].end - 1;
+                _bound->last_doc_known = true;
+            }
         }
         return *_bound;
     }
@@ -249,6 +301,32 @@ public:
     }
 
 private:
+    void _select_partition(size_t index) {
+        _partition = index;
+        _block = {};
+        _iter = nullptr;
+        // Keep the position handle at EOF so block validity checks still apply.
+        if (index < _partitions.size()) {
+            const auto& part = _partitions[index];
+            _iter = part.iter.get();
+            _raw_positions = part.positions;
+            _doc_base = part.begin;
+        }
+    }
+
+    void _globalize_block() {
+        if (_doc_base == 0) {
+            return;
+        }
+        for (uint32_t i = 0; i < _block.doc_many_size_; ++i) {
+            (*_block.doc_many)[i] += _doc_base;
+        }
+        if (_block.type_ == DocRangeType::kRange) {
+            _block.doc_range.first += _doc_base;
+            _block.doc_range.second += _doc_base;
+        }
+    }
+
     void _finish_positions() {
         if (_position_remaining != 0) {
             _raw_positions->addLazySkipProxCount(_position_remaining);
@@ -289,7 +367,8 @@ private:
         }
     }
 
-    TermDocsPtr _iter;
+    TermDocsPtr _single_iter;
+    lucene::index::TermDocs* _iter = nullptr;
     DocRange _block;
     // The current block's frequencies, when it holds them.
     const uint32_t* _freqs = nullptr;
@@ -300,6 +379,10 @@ private:
     bool _position_open = false;
     bool _block_available = false;
     mutable std::optional<index_query::BlockBound> _bound;
+    std::vector<Partition> _partitions;
+    size_t _partition = 0;
+    uint32_t _doc_base = 0;
+    uint32_t _doc_freq = 0;
 };
 
 } // namespace doris::segment_v2

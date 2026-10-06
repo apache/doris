@@ -62,126 +62,22 @@ const lucene::util::ArrayBase<lucene::index::IndexReader*>* sub_readers(
     return nullptr;
 }
 
-std::unique_ptr<ClucenePostingsCursor> open_postings(lucene::index::IndexReader* reader,
-                                                     lucene::index::Term* term, bool positions,
-                                                     bool scoring, const io::IOContext* io_ctx) {
+ClucenePostingsCursor::Partition open_postings(lucene::index::IndexReader* reader,
+                                               lucene::index::Term* term, bool positions,
+                                               bool scoring, const io::IOContext* io_ctx) {
+    ClucenePostingsCursor::Partition result;
     if (positions) {
         auto iter = make_term_positions_ptr(reader, scoring, io_ctx);
-        if (iter != nullptr) {
-            iter->seek(term);
-            return std::make_unique<ClucenePostingsCursor>(std::move(iter));
-        }
+        result.positions = iter.get();
+        result.iter = std::move(iter);
     } else {
-        auto iter = make_term_doc_ptr(reader, scoring, io_ctx);
-        if (iter != nullptr) {
-            iter->seek(term);
-            return std::make_unique<ClucenePostingsCursor>(std::move(iter));
-        }
+        result.iter = make_term_doc_ptr(reader, scoring, io_ctx);
     }
-    return nullptr;
+    if (result.iter != nullptr) {
+        result.iter->seek(term);
+    }
+    return result;
 }
-
-// Maps leaf blocks to global IDs while positions stay on their leaf cursor.
-class PartitionedClucenePostings final : public index_query::PostingsCursor {
-public:
-    void add(std::unique_ptr<ClucenePostingsCursor> cursor, uint32_t begin, uint32_t end) {
-        if (cursor != nullptr && cursor->doc_freq() != 0) {
-            _doc_freq += cursor->doc_freq();
-            _partitions.push_back({std::move(cursor), begin, end});
-        }
-    }
-
-    uint32_t doc_freq() const override { return _doc_freq; }
-
-    Status next_block(index_query::PostingsBlock* block, bool* eof) override {
-        while (_current < _partitions.size()) {
-            auto& part = _partitions[_current];
-            RETURN_IF_ERROR(part.cursor->next_block(block, eof));
-            if (!*eof) {
-                _globalize(block, part.begin);
-                return Status::OK();
-            }
-            ++_current;
-        }
-        *block = {};
-        *eof = true;
-        return Status::OK();
-    }
-
-    Status seek_block(uint32_t target, index_query::PostingsBlock* block, bool* eof) override {
-        bool moved = false;
-        RETURN_IF_ERROR(shallow_seek(target, &moved));
-        return next_block(block, eof);
-    }
-
-    Status shallow_seek(uint32_t target, bool* moved) override {
-        const size_t previous = _current;
-        while (_current < _partitions.size() && target >= _partitions[_current].end) {
-            ++_current;
-        }
-        *moved = _current != previous;
-        if (_current < _partitions.size()) {
-            auto& part = _partitions[_current];
-            bool leaf_moved = false;
-            RETURN_IF_ERROR(part.cursor->shallow_seek(target > part.begin ? target - part.begin : 0,
-                                                      &leaf_moved));
-            *moved = *moved || leaf_moved;
-        }
-        return Status::OK();
-    }
-
-    index_query::BlockBound current_block_bound() const override {
-        if (_current == _partitions.size()) {
-            return {};
-        }
-        const auto& part = _partitions[_current];
-        auto bound = part.cursor->current_block_bound();
-        bound.last_doc = bound.last_doc_known ? bound.last_doc + part.begin : part.end - 1;
-        bound.last_doc_known = true;
-        return bound;
-    }
-
-    Status open_positions(uint32_t ordinal, index_query::PositionCursor** out) override {
-        return _partitions[_current].cursor->open_positions(ordinal, out);
-    }
-
-    Status open_position_stream(uint32_t ordinal, std::span<uint32_t> first_chunk, size_t* count,
-                                index_query::PositionCursor** out) override {
-        return _partitions[_current].cursor->open_position_stream(ordinal, first_chunk, count, out);
-    }
-
-    Status append_positions(uint32_t ordinal, uint32_t offset,
-                            std::vector<uint32_t>& output) override {
-        return _partitions[_current].cursor->append_positions(ordinal, offset, output);
-    }
-
-private:
-    void _globalize(index_query::PostingsBlock* block, uint32_t begin) {
-        if (begin == 0) {
-            return;
-        }
-        _docs.resize(block->docs.size());
-        for (size_t i = 0; i < block->docs.size(); ++i) {
-            _docs[i] = block->docs[i] + begin;
-        }
-        block->docs = _docs;
-        if (block->dense) {
-            block->range_begin += begin;
-            block->range_end += begin;
-        }
-    }
-
-    struct Partition {
-        std::unique_ptr<ClucenePostingsCursor> cursor;
-        uint32_t begin;
-        uint32_t end;
-    };
-
-    std::vector<Partition> _partitions;
-    std::vector<uint32_t> _docs;
-    size_t _current = 0;
-    uint32_t _doc_freq = 0;
-};
 
 } // namespace
 
@@ -217,14 +113,21 @@ Status CluceneIndexSource::open_term(std::string_view term, bool positions, bool
     try {
         auto t = make_term_ptr(_field.c_str(), text.c_str());
         if (_partitions.empty()) {
-            *out = open_postings(_reader.get(), t.get(), positions, scoring, _io_ctx);
-        } else {
-            auto cursor = std::make_unique<PartitionedClucenePostings>();
-            for (const auto& part : _partitions) {
-                cursor->add(open_postings(part.reader, t.get(), positions, scoring, _io_ctx),
-                            part.begin, part.end);
+            auto postings = open_postings(_reader.get(), t.get(), positions, scoring, _io_ctx);
+            if (postings.iter != nullptr) {
+                *out = std::make_unique<ClucenePostingsCursor>(std::move(postings));
             }
-            *out = std::move(cursor);
+        } else {
+            std::vector<ClucenePostingsCursor::Partition> partitions;
+            for (const auto& part : _partitions) {
+                auto postings = open_postings(part.reader, t.get(), positions, scoring, _io_ctx);
+                if (postings.iter != nullptr && postings.iter->docFreq() != 0) {
+                    postings.begin = part.begin;
+                    postings.end = part.end;
+                    partitions.push_back(std::move(postings));
+                }
+            }
+            *out = std::make_unique<ClucenePostingsCursor>(std::move(partitions));
         }
     } catch (CLuceneError& e) {
         return clucene_error_status(e.what());

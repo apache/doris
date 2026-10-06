@@ -438,16 +438,24 @@ void check_dense_block_view(const index_query::PostingsBlock& block, uint32_t fi
     EXPECT_EQ(suffix.norm_at(0), 4U);
 }
 
-void check_dense_block(uint32_t first) {
-    ClucenePostingsCursor cursor {TermPositionsPtr(new DenseTermPositions(first))};
+void check_dense_cursor_block(ClucenePostingsCursor& cursor, uint32_t first) {
     index_query::PostingsBlock block;
     bool eof = false;
     ASSERT_TRUE(cursor.next_block(&block, &eof).ok());
     ASSERT_FALSE(eof);
     check_dense_block_view(block, first);
+    EXPECT_EQ(block.docs.front(), first);
+    EXPECT_EQ(block.docs.back(), first + 2);
     std::vector<uint32_t> positions;
     ASSERT_TRUE(cursor.append_positions(1, 0, positions).ok());
     EXPECT_EQ(positions, (std::vector<uint32_t> {8, 13}));
+}
+
+void check_dense_block(uint32_t first) {
+    ClucenePostingsCursor cursor {TermPositionsPtr(new DenseTermPositions(first))};
+    check_dense_cursor_block(cursor, first);
+    index_query::PostingsBlock block;
+    bool eof = false;
     ASSERT_TRUE(cursor.next_block(&block, &eof).ok());
     EXPECT_TRUE(eof);
     EXPECT_EQ(block.size(), 0U);
@@ -457,6 +465,30 @@ TEST_F(SegmentPostingsTest, CommonCursorPreservesDenseRangesAndPositionOrdinals)
     check_dense_block(0);
     check_dense_block(123);
     check_dense_block(std::numeric_limits<uint32_t>::max() - 2);
+}
+
+TEST_F(SegmentPostingsTest, PartitionedCursorPreservesDenseBlocksAcrossDocumentGaps) {
+    std::vector<ClucenePostingsCursor::Partition> partitions;
+    for (const uint32_t begin : {0U, 10U}) {
+        auto* positions = new DenseTermPositions(0);
+        partitions.push_back({.iter = TermDocsPtr(positions),
+                              .positions = positions,
+                              .begin = begin,
+                              .end = begin + 5});
+    }
+    ClucenePostingsCursor cursor(std::move(partitions));
+    EXPECT_EQ(cursor.doc_freq(), 6);
+    check_dense_cursor_block(cursor, 0);
+    bool moved = false;
+    ASSERT_TRUE(cursor.shallow_seek(7, &moved).ok());
+    EXPECT_TRUE(moved);
+    check_dense_cursor_block(cursor, 10);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(cursor.next_block(&block, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(block.size(), 0);
+    EXPECT_EQ(cursor.doc_freq(), 6);
 }
 
 void check_prepared_position_ranges(size_t width, const std::vector<size_t>& ends) {
