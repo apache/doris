@@ -77,22 +77,8 @@ private:
     uint64_t _peak_held_bytes = 0;
 };
 
-// The postings of one term as the shared engine reads them: one block per window (the whole
-// posting for a slim or inline term), term frequencies as the position counts of the window's
-// PRX frame (one per document on an index without positions), norms from the norms section,
-// and positions from the frame, decoded once per window when they are first asked (with the
-// frequencies when scoring), or, for the documents a block is asked to stream, each as it is
-// read, the rest of the frame checked once the last of them is finished. A cursor opened with
-// positions keeps the docids it decodes, so listing again after a rewind decodes nothing twice.
-//
-// Reads: an inline term needs none. A slim term reads its dd region, and its PRX frame when
-// positions or frequencies are asked, in one round. A windowed term reads its prelude and its
-// whole posting span in one round, the span alone when given the prelude; given candidates
-// through prefetch, it reads the prelude, then only the windows covering them in one round,
-// and a window no read covered on demand. A cursor on a shared wave registers its reads there,
-// so several cursors' reads make one round, and fetches the wave itself if it needs the bytes
-// before the wave was fetched; a cursor without one fetches its reads as it registers them.
-// Given `prx_stats`, it adds the work of every PRX frame it decodes there.
+// Reads one term in blocks, with positions materialized or streamed as requested by the engine.
+// It uses candidate rows to limit reads and shares read waves with other cursors when supplied.
 class SniiPostingsCursor final : public index_query::PostingsCursor,
                                  public index_query::PositionCursor {
 public:
@@ -134,6 +120,7 @@ public:
 
     Status next_position(uint32_t* position, bool* available) override;
     Status next_positions(std::span<uint32_t> out, size_t* count) override;
+    // The last streamed document finishes validation of its PRX frame.
     Status finish_doc() override;
 
 private:

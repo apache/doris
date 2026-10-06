@@ -140,12 +140,8 @@ struct SniiOpenedIndex : OpenedIndex {
     ::doris::snii::format::PrxDecodeStats prx_decode_stats;
 };
 
-// Query types whose answer is decided by terms the current analyzer produced. On a gram-family
-// index those terms are grams, and they only mean what the segment's own grams mean when both
-// were cut by the same scheme. MATCH_REGEXP belongs here even though its pattern is raw: the
-// scalar function matches it against the terms the current analyzer cuts each row into, while
-// the index matches it against the persisted dictionary. A gram query compiles against the
-// segment's own scheme, so it is not affected.
+// Gram-family MATCH queries require the current analyzer to use the segment's gram scheme.
+// This includes MATCH_REGEXP because its scalar evaluation uses analyzed terms, while gram queries use the segment's scheme.
 bool analyzes_query_terms(InvertedIndexQueryType query_type) {
     switch (query_type) {
     case InvertedIndexQueryType::MATCH_ANY_QUERY:

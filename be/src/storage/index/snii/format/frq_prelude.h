@@ -202,14 +202,8 @@ private:
     std::vector<uint32_t> win_last_docid_;
 };
 
-// Pure cursor core (no FrqPreludeReader / IO): selects into *windows the ascending,
-// de-duplicated indices of the windows covering the ascending `candidates`, given the
-// packed window last_docid array (size n_windows), the super-block last_docid directory
-// (size n_super) and group_size. A super-block cursor does boundary jumps while a window
-// cursor advances forward only, and the candidates a chosen window covers are passed by
-// galloping => at most C + N window comparisons, element-for-element equal to
-// per-candidate locate_window + run collapse. *windows is cleared first; n_windows == 0
-// yields an empty result. Exposed for isolated equivalence / complexity tests.
+// Replaces windows with the unique windows covering sorted candidates.
+// Forward cursors and super-block jumps bound comparisons by candidates plus windows.
 void select_covering_windows_cursor(const uint32_t* win_last_docid, uint32_t n_windows,
                                     const uint64_t* sb_last_docid, uint32_t n_super,
                                     uint32_t group_size, const std::vector<uint32_t>& candidates,

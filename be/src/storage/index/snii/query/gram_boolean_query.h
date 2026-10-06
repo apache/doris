@@ -110,11 +110,8 @@ public:
     }
 };
 
-// The production GramPostingSource on top of LogicalIndexReader. Its source resolves the
-// grams a batch at a time and keeps what the dictionary answered, so the postings that
-// follow read from those entries without looking a gram up again: a conjunction as one
-// chain narrowing its rarest gram's rows, a union a wave of grams at a time. It lives as long
-// as one index query.
+// Resolves gram dictionary entries in batches and reuses them for posting reads within one query.
+// Conjunctions narrow candidate rows; unions read one gram wave at a time.
 class LogicalIndexPostingSource final : public GramPostingSource {
 public:
     explicit LogicalIndexPostingSource(const reader::LogicalIndexReader& idx)

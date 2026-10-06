@@ -15,11 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// T08 -- wildcard matcher.
-//
-// Proves index_query::WildcardMatcher matches like the original DP, a byte-for-byte
-// copy of which serves as the ASCII equivalence oracle, while matching UTF-8 code
-// points.
+// Checks ASCII wildcard matching against an independent dynamic-programming oracle.
+// Unicode cases verify that wildcards consume code points.
 
 #include <gtest/gtest.h>
 

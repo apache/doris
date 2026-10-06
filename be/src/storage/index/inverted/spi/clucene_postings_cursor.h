@@ -145,7 +145,7 @@ public:
                 --remaining;
                 first_chunk[filled++] = position;
             }
-            *out = this;
+            *out = remaining == 0 ? nullptr : this;
         } catch (CLuceneError& error) {
             status = clucene_error_status(error.what());
         }

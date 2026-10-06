@@ -53,9 +53,8 @@ inline size_t utf8_sequence_length(char lead) {
     return 4;
 }
 
-// UTF-8 glob matcher. '*' matches zero or more code points, '?' exactly one, and every other
-// code point itself; the whole term has to match. A term that is not valid UTF-8 is matched byte
-// by byte, since keyword indexes may hold arbitrary bytes.
+// Matches whole terms: '*' accepts any number of code points, '?' accepts one, and other characters match themselves.
+// Invalid UTF-8 is matched byte by byte for keyword indexes.
 class WildcardMatcher {
 public:
     explicit WildcardMatcher(std::string_view pattern)

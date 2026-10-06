@@ -607,11 +607,8 @@ TEST_F(ListedTermsTest, AScoredConjunctionReadsTheListedRowsPositionsInOneRound)
     EXPECT_EQ(listed->fetches, 1U);
 }
 
-// A scored disjunction reads every term's rows, frequencies and norms in one round and sums,
-// per row, the scores of the terms holding it.
-// A scored disjunction lists its terms on any source and scores a row with the sum of its terms'
-// scores. A streaming source has its terms read one at a time, each cursor released before the
-// next opens, where a union would hold them all.
+// Scores rows in clause order while keeping at most one wave of term cursors alive.
+// Forward sources release each cursor before opening the next.
 TEST_F(ListedTermsTest, AScoredDisjunctionSumsTheScoresOfEachTerm) {
     const auto make = [&] { return boolean(OperatorType::OP_OR, {term("a"), term("c")}); };
     const auto expected = summed({"a", "c"}, source(false));
@@ -649,10 +646,8 @@ TEST_F(ListedTermsTest, ADisjunctionOfManyTermsReadsThemAWaveAtATime) {
     EXPECT_EQ(listed->live.now, 0U);
 }
 
-// A scored disjunction of more terms than one wave reads and scores them a wave at a time. Its
-// first terms merge into the rows scored so far; from the twelfth on, the rows and the term's
-// postings cover a quarter of the 64 rows, and the terms add into a slot per row. Either way a
-// row sums its terms' scores in term order.
+// Scores multiple term waves and switches to dense row slots as coverage grows.
+// Expected scores preserve clause order across the representation change.
 TEST_F(ListedTermsTest, AScoredDisjunctionOfManyTermsScoresAWaveAtATime) {
     const auto make = [&] { return many_boolean(OperatorType::OP_OR); };
     std::vector<std::string> texts;

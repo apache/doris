@@ -45,19 +45,8 @@
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
 
-// PHASE B differential + byte-reduction test (design spec sections 1.4 & 2).
-//
-// Builds an index (~4000 docs, positions + scoring) with a HIGH-DF term spanning
-// MANY .frq windows plus low/mid-df terms and a planted 5-term phrase led by the
-// high-df term. Over a MeteredFileReader it asserts:
-//   (a) term_query and phrase_query docids equal a brute-force ORACLE (unchanged
-//       by the freq-skip optimization);
-//   (b) a docid-only term_query on the high-df term requests STRICTLY FEWER .frq
-//       bytes than the pre-PhaseB full-window path (sum of per-window frq_len),
-//       because the freq region is skipped on the wire;
-//   (c) scoring STILL reads the FULL windows (freq region present -> its .frq
-//       request bytes match the full-window total, strictly above the docid-only
-//       path) and returns the correct top-K.
+// Checks term and phrase results against an independent oracle.
+// Document-only queries skip frequency bytes; scored queries read them and verify top-k results.
 using namespace doris::snii;
 using namespace doris::snii::format;
 using namespace doris::snii::reader;

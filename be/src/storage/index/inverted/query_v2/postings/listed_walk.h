@@ -196,7 +196,7 @@ public:
         ++_next;
         RETURN_IF_ERROR(_cursor.open_position_stream(ordinal, _buffer, &_buffered, &_positions));
         _read = 0;
-        _last_chunk = _buffered < _buffer.size();
+        _last_chunk = _positions == nullptr || _buffered < _buffer.size();
         return Status::OK();
     }
 
@@ -209,19 +209,18 @@ public:
         return true;
     }
 
-    // The open row's first position at or after `target`; the walk stays on it.
-    ALWAYS_INLINE Status advance_to(uint32_t target, uint32_t* position, bool* available) {
+    bool available() const { return _read < _buffered; }
+    uint32_t position() const { return _buffer[_read]; }
+
+    // Advances to the first position at or after target.
+    ALWAYS_INLINE Status advance_to(uint32_t target) {
         if (!_scan(target) && !_last_chunk) {
-            RETURN_IF_ERROR(_scan_next_chunks(target));
-        }
-        *available = _read < _buffered;
-        if (*available) {
-            *position = _buffer[_read];
+            return _scan_next_chunks(target);
         }
         return Status::OK();
     }
 
-    Status finish_doc() { return _positions->finish_doc(); }
+    Status finish_doc() { return _positions == nullptr ? Status::OK() : _positions->finish_doc(); }
 
 private:
     // Passes the buffered positions below `target`, from locals so the loop stays in registers;

@@ -262,10 +262,8 @@ Status count_slot_docs(index_query::IndexSource& source,
     return Status::OK();
 }
 
-// Opens the phrase's slots: the exact ones first, so a missing term ends the phrase before any
-// expansion runs, then the terms the others expand to. A slot of more terms than one wave reads
-// opens none and keeps its terms in `waved`, for its rows to gather a wave at a time. `slots`
-// stays empty when a slot holds no term.
+// Opens exact terms before expansions so a missing required term stops further work.
+// Expansions larger than one term wave stay in waved; an empty required slot leaves slots empty.
 Status open_slots(index_query::IndexSource& source, std::vector<PhraseSlot> phrase,
                   PhraseClauses* clauses, std::vector<SlotCursors>* slots,
                   std::vector<std::vector<std::string>>* waved) {
@@ -409,10 +407,8 @@ Status seed_chain(std::vector<index_query::ChainedPostings*>* first,
 // when its terms hold this many times fewer documents than the rarest of them.
 constexpr uint64_t kSeveralTermsListingRatio = 8;
 
-// The rows holding a term of every opened slot, among `candidates` when given, listed as a
-// chain, and for a slot of several terms the rows each of its terms holds. A slot of several
-// terms that is not far rarer than every exact slot lists last, on the rows the others kept. A
-// slot read in waves, which opened no cursor, is left to its own gathering.
+// Intersects opened slots with the candidates and records which terms cover each surviving row.
+// Multi-term slots may be deferred to reduce reads; unopened slots are gathered separately.
 Status chain_rows(std::span<const SlotCursors> slots, const roaring::Roaring* candidates,
                   std::vector<uint32_t>* rows, HeldRows* held,
                   std::span<index_query::SelectedPostings> selected) {
@@ -667,13 +663,8 @@ Status gather_slots(index_query::IndexSource& source,
     return Status::OK();
 }
 
-// The rows holding a term of every slot, among `candidates` when given, with the rows each term
-// of an opened slot of several terms holds and, for a slot read in waves, its positions gathered
-// at those rows. A slot read in waves that holds 8 times fewer documents than the rarest
-// single-term slot, and every one of them when the phrase has no single-term slot, first lists
-// its rows by term, docids only, and those rows seed the chain of the opened slots. Every slot
-// read in waves then gathers its positions at the rows the chain kept, so positions are read
-// only where every slot holds a term.
+// Intersects all phrase slots, gathering positions only for rows that survive every slot.
+// Selective slots read in waves can seed the chain with docids before any positions are read.
 Status list_rows(index_query::IndexSource& source, std::span<const SlotCursors> slots,
                  std::span<const std::vector<std::string>> waved,
                  std::span<const uint64_t> slot_docs, const roaring::Roaring* candidates,

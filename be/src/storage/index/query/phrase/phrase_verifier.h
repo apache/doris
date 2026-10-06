@@ -104,8 +104,8 @@ public:
         }
     }
 
-    // Cursors retain the position returned by advance_to; whole exposes the remainder only
-    // when it is fully buffered. Successful verification finishes every referenced cursor.
+    // Cursors retain their current position until advance_to moves them forward.
+    // Successful verification finishes every referenced cursor.
     template <typename Cursor>
     Status verify_stream(std::span<Cursor> cursors, bool* matched) const {
         DCHECK(can_stream_);
@@ -120,28 +120,29 @@ public:
             *matched = contains_two_term_phrase(lead_span, other_span, offsets_[1]);
             return finish_stream_document(cursors);
         }
-        uint32_t lead_position = 0;
-        bool available = false;
-        RETURN_IF_ERROR(lead.advance_to(0, &lead_position, &available));
         size_t clause = 1;
-        while (available && clause < clause_terms_.size()) {
+        while (lead.available() && clause < clause_terms_.size()) {
             const uint32_t offset = offsets_[clause];
             uint32_t expected = 0;
-            if (!add_position_offset(lead_position, offset, &expected)) {
+            if (!add_position_offset(lead.position(), offset, &expected)) {
                 break;
             }
-            uint32_t clause_position = 0;
-            RETURN_IF_ERROR(cursors[clause_terms_[clause]].advance_to(expected, &clause_position,
-                                                                      &available));
-            if (available && clause_position != expected) {
-                RETURN_IF_ERROR(
-                        lead.advance_to(clause_position - offset, &lead_position, &available));
+            Cursor& other = cursors[clause_terms_[clause]];
+            if (other.available() && other.position() < expected) {
+                RETURN_IF_ERROR(other.advance_to(expected));
+            }
+            if (!other.available()) {
+                break;
+            }
+            const uint32_t clause_position = other.position();
+            if (clause_position != expected) {
+                RETURN_IF_ERROR(lead.advance_to(clause_position - offset));
                 clause = 1;
                 continue;
             }
             ++clause;
         }
-        *matched = available && clause == clause_terms_.size();
+        *matched = clause == clause_terms_.size();
         return finish_stream_document(cursors);
     }
 

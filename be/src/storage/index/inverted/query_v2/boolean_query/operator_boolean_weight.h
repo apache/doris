@@ -192,12 +192,8 @@ private:
         return std::dynamic_pointer_cast<DoNothingCombiner>(_score_combiner) != nullptr;
     }
 
-    // The term clauses to list together: those reading a source that batches its reads, and on
-    // any source those of an unscored conjunction, whose chain intersects block by block, and
-    // those of a scored disjunction, which merges each term's rows into the rows scored so far
-    // instead of keeping a heap of its terms per row; grouped by source and opened together,
-    // with their similarities when `scoring` (a boolean scores with its clauses). The other
-    // clauses run through their scorers.
+    // Groups term clauses by source for batched reads, unscored intersections or scored unions.
+    // Remaining clauses use their individual scorers.
     std::vector<ListedTerms> listed_terms(const QueryExecutionContext& context, bool scoring) {
         const bool any_source = (_type == OperatorType::OP_AND && !scoring) ||
                                 (_type == OperatorType::OP_OR && scoring);

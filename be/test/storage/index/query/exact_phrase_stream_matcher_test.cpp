@@ -64,9 +64,8 @@ public:
         return Status::OK();
     }
 
-    // Stays on the position it gives; each position counts as returned once, when first passed
-    // or given.
-    Status advance_to(uint32_t target, uint32_t* position, bool* available) {
+    Status advance_to(uint32_t target) {
+        ++advance_calls_;
         if (failure_ == FailurePoint::kAdvance) {
             return Status::IOError<false>("injected position failure");
         }
@@ -74,15 +73,15 @@ public:
         while (next_position_ < positions.size() && positions[next_position_] < target) {
             ++next_position_;
         }
-        *available = next_position_ < positions.size();
-        const size_t examined = std::min(next_position_ + 1, positions.size());
-        for (; examined_ < examined; ++examined_) {
-            returned_position_values_.push_back(positions[examined_]);
-        }
-        if (*available) {
-            *position = positions[next_position_];
-        }
+        record_examined();
         return Status::OK();
+    }
+
+    bool available() const { return next_position_ < active_positions_->size(); }
+
+    uint32_t position() {
+        record_examined();
+        return (*active_positions_)[next_position_];
     }
 
     // A cursor held whole hands over the document's remaining positions at once.
@@ -118,11 +117,19 @@ public:
         return returned_position_values_;
     }
     [[nodiscard]] size_t finish_doc_calls() const { return finish_doc_calls_; }
+    [[nodiscard]] size_t advance_calls() const { return advance_calls_; }
     [[nodiscard]] size_t finish_calls() const { return finish_calls_; }
     [[nodiscard]] bool doc_finished() const { return doc_finished_; }
     [[nodiscard]] bool active() const { return active_; }
 
 private:
+    void record_examined() {
+        const size_t examined = std::min(next_position_ + 1, active_positions_->size());
+        for (; examined_ < examined; ++examined_) {
+            returned_position_values_.push_back((*active_positions_)[examined_]);
+        }
+    }
+
     DocumentPositions positions_;
     FailurePoint failure_ = FailurePoint::kNone;
     bool held_whole_ = false;
@@ -132,6 +139,7 @@ private:
     size_t examined_ = 0;
     std::vector<uint32_t> returned_position_values_;
     size_t finish_doc_calls_ = 0;
+    size_t advance_calls_ = 0;
     size_t finish_calls_ = 0;
     bool active_ = false;
     bool doc_finished_ = false;
@@ -172,6 +180,7 @@ void expect_immediate_match() {
     EXPECT_TRUE(matched);
     for (const FakeCursor& cursor : cursors) {
         EXPECT_EQ(cursor.returned_positions(), 1U);
+        EXPECT_EQ(cursor.advance_calls(), 0U);
         EXPECT_EQ(cursor.finish_doc_calls(), 1U);
         EXPECT_EQ(cursor.finish_calls(), 0U);
         EXPECT_TRUE(cursor.doc_finished());
@@ -374,7 +383,7 @@ TEST(ExactPhraseStreamMatcherTest, PropagatesSeekError) {
 TEST(ExactPhraseStreamMatcherTest, PropagatesPositionError) {
     std::vector<FakeCursor> cursors;
     cursors.emplace_back(doc_positions({{37, {0}}}));
-    cursors.emplace_back(doc_positions({{37, {1}}}), FakeCursor::FailurePoint::kAdvance);
+    cursors.emplace_back(doc_positions({{37, {0, 1}}}), FakeCursor::FailurePoint::kAdvance);
     const std::array<size_t, 2> plan = {0, 1};
     const std::array<uint32_t, 2> offsets = {0, 1};
     bool matched = true;

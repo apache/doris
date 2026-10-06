@@ -2226,12 +2226,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermSingleTokenAllowsMinimumShouldMatch
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
 }
 
-// A value that tokenizes to zero terms (here, an empty string on an analysed field) must be
-// handled the same way the CLucene path handles it -- an empty BitSetQuery -- instead of
-// reaching SniiIndexReader::_query at all: that reader only short-circuits empty term_infos to
-// an empty bitmap for proper MATCH_* query types (see is_match_query() in
-// inverted_index_query_type.h), and a TERM clause maps to EQUAL_QUERY/MATCH_ALL_QUERY, neither
-// of which qualifies, so it would otherwise surface INVERTED_INDEX_NO_TERMS instead of a match.
+// A value that analyzes to no terms produces an empty result in both formats.
+// SEARCH must handle it before the reader rejects the empty term list.
 TEST_F(FunctionSearchTest, TestSniiNativeTermZeroTokenMinimumShouldMatchReturnsEmptyBitmap) {
     auto context = std::make_shared<IndexQueryContext>();
     auto index_meta = make_test_inverted_index(

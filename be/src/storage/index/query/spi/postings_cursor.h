@@ -129,6 +129,7 @@ public:
         return Status::NotSupported("This posting type does not support positions");
     }
     // Opens the document and reads its first chunk in one call, which an adapter may fuse.
+    // On success, a null cursor means all positions were returned and no finishing remains.
     virtual Status open_position_stream(uint32_t ordinal, std::span<uint32_t> first_chunk,
                                         size_t* count, PositionCursor** out) {
         *count = 0;

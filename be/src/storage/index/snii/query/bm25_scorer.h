@@ -21,8 +21,7 @@
 
 namespace doris::snii::query {
 
-// The norm byte a document's length is stored as: the length clamped to 1..255. A stored 0
-// reads as a length of 1. The engine scores a document by this length.
+// Document lengths use one byte in the range 1..255; a stored zero is read as one.
 double decode_norm(uint8_t encoded);
 
 uint8_t encode_norm(uint64_t doc_length);

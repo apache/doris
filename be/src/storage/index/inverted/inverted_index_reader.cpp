@@ -1024,7 +1024,6 @@ Status CluceneTextIndexReader::_run_leaf(const IndexQueryContextPtr& context,
                                          const logical::Node& leaf,
                                          const roaring::Roaring* candidates, bool scoring,
                                          std::shared_ptr<roaring::Roaring>* out) {
-    // An expansion publishes no score, as the legacy prefix and regexp executors never did.
     const bool publish_scores = scoring && leaf.as<logical::Expand>() == nullptr;
     auto result = std::make_shared<roaring::Roaring>();
     RETURN_IF_ERROR(run_clucene_leaf(context, StringUtil::string_to_wstring(column_name), leaf,

@@ -16,10 +16,8 @@
 // under the License.
 
 suite("test_search_not_null_bitmap", "p0") {
-    // NOT inside a lucene-mode search() follows Elasticsearch: a clause on a NULL
-    // field does not match, so NOT keeps the row. A SQL NOT around a search() of
-    // one clause follows SQL: the clause is NULL on a NULL field, so the row is
-    // dropped. Each query below is paired with its SQL NOT form.
+    // A NOT clause inside search() keeps rows whose field is NULL, while SQL NOT around search() drops them.
+// Each query is paired with its SQL NOT form.
 
     def tableName = "search_not_null_bitmap"
 

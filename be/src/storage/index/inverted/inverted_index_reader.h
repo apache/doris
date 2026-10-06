@@ -422,9 +422,8 @@ struct Admission {
     std::function<Status(OpenedIndex&)> check_open;
 };
 
-// An index over analyzed or untokenized text. It answers MATCH values and SEARCH leaves with one
-// executor: the result cache, the count-only fast path, the scan's candidates, single flight,
-// scoring and the null bitmap, in that order. The hooks supply what depends on the format.
+// Runs MATCH queries and SEARCH leaves through shared caching, candidate filtering, and execution.
+// Format-specific hooks provide index access and admission rules.
 class TextIndexReader : public InvertedIndexReader {
 public:
     using InvertedIndexReader::InvertedIndexReader;
@@ -534,9 +533,8 @@ Status plan_query(const index_query::logical::Node& leaf, const IndexQueryContex
                   const roaring::Roaring* candidates,
                   std::shared_ptr<inverted_index::query_v2::Query>* out);
 
-// Adds the rows a logical leaf matches on `source`, the index of `field` over `doc_count`
-// documents, to `result`, and with `scoring` their BM25 values to the context's similarity. With
-// `candidates`, a phrase only matches those rows. What the engine throws is left to the caller.
+// Adds the leaf's matching rows and optional BM25 scores, restricting phrase matches to candidates.
+// Exceptions from the query engine propagate to the caller.
 Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
                 const index_query::logical::Node& leaf, const roaring::Roaring* candidates,
                 bool scoring, index_query::IndexSourcePtr source, uint32_t doc_count,
@@ -562,7 +560,7 @@ public:
     InvertedIndexReaderType type() override { return InvertedIndexReaderType::FULLTEXT; }
 };
 
-// A range query keeps its legacy CLucene path; every other query type runs like a MATCH.
+// Range queries use CLucene directly; other query types use the shared MATCH path.
 class StringTypeInvertedIndexReader : public CluceneTextIndexReader {
     ENABLE_FACTORY_CREATOR(StringTypeInvertedIndexReader);
 

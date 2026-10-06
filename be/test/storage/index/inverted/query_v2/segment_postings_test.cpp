@@ -35,6 +35,7 @@
 #include "storage/index/inverted/spi/clucene_postings_cursor.h"
 #include "storage/index/query/fake_index_source.h"
 #include "storage/index/query/phrase/phrase_verifier.h"
+#include "storage/index/query/phrase/position_stream.h"
 #include "storage/index/query/term_pattern.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -557,6 +558,35 @@ TEST_F(SegmentPostingsTest, StreamedPhrasePreservesUnreadClauseErrorsAfterPositi
     }
 }
 
+TEST_F(SegmentPostingsTest, StreamedPhraseMatchesWithAndWithoutFrequencyMetadata) {
+    using Cursor = index_query::testing::FakePostingsCursor;
+    const std::vector<Cursor::Posting> left {
+            {.doc = 1, .positions = {3}},
+            {.doc = 2, .positions = {0, 10}},
+            {.doc = 3, .positions = {4}},
+            {.doc = 4, .positions = {std::numeric_limits<uint32_t>::max()}}};
+    const std::vector<Cursor::Posting> right {{.doc = 1, .positions = {4}},
+                                              {.doc = 2, .positions = {5, 11}},
+                                              {.doc = 3, .positions = {6}},
+                                              {.doc = 4, .positions = {0}}};
+    for (bool frequencies : {false, true}) {
+        SCOPED_TRACE(frequencies);
+        std::vector<std::pair<size_t, SegmentPostingsPtr>> terms;
+        terms.emplace_back(
+                0, make_segment_postings(std::make_unique<Cursor>(left, true, frequencies), false,
+                                         nullptr));
+        terms.emplace_back(
+                1, make_segment_postings(std::make_unique<Cursor>(right, true, frequencies), false,
+                                         nullptr));
+        auto scorer = PhraseScorer<SegmentPostingsPtr>::create(terms, nullptr, {}, 5);
+        std::vector<uint32_t> matched;
+        for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
+            matched.push_back(doc);
+        }
+        EXPECT_EQ(matched, (std::vector<uint32_t> {1, 2}));
+    }
+}
+
 void expect_initial_positions(index_query::PositionCursor& positions) {
     uint32_t position = 0;
     bool available = false;
@@ -630,13 +660,17 @@ void check_open_position_chunk_doc(index_query::PostingsCursor& source, uint32_t
     index_query::PositionCursor* positions = nullptr;
     size_t count = 0;
     ASSERT_TRUE(source.open_position_stream(ordinal, buffer, &count, &positions).ok());
-    ASSERT_NE(positions, nullptr);
     ASSERT_EQ(count, std::min(buffer.size(), expected.size()));
+    if (count < expected.size()) {
+        ASSERT_NE(positions, nullptr);
+    }
     EXPECT_EQ(reads, before + count);
     std::vector<uint32_t> all(buffer.begin(), buffer.begin() + count);
-    ASSERT_TRUE(positions->append_remaining_positions(0, all).ok());
+    if (positions != nullptr) {
+        ASSERT_TRUE(positions->append_remaining_positions(0, all).ok());
+        ASSERT_TRUE(positions->finish_doc().ok());
+    }
     EXPECT_EQ(all, expected);
-    ASSERT_TRUE(positions->finish_doc().ok());
 }
 
 void check_open_position_chunk(index_query::PostingsCursor& source, size_t capacity,
@@ -672,6 +706,60 @@ TEST_F(SegmentPostingsTest, FusedPositionOpenReadsOnlyTheRequestedChunk) {
                                                          true, false);
         check_open_position_chunk(generic, capacity, generic.positions_read);
     }
+}
+
+void check_completed_first_chunk(size_t capacity) {
+    const std::vector<uint32_t> expected = {3, 5, 7};
+    ClucenePostingsCursor source {
+            TermPositionsPtr(new MockTermPositions({1}, {3}, {1}, {expected}, 1))};
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(source.next_block(&block, &eof).ok());
+    ASSERT_FALSE(eof);
+    std::vector<uint32_t> buffer(capacity);
+    size_t count = 0;
+    index_query::PositionCursor* positions = nullptr;
+
+    ASSERT_TRUE(source.open_position_stream(0, buffer, &count, &positions).ok());
+
+    ASSERT_EQ(count, std::min(capacity, expected.size()));
+    EXPECT_EQ(positions == nullptr, count == expected.size());
+    std::vector<uint32_t> all(buffer.begin(), buffer.begin() + count);
+    if (positions != nullptr) {
+        ASSERT_TRUE(positions->append_remaining_positions(0, all).ok());
+        ASSERT_TRUE(positions->finish_doc().ok());
+    }
+    EXPECT_EQ(all, expected);
+}
+
+TEST_F(SegmentPostingsTest, CompletedFirstChunkHasNoResidualCursor) {
+    for (const size_t capacity : {0, 1, 4}) {
+        SCOPED_TRACE(capacity);
+        check_completed_first_chunk(capacity);
+    }
+}
+
+TEST_F(SegmentPostingsTest, PositionStreamExposesCompletedPrefix) {
+    ClucenePostingsCursor source {TermPositionsPtr(new MockTermPositions({1}, {1}, {1}, {{7}}, 1))};
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(source.next_block(&block, &eof).ok());
+    ASSERT_FALSE(eof);
+    index_query::PositionStream stream;
+    ASSERT_TRUE(stream.reset(source, 0).ok());
+    index_query::PhrasePositionSpan positions;
+
+    ASSERT_TRUE(stream.whole(&positions));
+    ASSERT_EQ(positions.second - positions.first, 1);
+    EXPECT_EQ(*positions.first, 7U);
+    ASSERT_TRUE(stream.advance_to(7).ok());
+    EXPECT_TRUE(stream.available());
+    EXPECT_EQ(stream.position(), 7U);
+    ASSERT_TRUE(stream.advance_to(8).ok());
+    EXPECT_FALSE(stream.available());
+    ASSERT_TRUE(stream.whole(&positions));
+    EXPECT_EQ(positions.first, positions.second);
+    ASSERT_TRUE(stream.finish_doc().ok());
 }
 
 TEST_F(SegmentPostingsTest, FusedPositionOpenConvertsReadErrorsAndPreservesRemainingPositions) {

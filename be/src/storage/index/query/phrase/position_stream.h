@@ -35,18 +35,29 @@ public:
         return Status::OK();
     }
 
-    bool whole(PhrasePositionSpan* /*span*/) const { return false; }
-
-    Status advance_to(uint32_t target, uint32_t* position, bool* available) {
-        if (_available && _position < target) {
-            RETURN_IF_ERROR(_positions->next_position_at_least(target, &_position, &_available));
+    bool whole(PhrasePositionSpan* span) const {
+        if (_positions != nullptr) {
+            return false;
         }
-        *position = _position;
-        *available = _available;
+        *span = {&_position, &_position + (_available ? 1 : 0)};
+        return true;
+    }
+
+    bool available() const { return _available; }
+    uint32_t position() const { return _position; }
+
+    Status advance_to(uint32_t target) {
+        if (_available && _position < target) {
+            if (_positions == nullptr) {
+                _available = false;
+            } else {
+                return _positions->next_position_at_least(target, &_position, &_available);
+            }
+        }
         return Status::OK();
     }
 
-    Status finish_doc() { return _positions->finish_doc(); }
+    Status finish_doc() { return _positions == nullptr ? Status::OK() : _positions->finish_doc(); }
 
 private:
     PositionCursor* _positions = nullptr;

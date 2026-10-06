@@ -15,12 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Multi-term OR on SNII through the shared engine: every term's postings read in one shared
-// fetch round, the result equal whether the terms go to a deduplicating sink or a vector, and
-// terms sharing a dictionary block reading it once.
-//
-// All assertions are deterministic (op-counts, capacities, set equality, I/O round
-// counts through MeteredFileReader / MemoryFile). No wall-clock gates.
+// Checks equal OR results for both collectors and batched posting reads.
+// Terms sharing a dictionary block must read it once.
 
 #include <gtest/gtest.h>
 

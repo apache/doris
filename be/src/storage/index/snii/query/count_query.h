@@ -23,12 +23,8 @@
 #include "common/status.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
-// count_query -- G02 single-term count-only fast path primitives. They answer
-// "how many docs match" from a dict entry alone, without reading .frq bytes.
-// Multi-term queries, prefix/regexp/wildcard expansion, and phrases execute the
-// normal query path. Deletes and extra predicates are a caller responsibility;
-// see TextIndexReader::_count_from_df and the SegmentIterator guards in
-// count_on_index_fastpath.h.
+// Answers single-term counts from dictionary frequency without reading postings.
+// TextIndexReader and SegmentIterator check whether deletes and other predicates allow it.
 namespace doris::snii::query {
 
 // df of `term` in this segment without decoding postings. An absent term is a

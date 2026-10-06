@@ -26,10 +26,8 @@
 
 #include "storage/index/inverted/query/query_info.h"
 
-// The logical query IR shared by every index format. A query is lowered to this
-// tree once: values are analyzed, operators and thresholds are resolved, and
-// every leaf is bound to one physical index. Nothing here depends on how that
-// index stores postings.
+// Stores an analyzed query with resolved operators and leaves bound to physical indexes.
+// The logical tree is independent of posting formats.
 namespace doris::index_query::logical {
 
 // One analyzed token: a term (or several alternative terms) at a position.
@@ -58,10 +56,8 @@ struct TermSet {
     uint32_t min_should_match = 0;
 };
 
-// A phrase over analyzed tokens grouped by position. A slot with several terms
-// accepts any of them at that position. The tokens may be `slop` moves apart,
-// kept in order when `ordered`. With `prefix` the last slot matches the terms
-// that start with it, and with `suffix` the first slot the terms that end with it.
+// Groups alternatives by token position, with slop and ordering rules for phrase matches.
+// Prefix and suffix expansion apply to the last and first slots respectively.
 struct Phrase {
     FieldRef field;
     std::vector<Token> slots;

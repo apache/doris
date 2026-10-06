@@ -30,10 +30,8 @@
 #include "storage/index/query/logical/node.h"
 #include "util/string_util.h"
 
-// The SEARCH lowering contract: every clause type maps to one IR shape, values
-// are analyzed exactly once with the bound index's analyzer, and the operator,
-// threshold and normalization rules the two format branches used to apply
-// separately are applied here. MATCH predicates lower to the same shapes.
+// Checks the common logical trees produced by SEARCH and MATCH.
+// Values are analyzed once, with shared operator, threshold and normalization rules.
 namespace doris::index_query::logical {
 namespace {
 

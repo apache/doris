@@ -575,6 +575,30 @@ TEST(SniiPostingsCursor, FirstPositionChunksMatchBothAccessModes) {
     }
 }
 
+TEST(SniiPostingsCursor, CompletedFirstChunkKeepsCursorForFrameValidation) {
+    Fixture fixture;
+    assert_ok(fixture.open_scored());
+    auto cursor = fixture.cursor(fixture.lookup("wide"), /*positions=*/true);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    assert_ok(cursor->next_block(&block, &eof));
+    ASSERT_FALSE(eof);
+    const std::vector<uint32_t> selected = {0};
+    assert_ok(cursor->stream_positions(selected));
+    std::vector<uint32_t> chunk(1);
+    size_t count = 0;
+    index_query::PositionCursor* positions = nullptr;
+
+    assert_ok(cursor->open_position_stream(0, chunk, &count, &positions));
+
+    ASSERT_EQ(count, 1U);
+    EXPECT_EQ(chunk.front(), 0U);
+    ASSERT_NE(positions, nullptr);
+    EXPECT_TRUE(cursor->_streaming);
+    assert_ok(positions->finish_doc());
+    EXPECT_FALSE(cursor->_streaming);
+}
+
 // A term holding one to three positions per document reports a light decode for each.
 TEST(SniiPostingsCursor, PositionsPerDocumentEstimatesTheDecodeWork) {
     Fixture fixture;

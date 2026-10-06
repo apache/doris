@@ -19,18 +19,8 @@
 
 #include <cstdint>
 
-// Deterministic op-count seam for the SNII count-only path: count_fastpath_hits counts the
-// count-only answers produced from a single term's dictionary df with no posting decode
-// (count_query.cpp), so its tests assert the routing directly.
-//
-// The seam is active only under SNII_QUERY_TEST_COUNTERS, which the library-wide BE_TEST define
-// (be/CMakeLists.txt `if (MAKE_TEST)`) of doris_be_test enables, so the library's increments and
-// the test that reads them share the one process-wide singleton below. In a release build the
-// struct and singleton do not exist and SNII_QUERY_COUNT expands to ((void)0).
-//
-// CONCURRENCY: the singleton is intentionally unsynchronized, a single-threaded test-only seam
-// never touched on the production path. Reset it between test cases with
-// `query_test_counters() = {}`.
+// Counts dictionary-only answers in BE tests; release builds omit the counters.
+// The shared counters are unsynchronized, so use them on one thread and reset between tests.
 #if defined(BE_TEST) && !defined(SNII_QUERY_TEST_COUNTERS)
 #define SNII_QUERY_TEST_COUNTERS
 #endif

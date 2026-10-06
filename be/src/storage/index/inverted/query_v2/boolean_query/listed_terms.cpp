@@ -231,10 +231,8 @@ ScorerPtr ListedTerms::scored_conjunction() {
     return std::make_shared<ScoredRowsScorer>(std::move(rows), std::move(scores), _nulls);
 }
 
-// Every term reads its whole posting, with its frequencies and norms, a wave of terms per round;
-// a row's score sums the scores of the terms holding it, in clause order. Once a term and the
-// rows scored before it cover a quarter of the segment, the terms add into a slot per row.
-// Sparse results switch to a map after one wave to bound repeated merging.
+// Accumulates scores in clause order, using dense row slots when postings cover a quarter of the segment.
+// Sparse results switch from sorted merging to a map after one term wave.
 ScorerPtr ListedTerms::scored_disjunction() {
     bool any_present = false;
     std::vector<uint32_t> rows;

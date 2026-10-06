@@ -15,29 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// Candidate pushdown into multi-term phrase queries, measured for both inverted index storage
-// formats. One synthetic log corpus is indexed through the production column writer as CLucene (V2)
-// and as SNII. Every phrase then runs through the production reader with and without
-// IndexQueryContext::candidate_rows, and every restricted result is checked against the full result
-// intersected with the candidates. An untokenized index of the same rows serves exact and prefix
-// lookups.
-//
-// The test is DISABLED_ so CI never runs it; it is still compiled into doris_be_test. Use a RELEASE
-// UT build (BUILD_TYPE_UT=RELEASE in custom_env.sh) for representative numbers:
-//
-//   GTEST_ALSO_RUN_DISABLED_TESTS=1 ./run-be-ut.sh --run \
-//       --filter='*PhraseCandidatePushdownBench*' -j <N>
-//
-// PHRASE_CANDIDATE_BENCH_DOCS sets the segment size (default 200000),
-// PHRASE_CANDIDATE_BENCH_ITERATIONS the samples per measurement (default 10) and
-// PHRASE_CANDIDATE_BENCH_CASES, a comma-separated list of query labels, the queries to run (default
-// all), and PHRASE_CANDIDATE_BENCH_VARIANTS, a comma-separated list such as "random/0.500", the
-// candidate variants to run (default all; a phrase then runs over the whole segment once, for the
-// result check, unless "full" is listed; "scored" runs the phrases marked for it with their rows
-// scored too; a docid query's cached, scored and count samples run only when listed). Times are
-// medians of per-query thread CPU time, which moves far less than wall
-// time on a shared machine. PHRASE_CANDIDATE_BENCH_NULL_EVERY=n writes rows 0, n, 2n, ... of the
-// corpus as NULL (default none), for a prepared corpus with NULL rows.
+// Benchmarks production readers for CLucene (V2) and SNII with result and candidate checks.
+// Usage and environment variables are documented in README.md.
 
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>

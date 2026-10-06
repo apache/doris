@@ -44,11 +44,8 @@ public:
     virtual Status collect(std::vector<uint32_t>* out) = 0;
 };
 
-// Intersects `terms` over all documents, or over `initial_candidates` when given,
-// listing terms in ascending document frequency. Each term reads only what the
-// surviving candidates need, and an empty intermediate result ends the chain
-// before a later term reads anything. `batch` must be empty; it is left empty.
-// `visited` receives the indexes of the listed terms in listing order.
+// Intersects terms in ascending document frequency, reading only rows that survive earlier terms.
+// The batch must start empty and remains empty; visited records the term order.
 Status chained_conjunction(std::span<ChainedPostings* const> terms,
                            const std::vector<uint32_t>* initial_candidates,
                            std::vector<uint32_t>* result, std::vector<size_t>* visited = nullptr);

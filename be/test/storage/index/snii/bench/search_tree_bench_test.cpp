@@ -15,25 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// Whole-query SEARCH over both inverted index storage formats. The benchmark reads the log corpus
-// that PhraseCandidatePushdownBench writes with PHRASE_CANDIDATE_BENCH_PREPARE=1, binds the text
-// column to its V2 (CLucene) or SNII index, and runs each Boolean tree through
-// FunctionSearch::evaluate_inverted_index_with_search_param with every cache off. Every result is
-// checked against the same tree evaluated from single-clause reader queries.
-//
-// The test is DISABLED_ so CI never runs it; it is still compiled into doris_be_test. Use a RELEASE
-// UT build (BUILD_TYPE_UT=RELEASE in custom_env.sh) for representative numbers:
-//
-//   SEARCH_TREE_BENCH_INDEX_ROOT=<prepared root> SEARCH_TREE_BENCH_DOCS=<rows> \
-//   GTEST_ALSO_RUN_DISABLED_TESTS=1 ./run-be-ut.sh --run --filter='*SearchTreeBench*' -j <N>
-//
-// SEARCH_TREE_BENCH_ITERATIONS sets the samples per case (default 10). A sample is the thread CPU
-// time of one whole SEARCH evaluation. SEARCH_TREE_BENCH_CASES keeps only the listed case
-// labels and SEARCH_TREE_BENCH_FORMATS only the listed formats (V2, SNII), comma-separated, so
-// one case of one format can be profiled on its own. The scored cases score their rows with
-// fixed statistics, and a top-k case keeps only the best rows. SEARCH_TREE_BENCH_NULL_EVERY names
-// the corpus's NULL rows as PHRASE_CANDIDATE_BENCH_NULL_EVERY wrote them (default none); a clause
-// is UNKNOWN on those rows, so a negation leaves them out.
+// Benchmarks complete SEARCH evaluations and validates results and scores in both formats.
+// Usage and environment variables are documented in README.md.
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
@@ -312,9 +295,8 @@ struct SearchCase {
     std::function<roaring::Roaring(ClauseOracle&)> expected_nulls = nullptr;
 };
 
-// Expansion clauses. Each pattern matches the same terms whether or not a format anchors it.
-// "12*" matches more terms than max_expansions keeps; the leading patterns scan the whole
-// dictionary.
+// Patterns match the same terms across formats; leading patterns scan the full dictionary.
+// The prefix pattern matches more terms than its expansion limit retains.
 void append_expansion_cases(std::vector<SearchCase>* cases) {
     cases->push_back({.label = "prefix",
                       .root = leaf("PREFIX", "ret*"),

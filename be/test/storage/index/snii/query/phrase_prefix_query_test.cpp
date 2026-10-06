@@ -150,10 +150,8 @@ struct Corpus {
         return out;
     }
 
-    // MATCH_PHRASE_EDGE: the terms sit at consecutive positions, the first ending with terms[0],
-    // the last starting with terms.back() and the others equal to theirs. Each end keeps its
-    // first `max_expansions` terms in dictionary order when that is positive. One term matches
-    // the docs holding a term that contains it, with no limit.
+    // Matches adjacent terms with suffix expansion at the first slot and prefix expansion at the last.
+    // Expansion limits apply per end; a single-term phrase matches substrings without a limit.
     std::vector<uint32_t> phrase_edge_docs(const std::vector<std::string>& terms,
                                            int32_t max_expansions) const {
         std::set<std::string> vocab;

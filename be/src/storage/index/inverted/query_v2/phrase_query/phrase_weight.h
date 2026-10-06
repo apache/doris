@@ -44,12 +44,8 @@ struct PhraseSlot {
     int32_t max_expansions = 0;
 };
 
-// A phrase whose every clause matches one of the terms of its slot. On a source that reads
-// terms one at a time it runs one document at a time over the slots' postings. On a source
-// batching its reads it lists the rows holding a term of every slot as a chain, reads their
-// positions in one round and verifies the phrase row by row on what it read, so an unscored
-// conjunction can hand it the rows its other clauses kept; scored, it scores each verified row
-// on the phrase's frequency there and the source's norm.
+// Executes phrases whose clauses each accept one term from a slot.
+// Forward sources verify one document at a time; batched sources verify candidate rows after grouped reads.
 class SlotPhraseWeight : public Weight {
 public:
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override;
