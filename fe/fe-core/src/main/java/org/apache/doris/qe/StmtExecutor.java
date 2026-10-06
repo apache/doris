@@ -1294,10 +1294,10 @@ public class StmtExecutor {
                 }
                 if (isNeedRetry && planCannotBeRedispatched()) {
                     // A scan node's ranges cannot be read again: the failed attempt's cancel() released
-                    // what they point at (a remote Doris scan's session on the other frontend, whose
-                    // query the ranges are the endpoints of), or reading them consumed it (an ADBC
-                    // partition, a result stream the failed attempt may have drained). Dispatched again,
-                    // the plan would read nothing, or only what the failed attempt left, and succeed.
+                    // what they point at (the split sources of a batch scan), or reading them consumed it
+                    // (an ADBC partition, a result stream the failed attempt may have drained). Dispatched
+                    // again, the plan would fail on a released split source, or read only what the failed
+                    // attempt left and succeed.
                     LOG.warn("not retrying query {} with the same plan: a scan node's ranges cannot be read"
                             + " again by the backend. stmt: {}",
                             DebugUtil.printId(context.queryId()), parsedStmt.getOrigStmt().originStmt);
