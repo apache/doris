@@ -23,6 +23,7 @@
 #include <array>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -221,6 +222,14 @@ public:
                                 {{10}, {20}, {50}, {80}, {110}, {200}, {270}}, 7),
               _block_size(block_size) {}
 
+    using MockTermPositions::seek;
+    void seek(lucene::index::Term* term) override {
+        const uint32_t offset = std::wstring_view(term->text()) == L"right" ? 1 : 0;
+        for (size_t i = 0; i < _deltas.size(); ++i) {
+            _deltas[i] = _docs[i] * 10 + offset;
+        }
+    }
+
     bool readBlock(DocRange* block) override {
         ++reads;
         if (fail_read == reads) {
@@ -320,6 +329,84 @@ TEST_F(SegmentPostingsTest, CandidatePhraseDoesNotDecodeBlocksBeforeItsFirstCand
         EXPECT_FLOAT_EQ(scorer->score(), expected_score);
         EXPECT_EQ(scorer->advance(), TERMINATED);
     }
+}
+
+class ChunkedPositionsReader final : public lucene::index::MultiReader {
+public:
+    explicit ChunkedPositionsReader(
+            const lucene::util::ArrayBase<lucene::index::IndexReader*>* empty)
+            : MultiReader(empty, false) {}
+
+    int32_t maxDoc() const override { return 28; }
+    int32_t docFreq(const lucene::index::Term*) override { return 7; }
+    lucene::index::TermPositions* termPositions(bool, const void*) override {
+        auto* postings = new ChunkedPositions(2 + opened.size());
+        opened.push_back(postings);
+        return postings;
+    }
+
+    std::vector<ChunkedPositions*> opened;
+};
+
+static void check_initial_partition_reads(const std::array<ChunkedPositionsReader*, 2>& leaves) {
+    ASSERT_EQ(leaves[1]->opened.size(), 2);
+    for (const auto* postings : leaves[0]->opened) {
+        EXPECT_EQ(postings->reads, 0U);
+    }
+    for (const auto* postings : leaves[1]->opened) {
+        EXPECT_EQ(postings->reads, 1U);
+    }
+}
+
+TEST_F(SegmentPostingsTest, CandidatePhraseSeeksWithinTheSelectedIndexPartition) {
+    const std::vector<TermInfo> terms {{.term = std::string("left"), .position = 0},
+                                       {.term = std::string("right"), .position = 1}};
+    const auto candidates = roaring::Roaring::bitmapOf(2, 39, 48);
+    for (const bool scoring : {false, true}) {
+        lucene::util::ValueArray<lucene::index::IndexReader*> empty(0);
+        lucene::util::ValueArray<lucene::index::IndexReader*> children(2);
+        std::array<ChunkedPositionsReader*, 2> leaves {};
+        for (size_t i = 0; i < leaves.size(); ++i) {
+            leaves[i] = new ChunkedPositionsReader(&empty);
+            children[i] = leaves[i];
+        }
+        auto reader = std::make_shared<lucene::index::MultiReader>(&children, true);
+        auto source = clucene_index_source(reader, L"content", nullptr);
+        auto similarity = scoring ? std::make_shared<BM25Similarity>(2.0F, 8.0F) : nullptr;
+        PhraseWeight weight(L"content", terms, {.candidates = &candidates}, similarity, scoring,
+                            false);
+        QueryExecutionContext context;
+        context.segment_num_rows = source->doc_count();
+        context.field_sources.emplace(L"content", source);
+        auto scorer = weight.scorer(context, "");
+
+        ASSERT_EQ(scorer->doc(), 39);
+        check_initial_partition_reads(leaves);
+        const float expected_score = scoring ? similarity->score(1.0F, 1) : 1.0F;
+        EXPECT_FLOAT_EQ(scorer->score(), expected_score);
+        ASSERT_EQ(scorer->advance(), 48);
+        EXPECT_FLOAT_EQ(scorer->score(), expected_score);
+        EXPECT_EQ(scorer->advance(), TERMINATED);
+    }
+}
+
+TEST_F(SegmentPostingsTest, PartitionedCursorPropagatesLeafReadFailures) {
+    lucene::util::ValueArray<lucene::index::IndexReader*> empty(0);
+    lucene::util::ValueArray<lucene::index::IndexReader*> children(2);
+    children[0] = new ChunkedPositionsReader(&empty);
+    auto* second = new ChunkedPositionsReader(&empty);
+    children[1] = second;
+    auto reader = std::make_shared<lucene::index::MultiReader>(&children, true);
+    auto source = clucene_index_source(reader, L"content", nullptr);
+    std::unique_ptr<index_query::PostingsCursor> cursor;
+    ASSERT_TRUE(source->open_term("left", true, false, &cursor).ok());
+    ASSERT_EQ(second->opened.size(), 1);
+    second->opened.front()->fail_read = 1;
+    index_query::PostingsBlock block;
+    bool eof = false;
+    const auto status = cursor->seek_block(39, &block, &eof);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_EQ(second->opened.front()->reads, 1);
 }
 
 class DenseTermPositions final : public MockTermPositions {

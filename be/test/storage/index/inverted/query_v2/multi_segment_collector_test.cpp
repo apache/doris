@@ -191,6 +191,72 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithMultiReader) {
     _CLDECDELETE(dir1);
 }
 
+static void check_native_posting_block(const index_query::PostingsBlock& block, uint32_t doc) {
+    ASSERT_EQ(block.size(), 1);
+    EXPECT_EQ(block.doc_at(0), doc);
+    EXPECT_EQ(block.docs.front(), doc);
+    EXPECT_EQ(block.freq_at(0), 1);
+    EXPECT_EQ(block.norm_at(0), 0);
+}
+
+static void check_partition_position(index_query::PostingsCursor& cursor, uint32_t position) {
+    std::vector<uint32_t> positions;
+    ASSERT_TRUE(cursor.append_positions(0, 0, positions).ok());
+    EXPECT_EQ(positions, (std::vector<uint32_t> {position}));
+}
+
+static void check_next_partition(index_query::PostingsCursor& cursor, uint32_t doc,
+                                 uint32_t partition_end) {
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(cursor.next_block(&block, &eof).ok());
+    ASSERT_FALSE(eof);
+    check_native_posting_block(block, doc);
+    const auto bound = cursor.current_block_bound();
+    ASSERT_TRUE(bound.last_doc_known);
+    EXPECT_GE(bound.last_doc, doc);
+    EXPECT_LT(bound.last_doc, partition_end);
+    check_partition_position(cursor, 0);
+}
+
+static void check_exhausted_postings(index_query::PostingsCursor& cursor, uint32_t doc_freq) {
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(cursor.next_block(&block, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(block.size(), 0);
+    EXPECT_EQ(cursor.doc_freq(), doc_freq);
+}
+
+TEST_F(MultiSegmentCollectorTest, NestedReadersPreserveGlobalPostingsAndTermFrequency) {
+    ValueArray<lucene::index::IndexReader*> nested(1);
+    nested[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = _CLNEW lucene::index::MultiReader(&nested, true);
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+    auto source = clucene_index_source(reader, L"title", nullptr);
+    std::unique_ptr<index_query::PostingsCursor> cursor;
+    ASSERT_TRUE(source->open_term("fleabag", true, true, &cursor).ok());
+    ASSERT_NE(cursor, nullptr);
+    EXPECT_EQ(cursor->doc_freq(), 2);
+    check_next_partition(*cursor, 0, 2);
+    check_next_partition(*cursor, 3, 4);
+    check_exhausted_postings(*cursor, 2);
+
+    ASSERT_TRUE(source->open_term("finale", true, false, &cursor).ok());
+    EXPECT_EQ(cursor->doc_freq(), 1);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(cursor->seek_block(2, &block, &eof).ok());
+    ASSERT_FALSE(eof);
+    EXPECT_EQ(block.doc_at(0), 3);
+    check_partition_position(*cursor, 1);
+
+    ASSERT_TRUE(source->open_term("absent", true, false, &cursor).ok());
+    check_exhausted_postings(*cursor, 0);
+}
+
 TEST_F(MultiSegmentCollectorTest, PhraseCandidatesUseTheGlobalDocumentDomain) {
     ValueArray<lucene::index::IndexReader*> readers(2);
     readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());

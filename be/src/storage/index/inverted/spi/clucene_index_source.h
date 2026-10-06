@@ -40,9 +40,7 @@ namespace doris::segment_v2 {
 // A CLucene reader as the engine's source for one field, preserving its global document IDs.
 class CluceneIndexSource final : public index_query::IndexSource {
 public:
-    // `owner` keeps `reader` alive: the reader itself, or the reader whose segment it is.
-    CluceneIndexSource(std::shared_ptr<lucene::index::IndexReader> owner,
-                       lucene::index::IndexReader* reader, std::wstring field,
+    CluceneIndexSource(std::shared_ptr<lucene::index::IndexReader> reader, std::wstring field,
                        const io::IOContext* io_ctx);
 
     uint32_t doc_count() const override;
@@ -53,14 +51,22 @@ public:
     std::span<const float> norm_lengths() const override;
     bool is_live(uint32_t doc) const override;
 
-    lucene::index::IndexReader* reader() const { return _reader; }
+    lucene::index::IndexReader* reader() const { return _reader.get(); }
     const std::wstring& field() const { return _field; }
 
 private:
-    std::shared_ptr<lucene::index::IndexReader> _owner;
-    lucene::index::IndexReader* _reader;
+    struct ReaderPartition {
+        lucene::index::IndexReader* reader;
+        uint32_t begin;
+        uint32_t end;
+    };
+
+    void _append_partitions(lucene::index::IndexReader* reader, uint32_t begin);
+
+    std::shared_ptr<lucene::index::IndexReader> _reader;
     std::wstring _field;
     const io::IOContext* _io_ctx;
+    std::vector<ReaderPartition> _partitions;
 };
 
 // A reader owned elsewhere, as the shared pointer the sources take.

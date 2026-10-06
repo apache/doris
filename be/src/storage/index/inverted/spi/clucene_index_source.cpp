@@ -30,7 +30,9 @@
 #endif
 #include <CLucene.h>
 #include <CLucene/index/IndexReader.h>
+#include <CLucene/index/MultiReader.h>
 #include <CLucene/index/Term.h>
+#include <CLucene/index/_MultiSegmentReader.h>
 #ifdef __clang__
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)
@@ -47,10 +49,161 @@
 
 namespace doris::segment_v2 {
 
-CluceneIndexSource::CluceneIndexSource(std::shared_ptr<lucene::index::IndexReader> owner,
-                                       lucene::index::IndexReader* reader, std::wstring field,
-                                       const io::IOContext* io_ctx)
-        : _owner(std::move(owner)), _reader(reader), _field(std::move(field)), _io_ctx(io_ctx) {}
+namespace {
+
+const lucene::util::ArrayBase<lucene::index::IndexReader*>* sub_readers(
+        lucene::index::IndexReader* reader) {
+    if (auto* multi_segment = dynamic_cast<lucene::index::MultiSegmentReader*>(reader)) {
+        return multi_segment->getSubReaders();
+    }
+    if (auto* multi = dynamic_cast<lucene::index::MultiReader*>(reader)) {
+        return multi->getSubReaders();
+    }
+    return nullptr;
+}
+
+std::unique_ptr<ClucenePostingsCursor> open_postings(lucene::index::IndexReader* reader,
+                                                     lucene::index::Term* term, bool positions,
+                                                     bool scoring, const io::IOContext* io_ctx) {
+    if (positions) {
+        auto iter = make_term_positions_ptr(reader, scoring, io_ctx);
+        if (iter != nullptr) {
+            iter->seek(term);
+            return std::make_unique<ClucenePostingsCursor>(std::move(iter));
+        }
+    } else {
+        auto iter = make_term_doc_ptr(reader, scoring, io_ctx);
+        if (iter != nullptr) {
+            iter->seek(term);
+            return std::make_unique<ClucenePostingsCursor>(std::move(iter));
+        }
+    }
+    return nullptr;
+}
+
+// Maps leaf blocks to global IDs while positions stay on their leaf cursor.
+class PartitionedClucenePostings final : public index_query::PostingsCursor {
+public:
+    void add(std::unique_ptr<ClucenePostingsCursor> cursor, uint32_t begin, uint32_t end) {
+        if (cursor != nullptr && cursor->doc_freq() != 0) {
+            _doc_freq += cursor->doc_freq();
+            _partitions.push_back({std::move(cursor), begin, end});
+        }
+    }
+
+    uint32_t doc_freq() const override { return _doc_freq; }
+
+    Status next_block(index_query::PostingsBlock* block, bool* eof) override {
+        while (_current < _partitions.size()) {
+            auto& part = _partitions[_current];
+            RETURN_IF_ERROR(part.cursor->next_block(block, eof));
+            if (!*eof) {
+                _globalize(block, part.begin);
+                return Status::OK();
+            }
+            ++_current;
+        }
+        *block = {};
+        *eof = true;
+        return Status::OK();
+    }
+
+    Status seek_block(uint32_t target, index_query::PostingsBlock* block, bool* eof) override {
+        bool moved = false;
+        RETURN_IF_ERROR(shallow_seek(target, &moved));
+        return next_block(block, eof);
+    }
+
+    Status shallow_seek(uint32_t target, bool* moved) override {
+        const size_t previous = _current;
+        while (_current < _partitions.size() && target >= _partitions[_current].end) {
+            ++_current;
+        }
+        *moved = _current != previous;
+        if (_current < _partitions.size()) {
+            auto& part = _partitions[_current];
+            bool leaf_moved = false;
+            RETURN_IF_ERROR(part.cursor->shallow_seek(target > part.begin ? target - part.begin : 0,
+                                                      &leaf_moved));
+            *moved = *moved || leaf_moved;
+        }
+        return Status::OK();
+    }
+
+    index_query::BlockBound current_block_bound() const override {
+        if (_current == _partitions.size()) {
+            return {};
+        }
+        const auto& part = _partitions[_current];
+        auto bound = part.cursor->current_block_bound();
+        bound.last_doc = bound.last_doc_known ? bound.last_doc + part.begin : part.end - 1;
+        bound.last_doc_known = true;
+        return bound;
+    }
+
+    Status open_positions(uint32_t ordinal, index_query::PositionCursor** out) override {
+        return _partitions[_current].cursor->open_positions(ordinal, out);
+    }
+
+    Status open_position_stream(uint32_t ordinal, std::span<uint32_t> first_chunk, size_t* count,
+                                index_query::PositionCursor** out) override {
+        return _partitions[_current].cursor->open_position_stream(ordinal, first_chunk, count, out);
+    }
+
+    Status append_positions(uint32_t ordinal, uint32_t offset,
+                            std::vector<uint32_t>& output) override {
+        return _partitions[_current].cursor->append_positions(ordinal, offset, output);
+    }
+
+private:
+    void _globalize(index_query::PostingsBlock* block, uint32_t begin) {
+        if (begin == 0) {
+            return;
+        }
+        _docs.resize(block->docs.size());
+        for (size_t i = 0; i < block->docs.size(); ++i) {
+            _docs[i] = block->docs[i] + begin;
+        }
+        block->docs = _docs;
+        if (block->dense) {
+            block->range_begin += begin;
+            block->range_end += begin;
+        }
+    }
+
+    struct Partition {
+        std::unique_ptr<ClucenePostingsCursor> cursor;
+        uint32_t begin;
+        uint32_t end;
+    };
+
+    std::vector<Partition> _partitions;
+    std::vector<uint32_t> _docs;
+    size_t _current = 0;
+    uint32_t _doc_freq = 0;
+};
+
+} // namespace
+
+CluceneIndexSource::CluceneIndexSource(std::shared_ptr<lucene::index::IndexReader> reader,
+                                       std::wstring field, const io::IOContext* io_ctx)
+        : _reader(std::move(reader)), _field(std::move(field)), _io_ctx(io_ctx) {
+    if (const auto* subs = sub_readers(_reader.get()); subs != nullptr && subs->length != 0) {
+        _append_partitions(_reader.get(), 0);
+    }
+}
+
+void CluceneIndexSource::_append_partitions(lucene::index::IndexReader* reader, uint32_t begin) {
+    if (const auto* subs = sub_readers(reader); subs != nullptr && subs->length != 0) {
+        for (size_t i = 0; i < subs->length; ++i) {
+            auto* child = (*subs)[i];
+            _append_partitions(child, begin);
+            begin += static_cast<uint32_t>(child->maxDoc());
+        }
+    } else {
+        _partitions.push_back({reader, begin, begin + static_cast<uint32_t>(reader->maxDoc())});
+    }
+}
 
 uint32_t CluceneIndexSource::doc_count() const {
     return static_cast<uint32_t>(_reader->maxDoc());
@@ -63,18 +216,15 @@ Status CluceneIndexSource::open_term(std::string_view term, bool positions, bool
             boost::locale::conv::utf_to_utf<wchar_t>(term.data(), term.data() + term.size());
     try {
         auto t = make_term_ptr(_field.c_str(), text.c_str());
-        if (positions) {
-            auto iter = make_term_positions_ptr(_reader, scoring, _io_ctx);
-            if (iter != nullptr) {
-                iter->seek(t.get());
-                *out = std::make_unique<ClucenePostingsCursor>(std::move(iter));
-            }
+        if (_partitions.empty()) {
+            *out = open_postings(_reader.get(), t.get(), positions, scoring, _io_ctx);
         } else {
-            auto iter = make_term_doc_ptr(_reader, scoring, _io_ctx);
-            if (iter != nullptr) {
-                iter->seek(t.get());
-                *out = std::make_unique<ClucenePostingsCursor>(std::move(iter));
+            auto cursor = std::make_unique<PartitionedClucenePostings>();
+            for (const auto& part : _partitions) {
+                cursor->add(open_postings(part.reader, t.get(), positions, scoring, _io_ctx),
+                            part.begin, part.end);
             }
+            *out = std::move(cursor);
         }
     } catch (CLuceneError& e) {
         return clucene_error_status(e.what());
@@ -143,8 +293,7 @@ bool CluceneIndexSource::is_live(uint32_t doc) const {
 std::shared_ptr<CluceneIndexSource> clucene_index_source(
         std::shared_ptr<lucene::index::IndexReader> reader, std::wstring field,
         const io::IOContext* io_ctx) {
-    lucene::index::IndexReader* raw = reader.get();
-    return std::make_shared<CluceneIndexSource>(std::move(reader), raw, std::move(field), io_ctx);
+    return std::make_shared<CluceneIndexSource>(std::move(reader), std::move(field), io_ctx);
 }
 
 } // namespace doris::segment_v2
