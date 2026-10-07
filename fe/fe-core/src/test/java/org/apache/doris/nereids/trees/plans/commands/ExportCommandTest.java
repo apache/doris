@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.filesystem.auth.GcpCredential;
@@ -138,10 +138,10 @@ public class ExportCommandTest extends TestWithFeService {
                 path, ImmutableMap.of(), Optional.of(broker));
         // Inspect the job before registration so the test never starts an export task.
         Method method = ExportCommand.class.getDeclaredMethod("generateExportJob",
-                ConnectContext.class, Map.class, TableName.class);
+                ConnectContext.class, Map.class, TableNameInfo.class);
         method.setAccessible(true);
         return (ExportJob) method.invoke(command, connectContext, ImmutableMap.of(),
-                new TableName("internal", "export_test", "T1"));
+                new TableNameInfo("internal", "export_test", "T1"));
     }
 
     @Test

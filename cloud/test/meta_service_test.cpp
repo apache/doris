@@ -780,6 +780,46 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         ASSERT_TRUE(stored_vault.ParseFromString(val));
     };
 
+    // Clearing an unused AWS role must preserve the active credentials,
+    // including encryption metadata, through the RPC and persistence boundary.
+    for (const auto* vault_id : {"2", "3"}) {
+        StorageVaultPB stored;
+        get_test_vault(vault_id, stored);
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name(stored.name());
+        auto* update = req.mutable_vault()->mutable_obj_info();
+        auto alter_vault = [&]() {
+            brpc::Controller cntl;
+            AlterObjStoreInfoResponse res;
+            meta_service->alter_storage_vault(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                    nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        };
+        if (stored.obj_info().has_ak()) {
+            update->set_ak("ak");
+            update->set_sk("sk");
+            alter_vault();
+            get_test_vault(vault_id, stored);
+            ASSERT_TRUE(stored.obj_info().has_encryption_info());
+        } else {
+            ASSERT_TRUE(stored.obj_info().credential().has_gcp_credential());
+        }
+        stored.mutable_obj_info()->clear_mtime();
+        const auto original = stored.obj_info().SerializeAsString();
+        update->Clear();
+        update->set_role_arn("");
+        // Retrying the same field clear must also preserve the credentials.
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            alter_vault();
+            get_test_vault(vault_id, stored);
+            stored.mutable_obj_info()->clear_mtime();
+            ASSERT_EQ(stored.obj_info().SerializeAsString(), original);
+        }
+    }
+
     // A rejected credential update must not commit a rename that was applied
     // earlier in the request.
     {

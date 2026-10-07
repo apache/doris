@@ -1186,10 +1186,14 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
     }
 
     if (obj_info.has_role_arn() || obj_info.has_cred_provider_type()) {
-        new_vault.mutable_obj_info()->clear_ak();
-        new_vault.mutable_obj_info()->clear_sk();
-        new_vault.mutable_obj_info()->clear_encryption_info();
-        new_vault.mutable_obj_info()->clear_credential();
+        // Only selecting AWS authentication replaces other credentials. Clearing
+        // an unused role must preserve static keys and native GCP credentials.
+        if (!obj_info.role_arn().empty() || obj_info.has_cred_provider_type()) {
+            new_vault.mutable_obj_info()->clear_ak();
+            new_vault.mutable_obj_info()->clear_sk();
+            new_vault.mutable_obj_info()->clear_encryption_info();
+            new_vault.mutable_obj_info()->clear_credential();
+        }
 
         if (obj_info.has_role_arn()) {
             if (obj_info.role_arn().empty()) {
