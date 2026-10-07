@@ -29,7 +29,10 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.catalog.RemoteSpillStatsPoller;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
@@ -74,9 +77,15 @@ public class ShowDataCommandTest {
 
     private MockedStatic<Env> mockedEnv;
     private MockedStatic<ConnectContext> mockedConnectContext;
+    private String savedDeployMode;
+    private String savedCloudUniqueId;
 
     @BeforeEach
     public void setUp() {
+        savedDeployMode = Config.deploy_mode;
+        savedCloudUniqueId = Config.cloud_unique_id;
+        Config.deploy_mode = "";
+        Config.cloud_unique_id = "";
         mockedEnv = Mockito.mockStatic(Env.class);
         mockedConnectContext = Mockito.mockStatic(ConnectContext.class);
 
@@ -92,8 +101,88 @@ public class ShowDataCommandTest {
 
     @AfterEach
     public void tearDown() {
+        Config.deploy_mode = savedDeployMode;
+        Config.cloud_unique_id = savedCloudUniqueId;
         mockedConnectContext.close();
         mockedEnv.close();
+    }
+
+    @Test
+    public void testWarehouseIncludesRemoteSpillInCloudTotal() throws Exception {
+        Config.deploy_mode = "cloud";
+        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        RemoteSpillStatsPoller poller = Mockito.mock(RemoteSpillStatsPoller.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+        mockedEnv.when(Env::getCurrentRecycleBin).thenReturn(new CatalogRecycleBin());
+        Mockito.when(cloudEnv.getRemoteSpillStatsPoller()).thenReturn(poller);
+        Mockito.when(poller.getRemoteSpillBytes()).thenReturn(32L);
+        Mockito.when(catalog.getUsedDataQuota()).thenReturn(Map.of("db1", 10L));
+        Mockito.when(catalog.getDbNullable("db1")).thenReturn(database);
+        Mockito.when(database.getId()).thenReturn(1L);
+        Mockito.when(database.getName()).thenReturn("db1");
+        Mockito.when(database.getTables()).thenReturn(ImmutableList.of());
+
+        ShowDataCommand command = new ShowDataCommand(null, null,
+                Map.of("entire_warehouse", "true"), false);
+        ShowResultSet result = command.doRun(connectContext, null);
+        Assertions.assertEquals(4, result.getMetaData().getColumnCount());
+        Assertions.assertEquals(ImmutableList.of("db1", "10", "0", "0"), result.getResultRows().get(0));
+        Assertions.assertEquals(ImmutableList.of("__remote_spill__", "32", "0", "0"),
+                result.getResultRows().get(1));
+        Assertions.assertEquals(ImmutableList.of("total", "42", "0", "0"), result.getResultRows().get(2));
+    }
+
+    @Test
+    public void testWarehouseRestrictedToDatabasesDoesNotFetchRemoteSpill() throws Exception {
+        Config.deploy_mode = "cloud";
+        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        RemoteSpillStatsPoller poller = Mockito.mock(RemoteSpillStatsPoller.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+        mockedEnv.when(Env::getCurrentRecycleBin).thenReturn(new CatalogRecycleBin());
+        Mockito.when(cloudEnv.getRemoteSpillStatsPoller()).thenReturn(poller);
+        Mockito.when(catalog.getUsedDataQuota()).thenReturn(Map.of("db1", 10L));
+        Mockito.when(catalog.getDbNames()).thenReturn(ImmutableList.of("db1"));
+        Mockito.when(catalog.getDbNullable("db1")).thenReturn(database);
+        Mockito.when(database.getName()).thenReturn("db1");
+        Mockito.when(database.getTables()).thenReturn(ImmutableList.of());
+
+        ShowDataCommand command = new ShowDataCommand(null, null,
+                Map.of("entire_warehouse", "true", "db_names", "db1"), false);
+        ShowResultSet result = command.doRun(connectContext, null);
+        Assertions.assertEquals(ImmutableList.of(
+                ImmutableList.of("db1", "10", "0", "0"),
+                ImmutableList.of("total", "10", "0", "0")), result.getResultRows());
+        Mockito.verifyNoInteractions(poller);
+    }
+
+    @Test
+    public void testWarehouseDoesNotShowZeroWhenRemoteSpillStatsAreMissing() throws Exception {
+        Config.deploy_mode = "cloud";
+        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        RemoteSpillStatsPoller poller = Mockito.mock(RemoteSpillStatsPoller.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+        mockedEnv.when(Env::getCurrentRecycleBin).thenReturn(new CatalogRecycleBin());
+        Mockito.when(cloudEnv.getRemoteSpillStatsPoller()).thenReturn(poller);
+        Mockito.when(poller.getRemoteSpillBytes()).thenThrow(new AnalysisException("spill stats are stale"));
+        Mockito.when(catalog.getUsedDataQuota()).thenReturn(Map.of());
+
+        ShowDataCommand command = new ShowDataCommand(null, null,
+                Map.of("entire_warehouse", "true"), false);
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> command.doRun(connectContext, null));
+        Assertions.assertTrue(error.getMessage().contains("stale"), error.getMessage());
+    }
+
+    @Test
+    public void testWarehouseOmitsRemoteSpillOutsideCloudMode() throws Exception {
+        mockedEnv.when(Env::getCurrentRecycleBin).thenReturn(new CatalogRecycleBin());
+        Mockito.when(catalog.getUsedDataQuota()).thenReturn(Map.of());
+
+        ShowDataCommand command = new ShowDataCommand(null, null,
+                Map.of("entire_warehouse", "true"), false);
+        ShowResultSet result = command.doRun(connectContext, null);
+        Assertions.assertEquals(ImmutableList.of(ImmutableList.of("total", "0", "0", "0")),
+                result.getResultRows());
     }
 
     @Test
