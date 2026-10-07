@@ -564,6 +564,80 @@ TEST(FunctionMatchTest, array_phrase_spans_non_null_elements) {
     check_match(FunctionMatchPhrase {}, "hello hidden world", {0, 0, 0});
 }
 
+TEST(FunctionMatchTest, array_phrase_respects_analyzer_positions) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+
+    segment_v2::inverted_index::Settings tokenizer_settings;
+    tokenizer_settings.set("tokenize_on_chars", "[whitespace]");
+    segment_v2::inverted_index::Settings delimiter_settings;
+    delimiter_settings.set("preserve_original", "true");
+    segment_v2::inverted_index::CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("char_group", tokenizer_settings);
+    builder.add_token_filter_config("word_delimiter", delimiter_settings);
+    auto provider =
+            std::make_shared<segment_v2::inverted_index::CustomAnalyzerProvider>(builder.build());
+    auto ctx = std::make_unique<InvertedIndexAnalyzerCtx>();
+    ctx->analyzer_name = "word_delimiter_with_original";
+    ctx->analyzer_provider = provider;
+    ctx->analyzer = provider->get_analyzer();
+
+    auto string_col = ColumnString::create();
+    string_col->insert_data("foo-bar", 7);
+    string_col->insert_data("baz", 3);
+    ColumnArray::Offsets64 offsets = {2};
+
+    FunctionMatchPhrase match_phrase;
+    int32_t unused_offset = 0;
+    auto data_tokens = match_phrase.analyse_data_token("tags", ctx.get(), string_col.get(), 0,
+                                                       nullptr, unused_offset);
+    ASSERT_EQ(data_tokens.size(), 3);
+    EXPECT_EQ(data_tokens[0].position, data_tokens[1].position);
+    auto query_tokens = match_phrase.analyse_query_str_token(ctx.get(), "foo-bar baz", "tags");
+    ASSERT_EQ(query_tokens.size(), 4);
+
+    ColumnUInt8::Container result(1, 0);
+    ASSERT_TRUE(match_phrase
+                        .execute_match(context.get(), "tags", "foo-bar baz", 1, string_col.get(),
+                                       ctx.get(), &offsets, result)
+                        .ok());
+    EXPECT_EQ(result[0], 0);
+    result[0] = 0;
+    ASSERT_TRUE(match_phrase
+                        .execute_match(context.get(), "tags", "foo bar baz", 1, string_col.get(),
+                                       ctx.get(), &offsets, result)
+                        .ok());
+    EXPECT_EQ(result[0], 1);
+}
+
+TEST(FunctionMatchTest, long_unrelated_phrase_miss) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+    auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
+
+    std::string unrelated;
+    std::string matching;
+    for (int i = 0; i < 1000; ++i) {
+        unrelated += "gamma ";
+        matching += "alpha ";
+    }
+    auto string_col = ColumnString::create();
+    string_col->insert_data(unrelated.data(), unrelated.size());
+    string_col->insert_data(matching.data(), matching.size());
+    string_col->insert_data(unrelated.data(), unrelated.size());
+    ColumnUInt8::Container result(3, 0);
+    FunctionMatchPhrase match_phrase;
+    ASSERT_TRUE(match_phrase
+                        .execute_match(context.get(), "tags", matching, 3, string_col.get(),
+                                       ctx.ctx.get(), nullptr, result)
+                        .ok());
+    EXPECT_EQ(result, (ColumnUInt8::Container {0, 1, 0}));
+}
+
 TEST(FunctionMatchTest, long_repeated_phrase_miss) {
     TQueryOptions query_options;
     query_options.__set_enable_match_without_inverted_index(true);

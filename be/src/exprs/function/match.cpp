@@ -19,6 +19,7 @@
 
 #include <hs/hs.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
@@ -58,6 +59,7 @@ public:
               _last_word((_query_size - 1) / 64),
               _last_bit(uint64_t {1} << ((_query_size - 1) % 64)),
               _state(_last_word + 1, 0),
+              _pending_masks(_last_word + 1, 0),
               _first_term(query_tokens.front().get_single_term()),
               _last_term(query_tokens.back().get_single_term()) {
         for (size_t pos = 0; pos < _query_size; ++pos) {
@@ -76,16 +78,29 @@ public:
         }
     }
 
-    void reset_row() { _has_tokens = false; }
-
-    bool feed(const std::string& term) {
-        if (!_has_tokens) {
-            std::fill(_state.begin(), _state.end(), 0);
-            _has_tokens = true;
+    void reset_row() {
+        for (size_t word : _pending_touched) {
+            _pending_masks[word] = 0;
         }
+        _pending_touched.clear();
+        _pending_position = -1;
+        _previous_position = -1;
+        _active_word_count = 0;
+    }
+
+    bool feed(const std::string& term, int64_t position) {
+        if (_pending_position >= 0 && position != _pending_position) {
+            if (advance()) {
+                return true;
+            }
+        }
+        _pending_position = position;
         const auto mask_it = _exact_masks.find(term);
-        const auto* mask_words = mask_it == _exact_masks.end() ? nullptr : &mask_it->second;
-        size_t mask_index = 0;
+        if (mask_it != _exact_masks.end()) {
+            for (const auto& [word, mask] : mask_it->second) {
+                add_pending_mask(word, mask);
+            }
+        }
         const bool first_matches = _mode == PhraseMode::EDGE &&
                                    (_query_size == 1 ? term.find(_first_term) != std::string::npos
                                                      : term.ends_with(_first_term));
@@ -93,36 +108,69 @@ public:
                 (_mode == PhraseMode::PREFIX || (_mode == PhraseMode::EDGE && _query_size > 1)) &&
                 term.starts_with(_last_term);
 
-        uint64_t carry = 1;
-        for (size_t word = 0; word < _state.size(); ++word) {
-            uint64_t mask = 0;
-            if (mask_words && mask_index < mask_words->size() &&
-                (*mask_words)[mask_index].first == word) {
-                mask = (*mask_words)[mask_index++].second;
-            }
-            if (word == 0 && first_matches) {
-                mask |= 1;
-            }
-            if (word == _last_word && last_matches) {
-                mask |= _last_bit;
-            }
-            const uint64_t next_carry = _state[word] >> 63;
-            _state[word] = ((_state[word] << 1) | carry) & mask;
-            carry = next_carry;
+        if (first_matches) {
+            add_pending_mask(0, 1);
         }
-        return (_state[_last_word] & _last_bit) != 0;
+        if (last_matches) {
+            add_pending_mask(_last_word, _last_bit);
+        }
+        return false;
     }
 
+    bool finish() { return _pending_position >= 0 && advance(); }
+
 private:
+    void add_pending_mask(size_t word, uint64_t mask) {
+        if (_pending_masks[word] == 0) {
+            _pending_touched.push_back(word);
+        }
+        _pending_masks[word] |= mask;
+    }
+
+    bool advance() {
+        const int64_t position = _pending_position;
+        _pending_position = -1;
+        if (_previous_position >= 0 && position != _previous_position + 1) {
+            _active_word_count = 0;
+        }
+        _previous_position = position;
+
+        size_t next_active_word_count = 0;
+        uint64_t carry = 1;
+        const size_t active_word_count = _active_word_count;
+        if (!_pending_touched.empty()) {
+            const size_t limit = std::min(_state.size(), active_word_count + 1);
+            for (size_t word = 0; word < limit; ++word) {
+                const uint64_t previous = word < active_word_count ? _state[word] : 0;
+                const uint64_t next = ((previous << 1) | carry) & _pending_masks[word];
+                _state[word] = next;
+                if (next != 0) {
+                    next_active_word_count = word + 1;
+                }
+                carry = previous >> 63;
+            }
+        }
+        for (size_t word : _pending_touched) {
+            _pending_masks[word] = 0;
+        }
+        _pending_touched.clear();
+        _active_word_count = next_active_word_count;
+        return _active_word_count > _last_word && (_state[_last_word] & _last_bit) != 0;
+    }
+
     PhraseMode _mode;
     size_t _query_size;
     size_t _last_word;
     uint64_t _last_bit;
     std::vector<uint64_t> _state;
+    std::vector<uint64_t> _pending_masks;
+    std::vector<size_t> _pending_touched;
     std::string _first_term;
     std::string _last_term;
     std::unordered_map<std::string, std::vector<std::pair<size_t, uint64_t>>> _exact_masks;
-    bool _has_tokens = false;
+    int64_t _pending_position = -1;
+    int64_t _previous_position = -1;
+    size_t _active_word_count = 0;
 };
 
 template <typename Callback>
@@ -158,16 +206,24 @@ bool match_phrase_data_tokens(const FunctionMatchBase& function, const std::stri
                               const ColumnUInt8::Container* array_element_null_map,
                               StreamingPhraseMatcher& matcher) {
     matcher.reset_row();
-    return for_each_data_element_tokens(function, column_name, analyzer_ctx, string_col, row,
-                                        array_offsets, array_element_null_map,
-                                        [&](const std::vector<segment_v2::TermInfo>& tokens) {
-                                            for (const auto& token : tokens) {
-                                                if (matcher.feed(token.get_single_term())) {
-                                                    return true;
-                                                }
-                                            }
-                                            return false;
-                                        });
+    int64_t position_base = 0;
+    const bool matched = for_each_data_element_tokens(
+            function, column_name, analyzer_ctx, string_col, row, array_offsets,
+            array_element_null_map, [&](const std::vector<segment_v2::TermInfo>& tokens) {
+                const int32_t first_position = tokens.front().position;
+                int32_t last_position = first_position;
+                for (const auto& token : tokens) {
+                    const int64_t position = position_base + static_cast<int64_t>(token.position) -
+                                             first_position + 1;
+                    if (matcher.feed(token.get_single_term(), position)) {
+                        return true;
+                    }
+                    last_position = token.position;
+                }
+                position_base += static_cast<int64_t>(last_position) - first_position + 1;
+                return false;
+            });
+    return matched || matcher.finish();
 }
 
 } // namespace
