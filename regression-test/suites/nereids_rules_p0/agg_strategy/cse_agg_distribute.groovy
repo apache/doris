@@ -49,7 +49,9 @@ suite("cse_agg_distribute") {
     // so the distribute is required by the join): the CSE project must be
     // inserted below the distribute, keeping the distribution-key slots
     // intact. Both aggregates must reference the extracted slot (4
-    // occurrences: SUM/MAX of each side).
+    // occurrences: SUM/MAX of each side). The distribute already sits on a
+    // project (grp, a, b), so the CSE expression is merged into it: each scan
+    // computes a+b in its own projection and no VSELECT is stacked on top.
     // ---------------------------------------------------------------------
     sql "set agg_phase=1"
     sql "set enable_bucketed_hash_agg=false"
@@ -62,8 +64,37 @@ suite("cse_agg_distribute") {
     explain {
         sql("${joinQuery}")
         contains("VEXCHANGE")
-        contains("VSELECT")
+        notContains("VSELECT")
         multiContains("cast(a as BIGINT) + cast(b as BIGINT))[#", 4)
+        // the two scans' projections are the only places that evaluate a+b
+        multiContains("(CAST(a[#", 2)
     }
     order_qt_one_phase_join_result """${joinQuery} ORDER BY t1.grp"""
+
+    // ---------------------------------------------------------------------
+    // one-phase aggregate over a distribute over a projected consumer of a
+    // materialized CTE (referenced twice, so it is not inlined):
+    //   Agg -> Distribute(g) -> Project(concat(grp, ..) AS g, a, b) -> CTEConsumer
+    // A multicast sink takes a single projection, so the CSE expression must
+    // be merged into the consumer's project instead of being stacked on it
+    // (which failed the translation with "generate invalid plan").
+    // ---------------------------------------------------------------------
+    String cteQuery = """
+        WITH c AS (SELECT grp, a, b FROM cse_agg_distribute_tbl WHERE id > 0)
+        SELECT g, SUM(a+b) s, MAX(a+b) m FROM (SELECT concat(grp, '_x') g, a, b FROM c) x GROUP BY g
+        UNION ALL
+        SELECT g, SUM(a+b) s, MAX(a+b) m FROM (SELECT concat(grp, '_y') g, a, b FROM c) y GROUP BY g
+    """
+    explain {
+        sql("${cteQuery}")
+        contains("MultiCastDataSinks")
+        multiContains("cast(a as BIGINT) + cast(b as BIGINT))[#", 4)
+        // the two consumer sinks' projections are the only places that evaluate a+b
+        multiContains("(CAST(a[#", 2)
+    }
+    order_qt_one_phase_cte_result """${cteQuery}"""
+    // same results as without the aggregate-argument CSE
+    sql "set enable_aggregate_cse=false"
+    order_qt_one_phase_cte_result_no_cse """${cteQuery}"""
+    sql "set enable_aggregate_cse=true"
 }
