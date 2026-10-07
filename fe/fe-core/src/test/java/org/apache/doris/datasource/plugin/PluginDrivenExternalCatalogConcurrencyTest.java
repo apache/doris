@@ -101,6 +101,36 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
     }
 
     @Test
+    public void testCreateRejectsIncompleteHiveHaConfiguration() {
+        Map<String, String> properties = hiveCatalogProperties();
+        properties.put("dfs.nameservices", "ns1");
+        PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                1L, "test-catalog", null, properties, "", null);
+
+        DdlException exception = Assertions.assertThrows(DdlException.class, catalog::checkProperties);
+        Assertions.assertTrue(exception.getMessage().contains("dfs.ha.namenodes.ns1"), exception.getMessage());
+    }
+
+    @Test
+    public void testAlterRejectsIncompleteHiveHaConfiguration() {
+        Map<String, String> properties = hiveCatalogProperties();
+        PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                1L, "test-catalog", null, properties, "", null);
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(properties,
+                        Collections.singletonMap("dfs.nameservices", "ns1")));
+        Assertions.assertTrue(exception.getMessage().contains("dfs.ha.namenodes.ns1"), exception.getMessage());
+    }
+
+    private static Map<String, String> hiveCatalogProperties() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "hms");
+        properties.put("hive.metastore.uris", "thrift://localhost:9083");
+        return properties;
+    }
+
+    @Test
     public void testPropertyUpdateInvalidatesCatalogCaches() throws Exception {
         TestablePluginCatalog catalog = new TestablePluginCatalog(
                 mockConnector("old", new ConcurrentLinkedQueue<>()));

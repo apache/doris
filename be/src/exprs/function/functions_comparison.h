@@ -943,6 +943,8 @@ public:
             return execute_num_type<TYPE_IPV4>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_IPV6:
             return execute_num_type<TYPE_IPV6>(block, result, col_left_ptr, col_right_ptr);
+        case TYPE_UUID:
+            return execute_num_type<TYPE_UUID>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_FLOAT:
             return execute_num_type<TYPE_FLOAT>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DOUBLE:

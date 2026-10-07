@@ -99,6 +99,11 @@ class ResumeReviewTest(unittest.TestCase):
             mock.patch.object(runner, "check_resume_target")
         )
         self.help = self.enterContext(mock.patch.object(runner.subprocess, "run"))
+        self.verification = self.enterContext(mock.patch.object(
+            runner, "verify_completion", return_value={
+                "state": "success", "p0": 0, "p1": 0, "review_id": 123,
+            }
+        ))
 
     def write_rollout(self, *, thread_id=THREAD, cwd=None):
         (self.sessions / f"rollout-2026-09-07-{thread_id}.jsonl").write_text(
@@ -154,6 +159,30 @@ class ResumeReviewTest(unittest.TestCase):
         self.help.assert_not_called()
         self.target_check.assert_not_called()
         self.assertEqual([], self.sleeps)
+
+    def test_completed_turn_without_verified_delivery_fails(self):
+        self.verification.side_effect = ValueError("No final review submission was declared")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), completed()], "status": 0}]))
+        self.assertIn("No final review submission", self.last_error())
+        self.assertFalse((self.context / "review-result.json").exists())
+
+    def test_partial_submission_at_capacity_does_not_resume_or_pass(self):
+        (self.context / "review-submission.json").write_text("{}")
+        self.verification.side_effect = ValueError("Final review inline comments were not completely verified")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}]))
+        self.assertEqual([], self.sleeps)
+        self.target_check.assert_not_called()
+        self.assertFalse((self.context / "review-result.json").exists())
+
+    def test_only_capacity_can_recover_after_submission(self):
+        (self.context / "review-submission.json").write_text("{}")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed("Other failure")]}]))
+        self.verification.assert_not_called()
+
+    def test_cancellation_after_submission_is_still_failure(self):
+        (self.context / "review-submission.json").write_text("{}")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()], "status": 143}]))
+        self.verification.assert_not_called()
 
     def test_unsupported_model_falls_back_before_review_work(self):
         self.args.model = "gpt-6-sol"
@@ -259,7 +288,7 @@ class ResumeReviewTest(unittest.TestCase):
                 ]
             ),
         )
-        self.assertEqual([30], self.sleeps)
+        self.assertEqual([300], self.sleeps)
         self.assertEqual(
             ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-sol"],
             [command[command.index("--model") + 1] for command in self.commands],
@@ -286,7 +315,7 @@ class ResumeReviewTest(unittest.TestCase):
             ),
         )
         self.assertEqual(2, len(self.commands))
-        self.assertEqual([30], self.sleeps)
+        self.assertEqual([300], self.sleeps)
         self.assertEqual(rejection, self.last_error())
 
     def test_capacity_resumes_exact_session_with_same_settings_and_ledger(self):
@@ -308,8 +337,8 @@ class ResumeReviewTest(unittest.TestCase):
                 ]
             ),
         )
-        self.assertEqual([30], self.sleeps)
-        self.assertEqual([1000, 965], self.timeouts)
+        self.assertEqual([300], self.sleeps)
+        self.assertEqual([1000, 695], self.timeouts)
         command = self.commands[1]
         self.assertEqual(["resume", THREAD], command[-3:-1])
         self.assertNotIn("--last", command)
@@ -323,28 +352,34 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual("done", (self.context / "codex-final-message.txt").read_text())
         self.target_check.assert_called_once()
 
-    def test_zero_exit_capacity_on_resume_still_retries(self):
+    def test_zero_exit_capacity_can_complete_on_the_sixth_resume(self):
+        self.args.budget_seconds = 3600
         self.assertEqual(
             0,
             self.execute(
-                [
-                    {"events": [thread_event(), failed()]},
-                    {"events": [thread_event(), failed()], "status": 0},
-                    {"events": [thread_event(), completed()], "status": 0},
-                ]
+                [{"events": [thread_event(), failed()]}]
+                + [{"events": [thread_event(), failed()], "status": 0}] * 5
+                + [{"events": [thread_event(), completed()], "status": 0}]
             ),
         )
-        self.assertEqual(3, len(self.commands))
-        self.assertEqual([30, 60], self.sleeps)
-        self.assertEqual(2, self.target_check.call_count)
+        self.assertEqual(7, len(self.commands))
+        self.assertEqual([300] * 6, self.sleeps)
+        self.assertEqual([3600, 3300, 3000, 2700, 2400, 2100, 1800], self.timeouts)
+        self.assertEqual(6, self.target_check.call_count)
+        for command in self.commands[1:]:
+            self.assertEqual(["resume", THREAD], command[-3:-1])
+        retries = [e for e in self.events() if e["type"] == "review.capacity_retry"]
+        self.assertEqual([2, 3, 4, 5, 6, 7], [e["next_attempt"] for e in retries])
+        self.assertEqual([300] * 6, [e["delay_seconds"] for e in retries])
         self.assertEqual("completed", exporter.latest_turn_result(self.events())[0])
 
     def test_zero_exit_capacity_stops_at_the_retry_limit(self):
+        self.args.budget_seconds = 3600
         self.assertEqual(
-            1, self.execute([{"events": [thread_event(), failed()], "status": 0}] * 4)
+            1, self.execute([{"events": [thread_event(), failed()], "status": 0}] * 7)
         )
-        self.assertEqual([30, 60, 120], self.sleeps)
-        self.assertEqual(4, len(self.commands))
+        self.assertEqual([300] * 6, self.sleeps)
+        self.assertEqual(7, len(self.commands))
         self.assertEqual(runner.CAPACITY_MESSAGE, self.last_error())
 
     def test_zero_exit_error_event_can_identify_capacity(self):
@@ -363,7 +398,7 @@ class ResumeReviewTest(unittest.TestCase):
                 ]
             ),
         )
-        self.assertEqual([30], self.sleeps)
+        self.assertEqual([300], self.sleeps)
 
     def test_zero_exit_auth_usage_and_generic_failures_do_not_retry(self):
         for message in (
@@ -403,7 +438,7 @@ class ResumeReviewTest(unittest.TestCase):
             ),
         )
         self.assertEqual(2, len(self.commands))
-        self.assertEqual([30], self.sleeps)
+        self.assertEqual([300], self.sleeps)
         self.assertIn("without a terminal turn event", self.last_error())
         self.assertNotEqual(runner.CAPACITY_MESSAGE, self.last_error())
 
@@ -467,9 +502,10 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual([], self.sleeps)
 
     def test_retry_count_is_bounded(self):
-        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 4))
-        self.assertEqual([30, 60, 120], self.sleeps)
-        self.assertEqual(4, len(self.commands))
+        self.args.budget_seconds = 3600
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 7))
+        self.assertEqual([300] * 6, self.sleeps)
+        self.assertEqual(7, len(self.commands))
         self.assertEqual(runner.CAPACITY_MESSAGE, self.last_error())
 
     def test_no_retry_for_auth_usage_or_generic_errors_even_before_session_starts(self):
@@ -555,7 +591,7 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual([], self.sleeps)
 
     def test_budget_is_not_reset_between_attempts(self):
-        self.args.budget_seconds = 100
+        self.args.budget_seconds = 400
         self.assertEqual(
             1,
             self.execute(
@@ -565,8 +601,8 @@ class ResumeReviewTest(unittest.TestCase):
                 ]
             ),
         )
-        self.assertEqual([100, 60], self.timeouts)
-        self.assertEqual([30], self.sleeps)
+        self.assertEqual([400, 90], self.timeouts)
+        self.assertEqual([300], self.sleeps)
         self.assertIn("Insufficient shared review budget", self.last_error())
 
     def test_normal_review_can_run_past_the_old_89_minute_limit(self):
@@ -761,9 +797,9 @@ HELPER
 }
 """
         for minutes, setup, expected in (
-            (default_minutes, 12, 7068),
-            ("150", 30, 8850),
-            ("120", 7201, -121),
+            (default_minutes, 12, 7056),
+            ("150", 30, 8820),
+            ("120", 7201, -7322),
         ):
             with (
                 self.subTest(minutes=minutes, setup=setup),
@@ -1090,6 +1126,9 @@ else:
                 ),
                 mock.patch.object(runner, "RETRY_DELAYS", (0, 0, 0)),
                 mock.patch.object(runner, "check_resume_target"),
+                mock.patch.object(runner, "verify_completion", return_value={
+                    "state": "success", "p0": 0, "p1": 0, "review_id": 123,
+                }),
             ):
                 self.assertEqual(0, runner.run_review(args))
             self.assertEqual("2", (root / "request-count").read_text())

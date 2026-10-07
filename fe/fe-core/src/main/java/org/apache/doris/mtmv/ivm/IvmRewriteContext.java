@@ -36,8 +36,10 @@ import java.util.Set;
  * create when an IVM materialized view is created, normalize when an IVM materialized view is analyzed,
  * incremental when an incremental refresh plan is generated, and full when a complete refresh plan uses IVM
  * stream scans.
- * It contains rewrite configuration only; per-statement rewrite artifacts are stored in
- * {@link IvmRewriteResult}.
+ * It contains rewrite configuration, and one thing the rewrite feeds back: whether a snapshot read of a
+ * table the MV does not partition by answered with the image at the stream offset rather than with the
+ * table as it is now. A refresh owns one context per statement it runs, so that is where the answer
+ * reaches it. Per-statement rewrite artifacts proper are stored in {@link IvmRewriteResult}.
  */
 public class IvmRewriteContext {
     public enum Mode {
@@ -84,6 +86,11 @@ public class IvmRewriteContext {
     // Set by MTMVPlanUtil before normalization: true means the MV unique keys include identity key columns.
     // Null when the rewrite context is created outside the analyzeQuery flow.
     private Boolean useFullKeys;
+
+    // Whether a read of this statement answered with a base table as of the stream offset, which a snapshot
+    // read does for the partitions that hold data the offset has not consumed. Set by the rewrite that binds
+    // such a read; read by the refresh that ran it. See MTMVTask#executePartitionBasedRefresh.
+    private boolean readFromAStreamOffset;
 
     private IvmRewriteContext(Mode mode, MTMV mtmv, String createMtmvName, boolean includeExhaustedStreams,
             ExecutionKind executionKind, Optional<IvmDryRunLimit> dryRunLimit,
@@ -207,6 +214,14 @@ public class IvmRewriteContext {
     // Present only for DRY_RUN (incremental refresh); empty otherwise.
     public Optional<IvmDryRunLimit> getDryRunLimit() {
         return dryRunLimit;
+    }
+
+    public void markReadFromAStreamOffset() {
+        this.readFromAStreamOffset = true;
+    }
+
+    public boolean isReadFromAStreamOffset() {
+        return readFromAStreamOffset;
     }
 
     public boolean hasFullRefreshStreamScans() {

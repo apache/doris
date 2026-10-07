@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <orc/OrcFile.hh>
 #include <string>
 #include <vector>
@@ -28,6 +29,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
+#include "format/table/iceberg/nan_value_counter.h"
 #include "format/table/iceberg/schema.h"
 #include "format/transformer/vparquet_writer.h"
 #include "orc/Type.hh"
@@ -85,7 +87,8 @@ public:
                     std::vector<std::string> column_names, bool output_object_data,
                     TFileCompressType::type compression,
                     const iceberg::Schema* iceberg_schema = nullptr,
-                    std::shared_ptr<io::FileSystem> fs = nullptr);
+                    std::shared_ptr<io::FileSystem> fs = nullptr,
+                    const std::vector<int32_t>& nan_count_field_ids = {});
 
     ~VOrcTransformer() = default;
 
@@ -126,6 +129,10 @@ private:
 
     const iceberg::Schema* _iceberg_schema;
     std::vector<uint8_t> _iceberg_binary_normalization_required;
+    // ORC column statistics carry no NaN count either, so it is accumulated while the rows go past --
+    // see iceberg::NanValueCounter. Only populated for an iceberg write.
+    const std::vector<int32_t> _nan_count_field_ids;
+    std::optional<iceberg::NanValueCounter> _nan_value_counter;
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer

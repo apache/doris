@@ -1042,7 +1042,11 @@ Status Compaction::do_inverted_index_compaction() {
 
         auto* rowset = find_it->second;
         auto seg_pos = rowset->rowset_meta()->position_of(seg_id);
-        auto seg = rowset->segment(seg_pos);
+        if (!seg_pos.has_value()) {
+            mark_skip_index_compaction(ctx, error_handler);
+            return seg_pos.error();
+        }
+        auto seg = rowset->segment(seg_pos.value());
         auto fs = rowset->rowset_meta()->fs();
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_get_fs_error", { fs = nullptr; })
         if (!fs) {
@@ -1119,7 +1123,8 @@ Status Compaction::do_inverted_index_compaction() {
         snii_merge_memory_reporter = std::make_shared<snii::writer::MemoryReporter>(
                 snii::writer::snii_build_consume_release(
                         snii::writer::BuildMemoryPopulation::kUnregistered),
-                spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit);
+                spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit,
+                static_cast<uint64_t>(config::snii_postings_workspace_bytes));
     }
     for (auto&& [column_uniq_id, index_metas] :
          collect_index_compaction_domain(*_cur_tablet_schema, ctx)) {

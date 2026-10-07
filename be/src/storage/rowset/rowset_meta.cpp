@@ -349,16 +349,23 @@ void RowsetMeta::set_segment_ids(const std::vector<int64_t>& segment_ids) {
     _validate_segment_ids();
 }
 
-size_t RowsetMeta::position_of(int64_t seg_id) const {
+Result<size_t> RowsetMeta::position_of(int64_t seg_id) const {
     DORIS_CHECK_GE(seg_id, 0);
     if (!has_segment_ids()) {
-        DORIS_CHECK_LT(seg_id, num_segments());
+        if (seg_id >= num_segments()) {
+            return ResultError(Status::Error<ErrorCode::NOT_FOUND>(
+                    "segment {} not found in rowset {}, tablet {}", seg_id, rowset_id().to_string(),
+                    tablet_id()));
+        }
         return cast_set<size_t>(seg_id);
     }
     const auto& segment_ids = _rowset_meta_pb.segment_ids();
     auto it = std::lower_bound(segment_ids.begin(), segment_ids.end(), seg_id);
-    DORIS_CHECK(it != segment_ids.end());
-    DORIS_CHECK_EQ(*it, seg_id);
+    if (it == segment_ids.end() || *it != seg_id) {
+        return ResultError(
+                Status::Error<ErrorCode::NOT_FOUND>("segment {} not found in rowset {}, tablet {}",
+                                                    seg_id, rowset_id().to_string(), tablet_id()));
+    }
     return cast_set<size_t>(std::distance(segment_ids.begin(), it));
 }
 

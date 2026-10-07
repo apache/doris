@@ -62,7 +62,24 @@ Status FunctionMatchBase::evaluate_inverted_index(
     }
     const std::string& function_name = get_name();
 
-    // support_phrase is checked once the analyzer has selected the reader that runs the query.
+    if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
+        function_name == MATCH_PHRASE_EDGE_FUNCTION) {
+        // Judge phrase support on the index the query will run on: read_from_index selects it
+        // from the same column type, query type and analyzer key. The first FULLTEXT reader need
+        // not be that index -- a docs-only one (a gram index is docs-only by default) can be
+        // declared ahead of the positional index USING ANALYZER names.
+        if (auto* inverted_iter = dynamic_cast<segment_v2::InvertedIndexIterator*>(iter)) {
+            auto reader = inverted_iter->select_best_reader(
+                    data_type_with_name.second, get_query_type_from_fn_name(),
+                    analyzer_ctx != nullptr ? analyzer_ctx->analyzer_key : std::string());
+            if (reader.has_value() &&
+                segment_v2::IndexReaderHelper::is_fulltext_index(reader.value()) &&
+                !segment_v2::IndexReaderHelper::is_support_phrase(reader.value())) {
+                return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
+                        "phrase queries require setting support_phrase = true");
+            }
+        }
+    }
     Field param_value;
     arguments[0].column->get(0, param_value);
     if (param_value.is_null()) {

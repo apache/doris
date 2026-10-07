@@ -302,12 +302,13 @@ TEST(SniiSpimiSpillWriter, ArenaByteCapTriggersSpill) {
 
     SpimiTermBuffer capped(/*has_positions=*/true, /*spill=*/4096);
     Feed(&capped, kDocs);
+    // A spill ran before finalization cleaned up the ingestion spool.
+    EXPECT_GE(capped.run_count_for_test(), 1U);
     SniiIndexInput capped_in = BaseInput(kDocs);
     capped_in.term_source = &capped;
     const std::vector<uint8_t> capped_bytes = WriteContainer(capped_in);
     EXPECT_TRUE(capped.status().ok());
-    // A spill ran: real resident (>= one 32 KiB block) crossed the 4 KiB cap.
-    EXPECT_GE(capped.run_count_for_test(), 1U);
+    EXPECT_EQ(capped.spill_file_count_for_test(), 0U);
 
     SpimiTermBuffer unlimited(/*has_positions=*/true, /*spill=*/0);
     Feed(&unlimited, kDocs);
