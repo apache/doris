@@ -38,6 +38,8 @@
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
+#include "testutil/mock/mock_fn_call.h"
+#include "testutil/mock/mock_literal_expr.h"
 
 namespace doris {
 namespace {
@@ -697,6 +699,32 @@ TEST(AggFnEvaluatorTest, group_array_intersect_check_result_physical_column_type
     EXPECT_THROW(agg_fn->insert_result_info(place, result_column.get()), Exception);
 
     agg_fn->destroy(place);
+}
+
+TEST(AggFnEvaluatorTest, test_is_simple_count) {
+    ObjectPool pool;
+    auto* count_fn = create_agg_fn(pool, "count", {std::make_shared<DataTypeInt64>()},
+                                   std::make_shared<DataTypeInt64>(), false);
+    // COUNT(slot) can use the inline count path.
+    EXPECT_TRUE(count_fn->is_simple_count());
+
+    // COUNT(*) has no argument at all.
+    count_fn->_input_exprs_ctxs.clear();
+    EXPECT_TRUE(count_fn->is_simple_count());
+
+    // COUNT(literal) has nothing to evaluate either.
+    count_fn->_input_exprs_ctxs = {MockLiteral::create<DataTypeInt64>(1)};
+    EXPECT_TRUE(count_fn->is_simple_count());
+
+    // COUNT(fn(...)) must evaluate its argument, e.g. assert_true() may raise an error.
+    auto fn_call = MockFnCall::create("assert_true");
+    fn_call->_node_type = TExprNodeType::FUNCTION_CALL;
+    count_fn->_input_exprs_ctxs = {VExprContext::create_shared(fn_call)};
+    EXPECT_FALSE(count_fn->is_simple_count());
+
+    // Other aggregate functions never use the inline count path.
+    auto* sum_fn = create_mock_agg_fn_evaluator(pool);
+    EXPECT_FALSE(sum_fn->is_simple_count());
 }
 
 } // namespace doris
