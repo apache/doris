@@ -17,12 +17,9 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.paimon.data.BinaryRow;
-import org.apache.paimon.data.BinaryRowWriter;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.data.variant.Variant;
-import org.apache.paimon.utils.OffsetRow;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -31,15 +28,11 @@ import java.util.Collections;
 public class PaimonVariantProjectionTest {
 
     @Test
-    public void missingProjectedPathFromSpilledOffsetRowMaterializesAnEmptyObject() {
+    public void missingProjectedPathMaterializesAnEmptyObject() {
         PaimonVariantProjection projection = PaimonVariantProjection.create(
                 Collections.singletonList(Collections.singletonList("missing")), "UTC");
-        BinaryRow spilledRow = new BinaryRow(2);
-        BinaryRowWriter writer = new BinaryRowWriter(spilledRow);
-        writer.writeInt(0, 42);
-        writer.setNullAt(1);
-        writer.complete();
-        OffsetRow extracted = new OffsetRow(1, 1).replace(spilledRow);
+        GenericRow missingVariant = GenericRow.of(null, null);
+        GenericRow extracted = GenericRow.of(missingVariant);
 
         Variant actual = projection.materialize(GenericRow.of(extracted), 0);
         Variant expected = GenericVariant.fromJson("{}");

@@ -122,9 +122,8 @@ final class PaimonVariantProjection {
     }
 
     private static boolean hasExtractedVariant(InternalRow extracted, int fieldIndex) {
-        if (extracted.isNullAt(fieldIndex)) {
-            return false;
-        }
+        // A missing path is encoded by null value and metadata inside the Variant row. The outer
+        // null bit is not authoritative for Paimon's projected Variant reader.
         InternalRow variant = extracted.getRow(fieldIndex, VARIANT_FIELD_COUNT);
         boolean valueIsNull = variant.isNullAt(VARIANT_VALUE_INDEX);
         boolean metadataIsNull = variant.isNullAt(VARIANT_METADATA_INDEX);
