@@ -112,6 +112,50 @@ public class ProjectAggregateExpressionsForCseTest extends TestWithFeService {
     }
 
     @Test
+    public void testNoneMovableAliasIsProducedOnceAfterTheCseIsMerged() throws Exception {
+        // v is produced by a NoneMovableFunction in the project below the distribute and is
+        // consumed by the CSE project. Merging the two projects must output v only once, so
+        // the scan computes one bitmap column and the exchange carries one bitmap slot.
+        Planner planner = planOnePhase("SELECT k, BITMAP_UNION_COUNT(v), SUM(a + b), MAX(a + b)"
+                + " FROM (SELECT k, a, b, TO_BITMAP_WITH_CHECK(a) AS v FROM project_aggregate_cse_test.t) x"
+                + " GROUP BY k");
+        String explain = explain(planner);
+        Assertions.assertTrue(collectNodes(planner, SelectNode.class).isEmpty(), explain);
+        List<OlapScanNode> scans = collectNodes(planner, OlapScanNode.class);
+        Assertions.assertEquals(1, scans.size(), explain);
+        // k, a, b, v and the extracted a + b; the project CSE of the scan moves
+        // TO_BITMAP_WITH_CHECK(a) into an intermediate layer, so v is a slot here
+        Assertions.assertEquals(5, scans.get(0).getProjectList().size(), explain);
+        assertAggregateArgumentsAreSlots(planner, explain);
+    }
+
+    @Test
+    public void testNoneMovableAliasIsProducedOnceByTheMulticastProjection() throws Exception {
+        // Same as above, but the project with the NoneMovableFunction sits on consumers of a
+        // materialized CTE, where the merged project becomes the multicast sink projection.
+        Planner planner = planOnePhase("WITH c AS (SELECT k, a, b FROM project_aggregate_cse_test.t WHERE id > 0)"
+                + " SELECT g, BITMAP_UNION_COUNT(v), SUM(a + b), MAX(a + b)"
+                + " FROM (SELECT k + 1 AS g, a, b, TO_BITMAP_WITH_CHECK(a) AS v FROM c) x GROUP BY g"
+                + " UNION ALL"
+                + " SELECT g, BITMAP_UNION_COUNT(v), SUM(a + b), MAX(a + b)"
+                + " FROM (SELECT k + 2 AS g, a, b, TO_BITMAP_WITH_CHECK(a) AS v FROM c) y GROUP BY g");
+        String explain = explain(planner);
+        List<MultiCastDataSink> multiCastSinks = planner.getFragments().stream()
+                .filter(MultiCastPlanFragment.class::isInstance)
+                .map(fragment -> (MultiCastDataSink) fragment.getSink())
+                .collect(Collectors.toList());
+        Assertions.assertEquals(1, multiCastSinks.size(), explain);
+        List<DataStreamSink> consumerSinks = multiCastSinks.get(0).getDataStreamSinks();
+        Assertions.assertEquals(2, consumerSinks.size(), explain);
+        for (DataStreamSink consumerSink : consumerSinks) {
+            Assertions.assertEquals(1, countToBitmapWithCheck(consumerSink.getProjections()), explain);
+            // a, b, g, v and the extracted a + b
+            Assertions.assertEquals(5, consumerSink.getProjections().size(), explain);
+        }
+        assertAggregateArgumentsAreSlots(planner, explain);
+    }
+
+    @Test
     public void testUnmergeableProjectBelowTheDistributeKeepsTheAggregate() throws Exception {
         // r is volatile and would be referenced twice by the merged project (as r and inside
         // r + a), so the projects cannot be merged: no project is stacked, and the aggregate
@@ -162,6 +206,14 @@ public class ProjectAggregateExpressionsForCseTest extends TestWithFeService {
     private long countComputedExprs(List<Expr> projections) {
         Assertions.assertNotNull(projections);
         return projections.stream().filter(expr -> !(expr instanceof SlotRef)).count();
+    }
+
+    private long countToBitmapWithCheck(List<Expr> projections) {
+        Assertions.assertNotNull(projections);
+        return projections.stream()
+                .filter(expr -> expr instanceof FunctionCallExpr
+                        && ((FunctionCallExpr) expr).getFnName().getFunction().equalsIgnoreCase("to_bitmap_with_check"))
+                .count();
     }
 
     private String explain(Planner planner) {
