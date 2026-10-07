@@ -245,20 +245,6 @@ Status PrxPositionIterator::advance_pfor_cursor(uint32_t target, bool decode_par
     return Status::OK();
 }
 
-// NOLINTNEXTLINE(readability-non-const-parameter): frequency is populated from the payload cursor.
-Status PrxPositionIterator::read_frequency(uint32_t* frequency) {
-    DCHECK(codec_ != PrxCodec::kPfor);
-    Status status = payload_source_->get_varint32_fast(frequency);
-    if (!status.ok()) {
-        return fail(std::move(status));
-    }
-    frame_stats_.total_positions += *frequency;
-    if (frame_stats_.total_positions > kReaderPrxWindowLimits.max_positions) {
-        return fail(corrupted_iterator_payload("prx iterator: position count exceeds sane cap"));
-    }
-    return Status::OK();
-}
-
 Status PrxPositionIterator::skip_positions(uint32_t count) {
     DCHECK(codec_ != PrxCodec::kPfor);
     Status status = payload_source_->skip_varints(count);
@@ -268,13 +254,13 @@ Status PrxPositionIterator::skip_positions(uint32_t count) {
     return Status::OK();
 }
 
-// Skips a raw or zstd frame's documents up to `end_ordinal` in one loop, adding their position
-// counts to the frame's total.
-Status PrxPositionIterator::skip_documents(uint32_t end_ordinal) {
+// Skips preceding documents and reads the target's frequency. A target at doc_count_ drains the
+// frame without opening a document.
+Status PrxPositionIterator::read_to_doc(uint32_t doc_ordinal) {
     DCHECK(codec_ != PrxCodec::kPfor);
     ByteSource& source = *payload_source_;
     uint64_t total_positions = frame_stats_.total_positions;
-    for (; next_doc_ordinal_ < end_ordinal; ++next_doc_ordinal_) {
+    for (; next_doc_ordinal_ < doc_count_; ++next_doc_ordinal_) {
         uint32_t frequency = 0;
         Status read = source.get_varint32_fast(&frequency);
         if (!read.ok()) {
@@ -284,6 +270,10 @@ Status PrxPositionIterator::skip_documents(uint32_t end_ordinal) {
         if (total_positions > kReaderPrxWindowLimits.max_positions) {
             return fail(
                     corrupted_iterator_payload("prx iterator: position count exceeds sane cap"));
+        }
+        if (next_doc_ordinal_ == doc_ordinal) {
+            frequency_ = frequency;
+            break;
         }
         Status skipped = source.skip_varints(frequency);
         if (!skipped.ok()) {
@@ -306,8 +296,7 @@ Status PrxPositionIterator::seek(uint32_t doc_ordinal) {
         frequency_ = pfor_counts_[doc_ordinal];
         RETURN_IF_ERROR(advance_pfor_cursor(pfor_offsets_[doc_ordinal], false, false));
     } else {
-        RETURN_IF_ERROR(skip_documents(doc_ordinal));
-        RETURN_IF_ERROR(read_frequency(&frequency_));
+        RETURN_IF_ERROR(read_to_doc(doc_ordinal));
     }
     ++frame_stats_.selected_docs;
     frame_stats_.selected_positions += frequency_;
@@ -431,7 +420,7 @@ Status PrxPositionIterator::finish_frame() {
         RETURN_IF_ERROR(advance_pfor_cursor(pfor_offsets_.back(), false, false));
         next_doc_ordinal_ = doc_count_;
     } else {
-        RETURN_IF_ERROR(skip_documents(doc_count_));
+        RETURN_IF_ERROR(read_to_doc(doc_count_));
     }
     if (!payload_source_->eof()) {
         return fail(corrupted_iterator_payload("prx iterator: trailing bytes after payload"));
