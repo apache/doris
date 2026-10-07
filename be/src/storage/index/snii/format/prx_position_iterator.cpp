@@ -245,15 +245,6 @@ Status PrxPositionIterator::advance_pfor_cursor(uint32_t target, bool decode_par
     return Status::OK();
 }
 
-Status PrxPositionIterator::skip_positions(uint32_t count) {
-    DCHECK(codec_ != PrxCodec::kPfor);
-    Status status = payload_source_->skip_varints(count);
-    if (!status.ok()) {
-        return fail(std::move(status));
-    }
-    return Status::OK();
-}
-
 // Skips preceding documents and reads the target's frequency. A target at doc_count_ drains the
 // frame without opening a document.
 Status PrxPositionIterator::read_to_doc(uint32_t doc_ordinal) {
@@ -400,7 +391,10 @@ Status PrxPositionIterator::finish_doc() {
                 advance_pfor_cursor(pfor_offsets_[next_doc_ordinal_ + 1], frequency_ != 0, false));
         decoded_from_doc_ = frequency_;
     } else if (decoded_from_doc_ != frequency_) {
-        RETURN_IF_ERROR(skip_positions(frequency_ - decoded_from_doc_));
+        Status status = payload_source_->skip_varints(frequency_ - decoded_from_doc_);
+        if (!status.ok()) {
+            return fail(std::move(status));
+        }
     }
     scratch_position_ = 0;
     scratch_size_ = 0;

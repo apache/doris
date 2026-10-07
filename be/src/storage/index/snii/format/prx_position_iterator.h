@@ -46,7 +46,6 @@ private:
     void reset_state(PrxDecodeContext* context);
     Status initialize_frame(Slice framed_window, uint32_t expected_doc_count,
                             std::span<const uint32_t> selected_doc_ordinals);
-    Status skip_positions(uint32_t count);
     Status read_to_doc(uint32_t doc_ordinal);
     Status decode_pfor_counts(uint32_t declared_total_positions);
     Status advance_pfor_cursor(uint32_t target, bool decode_partial_run, bool require_position);
