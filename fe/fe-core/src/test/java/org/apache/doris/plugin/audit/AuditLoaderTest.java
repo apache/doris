@@ -441,6 +441,11 @@ public class AuditLoaderTest {
             return true;
         };
         try {
+            // an empty SUCCESSFUL restore read = a live environment whose previous
+            // incarnation left no row (see readOwnRowsForRestore): the restore completes,
+            // so the close may act on this FE's own obligations
+            AuditPublicationHorizon.ownRowRestoreReaderForTest =
+                    () -> java.util.Collections.emptyList();
             Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-timeout");
             Assertions.assertEquals(10_000L, AuditLoader.oldestCommittedPublishFenceEventTime(),
                     "the retained batch is the committed fence of this FE");
@@ -463,6 +468,7 @@ public class AuditLoaderTest {
                             + reports);
         } finally {
             AuditPublicationHorizon.localHorizonWriterForTest = null;
+            AuditPublicationHorizon.ownRowRestoreReaderForTest = null;
             setRunningLoader(null);
         }
     }
@@ -814,6 +820,11 @@ public class AuditLoaderTest {
             }
         });
         try {
+            // an empty SUCCESSFUL restore read = a live environment whose previous
+            // incarnation left no row (see readOwnRowsForRestore): the restore completes,
+            // so the report reaches its writer
+            AuditPublicationHorizon.ownRowRestoreReaderForTest =
+                    () -> java.util.Collections.emptyList();
             reporter.start();
             Assertions.assertTrue(insideWriter.await(10, TimeUnit.SECONDS),
                     "the report must reach its write step");
@@ -832,6 +843,7 @@ public class AuditLoaderTest {
         } finally {
             releaseWriter.countDown();
             AuditPublicationHorizon.localHorizonWriterForTest = null;
+            AuditPublicationHorizon.ownRowRestoreReaderForTest = null;
             setRunningLoader(null);
         }
     }
@@ -858,16 +870,36 @@ public class AuditLoaderTest {
             Assertions.assertTrue(labels.startsWith("label-0;"),
                     "the overflowed batch's label must come first: " + labels);
 
-            // taking the aggregate past the label bound contributes the UNRESOLVED marker
-            // (which keeps the fence until the survival bound) instead of losing identities
+            // taking the aggregate past the label bound contributes the OVERFLOWED marker
+            // (round-50: distinct from the no-identity marker and never settled by the
+            // row's age - the omitted batch may still publish) instead of losing identities
             for (int i = 0; i < AuditLoader.MAX_AGGREGATED_FENCE_LABELS + 1; i++) {
                 Deencapsulation.invoke(loader, "retainPublishFence", 50_000L + i,
                         "qid-b" + i, "label-b" + i);
             }
             labels = AuditLoader.oldestCommittedPublishFenceLabels();
-            Assertions.assertTrue(Arrays.asList(labels.split(";", -1)).contains("-"),
-                    "a lost label must be carried as the unresolved marker: " + labels);
+            Assertions.assertTrue(Arrays.asList(labels.split(";", -1))
+                            .contains(AuditLoader.OVERFLOWED_FENCE_LABEL),
+                    "a lost label must be carried as the overflow marker: " + labels);
+            Assertions.assertFalse(Arrays.asList(labels.split(";", -1)).contains("-"),
+                    "the overflow marker is DISTINCT from the no-identity marker: "
+                            + labels);
+
+            // round-50: at the bound the OLDEST identities that already resolved TERMINAL
+            // give up their slots first, so a resolvable batch never costs another one's
+            // identity - the new labels stay in the settlement list
+            AuditLoader.transactionStatusForTest = label -> "VISIBLE";
+            for (int i = 0; i < AuditLoader.MAX_AGGREGATED_FENCE_LABELS; i++) {
+                Deencapsulation.invoke(loader, "retainPublishFence", 70_000L + i,
+                        "qid-c" + i, "label-c" + i);
+            }
+            labels = AuditLoader.oldestCommittedPublishFenceLabels();
+            Assertions.assertTrue(Arrays.asList(labels.split(";", -1))
+                            .contains("label-c" + (AuditLoader.MAX_AGGREGATED_FENCE_LABELS - 1)),
+                    "a slot freed by a RESOLVED identity must be reused instead of"
+                            + " dropping the new label: " + labels);
         } finally {
+            AuditLoader.transactionStatusForTest = null;
             setRunningLoader(null);
         }
     }

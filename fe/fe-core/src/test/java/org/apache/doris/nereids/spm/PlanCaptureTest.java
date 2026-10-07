@@ -612,6 +612,35 @@ public class PlanCaptureTest {
     }
 
     /**
+     * Round-50 (#7): the retry KEY and the audit row's OWN query id are SEPARATE roles.
+     * The synthetic spm-retry: key of a NaN / blank audit query id must never be
+     * restored AS the candidate's query id - a successful retry then persisted the
+     * tracking key into spm_baselines.query_id, attributing the baseline to a query that
+     * never existed.
+     */
+    @Test
+    public void testRetryKeyNeverBecomesTheSourceQueryId() {
+        Map<String, CapturedQuery> queue = new LinkedHashMap<>();
+        CapturedQuery unusableId = new CapturedQuery("SELECT a FROM t WHERE b = 1", 5000,
+                100000, 0, "digest-nan", "hash", "db", "internal", "NaN");
+        String key = PlanCaptureManager.retryKeyOf(unusableId);
+        Assertions.assertTrue(key.startsWith("spm-retry:"), key);
+        queue.put(key, unusableId);
+        Map<String, CapturedQuery> decoded = PlanCaptureManager.decodeRetryQueue(
+                PlanCaptureManager.encodeRetryQueue(queue));
+        Assertions.assertTrue(decoded.containsKey(key),
+                "the queue stays keyed by the tracking key: " + decoded.keySet());
+        Assertions.assertEquals("NaN", decoded.get(key).getQueryId(),
+                "the restored candidate keeps its OWN source id, not the tracking key");
+
+        // an old-shape row (only queryId) still round-trips both roles from that one value
+        Map<String, CapturedQuery> legacy = PlanCaptureManager.decodeRetryQueue(
+                "[{\"queryId\":\"legacy-qid\",\"stmt\":\"SELECT 1\"}]");
+        Assertions.assertTrue(legacy.containsKey("legacy-qid"));
+        Assertions.assertEquals("legacy-qid", legacy.get("legacy-qid").getQueryId());
+    }
+
+    /**
      * The checkpoint may be read BEFORE the asynchronous internal-schema initializer has
      * created the table / while the BE is not ready. A failed first read must NOT consume
      * the checkpoint: with the flag already set this process would start from the default

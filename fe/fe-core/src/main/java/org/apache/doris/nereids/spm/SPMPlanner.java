@@ -1130,6 +1130,70 @@ public class SPMPlanner {
         return canonicalSqlDigest(ctx, planSql, "plan");
     }
 
+    /**
+     * The CURRENT bind-side schema fingerprint of a forwarded CREATE's bind SQL (see
+     * SPMPlanTreeSupport#schemaFingerprint): computed on the forwarding FE at forward
+     * time, so the confirmation of the created row can reject a matching-but-STALE one -
+     * after a schema change the repeated CREATE retires the old row (identical bind /
+     * plan digests) and writes the replacement under the new fingerprint, and the
+     * retiring DELETE may still be invisible when the follower reads the snapshot (see
+     * BaselineManager.ForwardedDdlExpectation).
+     *
+     * @param ctx     the forwarding statement's context (may be null in tests)
+     * @param bindSql the forwarded CREATE's bind SQL
+     * @return the fingerprint (possibly empty, never null); "" when the text cannot be
+     *         parsed here (the confirmation then falls back to the digest identity)
+     */
+    public static String canonicalSchemaFingerprint(ConnectContext ctx, String bindSql) {
+        try {
+            final long creatorMode = SqlModeHelper.currentMode();
+            LogicalPlan plan = parseSelectIsolated(creatorMode, bindSql,
+                    "SPM bindSql must be a SELECT statement: " + bindSql);
+            return SPMPlanTreeSupport.schemaFingerprint(ctx, plan);
+        } catch (Throwable t) {
+            LOG.debug("SPM cannot precompute the schema fingerprint of a forwarded"
+                    + " CREATE ({}); the confirmation falls back to the digest identity",
+                    t.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * The SPM match key of a statement - the (query digest, structural hash) pair
+     * tryRewritePlan matches baselines on - or null when the text is not a
+     * plan-rewritable query (a command / DDL, unparsable text, or a statement batch).
+     *
+     * The forwarding FE uses the key to carry only the SESSION baselines the forwarded
+     * statement could actually match (see SPMForwardedSession#serializeForStatement):
+     * the master REBUILDS every carried row before it even classifies the statement
+     * (each bind and plan text is re-parsed), so the unfiltered payload let a large
+     * session store add that many parses to EVERY forwarded statement - outside
+     * spm_rewrite_timeout_ms, which only bounds the planner side.
+     *
+     * The key is computed exactly like the rewrite's: the same parse mode, the same
+     * namespace qualification (the statement's catalog / database travel with the
+     * forwarded request, so the master qualifies with the same names) and the same
+     * value-free digest.
+     *
+     * @param ctx the forwarding statement's context (may be null in tests)
+     * @param sql the statement text
+     * @return the digest plus its structural hash, or null when no baseline can apply
+     */
+    public static Pair<String, Long> queryMatchKey(ConnectContext ctx, String sql) {
+        try {
+            LogicalPlan plan = parseSelectIsolated(SqlModeHelper.currentMode(), sql,
+                    "SPM query match key needs a query: " + sql);
+            LogicalPlan matchPlan = SPMPlanTreeSupport.namespaceQualified(plan,
+                    captureCatalogName(ctx), captureDatabaseName(ctx));
+            String digest = SPMPlanTreeSupport.canonicalSpmDigest(matchPlan.toSpmDigest());
+            return Pair.of(digest, SPMUtils.hashOf(digest));
+        } catch (Throwable t) {
+            LOG.debug("SPM cannot compute the match key of a forwarded statement ({});"
+                    + " its session baselines are carried unfiltered", t.getMessage());
+            return null;
+        }
+    }
+
     private static String canonicalSqlDigest(ConnectContext ctx, String sql, String side) {
         try {
             final long creatorMode = SqlModeHelper.currentMode();

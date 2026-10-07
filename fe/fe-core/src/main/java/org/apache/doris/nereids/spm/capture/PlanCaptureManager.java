@@ -586,6 +586,43 @@ public class PlanCaptureManager extends MasterDaemon {
     private Supplier<Set<String>> auditWriterZones = AuditPublicationHorizon::clusterWriterZones;
 
     /**
+     * As auditWriterZones(), but for a window RESUMED from a durable checkpoint row:
+     * such a window may reach back BELOW the forward floor (an earlier pending window
+     * that surfaces late was invisible to the rewind-floor read that computed it), so
+     * its required-zone set must include zones the forward set already retired (see
+     * AuditPublicationHorizon#clusterWriterZonesForRewind). Production reads the shared
+     * table unfiltered; tests replace it.
+     */
+    private Supplier<Set<String>> auditWriterZonesForRewind =
+            AuditPublicationHorizon::clusterWriterZonesForRewind;
+
+    /**
+     * Whether the CURRENT pending window came from a durable checkpoint row (the load or
+     * an adoption) rather than this process's own derivation: only then can it rewind
+     * below the floor this process derived, so the completion check must use the rewind
+     * zone set (see auditWriterZonesForRewind). Set by applyCheckpointRow, cleared with
+     * the window.
+     */
+    private boolean pendingWindowFromDurableState = false;
+
+    /**
+     * The mastership generation of the RUNNING capture cycle (daemon-thread state):
+     * captured when the cycle begins and compared against promotionGeneration at every
+     * checkpoint write (see persistCheckpoint).
+     */
+    private volatile long activeCycleGeneration = 0;
+
+    /**
+     * Incremented on every master promotion (see reloadCheckpointOnPromotion): a cycle
+     * that began under an EARLIER generation must not write the checkpoint any more -
+     * while it was blocked in a scan, the interim master may have advanced or REWOUND
+     * the durable state (queued retries), and this FE re-promoting makes its leader
+     * probe true again, so only the generation separates "still the same chain" from
+     * "stale cycle of an earlier mastership".
+     */
+    private volatile long promotionGeneration = 0;
+
+    /**
      * The zones this pending window already COMPLETED a pass in. Seeded
      * with the pass zone the durable checkpoint describes, and reset whenever the window
      * is completed or abandoned. In-memory only: a takeover that restores the pending
@@ -711,6 +748,11 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     @VisibleForTesting
     public void runCaptureCycle(SessionVariable global, PlanCaptureFilter newFilter) {
+        // The mastership generation this cycle belongs to: while the cycle is blocked in
+        // a scan, a demotion + re-promotion bumps promotionGeneration and clears the
+        // local progress (reloadCheckpointOnPromotion); every write this stale chain
+        // attempts after that must be REFUSED (see persistCheckpoint).
+        activeCycleGeneration = promotionGeneration;
         try {
             // A restarted / newly promoted leader must NOT start from a fresh
             // interval-derived window: a truncated window from the previous leader is
@@ -767,8 +809,14 @@ public class PlanCaptureManager extends MasterDaemon {
                 publicationHorizon = auditQueueHorizon.getAsLong();
                 // the writer zones travel with the SAME fail-closed read:
                 // an unreadable zone set must not complete a window any more than an
-                // unreadable horizon may advance past it
-                Set<String> zones = auditWriterZones.get();
+                // unreadable horizon may advance past it. A window RESUMED from a durable
+                // row read its REWIND set instead: it may reach back below the floor the
+                // forward filter computed (an earlier pending row that surfaced late was
+                // invisible to the rewind-floor read), so zones already retired from the
+                // forward chain must still be scanned (see auditWriterZonesForRewind).
+                Supplier<Set<String>> zoneReader = pendingWindowFromDurableState
+                        ? auditWriterZonesForRewind : auditWriterZones;
+                Set<String> zones = zoneReader.get();
                 clusterWriterZones = zones == null ? Collections.emptySet() : zones;
             } catch (RuntimeException e) {
                 // The read failed and recorded nothing, so remember the window this cycle
@@ -920,6 +968,19 @@ public class PlanCaptureManager extends MasterDaemon {
                 batch = scanner.scan(scanStart, scanEnd, batchSize, cycleFilter,
                         cursorQueryTime, cursorTime, cursorQueryId, cursorTail, passZoneId);
                 pages++;
+                if (activeCycleGeneration != promotionGeneration) {
+                    // A promotion happened while this cycle was blocked in the scan: the
+                    // local progress was cleared (reloadCheckpointOnPromotion) and the
+                    // interim master's durable state is authoritative. Abandon the cycle
+                    // BEFORE consuming the page - persisting this chain's cursor / queue
+                    // would discard the queued work behind the interim checkpoint (
+                    // the write is refused as well, this is the early-exit).
+                    pendingWindowNeedsPromptResume = true;
+                    LOG.warn("Plan capture cycle abandoned: a master promotion happened"
+                            + " while it was scanning; the next cycle resumes from the"
+                            + " durable checkpoint");
+                    return;
+                }
                 for (CapturedQuery candidate : batch.getCandidates()) {
                     scannedQueryIds.add(retryKeyOf(candidate));
                     handleCandidate(candidate);
@@ -981,7 +1042,10 @@ public class PlanCaptureManager extends MasterDaemon {
                 // zones the cluster reported (plus this FE's live writer history), the
                 // zone this pass rendered in and the CURRENT global zone. A window drained
                 // in UTC and +08:00 while an intermediate -05:00 epoch rendered rows is
-                // otherwise advanced past events neither rendering can see.
+                // otherwise advanced past events neither rendering can see. The zone set
+                // was read at cycle start (clusterWriterZones): the FORWARD set for a
+                // window this process derived, the REWIND set for one resumed from a
+                // durable row (see the fail-closed read above).
                 Set<String> requiredZones = new LinkedHashSet<>(clusterWriterZones);
                 requiredZones.add(passZoneId);
                 requiredZones.add(exhaustZoneId);
@@ -1578,6 +1642,12 @@ public class PlanCaptureManager extends MasterDaemon {
         // the store HAS a row: the "first attempted window" floor of a failed fresh read is
         // moot - the durable record defines the window to consume
         firstAttemptedWindowStart = 0;
+        // A window that CAME FROM the durable row may reach back below any floor this
+        // process observed (the row may have been unreadable while the floor was
+        // computed): its completion check must use the rewind zone set (see
+        // auditWriterZonesForRewind / zonesForRewind).
+        pendingWindowFromDurableState =
+                pendingWindowStart > 0 && pendingWindowStart < pendingWindowEnd;
         // Restored retries take the RESTORED cursor as their anchor. That is now always a
         // position BEFORE every persisted retry row: persistCheckpoint rewinds to the
         // oldest queued entry's PRE-PAGE anchor whenever the queue is non-empty (not only
@@ -1606,6 +1676,19 @@ public class PlanCaptureManager extends MasterDaemon {
     private boolean persistCheckpoint() {
         if (!checkpointPersistenceEnabled()) {
             return true;
+        }
+        if (promotionGeneration != activeCycleGeneration) {
+            // The cycle this write belongs to began under an EARLIER mastership and was
+            // still in flight when a promotion happened: the interim master owned the
+            // durable checkpoint meanwhile (it may have advanced the cursor or REWOUND
+            // it to queue a retry), and its state must not be replaced by this stale
+            // chain. The re-promoted FE reloaded its progress in
+            // reloadCheckpointOnPromotion; the next cycle continues from there.
+            LOG.warn("SPM capture checkpoint NOT persisted: this cycle began under an"
+                    + " earlier mastership (generation {} vs {}); the durable state"
+                    + " belongs to the interim master",
+                    activeCycleGeneration, promotionGeneration);
+            return false;
         }
         if (!isLeaderForCheckpointWrite()) {
             // A demoted FE's in-memory progress is OBSOLETE: the new master may have
@@ -2215,7 +2298,11 @@ public class PlanCaptureManager extends MasterDaemon {
     /**
      * JSON of the queued retry candidates, bounded to the most recent entries. The whole
      * candidate is persisted so a resumed process can retry it without re-reading the
-     * audit row (the keyset cursor has already moved past it).
+     * audit row (the keyset cursor has already moved past it). The RETRY KEY (the map
+     * key, possibly the synthetic spm-retry: value of a NaN / blank audit query id, see
+     * retryKeyOf) travels SEPARATELY from the candidate's own query id: a restored
+     * candidate must keep the audit row's id for the capture correlation
+     * (spm_baselines.query_id), never the tracking key.
      */
     @VisibleForTesting
     public static String encodeRetryQueue(Map<String, CapturedQuery> queue) {
@@ -2228,7 +2315,8 @@ public class PlanCaptureManager extends MasterDaemon {
             }
             CapturedQuery candidate = entry.getValue();
             Map<String, String> row = new HashMap<>();
-            row.put("queryId", entry.getKey());
+            row.put("retryKey", entry.getKey());
+            row.put("queryId", candidate.getQueryId() == null ? "" : candidate.getQueryId());
             row.put("stmt", candidate.getStmt() == null ? "" : candidate.getStmt());
             row.put("queryTimeMs", String.valueOf(candidate.getQueryTimeMs()));
             row.put("scanRows", String.valueOf(candidate.getScanRows()));
@@ -2257,7 +2345,16 @@ public class PlanCaptureManager extends MasterDaemon {
                 return queue;
             }
             for (Map<String, String> row : decoded) {
+                // the retry KEY and the audit row's OWN id are separate roles (see
+                // encodeRetryQueue): the candidate is restored with its source query id,
+                // and the queue is keyed by the tracking key a null / NaN id was
+                // replaced with. An old-shape row without "retryKey" (only possible in
+                // a test fixture) falls back to the queryId for both roles.
+                String retryKey = row.get("retryKey");
                 String queryId = row.get("queryId");
+                if (retryKey == null) {
+                    retryKey = queryId;
+                }
                 CapturedQuery candidate = new CapturedQuery(
                         row.getOrDefault("stmt", ""),
                         parseLongValue(row.get("queryTimeMs")),
@@ -2270,7 +2367,7 @@ public class PlanCaptureManager extends MasterDaemon {
                         queryId == null ? "" : queryId,
                         false,
                         AuditLogScanner.decodeAuditSqlMode(row.get("sqlMode")));
-                queue.put(queryId == null ? "" : queryId, candidate);
+                queue.put(retryKey == null ? "" : retryKey, candidate);
             }
         } catch (RuntimeException e) {
             LOG.warn("SPM capture retry-queue decode failed: {}", e.getMessage());
@@ -2521,6 +2618,9 @@ public class PlanCaptureManager extends MasterDaemon {
         pendingWindowFilter = null;
         // the per-window zone-pass record belongs to the window as well
         scannedZonesInWindow.clear();
+        // ...and so does the "came from the durable row" marker (see
+        // pendingWindowFromDurableState): the next window is this process's own
+        pendingWindowFromDurableState = false;
     }
 
     /**
@@ -2543,6 +2643,9 @@ public class PlanCaptureManager extends MasterDaemon {
         checkpointWrittenVisibleForTest = null;
         auditQueueHorizon = AuditPublicationHorizon::clusterHorizon;
         auditWriterZones = AuditPublicationHorizon::clusterWriterZones;
+        auditWriterZonesForRewind = AuditPublicationHorizon::clusterWriterZonesForRewind;
+        promotionGeneration = 0;
+        activeCycleGeneration = 0;
         checkpointEpoch = PlanCaptureManager::currentLeaderEpoch;
         // the append-only write counter is process state, like the epoch supplier
         checkpointWriteSeq = 0;
@@ -2600,6 +2703,12 @@ public class PlanCaptureManager extends MasterDaemon {
      * mastership.
      */
     public void reloadCheckpointOnPromotion() {
+        // Fence cycles that began BEFORE this promotion: a cycle blocked in the scanner
+        // holds the previous era's progress, and this (re-)promotion makes its leader
+        // probe true again - without the generation bump it would persist a cursor /
+        // retry queue over the interim master's checkpoint, discarding queued work
+        // behind its own cursor (see persistCheckpoint).
+        promotionGeneration++;
         clearProgressState();
         LOG.info("SPM capture checkpoint state dropped on master promotion; the next cycle"
                 + " reloads the durable checkpoint");
@@ -2865,6 +2974,12 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public void setAuditWriterZonesForTest(Supplier<Set<String>> zones) {
         this.auditWriterZones = zones;
+    }
+
+    /** For tests: replaces the REWIND writer-zone supplier (see auditWriterZonesForRewind). */
+    @VisibleForTesting
+    public void setAuditWriterZonesForRewindForTest(Supplier<Set<String>> zones) {
+        this.auditWriterZonesForRewind = zones;
     }
 
     /** For tests: installs a scripted checkpoint UPSERT epoch. */

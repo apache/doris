@@ -41,9 +41,11 @@ import java.util.Map;
  * SessionBaselineStore. A SELECT that must be FORWARDED (the observer cannot read,
  * or forwarding is forced) returns before local SPM matching, and the master executes it in
  * a fresh ConnectContext with an EMPTY session store - so the very baseline the
- * connection created was never used. The observer therefore attaches the rows to the
- * forwarded request (see FEOpExecutor#fillForwardRequest) and the master rebuilds
- * them into its context's store before the statement is planned
+ * connection created was never used. The observer therefore attaches the rows the
+ * statement could MATCH (see serializeForStatement; the full store travels for
+ * statements that address rows by id, like the baseline management commands) to the
+ * forwarded request (see FEOpExecutor#fillForwardRequest) and the master rebuilds them
+ * into its context's store before the statement is planned
  * (ConnectProcessor#proxyExecute).
  *
  * The payload always comes from the store right before forwarding (the variable is
@@ -113,11 +115,60 @@ public final class SPMForwardedSession {
         if (store == null || store.isEmpty()) {
             return "";
         }
+        return serializeEnabled(store.getAllBaselines(), null);
+    }
+
+    /**
+     * Serializes the session baselines the forwarded statement could actually USE: the
+     * ENABLED rows whose (structural hash, canonical digest) equal the statement's own
+     * match key - the very contract SPMPlanner#tryRewritePlan looks candidates up with
+     * (see SPMPlanner#queryMatchKey). The master imports the payload BEFORE classifying
+     * the statement (ConnectProcessor#proxyExecute) and REBUILDS every carried row (both
+     * SQL texts of each are re-parsed): forwarding the whole store made a connection
+     * with a large store pay that reconstruction on every forwarded statement -
+     * including statements that can never consult a baseline - while
+     * spm_rewrite_timeout_ms only bounds the planner side of the work.
+     *
+     * Statements that are NOT plan-rewritable queries (commands / DDL, statement
+     * batches, unparsable text) keep the FULL payload: the baseline management commands
+     * executed on the master ADDRESS ROWS BY ID against this context's store, so they
+     * must see every row of the connection.
+     *
+     * @param store the connection's session store (may be null)
+     * @param ctx   the forwarding statement's context (may be null in tests)
+     * @param sql   the forwarded statement text
+     * @return the payload for the statement (see serialize)
+     */
+    public static String serializeForStatement(SessionBaselineStore store, ConnectContext ctx,
+            String sql) {
+        if (store == null || store.isEmpty()) {
+            return "";
+        }
+        Pair<String, Long> matchKey = SPMPlanner.queryMatchKey(ctx, sql);
+        if (matchKey == null) {
+            return serialize(store);
+        }
+        return serializeEnabled(store.getAllBaselines(), matchKey);
+    }
+
+    /**
+     * The JSON of the ENABLED rows, restricted to the given match key when one is
+     * supplied (a row can only be matched on its (hash, digest) pair, so the restriction
+     * preserves the rewrite context of the statement while leaving every non-matching
+     * row out of the master's reconstruction). The payload budget is enforced on the
+     * selected rows alone: a subset of what serialize would carry can only be smaller.
+     */
+    private static String serializeEnabled(List<BaselinePlan> plans, Pair<String, Long> matchKey) {
         Gson gson = new Gson();
         List<Map<String, String>> rows = new ArrayList<>();
         long payloadChars = PAYLOAD_ENCLOSURE_CHARS; // the enclosing []
-        for (BaselinePlan plan : store.getAllBaselines()) {
+        for (BaselinePlan plan : plans) {
             if (plan.getStatus() != BaselineStatus.ENABLED) {
+                continue;
+            }
+            if (matchKey != null
+                    && (matchKey.second.longValue() != plan.getBindSqlHash()
+                            || !matchKey.first.equals(plan.getBindSqlDigest()))) {
                 continue;
             }
             Map<String, String> row = toPayloadRow(plan);
@@ -159,8 +210,10 @@ public final class SPMForwardedSession {
     /**
      * Rebuilds the carried rows into the given context's session store (the transient
      * parameterized trees are re-parsed exactly like the on-disk reload does). The payload
-     * is the CURRENT observer store, so the import REPLACES this context's content: a row
-     * dropped on the observer must not survive on the master.
+     * is the forwarding connection's store restricted to what the statement can use - or
+     * the full store for a statement that addresses rows by id (see
+     * serializeForStatement) - so the import REPLACES this context's content: a row the
+     * payload deliberately left out must not survive on the master either.
      *
      * Malformed payloads / unparsable rows are skipped with a warning - SPM must never
      * break the statement it is attached to.

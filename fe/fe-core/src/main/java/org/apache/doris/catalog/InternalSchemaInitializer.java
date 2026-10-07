@@ -759,8 +759,17 @@ public class InternalSchemaInitializer extends Thread {
     /** Bound of the model-upgrade carry read (one bounded row of the old table). */
     private static final int SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS = 10;
 
-    /** How often the carry INSERT is retried after the table was recreated. */
-    private static final int MAX_CHECKPOINT_CARRY_ATTEMPTS = 3;
+    /**
+     * Staging table of the checkpoint model upgrade (see
+     * ensureSpmCaptureCheckpointColumnsExist): the payload of the pre-append-only row is
+     * parked HERE, durably, before the old table is dropped - from then on every crash
+     * window leaves a readable copy somewhere, so the migration is RESUMABLE instead of
+     * losing an unconsumed pending window. Dropped once the recreated table's copy is
+     * confirmed readable.
+     */
+    @VisibleForTesting
+    static final String SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME =
+            "spm_capture_checkpoint_stage";
 
     /**
      * Waits until the spm_capture_checkpoint table carries every column of
@@ -772,43 +781,44 @@ public class InternalSchemaInitializer extends Thread {
      */
     static void ensureSpmCaptureCheckpointColumnsExist() {
         // The payload of a pre-append-only row (a pending window's bounds, cursor, retry
-        // queue and render zone) is carried into the recreated table: the model drop
-        // below is the only place it could be lost, and an unconsumed truncated window
-        // would otherwise never be scanned again (see readCheckpointStateForModelUpgrade).
-        Map<String, String> carriedState = null;
-        boolean carryRead = false;
-        int carryAttempts = 0;
+        // queue and render zone) is copied DURABLY before the model drop below: first
+        // into the staging table, and from there into the recreated table. The previous
+        // in-memory handoff existed only in this process between the drop and its
+        // replacement INSERT, so a crash there lost the row permanently, and a
+        // transiently failed INSERT was never retried (the recreated table then
+        // satisfied the loop condition). Every crash window now leaves the payload in a
+        // readable table: the pre-append-only one until the staged copy is CONFIRMED,
+        // the staging one until the recreated table's copy is confirmed.
         // The MODEL check is part of the gate: a pre-append-only table
         // carries every UPGRADE column (they were added by earlier builds), so the
         // column set alone would declare it ready and the drop/recreate below would
         // never run - every checkpoint INSERT then failed on the missing write_seq.
-        while (!spmCaptureCheckpointColumnsExist() || checkpointTableModelOutdated()) {
+        while (!spmCaptureCheckpointColumnsExist() || checkpointTableModelOutdated()
+                || stagedCheckpointCarryPending()) {
             try {
-                if (!spmCaptureCheckpointTableExists()) {
+                if (spmCaptureCheckpointTableExists() && checkpointTableModelOutdated()) {
+                    // Step one: get the old row into the staging table durably. The old
+                    // table is dropped only once that copy is confirmed READABLE.
+                    if (stageCheckpointStateForModelUpgrade()) {
+                        dropSpmCaptureCheckpointTable();
+                    }
+                } else if (stagedCheckpointCarryPending()) {
+                    // Step two: the payload's only copy is the staging table - recreate
+                    // the append-only table and copy from there, dropping the staging
+                    // table only once the recreated row is confirmed readable too.
+                    if (!spmCaptureCheckpointTableExists()) {
+                        // createTbl() ran BEFORE this method and never runs again, so the
+                        // recreation happens here
+                        createTable(getSpmCaptureCheckpointCreateSql());
+                    }
+                    if (restoreStagedCheckpointRow()) {
+                        dropSpmCaptureCheckpointStageTable();
+                    }
+                } else if (!spmCaptureCheckpointTableExists()) {
                     // absent because this method just dropped the pre-append-only table
                     // (or the create gate never saw it): createTbl() ran BEFORE this
                     // method and never runs again, so the recreation happens here
                     createTable(getSpmCaptureCheckpointCreateSql());
-                    if (carriedState != null) {
-                        carryAttempts++;
-                        if (restoreCarriedCheckpointRow(carriedState)) {
-                            carriedState = null;
-                        } else if (carryAttempts >= MAX_CHECKPOINT_CARRY_ATTEMPTS) {
-                            LOG.warn("SPM: giving up carrying the pre-append-only {} row into"
-                                            + " the append-only model after {} attempts;"
-                                            + " capture re-derives its window from durable"
-                                            + " progress",
-                                    InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME,
-                                    carryAttempts);
-                            carriedState = null;
-                        }
-                    }
-                } else if (checkpointTableModelOutdated()) {
-                    if (!carryRead) {
-                        carriedState = readCheckpointStateForModelUpgrade();
-                        carryRead = true;
-                    }
-                    dropSpmCaptureCheckpointTable();
                 } else {
                     upgradeSpmCaptureCheckpointSchema();
                 }
@@ -822,7 +832,7 @@ public class InternalSchemaInitializer extends Thread {
             // failed drop stop this one-shot initializer with the old table - and every
             // checkpoint INSERT then failed on the missing write_seq until a restart.
             if (checkpointUpgradeComplete(spmCaptureCheckpointColumnsExist(),
-                    checkpointTableModelOutdated(), carriedState != null)) {
+                    checkpointTableModelOutdated(), stagedCheckpointCarryPending())) {
                 return;
             }
             try {
@@ -843,7 +853,8 @@ public class InternalSchemaInitializer extends Thread {
      *
      * @param columnsExist  every SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS member is there
      * @param modelOutdated the table is still the old UNIQUE-key model
-     * @param statePending  a carried row is still waiting to be restored
+     * @param statePending  a staged copy is still waiting to be written into the
+     *                      recreated table (see stagedCheckpointCarryPending)
      */
     @VisibleForTesting
     static boolean checkpointUpgradeComplete(boolean columnsExist, boolean modelOutdated,
@@ -902,51 +913,196 @@ public class InternalSchemaInitializer extends Thread {
         for (int index = 0; index < available.size(); index++) {
             state.put(available.get(index), row.getWithDefault(index, ""));
         }
-        LOG.info("SPM: carrying the pre-append-only {} row (pending window [{}, {})) into the"
-                        + " recreated append-only table",
+        LOG.info("SPM: reading the pre-append-only {} row (pending window [{}, {})) for the"
+                        + " model migration",
                 InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME,
                 state.get("pending_window_start"), state.get("pending_window_end"));
         return state;
     }
 
     /**
-     * Writes one carried payload back into the freshly recreated append-only table as
-     * its first row: until the capture writes its own (greater) token, the reader
-     * resolves to the carried state, so a takeover resumes the SAME pending window
-     * instead of deriving a later one over its unconsumed tail.
-     *
-     * @return whether the row was written (false = retryable; the caller keeps the state)
+     * Whether the migration's staging table exists, i.e. a copy of the pre-append-only
+     * row still has to be written into the recreated table (see
+     * ensureSpmCaptureCheckpointColumnsExist). This is the loop's carry-pending flag: the
+     * initializer never finishes with a staged copy left unrestored.
      */
-    private static boolean restoreCarriedCheckpointRow(Map<String, String> state) {
+    private static boolean stagedCheckpointCarryPending() {
+        return internalSchemaTable(SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME) != null;
+    }
+
+    /**
+     * Guards the model drop: the pre-append-only row must be READABLE from the staging
+     * table before the only other copy (the old table) is dropped. Reads the old row,
+     * stages it, and confirms the staged copy by reading it back - an internal INSERT can
+     * return SQL OK with the transaction merely COMMITTED, and a crash before publication
+     * would otherwise lose the row together with the dropped table.
+     *
+     * @return whether the payload is durably staged (or there is nothing to stage);
+     *         false = the old table must NOT be dropped yet, the caller retries
+     */
+    private static boolean stageCheckpointStateForModelUpgrade() {
         try {
-            String insert = buildCarriedCheckpointInsert(state, currentJournalEpoch());
-            // The statement carries user-visible TEXT (the pending filter SQL, the scan
-            // selectors) escaped for the DEFAULT parser mode: executing it under an
-            // ambient session mode (this initializer shares the context with whatever
-            // connection booted the FE) would re-interpret the escapes - a NO_BACKSLASH
-            // mode turns the escaped backslashes into literals and the restored row
-            // would carry a MANGLED filter, scanning a different window forever.
-            // Persist/capture writes pin the same mode (see
-            // PlanCaptureManager#persistCheckpoint).
-            SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {
-                try {
-                    StatisticsUtil.execUpdate(insert, Collections.emptyMap(),
-                            SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS);
-                } catch (Exception e) {
-                    // rethrown as unchecked: the caller's catch (Throwable) turns it into
-                    // the retry verdict (the Supplier cannot carry checked exceptions)
-                    throw new RuntimeException(e.getMessage(), e);
-                }
-                return null;
-            });
+            if (readStagedCheckpointRow() != null) {
+                // the durable copy already exists (an earlier round of this process, or a
+                // predecessor's): restaging would only append an equal row
+                return true;
+            }
+            Map<String, String> state = readCheckpointStateForModelUpgrade();
+            if (state == null) {
+                // an idle / never written checkpoint has no row to carry
+                return true;
+            }
+            createTable(getSpmCaptureCheckpointStageCreateSql());
+            executeCarryStatement(buildCarriedCheckpointInsert(
+                    SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME, state, currentJournalEpoch()));
+            if (readStagedCheckpointRow() == null) {
+                LOG.warn("SPM: the staged checkpoint row is not readable yet, the"
+                        + " pre-append-only table is kept");
+                return false;
+            }
+            LOG.info("SPM: staged the pre-append-only {} row in {} (pending window [{}, {}))",
+                    InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME,
+                    SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME,
+                    state.get("pending_window_start"), state.get("pending_window_end"));
+            return true;
+        } catch (Throwable t) {
+            LOG.warn("SPM: failed to stage the pre-append-only checkpoint row, will retry: {}",
+                    t.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Writes the staged payload into the recreated append-only table as its first
+     * readable row and CONFIRMS it: until the capture writes its own (greater) token the
+     * reader resolves to the carried state, so a takeover resumes the SAME pending window
+     * instead of deriving a later one over its unconsumed tail. The staged token is
+     * REUSED instead of a fresh epoch: a re-run after a crash before the staging table was
+     * dropped then appends an EQUAL-token row, which can never supersede a row the
+     * capture may already have written above it (a fresh epoch could).
+     *
+     * @return whether the recreated table's copy is readable (false = retryable; the
+     *         staging table keeps the only copy until this returns true)
+     */
+    private static boolean restoreStagedCheckpointRow() {
+        try {
+            ResultRow staged = readStagedCheckpointRow();
+            if (staged == null) {
+                // an EMPTY staging table carries no state: the old table is only dropped
+                // after the staged copy was confirmed, so there is nothing to restore
+                return true;
+            }
+            Map<String, String> state = new LinkedHashMap<>();
+            for (int index = 0; index < SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS.size(); index++) {
+                state.put(SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS.get(index),
+                        staged.getWithDefault(index + 2, ""));
+            }
+            long epoch = parseCarriedNumber(staged.getWithDefault(0, ""));
+            executeCarryStatement(buildCarriedCheckpointInsert(
+                    InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME, state, epoch));
+            if (!carriedCheckpointRowReadable(epoch, state.get("pending_window_start"))) {
+                LOG.warn("SPM: the carried checkpoint row is not readable yet, the staging"
+                        + " table is kept");
+                return false;
+            }
             LOG.info("SPM: restored the pre-append-only checkpoint row into the recreated"
                     + " append-only table");
             return true;
         } catch (Throwable t) {
-            LOG.warn("SPM: failed to carry the pre-append-only checkpoint row into the"
-                    + " recreated table, will retry: {}", t.getMessage());
+            LOG.warn("SPM: failed to carry the staged checkpoint row into the recreated"
+                    + " table, will retry: {}", t.getMessage());
             return false;
         }
+    }
+
+    /**
+     * The staging table's row - the reused write token plus the payload (see
+     * buildStagedCheckpointSelectSql) - or null while the staging table is absent / has
+     * no row yet.
+     */
+    private static ResultRow readStagedCheckpointRow() throws Exception {
+        if (!stagedCheckpointCarryPending()) {
+            return null;
+        }
+        List<ResultRow> rows = StatisticsUtil.executeQuery(buildStagedCheckpointSelectSql(),
+                Collections.emptyMap(), SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS);
+        return rows == null || rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /**
+     * The read of the staged row: the write token the copy will reuse, then the payload
+     * in the canonical order (see SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS - the same
+     * name-addressed list the carry INSERT writes).
+     */
+    @VisibleForTesting
+    static String buildStagedCheckpointSelectSql() {
+        StringBuilder select = new StringBuilder("SELECT `leader_epoch`, `write_seq`");
+        for (String column : SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS) {
+            select.append(", `").append(column).append('`');
+        }
+        return select.append(" FROM `").append(FeConstants.INTERNAL_DB_NAME).append("`.`")
+                .append(SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME)
+                .append("` WHERE `id` = 1 LIMIT 1").toString();
+    }
+
+    /**
+     * Whether the carried row (the reused token plus the carried window start) is
+     * READABLE in the recreated table: a successful INSERT only proves the transaction
+     * committed, and the staging table - the other copy - may only be dropped once the
+     * recreated row can actually be read.
+     */
+    private static boolean carriedCheckpointRowReadable(long epoch, String pendingWindowStart)
+            throws Exception {
+        List<ResultRow> rows = StatisticsUtil.executeQuery(
+                buildCarriedCheckpointReadbackSql(epoch, pendingWindowStart),
+                Collections.emptyMap(), SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS);
+        return rows != null && !rows.isEmpty();
+    }
+
+    /**
+     * The read-back of one carried row: the token it reuses plus the carried window start
+     * disambiguate it from a capture write that could share the token (an exact token tie
+     * is broken by update_time, so an equal-token row is not proof the carried VALUES
+     * are there).
+     */
+    @VisibleForTesting
+    static String buildCarriedCheckpointReadbackSql(long epoch, String pendingWindowStart) {
+        return "SELECT `leader_epoch` FROM `" + FeConstants.INTERNAL_DB_NAME
+                + "`.`" + InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME
+                + "` WHERE `id` = 1 AND `leader_epoch` = " + epoch
+                + " AND `write_seq` = 0 AND `pending_window_start` = "
+                + parseCarriedNumber(pendingWindowStart) + " LIMIT 1";
+    }
+
+    /**
+     * Runs one carry statement pinned to the DEFAULT parser mode: the statement carries
+     * user-visible TEXT (the pending filter SQL, the scan selectors) escaped for that
+     * mode, and executing it under an ambient session mode (this initializer shares the
+     * context with whatever connection booted the FE) would re-interpret the escapes - a
+     * NO_BACKSLASH mode turns the escaped backslashes into literals and the restored row
+     * would carry a MANGLED filter, scanning a different window forever. Persist /
+     * capture writes pin the same mode (see PlanCaptureManager#persistCheckpoint).
+     */
+    private static void executeCarryStatement(String sql) {
+        SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {
+            try {
+                StatisticsUtil.execUpdate(sql, Collections.emptyMap(),
+                        SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS);
+            } catch (Exception e) {
+                // rethrown as unchecked: the callers turn it into the retry verdict (the
+                // Supplier cannot carry checked exceptions)
+                throw new RuntimeException(e.getMessage(), e);
+            }
+            return null;
+        });
+    }
+
+    /** Drops the staging table once the recreated table's copy is confirmed readable. */
+    private static void dropSpmCaptureCheckpointStageTable() throws UserException {
+        Env.getCurrentEnv().getInternalCatalog().dropTable(FeConstants.INTERNAL_DB_NAME,
+                SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME, false, false, false, true, false, true);
+        LOG.info("SPM: dropped the {} staging table (the recreated checkpoint row is"
+                + " readable)", SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME);
     }
 
     /**
@@ -966,19 +1122,23 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
-     * The INSERT that writes one carried payload into the freshly recreated append-only
-     * table as its first row: until the capture writes its own (greater) token, the reader
+     * The INSERT that writes one carried payload into the recreated append-only table as
+     * its first row: until the capture writes its own (greater) token, the reader
      * resolves to the carried state, so a takeover resumes the SAME pending window
      * instead of deriving a later one over its unconsumed tail. Name-addressed like the
      * capture's own write (the physical column order of an upgraded table may differ from
-     * a freshly created one), numeric cells unquoted, text cells escaped.
+     * a freshly created one), numeric cells unquoted, text cells escaped. The same
+     * builder stages the payload in the migration's staging table first (see
+     * stageCheckpointStateForModelUpgrade), which is why the target table is a parameter.
      *
-     * @param state the carried payload (see readCheckpointStateForModelUpgrade)
-     * @param epoch the row's leader_epoch token
+     * @param tableName the target table (the recreated checkpoint, or the staging table)
+     * @param state     the carried payload (see readCheckpointStateForModelUpgrade)
+     * @param epoch     the row's leader_epoch token
      * @return the INSERT statement
      */
     @VisibleForTesting
-    static String buildCarriedCheckpointInsert(Map<String, String> state, long epoch) {
+    static String buildCarriedCheckpointInsert(String tableName, Map<String, String> state,
+            long epoch) {
         StringBuilder columns = new StringBuilder("(`id`, `leader_epoch`, `write_seq`,"
                 + " `update_time`");
         StringBuilder values = new StringBuilder("(1, ").append(epoch).append(", 0, NOW()");
@@ -997,9 +1157,19 @@ public class InternalSchemaInitializer extends Thread {
         }
         columns.append(')');
         values.append(')');
-        return "INSERT INTO `" + FeConstants.INTERNAL_DB_NAME + "`.`"
-                + InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME + "` "
+        return "INSERT INTO `" + FeConstants.INTERNAL_DB_NAME + "`."
+                + "`" + tableName + "` "
                 + columns + " VALUES " + values;
+    }
+
+    /**
+     * The carry INSERT targeting the recreated checkpoint table (see the 3-arg builder) -
+     * the table every non-staging caller writes.
+     */
+    @VisibleForTesting
+    static String buildCarriedCheckpointInsert(Map<String, String> state, long epoch) {
+        return buildCarriedCheckpointInsert(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME,
+                state, epoch);
     }
 
     /** One numeric carried cell; a blank / unparsable value falls back to 0. */
@@ -1424,6 +1594,42 @@ public class InternalSchemaInitializer extends Thread {
                         + "PROPERTIES (%s)";
         return String.format(template, catalogName, dbName, tableName,
                 generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
+    /**
+     * CREATE SQL of the checkpoint migration's staging table (see
+     * ensureSpmCaptureCheckpointColumnsExist): the append-only checkpoint schema under
+     * the staging name, so the payload of the pre-append-only row can be parked durably
+     * while the model is rebuilt. Transient - dropped once the recreated table's copy is
+     * confirmed readable - and deliberately NOT part of the InternalSchema registry: it
+     * exists only while a migration is in flight.
+     */
+    @VisibleForTesting
+    static String getSpmCaptureCheckpointStageCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "DUPLICATE KEY(`leader_epoch`, `write_seq`)\n"
+                        + "COMMENT \"Doris internal SPM checkpoint migration staging table,"
+                        + " DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`leader_epoch`)\n"
+                        + "BUCKETS 1\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(
+                        InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME)), getPropertyStr(properties));
     }
 
     /**

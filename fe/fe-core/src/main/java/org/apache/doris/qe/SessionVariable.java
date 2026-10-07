@@ -2159,8 +2159,10 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableSpmFallback = false;
 
     /**
-     * Enabled SESSION-scope baselines of the forwarding connection (JSON; see
-     * {@code SPMForwardedSession}). Restored from the forwarded request only - the value is
+     * SESSION-scope baselines of the forwarding connection carried with the forwarded
+     * statement (JSON; see {@code SPMForwardedSession}). The payload holds the enabled
+     * rows the statement could match - or the full store for a statement that addresses
+     * rows by id. Restored from the forwarded request only - the value is
      * OVERWRITTEN from the store right before forwarding, so a plain SET cannot smuggle
      * rows into another context.
      */

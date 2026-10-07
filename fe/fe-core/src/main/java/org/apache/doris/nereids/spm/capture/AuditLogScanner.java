@@ -848,7 +848,16 @@ public class AuditLogScanner {
         return false;
     }
 
-    /** The concrete relation payloads of the statement (the full text when unparsable). */
+    /**
+     * The concrete relation payloads of the statement (the full text when unparsable).
+     * A PARSED statement without any concrete payload (the gate over-matched: an ordinary
+     * table named order_values carries the VALUES token, a plain call carries a
+     * parenthesis) contributes NOTHING: the raw-text fallback is reserved for PARSE
+     * FAILURES. Returning the full statement here put the unmasked texts of
+     * WHERE o.k = 1 / WHERE o.k = 2 on the SAME audit digest, so capture treated every
+     * literal variant as a distinct query and replanned / probed each of them instead of
+     * deduplicating the page.
+     */
     private static String concreteRelationFingerprint(String stmt, long sqlMode) {
         try {
             return org.apache.doris.qe.SqlModeHelper.withSqlMode(sqlMode, () -> {
@@ -858,11 +867,10 @@ public class AuditLogScanner {
                         .LogicalPlan)) {
                     return stmt;
                 }
-                String fingerprint = org.apache.doris.nereids.spm.SPMPlanTreeSupport
+                return org.apache.doris.nereids.spm.SPMPlanTreeSupport
                         .concreteRelationPayloadFingerprint(
                                 (org.apache.doris.nereids.trees.plans.logical.LogicalPlan)
                                         parsed);
-                return fingerprint.isEmpty() ? stmt : fingerprint;
             });
         } catch (Throwable t) {
             // unparsable: keep the full-text identity, never a coarser one

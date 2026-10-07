@@ -301,7 +301,23 @@ public final class AuditPublicationHorizon {
      */
     public static Set<String> clusterWriterZones() {
         Set<String> zones = new LinkedHashSet<>(AuditWriterZones.zones());
-        zones.addAll(remoteWriterZones());
+        zones.addAll(remoteWriterZones(false));
+        return zones;
+    }
+
+    /**
+     * As clusterWriterZones(), for a window that may REWIND to an earlier pending
+     * checkpoint: every zone the reporting FEs ever registered, INCLUDING rows the
+     * forward filter (see remoteWriterZones) already considers covered / expired.
+     * A zone retired from the forward set can still own a row of a pending window
+     * that surfaces late (an unreadable checkpoint row is invisible to the rewind-floor
+     * read), and that window must still be scanned in the zone before it completes.
+     *
+     * @return the zone IDs a rewindable window may have rendered rows in
+     */
+    public static Set<String> clusterWriterZonesForRewind() {
+        Set<String> zones = new LinkedHashSet<>(AuditWriterZones.zonesForRewind());
+        zones.addAll(remoteWriterZones(true));
         return zones;
     }
 
@@ -314,7 +330,7 @@ public final class AuditPublicationHorizon {
      * checkpoint past the row stored under e.g. -05:00. Fresh rows are always included;
      * an unreadable capture watermark keeps every zone (fail closed).
      */
-    private static Set<String> remoteWriterZones() {
+    private static Set<String> remoteWriterZones(boolean forRewind) {
         List<Object[]> rows;
         Supplier<List<Object[]>> reader = horizonRowsReaderForTest;
         if (reader != null) {
@@ -360,9 +376,14 @@ public final class AuditPublicationHorizon {
             if (updatedAt <= 0) {
                 continue;
             }
-            if (now - updatedAt > ROW_STALE_MILLIS && updatedAt < coveredThrough) {
+            if (!forRewind && now - updatedAt > ROW_STALE_MILLIS
+                    && updatedAt < coveredThrough) {
                 // an expired row whose last render is COVERED by durable capture
-                // progress: no uncompleted window can still contain its rows
+                // progress: no uncompleted FORWARD window can still contain its rows.
+                // A rewindable window is different: an earlier pending checkpoint that
+                // surfaces later may reach back BELOW that floor (the floor read cannot
+                // see an unreadable pending row), so the rewind set keeps every row's
+                // zones until the row itself disappears.
                 continue;
             }
             zones.addAll(AuditWriterZones.decode((String) row[3]));
@@ -638,6 +659,15 @@ public final class AuditPublicationHorizon {
         }
         for (String label : labelsCsv.split(";", -1)) {
             String trimmed = label.trim();
+            if (AuditLoader.OVERFLOWED_FENCE_LABEL.equals(trimmed)) {
+                // The writer overflowed its aggregated identity list: this slot stands
+                // for at least one dropped-publish-timeout batch whose COMMITTED
+                // transaction may still publish. The row's AGE cannot resolve it (the
+                // batch list is gone, not settled), so the fence is kept until the row
+                // itself is retired - fail closed, exactly like an unresolvable
+                // COMMITTED label (see AuditLoader#aggregateDroppedFence).
+                return false;
+            }
             if (trimmed.isEmpty() || "-".equals(trimmed)) {
                 if (now - updatedAt <= COMMITTED_FENCE_SURVIVAL_MILLIS) {
                     return false; // unknown identity: keep fencing until the bound
@@ -671,6 +701,11 @@ public final class AuditPublicationHorizon {
         if (carriedStateRestored) {
             return;
         }
+        // An UNAVAILABLE read (the environment is still starting, a failed SELECT) is
+        // PENDING, not "nothing to carry": the previous incarnation's row may hold an
+        // unresolved COMMITTED fence / writer zones, and both the first report and the
+        // graceful close must wait for the restore to complete before they replace or
+        // delete that row (see reportLocalHorizonLocked / clearLocalReportLocked).
         List<Object[]> ownRows = readOwnRowsForRestore();
         if (ownRows == null) {
             return; // unreadable: retry on the next report tick
@@ -745,11 +780,15 @@ public final class AuditPublicationHorizon {
     private static List<Object[]> readOwnRowsForRestore() {
         Supplier<List<Object[]>> seam = ownRowRestoreReaderForTest;
         if (seam != null) {
-            List<Object[]> rows = seam.get();
-            return rows == null ? Collections.emptyList() : rows;
+            return seam.get(); // null = unavailable (pending), like a failed SELECT
         }
         if (!sharedTableAvailable()) {
-            return Collections.emptyList(); // no live environment: nothing to carry
+            // The environment is not ready yet (the reporter starts during
+            // Env.initialize, before the internal table can be read): the read is
+            // UNAVAILABLE, so the restore stays pending. Treating it as "no row" marked
+            // the restore complete and the first post-readiness idle report replaced the
+            // previous incarnation's confirmed COMMITTED fence / writer zones with zeros.
+            return null;
         }
         try {
             Map<String, String> params = new HashMap<>();
@@ -847,6 +886,16 @@ public final class AuditPublicationHorizon {
         // report must not retire obligations the shared row is the only copy of.
         long now = System.currentTimeMillis();
         restoreCarriedPublicationState();
+        if (!carriedStateRestored) {
+            // The previous incarnation's row could not be read YET (the environment is
+            // still starting, or the SELECT failed transiently): replacing it now would
+            // overwrite obligations this process cannot see - a previous COMMITTED fence
+            // with zeros, or its writer-zone record with an empty set. Report nothing;
+            // the reporter retries on its next tick.
+            LOG.info("audit publication horizon: the previous incarnation's row is not"
+                    + " readable yet; the report waits so it cannot overwrite it");
+            return false;
+        }
         long carriedFence = liveCarriedCommittedFence(now);
         if (carriedFence > 0) {
             if (committedFence <= 0) {
@@ -942,6 +991,15 @@ public final class AuditPublicationHorizon {
     private static void clearLocalReportLocked() {
         long now = System.currentTimeMillis();
         restoreCarriedPublicationState();
+        if (!carriedStateRestored) {
+            // Deleting the row before the restore completed would destroy the previous
+            // incarnation's committed fence / writer zones, which this process has not
+            // read yet. Keep the row; the close waits one more tick (the reporter and the
+            // close share the fence monitor, so a later clear sees the completed state).
+            LOG.info("audit publication horizon: the previous incarnation's row is not"
+                    + " readable yet; the close keeps it instead of de-registering");
+            return;
+        }
         long committedFence = AuditLoader.oldestCommittedPublishFenceEventTime();
         long carriedFence = liveCarriedCommittedFence(now);
         if (committedFence > 0 || carriedFence > 0

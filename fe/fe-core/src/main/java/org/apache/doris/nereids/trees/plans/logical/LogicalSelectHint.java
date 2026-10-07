@@ -136,4 +136,23 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     public String toDigest() {
         return child().toDigest();
     }
+
+    /**
+     * SPM identity of a hint-carrying statement: unlike toDigest() (Doris's generic
+     * query fingerprint, intentionally left delegating to the child), the SPM digest MUST
+     * include the hints. Two statements differing only in their LEADING / SET_VAR hint
+     * text share the same child tree, so a hint-free digest made them collide - a
+     * forwarded CREATE could then be confirmed by the OTHER hint variant's row (see
+     * BaselineManager.ForwardedDdlExpectation), and the frozen replay pinned a join
+     * order the caller never asked for. The hints render in list (= SQL text) order
+     * through each hint's own toString.
+     */
+    @Override
+    public String toSpmDigest() {
+        StringBuilder digest = new StringBuilder("SelectHint[");
+        for (SelectHint hint : hints) {
+            digest.append(hint).append(';');
+        }
+        return digest.append(child().toSpmDigest()).append(']').toString();
+    }
 }

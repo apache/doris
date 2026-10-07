@@ -199,16 +199,20 @@ public class FEOpExecutor {
 
         // session variables
         // SESSION-scope SPM baselines belong to THIS connection and live only in this
-        // FE's store: attach the currently ENABLED rows (rebuilt from the store HERE, so a
-        // client SET cannot inject rows) - the master otherwise plans the forwarded
-        // statement in a fresh context with an empty store and silently ignores the very
-        // baseline this connection created. With rewrite disabled the master can never
-        // consult a baseline, so nothing is shipped: serializing every enabled row would
-        // add unbounded (re)parse work to each forwarded statement of such a connection.
+        // FE's store: attach the enabled rows the forwarded statement could MATCH
+        // (rebuilt from the store HERE, so a client SET cannot inject rows, and filtered
+        // by the statement's own (hash, digest) match key) - the master otherwise plans
+        // the forwarded statement in a fresh context with an empty store and silently
+        // ignores the very baseline this connection created. Statements that are not
+        // plan-rewritable queries (DDL, batches) carry the full store: the management
+        // commands address rows by id on the master. With rewrite disabled the master can
+        // never consult a baseline, so nothing is shipped: serializing every enabled row
+        // would add unbounded (re)parse work to each forwarded statement of such a
+        // connection.
         if (ctx.getSessionVariable().isEnableSpmRewrite()) {
             ctx.getSessionVariable().setSpmForwardedSessionBaselines(
-                    org.apache.doris.nereids.spm.SPMForwardedSession.serialize(
-                            ctx.getSessionBaselineStore()));
+                    org.apache.doris.nereids.spm.SPMForwardedSession.serializeForStatement(
+                            ctx.getSessionBaselineStore(), ctx, originStmt.originStmt));
         } else {
             ctx.getSessionVariable().setSpmForwardedSessionBaselines("");
         }

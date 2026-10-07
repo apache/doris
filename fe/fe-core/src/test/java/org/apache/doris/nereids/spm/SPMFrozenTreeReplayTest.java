@@ -487,40 +487,33 @@ public class SPMFrozenTreeReplayTest {
     }
 
     /**
-     * R11-8 companion: a STALE plan_frozen=false on a row whose planSql re-parses into
-     * REAL placeholder calls (pre-provenance rows migrated with a default flag / an old
-     * release that recorded false for a successful marker-free decompile) must not kill
-     * the baseline. The parameterized fallback tree is rebuilt from an ALREADY
-     * parameterized text, its reconstructed placeholder ids do not line up with the
-     * values extracted from the bind tree, the residue safety net rejects the rewrite -
-     * the row would silently never apply. The text is the authority here.
+     * Round-50 (#6): the PERSISTED provenance is AUTHORITATIVE. A row stored with
+     * plan_frozen=false holds ORDINARY SQL by construction - a legal unqualified UDF call
+     * _spm_const_var(1) forces the raw fallback (the decompiler refuses the function) -
+     * and the previous parse-based upgrade flipped that flag on reload: the marker-shaped
+     * parse hid the real UDF, the row was replayed as frozen text, and a matching caller
+     * using _spm_const_var(2) had the call replaced by the literal 2 instead of
+     * evaluating the function.
      */
     @Test
-    public void testStaleNotFrozenFlagOnMarkerTextIsIgnored() throws Exception {
+    public void testExplicitNotFrozenFlagIsHonoredOnMarkerShapedText() throws Exception {
         installConnectContext();
         String bindSql = "SELECT * FROM t1 WHERE a > 100";
-        String frozenPlanSql = "SELECT * FROM t1 WHERE (a > CAST(_spm_const_var(1) AS INT))";
+        String rawPlanSql = "SELECT * FROM t1 WHERE (a > CAST(_spm_const_var(1) AS INT))";
         String digest = parse(bindSql).toSpmDigest();
         long hash = SPMUtils.hashOf(digest);
         ResultRow row = new ResultRow(List.of(
-                "88", bindSql, digest, String.valueOf(hash), frozenPlanSql, "", "1.0",
+                "88", bindSql, digest, String.valueOf(hash), rawPlanSql, "", "1.0",
                 "-1", "USER", "ENABLED", "2026-01-01 00:00:00", "2026-01-01 00:00:00",
                 String.valueOf(SqlModeHelper.MODE_DEFAULT),
                 String.valueOf(SqlModeHelper.MODE_DEFAULT), "false", ""));
         BaselinePlan rebuilt = BaselineManager.parsePersistedRowForTest(row);
-        Assertions.assertNull(rebuilt.getParameterizedPlanPlan(),
-                "the stale flag is upgraded: the row is replayed as frozen text");
-        manager.createBaseline(rebuilt);
-
-        LogicalPlan userPlan = parse("SELECT * FROM t1 WHERE a > 42");
-        LogicalPlan rewritten = new SPMPlanner().tryRewritePlan(userPlan,
-                System.currentTimeMillis() + 5000);
-        Assertions.assertNotNull(rewritten,
-                "the stale-flag row must replay through its placeholder text");
-        Assertions.assertTrue(allExprSqls(rewritten).contains("42"),
-                "the user value must be substituted: " + allExprSqls(rewritten));
-        Assertions.assertFalse(SPMPlanTreeSupport.containsFrozenPlaceholder(rewritten),
-                "no placeholder may remain after the replay");
+        Assertions.assertEquals(Boolean.FALSE, rebuilt.getPlanFrozen(),
+                "the explicit provenance must survive the reload");
+        Assertions.assertNotNull(rebuilt.getParameterizedPlanPlan(),
+                "the row keeps its parameterized fallback tree: the marker-shaped text is"
+                        + " the user's own UDF call, and replaying it as FROZEN would"
+                        + " substitute the caller's literal for that call");
     }
 
     /**

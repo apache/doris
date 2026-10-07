@@ -139,6 +139,10 @@ public class AuditPublicationHorizonTest {
             reported.add(horizon);
             return true;
         };
+        // the reporter starts before the environment can read the shared table (see
+        // readOwnRowsForRestore): an empty SUCCESSFUL read = a live environment with no
+        // previous row, so the restore completes and the close may act
+        AuditPublicationHorizon.ownRowRestoreReaderForTest = () -> Collections.emptyList();
         // nothing to carry: no re-report (and, with no shared table, no delete I/O either)
         AuditPublicationHorizon.clearLocalReport();
         Assertions.assertTrue(reported.isEmpty(),
@@ -152,14 +156,21 @@ public class AuditPublicationHorizonTest {
                 "the uncovered zone keeps the row: the close re-reports it instead of"
                         + " deleting the only copy");
 
-        // once the zone was REPORTED and durable capture progress covers it, the close
-        // may de-register again
+        // once the zone was REPORTED and durable capture progress covers it, the FORWARD
+        // chain retires it (the capture stops requiring a pass there) - but the shared row
+        // still carries it (round-50 #3): a pending window that surfaces LATE can rewind
+        // BELOW the covered floor, and only the row's own retirement may drop the zone
         AuditWriterZones.markReported(Collections.singletonList("America/New_York"));
         AuditWriterZones.captureCoveredThroughForTest = () -> Long.MAX_VALUE;
+        Assertions.assertFalse(AuditWriterZones.zones().contains("America/New_York"),
+                "the covered zone retires from the forward set: " + AuditWriterZones.zones());
+        Assertions.assertTrue(AuditWriterZones.anyZoneNeedingCoverage(),
+                "the shared row keeps the zone for a possible rewind");
         reported.clear();
         AuditPublicationHorizon.clearLocalReport();
-        Assertions.assertTrue(reported.isEmpty(),
-                "covered zones no longer pin the row");
+        Assertions.assertEquals(Collections.singletonList(0L), reported,
+                "the rewindable zone keeps the row: the close re-reports it instead of"
+                        + " deleting the only copy");
     }
 
     // ==================== #3: the pre-loader stages are part of the local horizon ======
@@ -240,6 +251,9 @@ public class AuditPublicationHorizonTest {
             reports.add(horizon);
             return true;
         };
+        // an empty SUCCESSFUL restore read: the previous incarnation left no row, so the
+        // report is allowed to write (see readOwnRowsForRestore)
+        AuditPublicationHorizon.ownRowRestoreReaderForTest = () -> Collections.emptyList();
         Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(4_242L),
                 "a confirmed write reports true");
         AuditPublicationHorizon.clearLocalReport();

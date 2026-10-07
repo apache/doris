@@ -3236,34 +3236,52 @@ public class BaselineManager {
          * falls back to the bind digest alone, as before the column existed).
          */
         private final String createdPlanDigest;
+        /**
+         * The CURRENT bind-side schema fingerprint of the submitted bind SQL (see
+         * SPMPlanTreeSupport#schemaFingerprint), computed on the follower at forward
+         * time. A row that matches the bind / plan identity but whose STORED fingerprint
+         * no longer contains these entries is STALE: after a schema change the repeated
+         * CREATE retires it and writes a new row under the current fingerprint, and
+         * confirming the old row republished a baseline whose replay the schema guard
+         * then rejects. "" = not computable here (the check is skipped).
+         */
+        private final String createdSchemaFingerprint;
 
         private ForwardedDdlExpectation(long id, BaselineStatus status) {
-            this(id, status, null, null, "", "", "");
+            this(id, status, null, null, "", "", "", "");
         }
 
         private ForwardedDdlExpectation(String createdBindSql, String createdPlanSql) {
-            this(0, null, createdBindSql, createdPlanSql, "", "", "");
+            this(0, null, createdBindSql, createdPlanSql, "", "", "", "");
         }
 
         private ForwardedDdlExpectation(String createdBindSql, String createdPlanSql,
                 String createdQueryId) {
-            this(0, null, createdBindSql, createdPlanSql, createdQueryId, "", "");
+            this(0, null, createdBindSql, createdPlanSql, createdQueryId, "", "", "");
         }
 
         private ForwardedDdlExpectation(String createdBindSql, String createdPlanSql,
                 String createdQueryId, String createdBindDigest) {
-            this(0, null, createdBindSql, createdPlanSql, createdQueryId, createdBindDigest, "");
+            this(0, null, createdBindSql, createdPlanSql, createdQueryId, createdBindDigest,
+                    "", "");
         }
 
         private ForwardedDdlExpectation(String createdBindSql, String createdPlanSql,
                 String createdQueryId, String createdBindDigest, String createdPlanDigest) {
             this(0, null, createdBindSql, createdPlanSql, createdQueryId, createdBindDigest,
-                    createdPlanDigest);
+                    createdPlanDigest, "");
+        }
+
+        private ForwardedDdlExpectation(String createdBindSql, String createdPlanSql,
+                String createdQueryId, String createdBindDigest, String createdPlanDigest,
+                String createdSchemaFingerprint) {
+            this(0, null, createdBindSql, createdPlanSql, createdQueryId, createdBindDigest,
+                    createdPlanDigest, createdSchemaFingerprint);
         }
 
         private ForwardedDdlExpectation(long id, BaselineStatus status, String createdBindSql,
                 String createdPlanSql, String createdQueryId, String createdBindDigest,
-                String createdPlanDigest) {
+                String createdPlanDigest, String createdSchemaFingerprint) {
             this.id = id;
             this.status = status;
             this.createdBindSql = createdBindSql;
@@ -3271,6 +3289,8 @@ public class BaselineManager {
             this.createdQueryId = createdQueryId == null ? "" : createdQueryId;
             this.createdBindDigest = createdBindDigest == null ? "" : createdBindDigest;
             this.createdPlanDigest = createdPlanDigest == null ? "" : createdPlanDigest;
+            this.createdSchemaFingerprint = createdSchemaFingerprint == null
+                    ? "" : createdSchemaFingerprint;
         }
 
         /** The expected outcome of a forwarded DROP: no readable row carries the id. */
@@ -3366,9 +3386,33 @@ public class BaselineManager {
          */
         public static ForwardedDdlExpectation created(String bindSql, String planSql,
                 String statementQueryId, String bindDigest, String planDigest) {
+            return created(bindSql, planSql, statementQueryId, bindDigest, planDigest, "");
+        }
+
+        /**
+         * As created(String, String, String, String, String) plus the CURRENT bind-side
+         * schema fingerprint of the submitted bind SQL (see
+         * SPMPlanner#canonicalSchemaFingerprint). The digest identity alone cannot tell
+         * two rows of IDENTICAL SQL apart: after a schema change the repeated CREATE
+         * retires the old row and writes a new one under the current fingerprint, and
+         * while only the OLD row is visible (its retirement / replacement not published
+         * yet) the digests still match - confirming it republished a baseline whose
+         * replay the schema guard rejects.
+         *
+         * @param bindSql           the forwarded CREATE's bind SQL
+         * @param planSql           the forwarded CREATE's plan SQL
+         * @param statementQueryId  the statement's query id ("" = match the text only)
+         * @param bindDigest        the canonical bind digest ("" = not available)
+         * @param planDigest        the canonical plan digest ("" = not available)
+         * @param schemaFingerprint the current bind-side fingerprint ("" = not available)
+         * @return the presence expectation
+         */
+        public static ForwardedDdlExpectation created(String bindSql, String planSql,
+                String statementQueryId, String bindDigest, String planDigest,
+                String schemaFingerprint) {
             return new ForwardedDdlExpectation(bindSql == null ? "" : bindSql,
                     planSql == null ? "" : planSql, statementQueryId, bindDigest,
-                    planDigest);
+                    planDigest, schemaFingerprint);
         }
 
         public long getId() {
@@ -3388,52 +3432,59 @@ public class BaselineManager {
 
         boolean isSatisfiedBy(Map<Long, BaselinePlan> snapshot) {
             if (createdBindSql != null) {
-                // "" / "NaN" cannot identify a row: the CREATE stores "NaN" when its
-                // context carried no query id, and matching that would accept ANY such
-                // row.
-                boolean queryIdUsable = !createdQueryId.isEmpty()
-                        && !"NaN".equals(createdQueryId);
-                boolean digestUsable = !createdBindDigest.isEmpty();
                 for (BaselinePlan row : snapshot.values()) {
-                    // The CANONICAL DIGEST is the identity every create of this shape
-                    // shares: an idempotent duplicate returns the EXISTING row, whose
-                    // query id, DECOMPILED plan text and (differently spaced) raw bind
-                    // text all mismatch while the digest is equal by construction.
-                    if (digestUsable && createdBindDigest.equals(row.getBindSqlDigest())) {
-                        // The bind digest is only HALF the identity: two baselines
-                        // may share the binding while carrying DIFFERENT plan
-                        // texts (one baseline per plan), and an idempotent
-                        // duplicate of the OTHER plan's CREATE must not be
-                        // confirmed by this row. The submitted plan's canonical
-                        // digest is stored on every new row; a pre-column row
-                        // (NULL digest) keeps the historical bind-only match.
-                        String rowPlanDigest = row.getPlanSqlDigest();
-                        if (createdPlanDigest.isEmpty() || rowPlanDigest == null
-                                || rowPlanDigest.isEmpty()) {
-                            return true;
-                        }
-                        if (createdPlanDigest.equals(rowPlanDigest)) {
-                            return true;
-                        }
-                    }
-                    if (!createdBindSql.equals(row.getBindSql())) {
+                    if (!matchesCreatedIdentity(row)) {
                         continue;
                     }
-                    // The master persists the DECOMPILED plan text for an ordinary
-                    // (non-fallback) CREATE, so the submitted planSql only matches when
-                    // the raw fallback was frozen. The statement's QUERY ID survives
-                    // every freezing choice: the forward carries this
-                    // statement's ctx.queryId() to the master, whose execution context
-                    // adopts it, and the CREATE stores it as the row's query_id.
-                    if (createdPlanSql.equals(row.getPlanSql())
-                            || (queryIdUsable && createdQueryId.equals(row.getQueryId()))) {
-                        return true;
+                    if (!createdSchemaFingerprint.isEmpty()
+                            && !SPMPlanTreeSupport.schemaFingerprintBindSideContained(
+                                    row.getSchemaFingerprint(), createdSchemaFingerprint)) {
+                        // The row matches the statement's identity but its STORED
+                        // fingerprint no longer describes the current metadata: after a
+                        // schema change the repeated CREATE retires this row and writes
+                        // the replacement under the CURRENT fingerprint, and confirming
+                        // the stale row republished a baseline whose replay the schema
+                        // guard rejects until the next refresh. Wait for the new row.
+                        continue;
                     }
+                    return true;
                 }
                 return false;
             }
             BaselinePlan row = snapshot.get(id);
             return status == null ? row == null : row != null && row.getStatus() == status;
+        }
+
+        /**
+         * Whether one row carries the identity this CREATE persisted (see the factory
+         * docs). The BIND digest identifies the binding; the PLAN digest - required
+         * whenever it is computable here - separates two baselines that share the
+         * binding while carrying different plan texts (one baseline per plan). A row
+         * whose plan digest is absent / empty therefore does NOT confirm: it cannot be
+         * attributed to this statement's plan. The raw arm covers the frozen fallback,
+         * whose stored text is the submitted one.
+         */
+        private boolean matchesCreatedIdentity(BaselinePlan row) {
+            if (!createdBindDigest.isEmpty()
+                    && createdBindDigest.equals(row.getBindSqlDigest())) {
+                if (createdPlanDigest.isEmpty()) {
+                    return true; // the plan digest is not computable here: bind identity
+                }
+                return createdPlanDigest.equals(row.getPlanSqlDigest());
+            }
+            if (!createdBindSql.equals(row.getBindSql())) {
+                return false;
+            }
+            // The master persists the DECOMPILED plan text for an ordinary
+            // (non-fallback) CREATE, so the submitted planSql only matches when the raw
+            // fallback was frozen. The statement's QUERY ID survives every freezing
+            // choice: the forward carries this statement's ctx.queryId() to the master,
+            // whose execution context adopts it, and the CREATE stores it as the row's
+            // query_id.
+            boolean queryIdUsable = !createdQueryId.isEmpty()
+                    && !"NaN".equals(createdQueryId);
+            return createdPlanSql.equals(row.getPlanSql())
+                    || (queryIdUsable && createdQueryId.equals(row.getQueryId()));
         }
     }
 
@@ -5265,35 +5316,18 @@ public class BaselineManager {
                     + " references a temporary table (the frozen plan carries the creator"
                     + " session's internal name); skipping the row");
         }
-        // Classify with the PERSISTED provenance first (plan_frozen), falling back to the
-        // parse-based classifier for pre-column rows: the fallback path stores the
-        // ORIGINAL planSql when the decompiler rejects a node, and that ordinary SQL may
-        // merely CONTAIN a placeholder function name inside a string literal / identifier
-        // / comment. A raw substring test would skip rebuilding the parameterized plan
-        // tree for such a row - after a reload the replay would return the CAPTURED
-        // literals and the fallback tree was gone.
+        // The PERSISTED provenance (plan_frozen) is AUTHORITATIVE when the row carries
+        // it: an explicitly NOT-frozen row's planSql is ordinary user SQL by
+        // construction (the raw fallback or a failed decompile), and re-classifying it
+        // by RE-PARSING the text is exactly how a legal unqualified UDF call named
+        // _spm_const_var(1) - the decompiler refuses such a function, so CREATE keeps
+        // the raw text and records plan_frozen=false - got flipped to frozen on reload:
+        // the marker-shaped parse (an unqualified single-integer-argument call IS the
+        // marker syntax) hid the real UDF, and the frozen replay then replaced the call
+        // with the caller's literal (a matching SELECT _spm_const_var(2) returned 2
+        // instead of evaluating the function). Only a row WITHOUT provenance (a legacy
+        // pre-column row) falls back to the parse-based classifier.
         boolean frozen = SPMPlanner.isFrozenPlanSql(planSql, p.getPlanFrozen());
-        if (!frozen && Boolean.FALSE.equals(p.getPlanFrozen())
-                && SPMPlanner.isFrozenPlanSql(planSql, null)) {
-            // A row explicitly flagged NOT frozen whose planSql nonetheless re-parses
-            // into REAL placeholder calls (not a mere literal / identifier carrying the
-            // name - that is exactly what the flag was added to protect against): the
-            // text is SPM's own decompiled rendering and the flag is stale. Pre-provenance
-            // rows migrated with a default flag, and older releases recorded false for a
-            // successful marker-free decompile (see SPMPlanner#buildBaselineFromSql).
-            // Replaying such a row through the parameterized fallback tree would also be
-            // WRONG: the tree is rebuilt from an ALREADY parameterized text, so the
-            // reconstructed placeholder ids no longer line up with the values extracted
-            // from the bind tree, the residue safety net rejects the rewrite and the
-            // baseline silently never applies. Treat the TEXT as the authority here.
-            LOG.warn("SPM baseline {} is flagged NOT frozen but its planSql re-parses into"
-                    + " placeholder calls; treating the row as frozen", p.getId());
-            frozen = true;
-            // keep the in-memory provenance consistent with the decision: the rewrite
-            // path re-checks planFrozen (SPMPlanner#rewriteFromFrozenTree) and would
-            // otherwise reject the very text this row depends on
-            p.setPlanFrozen(Boolean.TRUE);
-        }
         // Rebuild the transient trees with ONE shared builder over both texts in
         // the CREATE order (bind first, then plan), so the placeholder ids of the
         // two trees stay aligned and a value extracted from the bind tree can

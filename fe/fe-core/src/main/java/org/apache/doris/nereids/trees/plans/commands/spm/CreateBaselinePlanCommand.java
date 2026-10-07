@@ -162,7 +162,8 @@ public class CreateBaselinePlanCommand extends Command implements Forward {
                 BaselineManager.ForwardedDdlExpectation.created(bindSql, planSql,
                         ctx.queryId() == null ? "" : DebugUtil.printId(ctx.queryId()),
                         SPMPlanner.canonicalBindDigest(ctx, bindSql),
-                        SPMPlanner.canonicalPlanDigest(ctx, planSql)));
+                        SPMPlanner.canonicalPlanDigest(ctx, planSql),
+                        SPMPlanner.canonicalSchemaFingerprint(ctx, bindSql)));
     }
 
     @Override

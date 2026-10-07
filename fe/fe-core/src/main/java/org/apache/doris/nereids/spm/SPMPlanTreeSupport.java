@@ -2209,8 +2209,17 @@ public final class SPMPlanTreeSupport {
                     "the replay's set-operation output cannot be aligned with the caller's"
                             + " labels");
         }
-        if (rewrittenNode.getClass() != userNode.getClass()
-                || !carriesOutputList(rewrittenNode)) {
+        // A grouped aggregate replay: the frozen decompilation wraps the caller's
+        // aggregate in an OUTER SELECT c_N AS <captured header> to preserve the captured
+        // result label, while the caller's root IS the aggregate. The projection's list
+        // carries the caller-visible header and aligns POSITIONALLY with the aggregate's
+        // output list, so the class mismatch alone must not skip the realignment - the
+        // replay computes the caller's aggregate (sum(v + 2)) but used to report the
+        // captured label (sum(v + 1)).
+        boolean groupedAggregateReplay = rewrittenNode instanceof LogicalProject
+                && userNode instanceof LogicalAggregate;
+        if ((rewrittenNode.getClass() != userNode.getClass()
+                || !carriesOutputList(rewrittenNode)) && !groupedAggregateReplay) {
             return rewritten;
         }
         List<NamedExpression> rewrittenItems = outputItemsOf(rewrittenNode);
@@ -2229,7 +2238,15 @@ public final class SPMPlanTreeSupport {
         // the positions behind the marker keep the frozen names (those are real column
         // names that need no realignment).
         if (userLabels == null) {
-            return rewritten;
+            // A star whose unknown-width tail is FOLLOWED by further caller items: the
+            // caller's positions cannot be derived from its own list, but the frozen list
+            // fixes the arity, so the trailing items are positioned from the END and the
+            // star keeps its derivable prefix + the frozen names behind it (see
+            // alignOpenStarWithTrailingItems). Returning the tree untouched exposed the
+            // frozen sink's captured header for the trailing item (SELECT *, c + 2 FROM u
+            // reported c + 1).
+            return alignOpenStarWithTrailingItems(rewrittenNode, userNode, userItems,
+                    rewrittenItems, rewritten, rewrittenAncestors);
         }
         boolean openTail = !userLabels.isEmpty()
                 && userLabels.get(userLabels.size() - 1) == OPEN_TAIL_LABEL;
@@ -2448,12 +2465,13 @@ public final class SPMPlanTreeSupport {
     /**
      * One label per caller-visible output COLUMN: a plain item contributes its own label,
      * a root STAR is expanded through the caller's own child relation (see
-     * starExpansion).
+     * starExpansionForStar / starExpansion).
      *
      * @return the labels (null entries = the position carries no derivable label), the
      *         list ENDING with OPEN_TAIL_LABEL when the trailing positions'
      *         count / labels are not derivable, or null when a star's open tail cannot
-     *         be placed (another item follows it)
+     *         be placed (another item follows it - the caller then positions those items
+     *         against the frozen list, see alignOpenStarWithTrailingItems)
      */
     private static List<String> expandedOutputLabels(List<NamedExpression> items, Plan node) {
         List<String> labels = new ArrayList<>(items.size());
@@ -2461,11 +2479,12 @@ public final class SPMPlanTreeSupport {
             NamedExpression item = items.get(i);
             if (item instanceof UnboundStar && !hasStarPayload((UnboundStar) item)
                     && node.children().size() == 1) {
-                StarLabels expanded = starExpansion(node.child(0));
+                StarLabels expanded = starExpansionForStar(node.child(0),
+                        (UnboundStar) item);
                 if (expanded.openTail) {
                     if (i != items.size() - 1) {
                         // the open tail's length is unknown: the items after it cannot be
-                        // positioned
+                        // positioned from the caller's own list
                         return null;
                     }
                     labels.addAll(expanded.labels);
@@ -2478,6 +2497,92 @@ public final class SPMPlanTreeSupport {
             labels.add(outputLabelOf(item));
         }
         return labels;
+    }
+
+    /**
+     * Realigns the frozen output list when the caller's star has an unknown-width tail
+     * FOLLOWED by further items (expandedOutputLabels returns null then): the caller's
+     * own positions cannot be derived, but the FROZEN list fixes the arity, so the
+     * trailing items are positioned from the END and the star contributes its derivable
+     * PREFIX - the positions behind that prefix are real column names (a base table's,
+     * or a join's underivable side) that keep their frozen labels. The previous outcome
+     * returned the tree untouched, so a trailing item whose value was substituted kept
+     * the captured header text (SELECT *, c + 2 FROM u reported c + 1). A shape whose
+     * trailing items cannot be positioned declines the rewrite.
+     */
+    private static LogicalPlan alignOpenStarWithTrailingItems(Plan rewrittenNode,
+            Plan userNode, List<NamedExpression> userItems,
+            List<NamedExpression> rewrittenItems, Plan rewritten,
+            java.util.ArrayDeque<Plan> rewrittenAncestors) {
+        int starIndex = -1;
+        List<String> prefix = null;
+        if (userNode.children().size() == 1) {
+            for (int i = 0; i < userItems.size(); i++) {
+                NamedExpression item = userItems.get(i);
+                if (!(item instanceof UnboundStar)
+                        || hasStarPayload((UnboundStar) item)) {
+                    continue;
+                }
+                StarLabels expanded = starExpansionForStar(userNode.child(0),
+                        (UnboundStar) item);
+                if (expanded.openTail && i != userItems.size() - 1) {
+                    starIndex = i;
+                    prefix = expanded.labels;
+                    break;
+                }
+            }
+        }
+        if (starIndex < 0) {
+            throw new UnalignableOutputLabelsException(
+                    "the caller's star expansion is not derivable and its following"
+                            + " labels cannot be positioned");
+        }
+        int trailingCount = userItems.size() - starIndex - 1;
+        int frozenCount = rewrittenItems.size();
+        int tailStart = frozenCount - trailingCount;
+        if (tailStart < starIndex + prefix.size()) {
+            // the frozen list is too short: the trailing items would overlap the star's
+            // derivable prefix, an arity the frozen text cannot describe
+            throw new UnalignableOutputLabelsException(
+                    "the replay's output arity cannot be aligned with the caller's star"
+                            + " expansion");
+        }
+        List<NamedExpression> aligned = new ArrayList<>(frozenCount);
+        boolean changed = false;
+        for (int i = 0; i < frozenCount; i++) {
+            NamedExpression rewrittenItem = rewrittenItems.get(i);
+            String userLabel = null;
+            NamedExpression userItem = null;
+            if (i < starIndex) {
+                userLabel = outputLabelOf(userItems.get(i));
+                userItem = userItems.get(i);
+            } else if (i < starIndex + prefix.size()) {
+                userLabel = prefix.get(i - starIndex);
+            } else if (i >= tailStart) {
+                int userIndex = starIndex + 1 + (i - tailStart);
+                userLabel = outputLabelOf(userItems.get(userIndex));
+                userItem = userItems.get(userIndex);
+            }
+            String rewrittenLabel = outputLabelOf(rewrittenItem);
+            if (userLabel == null || rewrittenLabel == null
+                    || userLabel.equals(rewrittenLabel)) {
+                // the middle positions (the star's unknown-width tail) keep the frozen
+                // names: those are real column names, not captured expression text
+                aligned.add(rewrittenItem);
+                continue;
+            }
+            aligned.add(renameOutputItem(rewrittenItem, userLabel,
+                    userItem != null && isDerivedAlias(userItem)));
+            changed = true;
+        }
+        if (!changed) {
+            return (LogicalPlan) rewritten;
+        }
+        Plan rebuilt = rebuildWithOutputItems(rewrittenNode, aligned);
+        for (Plan ancestor : rewrittenAncestors) {
+            rebuilt = ancestor.withChildren(java.util.List.of(rebuilt));
+        }
+        return (LogicalPlan) rebuilt;
     }
 
     /** One `*`'s expansion: the derivable leading labels plus whether the TRAILING
@@ -2496,6 +2601,79 @@ public final class SPMPlanTreeSupport {
      * plain projection and must not be derived here). */
     private static boolean hasStarPayload(UnboundStar star) {
         return !star.getExceptedSlots().isEmpty() || !star.getReplacedAlias().isEmpty();
+    }
+
+    /**
+     * One star's expansion, honouring its QUALIFIER: an UNQUALIFIED star selects every
+     * relation's columns in output order (see starExpansion), while table.* selects ONLY
+     * the columns of the relation its qualifier names - expanding the whole join for it
+     * took the derived label of the WRONG side as the first selected output and renamed
+     * e.g. u's first column to the caller's derived k + 2 (SELECT u.* FROM
+     * (SELECT k + 1 FROM t) s CROSS JOIN u). A qualifier naming a relation with an
+     * unknown-width expansion (a base table) keeps the frozen names - those ARE that
+     * relation's real column names; a qualifier that cannot be resolved DECLINES the
+     * replay instead of guessing.
+     */
+    private static StarLabels starExpansionForStar(Plan relation, UnboundStar star) {
+        List<String> qualifier = star.getQualifier();
+        if (qualifier == null || qualifier.isEmpty()) {
+            return starExpansion(relation);
+        }
+        StarLabels qualified = qualifiedStarExpansion(relation, qualifier);
+        if (qualified == null) {
+            throw new UnalignableOutputLabelsException(
+                    "the caller's qualified star " + star.toSql()
+                            + " cannot be resolved against the replay's relations; the"
+                            + " caller's headers cannot be positioned");
+        }
+        return qualified;
+    }
+
+    /**
+     * The expansion of a QUALIFIED star: the relation its qualifier names, found by
+     * walking the JOIN sides of the relation the star projects from. Null when no side is
+     * addressed by the qualifier (the caller's own text may be invalid, or the relation
+     * hides behind a shape this walk cannot address - the caller then declines).
+     */
+    private static StarLabels qualifiedStarExpansion(Plan relation, List<String> qualifier) {
+        if (relation instanceof LogicalJoin) {
+            for (Plan child : relation.children()) {
+                StarLabels side = qualifiedStarExpansion(child, qualifier);
+                if (side != null) {
+                    return side;
+                }
+            }
+            return null;
+        }
+        if (!relationAnswersQualifier(relation, qualifier)) {
+            return null;
+        }
+        return starExpansion(relation);
+    }
+
+    /**
+     * Whether one relation - or the wrapper chain above it - is addressed by a star's
+     * qualifier: an alias (a subquery alias, or a FROM alias wrapping the relation) wins
+     * over the table name, exactly as the analyzer resolves it, and a qualified table
+     * reference matches by its last name part.
+     */
+    private static boolean relationAnswersQualifier(Plan relation, List<String> qualifier) {
+        String wanted = qualifier.get(qualifier.size() - 1);
+        Plan node = relation;
+        while (node != null && node.children().size() == 1
+                && !(node instanceof LogicalSubQueryAlias)
+                && !(node instanceof UnboundRelation)
+                && !carriesOutputList(node)) {
+            node = node.child(0);
+        }
+        if (node instanceof LogicalSubQueryAlias) {
+            return wanted.equals(((LogicalSubQueryAlias<?>) node).getAlias());
+        }
+        if (node instanceof UnboundRelation) {
+            List<String> parts = ((UnboundRelation) node).getNameParts();
+            return !parts.isEmpty() && wanted.equals(parts.get(parts.size() - 1));
+        }
+        return false;
     }
 
     /**

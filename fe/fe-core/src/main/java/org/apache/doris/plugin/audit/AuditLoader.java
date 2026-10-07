@@ -133,16 +133,25 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     private long droppedPublishFenceUntil = 0;
 
     /**
-     * The load labels of the aggregated fences, OLDEST first ("-" = unknown identity).
-     * The aggregate's event time alone does not settle it: the dead-FE settlement resolves
-     * every contributing transaction by label, so a COMMITTED overflowed batch whose
-     * label was dropped from here could be read as settled once the SURVIVING labels
-     * turn terminal - the capture would then checkpoint past a row that still publishes.
-     * Bounded by MAX_AGGREGATED_FENCE_LABELS; an overflow beyond the bound contributes the
-     * UNRESOLVED marker "-" instead, which keeps the fence until the age bound.
+     * The load labels of the aggregated fences, OLDEST first ("-" = no identity was ever
+     * allocated). The aggregate's event time alone does not settle it: the dead-FE
+     * settlement resolves every contributing transaction by label, so a COMMITTED
+     * overflowed batch whose label was dropped from here could be read as settled once
+     * the SURVIVING labels turn terminal - the capture would then checkpoint past a row
+     * that still publishes. Bounded by MAX_AGGREGATED_FENCE_LABELS; at capacity the
+     * OLDEST identities are resolved first so a provably settled one frees its slot, and
+     * only an identity that still cannot be resolved keeps fencing through
+     * OVERFLOWED_FENCE_LABEL (never expired by age).
      * Guarded by the loader monitor.
      */
     private final List<String> droppedPublishFenceLabels = new ArrayList<>();
+
+    /**
+     * The marker of an aggregated batch whose identity did NOT fit the label budget: the
+     * reader cannot resolve it, so it keeps the shared fence fenced instead of expiring
+     * it on the row's age alone (see AuditPublicationHorizon#committedFenceSettled).
+     */
+    static final String OVERFLOWED_FENCE_LABEL = "*";
 
     /** Whether an aggregated label was lost to the bound (see droppedPublishFenceLabels). */
     private boolean droppedFenceLabelsOverflowed = false;
@@ -195,11 +204,14 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     /**
      * Hard bound of the labels carried for the aggregated fences (the shared row's
-     * committed_fence_labels column): beyond it the settlement sees the UNRESOLVED marker
-     * "-", which keeps the fence until the age bound - the same last resort an
-     * unrecognized label has, and never a silent release.
+     * committed_fence_labels column). At capacity the OLDEST retained identities are
+     * resolved and the terminal ones dropped first (see aggregateDroppedFence), so the
+     * bound is only reached when this many transactions are SIMULTANEOUSLY unresolved;
+     * the row itself already carries up to MAX_PENDING_PUBLISH_FENCES pending labels, so
+     * the same order of magnitude fits the column. Beyond it the settlement sees the
+     * overflow marker, which never settles by age.
      */
-    static final int MAX_AGGREGATED_FENCE_LABELS = 64;
+    static final int MAX_AGGREGATED_FENCE_LABELS = 256;
 
     /** How often the horizon reporter wakes up (it only writes on change / keepalive). */
     static final long HORIZON_REPORT_TICK_MILLIS = 5_000L;
@@ -849,11 +861,41 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         droppedPublishFenceUntil = Math.max(droppedPublishFenceUntil,
                 dropped.since + PUBLISH_FENCE_MAX_MILLIS);
         // the batch's IDENTITY must survive here too: the event time alone cannot be
-        // resolved against the transaction manager (see droppedPublishFenceLabels)
+        // resolved against the transaction manager (see droppedPublishFenceLabels).
+        // At capacity the OLDEST retained identities are resolved first and the ones
+        // that can no longer publish (VISIBLE rows are readable, ABORTED can never
+        // publish) give up their slots - an identity LOST here cannot be resolved after
+        // this FE dies, so only a genuinely unresolved set may overflow.
+        if (droppedPublishFenceLabels.size() >= MAX_AGGREGATED_FENCE_LABELS) {
+            drainResolvedAggregatedLabels();
+        }
         if (droppedPublishFenceLabels.size() < MAX_AGGREGATED_FENCE_LABELS) {
             droppedPublishFenceLabels.add(dropped.label.isEmpty() ? "-" : dropped.label);
         } else {
             droppedFenceLabelsOverflowed = true;
+        }
+    }
+
+    /**
+     * Drops every retained aggregated identity whose transaction already resolved to a
+     * TERMINAL state (see AuditPublicationHorizon#committedFenceSettled): VISIBLE rows
+     * are readable and ABORTED batches can never publish, so neither needs its slot.
+     * Called under the loader monitor, on the (already pathological) eviction path only.
+     */
+    private void drainResolvedAggregatedLabels() {
+        java.util.Iterator<String> iterator = droppedPublishFenceLabels.iterator();
+        while (iterator.hasNext()) {
+            String label = iterator.next();
+            if (label.isEmpty() || "-".equals(label)
+                    || OVERFLOWED_FENCE_LABEL.equals(label)) {
+                // no identity was recorded, or the slot stands for a batch whose identity
+                // is UNKNOWN: a label lookup can never settle either, so they keep their
+                // slots (fail closed)
+                continue;
+            }
+            if (isTerminalTransactionStatus(transactionStatusForLabel(label))) {
+                iterator.remove();
+            }
         }
     }
 
@@ -947,12 +989,13 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     /**
-     * The load labels of the batches still fencing this FE's progress,
-     * oldest first and "-" for a batch whose label is unknown, joined with ';' ("" when
-     * nothing fences). Travels in the shared horizon row so the reader can resolve each
-     * transaction after this FE died - a dead FE cannot re-report, so the labels are the
-     * only way to learn whether its committed fences are terminal instead of expiring
-     * them on a bare age bound.
+     * The load labels of the batches still fencing this FE's progress, oldest first,
+     * "-" for a batch without an identity and "*" for an identity that did not fit the
+     * aggregated-label budget, joined with ';' ("" when nothing fences). Travels in the
+     * shared horizon row so the reader can resolve each transaction after this FE died
+     * - a dead FE cannot re-report, so the labels are the only way to learn whether its
+     * committed fences are terminal instead of expiring them on a bare age bound (and
+     * the overflow marker is never expired that way at all).
      */
     static String oldestCommittedPublishFenceLabels() {
         AuditLoader loader = runningLoader;
@@ -978,7 +1021,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     appendFenceLabel(sb, label);
                 }
                 if (droppedFenceLabelsOverflowed) {
-                    appendFenceLabel(sb, "-");
+                    // a DISTINCT marker (not "-"): the reader must keep this slot fenced
+                    // without an age bound - the omitted batch is a real
+                    // dropped-publish-timeout whose transaction may still publish
+                    appendFenceLabel(sb, OVERFLOWED_FENCE_LABEL);
                 }
             }
             for (PublishFence fence : pendingPublishFences) {

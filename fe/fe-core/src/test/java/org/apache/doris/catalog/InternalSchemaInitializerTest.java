@@ -760,4 +760,59 @@ class InternalSchemaInitializerTest {
                     column + " must be added as a VALUE column, not a key: " + definition);
         }
     }
+
+    /**
+     * Round-50 (#9): the checkpoint model migration stages the pre-append-only row in a
+     * STAGING table BEFORE the old table is dropped, so every crash window leaves a
+     * readable copy somewhere - the previous in-memory handoff lost the pending window
+     * when the process died between the drop and its replacement INSERT, and a
+     * transiently failed INSERT was never retried. The staging SQL targets that table,
+     * reads its COPY TOKEN back (the copy into the recreated table reuses it, so a
+     * re-run cannot supersede a newer capture write), and the read-back of the restored
+     * row matches the token plus the carried window start.
+     */
+    @Test
+    public void testStagedCheckpointCarrySqlTargetsTheStagingTable() throws Exception {
+        Assertions.assertNotEquals(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME,
+                InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME,
+                "the staging table must not be the checkpoint table itself");
+
+        String create = InternalSchemaInitializer.getSpmCaptureCheckpointStageCreateSql();
+        Assertions.assertTrue(create.contains("`" + InternalSchemaInitializer
+                        .SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME + "`"), create);
+        Assertions.assertTrue(create.contains("DUPLICATE KEY(`leader_epoch`, `write_seq`)"),
+                "the staging table must carry the append-only schema: " + create);
+        Assertions.assertTrue(create.contains("`cursor_tail`") && create.contains("`scan_zone`"),
+                "the staged payload columns must exist: " + create);
+
+        String stagedSelect = InternalSchemaInitializer.buildStagedCheckpointSelectSql();
+        Assertions.assertTrue(stagedSelect.startsWith("SELECT `leader_epoch`, `write_seq`, "),
+                "the copy token travels with the payload: " + stagedSelect);
+        Assertions.assertTrue(stagedSelect.contains("`" + InternalSchemaInitializer
+                        .SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME + "`"), stagedSelect);
+        for (String column : InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS) {
+            Assertions.assertTrue(stagedSelect.contains("`" + column + "`"),
+                    "staged column " + column + " missing: " + stagedSelect);
+        }
+
+        Map<String, String> state = new LinkedHashMap<>();
+        state.put("pending_window_start", "900");
+        state.put("pending_window_end", "1100");
+        String stagedInsert = InternalSchemaInitializer.buildCarriedCheckpointInsert(
+                InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME, state, 7L);
+        Assertions.assertTrue(stagedInsert.startsWith("INSERT INTO `__internal_schema`."
+                        + "`" + InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME
+                        + "`"), stagedInsert);
+        Assertions.assertTrue(stagedInsert.contains("VALUES (1, 7, 0, NOW(), 900, 1100"),
+                "the staged copy keeps the token and the window: " + stagedInsert);
+
+        String readback = InternalSchemaInitializer.buildCarriedCheckpointReadbackSql(7L, "900");
+        Assertions.assertTrue(readback.contains("`leader_epoch` = 7")
+                        && readback.contains("`write_seq` = 0")
+                        && readback.contains("`pending_window_start` = 900"),
+                "the read-back must match the reused token AND the carried window: "
+                        + readback);
+        Assertions.assertTrue(readback.contains("`" + InternalSchema
+                        .SPM_CAPTURE_CHECKPOINT_TBL_NAME + "`"), readback);
+    }
 }

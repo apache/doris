@@ -385,20 +385,37 @@ public final class AuditWriterZones {
         return zones;
     }
 
-    /** snapshot() as a plain zone-ID set (the capture's required-set input). */
+    /** snapshot() as a plain zone-ID set (the capture's FORWARD required-set input). */
     public static Set<String> zones() {
         return new LinkedHashSet<>(snapshot().keySet());
     }
 
     /**
+     * Every zone the registry still knows, INCLUDING zones the forward filter (see
+     * snapshot) already considers covered by capture progress. A covered zone is only
+     * retired from the FORWARD chain: an earlier pending checkpoint that surfaces late
+     * (an unreadable row is invisible to the rewind-floor read) may still own rows in
+     * it, so the capture must be able to require a pass there before completing that
+     * window (see AuditPublicationHorizon#clusterWriterZonesForRewind).
+     *
+     * @return the zone IDs a rewindable window may have rendered rows in
+     */
+    public static Set<String> zonesForRewind() {
+        return new LinkedHashSet<>(WRITER_ZONES.keySet());
+    }
+
+    /**
      * Encodes the live registry for the per-FE horizon row: zone=millis pairs,
-     * comma-separated. Zone IDs contain '/' and '_' but neither ',' nor '='.
+     * comma-separated. Zone IDs contain '/' but neither ',' nor '='. EVERY registered
+     * zone is carried - the shared row must keep the knowledge a REWIND may need, and
+     * only the capture decides which zones the forward chain still requires (see
+     * zonesForRewind / zones).
      *
      * @return the encoded registry (empty when nothing was rendered yet)
      */
     public static String encode() {
         StringBuilder sb = new StringBuilder();
-        for (Map.Entry<String, Long> entry : snapshot().entrySet()) {
+        for (Map.Entry<String, Long> entry : WRITER_ZONES.entrySet()) {
             if (sb.length() > 0) {
                 sb.append(',');
             }
@@ -499,13 +516,14 @@ public final class AuditWriterZones {
     }
 
     /**
-     * Whether any zone in the registry may still own a row of an UNCOMPLETED capture
-     * window (see the clean-close path of AuditPublicationHorizon#clearLocalReport): the
-     * snapshot is exactly the set every report carries, so a non-empty one means the
-     * shared row is still the only copy of that knowledge.
+     * Whether the registry still knows a zone that may own a row of an UNCOMPLETED
+     * capture window (see the clean-close path of AuditPublicationHorizon#clearLocalReport):
+     * every registered zone travels in the report, so a non-empty registry means the
+     * shared row is still the only copy of that knowledge - including zones the forward
+     * chain already covered, which a late-surfacing pending window may still rewind to.
      */
     public static boolean anyZoneNeedingCoverage() {
-        return !snapshot().isEmpty();
+        return !WRITER_ZONES.isEmpty();
     }
 
     /** For tests: forget every recorded zone and the cached capture watermark. */
