@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -2126,6 +2127,79 @@ public final class SPMPlanTreeSupport {
             rewrittenNode = rewrittenNode.child(0);
             userNode = userNode.child(0);
         }
+        // A baseline over a SET OPERATION. The caller's root IS the set node
+        // (SELECT k + 2 FROM t UNION ALL ...), so its FIRST branch's labels are the
+        // caller-visible header; the replayed tree may BE the same set (the fallback
+        // replay) or wrap it in wrappers whose shape the frozen text pinned - a
+        // projection carrying the CAPTURED labels, under a subquery alias, under
+        // EXPLAIN... Descend the replayed tree through single-child wrappers to the node
+        // the alignment can target:
+        // - a set operation of the caller's class: align every BRANCH positionally;
+        // - an output-carrying wrapper (the frozen text's label-pinning projection):
+        //   align it against the caller's first branch - but only when a set operation
+        //   of the caller's class really sits below it, so a wrapper over an unrelated
+        //   subtree never has its list rewritten.
+        // Anything else: the labels cannot be addressed -> skip the rewrite.
+        if (userNode instanceof LogicalSetOperation) {
+            java.util.ArrayDeque<Plan> extraAncestors = new java.util.ArrayDeque<>();
+            Plan probe = rewrittenNode;
+            while (!(probe instanceof LogicalSetOperation) && !carriesOutputList(probe)
+                    && probe.children().size() == 1) {
+                extraAncestors.push(probe);
+                probe = probe.child(0);
+            }
+            if (probe instanceof LogicalSetOperation
+                    && probe.getClass() == userNode.getClass()
+                    && probe.children().size() == userNode.children().size()) {
+                List<Plan> alignedChildren = new ArrayList<>();
+                boolean changedChildren = false;
+                for (int i = 0; i < probe.children().size(); i++) {
+                    Plan child = probe.child(i);
+                    Plan alignedChild = alignRootOutputLabels((LogicalPlan) child,
+                            (LogicalPlan) userNode.child(i));
+                    changedChildren |= alignedChild != child;
+                    alignedChildren.add(alignedChild);
+                }
+                if (!changedChildren) {
+                    return rewritten;
+                }
+                return rebuildThroughAncestors(probe.withChildren(alignedChildren),
+                        extraAncestors, rewrittenAncestors);
+            }
+            if (!(probe instanceof LogicalSetOperation) && carriesOutputList(probe)
+                    && setOperationOfClassBelow(probe, userNode.getClass())) {
+                Plan firstBranch = userNode.child(0);
+                if (firstBranch instanceof LogicalPlan && carriesOutputList(firstBranch)) {
+                    LogicalPlan alignedWrapper = alignRootOutputLabels(
+                            (LogicalPlan) probe, (LogicalPlan) firstBranch);
+                    if (alignedWrapper == probe) {
+                        return rewritten;
+                    }
+                    return rebuildThroughAncestors(alignedWrapper, extraAncestors,
+                            rewrittenAncestors);
+                }
+                // A constant first branch (SELECT 1 AS c) has NO rebuildable output list -
+                // no positional rename can be applied. Realigning is unnecessary when
+                // every label already equals the wrapper's, and must not be faked
+                // otherwise (the caller would keep the captured header).
+                List<String> callerLabels = firstBranch instanceof LogicalPlan
+                        ? branchLabels(firstBranch) : null;
+                if (callerLabels == null
+                        || !labelsEqual(callerLabels, outputItemsOf(probe))) {
+                    throw new UnalignableOutputLabelsException(
+                            "the caller's set-operation header labels cannot be determined");
+                }
+                return rewritten;
+            }
+            throw new UnalignableOutputLabelsException(
+                    "the replay's set-operation output cannot be aligned with the caller's"
+                            + " labels");
+        }
+        if (rewrittenNode instanceof LogicalSetOperation) {
+            throw new UnalignableOutputLabelsException(
+                    "the replay's set-operation output cannot be aligned with the caller's"
+                            + " labels");
+        }
         if (rewrittenNode.getClass() != userNode.getClass()
                 || !carriesOutputList(rewrittenNode)) {
             return rewritten;
@@ -2230,6 +2304,84 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
+     * Whether a set operation of the given class sits below node through a single-child
+     * chain (a subquery alias, an unbound result sink, the SORT + AGGREGATE the frozen
+     * text wraps a UNION DISTINCT in...). The search walks through ANY single-child node:
+     * the caller's root is the set, so the frozen wrapper must eventually read from one,
+     * and the alignment target stays the wrapper whose output list is the caller-visible
+     * header (see alignRootOutputLabels).
+     */
+    private static boolean setOperationOfClassBelow(Plan node, Class<?> setClass) {
+        if (node.children().size() != 1) {
+            return false;
+        }
+        Plan probe = node.child(0);
+        while (probe != null && !(probe instanceof LogicalSetOperation)
+                && probe.children().size() == 1) {
+            probe = probe.child(0);
+        }
+        return probe != null && probe.getClass() == setClass;
+    }
+
+    /**
+     * Wraps the rebuilt node back under its recorded wrappers: the INNER deque holds the
+     * wrappers between the rewritten root and the rebuilt node (innermost first, the
+     * push order of the descent), the OUTER one the wrappers above the rewritten root
+     * (see alignRootOutputLabels).
+     */
+    private static LogicalPlan rebuildThroughAncestors(Plan node,
+            java.util.ArrayDeque<Plan> innerAncestors,
+            java.util.ArrayDeque<Plan> outerAncestors) {
+        Plan rebuilt = node;
+        for (Plan ancestor : innerAncestors) {
+            rebuilt = ancestor.withChildren(java.util.List.of(rebuilt));
+        }
+        for (Plan ancestor : outerAncestors) {
+            rebuilt = ancestor.withChildren(java.util.List.of(rebuilt));
+        }
+        return (LogicalPlan) rebuilt;
+    }
+
+    /**
+     * The caller-visible labels of a set branch's top node, whether or not the node
+     * carries a rebuildable output list (a constant branch SELECT 1 AS c has none - its
+     * label lives on the one-row relation). null when the labels cannot be derived (see
+     * alignRootOutputLabels).
+     */
+    private static List<String> branchLabels(Plan branch) {
+        List<NamedExpression> items;
+        if (carriesOutputList(branch)) {
+            items = outputItemsOf(branch);
+        } else if (branch instanceof OneRowRelation) {
+            // both the bound and the parsed (unbound) constant relation expose their
+            // select list here
+            items = ((OneRowRelation) branch).getProjects();
+        } else {
+            return null;
+        }
+        List<String> labels = new ArrayList<>(items.size());
+        for (NamedExpression item : items) {
+            labels.add(outputLabelOf(item));
+        }
+        return labels;
+    }
+
+    /** Position-by-position label equality (null on either side = not equal). */
+    private static boolean labelsEqual(List<String> callerLabels, List<NamedExpression> items) {
+        if (callerLabels.size() != items.size()) {
+            return false;
+        }
+        for (int i = 0; i < callerLabels.size(); i++) {
+            String itemLabel = outputLabelOf(items.get(i));
+            if (callerLabels.get(i) == null || itemLabel == null
+                    || !callerLabels.get(i).equals(itemLabel)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * One label per caller-visible output COLUMN: a plain item contributes its own label,
      * a root STAR is expanded through the caller's own child relation (see
      * starExpansion).
@@ -2319,21 +2471,84 @@ public final class SPMPlanTreeSupport {
         if (node instanceof LogicalJoin) {
             List<String> labels = new ArrayList<>();
             List<Plan> children = node.children();
+            boolean openSeen = false;
             for (int i = 0; i < children.size(); i++) {
                 StarLabels child = starExpansion(children.get(i));
                 if (child.openTail) {
-                    if (i != children.size() - 1) {
-                        // an underivable side before a derivable one: the derivable labels
-                        // cannot be positioned
-                        return new StarLabels(List.of(), true);
+                    if (i == children.size() - 1) {
+                        return new StarLabels(labels, true);
                     }
-                    return new StarLabels(labels, true);
+                    // an underivable side before further output: if a LATER side is
+                    // derivable, its labels cannot be positioned behind the unknown width
+                    // - exposing the frozen names for them reported the captured header
+                    // (see UnalignableOutputLabelsException)
+                    openSeen = true;
+                    continue;
+                }
+                if (openSeen) {
+                    throw new UnalignableOutputLabelsException(
+                            "an unknown-width join input precedes derivable output labels;"
+                                    + " the caller's headers cannot be positioned");
                 }
                 labels.addAll(child.labels);
             }
-            return new StarLabels(labels, false);
+            return new StarLabels(labels, openSeen);
         }
         return new StarLabels(List.of(), true);
+    }
+
+    /**
+     * Re-attaches the caller's SET_VAR hints to the replay. The hint is applied by
+     * EliminateLogicalSelectHint while the statement is planned, but the SPM replay
+     * replaces the whole tree BEFORE that pass and the frozen text carries no hint, so
+     * the replay would otherwise run under the session's ORIGINAL settings - a
+     * SET_VAR(time_zone='+08:00') caller evaluated from_unixtime(epoch_col) in its own
+     * zone and returned different values. The hint sets a STATEMENT-scoped session
+     * variable (SelectHintSetVar#setVarOnceInSql writes the SessionVariable and the
+     * value is reverted at the end of the statement), so the BLOCK a hint sits in does
+     * not scope its effect: collecting EVERY SET_VAR hint of the caller's tree and
+     * placing them on the replay's top re-establishes exactly the settings the original
+     * planning would have applied. (Placing them one by one on replayed sub-blocks was
+     * tried first, but the replay's wrapper shape - result sink, EXPLAIN, project over
+     * a subquery alias - is not stable enough to address them structurally, and a
+     * misclassified hint silently disabled the whole rewrite.) The hint payload is part
+     * of the match key (sameSelectHints), so the collected hints are the captured
+     * query's own settings.
+     *
+     * @param replay the aligned replay tree
+     * @param caller the caller's statement tree (the matched namespace copy)
+     * @return the replay with the caller's SET_VAR hints re-attached (unchanged when
+     *         there are none)
+     */
+    public static LogicalPlan carrySetVarHints(LogicalPlan replay, LogicalPlan caller) {
+        List<SelectHint> setVars = new ArrayList<>();
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(caller, plan -> {
+            if (!(plan instanceof LogicalSelectHint)) {
+                return;
+            }
+            for (SelectHint hint : ((LogicalSelectHint<?>) plan).getHints()) {
+                if (hint instanceof SelectHintSetVar) {
+                    setVars.add(hint);
+                }
+            }
+        });
+        if (setVars.isEmpty()) {
+            return replay;
+        }
+        return new LogicalSelectHint<>(com.google.common.collect.ImmutableList.copyOf(setVars),
+                replay);
+    }
+
+    /**
+     * Signals that the replay's caller-visible labels cannot be aligned with the caller's
+     * own output labels (see alignRootOutputLabels): the caller must SKIP the rewrite
+     * instead of exposing the CAPTURED headers (a SET root the frozen text wrapped in a
+     * labeled projection, a derivable label behind an unknown-width join input).
+     */
+    public static class UnalignableOutputLabelsException extends RuntimeException {
+        public UnalignableOutputLabelsException(String message) {
+            super(message);
+        }
     }
 
     /** The caller-visible output list of a node that carriesOutputList. */
@@ -3613,6 +3828,20 @@ public final class SPMPlanTreeSupport {
             expression = ((Alias) item).child();
         } else if (item instanceof UnboundAlias) {
             expression = ((UnboundAlias) item).child();
+        }
+        return boundaryPreservingText(expression);
+    }
+
+    /**
+     * One expression's text for the create-time comparison: a slot renders through its
+     * boundary-preserving digest (UnboundSlot#toDigest delimits name parts containing
+     * '.'), because a column literally named `a.b` and a qualified reference a.b both
+     * render "a.b" through toSql - the output / projection checks accepted the pair and
+     * the replay then read the WRONG column for callers selecting the dotted name.
+     */
+    private static String boundaryPreservingText(Expression expression) {
+        if (expression instanceof UnboundSlot) {
+            return expression.toDigest();
         }
         return expression.toSql();
     }

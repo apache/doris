@@ -605,6 +605,9 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             boolean fenceRetained = false;
             boolean fenceOutcomeKnown = false;
             boolean fenceSent = false;
+            // set when the send was HELD BACK because the durable fence could not be
+            // confirmed: the buffer is kept for the next tick instead of being reset
+            boolean holdBatch = false;
             try {
                 String token = "";
                 try {
@@ -622,6 +625,21 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 fenceLabel = streamLoader.allocateLabel();
                 retainPublishFence(batchOldest, batchQueryId, fenceLabel, batchZoneId);
                 fenceRetained = batchOldest > 0;
+                if (fenceRetained && !reportCommittedFence()) {
+                    // The batch's durable obligation did not land in the shared row: if this
+                    // FE dies after the BE commits the load with publication pending, only
+                    // the stale row remains, and the capture can checkpoint past the batch's
+                    // event time once the row is ignored. HOLD the send (the buffer and the
+                    // local fence stay) until the report is confirmed.
+                    releasePublishAttempt(fenceLabel,
+                            "the durable fence report did not land before the send");
+                    fenceRetained = false;
+                    holdBatch = true;
+                    LOG.warn("audit loader: holding the batch of {} event(s) back until its"
+                            + " durable publish fence is confirmed in the shared horizon row",
+                            auditLogNum);
+                    return;
+                }
                 AuditStreamLoader.LoadResponse response =
                         streamLoader.loadBatch(auditLogBuffer, token, fenceLabel);
                 fenceOutcomeKnown = true;
@@ -665,7 +683,13 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     }
                 }
                 // make a new string builder to receive following events.
-                resetBatch(currentTime);
+                if (holdBatch) {
+                    // the events were NOT sent: keep them buffered for the next tick, only
+                    // push the retry out so the loop does not spin on a failing report
+                    lastLoadTimeAuditLog = currentTime;
+                } else {
+                    resetBatch(currentTime);
+                }
                 if (discardLogNum > 0) {
                     LOG.info("num of total discarded audit logs: {}", discardLogNum);
                 }
@@ -838,8 +862,45 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             return 0;
         }
         if (publishFenceNow() > droppedPublishFenceUntil) {
-            LOG.warn("audit loader: the aggregated dropped-publish fence of event time {} is"
-                            + " released after every member's own {} ms bound elapsed; the"
+            // The age bound alone does NOT release the aggregate: a bounded-out batch's
+            // transaction can be COMMITTED with its publication still pending, and a zero
+            // report then let the capture checkpoint past an unreadable batch. Resolve
+            // every retained label by its transaction state first (see
+            // confirmPublishFence): terminal (VISIBLE / ABORTED) releases, COMMITTED /
+            // PRECOMMITTED keeps WITHOUT an age bound, and an unresolvable label keeps the
+            // aggregate for one survival window before the age fallback applies.
+            List<String> retained = new ArrayList<>();
+            boolean committedFound = false;
+            for (String label : droppedPublishFenceLabels) {
+                String status = label.isEmpty() || "-".equals(label)
+                        ? null : transactionStatusForLabel(label);
+                if (isTerminalTransactionStatus(status)) {
+                    continue;
+                }
+                retained.add(label);
+                if (isCommittedTransactionStatus(status)) {
+                    committedFound = true;
+                }
+            }
+            long now = publishFenceNow();
+            boolean survivalElapsed = now > droppedPublishFenceUntil
+                    + AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS;
+            if (committedFound || (!retained.isEmpty() && !survivalElapsed)
+                    || (droppedFenceLabelsOverflowed && !survivalElapsed)) {
+                droppedPublishFenceLabels.clear();
+                droppedPublishFenceLabels.addAll(retained);
+                droppedFenceLabelsOverflowed = droppedFenceLabelsOverflowed && !committedFound;
+                // re-arm the re-check window; a COMMITTED member keeps the aggregate until
+                // its label resolves instead of being released by age alone
+                droppedPublishFenceUntil = now + PUBLISH_FENCE_MAX_MILLIS;
+                LOG.warn("audit loader: the aggregated dropped-publish fence of event time"
+                                + " {} stays live: {} member(s) are still unresolved{}",
+                        droppedPublishFenceTime, retained.size(),
+                        committedFound ? " (a COMMITTED transaction is still pending)" : "");
+                return droppedPublishFenceTime;
+            }
+            LOG.warn("audit loader: the aggregated dropped-publish fence of event time {}"
+                            + " is released after every member's own {} ms bound elapsed; the"
                             + " aggregated batches are assumed lost",
                     droppedPublishFenceTime, PUBLISH_FENCE_MAX_MILLIS);
             droppedPublishFenceTime = 0;
@@ -849,6 +910,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             return 0;
         }
         return droppedPublishFenceTime;
+    }
+
+    /** Whether a resolved transaction state can still PUBLISH (see liveDroppedPublishFence). */
+    private static boolean isCommittedTransactionStatus(String status) {
+        return "COMMITTED".equals(status) || "PRECOMMITTED".equals(status);
     }
 
     /** The smaller of two positive values (0 means "none" and is ignored). */
@@ -947,15 +1013,26 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     /** Best-effort immediate report of this FE's committed-but-unreadable batches. */
-    private void reportCommittedFence() {
+    private boolean reportCommittedFence() {
         try {
             long pending = oldestPendingPublishFenceEventTime();
-            if (pending > 0) {
-                AuditPublicationHorizon.reportLocalHorizon(pending);
+            if (pending <= 0) {
+                // no committed-but-unreadable batch is owed: there is nothing a send
+                // could leave behind unattended
+                return true;
             }
+            Env env = Env.getCurrentEnv();
+            if (env == null || !env.isReady()) {
+                // a not-yet-ready (or absent) Env cannot confirm anything, and the
+                // loader's own tick reports again once it is: the durable-fence gate
+                // would otherwise stall every load during startup with nothing gained
+                return true;
+            }
+            return AuditPublicationHorizon.reportLocalHorizon(pending);
         } catch (Throwable t) {
             LOG.warn("audit loader: cannot report the committed publish fence: {}",
                     t.getMessage());
+            return false;
         }
     }
 

@@ -278,8 +278,11 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     private static final String CHECKPOINT_PRUNE_SQL =
             "DELETE FROM " + CHECKPOINT_TABLE
-                    + " WHERE `leader_epoch` < ${epoch}"
-                    + " OR (`leader_epoch` = ${epoch} AND `write_seq` < ${seq})";
+                    + " WHERE (`leader_epoch` < ${epoch}"
+                    + " OR (`leader_epoch` = ${epoch} AND `write_seq` < ${seq}))"
+                    + " AND NOT (`pending_window_start` > 0"
+                    + " AND `pending_window_start` < `pending_window_end`"
+                    + " AND `pending_window_start` < ${lastScan})";
 
     private AuditLogScanner scanner = new AuditLogScanner();
 

@@ -1866,6 +1866,15 @@ public class BaselineManager {
                 // had already deleted; the failure still propagates (retryable), and the
                 // retry takes the cache-miss path which deletes the lingering rows.
                 removeCachedBaseline(id);
+                // The identity delete was CONFIRMED before this cleanup read failed, so
+                // the removed row's tombstone may be appended NOW - withholding it (as
+                // the absence fence does for an UNPROVEN delete) would lose the
+                // delayed-commit protection the confirmation already earned. The ID is
+                // condemned as well: the lingering incarnation could not be READ, and the
+                // user dropped the id - any row of it that publishes later must not revive
+                // the baseline (see wipeDurableRowsById).
+                noteDroppedSeqState(removed);
+                noteDroppedIdState(id);
                 recordPendingMutationFence(id, null, 0);
                 throw e;
             }
@@ -1874,6 +1883,11 @@ public class BaselineManager {
             // and revive the row: the append-only tombstone makes every
             // later load treat that incarnation as deleted, whatever the commit order.
             noteDroppedSeqState(removed);
+            // The ID itself is condemned too: a handoff collision can leave a DIFFERENT
+            // incarnation of this id (written by another master) unreadable at this
+            // point, and it must not revive the dropped id when it publishes later - its
+            // distinct digest would not match the identity tombstone above.
+            noteDroppedIdState(id);
             // Even a CONFIRMED identity delete can stay unreadable to a later local read
             // (its publication lags the confirmation): the fence keeps the refresh / a
             // SHOW reload from re-adding the dropped row until the table shows it gone
@@ -1935,6 +1949,7 @@ public class BaselineManager {
         for (BaselinePlan row : durable) {
             noteDroppedSeqState(row);
         }
+        noteDroppedIdState(id);
         recordPendingMutationFence(id, null, 0);
         LOG.info("SPM dropped baseline {} from the durable table while the local cache did"
                 + " not have it (promotion reload / stale snapshot window)", id);
@@ -2141,6 +2156,23 @@ public class BaselineManager {
                 // cache may have missed an earlier flip) and hands out the winning row,
                 // whose update time bounds the new row's (see the second bump below).
                 probe = probeDurableStatus(id, status);
+                if (probe.winner != null && !sameIdentity(plan, probe.winner)) {
+                    // A handoff can publish two DIFFERENT CREATE rows under one id (B
+                    // cached its row after an empty collision probe, then A's delayed row
+                    // appeared and won the same-second digest tie): completing the ALTER
+                    // against B would report success for an identity the durable table no
+                    // longer favors, and a differing-status flip would even write a newer
+                    // B row and switch the durable winner. Adopt the winner that IS
+                    // durable and fail retryably.
+                    LOG.warn("SPM status update of baseline {}: the durable winner of this id"
+                            + " is a DIFFERENT baseline (a handoff collision); adopting it and"
+                            + " failing the ALTER retryably", id);
+                    removeCachedBaseline(id);
+                    publishBaseline(probe.winner);
+                    throw new IllegalStateException("SPM baseline " + id + " is durably held"
+                            + " by a different baseline (a handoff collision); the durable row"
+                            + " was adopted - retry the ALTER");
+                }
                 if (probe.outcome == DurableStatusProbe.UNKNOWN) {
                     // The durable state cannot be CONFIRMED: reporting a no-op success
                     // could leave a durably DISABLED / DROPPED row while this FE serves
@@ -2907,6 +2939,11 @@ public class BaselineManager {
                         t.getMessage());
                 return;
             }
+            // Settle the mutation-fence obligations BEFORE the write lock: the
+            // tombstone append is internal-table I/O with its own timeout, and doing
+            // it under the store's write lock blocked every concurrent SPM candidate
+            // lookup that only needs the read lock.
+            final Set<Long> settledFences = resolvePendingMutationFences(snapshot);
             stateLock.writeLock().lock();
             try {
                 if (loaded) {
@@ -2927,7 +2964,7 @@ public class BaselineManager {
                             + " snapshot was being read (will retry against the current table)");
                     return;
                 }
-                doLoadFromTable(snapshot);
+                doLoadFromTable(snapshot, settledFences);
                 loaded = true;
             } finally {
                 stateLock.writeLock().unlock();
@@ -3050,13 +3087,17 @@ public class BaselineManager {
         }
     }
 
-    /** Replaces the in-memory store with the read snapshot (caller holds the write lock). */
-    private void doLoadFromTable(Map<Long, BaselinePlan> loadedPlans) {
+    /** Replaces the in-memory store with the read snapshot (caller holds the write lock).
+     * The fence obligations were settled by the caller BEFORE the lock (see
+     * readAndPublishPossessingLoadSlot): appending a drop tombstone is internal-table
+     * I/O with its own timeout, and holding the store's write lock across it blocked
+     * every concurrent SPM candidate lookup that needs only the read lock. */
+    private void doLoadFromTable(Map<Long, BaselinePlan> loadedPlans, Set<Long> fenced) {
         // Pending mutation fences mask contradicting rows here as well: a
         // reload after an invalidation must not republish a row whose dropped / disabled
         // outcome is still owed.
-        for (Long fenced : resolvePendingMutationFences(loadedPlans)) {
-            loadedPlans.remove(fenced);
+        for (Long fencedId : fenced) {
+            loadedPlans.remove(fencedId);
         }
         Map<Long, List<Long>> loadedIndex = new HashMap<>();
         long maxId = 0;
@@ -3574,12 +3615,14 @@ public class BaselineManager {
      */
     public boolean applyRefreshedSnapshotIfUnchanged(long versionAtRead,
             Map<Long, BaselinePlan> persisted) {
+        // Settle the fence obligations outside the lock (see doLoadFromTable).
+        Set<Long> fenced = resolvePendingMutationFences(persisted);
         stateLock.writeLock().lock();
         try {
             if (stateVersion != versionAtRead) {
                 return false;
             }
-            applyRefreshedBaselinesLocked(persisted);
+            applyRefreshedBaselinesLocked(persisted, fenced);
             return true;
         } finally {
             stateLock.writeLock().unlock();
@@ -3615,17 +3658,19 @@ public class BaselineManager {
      * was in flight (see refreshFromInternalTable). Public for unit tests.
      */
     public void applyRefreshedBaselines(Map<Long, BaselinePlan> persisted) {
+        // Settle the fence obligations outside the lock (see doLoadFromTable).
+        Set<Long> fenced = resolvePendingMutationFences(persisted);
         stateLock.writeLock().lock();
         try {
-            applyRefreshedBaselinesLocked(persisted);
+            applyRefreshedBaselinesLocked(persisted, fenced);
         } finally {
             stateLock.writeLock().unlock();
         }
     }
 
     /** Applies a snapshot; the caller must hold the write lock (see refreshFromInternalTable). */
-    private void applyRefreshedBaselinesLocked(Map<Long, BaselinePlan> persisted) {
-        Set<Long> fenced = resolvePendingMutationFences(persisted);
+    private void applyRefreshedBaselinesLocked(Map<Long, BaselinePlan> persisted,
+            Set<Long> fenced) {
         long maxId = 0;
         int added = 0;
         int updated = 0;
@@ -3821,6 +3866,7 @@ public class BaselineManager {
                 // in-flight status INSERT committing after the delete.
                 if (entry.getValue().droppedIdentity != null) {
                     noteDroppedSeqState(entry.getValue().droppedIdentity);
+                    noteDroppedIdState(entry.getKey());
                     LOG.info("SPM pending delete of baseline {} confirmed absent; the drop"
                             + " tombstone is appended now",
                             entry.getKey());
@@ -4072,7 +4118,7 @@ public class BaselineManager {
             throw new RuntimeException("SPM baseline id reservation write failed (retry the"
                     + " CREATE): " + e.getMessage(), e);
         }
-        appendCompactSeqState(id, digest, planSqlHash, reserveTime, false, false);
+        appendCompactSeqState(id, digest, planSqlHash, reserveTime, false, false, true);
     }
 
     /**
@@ -4141,6 +4187,20 @@ public class BaselineManager {
         }
         writeDroppedMarker(plan.getId(), plan.getBindSqlDigest(),
                 SPMUtils.hashOf(plan.getPlanSql()));
+    }
+
+    /**
+     * Appends the ID-scoped tombstone of a completed DROP: any row carrying this id -
+     * whatever its bind/plan identity - is dead, so a handoff collision partner that
+     * was still UNREADABLE when the cleanup ran cannot revive the dropped id once it
+     * publishes. Only DROP paths write it (the user asked for the whole id to be gone);
+     * an unproven delete must not, or a still-live row would be hidden and re-deleted
+     * on every load.
+     *
+     * @param id the dropped id
+     */
+    private static void noteDroppedIdState(long id) {
+        writeDroppedMarker(id, "", 0L);
     }
 
     /**
@@ -4298,9 +4358,19 @@ public class BaselineManager {
 
     /** The tombstone key of one row / plan: id|bindSqlDigest|planSqlHash. */
     private static String droppedIdentityKey(BaselinePlan plan) {
-        return plan.getId() + "|"
-                + (plan.getBindSqlDigest() == null ? "" : plan.getBindSqlDigest()) + "|"
-                + SPMUtils.hashOf(plan.getPlanSql() == null ? "" : plan.getPlanSql());
+        return droppedIdentityKey(plan.getId(),
+                plan.getBindSqlDigest() == null ? "" : plan.getBindSqlDigest(),
+                SPMUtils.hashOf(plan.getPlanSql() == null ? "" : plan.getPlanSql()));
+    }
+
+    /** The identity key of one id / digest / hash triple (see droppedIdentityKey). */
+    private static String droppedIdentityKey(long id, String bindSqlDigest, long planSqlHash) {
+        return id + "|" + (bindSqlDigest == null ? "" : bindSqlDigest) + "|" + planSqlHash;
+    }
+
+    /** The key of the ID-scoped tombstone (see noteDroppedIdState). */
+    private static String droppedIdKey(long id) {
+        return id + "||0";
     }
 
     /**
@@ -4311,7 +4381,14 @@ public class BaselineManager {
      */
     private static boolean isTombstonedIdentity(BaselinePlan plan) {
         return plan != null && plan.getId() > 0
-                && readDroppedIdentities(List.of(plan.getId())).contains(droppedIdentityKey(plan));
+                && isTombstonedRow(readDroppedIdentities(List.of(plan.getId())), plan);
+    }
+
+    /** Whether one row is covered by a read tombstone set: its own identity, or the
+     * ID-scoped marker of a completed DROP (see noteDroppedIdState). */
+    private static boolean isTombstonedRow(Set<String> markers, BaselinePlan row) {
+        return markers.contains(droppedIdentityKey(row))
+                || markers.contains(droppedIdKey(row.getId()));
     }
 
     /**
@@ -4339,7 +4416,7 @@ public class BaselineManager {
         }
         Map<Long, BaselinePlan> filtered = new java.util.LinkedHashMap<>(snapshot);
         for (BaselinePlan row : snapshot.values()) {
-            if (!tombstones.contains(droppedIdentityKey(row))) {
+            if (!isTombstonedRow(tombstones, row)) {
                 continue;
             }
             filtered.remove(row.getId());
@@ -4381,7 +4458,7 @@ public class BaselineManager {
         }
         List<BaselinePlan> surviving = new ArrayList<>(rows.size());
         for (BaselinePlan row : rows) {
-            if (row == null || !tombstones.contains(droppedIdentityKey(row))) {
+            if (row == null || !isTombstonedRow(tombstones, row)) {
                 surviving.add(row);
                 continue;
             }
@@ -4465,6 +4542,22 @@ public class BaselineManager {
      */
     private static void appendCompactSeqState(long lastId, String bindSqlDigest,
             long planSqlHash, long reserveTime, boolean unconfirmed, boolean dropped) {
+        appendCompactSeqState(lastId, bindSqlDigest, planSqlHash, reserveTime, unconfirmed,
+                dropped, false);
+    }
+
+    /**
+     * As appendCompactSeqState(long, String, long, long, boolean, boolean); with strict =
+     * true a failed append THROWS instead of degrading: the RESERVATION path uses it,
+     * because a compact slot that silently lagged the history let an older tombstone
+     * masquerade as this identity's newest state - another FE then allocated a second
+     * id for the same key while the first reservation's row could still publish (see
+     * resolveDurablePendingCreate). The append runs BEFORE the baseline row is
+     * attempted, so failing the CREATE here leaves nothing committed behind the id.
+     */
+    private static void appendCompactSeqState(long lastId, String bindSqlDigest,
+            long planSqlHash, long reserveTime, boolean unconfirmed, boolean dropped,
+            boolean strict) {
         if (!persistenceEnabled()) {
             return;
         }
@@ -4480,6 +4573,10 @@ public class BaselineManager {
             inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_COMPACT_SEQ_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
         } catch (Exception e) {
+            if (strict) {
+                throw new RuntimeException("SPM compact identity reservation write failed"
+                        + " (retry the CREATE): " + e.getMessage(), e);
+            }
             LOG.warn("SPM could not append the compact identity row of baseline {} (the next"
                     + " identity read falls back to the sequence history): {}", lastId,
                     e.getMessage());
@@ -4535,6 +4632,26 @@ public class BaselineManager {
         }
         if (reservation == null) {
             return null;
+        }
+        boolean fenceExpired = System.currentTimeMillis() - reservation.reserveTimeMs
+                > DURABLE_PENDING_CREATE_FENCE_MILLIS;
+        if ((reservation.dropped || fenceExpired) && idAllocatorStoreForTest == null) {
+            // The compact slot may LAG the history (a marker / tombstone append is best
+            // effort; only the reservation append is strict). Before acting on a
+            // "resolved" or expired compact state, reconcile against the legacy history
+            // and continue from whichever state is NEWER: a re-CREATE whose reservation
+            // compact append was lost stayed hidden behind an older tombstone, and
+            // ANOTHER FE then allocated a second id for the same key - both rows could
+            // later publish as ENABLED.
+            SeqReservation newest = pickNewerSeqState(reservation,
+                    readLegacySeqNewest(plan.getBindSqlDigest(), planSqlHash));
+            if (newest != null && !sameSeqState(newest, reservation)) {
+                LOG.warn("SPM durable pending create of baseline {}: the compact identity"
+                                + " state lagged the history (compact id {}, history state"
+                                + " id {}); continuing from the newer state",
+                        reservation.id, reservation.id, newest.id);
+                reservation = newest;
+            }
         }
         if (reservation.dropped) {
             // The identity was RESOLVED by a tombstone (a completed DROP, or a deserted
@@ -4601,6 +4718,13 @@ public class BaselineManager {
         // every load treats it as deleted (and repairs it away) instead of publishing a
         // second enabled baseline; if the write was truly lost, the tombstone is inert.
         condemnAbandonedIdentity(reservation.id, plan.getBindSqlDigest(), planSqlHash);
+        // The condemnation must be DURABLE before a fresh id is allocated: the marker
+        // write is best effort on the wire, and a restart / handoff that only lost the
+        // process-local marker would let this FE's retry allocate a second id whose row
+        // can publish beside the old COMMITTED-but-unreadable one (both ENABLED).
+        // Failing the retry here keeps the id watermarked and re-runs the
+        // condensation (idempotent append) until it is readable.
+        confirmDroppedMarkerDurable(reservation.id, plan.getBindSqlDigest(), planSqlHash);
         LOG.warn("SPM durable pending create of baseline {}: its identity record is older"
                         + " than {} ms and the row never became readable; condemning the"
                         + " identity (any late publication is repaired away) and allocating a"
@@ -4622,6 +4746,31 @@ public class BaselineManager {
     private static void condemnAbandonedIdentity(long id, String bindSqlDigest,
             long planSqlHash) {
         writeDroppedMarker(id, bindSqlDigest, planSqlHash);
+    }
+
+    /**
+     * Confirms one condemnation tombstone is READABLE before the caller allocates a
+     * fresh id (see resolveDurablePendingCreate): the marker append is best effort on
+     * the wire, so it is retried bounded, and a marker that never becomes readable
+     * fails the CREATE retryably - allocating a second id next to a
+     * COMMITTED-but-unreadable row whose only protection lived in this process's
+     * memory let both rows publish as ENABLED after a restart / handoff.
+     */
+    private static void confirmDroppedMarkerDurable(long id, String bindSqlDigest,
+            long planSqlHash) {
+        if (idAllocatorStoreForTest != null || !persistenceEnabled()) {
+            return;
+        }
+        String key = droppedIdentityKey(id, bindSqlDigest, planSqlHash);
+        for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
+            writeDroppedMarker(id, bindSqlDigest, planSqlHash);
+            if (readDroppedIdentities(Set.of(id)).contains(key)) {
+                return;
+            }
+            sleepBeforeVisibilityRetry();
+        }
+        throw new IllegalStateException("SPM cannot confirm the condemnation tombstone of"
+                + " the abandoned baseline id " + id + "; retry the CREATE");
     }
 
     /**
@@ -4649,24 +4798,82 @@ public class BaselineManager {
             if (rows == null || rows.isEmpty()) {
                 return null;
             }
-            ResultRow row = rows.get(0);
-            String idText = row.getWithDefault(0, "");
-            if (idText == null || idText.isEmpty()) {
-                return null;
-            }
-            String timeText = row.getValues().size() > 1 ? row.getWithDefault(1, "") : "";
-            long reserveTime = timeText == null || timeText.isEmpty()
-                    ? 0 : fromTs(timeText.trim());
-            boolean unconfirmed = isFlagSet(row, 2);
-            boolean dropped = isFlagSet(row, 3);
-            return new SeqReservation(Long.parseLong(idText.trim()), reserveTime,
-                    unconfirmed, dropped);
+            return parseSeqReservation(rows.get(0));
         } catch (Exception e) {
             // fail closed like every other watermark read: without the answer the create
             // cannot prove it is not a duplicate
             throw new RuntimeException("SPM baseline id sequence identity read failed (retry the"
                     + " CREATE): " + e.getMessage(), e);
         }
+    }
+
+    /** One identity row's state, from either read (compact and history share the
+     * column tuple last_id / reserve_time / unconfirmed / dropped). */
+    private static SeqReservation parseSeqReservation(ResultRow row) {
+        String idText = row.getWithDefault(0, "");
+        if (idText == null || idText.isEmpty()) {
+            return null;
+        }
+        String timeText = row.getValues().size() > 1 ? row.getWithDefault(1, "") : "";
+        long reserveTime = timeText == null || timeText.isEmpty()
+                ? 0 : fromTs(timeText.trim());
+        return new SeqReservation(Long.parseLong(idText.trim()), reserveTime,
+                isFlagSet(row, 2), isFlagSet(row, 3));
+    }
+
+    /**
+     * The newest identity state in the HISTORY table (the legacy identity-scoped query,
+     * see SELECT_PENDING_SEQ_SQL); null when the table holds no row for the identity.
+     * Only the rare decision points call it (a resolved or expired compact state, see
+     * resolveDurablePendingCreate): the compact slot stays the bounded primary read.
+     * A failed read fails the caller retryably, like every other identity read.
+     */
+    private static SeqReservation readLegacySeqNewest(String bindSqlDigest, long planSqlHash) {
+        Map<String, String> params = new HashMap<>();
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
+        params.put("planSqlHash", String.valueOf(planSqlHash));
+        try {
+            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    SELECT_PENDING_SEQ_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
+            return rows == null || rows.isEmpty() ? null : parseSeqReservation(rows.get(0));
+        } catch (Exception e) {
+            throw new RuntimeException("SPM baseline id sequence identity read failed (retry"
+                    + " the CREATE): " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The newer of two identity states, by the identity read's own total order (see
+     * SELECT_PENDING_SEQ_SQL): last_id, then reserve_time, then the tombstone / marker
+     * flags.
+     */
+    private static SeqReservation pickNewerSeqState(SeqReservation first,
+            SeqReservation second) {
+        if (first == null) {
+            return second;
+        }
+        if (second == null) {
+            return first;
+        }
+        if (first.id != second.id) {
+            return first.id > second.id ? first : second;
+        }
+        if (first.reserveTimeMs != second.reserveTimeMs) {
+            return first.reserveTimeMs > second.reserveTimeMs ? first : second;
+        }
+        if (first.dropped != second.dropped) {
+            return first.dropped ? first : second;
+        }
+        if (first.unconfirmed != second.unconfirmed) {
+            return first.unconfirmed ? first : second;
+        }
+        return first;
+    }
+
+    /** Whether two identity states describe the same row state (see pickNewerSeqState). */
+    private static boolean sameSeqState(SeqReservation first, SeqReservation second) {
+        return first.id == second.id && first.reserveTimeMs == second.reserveTimeMs
+                && first.dropped == second.dropped && first.unconfirmed == second.unconfirmed;
     }
 
     /**

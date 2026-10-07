@@ -226,19 +226,21 @@ public class SPMRound44SafetyTest {
     }
 
     /**
-     * An UNDERIVABLE side BEFORE the derivable one leaves the labels unaligned: the
-     * derivable prefix cannot be positioned, so the replay keeps the frozen names
-     * (skipping the positional rename is safe; renaming the wrong position is not).
+     * An UNDERIVABLE side BEFORE the derivable one cannot be aligned positionally: the
+     * derivable prefix has no position, so the rewrite must be SKIPPED (the caller keeps
+     * its own plan). The alignment raises the skip signal instead of handing back a tree
+     * whose later positions still expose the frozen captured names.
      */
     @Test
-    public void testStarOverJoinWithLeadingUnknowableSideStaysUntouched() {
+    public void testStarOverJoinWithLeadingUnknowableSideSkipsTheRewrite() {
         LogicalPlan rewritten = parse(
                 "SELECT u.k, `s`.`k + 1` AS `k + 1` FROM u CROSS JOIN"
                         + " (SELECT k + 1 AS `k + 1` FROM t) s");
         LogicalPlan caller = parse("SELECT * FROM u CROSS JOIN (SELECT k + 2 FROM t) s");
-        Assertions.assertSame(rewritten,
-                SPMPlanTreeSupport.alignRootOutputLabels(rewritten, caller),
-                "an unpositionable derivable prefix must not be realigned");
+        Assertions.assertThrows(
+                SPMPlanTreeSupport.UnalignableOutputLabelsException.class,
+                () -> SPMPlanTreeSupport.alignRootOutputLabels(rewritten, caller),
+                "an unpositionable derivable prefix must skip the rewrite, not leak names");
     }
 
     /** First UnboundAlias reachable through the plan's expressions (null when none). */

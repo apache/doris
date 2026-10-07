@@ -594,13 +594,15 @@ public class AuditLoaderTest {
         long base = System.currentTimeMillis();
         try {
             AuditLoader.publishFenceClockForTest = () -> base;
-            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-oldest");
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-oldest",
+                    "lid-oldest");
             // minute 29: a burst of later, individually unreadable batches overflows the
             // bounded list and pushes the oldest batch into the aggregate
             long overflowAt = base + AuditLoader.PUBLISH_FENCE_MAX_MILLIS - 60_000L;
             AuditLoader.publishFenceClockForTest = () -> overflowAt;
             for (int i = 0; i < AuditLoader.MAX_PENDING_PUBLISH_FENCES + 5; i++) {
-                Deencapsulation.invoke(loader, "retainPublishFence", 20_000L + i, "qid-" + i);
+                Deencapsulation.invoke(loader, "retainPublishFence", 20_000L + i, "qid-" + i,
+                        "lid-" + i);
             }
             Assertions.assertEquals(AuditLoader.MAX_PENDING_PUBLISH_FENCES,
                     loader.pendingPublishFenceCountForTest(),
@@ -617,15 +619,39 @@ public class AuditLoaderTest {
                     "the LOCAL horizon (the faster of the two capture surfaces) covers the"
                             + " aggregate as well");
 
-            // past EVERY member's deadline the aggregate releases (best effort: the
-            // sample rows cannot be probed individually once the list is bounded)
-            AuditLoader.publishFenceClockForTest =
-                    () -> base + 2 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS + 60_000L;
+            // past EVERY member's deadline the age bound alone must NOT release the
+            // aggregate: the retained labels are resolved first, and an unresolvable
+            // label keeps it for one more survival window (the bounded-out batches may
+            // still publish)
+            AuditLoader.transactionStatusForTest = label -> null;
+            long expiredAt = base + 2 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS + 60_000L;
+            AuditLoader.publishFenceClockForTest = () -> expiredAt;
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(10_000L, AuditLoader.oldestCommittedPublishFenceEventTime(),
+                    "an unresolvable label outcome keeps the aggregate past every deadline");
+
+            // a COMMITTED member keeps it WITHOUT any age bound: its batch may still
+            // publish, so neither the deadline nor the survival window may release it
+            AuditLoader.transactionStatusForTest = label -> "COMMITTED";
+            AuditLoader.publishFenceClockForTest = () -> expiredAt
+                    + AuditLoader.PUBLISH_FENCE_MAX_MILLIS
+                    + AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS + 60_000L;
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(10_000L, AuditLoader.oldestCommittedPublishFenceEventTime(),
+                    "a COMMITTED member keeps the aggregate regardless of age");
+
+            // once every retained label resolves to a TERMINAL state the aggregate
+            // releases (the label resolution outranks the age/survival fallback)
+            AuditLoader.transactionStatusForTest = label -> "VISIBLE";
+            AuditLoader.publishFenceClockForTest = () -> expiredAt
+                    + 2 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS
+                    + 2 * AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS + 120_000L;
             Deencapsulation.invoke(loader, "confirmPublishFence");
             Assertions.assertEquals(0L, AuditLoader.oldestCommittedPublishFenceEventTime(),
-                    "after every member's own window the aggregate releases");
+                    "a terminal outcome of every retained label releases the aggregate");
         } finally {
             AuditLoader.publishVisibilityProbeForTest = null;
+            AuditLoader.transactionStatusForTest = null;
             AuditLoader.publishFenceClockForTest = null;
             setRunningLoader(null);
         }

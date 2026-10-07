@@ -146,6 +146,15 @@ public class SPMPlanner {
                 && (sessionStore == null || sessionStore.isEmpty())) {
             return null;
         }
+        // A caller SET_VAR hint is applied by EliminateLogicalSelectHint while the
+        // statement is planned; the SPM replay replaces the whole tree BEFORE that pass
+        // and the frozen text carries no hint, so the replay would run under the
+        // session's ORIGINAL settings - a SET_VAR(time_zone='+08:00') caller matching an
+        // identical baseline evaluated from_unixtime(epoch_col) in its own zone and
+        // changed result values. The caller's SET_VAR hints are re-attached to the
+        // replayed tree at the return sites (see SPMPlanTreeSupport#carrySetVarHints);
+        // the hint writes a STATEMENT-scoped session variable, so its block does not
+        // matter.
         // Level 1/2 use the FULL-QUERY value-free digest (Plan.toSpmDigest() renders every
         // literal as "?", so the digest is value-independent). The digest is computed on a
         // namespace-qualified COPY: "FROM t" is keyed as the CURRENT catalog/db's t, so a
@@ -255,10 +264,19 @@ public class SPMPlanner {
                 // placeholders; adopt the user's values so a structurally identical query
                 // with a different limit is rewritten with the USER limit
                 // the frozen sink pinned the CAPTURED output labels: expose the caller's
-                // own ones (a value variant must not report the captured header)
-                LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(
-                        SPMPlanTreeSupport.alignRootOutputLabels(rewritten, matchPlan),
-                        matchPlan);
+                // own ones (a value variant must not report the captured header). A shape
+                // whose labels CANNOT be aligned skips this baseline instead of exposing
+                // the captured header (see UnalignableOutputLabelsException).
+                LogicalPlan alignedReplay;
+                try {
+                    alignedReplay = SPMPlanTreeSupport.alignRootOutputLabels(rewritten,
+                            matchPlan);
+                } catch (SPMPlanTreeSupport.UnalignableOutputLabelsException unalignable) {
+                    LOG.info("SPM tryRewritePlan: baseline {} skipped: {}",
+                            candidate.getId(), unalignable.getMessage());
+                    continue;
+                }
+                LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(alignedReplay, matchPlan);
                 if (!limitContractPreserved(replay, matchPlan, bindTree)
                         || !SPMPlanTreeSupport.orderContractPreserved(replay, matchPlan)) {
                     LOG.info("SPM tryRewritePlan: baseline {} skipped: its plan cannot carry"
@@ -276,7 +294,7 @@ public class SPMPlanner {
                 }
                 usedBaselineId = candidate.getId();
                 usedBaseline = candidate;
-                return replay;
+                return SPMPlanTreeSupport.carrySetVarHints(replay, matchPlan);
             }
             LOG.info("SPM tryRewritePlan: baseline {} frozen planSql replay unavailable, "
                     + "falling back to parameterized plan tree", candidate.getId());
@@ -296,10 +314,17 @@ public class SPMPlanner {
             if (SPMPlanTreeSupport.containsPlaceholder(rewritten)) {
                 continue;
             }
-            // same label contract as the frozen path: the caller's own headers win
-            LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(
-                    SPMPlanTreeSupport.alignRootOutputLabels(rewritten, matchPlan),
-                    matchPlan);
+            // same label contract as the frozen path: the caller's own headers win; an
+            // unalignable shape skips the candidate instead of exposing captured headers
+            LogicalPlan fallbackAligned;
+            try {
+                fallbackAligned = SPMPlanTreeSupport.alignRootOutputLabels(rewritten, matchPlan);
+            } catch (SPMPlanTreeSupport.UnalignableOutputLabelsException unalignable) {
+                LOG.info("SPM tryRewritePlan: baseline {} skipped: {}",
+                        candidate.getId(), unalignable.getMessage());
+                continue;
+            }
+            LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(fallbackAligned, matchPlan);
             if (!limitContractPreserved(replay, matchPlan, bindTree)
                     || !SPMPlanTreeSupport.orderContractPreserved(replay, matchPlan)) {
                 LOG.info("SPM tryRewritePlan: baseline {} skipped: its plan cannot carry"
@@ -317,7 +342,7 @@ public class SPMPlanner {
             }
             usedBaselineId = candidate.getId();
             usedBaseline = candidate;
-            return replay;
+            return SPMPlanTreeSupport.carrySetVarHints(replay, matchPlan);
         }
         return null;
     }
