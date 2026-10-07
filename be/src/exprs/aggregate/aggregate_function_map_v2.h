@@ -124,21 +124,23 @@ struct AggregateFunctionMapAggDataV2 {
     }
 
     void write(BufferWritable& buf) const {
-        write_column(*_key_type, *_key_column, buf, use_exact_key_frame);
-        write_column(*_value_type, *_value_column, buf, true);
+        std::string serialized_buffer;
+        write_column(*_key_type, *_key_column, buf, serialized_buffer, use_exact_key_frame);
+        write_column(*_value_type, *_value_column, buf, serialized_buffer, true);
     }
 
     void read(BufferReadable& buf) {
-        read_column(*_key_type, &_key_column, buf, use_exact_key_frame);
-        read_column(*_value_type, &_value_column, buf, true);
+        PaddedPODArray<UInt8> frame;
+        read_column(*_key_type, &_key_column, buf, frame, use_exact_key_frame);
+        read_column(*_value_type, &_value_column, buf, frame, true);
     }
 
 private:
     void write_column(const IDataType& type, const IColumn& column, BufferWritable& buf,
-                      bool use_exact_frame) const {
+                      std::string& serialized_buffer, bool use_exact_frame) const {
         const auto max_serialized_bytes =
                 type.get_uncompressed_serialized_bytes(column, _be_version);
-        std::string serialized_buffer(max_serialized_bytes, '\0');
+        serialized_buffer.resize(max_serialized_bytes, '\0');
 
         const auto* end = type.serialize(column, serialized_buffer.data(), _be_version);
         const auto written_bytes = end - serialized_buffer.data();
@@ -151,8 +153,7 @@ private:
     }
 
     void read_column(const IDataType& type, MutableColumnPtr* column, BufferReadable& buf,
-                     bool use_exact_frame) const {
-        PaddedPODArray<UInt8> frame;
+                     PaddedPODArray<UInt8>& frame, bool use_exact_frame) const {
         buf.read_binary(frame);
 
         const auto* begin = reinterpret_cast<const char*>(frame.data());

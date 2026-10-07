@@ -24,7 +24,9 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/exception.h"
+#include "core/column/column_array.h"
 #include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_array.h"
@@ -33,6 +35,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "core/pod_array.h"
 #include "exprs/aggregate/aggregate_function_map_v2.h"
@@ -138,6 +141,51 @@ std::pair<size_t, size_t> serialize_and_deserialize_state(const DataTypePtr& key
     return {key_frame.size(), value_frame.size()};
 }
 
+template <bool use_exact_key_frame>
+void check_unequal_frame_round_trip(const DataTypePtr& key_type, const Field& key,
+                                    const DataTypePtr& value_type, const Field& value,
+                                    int be_exec_version) {
+    const DataTypes argument_types {make_nullable(key_type), make_nullable(value_type)};
+    AggregateFunctionMapAggDataV2<use_exact_key_frame> state(argument_types, be_exec_version);
+    state.add_single(key, value);
+
+    auto serialized_state = ColumnString::create();
+    BufferWritable writer(*serialized_state);
+    state.write(writer);
+    writer.commit();
+
+    AggregateFunctionMapAggDataV2<use_exact_key_frame> restored_state(argument_types,
+                                                                      be_exec_version);
+    BufferReadable reader(serialized_state->get_data_at(0));
+    restored_state.read(reader);
+    EXPECT_FALSE(reader.has_remaining());
+
+    auto result_type = std::make_shared<DataTypeMap>(argument_types[0], argument_types[1]);
+    auto result = result_type->create_column();
+    restored_state.insert_result_into(*result);
+    const auto& result_map = assert_cast<const ColumnMap&>(*result);
+    ASSERT_EQ(result_map.get_keys().size(), 1);
+    EXPECT_EQ(result_map.get_keys()[0], key);
+    EXPECT_EQ(result_map.get_values()[0], value);
+}
+
+void check_foreach_v2_state(const AggregateFunctionPtr& function, const DataTypePtr& result_type,
+                            const ColumnString& serialized, Arena& arena, size_t key_count) {
+    AggregateFunctionGuard received_state(function.get());
+    BufferReadable reader(serialized.get_data_at(0));
+    function->deserialize(received_state.data(), reader, arena);
+    EXPECT_FALSE(reader.has_remaining());
+
+    auto result = result_type->create_column();
+    function->insert_result_into(received_state.data(), *result);
+    const auto& result_array = assert_cast<const ColumnArray&>(*result);
+    ASSERT_EQ(result_array.size(), 1);
+    ASSERT_EQ(result_array.get_offsets()[0], 1);
+    const auto& nested_map = assert_cast<const ColumnMap&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(nested_map.get_keys().size(), key_count);
+}
+
 void serialize_foreach_v2_key_frame(int be_exec_version, size_t& key_frame_size) {
     const auto key_type = make_nullable(std::make_shared<DataTypeInt32>());
     const auto value_type = make_nullable(std::make_shared<DataTypeInt32>());
@@ -182,6 +230,31 @@ void serialize_foreach_v2_key_frame(int be_exec_version, size_t& key_frame_size)
     reader.read_binary(value_frame);
     EXPECT_FALSE(reader.has_remaining());
     key_frame_size = key_frame.size();
+
+    // A newly upgraded BE must read a partial state produced using the negotiated
+    // legacy format, rather than constructing the nested function at version 16.
+    auto receiving_function = AggregateFunctionSimpleFactory::instance().get(
+            "map_agg_v2_foreachv2", argument_types, result_type, false, be_exec_version);
+    ASSERT_NE(receiving_function, nullptr);
+    receiving_function->set_version(be_exec_version);
+    check_foreach_v2_state(receiving_function, result_type, *serialized_state, arena, key_count);
+
+    if (be_exec_version == SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION - 1) {
+        // Build the outer foreach envelope around an old-format nested state to
+        // simulate a version-15 peer sending to a newly upgraded BE.
+        AggregateFunctionMapAggDataV2<false> legacy_nested({key_type, value_type}, be_exec_version);
+        for (size_t i = 0; i < key_count; ++i) {
+            legacy_nested.add_single(Field::create_field<TYPE_INT>(static_cast<Int32>(i + 1)),
+                                     Field::create_field<TYPE_INT>(static_cast<Int32>(i)));
+        }
+        auto legacy_foreach_state = ColumnString::create();
+        BufferWritable legacy_writer(*legacy_foreach_state);
+        legacy_writer.write_binary(size_t {1});
+        legacy_nested.write(legacy_writer);
+        legacy_writer.commit();
+        check_foreach_v2_state(receiving_function, result_type, *legacy_foreach_state, arena,
+                               key_count);
+    }
 }
 
 } // namespace
@@ -238,6 +311,22 @@ TEST(AggregateFunctionMapAggV2Test, ExactAndLegacyStateFrames) {
 
     EXPECT_LT(exact_frame_sizes.first, legacy_frame_sizes.first);
     EXPECT_EQ(exact_frame_sizes.second, legacy_frame_sizes.second);
+}
+
+TEST(AggregateFunctionMapAggV2Test, ReusedScratchHandlesUnequalFrameSizes) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    const auto int_field = Field::create_field<TYPE_INT>(1);
+    const auto string_field = Field::create_field<TYPE_STRING>(std::string(1024, 'x'));
+
+    check_unequal_frame_round_trip<true>(string_type, string_field, int_type, int_field,
+                                         SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION);
+    check_unequal_frame_round_trip<true>(int_type, int_field, string_type, string_field,
+                                         SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION);
+    check_unequal_frame_round_trip<false>(string_type, string_field, int_type, int_field,
+                                          SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION - 1);
+    check_unequal_frame_round_trip<false>(int_type, int_field, string_type, string_field,
+                                          SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION - 1);
 }
 
 TEST(AggregateFunctionMapAggV2Test, PersistedStateCompatibleAcrossFrameVersion) {
