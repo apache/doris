@@ -670,19 +670,25 @@ Status BkdIndexReader::construct_bkd_query_value(const Field& query_value,
                                                  std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                                  InvertedIndexVisitor<QT>* visitor) {
     if constexpr (QT == InvertedIndexQueryType::EQUAL_QUERY) {
-        RETURN_IF_ERROR(encode_bkd_field_ascending(_type, query_value, _value_key_coder,
-                                                   &visitor->query_max));
-        RETURN_IF_ERROR(encode_bkd_field_ascending(_type, query_value, _value_key_coder,
-                                                   &visitor->query_min));
-    } else if constexpr (QT == InvertedIndexQueryType::LESS_THAN_QUERY ||
-                         QT == InvertedIndexQueryType::LESS_EQUAL_QUERY) {
-        RETURN_IF_ERROR(encode_bkd_field_ascending(_type, query_value, _value_key_coder,
-                                                   &visitor->query_max));
+        RETURN_IF_ERROR(encode_bkd_field_upper_bound_ascending(_type, query_value, _value_key_coder,
+                                                               &visitor->query_max));
+        RETURN_IF_ERROR(encode_bkd_field_lower_bound_ascending(_type, query_value, _value_key_coder,
+                                                               &visitor->query_min));
+    } else if constexpr (QT == InvertedIndexQueryType::LESS_THAN_QUERY) {
+        RETURN_IF_ERROR(encode_bkd_field_lower_bound_ascending(_type, query_value, _value_key_coder,
+                                                               &visitor->query_max));
         RETURN_IF_ERROR(encode_bkd_min_ascending(_type, _value_key_coder, &visitor->query_min));
-    } else if constexpr (QT == InvertedIndexQueryType::GREATER_THAN_QUERY ||
-                         QT == InvertedIndexQueryType::GREATER_EQUAL_QUERY) {
-        RETURN_IF_ERROR(encode_bkd_field_ascending(_type, query_value, _value_key_coder,
-                                                   &visitor->query_min));
+    } else if constexpr (QT == InvertedIndexQueryType::LESS_EQUAL_QUERY) {
+        RETURN_IF_ERROR(encode_bkd_field_upper_bound_ascending(_type, query_value, _value_key_coder,
+                                                               &visitor->query_max));
+        RETURN_IF_ERROR(encode_bkd_min_ascending(_type, _value_key_coder, &visitor->query_min));
+    } else if constexpr (QT == InvertedIndexQueryType::GREATER_THAN_QUERY) {
+        RETURN_IF_ERROR(encode_bkd_field_upper_bound_ascending(_type, query_value, _value_key_coder,
+                                                               &visitor->query_min));
+        RETURN_IF_ERROR(encode_bkd_max_ascending(_type, _value_key_coder, &visitor->query_max));
+    } else if constexpr (QT == InvertedIndexQueryType::GREATER_EQUAL_QUERY) {
+        RETURN_IF_ERROR(encode_bkd_field_lower_bound_ascending(_type, query_value, _value_key_coder,
+                                                               &visitor->query_min));
         RETURN_IF_ERROR(encode_bkd_max_ascending(_type, _value_key_coder, &visitor->query_max));
     } else {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -948,26 +954,26 @@ int InvertedIndexVisitor<InvertedIndexQueryType::EQUAL_QUERY>::matches(uint8_t* 
     if (UNLIKELY(_reader == nullptr)) {
         throw CLuceneError(CL_ERR_NullPointer, "bkd index reader is null", false);
     }
-    // if query type is equal, query_min == query_max
-    if (_reader->num_data_dims_ == 1) {
-        return std::memcmp(packed_value, (const uint8_t*)query_min.c_str(),
-                           _reader->bytes_per_dim_);
-    } else {
-        // if all dim value > matched value, then return > 0, otherwise return < 0
-        int return_result = 0;
-        for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
-            int offset = dim * _reader->bytes_per_dim_;
-            auto result = lucene::util::FutureArrays::CompareUnsigned(
-                    packed_value, offset, offset + _reader->bytes_per_dim_,
-                    (const uint8_t*)query_min.c_str(), offset, offset + _reader->bytes_per_dim_);
-            if (result < 0) {
-                return -1;
-            } else if (result > 0) {
-                return_result = 1;
-            }
+    // Equality normally has identical bounds. Floating-point zero is the exception: SQL treats
+    // -0.0 and +0.0 as equal, while the BKD encoding orders them as two adjacent values.
+    int return_result = 0;
+    for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
+        int offset = dim * _reader->bytes_per_dim_;
+        auto result_min = lucene::util::FutureArrays::CompareUnsigned(
+                packed_value, offset, offset + _reader->bytes_per_dim_,
+                (const uint8_t*)query_min.c_str(), offset, offset + _reader->bytes_per_dim_);
+        if (result_min < 0) {
+            return -1;
         }
-        return return_result;
+
+        auto result_max = lucene::util::FutureArrays::CompareUnsigned(
+                packed_value, offset, offset + _reader->bytes_per_dim_,
+                (const uint8_t*)query_max.c_str(), offset, offset + _reader->bytes_per_dim_);
+        if (result_max > 0) {
+            return_result = 1;
+        }
     }
+    return return_result;
 }
 
 template <>

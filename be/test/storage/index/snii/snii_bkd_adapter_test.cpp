@@ -478,6 +478,52 @@ Field int64_field(int64_t value) {
     return Field::create_field<TYPE_BIGINT>(value);
 }
 
+template <FieldType FT, PrimitiveType PT, typename T>
+void verify_signed_zero_queries(const std::string& path, const TabletIndex& meta) {
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(path), &file_writer));
+    IndexFileWriter index_file_writer(io::global_local_filesystem(), path, "signed_zero_rowset",
+                                      /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII,
+                                      std::move(file_writer), /*can_use_ram_dir=*/true,
+                                      /*tablet_id=*/301);
+
+    SniiBkdIndexColumnWriter writer(&index_file_writer, &meta, FT);
+    assert_ok(writer.init());
+    const std::vector<T> values = {static_cast<T>(-1.0), static_cast<T>(-0.0), static_cast<T>(0.0),
+                                   static_cast<T>(1.0)};
+    assert_ok(writer.add_values("c1", values.data(), values.size()));
+    assert_ok(writer.finish());
+    assert_ok(index_file_writer.begin_close());
+    assert_ok(index_file_writer.finish_close());
+
+    QueryContextFixture fixture;
+    auto reader = SniiBkdIndexReader::create_shared(&meta, open_file_reader(path));
+    struct Case {
+        InvertedIndexQueryType type;
+        std::vector<uint32_t> expected_docids;
+    };
+    const std::vector<Case> cases = {
+            {InvertedIndexQueryType::EQUAL_QUERY, {1, 2}},
+            {InvertedIndexQueryType::LESS_THAN_QUERY, {0}},
+            {InvertedIndexQueryType::LESS_EQUAL_QUERY, {0, 1, 2}},
+            {InvertedIndexQueryType::GREATER_THAN_QUERY, {3}},
+            {InvertedIndexQueryType::GREATER_EQUAL_QUERY, {1, 2, 3}},
+    };
+
+    for (const T query_zero : {static_cast<T>(-0.0), static_cast<T>(0.0)}) {
+        const Field query = Field::create_field<PT>(query_zero);
+        for (const Case& test_case : cases) {
+            SCOPED_TRACE("query type " + std::to_string(static_cast<int>(test_case.type)));
+            auto bitmap = std::make_shared<roaring::Roaring>();
+            assert_ok(reader->query(fixture.context(), "c1", query, test_case.type, bitmap));
+            roaring::Roaring expected;
+            expected.addMany(test_case.expected_docids.size(), test_case.expected_docids.data());
+            EXPECT_TRUE(*bitmap == expected);
+        }
+    }
+}
+
 // The predicate path: an ordinary comparison over a numeric column reaches the
 // SNII BKD through query(), and must answer exactly what a scan would.
 TEST_F(SniiBkdAdapterTest, ReaderAnswersComparisonPredicates) {
@@ -526,6 +572,13 @@ TEST_F(SniiBkdAdapterTest, ReaderAnswersComparisonPredicates) {
         }
         EXPECT_TRUE(*bitmap == expected);
     }
+}
+
+TEST_F(SniiBkdAdapterTest, ReaderUsesSqlSignedZeroSemantics) {
+    verify_signed_zero_queries<FieldType::OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT, float>(
+            test_path("read_signed_zero_float"), _meta);
+    verify_signed_zero_queries<FieldType::OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE, double>(
+            test_path("read_signed_zero_double"), _meta);
 }
 
 // A query shape the BKD cannot answer must be REFUSED, not approximated: the

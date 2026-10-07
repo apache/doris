@@ -69,10 +69,12 @@ private:
                          std::unique_ptr<::doris::snii::bkd::BkdSearcher>* uncached,
                          const ::doris::snii::bkd::BkdSearcher** searcher);
 
-    // Encodes `query_value` with the key coder of the INDEX's OWN field type
-    // (INV-1) -- the one read out of the header, never the query's own type.
-    static Status _encode_query_value(const ::doris::snii::bkd::BkdSearcher& searcher,
-                                      const Field& query_value, std::string* out);
+    // Encodes the lower and upper representatives of `query_value` with the key
+    // coder of the INDEX's OWN field type (INV-1). They differ only for signed
+    // floating-point zero, whose SQL equivalence class spans [-0.0, +0.0].
+    static Status _encode_query_bounds(const ::doris::snii::bkd::BkdSearcher& searcher,
+                                       const Field& query_value, std::string* lower,
+                                       std::string* upper);
 };
 
 } // namespace doris::segment_v2
