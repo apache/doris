@@ -55,7 +55,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondSub
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteMicrosecondAdd;
@@ -329,6 +331,8 @@ public class DatetimeFunctionBinder {
                 return new MinutesAdd(timestamp, amount);
             case SECOND:
                 return new SecondsAdd(timestamp, amount);
+            case MICROSECOND:
+                return new MicroSecondsAdd(timestamp, amount);
             case YEAR_MONTH:
                 return new YearMonthAdd(timestamp, amount);
             case DAY_SECOND:
@@ -353,7 +357,7 @@ public class DatetimeFunctionBinder {
                 return new SecondMicrosecondAdd(timestamp, amount);
             default:
                 throw new AnalysisException("Unsupported time stamp add time unit: " + unit
-                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND/MICROSECOND");
         }
     }
 
@@ -375,6 +379,8 @@ public class DatetimeFunctionBinder {
                 return new MinutesSub(timeStamp, amount);
             case SECOND:
                 return new SecondsSub(timeStamp, amount);
+            case MICROSECOND:
+                return new MicroSecondsSub(timeStamp, amount);
             case YEAR_MONTH:
                 return new YearMonthSub(timeStamp, amount);
             case DAY_SECOND:
@@ -399,7 +405,7 @@ public class DatetimeFunctionBinder {
                 return new SecondMicrosecondSub(timeStamp, amount);
             default:
                 throw new AnalysisException("Unsupported time stamp sub time unit: " + unit
-                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND/MICROSECOND");
         }
     }
 

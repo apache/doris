@@ -1555,8 +1555,8 @@ TEST(DataTypeSerDeArrowTest, TimeStampNsArrowRoundTrip) {
     EXPECT_TRUE(arrow_timestamp_type->timezone().empty());
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    status = convert_to_arrow_batch(*source_block, schema, arrow::default_memory_pool(),
-                                    &record_batch, cctz::utc_time_zone());
+    status = convert_to_arrow_batch_for_test(*source_block, schema, arrow::default_memory_pool(),
+                                             &record_batch, cctz::utc_time_zone());
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(record_batch, nullptr);
 
@@ -1567,8 +1567,9 @@ TEST(DataTypeSerDeArrowTest, TimeStampNsArrowRoundTrip) {
     EXPECT_EQ(std::numeric_limits<int64_t>::max(), scalar_array->Value(2));
 
     auto target_block = std::make_shared<Block>(source_block->clone_empty());
-    status = convert_from_arrow_batch(record_batch, source_block->get_data_types(),
-                                      target_block.get(), cctz::utc_time_zone());
+    status = PythonArrowBlockConvertor(record_batch->schema(), cctz::utc_time_zone())
+                     .convert_from_arrow(record_batch, source_block->get_data_types(),
+                                         target_block.get());
     ASSERT_TRUE(status.ok()) << status;
     CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
 }
