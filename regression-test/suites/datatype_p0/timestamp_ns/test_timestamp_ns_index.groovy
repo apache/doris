@@ -100,14 +100,14 @@ suite("test_timestamp_ns_index") {
     sql """
         create table timestamp_ns_explicit_bloom_index (
             id bigint not null,
-            dt timestamp_ns,
-            index idx_dt_bloom(dt) using bloomfilter
-                properties("bloom_filter_fpp" = "0.01")
+            dt timestamp_ns
         )
         duplicate key(id)
         distributed by hash(id) buckets 1
         properties(
             "replication_num" = "1",
+            "bloom_filter_columns" = "dt",
+            "bloom_filter_fpp" = "0.01",
             "disable_auto_compaction" = "true"
         )
     """

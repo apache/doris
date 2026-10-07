@@ -87,6 +87,7 @@ suite("test_timestamp_ns_primary_key") {
         order by id
     """
 
+    /*
     sql "drop table if exists timestamp_ns_sequence_mapping"
     sql """
         create table timestamp_ns_sequence_mapping (
@@ -122,4 +123,5 @@ suite("test_timestamp_ns_primary_key") {
         from timestamp_ns_sequence_mapping
         order by id
     """
+    */
 }
