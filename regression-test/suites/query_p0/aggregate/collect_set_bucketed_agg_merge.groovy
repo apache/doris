@@ -21,6 +21,9 @@
 suite("collect_set_bucketed_agg_merge") {
     sql "set enable_bucketed_hash_agg=true"
     sql "set be_number_for_test=1"
+    // Bucketed agg is disabled while spill is enabled, so turn off fuzzy spill.
+    sql "set enable_spill=false"
+    sql "set enable_force_spill=false"
     sql "set agg_phase=1"
     sql "set parallel_pipeline_task_num=8"
     sql "set bucketed_agg_min_input_rows=0"

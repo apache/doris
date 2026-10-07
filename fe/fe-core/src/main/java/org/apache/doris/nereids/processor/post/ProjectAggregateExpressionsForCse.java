@@ -69,7 +69,8 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
      *
      * <p>For one-phase aggregates whose child is a PhysicalDistribute
      * (aggregate -> distribute -> scan), the CSE project is inserted below the
-     * distribute so that the distribution-key slots stay intact and the exchange
+     * distribute (merged into the project that is already there, if any) so that
+     * the distribution-key slots stay intact and the exchange
      * only carries the (already pruned) aggregate input. The translator's bucketed
      * fusion (fusing one-phase aggregate + distribute into BucketedAggregationNode)
      * builds directly on the distribute's child, so the fused plan naturally
@@ -219,6 +220,24 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                     projectPhysicalProperties,
                     distributeChild.getStats(),
                     distribute.child());
+            if (distributeChild instanceof PhysicalProject) {
+                // MergeProjectPostProcessor has already run, so a project stacked on an
+                // existing one stays in the plan: it costs an extra SelectNode, and above a
+                // CTE consumer both projects are translated onto the same multicast sink,
+                // which takes only one projection. Fold the CSE project into the existing
+                // one, and leave the aggregate untouched when they cannot be merged.
+                PhysicalProject<? extends Plan> childProject = (PhysicalProject<? extends Plan>) distributeChild;
+                Optional<List<NamedExpression>> mergedProjections = project.canMergeChildProjections(childProject)
+                        ? project.mergeProjections(childProject) : Optional.empty();
+                if (!mergedProjections.isPresent()) {
+                    return aggregate;
+                }
+                project = project.withProjectionsAndChild(mergedProjections.get(), childProject.child());
+                project = project.withPhysicalPropertiesAndStats(
+                        ChildOutputPropertyDeriver.computeProjectOutputProperties(project.getProjects(),
+                                ((PhysicalPlan) project.child()).getPhysicalProperties()),
+                        project.getStats());
+            }
             // withChildren keeps the distribution spec and physical properties of the
             // distribute unchanged; its output now comes from the CSE project, which
             // still carries every distribution-key slot (the group-by slots are part

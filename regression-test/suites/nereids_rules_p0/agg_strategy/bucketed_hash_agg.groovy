@@ -31,6 +31,9 @@ suite("bucketed_hash_agg") {
     sql "set runtime_filter_mode=OFF"
     sql "set parallel_pipeline_task_num=2"
     sql "set bucketed_agg_min_input_rows=0"
+    // Bucketed agg is disabled while spill is enabled, so turn off fuzzy spill.
+    sql "set enable_spill=false"
+    sql "set enable_force_spill=false"
     sql "set bucketed_agg_max_group_keys=0"
     // The table below is never analyzed, so group-by column stats are unknown and
     // StatsCalculator falls back to rows * DEFAULT_AGGREGATE_RATIO (1/3.0) for the
@@ -142,6 +145,25 @@ suite("bucketed_hash_agg") {
     """
 
     // ============================================================
+    // Negative — query cache enabled
+    //   The query cache point is the LOCAL aggregate above the scan, which
+    //   the fused bucketed aggregate does not have, so the regular plan
+    //   must be kept.
+    // ============================================================
+    sql "set be_number_for_test=1"
+    sql "set enable_bucketed_hash_agg = true;"
+    sql "set enable_query_cache = true;"
+    explain {
+        sql("${query}")
+        notContains("BUCKETED AGGREGATE")
+    }
+    sql "set enable_query_cache = false;"
+    explain {
+        sql("${query}")
+        contains("BUCKETED AGGREGATE")
+    }
+
+    // ============================================================
     // Test 5: COUNT(DISTINCT) + GROUP BY — results must be correct
     // ============================================================
     sql "set be_number_for_test=1"
@@ -158,6 +180,29 @@ suite("bucketed_hash_agg") {
     FROM bucketed_agg_reg_test
     GROUP BY grp
     ORDER BY grp;
+    """
+
+    // The dedup aggregate of a mixed DISTINCT / non-DISTINCT query is a one-phase
+    // GLOBAL(INPUT_TO_RESULT) aggregate whose non-distinct functions run in
+    // INPUT_TO_BUFFER mode, so the translator keeps it on the regular
+    // AggregationNode path. The regulator and the cost model must not favour
+    // that one-phase shape either: the plan has to deduplicate locally before
+    // the exchange instead of shuffling the raw scan rows.
+    String mixedDistinctQuery = """
+    SELECT grp, STDDEV_POP(DISTINCT id), SUM(val)
+    FROM bucketed_agg_reg_test
+    GROUP BY grp
+    """
+    explain {
+        sql(mixedDistinctQuery)
+        notContains("BUCKETED AGGREGATE")
+    }
+    qt_mixed_distinct_shape """explain shape plan
+    ${mixedDistinctQuery}
+    """
+    order_qt_mixed_distinct_result """
+    ${mixedDistinctQuery}
+    ORDER BY grp
     """
 
     // ============================================================
@@ -234,4 +279,143 @@ suite("bucketed_hash_agg") {
         notContains("BUCKETED AGGREGATE")
     }
     sql(groupConcatWithOrder)
+
+    // ============================================================
+    // Test 8: COUNT must still evaluate a non-trivial argument, so the
+    //         inline count path cannot hide an assert_true() failure.
+    // ============================================================
+    sql "set agg_phase=0"
+    sql "set be_number_for_test=1"
+    String countWithAssert = """
+        SELECT grp, count(assert_true(val < 100, 'count argument is evaluated'))
+        FROM bucketed_agg_reg_test
+        GROUP BY grp
+    """
+    explain {
+        sql(countWithAssert)
+        contains("BUCKETED AGGREGATE")
+    }
+    test {
+        sql(countWithAssert)
+        exception "count argument is evaluated"
+    }
+    sql "set enable_bucketed_hash_agg=false"
+    test {
+        sql(countWithAssert)
+        exception "count argument is evaluated"
+    }
+
+    // ============================================================
+    // Test 9: Aggregate below a shuffle join on a non-group-by column. The
+    //         join enforces a hash exchange above the aggregate; that exchange
+    //         keeps the fused fragment apart from the join, so the aggregate
+    //         must still be fused below it instead of paying for a raw-row
+    //         exchange below a regular aggregate plus the enforcer exchange.
+    // ============================================================
+    sql "set enable_bucketed_hash_agg=true"
+    sql "set agg_phase=1"
+    sql "set be_number_for_test=1"
+    sql """ DROP TABLE IF EXISTS bucketed_agg_reg_dim; """
+    sql """
+        CREATE TABLE bucketed_agg_reg_dim (
+            k bigint,
+            name varchar(20)
+        ) DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 3
+        PROPERTIES('replication_num' = '1');
+    """
+    // 200 and 370 are the sums of grp a and grp b after the inserts above.
+    sql """ INSERT INTO bucketed_agg_reg_dim VALUES (200, 'sum_a'), (370, 'sum_b'), (999, 'none'); """
+    String joinChildQuery = """
+        SELECT a.grp, a.s, d.name
+        FROM (SELECT grp, SUM(val) AS s FROM bucketed_agg_reg_test GROUP BY grp) a
+        JOIN [shuffle] bucketed_agg_reg_dim d ON a.s = d.k
+    """
+    explain {
+        sql(joinChildQuery)
+        contains("BUCKETED AGGREGATE")
+    }
+    order_qt_join_child_bucketed_result "${joinChildQuery}"
+    sql "set enable_bucketed_hash_agg=false"
+    explain {
+        sql(joinChildQuery)
+        notContains("BUCKETED AGGREGATE")
+    }
+    order_qt_join_child_regular_result "${joinChildQuery}"
+
+    // ============================================================
+    // Test 10: Aggregates that a UNION ALL consumes directly. The union absorbs
+    //          its children's fragments, so these aggregates keep their own
+    //          exchange (no fusion) and every fragment keeps one olap scan.
+    //          Results must be correct either way.
+    // ============================================================
+    sql "set enable_bucketed_hash_agg=true"
+    String unionChildrenQuery = """
+        SELECT grp, SUM(val) AS v FROM bucketed_agg_reg_test GROUP BY grp
+        UNION ALL
+        SELECT grp, MAX(val) AS v FROM bucketed_agg_reg_test GROUP BY grp
+    """
+    order_qt_union_children_result "${unionChildrenQuery}"
+    sql "set enable_bucketed_hash_agg=false"
+    order_qt_union_children_regular_result "${unionChildrenQuery}"
+    sql "set agg_phase=0"
+
+    // ============================================================
+    // Test 11: Window partitioned by a strict subset of the GROUP BY keys. With
+    //          agg_shuffle_use_parent_key the aggregate can also shuffle its
+    //          input by the window's key, which the window consumes without an
+    //          exchange and the translator therefore never fuses. That
+    //          alternative is a regular one-phase aggregate over a raw-row
+    //          exchange and must not be exempted as a bucketed candidate: the
+    //          aggregate is fused on the GROUP BY keys and feeds the window
+    //          through the exchange above it.
+    // ============================================================
+    sql "set enable_bucketed_hash_agg=true"
+    sql "set agg_shuffle_use_parent_key=true"
+    String windowSubsetKeyQuery = """
+        SELECT grp, val, s, SUM(s) OVER (PARTITION BY grp) AS total
+        FROM (SELECT grp, val, SUM(id) AS s FROM bucketed_agg_reg_test GROUP BY grp, val) a
+    """
+    explain {
+        sql(windowSubsetKeyQuery)
+        contains("BUCKETED AGGREGATE")
+    }
+    order_qt_window_subset_key_bucketed_result "${windowSubsetKeyQuery}"
+    sql "set enable_bucketed_hash_agg=false"
+    explain {
+        sql(windowSubsetKeyQuery)
+        notContains("BUCKETED AGGREGATE")
+    }
+    order_qt_window_subset_key_regular_result "${windowSubsetKeyQuery}"
+    sql "set enable_bucketed_hash_agg=true"
+
+    // ============================================================
+    // Test 12: The distribute of a one-phase aggregate must read a single olap
+    //          scan pipeline to be fused. Over a nested aggregate or over a
+    //          projected CTE consumer the translator keeps a regular aggregate,
+    //          so the optimizer must not treat those shapes as bucketed
+    //          candidates. The plan choice is asserted in
+    //          BucketedAggregateTranslatorTest; here the results must match the
+    //          ones without bucketed aggregation.
+    // ============================================================
+    String nestedAggQuery = """
+        SELECT grp, SUM(m) FROM
+        (SELECT grp, val, MAX(id) AS m FROM bucketed_agg_reg_test GROUP BY grp, val) a
+        GROUP BY grp
+    """
+    String projectedCteQuery = """
+        WITH c AS (SELECT grp, id, val FROM bucketed_agg_reg_test)
+        SELECT g2, SUM(v) FROM (SELECT concat(grp, '_x') AS g2, val AS v FROM c) p GROUP BY g2
+        UNION ALL SELECT grp, val FROM c
+    """
+    explain {
+        sql(projectedCteQuery)
+        notContains("BUCKETED AGGREGATE")
+    }
+    order_qt_nested_agg_bucketed_result "${nestedAggQuery}"
+    order_qt_projected_cte_bucketed_result "${projectedCteQuery}"
+    sql "set enable_bucketed_hash_agg=false"
+    order_qt_nested_agg_regular_result "${nestedAggQuery}"
+    order_qt_projected_cte_regular_result "${projectedCteQuery}"
+    sql "set enable_bucketed_hash_agg=true"
 }
