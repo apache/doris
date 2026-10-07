@@ -15,3 +15,15 @@ g1_y	33	19
 g2_x	22	15
 g2_y	22	15
 
+-- !one_phase_cte_bitmap_result --
+g1_x	3	33	19
+g1_y	3	33	19
+g2_x	2	22	15
+g2_y	2	22	15
+
+-- !one_phase_cte_bitmap_result_no_cse --
+g1_x	3	33	19
+g1_y	3	33	19
+g2_x	2	22	15
+g2_y	2	22	15
+

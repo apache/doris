@@ -97,4 +97,29 @@ suite("cse_agg_distribute") {
     sql "set enable_aggregate_cse=false"
     order_qt_one_phase_cte_result_no_cse """${cteQuery}"""
     sql "set enable_aggregate_cse=true"
+
+    // ---------------------------------------------------------------------
+    // the consumer's project also produces v with a NoneMovableFunction
+    // (to_bitmap_with_check). After the CSE expression is merged into that
+    // project, v must still be produced once per consumer sink, so each row
+    // converts and ships a single bitmap.
+    // ---------------------------------------------------------------------
+    String cteBitmapQuery = """
+        WITH c AS (SELECT grp, a, b FROM cse_agg_distribute_tbl WHERE id > 0)
+        SELECT g, BITMAP_UNION_COUNT(v) cnt, SUM(a+b) s, MAX(a+b) m
+        FROM (SELECT concat(grp, '_x') g, a, b, to_bitmap_with_check(a) v FROM c) x GROUP BY g
+        UNION ALL
+        SELECT g, BITMAP_UNION_COUNT(v) cnt, SUM(a+b) s, MAX(a+b) m
+        FROM (SELECT concat(grp, '_y') g, a, b, to_bitmap_with_check(a) v FROM c) y GROUP BY g
+    """
+    explain {
+        sql("${cteBitmapQuery}")
+        contains("MultiCastDataSinks")
+        // one to_bitmap_with_check per consumer sink projection
+        multiContains("to_bitmap_with_check(", 2)
+    }
+    order_qt_one_phase_cte_bitmap_result """${cteBitmapQuery}"""
+    sql "set enable_aggregate_cse=false"
+    order_qt_one_phase_cte_bitmap_result_no_cse """${cteBitmapQuery}"""
+    sql "set enable_aggregate_cse=true"
 }
