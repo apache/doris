@@ -20,6 +20,7 @@
 // cleanup (file gc and its retry), the capacity limit, upload back pressure and request
 // statistics.
 
+#include <gen_cpp/FrontendService_types.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -676,6 +677,8 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
     ASSERT_TRUE(_data_dir->is_remote());
     ASSERT_TRUE(_data_dir->ready());
     ASSERT_EQ(_data_dir->storage_medium(), TStorageMedium::S3);
+    ASSERT_EQ(_data_dir->vault_id(), "vault-1");
+    ASSERT_EQ(_data_dir->get_disk_usage(1LL << 40), 0.0);
     ASSERT_EQ(_data_dir->endpoint(), kEndpoint);
     ASSERT_EQ(_data_dir->get_spill_data_path(), fmt::format("spill/{}", kEndpoint));
     ASSERT_EQ(_data_dir->get_spill_data_path("q1"), fmt::format("spill/{}/q1", kEndpoint));
@@ -709,6 +712,8 @@ TEST_F(SpillFileS3Test, NotReadyUntilVaultResolved) {
     ASSERT_EQ(spill_file, nullptr);
 }
 
+// Keep the S3 write/read and both accounting layers in one end-to-end scenario.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
     _create_manager();
     std::mt19937 rng(42);
@@ -774,12 +779,22 @@ TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
     ASSERT_TRUE(st.ok());
 
     // Every part fits in one coalesced read, so it is fetched whole with a single GET.
-    int64_t expected_gets = static_cast<int64_t>(keys.size());
+    auto expected_gets = static_cast<int64_t>(keys.size());
     ASSERT_EQ(_counter(profile::SPILL_REMOTE_READ_REQUESTS), expected_gets);
     ASSERT_EQ(mock_store().get_requests, expected_gets);
     ASSERT_EQ(io_ctx->spill_remote_read_requests(), expected_gets);
     ASSERT_EQ(io_ctx->spill_read_bytes_from_remote_storage(), object_bytes);
     ASSERT_EQ(io_ctx->spill_read_bytes_from_local_storage(), 0);
+    // The query statistics sent to FE (audit log and profile) must carry the remote counters,
+    // without misreporting them as local spill traffic.
+    TQueryStatistics statistics;
+    _runtime_state->get_query_ctx()->resource_ctx()->to_thrift_query_statistics(&statistics);
+    ASSERT_TRUE(statistics.__isset.spill_write_bytes_to_remote_storage);
+    ASSERT_TRUE(statistics.__isset.spill_read_bytes_from_remote_storage);
+    ASSERT_EQ(statistics.spill_write_bytes_to_remote_storage, object_bytes);
+    ASSERT_EQ(statistics.spill_read_bytes_from_remote_storage, object_bytes);
+    ASSERT_EQ(statistics.spill_write_bytes_to_local_storage, 0);
+    ASSERT_EQ(statistics.spill_read_bytes_from_local_storage, 0);
     // Part sizes come from the writer: the reader never asks the store for them.
     ASSERT_EQ(mock_store().head_requests, heads_after_write);
 }
