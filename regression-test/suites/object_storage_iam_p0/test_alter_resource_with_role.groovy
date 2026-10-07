@@ -96,7 +96,9 @@ suite("test_alter_resource_with_role") {
     def result = sql """ SHOW RESOURCES WHERE NAME = "${resourceName}"; """
     log.info("result:${result}")
     assertTrue(!result.toString().contains(roleArn))
-    assertTrue(!result.toString().contains(externalId));
+    if (!externalId.isEmpty()) {
+        assertTrue(!result.toString().contains(externalId))
+    }
     assertTrue(result.toString().contains("error_ak"));
 
     // data_sizes is one arrayList<Long>, t is tablet
@@ -158,7 +160,9 @@ suite("test_alter_resource_with_role") {
     result = sql """ SHOW RESOURCES WHERE NAME = "${resourceName}"; """
     log.info("result:${result}")
     assertTrue(result.toString().contains(roleArn))
-    assertTrue(result.toString().contains(externalId));
+    if (!externalId.isEmpty()) {
+        assertTrue(result.toString().contains(externalId))
+    }
     assertTrue(!result.toString().contains("error_ak"));
 
     // report_tablet_interval_seconds = 60 sleep wait for report policy
@@ -200,7 +204,9 @@ suite("test_alter_resource_with_role") {
     result = sql """ SHOW RESOURCES WHERE NAME = "${resourceName}"; """
     log.info("result:${result}")
     assertTrue(!result.toString().contains(roleArn))
-    assertTrue(!result.toString().contains(externalId));
+    if (!externalId.isEmpty()) {
+        assertTrue(!result.toString().contains(externalId))
+    }
     assertTrue(result.toString().contains(awsAccessKey));
 
     // report_tablet_interval_seconds = 60 sleep wait for report policy

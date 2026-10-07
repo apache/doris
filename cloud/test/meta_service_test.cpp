@@ -11468,7 +11468,8 @@ TEST(MetaServiceTest, UpdateAkSkTest) {
     std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
     std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
 
-    auto update = [&](bool with_user_id, bool with_wrong_user_id) {
+    auto update = [&](bool with_user_id, bool with_wrong_user_id, bool with_gcp_credential = false,
+                      bool with_existing_keys = false) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string key;
@@ -11482,6 +11483,20 @@ TEST(MetaServiceTest, UpdateAkSkTest) {
         }
         obj_info.set_ak("ak");
         obj_info.set_sk("sk");
+        if (with_gcp_credential) {
+            obj_info.set_provider(ObjectStoreInfoPB::GCP);
+            auto* credential = obj_info.mutable_credential()->mutable_gcp_credential();
+            credential->set_credential_provider_type(GcpCredentialPB::COMPUTE_ENGINE);
+            credential->set_impersonation_service_account("test@project.iam.gserviceaccount.com");
+            obj_info.clear_ak();
+            obj_info.clear_sk();
+            if (with_existing_keys) {
+                // Reproduce the mixed state persisted before this fix. Resubmitting
+                // the same keys must still remove the native credential.
+                obj_info.set_ak("new_ak");
+                obj_info.set_sk(cipher_sk);
+            }
+        }
         InstanceInfoPB instance;
         instance.add_obj_info()->CopyFrom(obj_info);
         val = instance.SerializeAsString();
@@ -11500,12 +11515,34 @@ TEST(MetaServiceTest, UpdateAkSkTest) {
         ram_user.set_sk(plain_sk);
         req.add_internal_bucket_user()->CopyFrom(ram_user);
 
+        if (with_gcp_credential && !with_wrong_user_id) {
+            // Empty replacement keys must not erase the active native credential.
+            for (int empty_keys = 1; empty_keys <= 3; ++empty_keys) {
+                UpdateAkSkRequest invalid_req = req;
+                auto* keys = invalid_req.mutable_internal_bucket_user(0);
+                if (empty_keys & 1) keys->set_ak("");
+                if (empty_keys & 2) keys->set_sk("");
+                brpc::Controller invalid_cntl;
+                UpdateAkSkResponse invalid_res;
+                meta_service->update_ak_sk(
+                        reinterpret_cast<::google::protobuf::RpcController*>(&invalid_cntl),
+                        &invalid_req, &invalid_res, nullptr);
+                ASSERT_EQ(invalid_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+                InstanceInfoPB unchanged;
+                get_test_instance(unchanged);
+                ASSERT_EQ(unchanged.obj_info(0).SerializeAsString(), obj_info.SerializeAsString());
+            }
+        }
+
         brpc::Controller cntl;
         UpdateAkSkResponse res;
         meta_service->update_ak_sk(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                    &req, &res, nullptr);
         if (with_wrong_user_id) {
             ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+            InstanceInfoPB unchanged;
+            get_test_instance(unchanged);
+            ASSERT_EQ(unchanged.obj_info(0).SerializeAsString(), obj_info.SerializeAsString());
         } else {
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             InstanceInfoPB update_instance;
@@ -11513,12 +11550,25 @@ TEST(MetaServiceTest, UpdateAkSkTest) {
             ASSERT_EQ(update_instance.obj_info(0).user_id(), "111");
             ASSERT_EQ(update_instance.obj_info(0).ak(), "new_ak");
             ASSERT_EQ(update_instance.obj_info(0).sk(), cipher_sk);
+            ASSERT_FALSE(update_instance.obj_info(0).has_credential());
+            ASSERT_TRUE(update_instance.obj_info(0).has_encryption_info());
+            if (with_gcp_credential) {
+                ASSERT_EQ(update_instance.obj_info(0).provider(), ObjectStoreInfoPB::GCP);
+            }
         }
     };
 
     update(false, false);
     update(true, false);
     update(true, true);
+    update(false, false, true);
+    update(true, false, true);
+    update(true, true, true);
+    update(false, false, true, true);
+    update(true, false, true, true);
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
 }
 
 TEST(MetaServiceTest, AlterIamTest) {
@@ -12714,6 +12764,70 @@ TEST(MetaServiceTest, AlterObjInfoTest) {
         ASSERT_FALSE(instance.obj_info(0).has_cred_provider_type());
         ASSERT_FALSE(instance.obj_info(0).has_role_arn());
         ASSERT_FALSE(instance.obj_info(0).has_external_id());
+    }
+
+    // Both legacy ALTER operations must replace native GCP authentication,
+    // including a mixed state left by an earlier key update using the same keys.
+    for (auto op : {AlterObjStoreInfoRequest::ALTER_OBJ_INFO,
+                    AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK}) {
+        for (bool with_existing_keys : {false, true}) {
+            InstanceInfoPB native_instance;
+            auto* obj = native_instance.add_obj_info();
+            obj->set_id("1");
+            obj->set_provider(ObjectStoreInfoPB::GCP);
+            auto* credential = obj->mutable_credential()->mutable_gcp_credential();
+            credential->set_credential_provider_type(GcpCredentialPB::COMPUTE_ENGINE);
+            credential->set_impersonation_service_account("test@project.iam.gserviceaccount.com");
+            if (with_existing_keys) {
+                obj->set_ak("new_ak");
+                obj->set_sk(cipher_sk);
+            }
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            txn->put(key, native_instance.SerializeAsString());
+            ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+            AlterObjStoreInfoRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_op(op);
+            req.mutable_obj()->set_id("1");
+            req.mutable_obj()->set_ak("new_ak");
+            req.mutable_obj()->set_sk(plain_sk);
+            // A role-only clear and either empty key must leave the stored
+            // native credential intact, including when legacy keys also exist.
+            for (int empty_keys = 0; empty_keys <= 3; ++empty_keys) {
+                AlterObjStoreInfoRequest invalid_req = req;
+                if (empty_keys == 0) {
+                    invalid_req.mutable_obj()->clear_ak();
+                    invalid_req.mutable_obj()->clear_sk();
+                    invalid_req.mutable_obj()->set_role_arn("");
+                } else {
+                    if (empty_keys & 1) invalid_req.mutable_obj()->set_ak("");
+                    if (empty_keys & 2) invalid_req.mutable_obj()->set_sk("");
+                }
+                brpc::Controller invalid_cntl;
+                AlterObjStoreInfoResponse invalid_res;
+                meta_service->alter_obj_store_info(
+                        reinterpret_cast<::google::protobuf::RpcController*>(&invalid_cntl),
+                        &invalid_req, &invalid_res, nullptr);
+                ASSERT_EQ(invalid_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+                InstanceInfoPB unchanged;
+                get_test_instance(unchanged);
+                ASSERT_EQ(unchanged.obj_info(0).SerializeAsString(), obj->SerializeAsString());
+            }
+            brpc::Controller cntl;
+            AlterObjStoreInfoResponse res;
+            meta_service->alter_obj_store_info(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                    nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+            InstanceInfoPB stored;
+            get_test_instance(stored);
+            ASSERT_EQ(stored.obj_info(0).provider(), ObjectStoreInfoPB::GCP);
+            ASSERT_EQ(stored.obj_info(0).ak(), "new_ak");
+            ASSERT_EQ(stored.obj_info(0).sk(), cipher_sk);
+            ASSERT_TRUE(stored.obj_info(0).has_encryption_info());
+            ASSERT_FALSE(stored.obj_info(0).has_credential());
+        }
     }
 
     SyncPoint::get_instance()->disable_processing();

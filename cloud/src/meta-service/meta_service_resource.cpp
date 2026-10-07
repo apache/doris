@@ -362,7 +362,14 @@ static int alter_instance_obj_store_info_by_id(InstanceInfoPB& instance,
         }
 
         if (role_arn.empty()) {
-            if (it.ak() == ak && it.sk() == sk) {
+            if (has_obj_credential(it) && (ak.empty() || sk.empty())) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "nonempty access key and secret key are required to replace native "
+                      "credentials";
+                return -1;
+            }
+            // Resubmitting keys must also repair a previously persisted mixed auth state.
+            if (it.ak() == ak && it.sk() == sk && !has_obj_credential(it)) {
                 code = MetaServiceCode::OK;
                 msg = "ak/sk not changed";
                 return 1;
@@ -370,6 +377,7 @@ static int alter_instance_obj_store_info_by_id(InstanceInfoPB& instance,
             it.clear_role_arn();
             it.clear_external_id();
             it.clear_cred_provider_type();
+            it.clear_credential();
 
             it.set_ak(std::string(ak));
             it.set_sk(std::string(sk));
@@ -496,7 +504,13 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
                           proto_to_json(*request);
                     return -1;
                 }
-                if (it.ak() == ak && it.sk() == sk) {
+                if (has_obj_credential(it) && (ak.empty() || sk.empty())) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = "nonempty access key and secret key are required to replace native "
+                          "credentials";
+                    return -1;
+                }
+                if (it.ak() == ak && it.sk() == sk && !has_obj_credential(it)) {
                     code = MetaServiceCode::INVALID_ARGUMENT;
                     msg = "ak sk eq original, please check it";
                     return -1;
@@ -505,6 +519,7 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
                 it.set_user_id(user_id);
                 it.set_ak(ak);
                 it.set_sk(sk);
+                it.clear_credential();
                 it.mutable_encryption_info()->CopyFrom(encryption_info);
                 update_record << "update obj_info's ak sk without user_id, instance_id: "
                               << instance.instance_id() << " obj_info_id: " << it.id()
@@ -515,7 +530,13 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
             }
             if (it.user_id() == user_id) {
                 has_found_alter_obj_info = true;
-                if (it.ak() == ak && it.sk() == sk) {
+                if (has_obj_credential(it) && (ak.empty() || sk.empty())) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = "nonempty access key and secret key are required to replace native "
+                          "credentials";
+                    return -1;
+                }
+                if (it.ak() == ak && it.sk() == sk && !has_obj_credential(it)) {
                     code = MetaServiceCode::INVALID_ARGUMENT;
                     msg = "ak sk eq original, please check it";
                     return -1;
@@ -523,6 +544,7 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
                 it.set_mtime(time);
                 it.set_ak(ak);
                 it.set_sk(sk);
+                it.clear_credential();
                 it.mutable_encryption_info()->CopyFrom(encryption_info);
                 update_record << "update obj_info's ak sk, instance_id: " << instance.instance_id()
                               << " obj_info_id: " << it.id() << " user_id: " << user_id
