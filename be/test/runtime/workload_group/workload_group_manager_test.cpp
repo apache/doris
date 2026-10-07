@@ -1358,4 +1358,26 @@ TEST_F(WorkloadGroupManagerTest, AdaptiveFlushRegistrationSurvivesIdChangeAndReu
     controller->adjust_once();
 }
 
+TEST_F(WorkloadGroupManagerTest, query_error_includes_memory_limit_ancestors) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(200L * 1024 * 1024);
+    WorkloadGroupInfo wg_info {.id = 21993,
+                               .name = "tree-wg",
+                               .memory_limit = 50L * 1024 * 1024,
+                               .max_memory_percent = 25,
+                               .memory_high_watermark = 95};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+    auto query = _generate_on_query(wg, 128L * 1024 * 1024, true);
+    _wg_manager->refresh_workload_group_memory_state();
+    query->resource_ctx()->task_controller()->disable_reserve_memory();
+
+    SCOPED_ATTACH_TASK(query->resource_ctx());
+    Allocator<false, false, false> allocator;
+    std::string error;
+    ASSERT_TRUE(allocator.memory_tracker_exceed(51L * 1024 * 1024, &error));
+    EXPECT_NE(error.find("tree-wg"), std::string::npos) << error;
+    EXPECT_EQ(error.find("can `set exec_mem_limit`"), std::string::npos) << error;
+}
+
 } // namespace doris

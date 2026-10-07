@@ -154,58 +154,11 @@ doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, TryReserveChecker c
     flush_untracked_mem();
     auto wg_ptr = _wg_wptr.lock();
 
-    bool task_limit_checker = static_cast<int>(checker) & 1;
-    bool workload_group_limit_checker = static_cast<int>(checker) & 2;
-    bool process_limit_checker = static_cast<int>(checker) & 4;
-
-    if (task_limit_checker) {
-        if (!_limiter_tracker->try_reserve(size)) {
-            auto err_msg = fmt::format(
-                    "reserve memory failed, size: {}, because query memory exceeded, memory "
-                    "tracker: {}, "
-                    "consumption: {}, limit: {}, peak: {}",
-                    PrettyPrinter::print_bytes(size), _limiter_tracker->label(),
-                    PrettyPrinter::print_bytes(_limiter_tracker->consumption()),
-                    PrettyPrinter::print_bytes(_limiter_tracker->limit()),
-                    PrettyPrinter::print_bytes(_limiter_tracker->peak_consumption()));
-            return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
-        }
-    } else {
-        _limiter_tracker->reserve(size);
-    }
-
-    if (wg_ptr) {
-        if (workload_group_limit_checker) {
-            if (!wg_ptr->try_add_wg_refresh_interval_memory_growth(size)) {
-                auto err_msg = fmt::format(
-                        "reserve memory failed, size: {}, because workload group memory exceeded, "
-                        "workload group: {}",
-                        PrettyPrinter::print_bytes(size), wg_ptr->memory_debug_string());
-                _limiter_tracker->release(size);         // rollback
-                _limiter_tracker->shrink_reserved(size); // rollback
-                return doris::Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>(err_msg);
-            }
-        } else {
-            wg_ptr->add_wg_refresh_interval_memory_growth(size);
-        }
-    }
-
-    if (process_limit_checker) {
-        if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
-            auto err_msg = fmt::format(
-                    "reserve memory failed, size: {}, because proccess memory exceeded, {}",
-                    PrettyPrinter::print_bytes(size),
-                    GlobalMemoryArbitrator::process_mem_log_str());
-            _limiter_tracker->release(size);         // rollback
-            _limiter_tracker->shrink_reserved(size); // rollback
-            if (wg_ptr) {
-                wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
-            }
-            return doris::Status::Error<ErrorCode::PROCESS_MEMORY_EXCEEDED>(err_msg);
-        }
-    } else {
-        doris::GlobalMemoryArbitrator::reserve_process_memory(size);
-    }
+    // Temporary limiter switches retain the attached task's WG. Use it as
+    // the first parent without reparenting a tracker shared by other tasks.
+    auto* parent = wg_ptr ? static_cast<MemoryLimit*>(wg_ptr.get())
+                          : MemoryLimit::process_memory_limit().get();
+    RETURN_IF_ERROR(_limiter_tracker->try_reserve_memory(size, checker, parent));
 
     _reserved_mem += size;
     DCHECK(_reserved_mem >= 0);

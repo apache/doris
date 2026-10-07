@@ -30,6 +30,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "runtime/memory/memory_limit.h"
 #include "runtime/workload_group/workload_group_fwd.h"
 #include "service/backend_options.h"
 #include "util/hash_util.hpp"
@@ -56,7 +57,7 @@ struct WorkloadGroupInfo;
 struct TrackerLimiterGroup;
 class WorkloadGroupMetrics;
 
-class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
+class WorkloadGroup : public MemoryLimit, public std::enable_shared_from_this<WorkloadGroup> {
     ENABLE_FACTORY_CREATOR(WorkloadGroup);
 
 public:
@@ -214,6 +215,12 @@ public:
                           RuntimeProfile* profile);
 
 private:
+    bool exceeds_local_memory_limit(int64_t bytes) override;
+    Status check_local_memory_limit(int64_t bytes) override;
+    Status reserve_local_memory(int64_t bytes, bool check_limit) override;
+    void rollback_local_reservation(int64_t bytes) override;
+    std::string local_memory_limit_string() const override;
+
     void set_id(uint64_t wg_id) { _id = wg_id; }
 
     void create_cgroup_cpu_ctl_no_lock();
