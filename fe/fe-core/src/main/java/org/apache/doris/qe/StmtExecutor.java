@@ -1551,7 +1551,16 @@ public class StmtExecutor {
             // for nereids command
             if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
                 Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-                forward.afterForwardToMaster(context);
+                // The master's ERR result does NOT throw through forward(): the RPC returns
+                // an ERR packet that the executor stores (e.g. "Baseline plan N does not
+                // exist" for an ALTER / DROP of a nonexistent id). The callbacks below
+                // CONFIRM the DDL's effect against the local metadata and FENCE the cache
+                // while confirming - a failed statement must not run them: a failed ALTER
+                // would record a mutation fence, clear the follower's whole baseline cache
+                // and replace the master's precise error.
+                if (masterOpExecutor.getStatusCode() == 0) {
+                    forward.afterForwardToMaster(context);
+                }
             }
         }
     }

@@ -3779,8 +3779,17 @@ public class BaselineManagerConcurrencyTest {
             long id = manager.createBaseline(retry);
             Assertions.assertTrue(id > reserved,
                     "the stale F1 row must not be adopted: " + id);
-            Assertions.assertTrue(store.rowsOf(reserved).isEmpty(),
-                    "the stale committed row is retired: " + store.rowsOf(reserved));
+            // Round-51 #15: the reservation identity now FOLDS the schema fingerprint, so the
+            // F2 attempt cannot see the F1 attempt's sequence reservation at all - the row is
+            // no longer retired through the scripted identity store (production retires it on
+            // the next create's SQL by-key repair, which this store cannot express). What must
+            // hold here is the SAFETY half: the stale row never enters the matchable cache and
+            // never competes with the fresh incarnation.
+            Assertions.assertNull(manager.getBaseline(reserved),
+                    "the stale committed row must stay unmatchable: " + store.rowsOf(reserved));
+            Assertions.assertTrue(store.rowsOf(reserved).stream()
+                            .allMatch(row -> "F1".equals(row.getSchemaFingerprint())),
+                    "only the stale F1 incarnation may linger at the old id: " + store.rowsOf(reserved));
             Assertions.assertEquals(1, store.rowsOf(id).size());
             Assertions.assertEquals("F2", store.rowsOf(id).get(0).getSchemaFingerprint(),
                     "the fresh row carries the CURRENT fingerprint");

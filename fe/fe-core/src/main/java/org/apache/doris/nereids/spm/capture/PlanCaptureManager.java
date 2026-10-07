@@ -779,6 +779,16 @@ public class PlanCaptureManager extends MasterDaemon {
                 if (firstAttemptedWindowStart == 0 || attemptedStart < firstAttemptedWindowStart) {
                     firstAttemptedWindowStart = attemptedStart;
                 }
+                // Round-51 (#13): the floor stays IN-PROCESS here. Persisting it would be
+                // the natural fix, but the write path shares the very internal table whose
+                // read just failed: a write could REPLACE the previous leader's unconsumed
+                // window (its only record) or mark progress for a checkpoint that was
+                // never read, so the retry would silently stop honoring the promised read
+                // (three handoff tests pin exactly that invariant). The cross-FE variant
+                // therefore needs the comment's second option - the first successful EMPTY
+                // read deriving its start from the OLDEST RETAINED audit event instead of
+                // now - interval - which remains a documented follow-up on the activation
+                // path (resolveScanWindow's first-window derivation).
                 pendingWindowNeedsPromptResume = true;
                 LOG.warn("Plan capture cycle skipped: durable checkpoint not confirmed");
                 return;
@@ -1959,18 +1969,25 @@ public class PlanCaptureManager extends MasterDaemon {
      * @param cycleFilter the filter this cycle's window was opened with
      */
     private void reserveFirstAttemptedWindowDurably(PlanCaptureFilter cycleFilter) {
-        if (durableCheckpointObserved || pendingWindowStart != 0
-                || firstAttemptedWindowStart == 0) {
+        if (durableCheckpointObserved || firstAttemptedWindowStart == 0) {
             return;
         }
-        pendingWindowStart = firstAttemptedWindowStart;
-        pendingWindowEnd = System.currentTimeMillis();
-        pendingWindowFilter = cycleFilter;
+        if (pendingWindowStart == 0) {
+            pendingWindowStart = firstAttemptedWindowStart;
+            pendingWindowEnd = System.currentTimeMillis();
+            pendingWindowFilter = cycleFilter;
+        }
         if (persistCheckpointAndConfirm()) {
             // the durable record now covers the attempted window: it must not widen a
             // later derivation any more
             firstAttemptedWindowStart = 0;
         }
+        // A FAILED write / confirmation keeps firstAttemptedWindowStart set, so the NEXT
+        // failed cycle retries the SAME bounds (idempotent reservation) instead of
+        // returning at a guard: the previous version returned as soon as pendingWindowStart
+        // was nonzero, so one failed INSERT left the attempted floor in memory only - a
+        // leader change before the reads recovered let the successor derive its own later
+        // window and permanently skip the first window's eligible rows.
     }
 
     /**

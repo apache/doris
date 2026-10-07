@@ -156,6 +156,18 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     /** Whether an aggregated label was lost to the bound (see droppedPublishFenceLabels). */
     private boolean droppedFenceLabelsOverflowed = false;
 
+    /**
+     * The ABSOLUTE deadline of the obligations that cannot be resolved by identity: an
+     * unresolvable aggregated label, or the OVERFLOWED sentinel standing for batches whose
+     * labels were lost to the bound. Set once when such an obligation first appears and
+     * NOT refreshed by the re-check (see liveDroppedPublishFence): the previous code
+     * re-armed droppedPublishFenceUntil on every expiry, so its survival window was never
+     * observed to elapse and the shared row's "*" kept the horizon fenced forever - a dead
+     * writer FE's unknown obligation pinned every later capture window although all
+     * resolvable loads had turned VISIBLE / ABORTED. 0 = nothing unresolvable.
+     */
+    private long droppedFenceUnresolvedDeadline = 0;
+
     /** One committed-but-unreadable batch (see pendingPublishFences). */
     private static final class PublishFence {
         final long oldestEventTime;
@@ -919,34 +931,55 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             // confirmPublishFence): terminal (VISIBLE / ABORTED) releases, COMMITTED /
             // PRECOMMITTED keeps WITHOUT an age bound, and an unresolvable label keeps the
             // aggregate for one survival window before the age fallback applies.
-            List<String> retained = new ArrayList<>();
-            boolean committedFound = false;
+            List<String> committed = new ArrayList<>();
+            List<String> unresolved = new ArrayList<>();
             for (String label : droppedPublishFenceLabels) {
                 String status = label.isEmpty() || "-".equals(label)
                         ? null : transactionStatusForLabel(label);
                 if (isTerminalTransactionStatus(status)) {
                     continue;
                 }
-                retained.add(label);
                 if (isCommittedTransactionStatus(status)) {
-                    committedFound = true;
+                    committed.add(label);
+                } else {
+                    unresolved.add(label);
                 }
             }
             long now = publishFenceNow();
-            boolean survivalElapsed = now > droppedPublishFenceUntil
-                    + AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS;
-            if (committedFound || (!retained.isEmpty() && !survivalElapsed)
-                    || (droppedFenceLabelsOverflowed && !survivalElapsed)) {
+            if (unresolved.isEmpty() && !droppedFenceLabelsOverflowed) {
+                droppedFenceUnresolvedDeadline = 0;
+            } else if (droppedFenceUnresolvedDeadline == 0) {
+                // ONE absolute survival window for the obligations that cannot be
+                // resolved by identity (see the field): it is deliberately NOT re-armed
+                // by the stay-live branch below.
+                droppedFenceUnresolvedDeadline = now
+                        + AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS;
+            }
+            if (droppedFenceUnresolvedDeadline > 0
+                    && now > droppedFenceUnresolvedDeadline) {
+                LOG.warn("audit loader: the aggregated dropped-publish fence of event time"
+                                + " {} retires {} unresolvable label(s) and the overflowed"
+                                + " sentinel after {} ms; those batches are assumed LOST"
+                                + " (their own publish-fence window elapsed)",
+                        droppedPublishFenceTime, unresolved.size(),
+                        AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS);
+                unresolved.clear();
+                droppedFenceLabelsOverflowed = false;
+                droppedFenceUnresolvedDeadline = 0;
+            }
+            if (!committed.isEmpty() || !unresolved.isEmpty()
+                    || droppedFenceLabelsOverflowed) {
                 droppedPublishFenceLabels.clear();
-                droppedPublishFenceLabels.addAll(retained);
-                droppedFenceLabelsOverflowed = droppedFenceLabelsOverflowed && !committedFound;
+                droppedPublishFenceLabels.addAll(committed);
+                droppedPublishFenceLabels.addAll(unresolved);
                 // re-arm the re-check window; a COMMITTED member keeps the aggregate until
                 // its label resolves instead of being released by age alone
                 droppedPublishFenceUntil = now + PUBLISH_FENCE_MAX_MILLIS;
                 LOG.warn("audit loader: the aggregated dropped-publish fence of event time"
                                 + " {} stays live: {} member(s) are still unresolved{}",
-                        droppedPublishFenceTime, retained.size(),
-                        committedFound ? " (a COMMITTED transaction is still pending)" : "");
+                        droppedPublishFenceTime, committed.size() + unresolved.size(),
+                        !committed.isEmpty()
+                                ? " (a COMMITTED transaction is still pending)" : "");
                 return droppedPublishFenceTime;
             }
             LOG.warn("audit loader: the aggregated dropped-publish fence of event time {}"
@@ -957,6 +990,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             droppedPublishFenceUntil = 0;
             droppedPublishFenceLabels.clear();
             droppedFenceLabelsOverflowed = false;
+            droppedFenceUnresolvedDeadline = 0;
             return 0;
         }
         return droppedPublishFenceTime;

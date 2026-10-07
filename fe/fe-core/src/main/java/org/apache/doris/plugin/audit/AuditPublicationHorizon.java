@@ -660,13 +660,20 @@ public final class AuditPublicationHorizon {
         for (String label : labelsCsv.split(";", -1)) {
             String trimmed = label.trim();
             if (AuditLoader.OVERFLOWED_FENCE_LABEL.equals(trimmed)) {
-                // The writer overflowed its aggregated identity list: this slot stands
-                // for at least one dropped-publish-timeout batch whose COMMITTED
-                // transaction may still publish. The row's AGE cannot resolve it (the
-                // batch list is gone, not settled), so the fence is kept until the row
-                // itself is retired - fail closed, exactly like an unresolvable
-                // COMMITTED label (see AuditLoader#aggregateDroppedFence).
-                return false;
+                // The writer overflowed its aggregated identity list: at least one
+                // dropped-publish-timeout batch has NO resolvable identity, so the fence
+                // cannot be settled by a label lookup. The writer retires it itself once
+                // those batches' own publish-fence window plus the identity-survival
+                // window elapsed (see AuditLoader#liveDroppedPublishFence); for a row this
+                // process reads - a DEAD writer cannot re-report - the same bound is
+                // applied to the row's AGE here. Keeping the sentinel FOREVER let a dead
+                // FE's horizon pin every later capture window even after every resolvable
+                // batch had turned VISIBLE / ABORTED.
+                if (now - updatedAt <= AuditLoader.PUBLISH_FENCE_MAX_MILLIS
+                        + COMMITTED_FENCE_SURVIVAL_MILLIS) {
+                    return false;
+                }
+                continue;
             }
             if (trimmed.isEmpty() || "-".equals(trimmed)) {
                 if (now - updatedAt <= COMMITTED_FENCE_SURVIVAL_MILLIS) {

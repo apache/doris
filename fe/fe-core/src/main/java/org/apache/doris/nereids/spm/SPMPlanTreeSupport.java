@@ -2119,13 +2119,28 @@ public final class SPMPlanTreeSupport {
         java.util.ArrayDeque<Plan> rewrittenAncestors = new java.util.ArrayDeque<>();
         Plan rewrittenNode = rewritten;
         Plan userNode = userPlan;
-        while (rewrittenNode.getClass() == userNode.getClass()
-                && !carriesOutputList(rewrittenNode)
-                && rewrittenNode.children().size() == 1
-                && userNode.children().size() == 1) {
-            rewrittenAncestors.push(rewrittenNode);
-            rewrittenNode = rewrittenNode.child(0);
-            userNode = userNode.child(0);
+        while (true) {
+            while (rewrittenNode.getClass() == userNode.getClass()
+                    && !carriesOutputList(rewrittenNode)
+                    && rewrittenNode.children().size() == 1
+                    && userNode.children().size() == 1) {
+                rewrittenAncestors.push(rewrittenNode);
+                rewrittenNode = rewrittenNode.child(0);
+                userNode = userNode.child(0);
+            }
+            // The caller's SET_VAR hint wrapper is CALLER-SIDE ONLY: the frozen replay
+            // carries no hint (and the parameterized fallback strips it), and
+            // carrySetVarHints re-attaches the settings AFTER this alignment. Walking past
+            // it lets the alignment reach the caller's project instead of stopping at the
+            // class mismatch and returning the captured header (a
+            // SET_VAR(time_zone='+08:00') `v + 1` baseline matching a `v + 2` caller
+            // reported the frozen `v + 1`).
+            if (userNode instanceof LogicalSelectHint && userNode.children().size() == 1
+                    && !(rewrittenNode instanceof LogicalSelectHint)) {
+                userNode = userNode.child(0);
+                continue;
+            }
+            break;
         }
         // A standalone one-row replay (CREATE SESSION BASELINE PLAN 'SELECT 1' matching
         // a later SELECT 2): neither tree carries an output-carrying unary node, so the
@@ -2477,10 +2492,25 @@ public final class SPMPlanTreeSupport {
         List<String> labels = new ArrayList<>(items.size());
         for (int i = 0; i < items.size(); i++) {
             NamedExpression item = items.get(i);
-            if (item instanceof UnboundStar && !hasStarPayload((UnboundStar) item)
-                    && node.children().size() == 1) {
-                StarLabels expanded = starExpansionForStar(node.child(0),
-                        (UnboundStar) item);
+            if (item instanceof UnboundStar && node.children().size() == 1) {
+                UnboundStar star = (UnboundStar) item;
+                StarLabels expanded = starExpansionForStar(node.child(0), star);
+                if (hasStarPayload(star)) {
+                    // The EXCEPT payload REMOVES columns from the visible list: skipping
+                    // the expansion left no caller label for the derived projection's
+                    // remaining column, so the frozen sink kept reporting the captured
+                    // `v + 1` while returning the substituted `v + 2` (see
+                    // exceptAdjustedLabels). REPLACE keeps every label (it swaps VALUES).
+                    if (expanded.openTail) {
+                        // the underlying labels are not derivable (a base table): its real
+                        // column names need no realignment and the payload cannot be
+                        // projected onto them here
+                        labels.add(outputLabelOf(item));
+                        continue;
+                    }
+                    labels.addAll(exceptAdjustedLabels(star, expanded.labels));
+                    continue;
+                }
                 if (expanded.openTail) {
                     if (i != items.size() - 1) {
                         // the open tail's length is unknown: the items after it cannot be
@@ -2497,6 +2527,57 @@ public final class SPMPlanTreeSupport {
             labels.add(outputLabelOf(item));
         }
         return labels;
+    }
+
+    /**
+     * One payload star's caller-visible labels: the underlying relation's labels with the
+     * EXCEPT columns removed. An EXCEPT name that matches no derivable label declines:
+     * silently keeping the frozen list would report the captured header of a column the
+     * caller removed.
+     */
+    private static List<String> exceptAdjustedLabels(UnboundStar star, List<String> labels) {
+        List<String> excepted = new ArrayList<>();
+        for (NamedExpression slot : star.getExceptedSlots()) {
+            String name = outputLabelOf(slot);
+            if (name == null) {
+                throw new UnalignableOutputLabelsException(
+                        "the caller's * EXCEPT column name cannot be read; the headers"
+                                + " cannot be positioned");
+            }
+            excepted.add(name);
+        }
+        if (excepted.isEmpty()) {
+            return labels;
+        }
+        List<String> adjusted = new ArrayList<>(labels.size());
+        int removed = 0;
+        for (String label : labels) {
+            boolean remove = false;
+            for (String exceptedName : excepted) {
+                if (label != null && (label.equals(exceptedName)
+                        || label.equals(lastNamePart(exceptedName)))) {
+                    remove = true;
+                    break;
+                }
+            }
+            if (remove) {
+                removed++;
+            } else {
+                adjusted.add(label);
+            }
+        }
+        if (removed != excepted.size()) {
+            throw new UnalignableOutputLabelsException(
+                    "the caller's * EXCEPT payload does not match the replay's derived"
+                            + " output labels; the headers cannot be positioned");
+        }
+        return adjusted;
+    }
+
+    /** One slot name's last component (an EXCEPT column may be written qualified). */
+    private static String lastNamePart(String name) {
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? name : name.substring(dot + 1);
     }
 
     /**
@@ -2695,8 +2776,12 @@ public final class SPMPlanTreeSupport {
         Plan node = relation;
         while (node != null && node.children().size() == 1 && !carriesOutputList(node)
                 && (node instanceof LogicalSubQueryAlias
+                        || node instanceof LogicalFilter
                         || (node instanceof LogicalSink
                                 && ((LogicalSink<?>) node).getOutputExprs().isEmpty()))) {
+            // LogicalFilter passes its child's output through unchanged: WITHOUT it an
+            // outer WHERE over a derived projection fell to the empty open tail and the
+            // frozen capture-time label survived the value substitution
             node = node.child(0);
         }
         if (node != null && carriesOutputList(node)) {
@@ -2710,9 +2795,27 @@ public final class SPMPlanTreeSupport {
             }
             return new StarLabels(labels, false);
         }
+        if (node instanceof LogicalUsingJoin) {
+            // USING merges every key into ONE leading output column (in USING order), then
+            // the left side's OTHER columns, then the right side's: concatenating the two
+            // sides kept the LEFT copy of the key at position 0 and shifted every derived
+            // label behind it (see usingJoinStarExpansion)
+            return usingJoinStarExpansion((LogicalUsingJoin<?, ?>) node);
+        }
         if (node instanceof LogicalJoin) {
-            List<String> labels = new ArrayList<>();
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) node;
             List<Plan> children = node.children();
+            if (join.getJoinType().isSemiOrAntiJoin() && children.size() == 2) {
+                // A SEMI / ANTI join exposes ONLY its preserved side: LEFT SEMI / ANTI /
+                // NULL-AWARE-LEFT-ANTI return the LEFT child's columns, RIGHT SEMI / ANTI
+                // the RIGHT child's. Appending the DISCARDED side's labels first shifted
+                // every position, and a matching caller had the surviving column renamed
+                // with the other side's derived label (SELECT * FROM (SELECT id, v + 1
+                // FROM t) s RIGHT SEMI JOIN u ON s.id = u.id renamed u.x to v + 2).
+                return starExpansion(join.getJoinType().isRightSemiOrAntiJoin()
+                        ? children.get(1) : children.get(0));
+            }
+            List<String> labels = new ArrayList<>();
             boolean openSeen = false;
             for (int i = 0; i < children.size(); i++) {
                 StarLabels child = starExpansion(children.get(i));
@@ -2737,6 +2840,54 @@ public final class SPMPlanTreeSupport {
             return new StarLabels(labels, openSeen);
         }
         return new StarLabels(List.of(), true);
+    }
+
+    /**
+     * The labels a USING join's `*` exposes: each key merges into ONE leading column (in
+     * USING order), then the left side's remaining columns, then the right side's. The
+     * merged column carries the key's name; a side whose expansion is underivable ends
+     * the derivation with an open tail (its columns are real names), while a DERIVABLE
+     * side behind an open one cannot be positioned and declines.
+     */
+    private static StarLabels usingJoinStarExpansion(LogicalUsingJoin<?, ?> join) {
+        List<String> labels = new ArrayList<>();
+        Set<String> consumedKeys = new LinkedHashSet<>();
+        for (Expression key : join.getUsingSlots()) {
+            String name = outputLabelOf(key);
+            if (name == null) {
+                throw new UnalignableOutputLabelsException(
+                        "the caller's USING key label cannot be derived; the headers"
+                                + " cannot be positioned");
+            }
+            labels.add(name);
+            consumedKeys.add(name);
+        }
+        boolean openSeen = false;
+        List<Plan> children = join.children();
+        for (int i = 0; i < children.size(); i++) {
+            StarLabels side = starExpansion(children.get(i));
+            if (side.openTail) {
+                if (i == children.size() - 1) {
+                    return new StarLabels(labels, true);
+                }
+                openSeen = true;
+                continue;
+            }
+            if (openSeen) {
+                throw new UnalignableOutputLabelsException(
+                        "an unknown-width USING input precedes derivable output labels;"
+                                + " the caller's headers cannot be positioned");
+            }
+            for (String label : side.labels) {
+                // the key columns are CONSUMED by the merge (one output column per key,
+                // already contributed above): both sides' copies must be skipped or every
+                // later position shifts
+                if (!consumedKeys.contains(label)) {
+                    labels.add(label);
+                }
+            }
+        }
+        return new StarLabels(labels, false);
     }
 
     /**
@@ -3471,9 +3622,13 @@ public final class SPMPlanTreeSupport {
             // would choose another row while every other check passes
             Optional<Expression> bindMatch = bindJoin.getMatchCondition();
             Optional<Expression> planMatch = planJoin.getMatchCondition();
+            // the boundary-preserving comparison: `a.d` (ONE quoted component) and the
+            // qualified reference a.d render the same toSql while picking DIFFERENT right
+            // rows, so the plain text equality admitted a manual plan with another
+            // MATCH_CONDITION (see boundaryPreservingDeepText)
             if (bindMatch.isPresent() != planMatch.isPresent()
-                    || (bindMatch.isPresent() && !bindMatch.get().toSql()
-                            .equals(planMatch.get().toSql()))) {
+                    || (bindMatch.isPresent() && !boundaryPreservingDeepText(bindMatch.get())
+                            .equals(boundaryPreservingDeepText(planMatch.get())))) {
                 throw topologyDivergence(position, "the match condition differs (bind "
                         + (bindMatch.isPresent() ? bindMatch.get().toSql() : "none")
                         + ", plan " + (planMatch.isPresent() ? planMatch.get().toSql() : "none")
@@ -4065,8 +4220,10 @@ public final class SPMPlanTreeSupport {
         return node != null && carriesOutputList(node) ? outputItemsOf(node) : null;
     }
 
-    /** One output item's canonical text IGNORING its label (see
-     * rejectManualPlanDivergence). */
+    /**
+     * One output item's canonical text IGNORING its label (see
+     * rejectManualPlanDivergence).
+     */
     private static String outputExpressionText(NamedExpression item) {
         Expression expression = item;
         if (item instanceof Alias) {
@@ -4078,17 +4235,16 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * One expression's text for the create-time comparison: a slot renders through its
-     * boundary-preserving digest (UnboundSlot#toDigest delimits name parts containing
-     * '.'), because a column literally named `a.b` and a qualified reference a.b both
-     * render "a.b" through toSql - the output / projection checks accepted the pair and
-     * the replay then read the WRONG column for callers selecting the dotted name.
+     * One expression's text for the create-time comparison: the boundary-preserving DEEP
+     * encoding, not just the bare-slot special case. A COMPUTED output expression nests
+     * its slots (`a.b` + 1 in the SELECT list, an arithmetic ON fragment), and the plain
+     * toSql fallback rendered a column literally named `a.b` (ONE quoted component) and
+     * the qualified reference a.b (two components) identically - the output / projection
+     * checks accepted the pair and the replay then read the WRONG column for callers
+     * selecting the dotted name.
      */
     private static String boundaryPreservingText(Expression expression) {
-        if (expression instanceof UnboundSlot) {
-            return expression.toDigest();
-        }
-        return expression.toSql();
+        return boundaryPreservingDeepText(expression);
     }
 
     /**
@@ -5297,12 +5453,106 @@ public final class SPMPlanTreeSupport {
                     found[0] = true;
                 }
             }
+            // A LATERAL VIEW / UNNEST generator argument lives outside getExpressions()
+            // too: one whose value FOLDS to a constant under session state (e.g.
+            // explode(array(from_unixtime(0)))) is evaluated in the CREATOR's session
+            // time zone and stored as that literal in the frozen plan text, so a replay
+            // under another session's zone would return the creator's value although the
+            // caller's own query evaluates the function in its own zone. Matching keeps
+            // generator arguments concrete, so the value can only be frozen - such a
+            // baseline is refused instead (see rejectFoldedZoneSensitiveGenerators).
+            if (node instanceof LogicalGenerate) {
+                rejectFoldedZoneSensitiveGenerators((LogicalGenerate<? extends Plan>) node);
+            }
         });
         if (found[0]) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "SPM does not support baselines using the key() function: the folded key"
                             + " value cannot be re-validated before replay");
         }
+    }
+
+    /**
+     * Refuses a baseline whose GENERATOR argument would freeze a session-time-zone
+     * dependent value: a constant-argument from_unixtime / unix_timestamp / now-family
+     * call inside a LATERAL VIEW / UNNEST argument is FOLDED by the optimizer in the
+     * CREATOR's session zone and rendered as that literal into the frozen plan text (the
+     * generator arguments stay concrete for matching, see visitLogicalGenerate), so a
+     * caller in another zone would replay the creator's value. The user must rewrite the
+     * argument to depend on a column (evaluated per row in the CALLER's zone) or drop the
+     * baseline.
+     */
+    private static void rejectFoldedZoneSensitiveGenerators(LogicalGenerate<? extends Plan> generate) {
+        for (Expression generator : generate.getGenerators()) {
+            if (containsFoldedZoneSensitiveCall(generator)) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "SPM does not support a baseline whose generator argument folds a"
+                                + " session-time-zone dependent function ("
+                                + generator.toSql() + "): the value is evaluated in the"
+                                + " CREATOR's session zone and frozen into the plan text, so a"
+                                + " replay in another zone would return the creator's value."
+                                + " Make the argument depend on a column, or drop the"
+                                + " baseline");
+            }
+        }
+    }
+
+    /** Whether one expression tree contains a constant-argument zone-sensitive call. */
+    private static boolean containsFoldedZoneSensitiveCall(Expression expression) {
+        if (expression
+                instanceof org.apache.doris.nereids.trees.expressions.functions.Function
+                && isZoneSensitiveFunctionName(
+                        ((org.apache.doris.nereids.trees.expressions.functions.Function) expression)
+                                .getName())
+                && isLiteralOnly(expression)) {
+            return true;
+        }
+        for (Expression child : expression.children()) {
+            if (containsFoldedZoneSensitiveCall(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The functions whose value depends on the SESSION time zone (and whose constant
+     * arguments therefore must not be frozen): from_unixtime / unix_timestamp interpret
+     * their input in the session zone, and the now-family reads the session's current
+     * local time.
+     */
+    private static boolean isZoneSensitiveFunctionName(String name) {
+        return "from_unixtime".equalsIgnoreCase(name)
+                || "unix_timestamp".equalsIgnoreCase(name)
+                || "now".equalsIgnoreCase(name)
+                || "curdate".equalsIgnoreCase(name)
+                || "curtime".equalsIgnoreCase(name)
+                || "current_timestamp".equalsIgnoreCase(name)
+                || "current_date".equalsIgnoreCase(name)
+                || "current_time".equalsIgnoreCase(name)
+                || "localtime".equalsIgnoreCase(name)
+                || "localtimestamp".equalsIgnoreCase(name)
+                || "sysdate".equalsIgnoreCase(name);
+    }
+
+    /**
+     * Whether an expression consists of literals only (foldable to a constant): a call
+     * over a COLUMN is evaluated at execution time - in the CALLER's session zone - and is
+     * therefore safe to freeze.
+     */
+    private static boolean isLiteralOnly(Expression expression) {
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.literal.Literal) {
+            return true;
+        }
+        if (expression.children().isEmpty()) {
+            return false;
+        }
+        for (Expression child : expression.children()) {
+            if (!isLiteralOnly(child)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean referencesKeyFunction(Expression expr) {

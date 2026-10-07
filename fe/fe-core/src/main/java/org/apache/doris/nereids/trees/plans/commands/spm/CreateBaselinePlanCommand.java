@@ -158,6 +158,12 @@ public class CreateBaselinePlanCommand extends Command implements Forward {
      */
     @Override
     public void afterForwardToMaster(ConnectContext ctx) {
+        // Synchronize BEFORE computing the local schema fingerprint: the follower can
+        // still hold the pre-ALTER schema here, and the master (already post-ALTER) wrote
+        // the row under the NEW fingerprint - the expectation captured from stale local
+        // metadata could never be contained in that valid row, so the confirmed refresh
+        // kept invalidating the cache and reporting the successful CREATE as failed.
+        BaselineManager.getInstance().syncWithMasterForDdlCallback(ctx);
         BaselineManager.getInstance().refreshAfterForwardedDdl(ctx,
                 BaselineManager.ForwardedDdlExpectation.created(bindSql, planSql,
                         ctx.queryId() == null ? "" : DebugUtil.printId(ctx.queryId()),

@@ -905,6 +905,54 @@ public class AuditLoaderTest {
     }
 
     /**
+     * Round-51 (#7): the overflowed sentinel must NOT pin the aggregate forever. The
+     * previous code re-armed the survival window on every expiry, so the shared row's "*"
+     * kept a DEAD writer FE's horizon fenced until the end of time - every later capture
+     * window stayed pinned even after all resolvable loads turned VISIBLE. The
+     * unresolvable obligations (an unknown label, or the sentinel) now share ONE absolute
+     * window: past it they are assumed LOST and the aggregate retires.
+     */
+    @Test
+    public void testOverflowedSentinelRetiresAfterItsBoundedWindow() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setRunningLoader(loader);
+        long base = 1_000_000_000L;
+        AuditLoader.publishFenceClockForTest = () -> base;
+        try {
+            int required = AuditLoader.MAX_AGGREGATED_FENCE_LABELS
+                    + AuditLoader.MAX_PENDING_PUBLISH_FENCES + 2;
+            for (int i = 0; i < required; i++) {
+                Deencapsulation.invoke(loader, "retainPublishFence", 20_000L + i,
+                        "qid-" + i, "label-" + i);
+            }
+            String labels = AuditLoader.oldestCommittedPublishFenceLabels();
+            Assertions.assertTrue(Arrays.asList(labels.split(";", -1))
+                            .contains(AuditLoader.OVERFLOWED_FENCE_LABEL),
+                    "the bound must have overflowed: " + labels);
+
+            // past the re-check window: the first resolution ARMS the absolute window
+            AuditLoader.publishFenceClockForTest =
+                    () -> base + 2 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS;
+            AuditLoader.oldestCommittedPublishFenceEventTime();
+            // past the absolute window: the unresolvable obligations (here: all labels are
+            // unknown to the transaction manager, plus the sentinel) are assumed LOST
+            AuditLoader.publishFenceClockForTest = () -> base
+                    + 2 * AuditLoader.PUBLISH_FENCE_MAX_MILLIS
+                    + AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS + 1;
+            AuditLoader.oldestCommittedPublishFenceEventTime();
+            // The overflowed aggregate retires; the plain pending batches keep their
+            // own (unconfirmable here) settlement path - only the SENTINEL must be gone.
+            String retired = AuditLoader.oldestCommittedPublishFenceLabels();
+            Assertions.assertFalse(Arrays.asList(retired.split(";", -1))
+                            .contains(AuditLoader.OVERFLOWED_FENCE_LABEL),
+                    "the sentinel must not survive the aggregate: " + retired);
+        } finally {
+            AuditLoader.publishFenceClockForTest = null;
+            setRunningLoader(null);
+        }
+    }
+
+    /**
      * An idle cluster never changes the horizon (a zero row is the healthy state), so
      * a change-only report let the shared registration go stale while the FE stayed
      * alive: the capture reader then treats a LIVE FE's overdue row as unreadable and

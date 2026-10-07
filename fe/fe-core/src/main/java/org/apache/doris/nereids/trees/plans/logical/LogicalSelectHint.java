@@ -151,8 +151,42 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     public String toSpmDigest() {
         StringBuilder digest = new StringBuilder("SelectHint[");
         for (SelectHint hint : hints) {
-            digest.append(hint).append(';');
+            appendCanonicalHintDigest(digest, hint);
         }
         return digest.append(child().toSpmDigest()).append(']').toString();
+    }
+
+    /**
+     * One hint's canonical digest text. SET_VAR is ORDER-INSENSITIVE by construction: the
+     * parser stores the assignments in TEXT order and SelectHintSetVar.toString()
+     * preserves it, so the same two settings in reverse order produced DIFFERENT digests -
+     * the candidate lookup then never reached the order-insensitive sameSelectHints
+     * comparison (SPMPlanTreeSupport) and the equivalent reordered caller missed the
+     * baseline. Its parameters render SORTED by case-normalized name; every other hint
+     * keeps its rendered (order-sensitive) form.
+     */
+    private static void appendCanonicalHintDigest(StringBuilder digest, SelectHint hint) {
+        if (!(hint instanceof org.apache.doris.nereids.properties.SelectHintSetVar)) {
+            digest.append(hint).append(';');
+            return;
+        }
+        java.util.Map<String, Optional<String>> params =
+                ((org.apache.doris.nereids.properties.SelectHintSetVar) hint).getParameters();
+        java.util.List<String> keys = new java.util.ArrayList<>(params.keySet());
+        keys.sort(String.CASE_INSENSITIVE_ORDER);
+        digest.append("set_var(");
+        boolean first = true;
+        for (String key : keys) {
+            if (!first) {
+                digest.append(',');
+            }
+            first = false;
+            digest.append(key.toLowerCase(java.util.Locale.ROOT));
+            Optional<String> value = params.get(key);
+            if (value != null && value.isPresent()) {
+                digest.append('=').append(value.get());
+            }
+        }
+        digest.append(");");
     }
 }
