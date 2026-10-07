@@ -915,7 +915,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         partitionInfo.resetPartitionIdForRestore(partitionMap,
                 reserveReplica ? null : restoreReplicaAlloc, isSinglePartition);
 
-        boolean createNewColocateGroup = false;
         Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
         ColocateTableIndex.GroupId groupId = null;
@@ -939,19 +938,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     return new Status(ErrCode.COMMON_ERROR, "Restore table " + getName()
                             + " with colocate group " + getColocateGroup() + " failed: " + e.getMessage());
                 }
-
-                // if this is a colocate table, try to get backend seqs from colocation index.
-                backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupSchema.getGroupId());
-                createNewColocateGroup = false;
-            } else {
-                backendsPerBucketSeq = Maps.newHashMap();
-                createNewColocateGroup = true;
             }
 
             // add table to this group, if group does not exist, create a new one
             try {
                 groupId = Env.getCurrentColocateIndex()
                         .addTableToGroup(db.getId(), this, fullGroupName, null /* generate group id inside */);
+                backendsPerBucketSeq = colocateIndex.getOrInitializeBackendsPerBucketSeq(
+                        groupId, Maps.newHashMap()).first;
             } catch (DdlException e) {
                 return new Status(ErrCode.COMMON_ERROR, "Restore table " + getName()
                         + " with colocate group " + getColocateGroup() + " failed: " + e.getMessage());
@@ -969,6 +963,26 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             // entry.getKey() is the new partition id, use it to get the restore specified
             // replica allocation
             ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(entry.getKey());
+            if (groupId != null && !Config.isCloudMode() && backendsPerBucketSeq.isEmpty()) {
+                // Initialize before processing any index, so base and rollup replicas all use the
+                // winning sequence even when the schema was registered by another CREATE or RESTORE.
+                Map<Tag, List<List<Long>>> candidate = Maps.newHashMap();
+                try {
+                    int bucketNum = partition.getBaseIndex().getTablets().size();
+                    for (int i = 0; i < bucketNum; i++) {
+                        Map<Tag, List<Long>> chosenBackendIds = Env.getCurrentSystemInfo()
+                                .selectBackendIdsForReplicaCreation(
+                                        replicaAlloc, nextIndexes, null, false, false).first;
+                        for (Map.Entry<Tag, List<Long>> backendEntry : chosenBackendIds.entrySet()) {
+                            candidate.putIfAbsent(backendEntry.getKey(), Lists.newArrayList());
+                            candidate.get(backendEntry.getKey()).add(backendEntry.getValue());
+                        }
+                    }
+                } catch (DdlException e) {
+                    return new Status(ErrCode.COMMON_ERROR, e.getMessage());
+                }
+                backendsPerBucketSeq = colocateIndex.getOrInitializeBackendsPerBucketSeq(groupId, candidate).first;
+            }
             // save the materialized indexes before create new index, to avoid ids confliction
             // between two cluster.
             Map<Long, MaterializedIndex> idToIndex = Maps.newHashMap();
@@ -1009,7 +1023,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     }
                     try {
                         Map<Tag, List<Long>> tag2beIds = null;
-                        if (isColocateTable() && !createNewColocateGroup) {
+                        if (isColocateTable()) {
                             // get backends from existing backend sequence
                             tag2beIds = Maps.newHashMap();
                             for (Map.Entry<Tag, List<List<Long>>> entry3 : backendsPerBucketSeq.entrySet()) {
@@ -1029,10 +1043,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                                         visibleVersion, schemaHash);
                                 newTablet.addReplica(replica, true /* is restore */);
                             }
-                            if (createNewColocateGroup && idxId == baseIndexId) {
-                                backendsPerBucketSeq.putIfAbsent(entry3.getKey(), Lists.newArrayList());
-                                backendsPerBucketSeq.get(entry3.getKey()).add(entry3.getValue());
-                            }
                         }
                     } catch (DdlException e) {
                         return new Status(ErrCode.COMMON_ERROR, e.getMessage());
@@ -1041,12 +1051,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 // add tablets to index in one batch; TabletInvertedIndex registration
                 // is intentionally skipped on the restore path (rebuilt separately).
                 idx.appendTablets(newTablets);
-            }
-
-            if (createNewColocateGroup) {
-                colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-                // only first partition need to create colocate group
-                createNewColocateGroup = false;
             }
 
             // reset partition id
@@ -1063,11 +1067,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
 
-        // we have added these index to memory, only need to persist here
+        // This empty in-memory membership descriptor is not a journal payload. After snapshots finish,
+        // the index captures current placement when submitting the delayed ADD journal entry.
         if (groupId != null) {
-            backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
             ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, getId(),
-                    backendsPerBucketSeq);
+                    Maps.newHashMap());
             colocatePersistInfos.add(info);
         }
 

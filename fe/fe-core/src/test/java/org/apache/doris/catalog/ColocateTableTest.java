@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -54,6 +55,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -82,7 +84,7 @@ public class ColocateTableTest {
 
     @BeforeAll
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir, 3);
         connectContext = UtFrameUtils.createDefaultCtx();
 
     }
@@ -506,6 +508,361 @@ public class ColocateTableTest {
     }
 
     @Test
+    public void testAlterInitializesSequenceAfterCreateRegistersThenFails() throws Exception {
+        createTable("CREATE TABLE " + dbName + "." + tableName2
+                + " (k1 INT) DISTRIBUTED BY HASH(k1) BUCKETS 1 PROPERTIES (\"replication_num\"=\"1\")");
+        Env env = Env.getCurrentEnv();
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+        OlapTable altered = (OlapTable) db.getTableOrMetaException(tableName2);
+        String originalGroup = altered.getColocateGroup();
+        Map<Tag, List<List<Long>>> expected = copyBackendsPerBucketSeq(altered.getArbitraryTabletBucketsSeq());
+        ColocateTableIndex originalIndex = Env.getCurrentColocateIndex();
+        EditLog originalEditLog = env.getEditLog();
+        ConnectContext originalContext = ConnectContext.get();
+        long originalQuota = db.getReplicaQuota();
+        CountDownLatch registered = new CountDownLatch(1);
+        CountDownLatch alteredGroup = new CountDownLatch(1);
+        AtomicReference<OlapTable> attempted = new AtomicReference<>();
+        AtomicReference<TablePropertyInfo> recorded = new AtomicReference<>();
+        ColocateTableIndex index = new ColocateTableIndex() {
+            @Override
+            public GroupId addTableToGroup(long dbId, OlapTable table, String fullGroupName, GroupId assigned)
+                    throws DdlException {
+                GroupId groupId = super.addTableToGroup(dbId, table, fullGroupName, assigned);
+                if (table.getName().equals(tableName1)) {
+                    attempted.set(table);
+                    Assertions.assertNotNull(getGroupSchema(groupId));
+                    Assertions.assertTrue(getBackendsPerBucketSeq(groupId).isEmpty());
+                    registered.countDown();
+                    try {
+                        Assertions.assertTrue(alteredGroup.await(30, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new DdlException("Interrupted while waiting for ALTER", e);
+                    }
+                }
+                return groupId;
+            }
+        };
+        EditLog journal = Mockito.mock(EditLog.class);
+        Mockito.when(journal.submitEdit(Mockito.eq(OperationType.OP_MODIFY_TABLE_COLOCATE),
+                Mockito.any(TablePropertyInfo.class))).thenAnswer(invocation -> {
+                    TablePropertyInfo info = invocation.getArgument(1);
+                    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                    try (DataOutputStream out = new DataOutputStream(bytes)) {
+                        info.write(out);
+                    }
+                    try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+                        recorded.set(TablePropertyInfo.read(in));
+                    }
+                    return Mockito.mock(EditLog.EditLogItem.class);
+                });
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        env.setColocateTableIndex(index);
+        env.setEditLog(journal);
+        try {
+            // Initial quota validation succeeds; the post-registration replica-count check fails.
+            db.setReplicaQuota(db.getReplicaCount() + 1);
+            Assertions.assertEquals(1, db.getReplicaQuotaLeftWithLock());
+            connectContext.setThreadLocalInfo();
+            Future<?> alter = worker.submit(() -> {
+                try {
+                    Assertions.assertTrue(registered.await(30, TimeUnit.SECONDS));
+                    alterTable("ALTER TABLE " + dbName + "." + tableName2
+                            + " SET (\"colocate_with\"=\"" + groupName + "\")", UtFrameUtils.createDefaultCtx());
+                    return null;
+                } finally {
+                    ConnectContext.remove();
+                    alteredGroup.countDown();
+                }
+            });
+            DdlException failure = Assertions.assertThrows(DdlException.class, () -> createTable(
+                    "CREATE TABLE " + dbName + "." + tableName1
+                            + " (k1 INT) DISTRIBUTED BY HASH(k1) BUCKETS 1"
+                            + " PROPERTIES (\"replication_num\"=\"1\", \"colocate_with\"=\"" + groupName + "\")"));
+            Assertions.assertTrue(failure.getMessage().contains("increasing 1 of replica exceeds quota"));
+            alter.get(30, TimeUnit.SECONDS);
+            GroupId groupId = index.getGroup(altered.getId());
+            Assertions.assertNotNull(attempted.get());
+            Assertions.assertNull(db.getTableNullable(tableName1));
+            Assertions.assertFalse(index.isColocateTable(attempted.get().getId()));
+            Assertions.assertEquals(List.of(altered.getId()), index.getAllTableIds(groupId));
+            Assertions.assertFalse(expected.isEmpty());
+            Assertions.assertEquals(expected, index.getBackendsPerBucketSeq(groupId));
+            Assertions.assertNotNull(recorded.get());
+            Assertions.assertEquals(altered.getId(), recorded.get().getTableId());
+            ColocateTableIndex replay = new ColocateTableIndex();
+            altered.setColocateGroup(originalGroup);
+            env.setColocateTableIndex(replay);
+            env.replayModifyTableColocate(recorded.get());
+            Assertions.assertEquals(groupId, replay.getGroup(altered.getId()));
+            Assertions.assertEquals(List.of(altered.getId()), replay.getAllTableIds(groupId));
+            Assertions.assertFalse(replay.isColocateTable(attempted.get().getId()));
+            Assertions.assertEquals(expected, replay.getBackendsPerBucketSeq(groupId));
+        } finally {
+            registered.countDown();
+            alteredGroup.countDown();
+            worker.shutdown();
+            try {
+                Assertions.assertTrue(worker.awaitTermination(30, TimeUnit.SECONDS));
+            } finally {
+                db.setReplicaQuota(originalQuota);
+                env.setEditLog(originalEditLog);
+                env.setColocateTableIndex(originalIndex);
+                ConnectContext.remove();
+                if (originalContext != null) {
+                    originalContext.setThreadLocalInfo();
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testCreateBuildsReplicasUsingAlterWinnerInsteadOfCandidate() throws Exception {
+        createTable("CREATE TABLE " + dbName + "." + tableName2
+                + " (k1 INT) DISTRIBUTED BY HASH(k1) BUCKETS 1 PROPERTIES (\"replication_num\"=\"1\")");
+        Env env = Env.getCurrentEnv();
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+        OlapTable altered = (OlapTable) db.getTableOrMetaException(tableName2);
+        ColocateTableIndex originalIndex = Env.getCurrentColocateIndex();
+        ConnectContext originalContext = ConnectContext.get();
+        CountDownLatch selected = new CountDownLatch(1);
+        CountDownLatch published = new CountDownLatch(1);
+        AtomicReference<Map<Tag, List<List<Long>>>> candidateSeq = new AtomicReference<>();
+        AtomicReference<Map<Tag, List<List<Long>>>> winnerSeq = new AtomicReference<>();
+        ColocateTableIndex index = new ColocateTableIndex() {
+            @Override
+            public Pair<Map<Tag, List<List<Long>>>, Boolean> getOrInitializeBackendsPerBucketSeq(
+                    GroupId groupId, Map<Tag, List<List<Long>>> candidate) {
+                if (!candidate.isEmpty()) {
+                    candidateSeq.set(copyBackendsPerBucketSeq(candidate));
+                    selected.countDown();
+                    try {
+                        Assertions.assertTrue(published.await(30, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(e);
+                    }
+                }
+                return super.getOrInitializeBackendsPerBucketSeq(groupId, candidate);
+            }
+        };
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        env.setColocateTableIndex(index);
+        try {
+            connectContext.setThreadLocalInfo();
+            Future<?> alter = worker.submit(() -> {
+                try {
+                    Assertions.assertTrue(selected.await(30, TimeUnit.SECONDS));
+                    long candidateBackend = candidateSeq.get().get(Tag.DEFAULT_BACKEND_TAG).get(0).get(0);
+                    long winnerBackend = Env.getCurrentSystemInfo().getAllBackendIds(true).stream()
+                            .filter(id -> id != candidateBackend).findFirst().orElseThrow();
+                    Tablet tablet = altered.getPartitions().iterator().next().getBaseIndex().getTablets().get(0);
+                    Replica original = tablet.getReplicas().get(0);
+                    // Give the healthy ALTER table a different, live mocked backend from CREATE's candidate.
+                    tablet.deleteReplica(original);
+                    tablet.addReplica(new LocalReplica(env.getNextId(), winnerBackend, Replica.ReplicaState.NORMAL,
+                            original.getVersion(), original.getSchemaHash()));
+                    winnerSeq.set(copyBackendsPerBucketSeq(altered.getArbitraryTabletBucketsSeq()));
+                    alterTable("ALTER TABLE " + dbName + "." + tableName2
+                            + " SET (\"colocate_with\"=\"" + groupName + "\")", UtFrameUtils.createDefaultCtx());
+                    return null;
+                } finally {
+                    ConnectContext.remove();
+                    published.countDown();
+                }
+            });
+            createTable("CREATE TABLE " + dbName + "." + tableName1
+                    + " (k1 INT) DISTRIBUTED BY HASH(k1) BUCKETS 1"
+                    + " PROPERTIES (\"replication_num\"=\"1\", \"colocate_with\"=\"" + groupName + "\")");
+            alter.get(30, TimeUnit.SECONDS);
+            OlapTable created = (OlapTable) db.getTableOrMetaException(tableName1);
+            GroupId groupId = index.getGroup(altered.getId());
+            Assertions.assertNotEquals(candidateSeq.get(), winnerSeq.get());
+            Assertions.assertEquals(winnerSeq.get(), index.getBackendsPerBucketSeq(groupId));
+            Assertions.assertEquals(winnerSeq.get(), created.getArbitraryTabletBucketsSeq());
+            Assertions.assertEquals(groupId, index.getGroup(created.getId()));
+            Assertions.assertEquals(new HashSet<>(List.of(created.getId(), altered.getId())),
+                    new HashSet<>(index.getAllTableIds(groupId)));
+        } finally {
+            selected.countDown();
+            published.countDown();
+            worker.shutdown();
+            try {
+                Assertions.assertTrue(worker.awaitTermination(30, TimeUnit.SECONDS));
+            } finally {
+                env.setColocateTableIndex(originalIndex);
+                ConnectContext.remove();
+                if (originalContext != null) {
+                    originalContext.setThreadLocalInfo();
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testInitializerPublishesOnceAndAwaitsOutsideIndexLock() throws Exception {
+        Env env = Env.getCurrentEnv();
+        EditLog originalEditLog = env.getEditLog();
+        ColocateTableIndex index = Env.getCurrentColocateIndex();
+        MonitoredReentrantReadWriteLock lock = Deencapsulation.getField(index, "lock");
+        GroupId groupId = new GroupId(1, 2);
+        Map<Tag, List<List<Long>>> candidate = copyBackendsPerBucketSeq(
+                Map.of(Tag.DEFAULT_BACKEND_TAG, List.of(List.of(10L))));
+        Map<Tag, List<List<Long>>> expected = copyBackendsPerBucketSeq(candidate);
+        Map<Tag, List<List<Long>>> loser = Map.of(Tag.DEFAULT_BACKEND_TAG, List.of(List.of(20L)));
+        EditLog journal = Mockito.mock(EditLog.class);
+        EditLog.EditLogItem item = Mockito.mock(EditLog.EditLogItem.class);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        Mockito.when(journal.submitEdit(Mockito.eq(OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ),
+                Mockito.any(ColocatePersistInfo.class))).thenAnswer(invocation -> {
+                    Assertions.assertTrue(lock.isWriteLockedByCurrentThread());
+                    return item;
+                });
+        Mockito.when(item.await()).thenAnswer(invocation -> {
+            Assertions.assertFalse(lock.isWriteLockedByCurrentThread());
+            // A separate thread must be able to read the published winner before persistence completes.
+            Pair<Map<Tag, List<List<Long>>>, Boolean> concurrent = worker.submit(
+                    () -> index.getOrInitializeBackendsPerBucketSeq(groupId, loser)).get(30, TimeUnit.SECONDS);
+            Assertions.assertEquals(expected, concurrent.first);
+            Assertions.assertFalse(concurrent.second);
+            return 1L;
+        });
+        env.setEditLog(journal);
+        try {
+            Pair<Map<Tag, List<List<Long>>>, Boolean> empty = index.getOrInitializeBackendsPerBucketSeq(
+                    groupId, Map.of());
+            Assertions.assertTrue(empty.first.isEmpty());
+            Assertions.assertFalse(empty.second);
+            Pair<Map<Tag, List<List<Long>>>, Boolean> installed = index.getOrInitializeBackendsPerBucketSeq(
+                    groupId, candidate);
+            Assertions.assertTrue(installed.second);
+            Assertions.assertEquals(expected, installed.first);
+            candidate.get(Tag.DEFAULT_BACKEND_TAG).get(0).set(0, 30L);
+            installed.first.get(Tag.DEFAULT_BACKEND_TAG).get(0).set(0, 40L);
+            Pair<Map<Tag, List<List<Long>>>, Boolean> read = index.getOrInitializeBackendsPerBucketSeq(
+                    groupId, Map.of());
+            Assertions.assertFalse(read.second);
+            Assertions.assertEquals(expected, read.first);
+            read.first.get(Tag.DEFAULT_BACKEND_TAG).get(0).set(0, 50L);
+            Assertions.assertEquals(expected, index.getBackendsPerBucketSeq(groupId));
+            Mockito.verify(journal, Mockito.times(1)).submitEdit(
+                    Mockito.eq(OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ), Mockito.any(ColocatePersistInfo.class));
+            Mockito.verify(item, Mockito.times(1)).await();
+        } finally {
+            worker.shutdown();
+            try {
+                Assertions.assertTrue(worker.awaitTermination(30, TimeUnit.SECONDS));
+            } finally {
+                env.setEditLog(originalEditLog);
+            }
+        }
+    }
+
+    @Test
+    public void testRestoredMembershipSnapshotsGlobalGroupAndCompleteSequence() throws Exception {
+        checkRestoredMembershipSnapshot(false);
+    }
+
+    @Test
+    public void testRestoredMembershipAllowsEmptyPartitionSequence() throws Exception {
+        checkRestoredMembershipSnapshot(true);
+    }
+
+    private void checkRestoredMembershipSnapshot(boolean emptySequence) throws Exception {
+        ColocateTableIndex index = new ColocateTableIndex();
+        MonitoredReentrantReadWriteLock lock = Deencapsulation.getField(index, "lock");
+        List<Column> columns = List.of(new Column("k1", Type.INT));
+        OlapTable first = new OlapTable(11, "restore_first", columns, KeysType.DUP_KEYS,
+                new RangePartitionInfo(columns), new HashDistributionInfo(2, columns));
+        OlapTable second = new OlapTable(12, "restore_second", columns, KeysType.DUP_KEYS,
+                new RangePartitionInfo(columns), new HashDistributionInfo(2, columns));
+        String globalGroup = "__global__restore_snapshot";
+        GroupId groupId = index.addTableToGroup(101, first, globalGroup, new GroupId(0, 99));
+        // The pending descriptor predates both the second database member and sequence initialization.
+        ColocatePersistInfo pending = roundTripColocateInfo(
+                ColocatePersistInfo.createForAddTable(groupId, first.getId(), Map.of()));
+        index.addTableToGroup(102, second, globalGroup, null);
+        Assertions.assertEquals(1, pending.getGroupId().getTblId2DbIdSize());
+        Tag otherTag = Tag.create(Tag.TYPE_LOCATION, "restore_other");
+        Map<Tag, List<List<Long>>> sequence = copyBackendsPerBucketSeq(Map.of(
+                Tag.DEFAULT_BACKEND_TAG, List.of(List.of(1L, 2L, 3L), List.of(4L, 5L, 6L)),
+                otherTag, List.of(List.of(7L, 8L, 9L), List.of(10L, 11L, 12L))));
+        Map<Tag, List<List<Long>>> expected = emptySequence ? Map.of() : copyBackendsPerBucketSeq(sequence);
+        index.addBackendsPerBucketSeq(groupId, emptySequence ? Map.of() : sequence);
+        Assertions.assertTrue(first.getAllPartitions().isEmpty());
+        Env env = Env.getCurrentEnv();
+        EditLog originalEditLog = env.getEditLog();
+        EditLog journal = Mockito.mock(EditLog.class);
+        EditLog.EditLogItem item = Mockito.mock(EditLog.EditLogItem.class);
+        AtomicReference<ColocatePersistInfo> captured = new AtomicReference<>();
+        Mockito.when(journal.submitEdit(Mockito.eq(OperationType.OP_COLOCATE_ADD_TABLE),
+                Mockito.any(ColocatePersistInfo.class))).thenAnswer(invocation -> {
+                    Assertions.assertTrue(lock.isWriteLockedByCurrentThread());
+                    captured.set(invocation.getArgument(1));
+                    return item;
+                });
+        Mockito.when(item.await()).thenAnswer(invocation -> {
+            Assertions.assertFalse(lock.isWriteLockedByCurrentThread());
+            Assertions.assertEquals(0, lock.getReadHoldCount());
+            // Mutate live membership and every sequence container before serializing the captured reference.
+            index.removeTable(second.getId());
+            index.addTableToGroup(103, second, globalGroup, null);
+            sequence.get(Tag.DEFAULT_BACKEND_TAG).get(0).set(0, 99L);
+            sequence.get(otherTag).add(new ArrayList<>(List.of(100L)));
+            index.setBackendsPerBucketSeq(groupId, Map.of(Tag.DEFAULT_BACKEND_TAG, List.of(List.of(200L))));
+            ColocatePersistInfo restored = roundTripColocateInfo(captured.get());
+            Assertions.assertNotSame(groupId, captured.get().getGroupId());
+            Assertions.assertEquals(groupId, restored.getGroupId());
+            Assertions.assertEquals(first.getId(), restored.getTableId());
+            Assertions.assertEquals(2, restored.getGroupId().getTblId2DbIdSize());
+            Assertions.assertEquals(101L, restored.getGroupId().getDbIdByTblId(first.getId()));
+            Assertions.assertEquals(102L, restored.getGroupId().getDbIdByTblId(second.getId()));
+            Assertions.assertEquals(103L, groupId.getDbIdByTblId(second.getId()));
+            Assertions.assertEquals(expected, restored.getBackendsPerBucketSeq());
+            Assertions.assertEquals(expected, captured.get().getBackendsPerBucketSeq());
+            return 1L;
+        });
+        env.setEditLog(journal);
+        try {
+            index.persistRestoredTableMembership(pending);
+            Mockito.verify(journal, Mockito.times(1)).submitEdit(
+                    Mockito.eq(OperationType.OP_COLOCATE_ADD_TABLE), Mockito.any(ColocatePersistInfo.class));
+            Mockito.verify(item, Mockito.times(1)).await();
+        } finally {
+            env.setEditLog(originalEditLog);
+        }
+    }
+
+    @Test
+    public void testReplayModifyPreservesSequencePublishedBeforeSchema() throws Exception {
+        createTable("CREATE TABLE " + dbName + "." + tableName1
+                + " (k1 INT) DISTRIBUTED BY HASH(k1) BUCKETS 1 PROPERTIES (\"replication_num\"=\"1\")");
+        Env env = Env.getCurrentEnv();
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableName1);
+        ColocateTableIndex originalIndex = Env.getCurrentColocateIndex();
+        ColocateTableIndex replay = new ColocateTableIndex();
+        GroupId groupId = new GroupId(db.getId(), env.getNextId());
+        long tableBackend = table.getArbitraryTabletBucketsSeq().get(Tag.DEFAULT_BACKEND_TAG).get(0).get(0);
+        long winnerBackend = Env.getCurrentSystemInfo().getAllBackendIds(true).stream()
+                .filter(id -> id != tableBackend).findFirst().orElseThrow();
+        Map<Tag, List<List<Long>>> expected = Map.of(Tag.DEFAULT_BACKEND_TAG, List.of(List.of(winnerBackend)));
+        replay.replayAddBackendsPerBucketSeq(ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, expected));
+        Assertions.assertNull(replay.getGroupSchema(groupId));
+        env.setColocateTableIndex(replay);
+        try {
+            env.replayModifyTableColocate(new TablePropertyInfo(db.getId(), table.getId(), groupId,
+                    Map.of("colocate_with", groupName)));
+            Assertions.assertNotNull(replay.getGroupSchema(groupId));
+            Assertions.assertEquals(groupId, replay.getGroup(table.getId()));
+            Assertions.assertEquals(expected, replay.getBackendsPerBucketSeq(groupId));
+        } finally {
+            env.setColocateTableIndex(originalIndex);
+        }
+    }
+
+    @Test
     public void testReplayAddTablePreservesHistoricalIncompatibleMembership() throws Exception {
         createSingleReplicaColocateTable(tableName1);
         createTable("CREATE TABLE " + dbName + "." + tableName2
@@ -515,23 +872,47 @@ public class ColocateTableTest {
         OlapTable first = (OlapTable) db.getTableOrMetaException(tableName1);
         OlapTable second = (OlapTable) db.getTableOrMetaException(tableName2);
         GroupId groupId = Env.getCurrentColocateIndex().getGroup(first.getId());
-        Map<Tag, List<List<Long>>> seq = copyBackendsPerBucketSeq(first.getArbitraryTabletBucketsSeq());
+        Tag recordedTag = Tag.create(Tag.TYPE_LOCATION, "historical_recorded");
+        Tag unrelatedTag = Tag.create(Tag.TYPE_LOCATION, "historical_unrelated");
+        Map<Tag, List<List<Long>>> seq = Map.of(
+                Tag.DEFAULT_BACKEND_TAG, List.of(List.of(11L)),
+                recordedTag, List.of(List.of(21L)),
+                unrelatedTag, List.of(List.of(31L)));
+        Map<Tag, List<List<Long>>> recorded = Map.of(
+                Tag.DEFAULT_BACKEND_TAG, List.of(List.of(41L)),
+                recordedTag, List.of(List.of(51L)));
         ColocateTableIndex replay = new ColocateTableIndex();
         String originalGroup = second.getColocateGroup();
         try {
             // Model historical metadata without writing an incompatible membership to the live journal.
             second.setColocateGroup(groupName);
-            replay.replayAddTableToGroup(ColocatePersistInfo.createForAddTable(groupId, first.getId(), seq));
+            replay.replayAddTableToGroup(roundTripColocateInfo(
+                    ColocatePersistInfo.createForAddTable(groupId, first.getId(), seq)));
+            Assertions.assertEquals(seq, replay.getBackendsPerBucketSeq(groupId));
             ColocateGroupSchema schema = replay.getGroupSchema(groupId);
             Assertions.assertThrows(DdlException.class, () -> schema.checkColocateSchema(second));
-            replay.replayAddTableToGroup(ColocatePersistInfo.createForAddTable(groupId, second.getId(), seq));
+            // Legacy nonempty ADD records replace their recorded tags, not the complete sequence map.
+            replay.replayAddTableToGroup(roundTripColocateInfo(
+                    ColocatePersistInfo.createForAddTable(groupId, second.getId(), recorded)));
             Assertions.assertEquals(new HashSet<>(List.of(first.getId(), second.getId())),
                     new HashSet<>(replay.getAllTableIds(groupId)));
             Assertions.assertEquals(groupId, replay.getGroup(second.getId()));
             Assertions.assertSame(schema, replay.getGroupSchema(groupId));
-            Assertions.assertEquals(seq, replay.getBackendsPerBucketSeq(groupId));
+            Map<Tag, List<List<Long>>> expected = new HashMap<>(recorded);
+            expected.put(unrelatedTag, seq.get(unrelatedTag));
+            Assertions.assertEquals(expected, replay.getBackendsPerBucketSeq(groupId));
         } finally {
             second.setColocateGroup(originalGroup);
+        }
+    }
+
+    private static ColocatePersistInfo roundTripColocateInfo(ColocatePersistInfo info) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            info.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return ColocatePersistInfo.read(in);
         }
     }
 

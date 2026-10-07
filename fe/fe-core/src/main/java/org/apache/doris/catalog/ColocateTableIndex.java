@@ -21,6 +21,7 @@ import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -265,6 +266,70 @@ public class ColocateTableIndex implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    // Returns an independent snapshot of the winning sequence and whether this call initialized it.
+    // An empty candidate only reads the current sequence. The caller must not hold the index lock,
+    // because the winning call waits for its journal entry after releasing this method's lock.
+    public Pair<Map<Tag, List<List<Long>>>, Boolean> getOrInitializeBackendsPerBucketSeq(
+            GroupId groupId, Map<Tag, List<List<Long>>> candidate) {
+        EditLog.EditLogItem log = null;
+        Map<Tag, List<List<Long>>> snapshot;
+        boolean initialized = false;
+        writeLock();
+        try {
+            Map<Tag, List<List<Long>>> existing = group2BackendsPerBucketSeq.row(groupId);
+            if (existing.isEmpty() && !candidate.isEmpty()) {
+                Map<Tag, List<List<Long>>> initialSequence = copyBackendsPerBucketSeq(candidate);
+                addBackendsPerBucketSeq(groupId, initialSequence);
+                snapshot = copyBackendsPerBucketSeq(initialSequence);
+                ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, snapshot);
+                log = Env.getCurrentEnv().getEditLog().submitEdit(
+                        OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ, info);
+                initialized = true;
+            } else {
+                snapshot = copyBackendsPerBucketSeq(existing);
+            }
+        } finally {
+            writeUnlock();
+        }
+        if (log != null) {
+            log.await();
+        }
+        return Pair.of(snapshot, initialized);
+    }
+
+    // Snapshot membership and current placement together before submitting the delayed restore ADD.
+    // The caller must not hold the index lock, because journal durability is awaited after unlocking.
+    public void persistRestoredTableMembership(ColocatePersistInfo descriptor) {
+        EditLog.EditLogItem log;
+        writeLock();
+        try {
+            GroupId groupId = table2Group.get(descriptor.getTableId());
+            Preconditions.checkState(descriptor.getGroupId().equals(groupId),
+                    "Restored table %s must remain in colocate group %s", descriptor.getTableId(),
+                    descriptor.getGroupId());
+            GroupId snapshotGroupId = new GroupId(groupId.dbId, groupId.grpId);
+            snapshotGroupId.tblId2DbId.putAll(groupId.tblId2DbId);
+            ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(snapshotGroupId,
+                    descriptor.getTableId(), copyBackendsPerBucketSeq(group2BackendsPerBucketSeq.row(groupId)));
+            log = Env.getCurrentEnv().getEditLog().submitEdit(OperationType.OP_COLOCATE_ADD_TABLE, info);
+        } finally {
+            writeUnlock();
+        }
+        log.await();
+    }
+
+    private static Map<Tag, List<List<Long>>> copyBackendsPerBucketSeq(Map<Tag, List<List<Long>>> sequence) {
+        Map<Tag, List<List<Long>>> copy = Maps.newHashMap();
+        for (Map.Entry<Tag, List<List<Long>>> entry : sequence.entrySet()) {
+            List<List<Long>> buckets = Lists.newArrayList();
+            for (List<Long> bucket : entry.getValue()) {
+                buckets.add(Lists.newArrayList(bucket));
+            }
+            copy.put(entry.getKey(), buckets);
+        }
+        return copy;
     }
 
     public void setBackendsPerBucketSeq(GroupId groupId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
@@ -702,10 +767,11 @@ public class ColocateTableIndex implements Writable {
                 if (Config.isCloudMode()) {
                     groupId = changeGroup(dbId, table, oldGroup, assignedGroup, assignedGroupId);
                 } else {
+                    GroupId destinationGroupId = groupSchema == null ? assignedGroupId : groupSchema.getGroupId();
                     Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
-                    if (groupSchema == null) {
-                        // A new group uses the backend sequence of an arbitrary table partition,
-                        // which the Colocation Balancer adjusts later.
+                    if (destinationGroupId == null || group2BackendsPerBucketSeq.row(destinationGroupId).isEmpty()) {
+                        // Schema registration does not initialize the sequence. Replay can also have a
+                        // sequence for the assigned group ID before its schema has been registered.
                         backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
                         Preconditions.checkNotNull(backendsPerBucketSeq);
                     }
@@ -713,8 +779,10 @@ public class ColocateTableIndex implements Writable {
                     // does not disrupt the original membership.
                     groupId = changeGroup(dbId, table, oldGroup, assignedGroup, assignedGroupId);
 
-                    if (groupSchema == null) {
-                        addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+                    if (backendsPerBucketSeq != null) {
+                        // The outer index lock makes this initialization first-winner. The MODIFY log
+                        // below replays it from the table, without a separate sequence log or wait here.
+                        addBackendsPerBucketSeq(groupId, copyBackendsPerBucketSeq(backendsPerBucketSeq));
                     }
 
                     // Mark the group unstable; submit the log together with the table property modification log.
