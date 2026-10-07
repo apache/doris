@@ -190,8 +190,9 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
                     RETURN_IF_ERROR(_change_to_bloom_filter());
                 }
             } else {
-                // case1&case2: use input bf directly and insert hybrid set data into bf
-                _bloom_filter_func = other->_bloom_filter_func;
+                // case1&case2: use a copy of input bf and insert hybrid set data into it. `other`
+                // may still be used by its own consumers, so it must not be written.
+                RETURN_IF_ERROR(other->_bloom_filter_func->clone(&_bloom_filter_func, true));
                 RETURN_IF_ERROR(_change_to_bloom_filter());
             }
         } else {
@@ -225,8 +226,9 @@ Status RuntimeFilterWrapper::clone(std::shared_ptr<RuntimeFilterWrapper>* res) c
         cloned->_minmax_func.reset(_minmax_func->clone());
     }
     if (_bloom_filter_func) {
-        // An IN_OR_BLOOM filter which is still an IN filter never reads its bloom filter, and the
-        // copy is not merged any more, so do not copy the unused bloom filter.
+        // An IN_OR_BLOOM filter which is still an IN filter never reads its bloom filter: a
+        // later merge which changes the copy to a bloom filter either re-initializes the bloom
+        // filter or takes a copy of the input one first. So do not copy the unused bloom filter.
         RETURN_IF_ERROR(_bloom_filter_func->clone(
                 &cloned->_bloom_filter_func, get_real_type() == RuntimeFilterType::BLOOM_FILTER));
     }

@@ -20,8 +20,11 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include "core/data_type/data_type_number.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
+#include "exprs/hybrid_set.h"
+#include "testutil/column_helper.h"
 
 namespace doris {
 
@@ -94,6 +97,70 @@ public:
         ASSERT_EQ(deserialized_producer->_wrapper->_state, state);
     }
 };
+
+// The merger merges into a private copy of the first wrapper and never writes a producer's
+// wrapper, which may be shared with consumers in local RF mgr or with other producers.
+TEST_F(RuntimeFilterMergerTest, merge_from_never_writes_producer_wrapper) {
+    std::shared_ptr<RuntimeFilterMerger> merger;
+    auto desc = TRuntimeFilterDescBuilder().build();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
+    merger->increase_expected_producer_num(3);
+
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[0]->register_producer_runtime_filter(desc, &producer));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->init(1));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            producer->insert(ColumnHelper::create_column<DataTypeInt32>({5}), 0));
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    auto wrapper = producer->wrapper();
+    auto hashes = wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>());
+    ASSERT_EQ(hashes->size(), 1);
+
+    bool ready = false;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(producer.get(), &ready));
+    ASSERT_FALSE(ready);
+    ASSERT_NE(merger->_wrapper, wrapper);
+    ASSERT_NE(merger->_wrapper->hybrid_set(), wrapper->hybrid_set());
+    ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::READY);
+    ASSERT_EQ(merger->_wrapper->hybrid_set()->size(), 1);
+    ASSERT_FALSE(merger->_wrapper->_bucket_prune_hashes_started.load());
+
+    // The same wrapper published by another producer of a broadcast join changes nothing.
+    std::shared_ptr<RuntimeFilterProducer> producer2;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[1]->register_producer_runtime_filter(desc, &producer2));
+    producer2->set_wrapper(wrapper);
+    producer2->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(producer2.get(), &ready));
+    ASSERT_FALSE(ready);
+    ASSERT_EQ(merger->_wrapper->hybrid_set()->size(), 1);
+
+    // A disabled producer (e.g. of an early terminated instance) disables the merger's copy only.
+    auto terminated_mgr = std::make_unique<RuntimeFilterMgr>(false);
+    auto terminated_state =
+            RuntimeState::create_unique(TUniqueId(), 0, _query_options, _query_ctx->query_globals,
+                                        ExecEnv::GetInstance(), _query_ctx.get());
+    terminated_state->set_runtime_filter_mgr(terminated_mgr.get());
+    terminated_state->set_desc_tbl(&_tbl);
+    std::shared_ptr<RuntimeFilterProducer> producer3;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            terminated_state->register_producer_runtime_filter(desc, &producer3));
+    producer3->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED,
+                                                      "skip all rf process");
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(producer3.get(), &ready));
+    ASSERT_TRUE(ready);
+    ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::DISABLED);
+    ASSERT_NE(merger->_wrapper->_reason.status().msg().find("skip all rf process"),
+              std::string::npos);
+
+    int32_t five = 5;
+    ASSERT_EQ(wrapper->_state, RuntimeFilterWrapper::State::READY);
+    ASSERT_EQ(wrapper->hybrid_set()->size(), 1);
+    ASSERT_TRUE(wrapper->hybrid_set()->find(&five));
+    ASSERT_EQ(wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>()),
+              hashes);
+}
 
 TEST_F(RuntimeFilterMergerTest, basic) {
     test_merge_from(RuntimeFilterWrapper::State::READY, RuntimeFilterWrapper::State::READY,

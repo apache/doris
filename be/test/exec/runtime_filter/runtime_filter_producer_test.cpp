@@ -20,12 +20,15 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <numeric>
+#include <string>
 
 #include "core/data_type/data_type_number.h"
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_merger.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "testutil/column_helper.h"
 
@@ -366,7 +369,7 @@ TEST_F(RuntimeFilterProducerTest, publish_mixed_targets_shared_wrapper) {
 }
 
 // An early terminated instance of a broadcast join publishes its own disabled wrapper, which must
-// not disable the shared wrapper in place: other instances still clone it for local consumers.
+// not disable the shared wrapper in place: the local consumers of other instances still use it.
 TEST_F(RuntimeFilterProducerTest, publish_mixed_targets_shared_wrapper_with_disabled_instance) {
     auto desc = TRuntimeFilterDescBuilder()
                         .set_build_bf_by_runtime_size(false)
@@ -424,7 +427,7 @@ TEST_F(RuntimeFilterProducerTest, publish_mixed_targets_shared_wrapper_with_disa
     ASSERT_EQ(shared_wrapper->hybrid_set()->size(), 1);
     for (const auto& consumer : {local_consumer, local_consumer2}) {
         ASSERT_EQ(consumer->_rf_state, RuntimeFilterConsumer::State::READY);
-        ASSERT_NE(consumer->_wrapper, shared_wrapper);
+        ASSERT_EQ(consumer->_wrapper, shared_wrapper);
         ASSERT_EQ(consumer->_wrapper->get_state(), RuntimeFilterWrapper::State::READY);
         ASSERT_EQ(consumer->_wrapper->hybrid_set()->size(), 1);
         ASSERT_TRUE(consumer->_wrapper->hybrid_set()->find(&five));
@@ -471,8 +474,8 @@ TEST_F(RuntimeFilterProducerTest, publish_mixed_targets_disabled) {
     ASSERT_NE(local_consumer->_wrapper, merge_consumer->_wrapper);
 }
 
-// Without consumers in local RF mgr, the merger still takes over the producer's wrapper.
-TEST_F(RuntimeFilterProducerTest, publish_local_merge_targets_share_producer_wrapper) {
+// The merger never takes over a producer's wrapper, it merges into its own copy.
+TEST_F(RuntimeFilterProducerTest, publish_local_merge_targets_merger_owns_private_wrapper) {
     auto desc = TRuntimeFilterDescBuilder()
                         .set_build_bf_by_runtime_size(false)
                         .set_is_broadcast_join(false)
@@ -499,16 +502,95 @@ TEST_F(RuntimeFilterProducerTest, publish_local_merge_targets_share_producer_wra
             producer2->insert(ColumnHelper::create_column<DataTypeInt32>({6}), 0));
     producer2->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
 
-    auto* wrapper = producer->_wrapper.get();
+    auto wrapper = producer->wrapper();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->publish(_runtime_states[0].get(), true));
     std::shared_ptr<LocalMergeContext> context;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             _query_ctx->runtime_filter_mgr()->get_local_merge_context(desc.filter_id, 0, &context));
-    ASSERT_EQ(context->merger->_wrapper.get(), wrapper);
+    ASSERT_NE(context->merger->_wrapper, wrapper);
+    ASSERT_NE(context->merger->_wrapper->hybrid_set(), wrapper->hybrid_set());
+    ASSERT_EQ(context->merger->_wrapper->hybrid_set()->size(), 1);
 
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->publish(_runtime_states[1].get(), true));
     ASSERT_EQ(consumer->_rf_state, RuntimeFilterConsumer::State::READY);
+    ASSERT_EQ(consumer->_wrapper, context->merger->_wrapper);
     ASSERT_EQ(consumer->_wrapper->hybrid_set()->size(), 2);
+    int32_t five = 5;
+    int32_t six = 6;
+    ASSERT_EQ(wrapper->hybrid_set()->size(), 1);
+    ASSERT_TRUE(wrapper->hybrid_set()->find(&five));
+    ASSERT_FALSE(wrapper->hybrid_set()->find(&six));
+}
+
+// An IN_OR_BLOOM merger which is still an IN filter takes the bloom filter of a producer which
+// already changed to a bloom filter. It must take a copy, the producer's own local consumers are
+// probing the original.
+TEST_F(RuntimeFilterProducerTest, publish_mixed_targets_in_or_bloom_merge_copies_bloom_filter) {
+    auto desc = TRuntimeFilterDescBuilder()
+                        .set_build_bf_by_runtime_size(false)
+                        .set_is_broadcast_join(false)
+                        .add_planId_to_target_expr(0)
+                        .add_planId_to_target_expr(1)
+                        .build();
+
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[0]->register_producer_runtime_filter(desc, &producer));
+    std::shared_ptr<RuntimeFilterProducer> producer2;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[1]->register_producer_runtime_filter(desc, &producer2));
+
+    // Only the second instance has a consumer in local RF mgr.
+    std::shared_ptr<RuntimeFilterConsumer> local_consumer2;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[1]->register_consumer_runtime_filter(desc, false, 0, &local_consumer2));
+    std::shared_ptr<RuntimeFilterConsumer> merge_consumer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[1]->register_consumer_runtime_filter(desc, true, 1, &merge_consumer));
+
+    // The first producer stays an IN filter, the second one exceeds runtime_filter_max_in_num
+    // and changes to a bloom filter.
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->init(1));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            producer->insert(ColumnHelper::create_column<DataTypeInt32>({5}), 0));
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    ASSERT_EQ(producer->wrapper()->get_real_type(), RuntimeFilterType::IN_FILTER);
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->init(2000));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            producer2->insert(ColumnHelper::create_column<DataTypeInt32>({6, 7}), 0));
+    producer2->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    auto bloom_wrapper = producer2->wrapper();
+    ASSERT_EQ(bloom_wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+    char* bloom_data = nullptr;
+    int bloom_len = 0;
+    bloom_wrapper->bloom_filter_func()->get_data(&bloom_data, &bloom_len);
+    ASSERT_GT(bloom_len, 0);
+    const std::string snapshot(bloom_data, bloom_len);
+
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->publish(_runtime_states[0].get(), true));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->publish(_runtime_states[1].get(), true));
+
+    ASSERT_EQ(local_consumer2->_rf_state, RuntimeFilterConsumer::State::READY);
+    ASSERT_EQ(local_consumer2->_wrapper, bloom_wrapper);
+    ASSERT_EQ(merge_consumer->_rf_state, RuntimeFilterConsumer::State::READY);
+    ASSERT_EQ(merge_consumer->_wrapper->get_state(), RuntimeFilterWrapper::State::READY);
+    ASSERT_EQ(merge_consumer->_wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+    ASSERT_NE(merge_consumer->_wrapper->bloom_filter_func(), bloom_wrapper->bloom_filter_func());
+
+    // The merged filter contains the values of both producers.
+    std::vector<uint8_t> found(3);
+    merge_consumer->_wrapper->bloom_filter_func()->find_fixed_len(
+            ColumnHelper::create_column<DataTypeInt32>({5, 6, 7}), found.data());
+    ASSERT_TRUE(std::all_of(found.begin(), found.end(), [](uint8_t i) -> bool { return i; }));
+
+    // The bloom filter of the second producer is not written by the merge.
+    char* merged_data = nullptr;
+    int merged_len = 0;
+    merge_consumer->_wrapper->bloom_filter_func()->get_data(&merged_data, &merged_len);
+    ASSERT_NE(merged_data, bloom_data);
+    ASSERT_EQ(bloom_len, merged_len);
+    ASSERT_EQ(snapshot, std::string(bloom_data, bloom_len));
+    ASSERT_NE(snapshot, std::string(merged_data, merged_len));
 }
 
 TEST_F(RuntimeFilterProducerTest, publish_release_wrapper) {
