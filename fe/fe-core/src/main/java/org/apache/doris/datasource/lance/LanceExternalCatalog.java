@@ -125,14 +125,15 @@ public class LanceExternalCatalog extends ExternalCatalog {
      * spelling could false-prove absence ({@code Foo.Bar} would read as gone and a
      * durable caller would act on it). Absence is therefore proven only through
      * full case-insensitive listings: {@code VERIFIED_ABSENT} requires the whole
-     * database listing to miss the database, or the found remote database's table
+     * database listing to miss the database, or the uniquely matched remote database's table
      * listing to miss the table. A name found in a listing is resolved under its
      * REMOTE spelling to obtain the durable locator; any listing or resolve failure
      * — provider unreachable, credentials expired, a namespace answer that
      * contradicts its own listing — is logged (the sanitized client chain already
      * masks locators and credentials) and reported as
      * {@link LanceIndexDatasetCheck.Outcome#UNRESOLVED}, so an outage can never be
-     * read as "dataset gone".
+     * read as "dataset gone". Multiple case-equivalent names are ambiguous and
+     * return UNRESOLVED, regardless of listing order or an exact-case match.
      *
      * <p>The listings are paid only on the local-resolution-miss path: callers
      * reach this check after their own local db/table lookup already came back
@@ -141,11 +142,11 @@ public class LanceExternalCatalog extends ExternalCatalog {
      */
     public LanceIndexDatasetCheck checkIndexJobDataset(String dbName, String tableName) {
         try {
-            String remoteDbName = findIgnoreCase(withClient(current -> current.listDatabaseNames()), dbName);
+            String remoteDbName = findUniqueIgnoreCase(withClient(current -> current.listDatabaseNames()), dbName);
             if (remoteDbName == null) {
                 return LanceIndexDatasetCheck.verifiedAbsent();
             }
-            String remoteTableName = findIgnoreCase(
+            String remoteTableName = findUniqueIgnoreCase(
                     withClient(current -> current.listTableNames(remoteDbName)), tableName);
             if (remoteTableName == null) {
                 return LanceIndexDatasetCheck.verifiedAbsent();
@@ -158,14 +159,18 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
     }
 
-    /** Returns the listed name that matches {@code target} ignoring case, or null when none does. */
-    private static String findIgnoreCase(List<String> names, String target) {
+    /** Returns the unique case-insensitive match, or null if absent; ambiguity cannot prove absence. */
+    private static String findUniqueIgnoreCase(List<String> names, String target) {
+        String match = null;
         for (String name : names) {
             if (name.equalsIgnoreCase(target)) {
-                return name;
+                if (match != null) {
+                    throw new IllegalStateException("ambiguous case-insensitive namespace name: " + target);
+                }
+                match = name;
             }
         }
-        return null;
+        return match;
     }
 
     public LanceExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,

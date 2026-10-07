@@ -339,6 +339,67 @@ public class LanceIndexJobRefreshDriverTest {
     }
 
     @Test
+    public void sixSlowFailedRetriesCannotStarveAnUntouchedRequiredRefresh() throws Exception {
+        Config.lance_index_job_refresh_retry_second = 300;
+        for (long jobId = 1; jobId <= 6; jobId++) {
+            admitFailedRefresh(jobId, "IdxFailed" + jobId);
+        }
+        admitTerminalCommitted(7L, "IdxUntouched");
+        advanceClockMs(300_000L);
+        List<Long> attempts = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            long jobId = manager.editLog.get(manager.editLog.size() - 1).getJobId();
+            attempts.add(jobId);
+            advanceClockMs(61_000L);
+            if (jobId != 7L) {
+                throw new DdlException("slow provider failure");
+            }
+            return null;
+        }).when(refreshManager).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyBoolean());
+
+        for (int round = 0; round < 7; round++) {
+            dispatcher.runAfterCatalogReady();
+            advanceClockMs(10_000L);
+        }
+
+        Assertions.assertTrue(attempts.contains(7L), attempts.toString());
+        Assertions.assertEquals(LanceIndexJobRefreshState.DONE, manager.getJob(7L).getRefreshState());
+        Assertions.assertFalse(manager.isFenceHeld(manager.getJob(7L).fenceKey()));
+        Assertions.assertEquals(6L, manager.getQuota().getGlobalCount());
+    }
+
+    @Test
+    public void newRequiredJobsJoinBehindAnExistingFailedRetry() throws Exception {
+        Config.lance_index_job_refresh_retry_second = 1;
+        admitTerminalCommitted(1L, "IdxFirst");
+        admitFailedRefresh(2L, "IdxRetry");
+        advanceClockMs(1000L);
+        List<Long> attempts = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            long jobId = manager.editLog.get(manager.editLog.size() - 1).getJobId();
+            attempts.add(jobId);
+            advanceClockMs(61_000L);
+            if (jobId == 2L) {
+                throw new DdlException("retry still fails");
+            }
+            return null;
+        }).when(refreshManager).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyBoolean());
+
+        dispatcher.runAfterCatalogReady();
+        for (long jobId = 3; jobId <= 6; jobId++) {
+            admitTerminalCommitted(jobId, "IdxNew" + jobId);
+            dispatcher.runAfterCatalogReady();
+        }
+
+        Assertions.assertEquals(Long.valueOf(1L), attempts.get(0));
+        Assertions.assertEquals(Long.valueOf(2L), attempts.get(1));
+        Assertions.assertEquals(LanceIndexJobRefreshState.FAILED, manager.getJob(2L).getRefreshState());
+        Assertions.assertTrue(manager.isFenceHeld(manager.getJob(2L).fenceKey()));
+    }
+
+    @Test
     public void doneTransitionLosingTheCompareAndSetIsRetriedWithTheFreshRevision() throws Exception {
         Config.lance_index_job_refresh_retry_second = 0;
         FlakyDoneTestManager flaky = new FlakyDoneTestManager(events);
@@ -578,6 +639,17 @@ public class LanceIndexJobRefreshDriverTest {
     // Fixtures
     // ------------------------------------------------------------------
 
+    private void advanceClockMs(long elapsedMs) {
+        dispatcher.nowOffsetMs += elapsedMs;
+        manager.nowOffsetMs += elapsedMs;
+    }
+
+    private void admitFailedRefresh(long jobId, String displayName) throws Exception {
+        admitTerminalCommitted(jobId, displayName);
+        Assertions.assertTrue(manager.markRefreshRunning(jobId, manager.getJob(jobId).getRevision()));
+        Assertions.assertTrue(manager.markRefreshFailed(jobId, manager.getJob(jobId).getRevision()));
+    }
+
     /** Creates a job and walks it to COMMITTED with a REQUIRED refresh, the driver's input. */
     private void admitTerminalCommitted(long jobId, String displayName) throws Exception {
         admit(jobId, displayName);
@@ -629,9 +701,15 @@ public class LanceIndexJobRefreshDriverTest {
     private static class TestManager extends LanceIndexJobManager {
         private final List<LanceIndexJob> editLog = new ArrayList<>();
         private final List<String> events;
+        private long nowOffsetMs;
 
         TestManager(List<String> events) {
             this.events = events;
+        }
+
+        @Override
+        protected long nowMs() {
+            return System.currentTimeMillis() + nowOffsetMs;
         }
 
         @Override

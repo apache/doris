@@ -22,7 +22,6 @@ import org.apache.doris.datasource.lance.job.LanceIndexJob;
 import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
 import org.apache.doris.datasource.lance.job.LanceIndexJobResult;
 import org.apache.doris.datasource.lance.job.LanceIndexJobResultCode;
-import org.apache.doris.datasource.lance.job.LanceIndexTerminationProof;
 import org.apache.doris.thrift.TLanceIndexJobReport;
 import org.apache.doris.thrift.TLanceIndexJobResultCode;
 import org.apache.doris.thrift.TLanceIndexTerminationProof;
@@ -43,8 +42,8 @@ import org.mockito.Mockito;
  * handler verbatim once its invocation-secret echo authenticates against the durable
  * record: the identity quad and every typed field of the classified result must
  * reach {@link LanceIndexJobManager#completeWithResult} unchanged, and a CHILD_REAPED
- * proof must reach {@link LanceIndexJobManager#recordTerminationProof} with the durable
- * backend id as its source.
+ * proof must reach {@link LanceIndexJobManager#completeWithResultAndChildReaped}
+ * together with its result in one transition.
  */
 public class LanceIndexReportFrontendServiceTest {
     private static final long JOB_ID = 1L;
@@ -101,7 +100,7 @@ public class LanceIndexReportFrontendServiceTest {
     }
 
     @Test
-    public void masterRecordsAChildReapedProofWithTheDurableBackendId() throws Exception {
+    public void masterAppliesTheResultAndChildReapedProofTogether() throws Exception {
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.isMaster()).thenReturn(true);
         LanceIndexJobManager manager = Mockito.mock(LanceIndexJobManager.class);
@@ -109,6 +108,8 @@ public class LanceIndexReportFrontendServiceTest {
         // Built before the stubbing, for the same unfinished-stubbing reason.
         LanceIndexJob dispatched = dispatchedJob();
         Mockito.when(manager.getJob(JOB_ID)).thenReturn(dispatched);
+        Mockito.when(manager.completeWithResultAndChildReaped(Mockito.anyLong(), Mockito.anyLong(),
+                Mockito.anyString(), Mockito.anyLong(), Mockito.any())).thenReturn(true);
         FrontendServiceImpl service = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
@@ -118,11 +119,10 @@ public class LanceIndexReportFrontendServiceTest {
             Assertions.assertEquals(TStatusCode.OK, status.getStatusCode());
         }
 
-        Mockito.verify(manager).completeWithResult(Mockito.eq(JOB_ID), Mockito.eq(DISPATCH_REVISION),
+        Mockito.verify(manager).completeWithResultAndChildReaped(Mockito.eq(JOB_ID), Mockito.eq(DISPATCH_REVISION),
                 Mockito.eq(INVOCATION_ID), Mockito.eq(BE_EPOCH), Mockito.any());
-        Mockito.verify(manager).recordTerminationProof(Mockito.eq(JOB_ID), Mockito.eq(DISPATCH_REVISION),
-                Mockito.eq(BACKEND_ID), Mockito.eq(BE_EPOCH), Mockito.eq(INVOCATION_ID),
-                Mockito.eq(LanceIndexTerminationProof.CHILD_REAPED));
+        Mockito.verify(manager, Mockito.never()).recordTerminationProof(Mockito.anyLong(), Mockito.anyLong(),
+                Mockito.anyLong(), Mockito.anyLong(), Mockito.anyString(), Mockito.any());
     }
 
     /**

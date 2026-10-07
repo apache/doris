@@ -314,7 +314,18 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             Long beProcessEpoch,
             LanceIndexJobResult result) {
         return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
-                false);
+                LanceIndexTerminationProof.NONE);
+    }
+
+    /**
+     * Applies a result and its CHILD_REAPED proof in one durable transition. The
+     * deadline sweep cannot turn RUNNING into UNKNOWN between the proof and the
+     * result. An already-recorded proof is retained and does not block completion.
+     */
+    public boolean completeWithResultAndChildReaped(long jobId, long expectedDispatchRevision, String invocationId,
+            Long beProcessEpoch, LanceIndexJobResult result) {
+        return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
+                LanceIndexTerminationProof.CHILD_REAPED);
     }
 
     /**
@@ -333,11 +344,11 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     public boolean completeProvenNoEnqueue(long jobId, long expectedDispatchRevision, String invocationId,
             Long beProcessEpoch, LanceIndexJobResult result) {
         return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
-                true);
+                LanceIndexTerminationProof.NOT_ENQUEUED);
     }
 
     private boolean completeWithResultInternal(long jobId, long expectedDispatchRevision, String invocationId,
-            Long beProcessEpoch, LanceIndexJobResult result, boolean provenNoEnqueue) {
+            Long beProcessEpoch, LanceIndexJobResult result, LanceIndexTerminationProof completionProof) {
         Objects.requireNonNull(result, "result");
         writeLock();
         try {
@@ -371,10 +382,10 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             updated.setRefreshState(classification.getRefreshState());
             updated.setResult(new LanceIndexJobResult(result.getResultCode(), classification.getCompletionReason(),
                     result.getSanitizedMessage(), result.isExternalMetadataAdvanced()));
-            if (provenNoEnqueue && updated.isPossibleLiveOwned()) {
+            if (completionProof != LanceIndexTerminationProof.NONE && updated.isPossibleLiveOwned()) {
                 updated.setPossibleLiveOwned(false);
                 if (updated.getTerminationProof() == LanceIndexTerminationProof.NONE) {
-                    updated.setTerminationProof(LanceIndexTerminationProof.NOT_ENQUEUED);
+                    updated.setTerminationProof(completionProof);
                 }
             }
             updated.setRevision(current.getRevision() + 1);
@@ -442,16 +453,21 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                 // not the generic update time: an unrelated later transition (a
                 // termination proof) bumps the generic time without attempting the
                 // refresh and must not postpone the next retry by another interval.
-                updated.setRefreshFailureTimeMs(System.currentTimeMillis());
+                updated.setRefreshFailureTimeMs(nowMs());
             }
             updated.setRevision(current.getRevision() + 1);
-            updated.setUpdateTimeMs(System.currentTimeMillis());
+            updated.setUpdateTimeMs(nowMs());
             writeEditLog(updated);
             applyToMemory(updated);
             return true;
         } finally {
             writeUnlock();
         }
+    }
+
+    /** Clock seam for refresh failure timestamps and deterministic retry tests. */
+    protected long nowMs() {
+        return System.currentTimeMillis();
     }
 
     /**

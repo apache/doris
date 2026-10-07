@@ -44,9 +44,14 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TApplicationException;
 
 import java.security.SecureRandom;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -131,6 +136,12 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
 
     private final Supplier<LanceIndexJobManager> jobManagerSupplier;
 
+    // Daemon-owned FIFO: new obligations join behind existing ones, and each
+    // considered job moves to the tail. The queue is rebuilt from durable jobs
+    // after restart; scheduling order itself needs no journal record.
+    private final Deque<Long> refreshQueue = new ArrayDeque<>();
+    private final Set<Long> queuedRefreshJobIds = new HashSet<>();
+
     /** Wall time of the last executed round, or -1 before the first one. */
     private long lastRoundMs = -1L;
 
@@ -190,7 +201,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
     }
 
     private void runOneRound(LanceIndexJobManager jobManager) {
-        long nowMs = System.currentTimeMillis();
+        long nowMs = nowMs();
         sweepExpiredRunningJobs(jobManager, nowMs);
         sweepReplacedProcessEpochs(jobManager);
         driveRequiredRefreshes(jobManager, nowMs);
@@ -285,17 +296,41 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * initialize a Lance catalog and list remote databases or tables, so a slow
      * provider can consume a whole metadata timeout, and several owed jobs
      * could multiply that delay before the next deadline or epoch sweep and
-     * before PENDING jobs dispatch. At most one backend RPC timeout of blocking
-     * refresh work runs per round; the remaining owed jobs are logged and
+     * before PENDING jobs dispatch. After spending one backend RPC timeout of
+     * refresh work, no further attempt starts that round; an already-started
+     * refresh can outlast that budget. The remaining owed jobs are logged and
      * deferred to the next round with their durable state untouched (REQUIRED
      * or FAILED, never a stranded RUNNING), so the FAILED throttle and the
-     * markRefreshRunning semantics keep their meaning.
+     * markRefreshRunning semantics keep their meaning. The FIFO rotates both
+     * REQUIRED jobs and FAILED retries, so a slow failing prefix cannot starve
+     * untouched jobs, and new obligations cannot crowd out existing retries.
      */
     private void driveRequiredRefreshes(LanceIndexJobManager jobManager, long nowMs) {
         // fe.conf bypasses the validator, so a non-positive timeout is clamped to keep
         // at least one refresh attempt per round.
         long blockingBudgetMs = Math.max(1L, Config.backend_rpc_timeout_ms);
+        Map<Long, LanceIndexJob> refreshJobs = new HashMap<>();
         for (LanceIndexJob job : jobManager.getJobsNeedingRefresh()) {
+            refreshJobs.put(job.getJobId(), job);
+            if (queuedRefreshJobIds.add(job.getJobId())) {
+                refreshQueue.addLast(job.getJobId());
+            }
+        }
+        // Consider each queued identity at most once this round, even when it
+        // fails immediately and is ready to retry again.
+        for (int remaining = refreshQueue.size(); remaining > 0; remaining--) {
+            if (blockingBudgetMs <= 0) {
+                LOG.info("lance index job dispatcher spent this round's blocking-refresh budget;"
+                        + " deferring lance index job {} to a later round", refreshQueue.peekFirst());
+                break;
+            }
+            long jobId = refreshQueue.removeFirst();
+            LanceIndexJob job = refreshJobs.get(jobId);
+            if (job == null) {
+                queuedRefreshJobIds.remove(jobId);
+                continue;
+            }
+            refreshQueue.addLast(jobId);
             try {
                 if (job.getRefreshState() == LanceIndexJobRefreshState.RUNNING) {
                     // In flight elsewhere; the master-transfer sweep downgrades a stale
@@ -306,11 +341,6 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
                         && nowMs - refreshThrottledSinceMs(job)
                                 < Config.lance_index_job_refresh_retry_second * 1000L) {
                     continue;
-                }
-                if (blockingBudgetMs <= 0) {
-                    LOG.info("lance index job dispatcher spent this round's blocking-refresh budget;"
-                            + " deferring lance index job {} to a later round", job.getJobId());
-                    break;
                 }
                 long attemptStartMs = nowMs();
                 try {

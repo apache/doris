@@ -55,8 +55,8 @@ import java.util.Objects;
  * infer an outcome.
  *
  * <p>A termination proof is validated independently of the result, so a
- * CHILD_REAPED proof is recorded first and still lands when the result of the
- * same envelope is malformed: reaping the exact child process proves that
+ * CHILD_REAPED proof lands together with a valid result in one transition, or
+ * independently when the result is malformed or late: reaping the exact child process proves that
  * process ended, and dropping that proof together with the result would
  * strand the possible-live slot until the backend process is replaced.
  *
@@ -79,9 +79,9 @@ public class LanceIndexJobReportHandler {
      * then a matched report completes the job with its classified result, and a
      * CHILD_REAPED termination proof additionally releases the possible-live
      * slot, because reaping the exact child process proves that process ended
-     * (which still says nothing about the outcome). The proof is recorded
-     * before the result is parsed: the two are validated independently, and a
-     * malformed result must not take a valid proof down with it.
+     * (which still says nothing about the outcome). A valid result and proof
+     * are applied atomically; a malformed or late result must still not take
+     * an independently valid proof down with it.
      */
     public void handle(TLanceIndexJobReport report) {
         if (report == null) {
@@ -95,19 +95,28 @@ public class LanceIndexJobReportHandler {
                     report.getJobId());
             return;
         }
-        if (report.getTerminationProof() == TLanceIndexTerminationProof.CHILD_REAPED) {
-            recordChildReaped(report);
-        }
+        boolean childReaped = report.getTerminationProof() == TLanceIndexTerminationProof.CHILD_REAPED;
         LanceIndexJobResult result;
         try {
             result = toResult(report);
         } catch (IllegalArgumentException e) {
+            if (childReaped) {
+                recordChildReaped(report);
+            }
             LOG.warn("dropping malformed lance index job report for job {}: {}", report.getJobId(), e.getMessage());
             return;
         }
-        boolean completed = jobManager.completeWithResult(report.getJobId(), report.getDispatchRevision(),
-                report.getInvocationId(), report.getBeProcessEpoch(), result);
+        boolean completed = childReaped
+                ? jobManager.completeWithResultAndChildReaped(report.getJobId(), report.getDispatchRevision(),
+                        report.getInvocationId(), report.getBeProcessEpoch(), result)
+                : jobManager.completeWithResult(report.getJobId(), report.getDispatchRevision(),
+                        report.getInvocationId(), report.getBeProcessEpoch(), result);
         if (!completed) {
+            // A sweep that won before this whole transition keeps its UNKNOWN
+            // result; the matched proof can still release that dispatch's slot.
+            if (childReaped) {
+                recordChildReaped(report);
+            }
             LOG.warn("dropping stale lance index job report for job {}", report.getJobId());
         }
     }

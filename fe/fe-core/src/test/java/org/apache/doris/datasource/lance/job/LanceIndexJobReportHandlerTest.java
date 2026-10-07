@@ -30,6 +30,11 @@ import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Coverage for {@link LanceIndexJobReportHandler}, the thin shim applying one typed
@@ -353,7 +358,101 @@ public class LanceIndexJobReportHandlerTest {
         // Only the slot was released: fence and quota survive until FORCE.
         Assertions.assertTrue(manager.isFenceHeld(fenceKey));
         Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
-        Assertions.assertEquals(2, manager.editLog.size());
+        Assertions.assertEquals(1, manager.editLog.size());
+    }
+
+    @Test
+    public void validResultAndProofAreJournaledAtomicallyAgainstTheDeadlineSweep() throws Exception {
+        CountDownLatch journalEntered = new CountDownLatch(1);
+        CountDownLatch resumeJournal = new CountDownLatch(1);
+        CountDownLatch sweepStarted = new CountDownLatch(1);
+        TestManager manager = new TestManager() {
+            @Override
+            protected void writeEditLog(LanceIndexJob job) {
+                super.writeEditLog(job);
+                if (job.getTerminationProof() == LanceIndexTerminationProof.CHILD_REAPED) {
+                    journalEntered.countDown();
+                    try {
+                        Assertions.assertTrue(resumeJournal.await(10, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+                }
+            }
+        };
+        runningManager(manager, 1L, "IdxAtomic", LanceIndexJobMutationType.CREATE, false);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> report = executor.submit(() -> new LanceIndexJobReportHandler(manager).handle(
+                    matchingReport(TLanceIndexJobResultCode.NATIVE_OK)
+                            .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED)));
+            Assertions.assertTrue(journalEntered.await(10, TimeUnit.SECONDS));
+            Future<Boolean> sweep = executor.submit(() -> {
+                sweepStarted.countDown();
+                return manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                        new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
+                                LanceIndexJobCompletionReason.NONE, "deadline expired", false));
+            });
+            Assertions.assertTrue(sweepStarted.await(10, TimeUnit.SECONDS));
+            // Even before the in-memory swap, the one durable record already
+            // contains both the success and the proof. There is no RUNNING
+            // proof-only record for a deadline sweep or replay to observe.
+            Assertions.assertEquals(1, manager.editLog.size());
+            LanceIndexJob durable = manager.editLog.get(0);
+            Assertions.assertEquals(LanceIndexJobMutationState.COMMITTED, durable.getMutationState());
+            Assertions.assertEquals(LanceIndexJobResultCode.NATIVE_OK, durable.getResult().getResultCode());
+            Assertions.assertEquals(LanceIndexTerminationProof.CHILD_REAPED, durable.getTerminationProof());
+            Assertions.assertFalse(durable.holdsPossibleLiveSlot());
+            resumeJournal.countDown();
+            report.get(10, TimeUnit.SECONDS);
+            Assertions.assertFalse(sweep.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, manager.editLog.size());
+            Assertions.assertEquals(LanceIndexJobRefreshState.REQUIRED, manager.getJob(1L).getRefreshState());
+            TestManager replayed = new TestManager();
+            replayed.replayUpsertJob(durable);
+            Assertions.assertEquals(LanceIndexJobMutationState.COMMITTED, replayed.getJob(1L).getMutationState());
+            Assertions.assertFalse(replayed.getJob(1L).holdsPossibleLiveSlot());
+            Assertions.assertTrue(replayed.isFenceHeld(durable.fenceKey()));
+        } finally {
+            resumeJournal.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void anEarlierTerminationProofDoesNotBlockAnAuthenticatedResult() throws DdlException {
+        for (LanceIndexTerminationProof proof : new LanceIndexTerminationProof[] {
+                LanceIndexTerminationProof.CHILD_REAPED, LanceIndexTerminationProof.BE_PROCESS_EPOCH_GONE}) {
+            TestManager manager = runningManager(1L, "IdxEarlierProof", LanceIndexJobMutationType.CREATE, false);
+            Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, proof));
+            manager.editLog.clear();
+            new LanceIndexJobReportHandler(manager).handle(matchingReport(TLanceIndexJobResultCode.NATIVE_OK)
+                    .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED));
+            Assertions.assertEquals(LanceIndexJobMutationState.COMMITTED, manager.getJob(1L).getMutationState());
+            Assertions.assertEquals(proof, manager.getJob(1L).getTerminationProof());
+            Assertions.assertFalse(manager.getJob(1L).holdsPossibleLiveSlot());
+            Assertions.assertEquals(1, manager.editLog.size());
+        }
+    }
+
+    @Test
+    public void lateReportReleasesItsSlotWithoutChangingUnknown() throws DdlException {
+        TestManager manager = runningManager(1L, "IdxLate", LanceIndexJobMutationType.CREATE, false);
+        Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
+                        LanceIndexJobCompletionReason.NONE, "deadline expired", false)));
+        manager.editLog.clear();
+        new LanceIndexJobReportHandler(manager).handle(matchingReport(TLanceIndexJobResultCode.NATIVE_OK)
+                .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED));
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.UNKNOWN, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexJobResultCode.NO_TRUSTED_RESULT, stored.getResult().getResultCode());
+        Assertions.assertEquals(LanceIndexTerminationProof.CHILD_REAPED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertTrue(manager.isFenceHeld(stored.fenceKey()));
+        Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
+        Assertions.assertEquals(1, manager.editLog.size());
     }
 
     @Test
@@ -548,6 +647,11 @@ public class LanceIndexJobReportHandlerTest {
     private static TestManager runningManager(long jobId, String displayName,
             LanceIndexJobMutationType type, boolean ifExists) throws DdlException {
         TestManager manager = new TestManager();
+        return runningManager(manager, jobId, displayName, type, ifExists);
+    }
+
+    private static TestManager runningManager(TestManager manager, long jobId, String displayName,
+            LanceIndexJobMutationType type, boolean ifExists) throws DdlException {
         manager.createJob(newJob(jobId, displayName, type, ifExists), 100, 100, 100);
         Assertions.assertTrue(manager.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
                 INVOCATION_SECRET, NOT_EXPIRED_DEADLINE_MS));

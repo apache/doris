@@ -32,6 +32,7 @@ import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -75,6 +76,46 @@ public class LanceExternalCatalogDatasetCheckTest {
             Mockito.verify(client, Mockito.never()).resolveCurrentIndexJobLocator("foo", "bar");
         } finally {
             catalog.onClose();
+        }
+    }
+
+    @Test
+    public void caseCollidingDatabasesCannotProveAbsenceInEitherListingOrder() throws Exception {
+        for (List<String> names : Arrays.asList(Arrays.asList("FOO", "Foo"), Arrays.asList("Foo", "FOO"))) {
+            LanceCatalogClient client = client();
+            Mockito.doReturn(names).when(client).listDatabaseNames();
+            Mockito.doReturn(Collections.emptyList()).when(client).listTableNames("FOO");
+            Mockito.doReturn(Collections.singletonList("Bar")).when(client).listTableNames("Foo");
+            LanceExternalCatalog catalog = catalog(client);
+            try {
+                // Even an exact-case local match cannot authorize choosing one
+                // remote database when the persisted names may have been mapped.
+                for (String localDb : Arrays.asList("foo", "FOO", "Foo")) {
+                    Assertions.assertEquals(LanceIndexDatasetCheck.Outcome.UNRESOLVED,
+                            catalog.checkIndexJobDataset(localDb, "bar").outcome);
+                }
+                Mockito.verify(client, Mockito.never()).listTableNames(Mockito.anyString());
+            } finally {
+                catalog.onClose();
+            }
+        }
+    }
+
+    @Test
+    public void caseCollidingTablesRemainUnresolvedInEitherListingOrder() throws Exception {
+        for (List<String> names : Arrays.asList(Arrays.asList("BAR", "Bar"), Arrays.asList("Bar", "BAR"))) {
+            LanceCatalogClient client = client();
+            Mockito.doReturn(Collections.singletonList("Foo")).when(client).listDatabaseNames();
+            Mockito.doReturn(names).when(client).listTableNames("Foo");
+            LanceExternalCatalog catalog = catalog(client);
+            try {
+                Assertions.assertEquals(LanceIndexDatasetCheck.Outcome.UNRESOLVED,
+                        catalog.checkIndexJobDataset("foo", "bar").outcome);
+                Mockito.verify(client, Mockito.never()).resolveCurrentIndexJobLocator(Mockito.anyString(),
+                        Mockito.anyString());
+            } finally {
+                catalog.onClose();
+            }
         }
     }
 
