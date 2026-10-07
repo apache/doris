@@ -162,6 +162,44 @@ TEST_F(RuntimeFilterMergerTest, merge_from_never_writes_producer_wrapper) {
               hashes);
 }
 
+// A caller who guarantees `other`'s wrapper has no other reader (e.g. an RPC-only filter built
+// solely for this merge, see `RuntimeFilterMergeControllerEntity::merge`) may let the merger take
+// it over directly instead of paying for a deep copy.
+TEST_F(RuntimeFilterMergerTest, merge_from_exclusively_owned_takes_ownership) {
+    std::shared_ptr<RuntimeFilterMerger> merger;
+    auto desc = TRuntimeFilterDescBuilder().build();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
+    merger->increase_expected_producer_num(2);
+
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[0]->register_producer_runtime_filter(desc, &producer));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->init(1));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            producer->insert(ColumnHelper::create_column<DataTypeInt32>({5}), 0));
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    auto wrapper = producer->wrapper();
+
+    bool ready = false;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            merger->merge_from(producer.get(), &ready, /*other_wrapper_exclusively_owned=*/true));
+    ASSERT_FALSE(ready);
+    // No clone: the merger took over the exclusively owned wrapper directly.
+    ASSERT_EQ(merger->_wrapper, wrapper);
+
+    std::shared_ptr<RuntimeFilterProducer> producer2;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[1]->register_producer_runtime_filter(desc, &producer2));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->init(1));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            producer2->insert(ColumnHelper::create_column<DataTypeInt32>({6}), 0));
+    producer2->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            merger->merge_from(producer2.get(), &ready, /*other_wrapper_exclusively_owned=*/true));
+    ASSERT_TRUE(ready);
+    ASSERT_EQ(merger->_wrapper->hybrid_set()->size(), 2);
+}
+
 TEST_F(RuntimeFilterMergerTest, basic) {
     test_merge_from(RuntimeFilterWrapper::State::READY, RuntimeFilterWrapper::State::READY,
                     RuntimeFilterWrapper::State::READY, RuntimeFilterWrapper::State::READY);

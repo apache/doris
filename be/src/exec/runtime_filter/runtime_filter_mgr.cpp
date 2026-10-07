@@ -589,7 +589,11 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
 
         RETURN_IF_ERROR(tmp_filter->assign(*request, attach_data));
 
-        RETURN_IF_ERROR(cnt_val.merger->merge_from(tmp_filter.get(), &is_ready));
+        // `tmp_filter` is created solely to carry this one RPC's filter into the merger and is
+        // discarded right after; nothing else reads its wrapper, so the merger may take it over
+        // without a copy.
+        RETURN_IF_ERROR(cnt_val.merger->merge_from(tmp_filter.get(), &is_ready,
+                                                   /*other_wrapper_exclusively_owned=*/true));
 
         cnt_val.arrive_id.insert(UniqueId(request->fragment_instance_id()));
     }

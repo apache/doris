@@ -125,7 +125,11 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
     return _bloom_filter_func ? _bloom_filter_func->build_bf_by_runtime_size() : false;
 }
 
-Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
+// Pre-existing size/complexity debt from the per-filter-type switch below, already over
+// threshold before this change; not addressed here to keep this diff focused.
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
+Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other,
+                                   bool other_exclusively_owned) {
     DORIS_CHECK(!_bucket_prune_hashes_started.load());
     if (_state == State::DISABLED) {
         return Status::OK();
@@ -189,6 +193,11 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
                     RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length(0));
                     RETURN_IF_ERROR(_change_to_bloom_filter());
                 }
+            } else if (other_exclusively_owned) {
+                // `other` has no other reader, so its bf can be taken over directly instead of
+                // cloned before inserting the hybrid set data into it.
+                _bloom_filter_func = other->_bloom_filter_func;
+                RETURN_IF_ERROR(_change_to_bloom_filter());
             } else {
                 // case1&case2: use a copy of input bf and insert hybrid set data into it. `other`
                 // may still be used by its own consumers, so it must not be written.

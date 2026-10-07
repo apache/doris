@@ -1271,6 +1271,57 @@ TEST_F(RuntimeFilterWrapperTest, TestMergeInWithBloomCopiesBloomFilter) {
             std::all_of(final_res.begin(), final_res.end(), [](uint8_t i) -> bool { return i; }));
 }
 
+// When the caller tells merge() that `other` is exclusively owned (e.g. an RPC-only filter with
+// no other reader, see `RuntimeFilterMergeControllerEntity::merge`), the bloom filter is taken
+// over directly instead of cloned.
+TEST_F(RuntimeFilterWrapperTest, TestMergeInWithBloomExclusivelyOwnedTakesOwnership) {
+    using DataType = DataTypeInt32;
+    auto make_params = [](int32_t max_in_num) {
+        return RuntimeFilterParams {.filter_id = 0,
+                                    .filter_type = RuntimeFilterType::IN_OR_BLOOM_FILTER,
+                                    .column_return_type = PrimitiveType::TYPE_INT,
+                                    .null_aware = false,
+                                    .max_in_num = max_in_num,
+                                    .runtime_bloom_filter_min_size = 64,
+                                    .runtime_bloom_filter_max_size = 128,
+                                    .bloom_filter_size = 64,
+                                    .build_bf_by_runtime_size = false,
+                                    .bloom_filter_size_calculated_by_ndv = false};
+    };
+    auto in_params = make_params(18);
+    auto wrapper = std::make_shared<RuntimeFilterWrapper>(&in_params);
+    ASSERT_TRUE(wrapper->init(16).ok());
+    ASSERT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
+    std::vector<int> data_vector(10);
+    std::iota(data_vector.begin(), data_vector.end(), 0);
+    ASSERT_TRUE(wrapper->insert(ColumnHelper::create_column<DataType>(data_vector), 0).ok());
+
+    auto bloom_params = make_params(8);
+    auto bloom_wrapper = std::make_shared<RuntimeFilterWrapper>(&bloom_params);
+    ASSERT_TRUE(bloom_wrapper->init(16).ok());
+    ASSERT_EQ(bloom_wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+    std::vector<int> bloom_data_vector(10);
+    std::iota(bloom_data_vector.begin(), bloom_data_vector.end(), 10);
+    ASSERT_TRUE(bloom_wrapper->insert(ColumnHelper::create_column<DataType>(bloom_data_vector), 0)
+                        .ok());
+    bloom_wrapper->set_state(RuntimeFilterWrapper::State::READY);
+    auto bloom_filter_func_before_merge = bloom_wrapper->bloom_filter_func();
+
+    ASSERT_TRUE(wrapper->merge(bloom_wrapper.get(), /*other_exclusively_owned=*/true).ok());
+    EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+    // No clone: the merger took over `other`'s bloom filter directly.
+    EXPECT_EQ(wrapper->bloom_filter_func(), bloom_filter_func_before_merge);
+    EXPECT_EQ(wrapper->bloom_filter_func(), bloom_wrapper->bloom_filter_func());
+
+    std::vector<int> final_data_vector(20);
+    std::iota(final_data_vector.begin(), final_data_vector.end(), 0);
+    std::vector<uint8_t> final_res(20);
+    wrapper->bloom_filter_func()->find_fixed_len(
+            ColumnHelper::create_column<DataType>(final_data_vector), final_res.data());
+    EXPECT_TRUE(
+            std::all_of(final_res.begin(), final_res.end(), [](uint8_t i) -> bool { return i; }));
+}
+
 TEST_F(RuntimeFilterWrapperTest, TestClone) {
     using DataType = DataTypeInt32;
     auto make_params = [](RuntimeFilterType filter_type, bool null_aware, int32_t max_in_num,

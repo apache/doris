@@ -58,7 +58,17 @@ public:
 
     // If input is a disabled predicate, the final result is a disabled predicate.
     // Returns true only for the call that makes the merger ready.
-    Status merge_from(const RuntimeFilter* other, bool* ready) {
+    //
+    // `other_wrapper_exclusively_owned` must be true only when the caller guarantees `other`'s
+    // wrapper has no other reader and will not be read again after this call (e.g. a producer
+    // whose wrapper is never signaled to a plain local consumer, or an RPC-only filter built
+    // solely to carry one merge request). The merger then takes the wrapper over directly
+    // instead of paying for a deep copy. It must stay false whenever `other`'s wrapper may still
+    // be used by consumers in local RF mgr of the same instance, or is shared by all producers of
+    // a broadcast join with a shared hash table: the merger must never write such a wrapper, so
+    // it only merges into its own copy.
+    Status merge_from(const RuntimeFilter* other, bool* ready,
+                      bool other_wrapper_exclusively_owned = false) {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
         _received_producer_num++;
         if (_expected_producer_num < _received_producer_num) {
@@ -70,13 +80,13 @@ public:
             _rf_state = State::READY;
         }
         if (_wrapper->get_state() == RuntimeFilterWrapper::State::UNINITED) {
-            // The merger owns a private copy of the first wrapper. A producer's wrapper may
-            // still be used by the consumers in local RF mgr of the same instance (and is shared
-            // by all producers of a broadcast join with a shared hash table), so the merger must
-            // never write a producer's wrapper: it only merges the later ones into its own copy.
+            if (other_wrapper_exclusively_owned) {
+                _wrapper = other->_wrapper;
+                return Status::OK();
+            }
             return other->_wrapper->clone(&_wrapper);
         }
-        return _wrapper->merge(other->_wrapper.get());
+        return _wrapper->merge(other->_wrapper.get(), other_wrapper_exclusively_owned);
     }
 
     // Only raise the expected producer count. RuntimeFilterMgr may compute the
