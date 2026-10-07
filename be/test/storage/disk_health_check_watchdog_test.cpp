@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <limits>
 #include <string>
+#include <thread>
 
 #include "common/status.h"
 
@@ -108,6 +109,22 @@ TEST(DiskHealthCheckWatchdogTest, RejectsInvalidTimeouts) {
     EXPECT_FALSE(watchdog.start(std::chrono::milliseconds::max()).ok());
 }
 
+TEST(DiskHealthCheckWatchdogTest, IdleAndCompletedChecksDoNotExit) {
+    // This normal lifecycle must run in the parent: _exit() in a death-test child
+    // bypasses profile flushing and loses coverage of thread start, polling and stop.
+    DiskHealthCheckWatchdog watchdog;
+    auto status = watchdog.start(1s);
+    ASSERT_TRUE(status.ok()) << status;
+    for (int i = 0; i < 3; ++i) {
+        DiskHealthCheckWatchdog::ScopedCheck check(watchdog);
+    }
+    // Stay idle beyond the completed checks' deadlines. A stale deadline would
+    // terminate the test process instead of allowing stop() to return normally.
+    std::this_thread::sleep_for(1250ms);
+    watchdog.stop();
+    watchdog.stop();
+}
+
 #if !defined(THREAD_SANITIZER)
 
 class DiskHealthCheckWatchdogDeathTest : public testing::Test {
@@ -123,29 +140,6 @@ protected:
 private:
     std::string _saved_style;
 };
-
-TEST_F(DiskHealthCheckWatchdogDeathTest, IdleAndCompletedChecksDoNotExit) {
-    ASSERT_EXIT(
-            {
-                signal(SIGALRM, SIG_DFL);
-                alarm(10);
-                {
-                    DiskHealthCheckWatchdog watchdog;
-                    if (!watchdog.start(100ms).ok()) {
-                        _exit(2);
-                    }
-                    for (int i = 0; i < 3; ++i) {
-                        DiskHealthCheckWatchdog::ScopedCheck check(watchdog);
-                    }
-                    // Let the real poller run beyond the completed checks' deadlines.
-                    usleep(350000);
-                    watchdog.stop();
-                    watchdog.stop();
-                }
-                _exit(0);
-            },
-            ::testing::ExitedWithCode(0), "");
-}
 
 TEST_F(DiskHealthCheckWatchdogDeathTest, ExitsWhenCheckHangs) {
     ASSERT_EXIT(
