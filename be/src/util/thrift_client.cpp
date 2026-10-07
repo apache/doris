@@ -17,9 +17,11 @@
 
 #include "util/thrift_client.h"
 
+#include <sys/socket.h>
 #include <thrift/transport/TTransport.h>
 #include <thrift/transport/TTransportException.h>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <cerrno>
 #include <chrono> // IWYU pragma: keep
 #include <memory>
 #include <string>
@@ -87,6 +89,14 @@ Status ThriftClientImpl::open_with_retry(int num_tries, int wait_ms) {
     }
 
     return status;
+}
+
+bool ThriftClientImpl::peer_closed() {
+    char byte;
+    ssize_t peeked = ::recv(_socket->getSocketFD(), &byte, 1, MSG_PEEK | MSG_DONTWAIT);
+    // Bytes waiting to be read tell nothing about the connection: an idle one that is still open
+    // has none.
+    return peeked == 0 || (peeked < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR);
 }
 
 void ThriftClientImpl::close() {
