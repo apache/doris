@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -612,6 +613,44 @@ TEST(FunctionMatchTest, array_phrase_respects_analyzer_positions) {
     EXPECT_EQ(result[0], 1);
 }
 
+TEST(FunctionMatchTest, array_phrase_preserves_leading_analyzer_gap) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+
+    segment_v2::inverted_index::Settings tokenizer_settings;
+    tokenizer_settings.set("tokenize_on_chars", "[whitespace]");
+    segment_v2::inverted_index::CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("char_group", tokenizer_settings);
+    builder.add_token_filter_config("word_delimiter", {});
+    auto provider =
+            std::make_shared<segment_v2::inverted_index::CustomAnalyzerProvider>(builder.build());
+    auto ctx = std::make_unique<InvertedIndexAnalyzerCtx>();
+    ctx->analyzer_name = "word_delimiter";
+    ctx->analyzer_provider = provider;
+    ctx->analyzer = provider->get_analyzer();
+
+    auto string_col = ColumnString::create();
+    string_col->insert_data("hello", 5);
+    string_col->insert_data("--- world", 9);
+    ColumnArray::Offsets64 offsets = {2};
+
+    FunctionMatchPhrase match_phrase;
+    int32_t unused_offset = 0;
+    auto later_tokens = match_phrase.analyse_data_token("tags", ctx.get(), string_col.get(), 1,
+                                                        nullptr, unused_offset);
+    ASSERT_EQ(later_tokens.size(), 1);
+    EXPECT_EQ(later_tokens[0].position, 2);
+
+    ColumnUInt8::Container result(1, 0);
+    ASSERT_TRUE(match_phrase
+                        .execute_match(context.get(), "tags", "hello world", 1, string_col.get(),
+                                       ctx.get(), &offsets, result)
+                        .ok());
+    EXPECT_EQ(result[0], 0);
+}
+
 TEST(FunctionMatchTest, long_unrelated_phrase_miss) {
     TQueryOptions query_options;
     query_options.__set_enable_match_without_inverted_index(true);
@@ -636,6 +675,74 @@ TEST(FunctionMatchTest, long_unrelated_phrase_miss) {
                                        ctx.ctx.get(), nullptr, result)
                         .ok());
     EXPECT_EQ(result, (ColumnUInt8::Container {0, 1, 0}));
+}
+
+TEST(FunctionMatchTest, long_phrase_with_many_short_rows) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+    auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
+
+    std::string query;
+    for (int i = 0; i < 1000; ++i) {
+        query += "alpha ";
+    }
+    auto string_col = ColumnString::create();
+    for (int i = 0; i < 2000; ++i) {
+        string_col->insert_data("alpha", 5);
+    }
+    ColumnUInt8::Container result(2000, 0);
+    FunctionMatchPhrase match_phrase;
+    ASSERT_TRUE(match_phrase
+                        .execute_match(context.get(), "tags", query, 2000, string_col.get(),
+                                       ctx.ctx.get(), nullptr, result)
+                        .ok());
+    EXPECT_EQ(std::count(result.begin(), result.end(), 1), 0);
+}
+
+TEST(FunctionMatchTest, long_phrase_with_unique_start_miss) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+    auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
+
+    std::string value = "beta ";
+    for (int i = 0; i < 1000; ++i) {
+        value += "alpha ";
+    }
+    auto string_col = ColumnString::create();
+    string_col->insert_data(value.data(), value.size());
+    ColumnUInt8::Container result(1, 0);
+    FunctionMatchPhrase match_phrase;
+    ASSERT_TRUE(match_phrase
+                        .execute_match(context.get(), "tags", value + "gamma", 1, string_col.get(),
+                                       ctx.ctx.get(), nullptr, result)
+                        .ok());
+    EXPECT_EQ(result[0], 0);
+}
+
+TEST(FunctionMatchTest, keyword_array_many_elements) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+    auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_NONE);
+
+    auto string_col = ColumnString::create();
+    for (int i = 0; i < 1000; ++i) {
+        string_col->insert_data("alpha", 5);
+    }
+    string_col->insert_data("omega", 5);
+    ColumnArray::Offsets64 offsets = {1000, 1001};
+    ColumnUInt8::Container result(2, 0);
+    FunctionMatchAny match_any;
+    ASSERT_TRUE(match_any
+                        .execute_match(context.get(), "tags", "omega", 2, string_col.get(),
+                                       ctx.ctx.get(), &offsets, result)
+                        .ok());
+    EXPECT_EQ(result, (ColumnUInt8::Container {0, 1}));
 }
 
 TEST(FunctionMatchTest, long_repeated_phrase_miss) {

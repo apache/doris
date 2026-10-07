@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <span>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -60,6 +61,7 @@ public:
               _last_bit(uint64_t {1} << ((_query_size - 1) % 64)),
               _state(_last_word + 1, 0),
               _pending_masks(_last_word + 1, 0),
+              _active_marks(_last_word + 1, 0),
               _first_term(query_tokens.front().get_single_term()),
               _last_term(query_tokens.back().get_single_term()) {
         for (size_t pos = 0; pos < _query_size; ++pos) {
@@ -83,9 +85,11 @@ public:
             _pending_masks[word] = 0;
         }
         _pending_touched.clear();
+        _pending_sorted = true;
         _pending_position = -1;
         _previous_position = -1;
-        _active_word_count = 0;
+        _active_words.clear();
+        ++_generation;
     }
 
     bool feed(const std::string& term, int64_t position) {
@@ -94,11 +98,35 @@ public:
                 return true;
             }
         }
-        _pending_position = position;
+        if (_pending_position < 0) {
+            start_position(position);
+        }
         const auto mask_it = _exact_masks.find(term);
         if (mask_it != _exact_masks.end()) {
-            for (const auto& [word, mask] : mask_it->second) {
-                add_pending_mask(word, mask);
+            const auto& mask_words = mask_it->second;
+            if (mask_words.size() / 4 > _candidate_words.size()) {
+                for (size_t word : _candidate_words) {
+                    auto it = std::lower_bound(
+                            mask_words.begin(), mask_words.end(), word,
+                            [](const auto& entry, size_t value) { return entry.first < value; });
+                    if (it != mask_words.end() && it->first == word) {
+                        add_pending_mask(word, it->second);
+                    }
+                }
+            } else {
+                size_t candidate = 0;
+                for (const auto& [word, mask] : mask_words) {
+                    while (candidate < _candidate_words.size() &&
+                           _candidate_words[candidate] < word) {
+                        ++candidate;
+                    }
+                    if (candidate == _candidate_words.size()) {
+                        break;
+                    }
+                    if (_candidate_words[candidate] == word) {
+                        add_pending_mask(word, mask);
+                    }
+                }
             }
         }
         const bool first_matches = _mode == PhraseMode::EDGE &&
@@ -111,7 +139,8 @@ public:
         if (first_matches) {
             add_pending_mask(0, 1);
         }
-        if (last_matches) {
+        if (last_matches &&
+            std::binary_search(_candidate_words.begin(), _candidate_words.end(), _last_word)) {
             add_pending_mask(_last_word, _last_bit);
         }
         return false;
@@ -120,8 +149,29 @@ public:
     bool finish() { return _pending_position >= 0 && advance(); }
 
 private:
+    void start_position(int64_t position) {
+        if (_previous_position >= 0 && position != _previous_position + 1) {
+            _active_words.clear();
+            ++_generation;
+        }
+        _pending_position = position;
+        _candidate_words.clear();
+        _candidate_words.push_back(0);
+        for (size_t word : _active_words) {
+            if (_candidate_words.back() != word) {
+                _candidate_words.push_back(word);
+            }
+            if (word < _last_word && (_state[word] >> 63) != 0) {
+                _candidate_words.push_back(word + 1);
+            }
+        }
+    }
+
     void add_pending_mask(size_t word, uint64_t mask) {
         if (_pending_masks[word] == 0) {
+            if (!_pending_touched.empty() && word < _pending_touched.back()) {
+                _pending_sorted = false;
+            }
             _pending_touched.push_back(word);
         }
         _pending_masks[word] |= mask;
@@ -130,32 +180,38 @@ private:
     bool advance() {
         const int64_t position = _pending_position;
         _pending_position = -1;
-        if (_previous_position >= 0 && position != _previous_position + 1) {
-            _active_word_count = 0;
-        }
         _previous_position = position;
 
-        size_t next_active_word_count = 0;
-        uint64_t carry = 1;
-        const size_t active_word_count = _active_word_count;
+        const uint64_t old_generation = _generation++;
+        _next_active_words.clear();
         if (!_pending_touched.empty()) {
-            const size_t limit = std::min(_state.size(), active_word_count + 1);
-            for (size_t word = 0; word < limit; ++word) {
-                const uint64_t previous = word < active_word_count ? _state[word] : 0;
-                const uint64_t next = ((previous << 1) | carry) & _pending_masks[word];
-                _state[word] = next;
+            if (!_pending_sorted) {
+                std::sort(_pending_touched.begin(), _pending_touched.end());
+            }
+            for (auto it = _pending_touched.rbegin(); it != _pending_touched.rend(); ++it) {
+                const size_t word = *it;
+                const uint64_t previous = _active_marks[word] == old_generation ? _state[word] : 0;
+                const uint64_t carry = word > 0 && _active_marks[word - 1] == old_generation
+                                               ? _state[word - 1] >> 63
+                                               : 0;
+                const uint64_t next =
+                        ((previous << 1) | carry | uint64_t {word == 0}) & _pending_masks[word];
                 if (next != 0) {
-                    next_active_word_count = word + 1;
+                    _state[word] = next;
+                    _active_marks[word] = _generation;
+                    _next_active_words.push_back(word);
                 }
-                carry = previous >> 63;
             }
         }
         for (size_t word : _pending_touched) {
             _pending_masks[word] = 0;
         }
         _pending_touched.clear();
-        _active_word_count = next_active_word_count;
-        return _active_word_count > _last_word && (_state[_last_word] & _last_bit) != 0;
+        _pending_sorted = true;
+        std::reverse(_next_active_words.begin(), _next_active_words.end());
+        _active_words.swap(_next_active_words);
+        return !_active_words.empty() && _active_words.back() == _last_word &&
+               (_state[_last_word] & _last_bit) != 0;
     }
 
     PhraseMode _mode;
@@ -164,13 +220,18 @@ private:
     uint64_t _last_bit;
     std::vector<uint64_t> _state;
     std::vector<uint64_t> _pending_masks;
+    std::vector<uint64_t> _active_marks;
     std::vector<size_t> _pending_touched;
+    std::vector<size_t> _candidate_words;
+    std::vector<size_t> _active_words;
+    std::vector<size_t> _next_active_words;
     std::string _first_term;
     std::string _last_term;
     std::unordered_map<std::string, std::vector<std::pair<size_t, uint64_t>>> _exact_masks;
     int64_t _pending_position = -1;
     int64_t _previous_position = -1;
-    size_t _active_word_count = 0;
+    uint64_t _generation = 1;
+    bool _pending_sorted = true;
 };
 
 template <typename Callback>
@@ -182,9 +243,19 @@ bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::
                                   Callback&& callback) {
     const size_t begin = array_offsets ? (row == 0 ? 0 : (*array_offsets)[row - 1]) : row;
     const size_t end = array_offsets ? (*array_offsets)[row] : row + 1;
+    const bool keyword = analyzer_ctx &&
+                         (!analyzer_ctx->requires_analysis() || analyzer_ctx->analyzer == nullptr);
+    segment_v2::TermInfo keyword_token;
     int32_t unused_array_offset = 0;
     for (size_t element = begin; element < end; ++element) {
         if (array_element_null_map && (*array_element_null_map)[element]) {
+            continue;
+        }
+        if (keyword) {
+            keyword_token.term = string_col->get_data_at(element).to_string();
+            if (callback(std::span(&keyword_token, 1))) {
+                return true;
+            }
             continue;
         }
         auto tokens = function.analyse_data_token(column_name, analyzer_ctx, string_col, element,
@@ -192,7 +263,7 @@ bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::
         if (tokens.empty()) {
             continue;
         }
-        if (callback(tokens)) {
+        if (callback(std::span<const segment_v2::TermInfo>(tokens))) {
             return true;
         }
     }
@@ -209,18 +280,18 @@ bool match_phrase_data_tokens(const FunctionMatchBase& function, const std::stri
     int64_t position_base = 0;
     const bool matched = for_each_data_element_tokens(
             function, column_name, analyzer_ctx, string_col, row, array_offsets,
-            array_element_null_map, [&](const std::vector<segment_v2::TermInfo>& tokens) {
-                const int32_t first_position = tokens.front().position;
-                int32_t last_position = first_position;
+            array_element_null_map, [&](std::span<const segment_v2::TermInfo> tokens) {
+                const bool analyzed = analyzer_ctx && analyzer_ctx->requires_analysis() &&
+                                      analyzer_ctx->analyzer != nullptr;
+                int32_t last_position = 0;
                 for (const auto& token : tokens) {
-                    const int64_t position = position_base + static_cast<int64_t>(token.position) -
-                                             first_position + 1;
-                    if (matcher.feed(token.get_single_term(), position)) {
+                    const int32_t position = analyzed ? token.position : 1;
+                    if (matcher.feed(token.get_single_term(), position_base + position)) {
                         return true;
                     }
-                    last_position = token.position;
+                    last_position = position;
                 }
-                position_base += static_cast<int64_t>(last_position) - first_position + 1;
+                position_base += last_position;
                 return false;
             });
     return matched || matcher.finish();
@@ -494,7 +565,7 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
     for (int i = 0; i < input_rows_count; i++) {
         if (for_each_data_element_tokens(*this, column_name, analyzer_ctx, string_col, i,
                                          array_offsets, array_element_null_map,
-                                         [&](const std::vector<segment_v2::TermInfo>& data_tokens) {
+                                         [&](std::span<const segment_v2::TermInfo> data_tokens) {
                                              for (const auto& info : data_tokens) {
                                                  if (query_terms.contains(info.get_single_term())) {
                                                      return true;
@@ -539,8 +610,7 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
         size_t remaining = query_term_ids.size();
         if (for_each_data_element_tokens(
                     *this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                    array_element_null_map,
-                    [&](const std::vector<segment_v2::TermInfo>& data_tokens) {
+                    array_element_null_map, [&](std::span<const segment_v2::TermInfo> data_tokens) {
                         if (last_seen_row.empty()) {
                             last_seen_row.resize(query_term_ids.size(), 0);
                         }
@@ -671,8 +741,7 @@ Status FunctionMatchRegexp::execute_match(
         for (int i = 0; i < input_rows_count; i++) {
             for_each_data_element_tokens(
                     *this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                    array_element_null_map,
-                    [&](const std::vector<segment_v2::TermInfo>& data_tokens) {
+                    array_element_null_map, [&](std::span<const segment_v2::TermInfo> data_tokens) {
                         for (const auto& input : data_tokens) {
                             bool is_match = false;
                             const auto& input_str = input.get_single_term();
