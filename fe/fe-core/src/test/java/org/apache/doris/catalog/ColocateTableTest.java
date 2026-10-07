@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -63,6 +64,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -71,6 +73,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 public class ColocateTableTest {
     private static String runningDir = "fe/mocked/ColocateTableTest" + UUID.randomUUID().toString() + "/";
@@ -144,11 +148,15 @@ public class ColocateTableTest {
     }
 
     private static void alterColocateGroup(String sql) throws Exception {
+        alterColocateGroup(sql, connectContext);
+    }
+
+    private static void alterColocateGroup(String sql, ConnectContext context) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(context, sql);
         if (parsed instanceof AlterColocateGroupCommand) {
-            ((AlterColocateGroupCommand) parsed).run(connectContext, stmtExecutor);
+            ((AlterColocateGroupCommand) parsed).run(context, stmtExecutor);
         } else {
             Assertions.fail("Expected AlterColocateGroupCommand, but parsed: " + parsed.getClass().getSimpleName());
         }
@@ -1056,6 +1064,235 @@ public class ColocateTableTest {
                     .logColocateModifyRepliaAlloc(Mockito.any(ColocatePersistInfo.class));
         } finally {
             env.setEditLog(originalEditLog);
+        }
+    }
+
+    @Test
+    public void testReplicaAllocationRevalidatesDepartedTable() throws Exception {
+        checkReplicaAllocationMembershipChange(false, false);
+    }
+
+    @Test
+    public void testReplayReplicaAllocationRevalidatesDepartedTable() throws Exception {
+        checkReplicaAllocationMembershipChange(true, false);
+    }
+
+    @Test
+    public void testReplicaAllocationLocksJoiningTableBeforeLogging() throws Exception {
+        checkReplicaAllocationMembershipChange(false, true);
+    }
+
+    @Test
+    public void testReplayReplicaAllocationIncludesJoiningTable() throws Exception {
+        checkReplicaAllocationMembershipChange(true, true);
+    }
+
+    private void checkReplicaAllocationMembershipChange(boolean replay, boolean joining) throws Exception {
+        boolean previousAllowReplicaOnSameHost = Config.allow_replica_on_same_host;
+        try {
+            // The three mock backends share localhost; preserve real three-replica selection.
+            Config.allow_replica_on_same_host = true;
+            OlapTable first = createReplicaRaceTable(dbName, "replica_race_t1", "replica_race_group");
+            OlapTable second = createReplicaRaceTable(dbName, "replica_race_t2", "replica_race_group");
+            OlapTable third = createReplicaRaceTable(dbName, "replica_race_t3", "");
+            ColocateTableIndex index = Env.getCurrentColocateIndex();
+            GroupId source = index.getGroup(first.getId());
+            AtomicReference<GroupId> destination = new AtomicReference<>();
+            AtomicReference<Map<Tag, List<List<Long>>>> destinationSeq = new AtomicReference<>();
+            List<OlapTable> members = joining ? List.of(first, second, third) : List.of(second);
+            runReplicaAllocationRace(replay, "replica_race_group", first, members, () -> {
+                // Change membership via real ALTER while the worker waits on t1's reentrant table lock.
+                alterTable("ALTER TABLE " + dbName + "." + (joining ? third.getName() : first.getName())
+                        + " SET (\"colocate_with\"=\""
+                        + (joining ? "replica_race_group" : "replica_race_destination") + "\")");
+                if (!joining) {
+                    destination.set(index.getGroup(first.getId()));
+                    destinationSeq.set(copyBackendsPerBucketSeq(index.getBackendsPerBucketSeq(destination.get())));
+                }
+                return null;
+            });
+            Assertions.assertEquals(members.stream().map(OlapTable::getId).collect(Collectors.toSet()),
+                    new HashSet<>(index.getAllTableIds(source)));
+            if (!joining) {
+                assertReplicaAllocation(first, 3);
+                assertReplicaAllocation(third, 3);
+                Assertions.assertNotEquals(source, destination.get());
+                Assertions.assertEquals(destination.get(), index.getGroup(first.getId()));
+                Assertions.assertEquals((short) 3, index.getGroupSchema(destination.get())
+                        .getReplicaAlloc().getTotalReplicaNum());
+                Assertions.assertEquals(destinationSeq.get(), index.getBackendsPerBucketSeq(destination.get()));
+            }
+        } finally {
+            Config.allow_replica_on_same_host = previousAllowReplicaOnSameHost;
+        }
+    }
+
+    private static OlapTable createReplicaRaceTable(String database, String table, String group) throws Exception {
+        createTable("CREATE TABLE " + database + "." + table
+                + " (k1 INT) DISTRIBUTED BY HASH(k1) BUCKETS 1"
+                + " PROPERTIES (\"replication_num\"=\"3\", \"colocate_with\"=\"" + group + "\")");
+        return (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException(database)
+                .getTableOrMetaException(table);
+    }
+
+    private static void assertReplicaAllocation(OlapTable table, int replicas) {
+        Assertions.assertEquals((short) replicas, table.getDefaultReplicaAllocation().getTotalReplicaNum());
+        for (ReplicaAllocation allocation : table.getPartitionInfo().getPartitionReplicaAllocations().values()) {
+            Assertions.assertEquals((short) replicas, allocation.getTotalReplicaNum());
+        }
+    }
+
+    private void runReplicaAllocationRace(boolean replay, String groupName, OlapTable first,
+            List<OlapTable> expectedMembers, Callable<Void> changeMembership) throws Exception {
+        Env env = Env.getCurrentEnv();
+        ColocateTableIndex index = Env.getCurrentColocateIndex();
+        GroupId groupId = index.getGroup(first.getId());
+        Map<Tag, List<List<Long>>> replaySeq = copyBackendsPerBucketSeq(index.getBackendsPerBucketSeq(groupId));
+        replaySeq.values().forEach(buckets -> buckets.forEach(bucket -> bucket.subList(1, bucket.size()).clear()));
+        // Use a separate GroupId membership map to exercise lookup after global-group deserialization.
+        ColocatePersistInfo info = ColocatePersistInfo.createForModifyReplicaAlloc(
+                new GroupId(groupId.dbId, groupId.grpId), new ReplicaAllocation((short) 1), replaySeq);
+        ReentrantReadWriteLock tableLock = Deencapsulation.getField(first, "rwLock");
+        ReentrantReadWriteLock indexLock = Deencapsulation.getField(index, "lock");
+        EditLog originalEditLog = env.getEditLog();
+        EditLog journal = Mockito.mock(EditLog.class);
+        Mockito.when(journal.submitEdit(Mockito.eq(OperationType.OP_MODIFY_TABLE_COLOCATE),
+                Mockito.any(TablePropertyInfo.class))).thenReturn(Mockito.mock(EditLog.EditLogItem.class));
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertTrue(indexLock.isWriteLockedByCurrentThread());
+            for (OlapTable member : expectedMembers) {
+                Assertions.assertTrue(member.isWriteLockHeldByCurrentThread(), member.getName());
+                assertReplicaAllocation(member, 1);
+            }
+            ColocatePersistInfo logged = invocation.getArgument(0);
+            Assertions.assertEquals(groupId, logged.getGroupId());
+            Assertions.assertEquals((short) 1, logged.getReplicaAlloc().getTotalReplicaNum());
+            return null;
+        }).when(journal).logColocateModifyRepliaAlloc(Mockito.any(ColocatePersistInfo.class));
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        AtomicReference<Thread> workerThread = new AtomicReference<>();
+        CountDownLatch started = new CountDownLatch(1);
+        env.setEditLog(journal);
+        try {
+            Future<?> modification;
+            first.writeLock();
+            try {
+                modification = worker.submit(() -> {
+                    try {
+                        ConnectContext context = UtFrameUtils.createDefaultCtx();
+                        workerThread.set(Thread.currentThread());
+                        started.countDown();
+                        if (replay) {
+                            index.replayModifyReplicaAlloc(info);
+                        } else {
+                            String qualifiedGroup = GroupId.isGlobalGroupName(groupName)
+                                    ? groupName : dbName + "." + groupName;
+                            alterColocateGroup("ALTER COLOCATE GROUP " + qualifiedGroup
+                                    + " SET (\"replication_num\"=\"1\")", context);
+                        }
+                        return null;
+                    } finally {
+                        ConnectContext.remove();
+                    }
+                });
+                Assertions.assertTrue(started.await(30, TimeUnit.SECONDS));
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+                while (!tableLock.hasQueuedThread(workerThread.get()) && !modification.isDone()
+                        && System.nanoTime() < deadline) {
+                    Thread.yield();
+                }
+                Assertions.assertTrue(tableLock.hasQueuedThread(workerThread.get()),
+                        "Replica modification must queue on the actual first table lock");
+                // The old implementation holds the index lock; release the table lock if the bounded probe fails.
+                Assertions.assertTrue(indexLock.readLock().tryLock(5, TimeUnit.SECONDS),
+                        "Replica modification must not hold the index lock while waiting for a table");
+                indexLock.readLock().unlock();
+                changeMembership.call();
+            } finally {
+                first.writeUnlock();
+            }
+            modification.get(30, TimeUnit.SECONDS);
+            for (OlapTable member : expectedMembers) {
+                assertReplicaAllocation(member, 1);
+            }
+            Assertions.assertEquals((short) 1, index.getGroupSchema(groupId).getReplicaAlloc().getTotalReplicaNum());
+            Map<Tag, List<List<Long>>> sequence = index.getBackendsPerBucketSeq(groupId);
+            Assertions.assertEquals(1, sequence.size());
+            Assertions.assertEquals(1, sequence.get(Tag.DEFAULT_BACKEND_TAG).size());
+            Assertions.assertEquals(1, sequence.get(Tag.DEFAULT_BACKEND_TAG).get(0).size());
+            if (replay) {
+                Assertions.assertEquals(replaySeq, sequence);
+            }
+            Mockito.verify(journal, Mockito.times(replay ? 0 : 1))
+                    .logColocateModifyRepliaAlloc(Mockito.any(ColocatePersistInfo.class));
+        } finally {
+            // Release contended locks and let the worker finish without interrupting mock journal waits.
+            worker.shutdown();
+            try {
+                Assertions.assertTrue(worker.awaitTermination(30, TimeUnit.SECONDS));
+            } finally {
+                env.setEditLog(originalEditLog);
+            }
+        }
+    }
+
+    @Test
+    public void testGlobalReplicaAllocationLocksBothDatabases() throws Exception {
+        checkGlobalReplicaAllocationRace(false, false, false);
+    }
+
+    @Test
+    public void testReplayGlobalReplicaAllocationAfterDatabaseDrop() throws Exception {
+        checkGlobalReplicaAllocationRace(true, true, false);
+    }
+
+    @Test
+    public void testReplayGlobalReplicaAllocationSkipsMissingDatabase() throws Exception {
+        checkGlobalReplicaAllocationRace(true, false, true);
+    }
+
+    private void checkGlobalReplicaAllocationRace(boolean replay, boolean dropDatabase, boolean missingDatabase)
+            throws Exception {
+        String otherDb = "replica_race_db";
+        String sql = "CREATE DATABASE " + otherDb;
+        ((CreateDatabaseCommand) new NereidsParser().parseSingle(sql))
+                .run(connectContext, new StmtExecutor(connectContext, sql));
+        Database other = Env.getCurrentInternalCatalog().getDbOrMetaException(otherDb);
+        Map<Long, Database> databases = Deencapsulation.getField(Env.getCurrentInternalCatalog(), "idToDb");
+        boolean previousAllowReplicaOnSameHost = Config.allow_replica_on_same_host;
+        try {
+            // The three mock backends share localhost; preserve real three-replica selection.
+            Config.allow_replica_on_same_host = true;
+            String globalGroup = "__global__replica_race";
+            OlapTable first = createReplicaRaceTable(dbName, "global_replica_t1", globalGroup);
+            OlapTable second = createReplicaRaceTable(otherDb, "global_replica_t2", globalGroup);
+            ColocateTableIndex index = Env.getCurrentColocateIndex();
+            GroupId groupId = index.getGroup(first.getId());
+            Assertions.assertEquals(0L, groupId.dbId.longValue());
+            Assertions.assertEquals(groupId, index.getGroup(second.getId()));
+            runReplicaAllocationRace(replay, globalGroup, first,
+                    dropDatabase || missingDatabase ? List.of(first) : List.of(first, second), () -> {
+                        if (dropDatabase) {
+                            Env.getCurrentInternalCatalog().dropDb(otherDb, false, true);
+                            Assertions.assertNull(Env.getCurrentInternalCatalog().getDbNullable(otherDb));
+                        } else if (missingDatabase) {
+                            // Keep indexed members while hiding the database; retries must converge on its absence.
+                            Assertions.assertSame(other, databases.remove(other.getId()));
+                            Assertions.assertEquals(2, index.getAllTableIds(groupId).size());
+                        }
+                        return null;
+                    });
+            // Dropping the database leaves indexed IDs until recycling; absent members are skipped.
+            Assertions.assertEquals(2, index.getAllTableIds(groupId).size());
+            if (dropDatabase || missingDatabase) {
+                assertReplicaAllocation(second, 3);
+            }
+        } finally {
+            Config.allow_replica_on_same_host = previousAllowReplicaOnSameHost;
+            if (missingDatabase) {
+                databases.put(other.getId(), other);
+            }
+            Env.getCurrentInternalCatalog().dropDb(otherDb, true, true);
         }
     }
 

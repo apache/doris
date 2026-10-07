@@ -27,6 +27,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DynamicPartitionUtil;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -56,6 +57,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -866,13 +868,8 @@ public class ColocateTableIndex implements Writable {
     }
 
     public void replayModifyReplicaAlloc(ColocatePersistInfo info) throws UserException {
-        writeLock();
-        try {
-            modifyColocateGroupReplicaAllocation(info.getGroupId(), info.getReplicaAlloc(),
-                    info.getBackendsPerBucketSeq(), true /* isReplay */);
-        } finally {
-            writeUnlock();
-        }
+        modifyColocateGroupReplicaAllocation(info.getGroupId(), info.getReplicaAlloc(),
+                info.getBackendsPerBucketSeq(), true /* isReplay */, null);
     }
 
     // only for test
@@ -1026,112 +1023,180 @@ public class ColocateTableIndex implements Writable {
     }
 
     public void alterColocateGroup(AlterColocateGroupCommand command) throws UserException {
-        writeLock();
+        Map<String, String> properties = command.getProperties();
+        String dbName = command.getColocateGroupName().getDb();
+        String groupName = command.getColocateGroupName().getGroup();
+        long dbId = 0;
+        if (!GroupId.isGlobalGroupName(groupName)) {
+            Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
+            dbId = db.getId();
+        }
+        String fullGroupName = GroupId.getFullGroupName(dbId, groupName);
+        GroupId groupId;
+        readLock();
         try {
-            Map<String, String> properties = command.getProperties();
-            String dbName = command.getColocateGroupName().getDb();
-            String groupName = command.getColocateGroupName().getGroup();
-            long dbId = 0;
-            if (!GroupId.isGlobalGroupName(groupName)) {
-                Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
-                dbId = db.getId();
-            }
-            String fullGroupName = GroupId.getFullGroupName(dbId, groupName);
             ColocateGroupSchema groupSchema = getGroupSchema(fullGroupName);
             if (groupSchema == null) {
                 throw new DdlException("Not found colocate group " + command.getColocateGroupName().toSql());
             }
-
-            GroupId groupId = groupSchema.getGroupId();
-
-            if (properties.size() > 1) {
-                throw new DdlException("Can only set one colocate group property at a time");
-            }
-
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
-                    || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
-                if (Config.isCloudMode()) {
-                    throw new DdlException("Cann't modify colocate group replication in cloud mode");
-                }
-
-                ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
-                Preconditions.checkState(!replicaAlloc.isNotSet());
-                Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
-                Map<Tag, List<List<Long>>> backendsPerBucketSeq = getBackendsPerBucketSeq(groupId);
-                Map<Tag, List<List<Long>>> newBackendsPerBucketSeq = Maps.newHashMap();
-                for (Map.Entry<Tag, List<List<Long>>> entry : backendsPerBucketSeq.entrySet()) {
-                    List<List<Long>> newList = Lists.newArrayList();
-                    for (List<Long> backends : entry.getValue()) {
-                        newList.add(Lists.newArrayList(backends));
-                    }
-                    newBackendsPerBucketSeq.put(entry.getKey(), newList);
-                }
-                try {
-                    ColocateTableCheckerAndBalancer.modifyGroupReplicaAllocation(replicaAlloc,
-                            newBackendsPerBucketSeq, groupSchema.getBucketsNum());
-                } catch (Exception e) {
-                    LOG.warn("modify group [{}, {}] to replication allocation {} failed, bucket seq {}",
-                            fullGroupName, groupId, replicaAlloc, backendsPerBucketSeq, e);
-                    throw new DdlException(e.getMessage());
-                }
-                backendsPerBucketSeq = newBackendsPerBucketSeq;
-                Preconditions.checkState(backendsPerBucketSeq.size() == replicaAlloc.getAllocMap().size());
-                modifyColocateGroupReplicaAllocation(groupSchema.getGroupId(), replicaAlloc,
-                        backendsPerBucketSeq, false /* isReplay */);
-            } else {
-                throw new DdlException("Unknown colocate group property: " + properties.keySet());
-            }
+            groupId = groupSchema.getGroupId();
         } finally {
-            writeUnlock();
+            readUnlock();
+        }
+
+        if (properties.size() > 1) {
+            throw new DdlException("Can only set one colocate group property at a time");
+        }
+
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+            if (Config.isCloudMode()) {
+                throw new DdlException("Cann't modify colocate group replication in cloud mode");
+            }
+
+            // Analysis consumes properties, so do it once before retrying a changed membership snapshot.
+            ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+            Preconditions.checkState(!replicaAlloc.isNotSet());
+            Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
+            modifyColocateGroupReplicaAllocation(groupId, replicaAlloc, null, false /* isReplay */,
+                    command.getColocateGroupName().toSql());
+        } else {
+            throw new DdlException("Unknown colocate group property: " + properties.keySet());
         }
     }
 
     private void modifyColocateGroupReplicaAllocation(GroupId groupId, ReplicaAllocation replicaAlloc,
-            Map<Tag, List<List<Long>>> backendsPerBucketSeq, boolean isReplay) throws UserException {
-        ColocateGroupSchema groupSchema = getGroupSchema(groupId);
-        if (groupSchema == null) {
-            LOG.warn("not found group {}", groupId);
-            return;
-        }
-
-        List<Long> tableIds = getAllTableIds(groupId);
-        for (Long tableId : tableIds) {
-            long dbId = groupId.dbId;
-            if (dbId == 0) {
-                dbId = groupId.getDbIdByTblId(tableId);
-            }
-            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-            if (db == null) {
-                continue;
-            }
-            OlapTable table = (OlapTable) db.getTableNullable(tableId);
-            if (table == null || !isColocateTable(table.getId())) {
-                continue;
-            }
-            table.writeLock();
+            Map<Tag, List<List<Long>>> backendsPerBucketSeq, boolean isReplay, String groupName) throws UserException {
+        while (true) {
+            Map<Long, Long> tableDbIds;
+            readLock();
             try {
-                Map<String, String> tblProperties = Maps.newHashMap();
-                tblProperties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                        replicaAlloc.toCreateStmt());
-                table.setReplicaAllocation(tblProperties);
-                if (table.dynamicPartitionExists()) {
-                    TableProperty tableProperty = table.getTableProperty();
-                    // Merge the new properties with origin properties, and then analyze them
-                    Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
-                    origDynamicProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
-                            replicaAlloc.toCreateStmt());
-                    Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(
-                            origDynamicProperties, table, db, isReplay);
-                    tableProperty.modifyTableProperties(analyzedDynamicPartition);
-                    tableProperty.buildDynamicProperty();
+                ColocateGroupSchema groupSchema = getReplicaAllocationGroupSchema(groupId, isReplay, groupName);
+                if (groupSchema == null) {
+                    return;
                 }
-                for (ReplicaAllocation alloc : table.getPartitionInfo().getPartitionReplicaAllocations().values()) {
-                    Map<Tag, Short> allocMap = alloc.getAllocMap();
-                    allocMap.clear();
-                    allocMap.putAll(replicaAlloc.getAllocMap());
+                tableDbIds = getReplicaAllocationTableDbIds(groupId);
+            } finally {
+                readUnlock();
+            }
+
+            Map<Long, Pair<Database, OlapTable>> members = Maps.newHashMap();
+            for (Map.Entry<Long, Long> entry : tableDbIds.entrySet()) {
+                Database db = Env.getCurrentInternalCatalog().getDbNullable(entry.getValue());
+                if (db == null) {
+                    continue;
+                }
+                OlapTable table = (OlapTable) db.getTableNullable(entry.getKey());
+                if (table != null) {
+                    members.put(entry.getKey(), Pair.of(db, table));
+                }
+            }
+            List<OlapTable> tables = members.values().stream().map(member -> member.second)
+                    .sorted(Comparator.comparingLong(OlapTable::getId)).collect(Collectors.toList());
+            // Never acquire table locks while holding the index lock, including on replay or retry.
+            MetaLockUtils.writeLockTables(tables);
+            try {
+                writeLock();
+                try {
+                    ColocateGroupSchema groupSchema = getReplicaAllocationGroupSchema(groupId, isReplay, groupName);
+                    if (groupSchema == null) {
+                        return;
+                    }
+                    if (!tableDbIds.equals(getReplicaAllocationTableDbIds(groupId))) {
+                        continue;
+                    }
+                    boolean tablesChanged = false;
+                    for (Map.Entry<Long, Long> entry : tableDbIds.entrySet()) {
+                        Database db = Env.getCurrentInternalCatalog().getDbNullable(entry.getValue());
+                        org.apache.doris.catalog.Table table = db == null ? null : db.getTableNullable(entry.getKey());
+                        Pair<Database, OlapTable> member = members.get(entry.getKey());
+                        if (table != (member == null ? null : member.second)
+                                || (member != null && db != member.first)) {
+                            tablesChanged = true;
+                            break;
+                        }
+                    }
+                    if (tablesChanged) {
+                        // Both finally blocks run before resolving and locking a new snapshot.
+                        continue;
+                    }
+
+                    if (!isReplay) {
+                        Map<Tag, List<List<Long>>> currentBackends = group2BackendsPerBucketSeq.row(groupId);
+                        Map<Tag, List<List<Long>>> newBackends = copyBackendsPerBucketSeq(currentBackends);
+                        try {
+                            ColocateTableCheckerAndBalancer.modifyGroupReplicaAllocation(replicaAlloc,
+                                    newBackends, groupSchema.getBucketsNum());
+                        } catch (Exception e) {
+                            LOG.warn("modify group [{}, {}] to replication allocation {} failed, bucket seq {}",
+                                    groupName, groupId, replicaAlloc, currentBackends, e);
+                            throw new DdlException(e.getMessage());
+                        }
+                        backendsPerBucketSeq = newBackends;
+                        Preconditions.checkState(backendsPerBucketSeq.size() == replicaAlloc.getAllocMap().size());
+                    }
+                    applyColocateGroupReplicaAllocation(groupSchema, replicaAlloc, backendsPerBucketSeq,
+                            isReplay, tables, members);
+                    return;
+                } finally {
+                    writeUnlock();
                 }
             } finally {
-                table.writeUnlock();
+                MetaLockUtils.writeUnlockTables(tables);
+            }
+        }
+    }
+
+    // Caller holds the index read or write lock.
+    private ColocateGroupSchema getReplicaAllocationGroupSchema(GroupId groupId, boolean isReplay, String groupName)
+            throws DdlException {
+        ColocateGroupSchema groupSchema = group2Schema.get(groupId);
+        if (groupSchema == null) {
+            if (!isReplay) {
+                throw new DdlException("Not found colocate group " + groupName);
+            }
+            LOG.warn("not found group {}", groupId);
+        }
+        return groupSchema;
+    }
+
+    // Caller holds the index read or write lock, including for global GroupId.tblId2DbId access.
+    private Map<Long, Long> getReplicaAllocationTableDbIds(GroupId groupId) {
+        ImmutableMap.Builder<Long, Long> tableDbIds = ImmutableMap.builder();
+        for (Long tableId : group2Tables.get(groupId)) {
+            // Replayed and deserialized schema IDs need not share the current membership map.
+            GroupId tableGroupId = table2Group.get(tableId);
+            Preconditions.checkState(groupId.equals(tableGroupId));
+            tableDbIds.put(tableId, groupId.dbId == 0 ? tableGroupId.getDbIdByTblId(tableId) : groupId.dbId);
+        }
+        return tableDbIds.build();
+    }
+
+    // All visible member tables and the index are write-locked by the caller.
+    private void applyColocateGroupReplicaAllocation(ColocateGroupSchema groupSchema, ReplicaAllocation replicaAlloc,
+            Map<Tag, List<List<Long>>> backendsPerBucketSeq, boolean isReplay, List<OlapTable> tables,
+            Map<Long, Pair<Database, OlapTable>> members) throws UserException {
+        GroupId groupId = groupSchema.getGroupId();
+        for (OlapTable table : tables) {
+            Map<String, String> tblProperties = Maps.newHashMap();
+            tblProperties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                    replicaAlloc.toCreateStmt());
+            table.setReplicaAllocation(tblProperties);
+            if (table.dynamicPartitionExists()) {
+                TableProperty tableProperty = table.getTableProperty();
+                // Merge the new properties with origin properties, and then analyze them.
+                Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
+                origDynamicProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
+                        replicaAlloc.toCreateStmt());
+                Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(
+                        origDynamicProperties, table, members.get(table.getId()).first, isReplay);
+                tableProperty.modifyTableProperties(analyzedDynamicPartition);
+                tableProperty.buildDynamicProperty();
+            }
+            for (ReplicaAllocation alloc : table.getPartitionInfo().getPartitionReplicaAllocations().values()) {
+                Map<Tag, Short> allocMap = alloc.getAllocMap();
+                allocMap.clear();
+                allocMap.putAll(replicaAlloc.getAllocMap());
             }
         }
 
