@@ -1400,10 +1400,10 @@ TEST_F(SniiIndexReaderCountFallback, DistinctRawQueriesDoNotShareSingleFlight) {
             .query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY};
     const InvertedIndexQueryCache::CacheKey lower_key {index_file_key, "raw_query_content",
                                                        InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                                       lower_semantic.encode()};
+                                                       lower_semantic};
     const InvertedIndexQueryCache::CacheKey upper_key {index_file_key, "raw_query_content",
                                                        InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                                       upper_semantic.encode()};
+                                                       upper_semantic};
     ASSERT_NE(lower_key.encode(), upper_key.encode());
 
     std::latch ready(2);

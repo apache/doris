@@ -87,10 +87,7 @@ private:
     roaring::Roaring _nulls;
     segment_v2::InvertedIndexQueryCache _cache;
     segment_v2::InvertedIndexQueryCache::CacheKey _key {
-            .index_path = kPostingDirectory,
-            .column_name = "nulls",
-            .query_type = segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY,
-            .value = ""};
+            kPostingDirectory, "nulls", segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, ""};
 };
 
 class PostingNullResolver final : public NullBitmapResolver {

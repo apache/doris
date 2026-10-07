@@ -761,20 +761,22 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
     const bool scoring = context->collection_similarity != nullptr &&
                          IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta);
     const bool allow_result_cache = !scoring && admission.cacheable;
-    InvertedIndexQueryCache::CacheKey cache_key {
-            .index_path = {}, .column_name = {}, .query_type = query_type, .value = {}};
+    InvertedIndexQueryCache::CacheKey cache_key;
+    std::string index_file_key;
     if (allow_result_cache) {
-        cache_key.index_path = _index_file_reader->get_index_file_cache_key(&_index_meta);
-        cache_key.column_name = column_name;
+        index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
         const int32_t max_expansions = index_query::max_expansions(*context);
-        cache_key.value = request.leaf != nullptr
-                                  ? InvertedIndexLeafSemantic {.leaf = request.leaf,
-                                                               .max_expansions = max_expansions}
-                                            .encode()
-                                  : InvertedIndexRawQuerySemantic {.raw_query_bytes = request.text,
-                                                                   .query_type = query_type,
-                                                                   .max_expansions = max_expansions}
-                                            .encode();
+        if (request.leaf != nullptr) {
+            cache_key = {index_file_key, column_name, query_type,
+                         InvertedIndexLeafSemantic {.leaf = request.leaf,
+                                                    .max_expansions = max_expansions}
+                                 .encode()};
+        } else {
+            cache_key = {index_file_key, column_name, query_type,
+                         InvertedIndexRawQuerySemantic {.raw_query_bytes = request.text,
+                                                        .query_type = query_type,
+                                                        .max_expansions = max_expansions}};
+        }
     }
     auto* cache = InvertedIndexQueryCache::instance();
     InvertedIndexQueryCacheHandle cache_handler;
@@ -811,7 +813,7 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
         RETURN_IF_ERROR(plan());
     }
     std::unique_ptr<OpenedIndex> index;
-    if (Status status = _open_index(context, &index, cache_key.index_path); !status.ok()) {
+    if (Status status = _open_index(context, &index, index_file_key); !status.ok()) {
         return admission.open_failed == nullptr ? status : admission.open_failed(std::move(status));
     }
     if (admission.check_open != nullptr) {

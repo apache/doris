@@ -41,20 +41,20 @@ void append_length_prefixed(std::string_view value, std::string* output) {
     output->append(value);
 }
 
-} // namespace
-
-std::string InvertedIndexRawQuerySemantic::encode() const {
+std::string encode_cache_key_prefix(std::string_view index_path, std::string_view column_name,
+                                    InvertedIndexQueryType query_type, size_t value_size) {
+    if (query_type_to_string(query_type).empty()) {
+        return {};
+    }
     std::string output;
-    output.reserve(sizeof(cache_semantics_version) + sizeof(uint64_t) + raw_query_bytes.size() +
-                   sizeof(query_type) + sizeof(max_expansions));
-    put_fixed32_le(&output, cache_semantics_version);
-    append_length_prefixed(raw_query_bytes, &output);
+    output.reserve(3 * sizeof(uint64_t) + index_path.size() + column_name.size() +
+                   sizeof(query_type) + value_size);
+    append_length_prefixed(index_path, &output);
+    append_length_prefixed(column_name, &output);
     put_fixed32_le(&output, static_cast<uint32_t>(query_type));
-    put_fixed32_le(&output, static_cast<uint32_t>(max_expansions));
+    put_fixed64_le(&output, value_size);
     return output;
 }
-
-namespace {
 
 void append_terms(std::span<const std::string> terms, std::string* output) {
     put_fixed32_le(output, static_cast<uint32_t>(terms.size()));
@@ -109,18 +109,31 @@ std::string InvertedIndexLeafSemantic::encode() const {
     return output;
 }
 
-std::string InvertedIndexQueryCache::CacheKey::encode() const {
-    if (query_type_to_string(query_type).empty()) {
-        return {};
+InvertedIndexQueryCache::CacheKey::CacheKey(std::string_view index_path,
+                                            std::string_view column_name,
+                                            InvertedIndexQueryType query_type,
+                                            std::string_view value)
+        : _encoded(encode_cache_key_prefix(index_path, column_name, query_type, value.size())) {
+    if (!_encoded.empty()) {
+        _encoded.append(value);
     }
-    std::string output;
-    output.reserve(3 * sizeof(uint64_t) + index_path.size() + column_name.size() +
-                   sizeof(query_type) + value.size());
-    append_length_prefixed(index_path, &output);
-    append_length_prefixed(column_name, &output);
-    put_fixed32_le(&output, static_cast<uint32_t>(query_type));
-    append_length_prefixed(value, &output);
-    return output;
+}
+
+InvertedIndexQueryCache::CacheKey::CacheKey(std::string_view index_path,
+                                            std::string_view column_name,
+                                            InvertedIndexQueryType query_type,
+                                            const InvertedIndexRawQuerySemantic& value)
+        : _encoded(encode_cache_key_prefix(index_path, column_name, query_type,
+                                           sizeof(value.cache_semantics_version) +
+                                                   sizeof(uint64_t) + value.raw_query_bytes.size() +
+                                                   sizeof(value.query_type) +
+                                                   sizeof(value.max_expansions))) {
+    if (!_encoded.empty()) {
+        put_fixed32_le(&_encoded, value.cache_semantics_version);
+        append_length_prefixed(value.raw_query_bytes, &_encoded);
+        put_fixed32_le(&_encoded, static_cast<uint32_t>(value.query_type));
+        put_fixed32_le(&_encoded, static_cast<uint32_t>(value.max_expansions));
+    }
 }
 
 InvertedIndexSearcherCache* InvertedIndexSearcherCache::create_global_instance(
@@ -207,7 +220,7 @@ Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCa
 }
 
 bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle) {
-    const auto encoded = key.encode();
+    const auto& encoded = key.encode();
     if (encoded.empty()) {
         return false;
     }
@@ -221,7 +234,7 @@ bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCach
 
 void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> bitmap,
                                      InvertedIndexQueryCacheHandle* handle) {
-    const auto encoded = key.encode();
+    const auto& encoded = key.encode();
     if (encoded.empty()) {
         return;
     }

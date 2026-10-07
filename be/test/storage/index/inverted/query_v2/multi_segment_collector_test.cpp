@@ -144,10 +144,8 @@ public:
 private:
     roaring::Roaring _nulls;
     InvertedIndexQueryCache _cache;
-    InvertedIndexQueryCache::CacheKey _key {.index_path = "segment_domain_nulls",
-                                            .column_name = "title",
-                                            .query_type = InvertedIndexQueryType::UNKNOWN_QUERY,
-                                            .value = ""};
+    InvertedIndexQueryCache::CacheKey _key {"segment_domain_nulls", "title",
+                                            InvertedIndexQueryType::UNKNOWN_QUERY, ""};
 };
 
 class SegmentDomainNullResolver final : public NullBitmapResolver {

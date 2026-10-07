@@ -232,8 +232,6 @@ struct InvertedIndexRawQuerySemantic {
     InvertedIndexQueryType query_type;
     int32_t max_expansions = 0;
     uint32_t cache_semantics_version = INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION;
-
-    std::string encode() const;
 };
 
 // The lowered-leaf layout has its own version word, so its keys never encode like a raw
@@ -254,15 +252,19 @@ class InvertedIndexQueryCache : public LRUCachePolicy {
 public:
     using LRUCachePolicy::insert;
 
-    // cache key
-    struct CacheKey {
-        std::string index_path;            // index identity
-        std::string column_name;           // column name
-        InvertedIndexQueryType query_type; // query type
-        std::string value;                 // query value
+    // Owns the complete binary key shared by cache lookups, insertion and single-flight.
+    class CacheKey {
+    public:
+        CacheKey() = default;
+        CacheKey(std::string_view index_path, std::string_view column_name,
+                 InvertedIndexQueryType query_type, std::string_view value);
+        CacheKey(std::string_view index_path, std::string_view column_name,
+                 InvertedIndexQueryType query_type, const InvertedIndexRawQuerySemantic& value);
 
-        // Encode to an unambiguous flat binary which can be used as LRUCache's key.
-        std::string encode() const;
+        const std::string& encode() const { return _encoded; }
+
+    private:
+        std::string _encoded;
     };
 
     class CacheValue : public LRUCacheValueBase {

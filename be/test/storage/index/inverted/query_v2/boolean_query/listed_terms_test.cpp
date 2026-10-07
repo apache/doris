@@ -128,10 +128,7 @@ private:
     roaring::Roaring _nulls;
     segment_v2::InvertedIndexQueryCache _cache;
     segment_v2::InvertedIndexQueryCache::CacheKey _key {
-            .index_path = "listed_terms",
-            .column_name = "body",
-            .query_type = segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY,
-            .value = "nulls"};
+            "listed_terms", "body", segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, "nulls"};
 };
 
 class FieldNullResolver final : public NullBitmapResolver {

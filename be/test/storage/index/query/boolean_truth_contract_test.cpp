@@ -299,10 +299,8 @@ private:
     roaring::Roaring _nulls;
     segment_v2::InvertedIndexQueryCache _cache;
     segment_v2::InvertedIndexQueryCache::CacheKey _key {
-            .index_path = "boolean_truth_contract",
-            .column_name = "body",
-            .query_type = segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY,
-            .value = "nulls"};
+            "boolean_truth_contract", "body", segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY,
+            "nulls"};
 };
 
 class FieldNullResolver final : public NullBitmapResolver {

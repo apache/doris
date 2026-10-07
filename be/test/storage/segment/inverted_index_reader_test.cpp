@@ -5168,7 +5168,7 @@ TEST_F(InvertedIndexReaderTest, FulltextMatchHitsTheRawCacheBeforeAnalysis) {
     InvertedIndexQueryCacheHandle handle;
     InvertedIndexQueryCache::instance()->insert(
             {reader->get_index_file_reader()->get_index_file_cache_key(&meta), "1",
-             InvertedIndexQueryType::MATCH_PHRASE_QUERY, semantic.encode()},
+             InvertedIndexQueryType::MATCH_PHRASE_QUERY, semantic},
             std::make_shared<roaring::Roaring>(rows({7})), &handle);
 
     auto provider = std::make_shared<FailingAnalyzerProvider>();
