@@ -143,8 +143,7 @@ Status SniiIndexSource::open_terms(std::span<const std::string> terms, bool posi
     }
     RETURN_IF_ERROR(prepare_terms(terms));
     for (const std::string& term : terms) {
-        Term* resolved = nullptr;
-        RETURN_IF_ERROR(_resolve(term, &resolved));
+        Term* resolved = &_terms.at(term);
         std::unique_ptr<SniiPostingsCursor> cursor;
         if (resolved->hit.found) {
             RETURN_IF_ERROR(_cursor(*resolved, positions, scoring, &_wave, &cursor));

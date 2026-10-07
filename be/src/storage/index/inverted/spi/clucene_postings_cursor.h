@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <climits>
 #include <optional>
 #include <vector>
@@ -185,25 +186,25 @@ public:
             return Status::NotSupported("This posting type does not support position information");
         }
         uint32_t position = 0;
-        uint32_t remaining = 0;
+        uint32_t frequency = 0;
         size_t filled = 0;
         bool opened = false;
         Status status;
         try {
-            remaining = _prepare_positions(ordinal);
+            frequency = _prepare_positions(ordinal);
             opened = true;
-            while (filled < first_chunk.size() && remaining != 0) {
+            const size_t count_to_read = std::min<size_t>(first_chunk.size(), frequency);
+            while (filled < count_to_read) {
                 position += static_cast<uint32_t>(_raw_positions->nextDeltaPosition());
-                --remaining;
                 first_chunk[filled++] = position;
             }
-            *out = remaining == 0 ? nullptr : this;
+            *out = filled == frequency ? nullptr : this;
         } catch (CLuceneError& error) {
             status = clucene_error_status(error.what());
         }
         if (opened) {
             _position = position;
-            _position_remaining = remaining;
+            _position_remaining = frequency - static_cast<uint32_t>(filled);
             _position_open = true;
             *count = filled;
         }
