@@ -771,6 +771,12 @@ public class PlanCaptureManager extends MasterDaemon {
                 if (firstAttemptedWindowStart == 0 || attemptedStart < firstAttemptedWindowStart) {
                     firstAttemptedWindowStart = attemptedStart;
                 }
+                // The attempted start above lives only in THIS process: a restart or leader
+                // change before the reads recover makes the successor derive its OWN later
+                // window and permanently skip the eligible rows of this one. Persist the
+                // window as a durable reservation when the store holds no progress row yet
+                // (nothing was scanned, so bounds-only is the complete state).
+                reserveFirstAttemptedWindowDurably(cycleFilter);
                 pendingWindowNeedsPromptResume = true;
                 LOG.warn("Plan capture cycle skipped: the cluster audit publication horizon"
                         + " could not be read", e);
@@ -1843,6 +1849,36 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
+     * Durably records the window a cycle WOULD have consumed when the store holds no row
+     * describing this process's progress yet (see the horizon-read failure in
+     * runCaptureCycle): the earliest attempted start lives only in memory otherwise, and
+     * a restart / leader handoff before the reads recover makes the successor derive its
+     * OWN later window - permanently skipping the eligible rows of the first attempted
+     * window (no later overlap reaches behind a new window's start).
+     *
+     * The reservation carries BOUNDS only (no scan ever ran): cursor, counters and zone
+     * list stay at their fresh values, exactly like the window a recovery cycle then
+     * scans. A failed write leaves the window pending in memory as well, so the retry -
+     * which the caller has already made prompt - resumes the very same bounds.
+     *
+     * @param cycleFilter the filter this cycle's window was opened with
+     */
+    private void reserveFirstAttemptedWindowDurably(PlanCaptureFilter cycleFilter) {
+        if (durableCheckpointObserved || pendingWindowStart != 0
+                || firstAttemptedWindowStart == 0) {
+            return;
+        }
+        pendingWindowStart = firstAttemptedWindowStart;
+        pendingWindowEnd = System.currentTimeMillis();
+        pendingWindowFilter = cycleFilter;
+        if (persistCheckpointAndConfirm()) {
+            // the durable record now covers the attempted window: it must not widen a
+            // later derivation any more
+            firstAttemptedWindowStart = 0;
+        }
+    }
+
+    /**
      * First-cycle reservation with VISIBILITY confirmation. An internal INSERT can return
      * SQL OK with transaction status COMMITTED although the publication timed out (the
      * default return mode is committed), so a successful write does not prove the row is
@@ -1992,6 +2028,11 @@ public class PlanCaptureManager extends MasterDaemon {
         try {
             rows = checkpointReader.get();
         } catch (Exception e) {
+            // The cycle aborts FAIL CLOSED (an unreadable store must not advance the
+            // watermark) and must resume PROMPTLY like every other aborted cycle: at the
+            // configured interval (three hours by default) the window this very cycle
+            // would have consumed stays unconsumed for that long.
+            pendingWindowNeedsPromptResume = true;
             LOG.warn("SPM capture: the checkpoint re-read before this cycle's window failed"
                     + " (retrying promptly): {}", e.getMessage());
             return true; // fail closed: an unreadable store must not advance the watermark

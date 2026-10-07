@@ -96,6 +96,14 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     // query id of the event that set batchOldestEventTime: the sample row a pending
     // publish is probed with (see pendingPublishFences).
     private String batchOldestQueryId = "";
+    // The zone the sample row's time column was RENDERED in (see fillLogBuffer):
+    // the zone-usage registry keeps only the LAST use per zone, so re-deriving the
+    // zone from the event time later can pick a zone that was in effect at that
+    // instant but is NOT the one the row was written with (a `SET GLOBAL time_zone`
+    // switches the registry forward, and the derivation then matches the NEW zone).
+    // The retained publish fence would probe the row under the wrong zone and never
+    // see it publish, fencing the capture progress until the bound expired.
+    private String batchOldestZoneId = "";
     /**
      * Fences of the batches whose stream loads reported Publish Timeout (or failed
      * ambiguously): every such transaction is COMMITTED but its rows are not readable
@@ -348,7 +356,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     private synchronized void assembleAudit(AuditEvent event) {
-        fillLogBuffer(event, auditLogBuffer);
+        String writerZoneId = fillLogBuffer(event, auditLogBuffer);
         ++auditLogNum;
         long eventTime = event.timestamp;
         // INTERNAL events never fence progress: the capture only scans
@@ -362,6 +370,9 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             batchOldestEventTime = eventTime;
             // the sample row of a later publish probe (see publishFenceOldestEventTime)
             batchOldestQueryId = event.queryId == null ? "" : event.queryId;
+            // ... and the zone THAT row was rendered in (see the field): the probe must
+            // read it back under the same zone
+            batchOldestZoneId = writerZoneId == null ? "" : writerZoneId;
         }
     }
 
@@ -432,7 +443,13 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         }
     }
 
-    private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
+    /**
+     * Appends one event's row to the batch buffer.
+     *
+     * @return the zone id this row's time column was rendered in (the caller records it
+     *         for the batch's oldest row, see batchOldestZoneId)
+     */
+    private String fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
         // should be same order as InternalSchema.AUDIT_SCHEMA
 
         // The zone this row's time column is RENDERED in, read ONCE and
@@ -521,6 +538,9 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         // stmt is the last (and only free-text) column; sanitize it too so a statement carrying
         // raw 0x1F/0x1E cannot truncate its own row and forge a following one.
         appendLastField(logBuffer, stmt);
+        // the zone this row's time column was rendered in (see the caller): it identifies HOW
+        // the row is read back by a later publish probe
+        return writerZoneId;
     }
 
     /**
@@ -569,6 +589,9 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             // begin to load
             long batchOldest = batchOldestEventTime;
             String batchQueryId = batchOldestQueryId;
+            // the zone the sample row was actually RENDERED in (see batchOldestZoneId):
+            // passed to the fence so its probe reads the row back under the same zone
+            String batchZoneId = batchOldestZoneId;
             // whether the load's outcome was CONFIRMED published; null = the batch was
             // never sent (an earlier failure), so there is nothing to fence
             Boolean published = null;
@@ -597,7 +620,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 // create, so its outcome stays resolvable by label even after this FE
                 // died mid-load.
                 fenceLabel = streamLoader.allocateLabel();
-                retainPublishFence(batchOldest, batchQueryId, fenceLabel);
+                retainPublishFence(batchOldest, batchQueryId, fenceLabel, batchZoneId);
                 fenceRetained = batchOldest > 0;
                 AuditStreamLoader.LoadResponse response =
                         streamLoader.loadBatch(auditLogBuffer, token, fenceLabel);
@@ -696,6 +719,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         retainPublishFence(batchOldest, batchQueryId, "");
     }
 
+    private void retainPublishFence(long batchOldest, String batchQueryId, String label) {
+        retainPublishFence(batchOldest, batchQueryId, label, "");
+    }
+
     /**
      * Retains the obligation of one batch whose publication outcome is not yet decided
      * ( as the per-batch fence; called BEFORE the load is sent,
@@ -712,15 +739,25 @@ public class AuditLoader extends Plugin implements AuditPlugin {
      * @param batchOldest the batch's oldest event time (0 = nothing to fence)
      * @param batchQueryId the sample row's query id ("" = not probeable)
      * @param label        the batch's load label, "" when the request never reached a BE
+     * @param renderedZone the zone the sample row's time column was rendered in ("" =
+     *                     unknown, e.g. a legacy caller: fall back to the usage-based
+     *                     derivation)
      */
-    private void retainPublishFence(long batchOldest, String batchQueryId, String label) {
+    private void retainPublishFence(long batchOldest, String batchQueryId, String label,
+            String renderedZone) {
         if (batchOldest <= 0) {
             return;
         }
-        // the zone the sample row's time column was rendered in: the
-        // registry records the LAST use per zone, so the zone in effect at the batch's
-        // oldest event is the first zone whose usage reaches that instant
-        String writerZoneId = AuditWriterZones.zoneOfRenderTime(batchOldest);
+        // The zone the sample row's time column was rendered in. Callers that watched the
+        // row being built pass it directly (see batchOldestZoneId) - re-deriving it from
+        // the zone-usage registry can pick a DIFFERENT zone: the registry keeps only the
+        // LAST use per zone, so after a `SET GLOBAL time_zone` the derivation matches the
+        // new zone for instants the old zone actually rendered, and the fence's probe
+        // then never finds its sample row. The derivation remains only as the fallback
+        // for callers that did not.
+        String writerZoneId = renderedZone == null || renderedZone.isEmpty()
+                ? AuditWriterZones.zoneOfRenderTime(batchOldest)
+                : renderedZone;
         synchronized (this) {
             pendingPublishFences.add(new PublishFence(batchOldest,
                     batchQueryId == null ? "" : batchQueryId, publishFenceNow(), label,
@@ -1167,6 +1204,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             // the batch is published now (its load has returned), so it no longer fences
             // progress
             this.batchOldestEventTime = 0;
+            this.batchOldestZoneId = "";
         }
     }
 

@@ -66,6 +66,33 @@ public class LogicalInlineTable extends LogicalLeaf implements InlineTable, Bloc
         return constantExprsList;
     }
 
+    /**
+     * SPM identity of one VALUES relation (see Plan#toSpmDigest): the generic digest
+     * reduces every shape to one VALUES text, so two statements differing only in the
+     * ROW structure (two 2-cell rows against four 1-cell rows) share it although
+     * their row counts differ. Render one "?" per cell, rows and cells in parse
+     * order, so the bind side and the analyzed side stay equal.
+     */
+    @Override
+    public String toSpmDigest() {
+        StringBuilder digest = new StringBuilder("VALUES ");
+        for (int i = 0; i < constantExprsList.size(); i++) {
+            List<NamedExpression> row = constantExprsList.get(i);
+            if (i > 0) {
+                digest.append(',');
+            }
+            digest.append('(');
+            for (int j = 0; j < row.size(); j++) {
+                if (j > 0) {
+                    digest.append(',');
+                }
+                digest.append('?');
+            }
+            digest.append(')');
+        }
+        return digest.toString();
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalInlineTable(this, context);

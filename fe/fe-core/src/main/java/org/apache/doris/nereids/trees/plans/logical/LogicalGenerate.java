@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -87,6 +88,24 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     public List<Function> getGenerators() {
         return generators;
+    }
+
+    @Override
+    public String toSpmDigest() {
+        // The generic toDigest() renders every generator through its function name
+        // only: UNNEST under LEFT JOIN (outer) and the inner form share the class and
+        // the text although they produce different rows (the outer form keeps an
+        // unmatched row with NULL). Append the mode flags of every Unnest generator
+        // so the SPM identity separates them.
+        StringBuilder digest = new StringBuilder(toDigest());
+        for (Function generator : generators) {
+            if (generator instanceof Unnest) {
+                digest.append("|unnest(outer=").append(((Unnest) generator).isOuter())
+                        .append(",ordinality=")
+                        .append(((Unnest) generator).needOrdinality()).append(')');
+            }
+        }
+        return digest.toString();
     }
 
     public List<Slot> getGeneratorOutput() {

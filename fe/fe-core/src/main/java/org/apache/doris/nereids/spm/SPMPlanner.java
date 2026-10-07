@@ -878,6 +878,15 @@ public class SPMPlanner {
                 captureCatalogName(ctx), captureDatabaseName(ctx), creatorMode);
         baseline.setPlanFrozen(planFrozen);
         baseline.setPlanSqlMode(planSqlMode);
+        // Canonical digest of the SUBMITTED plan text (NOT the stored / decompiled one):
+        // the plan-side identity a follower precomputes to attribute a persisted row to
+        // THIS statement - two baselines may share the bind digest with different plan
+        // texts (see BaselineManager.ForwardedDdlExpectation). Computed from the RAW
+        // parse input, exactly like SPMPlanner#canonicalPlanDigest over the submitted
+        // text.
+        baseline.setPlanSqlDigest(SPMPlanTreeSupport.canonicalSpmDigest(
+                SPMPlanTreeSupport.namespaceQualified(planPlan,
+                        captureCatalogName(ctx), captureDatabaseName(ctx)).toSpmDigest()));
         // Schema identity of the referenced tables, validated again before every replay
         // (see SPMPlanTreeSupport#schemaFingerprintForCreate): the PLAN side comes from
         // the OPTIMIZED plan's own relations - the under-lock metadata snapshot the
@@ -1075,17 +1084,39 @@ public class SPMPlanner {
      *         then falls back to the raw identity checks)
      */
     public static String canonicalBindDigest(ConnectContext ctx, String bindSql) {
+        return canonicalSqlDigest(ctx, bindSql, "bind");
+    }
+
+    /**
+     * The CANONICAL DIGEST of a forwarded CREATE's SUBMITTED PLAN SQL (same computation
+     * as SPMPlanner#canonicalBindDigest, over the plan text). The two sides are separate
+     * identities: two baselines may share the bind digest while carrying different plan
+     * texts (one baseline per plan), so a confirmation that only compared the bind
+     * digest could accept the OTHER plan's row for this statement - and the persisted
+     * plan text cannot be compared directly because the master stores the DECOMPILED
+     * rendering.
+     *
+     * @param ctx     the forwarding statement's context (may be null in tests)
+     * @param planSql the forwarded CREATE's plan SQL
+     * @return the digest, or "" when the text cannot be parsed / hashed here (the caller
+     *         then confirms on the bind digest alone)
+     */
+    public static String canonicalPlanDigest(ConnectContext ctx, String planSql) {
+        return canonicalSqlDigest(ctx, planSql, "plan");
+    }
+
+    private static String canonicalSqlDigest(ConnectContext ctx, String sql, String side) {
         try {
             final long creatorMode = SqlModeHelper.currentMode();
-            LogicalPlan bindPlan = parseSelectIsolated(creatorMode, bindSql,
-                    "SPM bindSql must be a SELECT statement: " + bindSql);
+            LogicalPlan plan = parseSelectIsolated(creatorMode, sql,
+                    "SPM " + side + "Sql must be a SELECT statement: " + sql);
             return SPMPlanTreeSupport.canonicalSpmDigest(SPMPlanTreeSupport
-                    .namespaceQualified(bindPlan, captureCatalogName(ctx),
+                    .namespaceQualified(plan, captureCatalogName(ctx),
                             captureDatabaseName(ctx)).toSpmDigest());
         } catch (Throwable t) {
-            LOG.debug("SPM cannot precompute the canonical bind digest of a forwarded"
+            LOG.debug("SPM cannot precompute the canonical {} digest of a forwarded"
                     + " CREATE ({}); the confirmation falls back to the raw identity"
-                    + " checks", t.getMessage());
+                    + " checks", side, t.getMessage());
             return "";
         }
     }

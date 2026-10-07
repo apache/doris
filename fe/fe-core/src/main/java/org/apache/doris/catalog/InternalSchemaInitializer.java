@@ -45,6 +45,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.repository.ResultRow;
@@ -491,6 +492,10 @@ public class InternalSchemaInitializer extends Thread {
         // fail the baseline INSERT for wide multi-table queries.
         SPM_BASELINES_UPGRADE_COLUMNS.put("schema_fingerprint",
                 ScalarType.createType(PrimitiveType.STRING));
+        // STRING like schema_fingerprint (a hex digest, never bounded); NULL on
+        // upgraded rows that predate the column.
+        SPM_BASELINES_UPGRADE_COLUMNS.put("plan_sql_digest",
+                ScalarType.createType(PrimitiveType.STRING));
     }
 
     /**
@@ -915,8 +920,25 @@ public class InternalSchemaInitializer extends Thread {
     private static boolean restoreCarriedCheckpointRow(Map<String, String> state) {
         try {
             String insert = buildCarriedCheckpointInsert(state, currentJournalEpoch());
-            StatisticsUtil.execUpdate(insert, Collections.emptyMap(),
-                    SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS);
+            // The statement carries user-visible TEXT (the pending filter SQL, the scan
+            // selectors) escaped for the DEFAULT parser mode: executing it under an
+            // ambient session mode (this initializer shares the context with whatever
+            // connection booted the FE) would re-interpret the escapes - a NO_BACKSLASH
+            // mode turns the escaped backslashes into literals and the restored row
+            // would carry a MANGLED filter, scanning a different window forever.
+            // Persist/capture writes pin the same mode (see
+            // PlanCaptureManager#persistCheckpoint).
+            SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {
+                try {
+                    StatisticsUtil.execUpdate(insert, Collections.emptyMap(),
+                            SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS);
+                } catch (Exception e) {
+                    // rethrown as unchecked: the caller's catch (Throwable) turns it into
+                    // the retry verdict (the Supplier cannot carry checked exceptions)
+                    throw new RuntimeException(e.getMessage(), e);
+                }
+                return null;
+            });
             LOG.info("SPM: restored the pre-append-only checkpoint row into the recreated"
                     + " append-only table");
             return true;

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
@@ -60,6 +62,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -1737,6 +1740,32 @@ public final class SPMPlanTreeSupport {
             return bindTvf.getFunctionName().equals(userTvf.getFunctionName())
                     && Objects.equals(bindTvf.getProperties(), userTvf.getProperties());
         }
+        // (VALUES ...) relations: the digest masks every shape to the same VALUES text
+        // and the generic expression comparison flattens the cell list, so two 2-cell
+        // rows and four 1-cell rows expose the same literals in the same order - a
+        // caller's count(*) over the frozen 2-row relation then returns 2 where the
+        // user query would return 4. Compare the ROW structure: count, arity and the
+        // cells positionally.
+        if (bind instanceof InlineTable && user instanceof InlineTable) {
+            List<List<NamedExpression>> bindRows = ((InlineTable) bind).getConstantExprsList();
+            List<List<NamedExpression>> userRows = ((InlineTable) user).getConstantExprsList();
+            if (bindRows.size() != userRows.size()) {
+                return false;
+            }
+            for (int i = 0; i < bindRows.size(); i++) {
+                List<NamedExpression> bindCells = bindRows.get(i);
+                List<NamedExpression> userCells = userRows.get(i);
+                if (bindCells.size() != userCells.size()) {
+                    return false;
+                }
+                for (int j = 0; j < bindCells.size(); j++) {
+                    if (!checkExpression(bindCells.get(j), userCells.get(j), placeholderValues)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
         // SELECT hints: LogicalSelectHint.getExpressions() is empty and its toDigest()
         // drops the hint list, so two query blocks that differ ONLY in a hint payload have
         // the same digest and the same "no expressions, same child" result. A SET_VAR hint
@@ -1889,6 +1918,21 @@ public final class SPMPlanTreeSupport {
             for (int i = 0; i < bindGenerators.size(); i++) {
                 if (!checkExpression(bindGenerators.get(i), userGenerators.get(i), placeholderValues)) {
                     return false;
+                }
+            }
+            // UNNEST under LEFT JOIN differs from the inner form only by its mode
+            // flags: both are the same class with the same rendered text, and a
+            // frozen OUTER unnest keeps each unmatched row with NULL where the inner
+            // caller drops it. Compare the flags explicitly.
+            for (int i = 0; i < bindGenerators.size(); i++) {
+                if (bindGenerators.get(i) instanceof Unnest
+                        && userGenerators.get(i) instanceof Unnest) {
+                    Unnest bindUnnest = (Unnest) bindGenerators.get(i);
+                    Unnest userUnnest = (Unnest) userGenerators.get(i);
+                    if (bindUnnest.isOuter() != userUnnest.isOuter()
+                            || bindUnnest.needOrdinality() != userUnnest.needOrdinality()) {
+                        return false;
+                    }
                 }
             }
             List<? extends Expression> bindOutput = bindGenerate.getGeneratorOutput();
@@ -2959,7 +3003,10 @@ public final class SPMPlanTreeSupport {
                         + bindJoin.getJoinType() + ", plan " + planJoin.getJoinType() + ")",
                         bindSql);
             }
-            assertEquivalentTexts(position, "the USING columns",
+            // the USING key list is POSITIONAL: the binder emits the merged key
+            // columns in USING order (the caller's SELECT * leads with the first
+            // USING column), so USING(a,b) is not interchangeable with USING(b,a)
+            assertOrderedTexts(position, "the USING columns",
                     expressionTexts(bindJoin.getUsingSlots()),
                     expressionTexts(planJoin.getUsingSlots()), bindSql);
             // an ASOF join stores its MATCH_CONDITION beside the USING slots: at an EQUAL
@@ -3000,7 +3047,17 @@ public final class SPMPlanTreeSupport {
                         markSlotTexts(bindJoin), markSlotTexts(planJoin), bindSql);
             }
             assertEquivalentTexts(position, "the join's ON condition",
-                    joinPredicateTexts(bindJoin), joinPredicateTexts(planJoin), bindSql);
+                    joinConditionTexts(bindJoin), joinConditionTexts(planJoin), bindSql);
+            if (bindJoin.isMarkJoin()) {
+                // the MARK_CONDITION is NOT one of the ON predicates: the bind join
+                // evaluates it into a three-valued mark (a right row failing it stays
+                // visible with mark FALSE/NULL), while the same predicate in ON
+                // FILTERS that right row out. Compare the two predicate roles
+                // separately so a manual plan cannot move one into the other.
+                assertOrderedTexts(position, "the MARK_CONDITION",
+                        expressionTexts(bindJoin.getMarkJoinConjuncts()),
+                        expressionTexts(planJoin.getMarkJoinConjuncts()), bindSql);
+            }
             return;
         }
         if (bind instanceof LogicalAggregate) {
@@ -3143,6 +3200,26 @@ public final class SPMPlanTreeSupport {
             }
             return;
         }
+        if (bind instanceof UnboundInlineTable) {
+            // (VALUES ...) cells are NOT parameterized (the transformer leaves them
+            // concrete), so a plan carrying other values replays its own: the row
+            // structure (arity and order) and every cell must match exactly.
+            assertOrderedTexts(position, "the VALUES rows",
+                    inlineTableRowTexts((UnboundInlineTable) bind),
+                    inlineTableRowTexts((UnboundInlineTable) plan), bindSql);
+            return;
+        }
+        if (bind instanceof UnboundOneRowRelation) {
+            // a one-row relation is a leaf with payload: a manual plan computing
+            // another expression (pi() against e()) differs without any literal the
+            // placeholder guard could compare, and the frozen replay would compute
+            // the PLAN's expression
+            assertOrderedTexts(position, "the one-row projections",
+                    namedTexts(((UnboundOneRowRelation) bind).getProjects(), false),
+                    namedTexts(((UnboundOneRowRelation) plan).getProjects(), false),
+                    bindSql);
+            return;
+        }
         if (bind instanceof LogicalSubQueryAlias) {
             LogicalSubQueryAlias<?> bindAlias = (LogicalSubQueryAlias<?>) bind;
             LogicalSubQueryAlias<?> planAlias = (LogicalSubQueryAlias<?>) plan;
@@ -3170,6 +3247,8 @@ public final class SPMPlanTreeSupport {
             assertOrderedTexts(position, "the generator functions",
                     expressionTexts(bindGenerate.getGenerators()),
                     expressionTexts(planGenerate.getGenerators()), bindSql);
+            assertUnnestModes(position, bindGenerate.getGenerators(),
+                    planGenerate.getGenerators(), bindSql);
             assertEquivalentTexts(position, "the post-generator filter",
                     flattenedConjunctTexts(bindGenerate.getConjuncts()),
                     flattenedConjunctTexts(planGenerate.getConjuncts()), bindSql);
@@ -3386,17 +3465,87 @@ public final class SPMPlanTreeSupport {
         texts.add(predicate.toSql());
     }
 
-    /** Every join-predicate text of one join (hash / other / mark conjuncts and an
-     * explicit ON clause), so a moved or changed condition cannot pass. */
-    private static List<String> joinPredicateTexts(LogicalJoin<?, ?> join) {
+    /** The ORDINARY (ON) predicate texts of one join: the hash / other conjuncts and
+     * an explicit ON clause. The MARK conjuncts are compared separately, by ROLE:
+     * moving one into ON turns a three-valued mark into a row filter. */
+    private static List<String> joinConditionTexts(LogicalJoin<?, ?> join) {
         List<String> texts = expressionTexts(join.getHashJoinConjuncts());
         texts.addAll(expressionTexts(join.getOtherJoinConjuncts()));
-        texts.addAll(expressionTexts(join.getMarkJoinConjuncts()));
         Optional<Expression> onClause = join.getOnClauseCondition();
         if (onClause.isPresent()) {
             texts.add(onClause.get().toSql());
         }
         return texts;
+    }
+
+    /** The one-row texts of a VALUES relation: row arity and cell order preserved. */
+    private static List<String> inlineTableRowTexts(UnboundInlineTable table) {
+        List<String> rows = new ArrayList<>();
+        for (List<NamedExpression> row : table.getConstantExprsList()) {
+            List<String> cells = new ArrayList<>(row.size());
+            for (NamedExpression cell : row) {
+                cells.add(outputExpressionText(cell));
+            }
+            rows.add(cells.toString());
+        }
+        return rows;
+    }
+
+    /**
+     * The CONCRETE payloads of the relation forms whose contents the audit digest
+     * masks while SPM compares them STRUCTURALLY: the rows of an inline VALUES table
+     * (row boundaries and per-cell order are part of the identity - (1,2),(3,4) and
+     * (1),(2),(3),(4) render to the same digest) and a table-valued function's
+     * property map. Used by the capture dedup to refine two same-digest rows into
+     * separate candidates (see AuditLogScanner#dedupIdentity).
+     *
+     * @param plan the parsed statement
+     * @return the fingerprint ("" when the tree carries no such relation; also on an
+     *         unexpected walk failure - a missing fingerprint only loses refinement)
+     */
+    public static String concreteRelationPayloadFingerprint(LogicalPlan plan) {
+        final StringBuilder fingerprint = new StringBuilder();
+        try {
+            SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+                if (node instanceof UnboundInlineTable) {
+                    fingerprint.append("values:")
+                            .append(inlineTableRowTexts((UnboundInlineTable) node))
+                            .append('\u0001');
+                } else if (node instanceof UnboundTVFRelation) {
+                    UnboundTVFRelation tvf = (UnboundTVFRelation) node;
+                    fingerprint.append("tvf:").append(tvf.getFunctionName())
+                            .append('(')
+                            .append(tvf.getProperties() == null ? "" : tvf.getProperties())
+                            .append(')').append('\u0001');
+                }
+            });
+        } catch (RuntimeException e) {
+            return "";
+        }
+        return fingerprint.toString();
+    }
+
+    /** The UNNEST mode flags of the parallel generator lists (see the GENERATE
+     * branch): a LEFT JOIN UNNEST keeps an unmatched row with NULL while the inner
+     * form drops it, and both share the class and the rendered text. */
+    private static void assertUnnestModes(String position, List<Function> bind,
+            List<Function> plan, String bindSql) {
+        for (int i = 0; i < bind.size(); i++) {
+            if (bind.get(i) instanceof Unnest && plan.get(i) instanceof Unnest) {
+                Unnest bindUnnest = (Unnest) bind.get(i);
+                Unnest planUnnest = (Unnest) plan.get(i);
+                if (bindUnnest.isOuter() != planUnnest.isOuter()
+                        || bindUnnest.needOrdinality() != planUnnest.needOrdinality()) {
+                    throw topologyDivergence(position, "the UNNEST mode differs (bind"
+                            + " outer=" + bindUnnest.isOuter() + ", ordinality="
+                            + bindUnnest.needOrdinality() + "; plan outer="
+                            + planUnnest.isOuter() + ", ordinality="
+                            + planUnnest.needOrdinality() + "); an OUTER unnest keeps"
+                            + " an unmatched row with NULL where the inner form drops"
+                            + " it", bindSql);
+                }
+            }
+        }
     }
 
     /** The GROUPING SETS rendering of one repeat operator. */

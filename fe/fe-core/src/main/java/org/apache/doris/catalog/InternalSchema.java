@@ -345,6 +345,14 @@ public class InternalSchema {
         // a pre-column row: no validation possible).
         SPM_BASELINES_SCHEMA.add(new ColumnDef("schema_fingerprint",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        // canonical digest of the SUBMITTED plan SQL text (value-independent): two
+        // baselines may share the bind digest while carrying DIFFERENT plan texts, so
+        // the persisted plan-side identity is what lets a follower (and the forwarded
+        // DELETE / UPDATE tombstone logic) attribute a row to the exact statement that
+        // created it. NULLABLE (NULL / empty = a pre-column row: the plan side of the
+        // identity is not usable and only the bind digest can be compared).
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("plan_sql_digest",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
 
         // SPM baseline id sequence (append-only, id = 1): every row records one id the
         // create path has reserved. The baseline table itself cannot be the watermark:

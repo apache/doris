@@ -135,6 +135,16 @@ public class BaselinePlan {
      */
     private String schemaFingerprint;
 
+    /**
+     * Canonical digest of the SUBMITTED plan SQL (empty / null = pre-column rows).
+     * The bind digest identifies the binding but NOT the plan text: two baselines may
+     * share one bind digest while carrying different plan texts, so this is the
+     * plan-side identity a follower compares when confirming a forwarded CREATE (the
+     * persisted plan text itself is the DECOMPILED one and never matches the submitted
+     * text).
+     */
+    private String planSqlDigest;
+
     /** Last update time (epoch millis). */
     private volatile long updateTime;
 
@@ -333,6 +343,21 @@ public class BaselinePlan {
     }
 
     /**
+     * Returns the canonical digest of the SUBMITTED plan SQL (see the field javadoc);
+     * null / empty for pre-column rows, in which case only the bind digest can
+     * identify the row.
+     *
+     * @return the canonical plan digest, or null
+     */
+    public String getPlanSqlDigest() {
+        return planSqlDigest;
+    }
+
+    public void setPlanSqlDigest(String planSqlDigest) {
+        this.planSqlDigest = planSqlDigest;
+    }
+
+    /**
      * A detached copy of the PERSISTED scalar fields (no transient trees): used to write
      * a status change durably WITHOUT publishing it on the live object first (see
      * BaselineManager#updateStatus) - matching readers do not take the writer lock, so
@@ -359,6 +384,7 @@ public class BaselinePlan {
         copy.planSqlMode = planSqlMode;
         copy.planFrozen = planFrozen;
         copy.schemaFingerprint = schemaFingerprint;
+        copy.planSqlDigest = planSqlDigest;
         copy.updateTime = updateTime;
         return copy;
     }

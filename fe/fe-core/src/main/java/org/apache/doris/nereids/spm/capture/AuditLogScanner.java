@@ -724,10 +724,17 @@ public class AuditLogScanner {
         String generators = mentionsGenerator(stmt) ? generatorFingerprint(stmt, sqlMode) : "";
         String selectors = mentionsScanSelector(stmt)
                 ? scanSelectorFingerprint(stmt, sqlMode) : "";
-        if (generators.isEmpty() && selectors.isEmpty()) {
+        // The digest also masks the CONTENTS of an inline VALUES relation and the
+        // property map of a table-valued function, while SPM compares both
+        // concretely (row boundaries, arity, cell order, property payloads): two
+        // same-digest rows that differ only there are different baselines, and
+        // without this token toBatch dropped one of them.
+        String payloads = mentionsConcreteRelationPayload(stmt)
+                ? concreteRelationFingerprint(stmt, sqlMode) : "";
+        if (generators.isEmpty() && selectors.isEmpty() && payloads.isEmpty()) {
             return digest;
         }
-        return digest + '\u0001' + generators + '\u0001' + selectors;
+        return digest + '\u0001' + generators + '\u0001' + selectors + '\u0001' + payloads;
     }
 
     /**
@@ -774,6 +781,88 @@ public class AuditLogScanner {
                         new org.apache.doris.nereids.parser.NereidsParser().parseSingle(stmt);
                 return org.apache.doris.nereids.spm.SPMPlanTreeSupport
                         .scanSelectorFingerprint(parsed);
+            });
+        } catch (Throwable t) {
+            // unparsable: keep the full-text identity, never a coarser one
+            return stmt;
+        }
+    }
+
+    /**
+     * Whether the statement can carry a concrete relation payload that the audit digest
+     * masks while SPM compares it structurally: the rows of an inline VALUES relation
+     * and the property map of a table-valued function. Over-matching only costs one
+     * parse; under-matching drops the payload fingerprint from the dedup identity and
+     * toBatch then keeps one of two genuinely different baselines.
+     *
+     * Package-private for tests.
+     *
+     * @param stmt the audit statement text
+     * @return whether the statement needs its concrete relation payloads in the dedup
+     *         identity
+     */
+    @VisibleForTesting
+    static boolean mentionsConcreteRelationPayload(String stmt) {
+        if (stmt == null) {
+            return false;
+        }
+        String upper = upperWithCollapsedWhitespace(stmt);
+        if (upper.contains("VALUES")) {
+            return true;
+        }
+        // a table-valued function's property map is spelled ("name"= (the name is a
+        // quoted identifier); the gate only has to over-match
+        return mentionsTvfPropertyMap(stmt);
+    }
+
+    /**
+     * Whether the raw text opens a table-valued function's property map: the
+     * ("name"= spelling, matched loosely - the pre-filter only has to over-match, and a
+     * miss would keep two different properties on one dedup identity.
+     *
+     * @param stmt the audit statement text
+     * @return whether the statement may carry a property map
+     */
+    private static boolean mentionsTvfPropertyMap(String stmt) {
+        int index = stmt.indexOf('(');
+        while (index >= 0) {
+            int nameStart = index + 1;
+            while (nameStart < stmt.length() && Character.isWhitespace(stmt.charAt(nameStart))) {
+                nameStart++;
+            }
+            if (nameStart < stmt.length() && stmt.charAt(nameStart) == '"') {
+                int nameEnd = stmt.indexOf('"', nameStart + 1);
+                if (nameEnd > nameStart + 1) {
+                    int equalsAt = nameEnd + 1;
+                    while (equalsAt < stmt.length()
+                            && Character.isWhitespace(stmt.charAt(equalsAt))) {
+                        equalsAt++;
+                    }
+                    if (equalsAt < stmt.length() && stmt.charAt(equalsAt) == '=') {
+                        return true;
+                    }
+                }
+            }
+            index = stmt.indexOf('(', index + 1);
+        }
+        return false;
+    }
+
+    /** The concrete relation payloads of the statement (the full text when unparsable). */
+    private static String concreteRelationFingerprint(String stmt, long sqlMode) {
+        try {
+            return org.apache.doris.qe.SqlModeHelper.withSqlMode(sqlMode, () -> {
+                org.apache.doris.nereids.trees.plans.Plan parsed =
+                        new org.apache.doris.nereids.parser.NereidsParser().parseSingle(stmt);
+                if (!(parsed instanceof org.apache.doris.nereids.trees.plans.logical
+                        .LogicalPlan)) {
+                    return stmt;
+                }
+                String fingerprint = org.apache.doris.nereids.spm.SPMPlanTreeSupport
+                        .concreteRelationPayloadFingerprint(
+                                (org.apache.doris.nereids.trees.plans.logical.LogicalPlan)
+                                        parsed);
+                return fingerprint.isEmpty() ? stmt : fingerprint;
             });
         } catch (Throwable t) {
             // unparsable: keep the full-text identity, never a coarser one
