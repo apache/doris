@@ -261,7 +261,6 @@ import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupChecker;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -5831,93 +5830,10 @@ public class Env {
                                     GroupId assignedGroupId)
             throws DdlException {
 
-        String oldGroup = table.getColocateGroup();
-        GroupId groupId = null;
-        if (!Strings.isNullOrEmpty(assignedGroup)) {
-            String fullAssignedGroupName = GroupId.getFullGroupName(db.getId(), assignedGroup);
-            // When the new name is the same as the old name, we return it to prevent npe
-            if (!Strings.isNullOrEmpty(oldGroup)) {
-                String oldFullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
-                if (oldFullGroupName.equals(fullAssignedGroupName)) {
-                    LOG.warn("modify table[{}] group name same as old group name,skip.", table.getName());
-                    return;
-                }
-            }
-            if (!isReplay && table.isAutoBucket()) {
-                throw new DdlException("table " + table.getName() + " is auto buckets");
-            }
-            ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullAssignedGroupName);
-            if (groupSchema == null) {
-                // user set a new colocate group,
-                // check if all partitions all this table has same buckets num and same replication number
-                PartitionInfo partitionInfo = table.getPartitionInfo();
-                if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-                    int bucketsNum = -1;
-                    ReplicaAllocation replicaAlloc = null;
-                    for (Partition partition : table.getPartitions()) {
-                        if (bucketsNum == -1) {
-                            bucketsNum = partition.getDistributionInfo().getBucketNum();
-                        } else if (bucketsNum != partition.getDistributionInfo().getBucketNum()) {
-                            throw new DdlException(
-                                    "Partitions in table " + table.getName() + " have different buckets number");
-                        }
-
-                        if (replicaAlloc == null) {
-                            replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
-                        } else if (!replicaAlloc.equals(partitionInfo.getReplicaAllocation(partition.getId()))) {
-                            throw new DdlException(
-                                    "Partitions in table " + table.getName() + " have different replica allocation.");
-                        }
-                    }
-                }
-            } else {
-                // set to an already exist colocate group, check if this table can be added to this group.
-                groupSchema.checkColocateSchema(table);
-            }
-
-            if (Config.isCloudMode()) {
-                groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
-            } else {
-                Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
-                if (groupSchema == null) {
-                    // assign to a newly created group, set backends sequence.
-                    // we arbitrarily choose a tablet backends sequence from this table,
-                    // let the colocation balancer do the work.
-                    backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
-                }
-                // change group after getting backends sequence(if has), in case 'getArbitraryTabletBucketsSeq' failed
-                groupId = colocateTableIndex.changeGroup(db.getId(), table, oldGroup, assignedGroup, assignedGroupId);
-
-                if (groupSchema == null) {
-                    Preconditions.checkNotNull(backendsPerBucketSeq);
-                    colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-                }
-
-                // set this group as unstable
-                colocateTableIndex.markGroupUnstable(groupId, "Colocation group modified by user",
-                        false /* edit log is along with modify table log */);
-            }
-
-            table.setColocateGroup(assignedGroup);
-        } else {
-            // unset colocation group
-            if (Strings.isNullOrEmpty(oldGroup)) {
-                // this table is not a colocate table, do nothing
-                return;
-            }
-
-            // when replayModifyTableColocate, we need the groupId info
-            String fullGroupName = GroupId.getFullGroupName(db.getId(), oldGroup);
-            groupId = colocateTableIndex.getGroupSchema(fullGroupName).getGroupId();
-            colocateTableIndex.removeTable(table.getId());
-            table.setColocateGroup(null);
-        }
-
-        if (!isReplay) {
-            Map<String, String> properties = Maps.newHashMapWithExpectedSize(1);
-            properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, assignedGroup);
-            TablePropertyInfo info = new TablePropertyInfo(db.getId(), table.getId(), groupId, properties);
-            editLog.logModifyTableColocate(info);
+        EditLog.EditLogItem editLogItem = colocateTableIndex.modifyTableColocate(db.getId(), table, assignedGroup,
+                isReplay, assignedGroupId);
+        if (editLogItem != null) {
+            editLogItem.await();
         }
         LOG.info("finished modify table's colocation property. table: {}, is replay: {}", table.getName(), isReplay);
     }

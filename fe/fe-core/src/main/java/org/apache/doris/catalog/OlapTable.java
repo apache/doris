@@ -949,8 +949,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
 
             // add table to this group, if group does not exist, create a new one
-            groupId = Env.getCurrentColocateIndex()
-                .addTableToGroup(db.getId(), this, fullGroupName, null /* generate group id inside */);
+            try {
+                groupId = Env.getCurrentColocateIndex()
+                        .addTableToGroup(db.getId(), this, fullGroupName, null /* generate group id inside */);
+            } catch (DdlException e) {
+                return new Status(ErrCode.COMMON_ERROR, "Restore table " + getName()
+                        + " with colocate group " + getColocateGroup() + " failed: " + e.getMessage());
+            }
         } else {
             // remove colocate property.
             setColocateGroup(null);

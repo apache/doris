@@ -29,6 +29,9 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
+import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
@@ -202,7 +205,20 @@ public class ColocateTableIndex implements Writable {
 
     // NOTICE: call 'addTableToGroup()' will not modify 'group2BackendsPerBucketSeq'
     // 'group2BackendsPerBucketSeq' need to be set manually before or after, if necessary.
-    public GroupId addTableToGroup(long dbId, OlapTable tbl, String fullGroupName, GroupId assignedGroupId) {
+    public GroupId addTableToGroup(long dbId, OlapTable tbl, String fullGroupName, GroupId assignedGroupId)
+            throws DdlException {
+        writeLock();
+        try {
+            if (groupName2Id.containsKey(fullGroupName)) {
+                group2Schema.get(groupName2Id.get(fullGroupName)).checkColocateSchema(tbl);
+            }
+            return addTableToGroupUnchecked(dbId, tbl, fullGroupName, assignedGroupId);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private GroupId addTableToGroupUnchecked(long dbId, OlapTable tbl, String fullGroupName, GroupId assignedGroupId) {
         writeLock();
         try {
             GroupId groupId = null;
@@ -625,7 +641,112 @@ public class ColocateTableIndex implements Writable {
         return -1;
     }
 
-    public GroupId changeGroup(long dbId, OlapTable tbl, String oldGroup, String newGroup, GroupId assignedGroupId) {
+    // The caller must hold the table write lock and await the returned log handle after this method
+    // releases the index lock.
+    public EditLog.EditLogItem modifyTableColocate(long dbId, OlapTable table, String assignedGroup, boolean isReplay,
+            GroupId assignedGroupId) throws DdlException {
+        // The caller's table write lock keeps the group stable; no-op changes must not acquire the index lock.
+        String oldGroup = table.getColocateGroup();
+        String fullAssignedGroupName = null;
+        if (!Strings.isNullOrEmpty(assignedGroup)) {
+            fullAssignedGroupName = GroupId.getFullGroupName(dbId, assignedGroup);
+            if (!Strings.isNullOrEmpty(oldGroup)) {
+                String oldFullGroupName = GroupId.getFullGroupName(dbId, oldGroup);
+                if (oldFullGroupName.equals(fullAssignedGroupName)) {
+                    LOG.warn("modify table[{}] group name same as old group name,skip.", table.getName());
+                    return null;
+                }
+            }
+        } else if (Strings.isNullOrEmpty(oldGroup)) {
+            return null;
+        }
+
+        writeLock();
+        try {
+            GroupId groupId = null;
+            if (!Strings.isNullOrEmpty(assignedGroup)) {
+                if (!isReplay && table.isAutoBucket()) {
+                    throw new DdlException("table " + table.getName() + " is auto buckets");
+                }
+                ColocateGroupSchema groupSchema = getGroupSchema(fullAssignedGroupName);
+                if (groupSchema == null) {
+                    // When creating a group, check that all table partitions have the same bucket count
+                    // and replica allocation.
+                    PartitionInfo partitionInfo = table.getPartitionInfo();
+                    if (partitionInfo.getType() == PartitionType.RANGE
+                            || partitionInfo.getType() == PartitionType.LIST) {
+                        int bucketsNum = -1;
+                        ReplicaAllocation replicaAlloc = null;
+                        for (Partition partition : table.getPartitions()) {
+                            if (bucketsNum == -1) {
+                                bucketsNum = partition.getDistributionInfo().getBucketNum();
+                            } else if (bucketsNum != partition.getDistributionInfo().getBucketNum()) {
+                                throw new DdlException(
+                                        "Partitions in table " + table.getName() + " have different buckets number");
+                            }
+
+                            if (replicaAlloc == null) {
+                                replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
+                            } else if (!replicaAlloc.equals(partitionInfo.getReplicaAllocation(partition.getId()))) {
+                                throw new DdlException(
+                                        "Partitions in table " + table.getName()
+                                                + " have different replica allocation.");
+                            }
+                        }
+                    }
+                } else {
+                    // When joining an existing group, check that the table matches the group's schema.
+                    groupSchema.checkColocateSchema(table);
+                }
+
+                if (Config.isCloudMode()) {
+                    groupId = changeGroup(dbId, table, oldGroup, assignedGroup, assignedGroupId);
+                } else {
+                    Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
+                    if (groupSchema == null) {
+                        // A new group uses the backend sequence of an arbitrary table partition,
+                        // which the Colocation Balancer adjusts later.
+                        backendsPerBucketSeq = table.getArbitraryTabletBucketsSeq();
+                        Preconditions.checkNotNull(backendsPerBucketSeq);
+                    }
+                    // Get the backend sequence before leaving the old group so that a retrieval failure
+                    // does not disrupt the original membership.
+                    groupId = changeGroup(dbId, table, oldGroup, assignedGroup, assignedGroupId);
+
+                    if (groupSchema == null) {
+                        addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+                    }
+
+                    // Mark the group unstable; submit the log together with the table property modification log.
+                    markGroupUnstable(groupId, "Colocation group modified by user", false);
+                }
+
+                table.setColocateGroup(assignedGroup);
+            } else {
+                // Remove the table from its colocate group.
+                // Preserve the original group ID for replaying the modification.
+                String fullGroupName = GroupId.getFullGroupName(dbId, oldGroup);
+                groupId = getGroupSchema(fullGroupName).getGroupId();
+                removeTable(table.getId());
+                table.setColocateGroup(null);
+            }
+
+            if (!isReplay) {
+                Map<String, String> properties = Maps.newHashMapWithExpectedSize(1);
+                properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, assignedGroup);
+                TablePropertyInfo info = new TablePropertyInfo(dbId, table.getId(), groupId, properties);
+                // Submit under the index lock so log order matches the order of changes to group membership
+                // and initial backend sequences.
+                return Env.getCurrentEnv().getEditLog().submitEdit(OperationType.OP_MODIFY_TABLE_COLOCATE, info);
+            }
+            return null;
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public GroupId changeGroup(long dbId, OlapTable tbl, String oldGroup, String newGroup, GroupId assignedGroupId)
+            throws DdlException {
         writeLock();
         try {
             if (!Strings.isNullOrEmpty(oldGroup)) {
@@ -654,7 +775,7 @@ public class ColocateTableIndex implements Writable {
                 group2BackendsPerBucketSeq.put(info.getGroupId(), entry.getKey(), entry.getValue());
             }
             String fullGroupName = GroupId.getFullGroupName(dbId, tbl.getColocateGroup());
-            addTableToGroup(dbId, tbl, fullGroupName, info.getGroupId());
+            addTableToGroupUnchecked(dbId, tbl, fullGroupName, info.getGroupId());
         } finally {
             writeUnlock();
         }
