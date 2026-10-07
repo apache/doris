@@ -240,6 +240,15 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     @VisibleForTesting
     static volatile java.util.function.Function<String, String> transactionStatusForTest;
 
+    /**
+     * Test seam: invoked at the START of every reportCommittedFence call, so a test can
+     * count how many reports one path pays (null in production). The load worker must
+     * report each batch's obligation EXACTLY ONCE - retaining the fence keeps it local,
+     * and the confirmed report is the send gate.
+     */
+    @VisibleForTesting
+    static volatile Runnable reportCommittedFenceHookForTest;
+
     /** The clock of the publish-fence bookkeeping (see publishFenceClockForTest). */
     private static long publishFenceNow() {
         java.util.function.LongSupplier clock = publishFenceClockForTest;
@@ -625,6 +634,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 fenceLabel = streamLoader.allocateLabel();
                 retainPublishFence(batchOldest, batchQueryId, fenceLabel, batchZoneId);
                 fenceRetained = batchOldest > 0;
+                // The single report of this batch's durable obligation (the retain
+                // above is LOCAL only): its confirmed outcome is the send gate.
                 if (fenceRetained && !reportCommittedFence()) {
                     // The batch's durable obligation did not land in the shared row: if this
                     // FE dies after the BE commits the load with publication pending, only
@@ -800,14 +811,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                         PUBLISH_FENCE_MAX_MILLIS);
             }
         }
-        // Publish the fence RIGHT AWAY instead of waiting for the reporter's tick
-        // the batch is COMMITTED, and a crash before the next tick would
-        // otherwise leave no durable trace of it - the reader then drops this FE's row
-        // at death and the capture checkpoints past rows that may still publish. Best
-        // effort: the reporter re-reports on its own cadence anyway, and
-        // reportLocalHorizon can never DELETE the row while the fence is pending (it
-        // reads the fence value at WRITE time).
-        reportCommittedFence();
+        // The obligation stays LOCAL here: republishing it is the CALLER's step - the
+        // load worker reports the just-retained fence ONCE and uses the CONFIRMED report
+        // as its send gate (see loadIfNecessary). Reporting here as well paid a second
+        // synchronous shared-row write + read-back for every batch, with its result
+        // discarded anyway.
     }
 
     /**
@@ -1014,6 +1022,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     /** Best-effort immediate report of this FE's committed-but-unreadable batches. */
     private boolean reportCommittedFence() {
+        Runnable hook = reportCommittedFenceHookForTest;
+        if (hook != null) {
+            hook.run();
+        }
         try {
             long pending = oldestPendingPublishFenceEventTime();
             if (pending <= 0) {

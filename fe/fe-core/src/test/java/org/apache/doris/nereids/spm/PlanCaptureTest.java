@@ -784,6 +784,31 @@ public class PlanCaptureTest {
         Assertions.assertTrue(statements.get(1).startsWith("DELETE FROM"), statements.get(1));
         manager.resetForTest();
     }
+
+    // (comment #5): a COMPLETED reservation must be pruned. Exempting a pending row by
+    // its start alone kept a consumed window (start < lastScan, end <= lastScan) selected
+    // as the earliest pending row forever: a promoted FE (scannedFromMillis reset)
+    // replayed that historical window, and the writer-zone rewind floor stayed pinned to
+    // its start, blocking old zones from retiring. Only a window still EXTENDING BEYOND
+    // the just-written watermark is exempt.
+    @Test
+    public void testCheckpointPruneKeepsOnlyWindowsStillExtendingBeyondTheWatermark() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        List<String> statements = new ArrayList<>();
+        manager.setCheckpointWriterForTest((sql, params) -> statements.add(sql));
+
+        manager.persistCheckpointForTest();
+        Assertions.assertEquals(2, statements.size(),
+                "the checkpoint write is one APPEND plus its prune: " + statements);
+        String prune = statements.get(1);
+        Assertions.assertTrue(prune.startsWith("DELETE FROM"), prune);
+        Assertions.assertTrue(prune.contains(
+                "`pending_window_start` < ${lastScan} AND ${lastScan} < `pending_window_end`"),
+                "a reservation is exempt only while its window still extends beyond the"
+                        + " just-written watermark: " + prune);
+        manager.resetForTest();
+    }
     // ==================== unavailable external metadata stays retryable ====================
 
     /**

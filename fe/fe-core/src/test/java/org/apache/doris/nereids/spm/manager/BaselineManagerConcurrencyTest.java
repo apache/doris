@@ -1704,6 +1704,42 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
+     * (comment #2): the per-id winner is picked among the rows that SURVIVED the
+     * tombstone filter. A demoted leader's abandoned CREATE is condemned with an
+     * identity-only tombstone and can publish late under the SAME id as another
+     * leader's successful CREATE; when the condemned row wins the timestamp / digest
+     * tie, filtering the already-COLLAPSED map removed the whole id - the valid row
+     * stayed hidden from refresh and SHOW until a leader repaired the condemned row
+     * and another refresh ran.
+     */
+    @Test
+    public void testTombstonedTwinDoesNotHideTheValidRowOfTheSameId() {
+        IdentityStoreSimulator store = new IdentityStoreSimulator();
+        try {
+            BaselinePlan valid = withId(baseline("d-valid", "select k from t1"), 7L);
+            BaselinePlan condemned = withId(baseline("d-condemned", "select k from t1"), 7L);
+            // the condemned row would WIN the tie (later update time) if it took part
+            condemned.setUpdateTime(valid.getUpdateTime() + 60_000L);
+            store.appendTombstone(condemned);
+            BaselineManager.idAllocatorStoreForTest = store;
+
+            Map<Long, BaselinePlan> snapshot;
+            try {
+                snapshot = BaselineManager.collectFilteredSnapshot((pageStart, offset) ->
+                        offset == 0 ? List.of(rowOf(condemned), rowOf(valid)) : List.of());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            Assertions.assertEquals(1, snapshot.size(),
+                    "the valid row must survive the condemned twin: " + snapshot.keySet());
+            Assertions.assertEquals("d-valid", snapshot.get(7L).getBindSqlDigest(),
+                    "the condemned row must not remove the whole id: " + snapshot);
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+        }
+    }
+
+    /**
      * Right after a completed DROP, a fresh FE filters the dropped row from
      * its snapshot with the readable tombstone while a by-KEY lookup (the cached
      * duplicate / the durable-key read) still sees the pre-delete row during the delete's

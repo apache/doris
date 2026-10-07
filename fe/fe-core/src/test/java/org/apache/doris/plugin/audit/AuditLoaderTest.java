@@ -719,6 +719,33 @@ public class AuditLoaderTest {
         }
     }
 
+    // (comment #3): retaining the obligation is LOCAL. The load worker reports the
+    // just-retained fence exactly ONCE, and that CONFIRMED report is the send gate;
+    // reporting inside the retain as well paid a second synchronous shared-row write +
+    // read-back for every batch and discarded the result.
+    @Test
+    public void testRetainIsLocalAndOneReportServesTheBatch() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        java.util.concurrent.atomic.AtomicInteger reports =
+                new java.util.concurrent.atomic.AtomicInteger();
+        AuditLoader.reportCommittedFenceHookForTest = reports::incrementAndGet;
+        try {
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-once",
+                    "audit_log_once");
+            Assertions.assertEquals(0, reports.get(),
+                    "retaining the obligation must not report by itself");
+            Assertions.assertTrue(
+                    (Boolean) Deencapsulation.invoke(loader, "reportCommittedFence"),
+                    "the caller's confirmed report is the single one");
+            Assertions.assertEquals(1, reports.get());
+        } finally {
+            AuditLoader.reportCommittedFenceHookForTest = null;
+            setRunningLoader(null);
+        }
+    }
+
     // The release paths. A CONFIRMED publication (the rows are readable) and
     // a request that never reached a BE both make the pre-send obligation unnecessary; a
     // FAILED/ambiguous outcome keeps it, exactly as before.

@@ -275,6 +275,14 @@ public class PlanCaptureManager extends MasterDaemon {
      * the rows the just-written one supersedes - strictly older epochs, plus same-epoch
      * rows with a lower write_seq. Correctness never depends on it (the reader's ORDER BY
      * ignores stale rows), so failures are swallowed by the caller.
+     *
+     * A reservation row is EXEMPT while its window still extends BEYOND the just-written
+     * watermark: a late-committing earlier-epoch reservation must survive until a cycle
+     * can adopt it. A window the watermark has fully covered is CONSUMED - exempting it
+     * by its start alone kept a completed window selected as the earliest pending row
+     * forever: a promoted FE (scannedFromMillis reset) replayed that historical window,
+     * and the writer-zone rewind floor stayed pinned to its start, blocking old zones
+     * from retiring.
      */
     private static final String CHECKPOINT_PRUNE_SQL =
             "DELETE FROM " + CHECKPOINT_TABLE
@@ -282,7 +290,8 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " OR (`leader_epoch` = ${epoch} AND `write_seq` < ${seq}))"
                     + " AND NOT (`pending_window_start` > 0"
                     + " AND `pending_window_start` < `pending_window_end`"
-                    + " AND `pending_window_start` < ${lastScan})";
+                    + " AND `pending_window_start` < ${lastScan}"
+                    + " AND ${lastScan} < `pending_window_end`)";
 
     private AuditLogScanner scanner = new AuditLogScanner();
 

@@ -2127,6 +2127,15 @@ public final class SPMPlanTreeSupport {
             rewrittenNode = rewrittenNode.child(0);
             userNode = userNode.child(0);
         }
+        // A standalone one-row replay (CREATE SESSION BASELINE PLAN 'SELECT 1' matching
+        // a later SELECT 2): neither tree carries an output-carrying unary node, so the
+        // walk above cannot rename anything - the value is substituted, but the derived
+        // header would keep the captured literal / placeholder text instead of the
+        // caller's own label. Rebuild the relation's own item list with the caller's
+        // labels; a shape that cannot be addressed skips the rewrite.
+        if (userNode instanceof OneRowRelation || rewrittenNode instanceof OneRowRelation) {
+            return alignOneRowOutput(rewritten, rewrittenNode, userNode, rewrittenAncestors);
+        }
         // A baseline over a SET OPERATION. The caller's root IS the set node
         // (SELECT k + 2 FROM t UNION ALL ...), so its FIRST branch's labels are the
         // caller-visible header; the replayed tree may BE the same set (the fallback
@@ -2340,6 +2349,61 @@ public final class SPMPlanTreeSupport {
             rebuilt = ancestor.withChildren(java.util.List.of(rebuilt));
         }
         return (LogicalPlan) rebuilt;
+    }
+
+    /**
+     * Aligns a standalone one-row replay (see alignRootOutputLabels): the labels live on
+     * the OneRowRelation itself, so its item list is rebuilt with the caller's own
+     * labels. A shape that cannot be addressed skips the rewrite - the caller must not
+     * receive the captured header.
+     */
+    private static LogicalPlan alignOneRowOutput(LogicalPlan rewritten, Plan rewrittenNode,
+            Plan userNode, java.util.ArrayDeque<Plan> rewrittenAncestors) {
+        if (!(rewrittenNode instanceof OneRowRelation) || !(userNode instanceof OneRowRelation)) {
+            throw new UnalignableOutputLabelsException(
+                    "a one-row replay cannot be aligned with the caller's different shape");
+        }
+        List<NamedExpression> rewrittenItems = ((OneRowRelation) rewrittenNode).getProjects();
+        List<NamedExpression> userItems = ((OneRowRelation) userNode).getProjects();
+        if (rewrittenItems.size() != userItems.size()) {
+            throw new UnalignableOutputLabelsException(
+                    "the one-row replay's output arity cannot be aligned with the caller's");
+        }
+        List<NamedExpression> aligned = new ArrayList<>(rewrittenItems.size());
+        boolean changed = false;
+        for (int i = 0; i < rewrittenItems.size(); i++) {
+            NamedExpression rewrittenItem = rewrittenItems.get(i);
+            NamedExpression userItem = userItems.get(i);
+            String userLabel = outputLabelOf(userItem);
+            String rewrittenLabel = outputLabelOf(rewrittenItem);
+            if (userLabel == null || rewrittenLabel == null || userLabel.equals(rewrittenLabel)) {
+                aligned.add(rewrittenItem);
+                continue;
+            }
+            aligned.add(renameOutputItem(rewrittenItem, userLabel, isDerivedAlias(userItem)));
+            changed = true;
+        }
+        if (!changed) {
+            return rewritten;
+        }
+        return rebuildThroughAncestors(
+                withOneRowProjects((OneRowRelation) rewrittenNode, aligned),
+                new java.util.ArrayDeque<>(), rewrittenAncestors);
+    }
+
+    /** Rebuilds one OneRowRelation with a new item list (see alignOneRowOutput). */
+    private static Plan withOneRowProjects(OneRowRelation relation, List<NamedExpression> items) {
+        if (relation instanceof UnboundOneRowRelation) {
+            // the parsed relation has no with-projects rebuild (its withRelationId throws):
+            // construct the copy directly
+            return new UnboundOneRowRelation(
+                    ((UnboundOneRowRelation) relation).getRelationId(), items);
+        }
+        if (relation instanceof LogicalOneRowRelation) {
+            return ((LogicalOneRowRelation) relation).withProjects(items);
+        }
+        throw new UnalignableOutputLabelsException(
+                "the one-row replay's relation shape cannot be rebuilt");
     }
 
     /**
@@ -3593,12 +3657,15 @@ public final class SPMPlanTreeSupport {
                 + ")", bindSql);
     }
 
-    /** The toSql texts of one expression list. */
+    /** The boundary-preserving toSql texts of one expression list (see
+     * boundaryPreservingDeepText): slots render with their component encoding, so a
+     * dotted column never compares like a qualified reference in any of the lockstep
+     * checks (join conditions, GROUP BY keys, USING slots, generators...). */
     private static List<String> expressionTexts(
             Collection<? extends Expression> expressions) {
         List<String> texts = new ArrayList<>(expressions.size());
         for (Expression expression : expressions) {
-            texts.add(expression.toSql());
+            texts.add(boundaryPreservingDeepText(expression));
         }
         return texts;
     }
@@ -3677,7 +3744,7 @@ public final class SPMPlanTreeSupport {
             }
             return;
         }
-        texts.add(predicate.toSql());
+        texts.add(boundaryPreservingDeepText(predicate));
     }
 
     /** The ORDINARY (ON) predicate texts of one join: the hash / other conjuncts and
@@ -3688,7 +3755,7 @@ public final class SPMPlanTreeSupport {
         texts.addAll(expressionTexts(join.getOtherJoinConjuncts()));
         Optional<Expression> onClause = join.getOnClauseCondition();
         if (onClause.isPresent()) {
-            texts.add(onClause.get().toSql());
+            texts.add(boundaryPreservingDeepText(onClause.get()));
         }
         return texts;
     }
@@ -3778,7 +3845,7 @@ public final class SPMPlanTreeSupport {
         for (OrderKey key : keys) {
             contract.add((key.isAsc() ? "ASC" : "DESC") + "/"
                     + (key.isNullFirst() ? "NULLS_FIRST" : "NULLS_LAST") + ":"
-                    + key.getExpr().toSql());
+                    + boundaryPreservingDeepText(key.getExpr()));
         }
         return contract;
     }
@@ -3847,6 +3914,49 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
+     * One parsed predicate's / join condition's comparison text: the rendered SQL PLUS
+     * the component encoding of every slot inside it. UnboundSlot#toSql joins the name
+     * components with '.', so a column literally named "a.b" (ONE component) and the
+     * qualified reference a.b (two components) render identically while filtering
+     * DIFFERENT columns - a manual plan reading alias a's column b passed the WHERE /
+     * JOIN ON containment and lockstep checks as if it carried the bind's filter on the
+     * dotted column. The appended encodings restore the component boundaries that the
+     * rendered text loses; every other part of the expression (operators, function
+     * names, literal VALUES) stays in the rendered text.
+     */
+    private static String boundaryPreservingDeepText(Expression expression) {
+        StringBuilder text = new StringBuilder(expression.toSql());
+        List<String> slots = new ArrayList<>();
+        collectSlotEncodings(expression, slots);
+        text.append('\u0002');
+        for (String slot : slots) {
+            text.append(slot).append('\u0003');
+        }
+        return text.toString();
+    }
+
+    /** The component encodings of every slot inside one expression, depth-first (see
+     * boundaryPreservingDeepText). */
+    private static void collectSlotEncodings(Expression expression, List<String> slots) {
+        if (expression instanceof UnboundSlot) {
+            slots.add(slotComponentEncoding((UnboundSlot) expression));
+        }
+        for (Expression child : expression.children()) {
+            collectSlotEncodings(child, slots);
+        }
+    }
+
+    /** One slot's name components as an unambiguous (length-prefixed) text: ["a.b"]
+     * and ["a", "b"] must never encode alike. */
+    private static String slotComponentEncoding(UnboundSlot slot) {
+        StringBuilder encoded = new StringBuilder();
+        for (String part : slot.getNameParts()) {
+            encoded.append(part.length()).append(':').append(part);
+        }
+        return encoded.toString();
+    }
+
+    /**
      * Every row-filter conjunct text of one tree (each LogicalFilter or
      * LogicalHaving anywhere in the statement, subqueries included). A
      * conjunct that IS an AND is FLATTENED into its leaves: the unbound parse of
@@ -3882,7 +3992,7 @@ public final class SPMPlanTreeSupport {
             }
             return;
         }
-        conjuncts.add(predicate.toSql());
+        conjuncts.add(boundaryPreservingDeepText(predicate));
     }
 
     /**

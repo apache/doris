@@ -4420,17 +4420,76 @@ public class BaselineManager {
                 continue;
             }
             filtered.remove(row.getId());
-            LOG.warn("SPM ignores and repairs a durable baseline {} revived after its DROP"
-                    + " (an in-flight write committed after the delete)", row.getId());
-            try {
-                persistDeleteByIdentity(row);
-            } catch (RuntimeException e) {
-                LOG.warn("SPM cannot repair the revived baseline {} yet ({}); it stays"
-                        + " hidden until the next leader repairs it", row.getId(),
-                        e.getMessage());
-            }
+            repairRevivedRow(row);
         }
         return filtered;
+    }
+
+    /**
+     * The RAW-row variant of filterResurrectedRows: the tombstones are matched against
+     * EVERY raw row BEFORE the per-id winner is picked. A demoted leader's abandoned
+     * CREATE can receive an identity-only tombstone and then publish late under the SAME
+     * id as another leader's successful CREATE. When the condemned row won the timestamp
+     * / digest tie, filtering the already-COLLAPSED map removed the whole id - the valid
+     * row stayed hidden from refresh and SHOW until a leader repaired the condemned row
+     * and another refresh ran.
+     *
+     * @param rowsById the RAW rows read from the durable table (not mutated)
+     * @return the surviving rows with one deterministic winner per id
+     */
+    private static Map<Long, BaselinePlan> filterResurrectedRowsById(
+            Map<Long, List<BaselinePlan>> rowsById) {
+        if (rowsById == null || rowsById.isEmpty()) {
+            return Map.of();
+        }
+        Set<String> tombstones = readDroppedIdentities(rowsById.keySet());
+        if (tombstones.isEmpty()) {
+            return collapseSnapshotRows(rowsById);
+        }
+        Map<Long, List<BaselinePlan>> surviving = new java.util.LinkedHashMap<>(rowsById.size());
+        for (Map.Entry<Long, List<BaselinePlan>> entry : rowsById.entrySet()) {
+            List<BaselinePlan> kept = new ArrayList<>(entry.getValue().size());
+            for (BaselinePlan row : entry.getValue()) {
+                if (row == null) {
+                    continue;
+                }
+                if (isTombstonedRow(tombstones, row)) {
+                    repairRevivedRow(row);
+                    continue;
+                }
+                kept.add(row);
+            }
+            if (!kept.isEmpty()) {
+                surviving.put(entry.getKey(), kept);
+            }
+        }
+        return collapseSnapshotRows(surviving);
+    }
+
+    /**
+     * The tombstone-aware snapshot pipeline: raw rows first, DROP TOMBSTONES filtered
+     * per raw identity, and only then the per-id winner (see
+     * filterResurrectedRowsById). Visible for tests.
+     */
+    @VisibleForTesting
+    static Map<Long, BaselinePlan> collectFilteredSnapshot(SnapshotPageReader reader)
+            throws Exception {
+        return filterResurrectedRowsById(
+                collectSnapshotRows(reader, SNAPSHOT_PAGE_SIZE, new AtomicLong()));
+    }
+
+    /** Logs and best-effort repairs one durable row revived after its DROP (see
+     * filterResurrectedRows and filterResurrectedRowsById). */
+    private static void repairRevivedRow(BaselinePlan row) {
+        LOG.warn("SPM ignores and repairs a durable baseline {} revived after its DROP"
+                + " (an in-flight write committed after the delete)", row.getId());
+        try {
+            persistDeleteByIdentity(row);
+        } catch (RuntimeException e) {
+            LOG.warn("SPM cannot repair the revived baseline {} yet ({}); it stays"
+                    + " hidden until the next leader repairs it", row.getId(),
+                    e.getMessage());
+        }
     }
 
     /**
@@ -4890,14 +4949,19 @@ public class BaselineManager {
      * walks the id space forward until a short page ends the snapshot.
      */
     private static Map<Long, BaselinePlan> readPersistedSnapshot() throws Exception {
-        Map<Long, BaselinePlan> snapshot = snapshotReaderForTest != null
-                ? snapshotReaderForTest.get()
-                : readStableSnapshot(BaselineManager::readSnapshotPage,
-                        BaselineManager::readSnapshotFence);
-        // a durable row whose identity carries a DROP TOMBSTONE must never reach the
-        // cache: an in-flight status INSERT of a demoted master can commit
-        // after the DROP deleted the row and revive it as an ACTIVE baseline
-        return filterResurrectedRows(snapshot);
+        if (snapshotReaderForTest != null) {
+            // a durable row whose identity carries a DROP TOMBSTONE must never reach the
+            // cache: an in-flight status INSERT of a demoted master can commit
+            // after the DROP deleted the row and revive it as an ACTIVE baseline
+            return filterResurrectedRows(snapshotReaderForTest.get());
+        }
+        // The tombstones are matched against the RAW rows: collapsing the per-id winner
+        // FIRST let a condemned row win the timestamp / digest tie and removed the WHOLE
+        // id, hiding a VALID row another leader wrote under the same id (see
+        // filterResurrectedRowsById).
+        return filterResurrectedRowsById(
+                readStableRawSnapshot(BaselineManager::readSnapshotPage,
+                        BaselineManager::readSnapshotFence));
     }
 
     /** One page of the whole-table snapshot, read through the internal table. */
@@ -4926,11 +4990,21 @@ public class BaselineManager {
     @VisibleForTesting
     static Map<Long, BaselinePlan> readStableSnapshot(SnapshotPageReader reader,
             SnapshotFenceReader fenceReader) throws Exception {
+        return collapseSnapshotRows(readStableRawSnapshot(reader, fenceReader));
+    }
+
+    /**
+     * The fence-guarded read of readStableSnapshot: the RAW per-id row groups of one
+     * stable state, so the tombstone filter can inspect every row before the per-id
+     * winner is picked (see filterResurrectedRowsById).
+     */
+    private static Map<Long, List<BaselinePlan>> readStableRawSnapshot(SnapshotPageReader reader,
+            SnapshotFenceReader fenceReader) throws Exception {
         for (int attempt = 1; ; attempt++) {
             SnapshotFence before = fenceReader.readFence();
             AtomicLong rowsRead = new AtomicLong();
-            Map<Long, BaselinePlan> snapshot =
-                    collectSnapshotPages(reader, SNAPSHOT_PAGE_SIZE, rowsRead);
+            Map<Long, List<BaselinePlan>> snapshot =
+                    collectSnapshotRows(reader, SNAPSHOT_PAGE_SIZE, rowsRead);
             SnapshotFence after = fenceReader.readFence();
             // BOTH conditions are required: the fence proves the table did not change around
             // the read, and the row count proves every row of the fenced state was actually
@@ -5030,27 +5104,49 @@ public class BaselineManager {
      *                     SNAPSHOT_PAGE_SIZE)
      * @param rowsReadSink counts every row the loop actually read (see the completeness
      *                     check of readStableSnapshot)
-     * @return the accumulated snapshot
+     * @return the accumulated snapshot with one deterministic winner per id
      * @throws Exception when a page read fails (the caller retries the whole refresh)
      */
     @VisibleForTesting
     static Map<Long, BaselinePlan> collectSnapshotPages(SnapshotPageReader reader, int pageSize,
             AtomicLong rowsReadSink) throws Exception {
-        Map<Long, BaselinePlan> snapshot = new HashMap<>();
+        return collapseSnapshotRows(collectSnapshotRows(reader, pageSize, rowsReadSink));
+    }
+
+    /**
+     * collectSnapshotPages(SnapshotPageReader, int, AtomicLong) without the row
+     * counter: for tests that only inspect the accumulated snapshot.
+     */
+    @VisibleForTesting
+    static Map<Long, BaselinePlan> collectSnapshotPages(SnapshotPageReader reader, int pageSize)
+            throws Exception {
+        return collectSnapshotPages(reader, pageSize, new AtomicLong());
+    }
+
+    /**
+     * The pagination loop itself: the RAW rows of the whole table grouped per id. The
+     * per-id winner is picked AFTER the tombstone filter (see
+     * filterResurrectedRowsById), so a tombstoned row never hides a valid twin. Invalid
+     * rows are skipped with a warning.
+     */
+    @VisibleForTesting
+    static Map<Long, List<BaselinePlan>> collectSnapshotRows(SnapshotPageReader reader,
+            int pageSize, AtomicLong rowsReadSink) throws Exception {
+        Map<Long, List<BaselinePlan>> rowsById = new HashMap<>();
         Long bound = null;
         long skipped = 0;
         while (true) {
             List<ResultRow> rows = reader.readPage(bound, skipped);
             if (rows == null || rows.isEmpty()) {
-                return snapshot;
+                return rowsById;
             }
             rowsReadSink.addAndGet(rows.size());
             for (ResultRow row : rows) {
-                accumulateSnapshotRow(snapshot, row);
+                accumulateSnapshotRow(rowsById, row);
             }
             String lastRowId = rows.get(rows.size() - 1).getWithDefault(0, "");
             if (rows.size() < pageSize || lastRowId.isEmpty()) {
-                return snapshot; // a short page ends the snapshot
+                return rowsById; // a short page ends the snapshot
             }
             long pageLastId = Long.parseLong(lastRowId.trim());
             long trailing = 0;
@@ -5068,16 +5164,6 @@ public class BaselineManager {
                 skipped = trailing;
             }
         }
-    }
-
-    /**
-     * collectSnapshotPages(SnapshotPageReader, int, AtomicLong) without the row
-     * counter: for tests that only inspect the accumulated snapshot.
-     */
-    @VisibleForTesting
-    static Map<Long, BaselinePlan> collectSnapshotPages(SnapshotPageReader reader, int pageSize)
-            throws Exception {
-        return collectSnapshotPages(reader, pageSize, new AtomicLong());
     }
 
     /** Reads one page of the snapshot (see collectSnapshotPages). */
@@ -5108,32 +5194,54 @@ public class BaselineManager {
     }
 
     /**
-     * Merges one raw snapshot row into the accumulated snapshot, resolving an id carried
-     * by more than one row deterministically.
+     * Parses one raw snapshot row into its id's group (see collectSnapshotRows): the
+     * deterministic per-id winner is picked later, after the tombstone filter.
      */
-    private static void accumulateSnapshotRow(Map<Long, BaselinePlan> snapshot,
+    private static void accumulateSnapshotRow(Map<Long, List<BaselinePlan>> rowsById,
             ResultRow row) {
         try {
             BaselinePlan p = parsePersistedRow(row);
-            BaselinePlan previous = snapshot.put(p.getId(), p);
-            if (previous != null) {
-                // Two rows carry the same id (e.g. an ALTER status update whose
-                // compensating delete failed, or an out-of-contract manual write): the
-                // read order must not decide, so "last read wins" would make refresh /
-                // restart decide the status NONDETERMINISTICALLY - a failed DISABLE could
-                // be silently re-enabled. Pick a deterministic winner (see
-                // pickDurableWinner) so every FE / restart converges on it.
-                BaselinePlan winner = pickDurableWinner(previous, p);
-                snapshot.put(p.getId(), winner);
-                LOG.warn("SPM persisted baseline id {} appears in more than one row"
-                                + " (statuses {} / {}, update times {} / {});"
-                                + " deterministically keeping the {} row",
-                        p.getId(), previous.getStatus(), p.getStatus(),
-                        previous.getUpdateTime(), p.getUpdateTime(), winner.getStatus());
-            }
+            rowsById.computeIfAbsent(p.getId(), id -> new ArrayList<>(2)).add(p);
         } catch (Throwable t) {
             LOG.warn("SPM skip invalid persisted baseline row: {}", t.getMessage());
         }
+    }
+
+    /**
+     * Collapses the raw per-id row groups to one DETERMINISTIC winner per id. The read
+     * order must not decide: "last read wins" would make refresh / restart pick the
+     * status NONDETERMINISTICALLY - a failed DISABLE could be silently re-enabled. Two
+     * rows carry the same id when, e.g., an ALTER status update's compensating delete
+     * failed or an out-of-contract manual write happened.
+     */
+    private static Map<Long, BaselinePlan> collapseSnapshotRows(
+            Map<Long, List<BaselinePlan>> rowsById) {
+        Map<Long, BaselinePlan> snapshot = new HashMap<>(rowsById.size());
+        for (Map.Entry<Long, List<BaselinePlan>> entry : rowsById.entrySet()) {
+            BaselinePlan winner = null;
+            for (BaselinePlan row : entry.getValue()) {
+                if (row == null) {
+                    continue;
+                }
+                if (winner == null) {
+                    winner = row;
+                    continue;
+                }
+                // deterministic winner (see pickDurableWinner) so every FE / restart
+                // converges on it
+                BaselinePlan chosen = pickDurableWinner(winner, row);
+                LOG.warn("SPM persisted baseline id {} appears in more than one row"
+                                + " (statuses {} / {}, update times {} / {});"
+                                + " deterministically keeping the {} row",
+                        entry.getKey(), winner.getStatus(), row.getStatus(),
+                        winner.getUpdateTime(), row.getUpdateTime(), chosen.getStatus());
+                winner = chosen;
+            }
+            if (winner != null) {
+                snapshot.put(entry.getKey(), winner);
+            }
+        }
+        return snapshot;
     }
 
     /**
