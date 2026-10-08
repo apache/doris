@@ -210,12 +210,13 @@ public class EditLogTest {
                 operations.add(invocation.getArgument(0));
             }
             long id = nextId.getAndAdd(count);
+            // Only explicit release may complete a write; finally releases both gates on test failure.
             if (id == 101) {
                 firstWriting.countDown();
-                releaseFirst.await(30, TimeUnit.SECONDS);
+                releaseFirst.await();
             } else if (id == 102) {
                 secondWriting.countDown();
-                releaseSecond.await(30, TimeUnit.SECONDS);
+                releaseSecond.await();
             }
             return id;
         };
@@ -270,7 +271,8 @@ public class EditLogTest {
                 Assertions.assertFalse(first.finished);
                 Assertions.assertFalse(second.finished);
                 Assertions.assertFalse(third.finished);
-                Mockito.verify(journals.constructed().get(0), Mockito.never()).rollJournal();
+                // Verifying a synchronized journal method here would block on the paused writer's monitor.
+                Assertions.assertEquals(1L, rolled.getCount());
                 releaseFirst.countDown();
                 Assertions.assertTrue(secondWriting.await(5, TimeUnit.SECONDS));
                 Assertions.assertTrue(first.finished);
