@@ -140,6 +140,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 
     reader_params.tablet_schema = std::make_shared<TabletSchema>();
     reader_params.tablet_schema->copy_from(cur_tablet_schema);
+    reader_params.variant_compaction_paths = dst_rowset_writer->context().variant_compaction_paths;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
@@ -333,6 +334,7 @@ Status Merger::vertical_compact_one_group(
 
     reader_params.tablet_schema = std::make_shared<TabletSchema>();
     reader_params.tablet_schema->copy_from(tablet_schema);
+    reader_params.variant_compaction_paths = dst_rowset_writer->context().variant_compaction_paths;
     bool has_cluster_key = false;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();

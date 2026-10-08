@@ -25,23 +25,34 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.indexpolicy.IndexPolicy;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class InvertedIndexUtil {
 
     private static final Logger LOG = LogManager.getLogger(InvertedIndexUtil.class);
+
+    // A MATCH analyzer name may select an index by its analyzer or its normalizer.
+    private static final Set<String> BUILTIN_TOP_LEVEL_NAMES = ImmutableSet.<String>builder()
+            .addAll(IndexPolicy.BUILTIN_ANALYZERS)
+            .addAll(IndexPolicy.BUILTIN_NORMALIZERS)
+            .build();
 
     public static String INVERTED_INDEX_PARSER_KEY = InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY;
     public static String INVERTED_INDEX_PARSER_KEY_ALIAS = InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY_ALIAS;
@@ -106,7 +117,7 @@ public class InvertedIndexUtil {
      */
     public static boolean isSupportSniiNumericIdxType(PrimitiveType colType) {
         return colType.isNumericType() || colType.isDateLikeType() || colType.isTimeStampTzType()
-                || colType.isIPType() || colType == PrimitiveType.BOOLEAN;
+                || colType.isIPType() || colType.isUuidType() || colType == PrimitiveType.BOOLEAN;
     }
 
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
@@ -257,7 +268,8 @@ public class InvertedIndexUtil {
                             + "or 'normalizer' for text normalization without tokenization.");
         }
 
-        checkAnalyzerName(analyzerName, colType);
+        checkAnalyzerName(analyzerName, colType, invertedIndexFileStorageFormat, supportPhrase);
+        applyGramFamilyIndexDefaults(analyzerName, properties);
         checkNormalizerName(normalizerName, colType);
 
         if (parser != null
@@ -337,24 +349,57 @@ public class InvertedIndexUtil {
             // dict_compression now silently ignores by V2/V3 inverted index
         }
 
-        // Normalize analyzer and normalizer names to lowercase for case-insensitive matching
+        // Canonicalize built-ins while retaining the exact spelling of a resolved legacy policy.
         normalizeInvertedIndexProperties(properties);
     }
 
     /**
-     * Normalize analyzer and normalizer names in index properties to lowercase.
-     * This ensures case-insensitive matching between table creation and query time.
+     * Canonicalize analyzer and normalizer names in index properties. Legacy metadata may contain
+     * case-distinct policy names, so a resolved custom policy must keep its exact stored name.
      */
     private static void normalizeInvertedIndexProperties(Map<String, String> properties) {
+        resolvePolicyNames(properties);
         AnalyzerKeyNormalizer.normalizeInvertedIndexProperties(
                 properties,
-                INVERTED_INDEX_ANALYZER_NAME_KEY,
-                INVERTED_INDEX_NORMALIZER_NAME_KEY,
                 INVERTED_INDEX_PARSER_KEY,
                 INVERTED_INDEX_PARSER_KEY_ALIAS);
     }
 
-    private static void checkAnalyzerName(String analyzerName, PrimitiveType colType) throws AnalysisException {
+    /** Store analyzer and normalizer names in the spelling BE dispatches on. */
+    public static void resolvePolicyNames(Map<String, String> properties) {
+        normalizeResolvedPolicyName(properties, INVERTED_INDEX_ANALYZER_NAME_KEY, IndexPolicy.BUILTIN_ANALYZERS);
+        normalizeResolvedPolicyName(properties, INVERTED_INDEX_NORMALIZER_NAME_KEY, IndexPolicy.BUILTIN_NORMALIZERS);
+    }
+
+    private static void normalizeResolvedPolicyName(Map<String, String> properties, String key,
+            Set<String> builtins) {
+        String name = properties.get(key);
+        if (name == null || name.isEmpty()) {
+            return;
+        }
+        properties.put(key, resolveAnalyzerName(name, builtins));
+    }
+
+    /** Resolve built-in names and retain the stored spelling of custom policies. */
+    public static String resolveAnalyzerName(String name) {
+        return resolveAnalyzerName(name, BUILTIN_TOP_LEVEL_NAMES);
+    }
+
+    // Validation resolves in the same order, so the stored name binds what it accepted.
+    private static String resolveAnalyzerName(String name, Set<String> builtins) {
+        String trimmedName = name.trim();
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        String builtin = policyMgr.getTopLevelBuiltin(trimmedName, builtins);
+        if (builtin != null) {
+            return builtin;
+        }
+        IndexPolicy policy = policyMgr.getPolicyByName(trimmedName);
+        return policy == null ? trimmedName.toLowerCase(Locale.ROOT) : policy.getName();
+    }
+
+    private static void checkAnalyzerName(String analyzerName, PrimitiveType colType,
+            TInvertedIndexFileStorageFormat storageFormat, String supportPhrase)
+            throws AnalysisException {
         if (analyzerName == null || analyzerName.isEmpty()) {
             return;
         }
@@ -363,9 +408,67 @@ public class InvertedIndexUtil {
                     + " is not supported for column of type " + colType);
         }
         try {
-            Env.getCurrentEnv().getIndexPolicyMgr().validateAnalyzerExists(analyzerName);
+            IndexPolicyMgr indexPolicyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+            indexPolicyMgr.validateAnalyzerExists(analyzerName);
+            // Gram-family analyzer (an ngram tokenizer carrying mode, see
+            // IndexPolicyMgr#resolveGramTokenizerMode): BE builds sparse/dense gram postings for it
+            // only on SNII, and those postings carry no positions, so phrase queries are impossible.
+            Optional<String> gramMode = indexPolicyMgr.resolveGramTokenizerMode(analyzerName);
+            if (gramMode.isPresent()) {
+                if (colType.isArrayType()) {
+                    throw new AnalysisException("gram tokenizer (mode=" + gramMode.get()
+                            + ") analyzer '" + analyzerName + "' does not support ARRAY columns");
+                }
+                if (!colType.isCharFamily()) {
+                    throw new AnalysisException("gram tokenizer (mode=" + gramMode.get()
+                            + ") analyzer '" + analyzerName
+                            + "' is supported only on scalar CHAR, VARCHAR, or STRING columns");
+                }
+                if (storageFormat != TInvertedIndexFileStorageFormat.SNII) {
+                    throw new AnalysisException("gram tokenizer (mode=" + gramMode.get()
+                            + ") requires inverted_index_storage_format = SNII");
+                }
+                if ("true".equals(supportPhrase)) {
+                    throw new AnalysisException(
+                            "gram tokenizer index does not support phrase (support_phrase must be false)");
+                }
+            }
         } catch (DdlException e) {
             throw new AnalysisException("Invalid custom analyzer: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Constraints a gram-family analyzer (an ngram tokenizer carrying mode) enforces at the index
+     * property level:
+     * 1) an index-level char_filter (char_filter_type/pattern/replacement) conflicts with the
+     *    semantics of gram split boundaries (the character replacement happens after the tokenizer
+     *    has already split by the gram rule, which breaks reproducibility), so it is rejected;
+     * 2) when support_phrase is not given explicitly it defaults to "false", overriding the general
+     *    rule of the {@link Index} constructor that "an analyzer implies true" -- a gram index is
+     *    forced to docs-only on the BE side and has no positions for a phrase query to use.
+     *
+     * <p>The {@code properties} held by the caller ({@link #checkInvertedIndexProperties}) and the
+     * {@link IndexDefinition} field are the same mutable Map reference, so the defaults written
+     * here are seen when {@code IndexDefinition#translateToCatalogStyle} builds the {@link Index}.
+     */
+    private static void applyGramFamilyIndexDefaults(String analyzerName, Map<String, String> properties)
+            throws AnalysisException {
+        if (analyzerName == null || analyzerName.isEmpty()) {
+            return;
+        }
+        Optional<String> gramMode = Env.getCurrentEnv().getIndexPolicyMgr().resolveGramTokenizerMode(analyzerName);
+        if (!gramMode.isPresent()) {
+            return;
+        }
+        if (properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE) != null
+                || properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN) != null
+                || properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT) != null) {
+            throw new AnalysisException("char_filter cannot be used with gram tokenizer (mode="
+                    + gramMode.get() + ")");
+        }
+        if (properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY) == null) {
+            properties.put(INVERTED_INDEX_SUPPORT_PHRASE_KEY, "false");
         }
     }
 
@@ -393,14 +496,38 @@ public class InvertedIndexUtil {
         }
 
         Set<String> analyzerKeys = new HashSet<>();
+        Set<String> analyzerSelectors = new HashSet<>();
         for (IndexDefinition indexDef : indexDefs) {
-            String key = buildAnalyzerIdentity(indexDef.getProperties());
+            Map<String, String> properties = indexDef.getProperties();
+            String key = buildAnalyzerIdentity(properties);
             // HashSet.add() returns false if element already exists
             if (!analyzerKeys.add(key)) {
                 return false;
             }
+            String selector = getAnalyzerSelector(properties);
+            if (!INVERTED_INDEX_PARSER_IK.equals(selector) && !analyzerSelectors.add(selector)) {
+                return false;
+            }
         }
         return true;
+    }
+
+    private static String getAnalyzerSelector(Map<String, String> properties) {
+        String preferredAnalyzer = InvertedIndexProperties.getPreferredAnalyzer(properties);
+        if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
+            return resolveAnalyzerName(preferredAnalyzer);
+        }
+        String parser = InvertedIndexProperties.getInvertedIndexParser(properties);
+        return Strings.isNullOrEmpty(parser)
+                ? InvertedIndexProperties.INVERTED_INDEX_DEFAULT_ANALYZER_KEY
+                : parser.trim().toLowerCase(Locale.ROOT);
+    }
+
+    public static boolean hasSameNonIkAnalyzerSelector(
+            Map<String, String> leftProperties, Map<String, String> rightProperties) {
+        String leftSelector = getAnalyzerSelector(leftProperties);
+        return !INVERTED_INDEX_PARSER_IK.equals(leftSelector)
+                && leftSelector.equals(getAnalyzerSelector(rightProperties));
     }
 
     public static String buildAnalyzerIdentity(Map<String, String> properties) {
@@ -423,17 +550,39 @@ public class InvertedIndexUtil {
                     buildAnalyzerIdentity(properties));
         }
 
+        String resolvedAnalyzer = resolveAnalyzerName(normalizedAnalyzer);
+        return isAnalyzerNameMatched(properties, normalizedAnalyzer)
+                && (!INVERTED_INDEX_PARSER_IK.equals(resolvedAnalyzer)
+                    || matchesBuiltinIkDefaults(properties));
+    }
+
+    /**
+     * Whether the index is served by the named analyzer, regardless of how a built-in IK index is
+     * configured. This name check is all that selected an index before built-in IK indexes were
+     * matched by their effective configuration.
+     */
+    public static boolean isAnalyzerNameMatched(Map<String, String> properties, String analyzer) {
+        String normalizedAnalyzer = Strings.isNullOrEmpty(analyzer) ? "" : analyzer.trim();
+        if (normalizedAnalyzer.isEmpty()) {
+            return false;
+        }
+        String resolvedAnalyzer = resolveAnalyzerName(normalizedAnalyzer);
         String preferredAnalyzer = InvertedIndexProperties.getPreferredAnalyzer(properties);
         if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
-            return normalizedAnalyzer.equalsIgnoreCase(preferredAnalyzer);
+            return resolvedAnalyzer.equals(resolveAnalyzerName(preferredAnalyzer));
         }
 
         String parser = InvertedIndexProperties.getInvertedIndexParser(properties);
         if (Strings.isNullOrEmpty(parser)) {
-            return normalizedAnalyzer.equalsIgnoreCase("default")
-                    || normalizedAnalyzer.equalsIgnoreCase(INVERTED_INDEX_PARSER_NONE);
+            return resolvedAnalyzer.equals("default")
+                    || resolvedAnalyzer.equals(INVERTED_INDEX_PARSER_NONE);
         }
-        return normalizedAnalyzer.equalsIgnoreCase(parser);
+        return resolvedAnalyzer.equals(parser.trim().toLowerCase(Locale.ROOT));
+    }
+
+    private static boolean matchesBuiltinIkDefaults(Map<String, String> properties) {
+        return buildAnalyzerIdentity(properties).equals(
+                buildAnalyzerIdentity(Map.of(INVERTED_INDEX_ANALYZER_NAME_KEY, INVERTED_INDEX_PARSER_IK)));
     }
 
     public static String getAnalyzerIdentity(Index index) {

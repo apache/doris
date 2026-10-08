@@ -671,6 +671,17 @@ public abstract class TestWithFeService {
         connectContext.setDatabase(dbName);
     }
 
+    // Explicit opt-in for ROW fixtures; keep the feature switch unchanged outside this DDL.
+    protected void createTableWithRowBinlog(String sql) throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            createTable(sql);
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
     public void createTable(String sql) throws Exception {
         createTable(sql, true);
     }

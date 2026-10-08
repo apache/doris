@@ -172,7 +172,6 @@ TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
     OlapReaderStatistics stats;
     read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
     read_options.stats = &stats;
-    read_options.tablet_schema = tablet_schema;
     ASSERT_TRUE(iterator.init(read_options).ok());
 
     Block block;
@@ -277,7 +276,6 @@ protected:
         StorageReadOptions read_options;
         read_options.push_down_agg_type_opt = agg;
         read_options.stats = &_stats;
-        read_options.tablet_schema = tablet_schema;
 
         if (with_delete) {
             auto del_pred = NullPredicate::create_shared(0, "c1", true, PrimitiveType::TYPE_INT);

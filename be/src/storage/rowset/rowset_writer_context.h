@@ -40,6 +40,7 @@
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
 #include "storage/segment/historical_row_retriever.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
@@ -73,6 +74,8 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
+    // Set only by compaction, alongside its extended tablet_schema.
+    VariantCompactionPathsSPtr variant_compaction_paths;
     // Immutable inverted-index file format inherited from the owner tablet.
     std::optional<InvertedIndexStorageFormatPB> inverted_index_storage_format;
     // Whether the owner tablet persists the format in its top-level metadata.

@@ -312,6 +312,24 @@ static std::unordered_map<std::string_view,
 };
 // clang-format on
 
+std::vector<std::string_view> get_supported_http_key_types() {
+    std::vector<std::string_view> key_types;
+    key_types.reserve(param_set.size());
+    for (const auto& entry : param_set) {
+        key_types.push_back(entry.first);
+    }
+    return key_types;
+}
+
+std::vector<std::string_view> get_supported_http_versioned_key_types() {
+    std::vector<std::string_view> key_types;
+    key_types.reserve(versioned_param_set.size());
+    for (const auto& entry : versioned_param_set) {
+        key_types.push_back(entry.first);
+    }
+    return key_types;
+}
+
 static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string* key,
                                             std::string* key_type = nullptr) {
     MetaServiceResponseStatus status;

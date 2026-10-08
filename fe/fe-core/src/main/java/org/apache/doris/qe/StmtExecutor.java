@@ -148,7 +148,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
-import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -166,6 +165,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -200,8 +200,11 @@ public class StmtExecutor {
     // never be finished. Null until decided.
     private volatile Boolean profileEnabled;
 
-    @Setter
     private volatile Coordinator coord = null;
+    // A statement can be cancelled while it is still planning and has no coordinator yet.
+    // Keep this state scoped to the coordinator publication handoff: other execution targets
+    // retain their existing cancellation contracts.
+    private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
     private volatile Coordinator externalDmlAuditCoordinator = null;
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
@@ -814,6 +817,21 @@ public class StmtExecutor {
                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
     }
 
+    // Whether a scan node of the current plan released, when the failed attempt was cancelled, what
+    // the BE would scan with again if handleQueryWithRetry dispatched the same plan once more
+    // (ScanNode.cannotBeRedispatched).
+    private boolean planCannotBeRedispatched() {
+        if (planner == null) {
+            return false;
+        }
+        for (ScanNode scanNode : planner.getScanNodes()) {
+            if (scanNode.cannotBeRedispatched()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void checkBlockRulesByScan(Planner planner) throws AnalysisException {
         if (planner == null) {
             return;
@@ -1174,8 +1192,9 @@ public class StmtExecutor {
     }
 
     // Finalize an Arrow Flight query whose coordinator was kept alive across the
-    // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
-    // SplitSources and the query queue slot) and then unregister the query. See #62259.
+    // GetFlightInfo -> DoGet phases: close the coordinator (releasing what its scan nodes held for
+    // the BE - external-table batch SplitSources, a remote Doris scan's Flight SQL session - and
+    // the query queue slot) and then unregister the query. See #62259.
     public void finalizeArrowFlightQuery() {
         try {
             if (coord != null) {
@@ -1272,6 +1291,15 @@ public class StmtExecutor {
                             }
                         }
                     }
+                }
+                if (isNeedRetry && planCannotBeRedispatched()) {
+                    // The failed attempt's cancel() stopped the scan nodes, and one of them released
+                    // what the BE scans with: a remote Doris scan's session on the other frontend,
+                    // whose query the scan ranges point at. The same plan cannot be dispatched again.
+                    LOG.warn("not retrying query {} with the same plan: a scan node released what the backend"
+                            + " scans with when the failed attempt was cancelled. stmt: {}",
+                            DebugUtil.printId(context.queryId()), parsedStmt.getOrigStmt().originStmt);
+                    throw e;
                 }
                 if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
                     LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
@@ -1419,6 +1447,8 @@ public class StmtExecutor {
     }
 
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
+        pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
+        Status coordinatorCancelReason = pendingCoordinatorCancelReason.get();
         Consumer<Status> delegate = cancelDelegate;
         if (delegate != null) {
             delegate.accept(cancelReason);
@@ -1438,7 +1468,7 @@ public class StmtExecutor {
         }
         Coordinator coordRef = coord;
         if (coordRef != null) {
-            coordRef.cancel(cancelReason);
+            coordRef.cancel(coordinatorCancelReason);
         }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
@@ -1447,6 +1477,23 @@ public class StmtExecutor {
             // Wait for the command to run or cancel completion
             cancelableCommand.get().waitNotRunning();
         }
+    }
+
+    public void setCoord(Coordinator coordinator) {
+        coord = coordinator;
+        Status cancelReason = pendingCoordinatorCancelReason.get();
+        if (coordinator != null && cancelReason != null) {
+            coordinator.cancel(cancelReason);
+        }
+    }
+
+    /**
+     * The first terminal status delivered to this executor, or null when it has not been cancelled. Sticky:
+     * a later cancellation never replaces the first one. Used by owners (such as the distributed rewrite
+     * driver) that execute outside the coordinator publication handoff.
+     */
+    public Status getPendingCancelReason() {
+        return pendingCoordinatorCancelReason.get();
     }
 
     public void cancel(Status cancelReason) {
@@ -1635,15 +1682,15 @@ public class StmtExecutor {
                     context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
             context.getState().setIsQuery(true);
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
-            coord = new NereidsCoordinator(context,
-                    (NereidsPlanner) planner, context.getStatsErrorEstimator());
+            setCoord(new NereidsCoordinator(context,
+                    (NereidsPlanner) planner, context.getStatsErrorEstimator()));
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
             coordBase = coord;
         } else {
-            coord = EnvFactory.getInstance().createCoordinator(
-                    context, planner, context.getStatsErrorEstimator());
+            setCoord(EnvFactory.getInstance().createCoordinator(
+                    context, planner, context.getStatsErrorEstimator()));
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
@@ -1667,20 +1714,26 @@ public class StmtExecutor {
 
             if (!context.isReturnResultFromLocal()) {
                 profile.getSummaryProfile().setTempStartTime();
-                // The client pulls the results from the BE later (Arrow Flight SQL's DoGet). Only an
-                // external-table scan in batch mode still needs the coordinator after this point:
-                // the BE fetches its splits lazily from the split source the coordinator holds, so
-                // closing the coordinator here would release that source too early and break DoGet
-                // (#62259). Such a coordinator is closed later by ConnectContext: on the session's
-                // next query, on teardown, or by the idle reaper in checkTimeout. The trade-off is
-                // that its query queue slot and query registration stay held until then. Every
-                // other query closes its coordinator in the finally block below and releases both
-                // right away, the BE buffering its results independently of the coordinator
-                // (#67503). A short-circuit point query is the one case with a different coordBase,
-                // and it cannot reach here: it has no Arrow result on either side, so
+                // The client pulls the results from the BE later (Arrow Flight SQL's DoGet). Only a
+                // scan the BE keeps depending on the FE for still needs the coordinator after this
+                // point: an external-table scan in batch mode fetches its splits lazily from the
+                // split source the coordinator holds (#62259), and a remote Doris scan keeps the
+                // Flight SQL session open on the other frontend whose query the BE reads
+                // (RemoteDorisScanNode); closing the coordinator here would release either too early
+                // and break DoGet. Such a coordinator is closed later by ConnectContext: on the
+                // session's next query, on teardown, or by the idle reaper in checkTimeout. The
+                // trade-off is that its query queue slot and query registration stay held until
+                // then. Every other query closes its coordinator in the finally block below and
+                // releases both right away, the BE buffering its results independently of the
+                // coordinator (#67503). A short-circuit point query is the one case with a different
+                // coordBase, and it cannot reach here: it has no Arrow result on either side, so
                 // LogicalResultSinkToShortCircuitPointQuery keeps a Flight session on the normal
                 // execution path (ProtocolAdapter.supportsShortCircuitPointQuery, #67368).
-                if (coordBase == coord && coord.hasBatchSplitSource()) {
+                if (coordBase == coord && coord.mustOutliveDispatch()) {
+                    // The coordinator outlives this statement, and with it what its scan nodes hold
+                    // for the BE: the statement's own end must not stop them (StatementContext.close
+                    // is the fallback for a plan no coordinator owns), the coordinator's close does.
+                    statementContext.handOverScanNodesToDeferredCoordinator(planner.getScanNodes());
                     deferForArrowFlight();
                 }
                 return;
@@ -1789,7 +1842,7 @@ public class StmtExecutor {
             LOG.warn(internalErrorSt.getErrorMsg());
             coordBase.cancel(internalErrorSt);
             // set to null so that the retry logic will generate a new coordinator
-            this.coord = null;
+            setCoord(null);
             throw e;
         } finally {
             // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
@@ -2106,8 +2159,8 @@ public class StmtExecutor {
             if (Config.enable_collect_internal_query_profile) {
                 context.getSessionVariable().enableProfile = true;
             }
-            coord = EnvFactory.getInstance().createCoordinator(context,
-                    planner, context.getStatsErrorEstimator());
+            setCoord(EnvFactory.getInstance().createCoordinator(context,
+                    planner, context.getStatsErrorEstimator()));
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),

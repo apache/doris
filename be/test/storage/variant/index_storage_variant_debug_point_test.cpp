@@ -210,7 +210,6 @@ TEST_F(IndexStorageVariantDebugPointTest, ArrayPathIndexAcceptsMixedTypedElement
             {R"({"c_arr": ["text"]})", R"({"c_arr": [1.1]})", R"({"c_arr": [1.0]})",
              R"({"c_arr": [90]})", R"({"c_arr": [90999999999999]})"},
             0));
-    rowset.batches.back().parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 

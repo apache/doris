@@ -138,6 +138,20 @@ final class IcebergPartitionUtils {
     }
 
     /**
+     * Whether <b>any</b> partition spec of the table is partitioned. Scan planning must use this instead of
+     * the current default spec: after evolving to an unpartitioned spec, data files written under an older
+     * partitioned spec still carry their partition metadata (identity values, spec id, partition data).
+     */
+    static boolean hasPartitionedSpec(Table table) {
+        for (PartitionSpec spec : table.specs().values()) {
+            if (spec.isPartitioned()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Per-file map of identity partition column (case-preserved) to serialized value, skipping non-identity
      * transforms and BINARY/FIXED columns (utf8 round-trip would corrupt those). Order-preserving
      * (LinkedHashMap, spec field order). Mirrors legacy {@code IcebergUtils.getIdentityPartitionInfoMap}.

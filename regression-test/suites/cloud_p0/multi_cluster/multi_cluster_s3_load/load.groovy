@@ -27,52 +27,33 @@
 // sed -nr 's/.*tables: (.*)$/\1/gp' /path/to/*.sql | sed -nr 's/,/\n/gp' | sort | uniq
 
 import groovy.json.JsonOutput
+import org.apache.doris.regression.util.MultiClusterStateGuard
 
 suite("load") {
-    List<String> ipList = new ArrayList<>()
-    List<String> hbPortList = new ArrayList<>()
-    List<String> httpPortList = new ArrayList<>()
-    List<String> beUniqueIdList = new ArrayList<>()
+    withRestoredMultiClusterState(true) {
+    def baseline = multiClusterBaseline()
+    def ipList = baseline.collect { it.nodes[0].ip }
+    def httpPortList = baseline.collect { it.nodes[0].http_port.toString() }
 
-    String[] bes = context.config.multiClusterBes.split(',');
-    println("the value is " + context.config.multiClusterBes);
-    for(String values : bes) {
-        println("the value is " + values);
-        String[] beInfo = values.split(':');
-        ipList.add(beInfo[0]);
-        hbPortList.add(beInfo[1]);
-        httpPortList.add(beInfo[2]);
-        beUniqueIdList.add(beInfo[3]);
-    }
-
-    println("the ip is " + ipList);
-    println("the heartbeat port is " + hbPortList);
-    println("the http port is " + httpPortList);
-    println("the be unique id is " + beUniqueIdList);
-
-    for (unique_id : beUniqueIdList) {
-        resp = get_cluster.call(unique_id);
-        for (cluster : resp) {
-            if (cluster.type == "COMPUTE") {
-                drop_cluster.call(cluster.cluster_name, cluster.cluster_id);
-            }
+    // Establish the shared baseline after a previous suite or run left different group names.
+    def existing = get_cluster.call(baseline[0].nodes[0].cloud_unique_id)
+            .findAll { it.type == 'COMPUTE' }
+    if (!MultiClusterStateGuard.frontendMatches(baseline,
+            sql_return_maparray('SHOW CLUSTERS'), sql_return_maparray('SHOW BACKENDS'))) {
+        existing.each { group -> drop_cluster.call(group.cluster_name, group.cluster_id) }
+        sleep(20000)
+        baseline.each { group ->
+            def node = group.nodes[0]
+            add_cluster.call(node.cloud_unique_id, node.ip, node.heartbeat_port.toString(),
+                    group.cluster_name, group.cluster_id)
         }
+        sleep(20000)
     }
-    wait_cluster_change()
+    checkMultiClusterBaseline(baseline)
+    sql "SET PROPERTY 'default_cloud_cluster' = '${baseline[0].cluster_name}'"
+    List<List<Object>> result
 
-    List<List<Object>> result  = sql "show clusters"
-    assertTrue(result.size() == 0);
-
-    add_cluster.call(beUniqueIdList[0], ipList[0], hbPortList[0],
-                     "regression_cluster_name0", "regression_cluster_id0");
-    add_cluster.call(beUniqueIdList[1], ipList[1], hbPortList[1],
-                     "regression_cluster_name1", "regression_cluster_id1");
-    wait_cluster_change()
-
-    result  = sql "show clusters"
-    assertEquals(result.size(), 2);
-
-    sql "use @regression_cluster_name1"
+    sql "use @${baseline[1].cluster_name}"
     result  = sql "show clusters"
 
     sql """ set enable_profile = true """
@@ -144,7 +125,7 @@ suite("load") {
     assertTrue(before_cluster1_load_rows != after_cluster1_load_rows)
     assertTrue(before_cluster1_flush != after_cluster1_flush)
 
-    sql "use @regression_cluster_name0"
+    sql "use @${baseline[0].cluster_name}"
     result  = sql "show clusters"
 
     def before_cluster0_query_scan_rows = get_be_metric(ipList[0], httpPortList[0], "query_scan_rows");
@@ -163,4 +144,5 @@ suite("load") {
 
     assertTrue(before_cluster0_query_scan_rows != after_cluster0_query_scan_rows)
     assertTrue(before_cluster1_query_scan_rows == after_cluster1_query_scan_rows)
+    }
 }

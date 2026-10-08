@@ -208,6 +208,8 @@ protected:
     int64_t _newest_write_timestamp {-1};
     std::unique_ptr<RowIdConversion> _rowid_conversion = nullptr;
     TabletSchemaSPtr _cur_tablet_schema;
+    // The variant path layout of _cur_tablet_schema; empty unless it is an extended schema.
+    VariantCompactionPathsSPtr _cur_variant_compaction_paths;
 
     std::unique_ptr<RuntimeProfile> _profile;
 

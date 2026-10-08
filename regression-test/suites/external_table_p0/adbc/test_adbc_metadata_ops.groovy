@@ -124,7 +124,14 @@ suite("test_adbc_metadata_ops", "p0,external") {
         assertTrue(catalogNames.contains(catalogName),
                 "the catalog is missing from SHOW CATALOGS: ${catalogNames}")
 
-        qt_show_create_catalog """SHOW CREATE CATALOG ${catalogName}"""
+        // Driver and fixture paths belong to this run, so a machine-specific golden DDL is invalid.
+        def createCatalog = sql("SHOW CREATE CATALOG ${catalogName}")
+        assertEquals(1, createCatalog.size())
+        assertEquals(catalogName, createCatalog[0][0].toString())
+        String catalogDdl = createCatalog[0][1].toString()
+        assertTrue(catalogDdl.contains('"type" = "adbc"'), catalogDdl)
+        assertTrue(catalogDdl.contains('"driver_url" = "' + sqliteDriverPath + '"'), catalogDdl)
+        assertTrue(catalogDdl.contains('"uri" = "file:' + dbFile.absolutePath + '"'), catalogDdl)
 
         qt_show_databases """SHOW DATABASES FROM ${catalogName}"""
         qt_show_tables """SHOW TABLES FROM ${catalogName}.${sqliteDb}"""
@@ -187,6 +194,15 @@ suite("test_adbc_metadata_ops", "p0,external") {
         sql """DESC ${catalogName}.${sqliteDb}.meta_a"""
         sqliteExec("ALTER TABLE meta_a ADD COLUMN added_by_refresh_table TEXT;"
                 + " UPDATE meta_a SET added_by_refresh_table = 'x';")
+
+        // The DESC above paid for this schema once. Until a REFRESH arrives the connector keeps serving
+        // that copy, which is the half that gives the assertion below its meaning -- a connector that
+        // re-read on every statement would satisfy that one while remembering nothing. The DATABASE and
+        // CATALOG levels below assert only the positive half: they exercise the same rule at a coarser key.
+        def columnsBeforeRefresh = sql("DESC ${catalogName}.${sqliteDb}.meta_a").collect { it[0] } as Set
+        assertFalse(columnsBeforeRefresh.contains("added_by_refresh_table"),
+                "the source's new column was visible before any REFRESH: ${columnsBeforeRefresh}")
+
         sql """REFRESH TABLE ${catalogName}.${sqliteDb}.meta_a"""
         def afterTableRefresh = sql("DESC ${catalogName}.${sqliteDb}.meta_a").collect { it[0] } as Set
         assertTrue(afterTableRefresh.contains("added_by_refresh_table"),
@@ -286,6 +302,8 @@ suite("test_adbc_metadata_ops", "p0,external") {
                 CREATE CATALOG ${flightCatalog} PROPERTIES (
                     "type" = "adbc",
                     "driver_url" = "${flightDriverPath}",
+                    -- The loopback source is Doris even when vendor detection is unavailable.
+                    "sql_dialect" = "doris",
                     "uri" = "grpc://127.0.0.1:${arrowPort}",
                     "user" = "root",
                     "password" = "",

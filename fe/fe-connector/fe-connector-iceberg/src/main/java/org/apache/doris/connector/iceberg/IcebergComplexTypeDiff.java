@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 
 import java.util.HashSet;
@@ -50,7 +51,7 @@ import java.util.Set;
  * {@code UpdateSchema.commit()}, so any guard throwing aborts the whole change atomically.</p>
  *
  * <p><b>Supported shape changes (legacy parity):</b> widen an existing nested field's primitive type (only the
- * iceberg-representable safe promotions int&rarr;long, float&rarr;double, or an exact match), change a nested
+ * iceberg-representable safe promotions, including same-scale decimal precision widening), change a nested
  * field's comment, widen a NOT NULL nested field to nullable, and append new (nullable) STRUCT fields. The
  * category of every nested level must stay the same (struct/array/map); struct fields may not be renamed,
  * reordered, dropped, or narrowed to NOT NULL; a MAP key type may not change.</p>
@@ -310,21 +311,13 @@ public final class IcebergComplexTypeDiff {
 
     /**
      * Whether changing a nested primitive {@code oldType} to {@code newType} is a legal promotion, mirroring
-     * legacy {@code ColumnType.checkSupportSchemaChangeForNestedPrimitive} restricted to the iceberg-representable
-     * cases: an exact match (covers VARCHAR length growth, which both map to iceberg STRING), INT&rarr;BIGINT
-     * (iceberg INTEGER&rarr;LONG), and FLOAT&rarr;DOUBLE. Everything else (e.g. a nested DECIMAL precision change,
-     * any narrowing, a category change) is rejected — matching legacy's restrictive nested rule.
+     * Iceberg's primitive-promotion rules. Besides INTEGER&rarr;LONG and FLOAT&rarr;DOUBLE, Iceberg allows a
+     * DECIMAL precision increase when scale is unchanged. Delegating to Iceberg keeps the connector's validation
+     * aligned with the UpdateSchema operation it is about to commit.
      */
     private static boolean isLegalNestedPrimitivePromotion(Type oldType, Type newType) {
-        if (oldType.equals(newType)) {
-            return true;
-        }
-        Type.TypeID oldId = oldType.typeId();
-        Type.TypeID newId = newType.typeId();
-        if (oldId == Type.TypeID.INTEGER && newId == Type.TypeID.LONG) {
-            return true;
-        }
-        return oldId == Type.TypeID.FLOAT && newId == Type.TypeID.DOUBLE;
+        return newType.isPrimitiveType()
+                && TypeUtil.isPromotionAllowed(oldType, newType.asPrimitiveType());
     }
 
     /** The iceberg type category (struct/list/map) of {@code newType} must equal {@code oldType}'s. */

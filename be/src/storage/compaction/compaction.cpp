@@ -574,8 +574,10 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     // so get_extended_compaction_schema will extended the schema for variant columns
     // for ordered compaction, we don't need to extend the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
+        auto paths = std::make_shared<VariantCompactionPathsMap>();
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                _input_rowsets, _cur_tablet_schema));
+                _input_rowsets, _cur_tablet_schema, *paths));
+        _cur_variant_compaction_paths = std::move(paths);
     }
     return Status::OK();
 }
@@ -1040,7 +1042,11 @@ Status Compaction::do_inverted_index_compaction() {
 
         auto* rowset = find_it->second;
         auto seg_pos = rowset->rowset_meta()->position_of(seg_id);
-        auto seg = rowset->segment(seg_pos);
+        if (!seg_pos.has_value()) {
+            mark_skip_index_compaction(ctx, error_handler);
+            return seg_pos.error();
+        }
+        auto seg = rowset->segment(seg_pos.value());
         auto fs = rowset->rowset_meta()->fs();
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_get_fs_error", { fs = nullptr; })
         if (!fs) {
@@ -1117,7 +1123,8 @@ Status Compaction::do_inverted_index_compaction() {
         snii_merge_memory_reporter = std::make_shared<snii::writer::MemoryReporter>(
                 snii::writer::snii_build_consume_release(
                         snii::writer::BuildMemoryPopulation::kUnregistered),
-                spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit);
+                spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit,
+                static_cast<uint64_t>(config::snii_postings_workspace_bytes));
     }
     for (auto&& [column_uniq_id, index_metas] :
          collect_index_compaction_domain(*_cur_tablet_schema, ctx)) {
@@ -1787,6 +1794,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = _trigger_quick_merge_by_binlog ? OVERLAPPING : NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
+    ctx.variant_compaction_paths = _cur_variant_compaction_paths;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
@@ -2092,8 +2100,10 @@ Status CloudCompactionMixin::build_basic_info() {
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns) {
+        auto paths = std::make_shared<VariantCompactionPathsMap>();
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                _input_rowsets, _cur_tablet_schema));
+                _input_rowsets, _cur_tablet_schema, *paths));
+        _cur_variant_compaction_paths = std::move(paths);
     }
     return Status::OK();
 }
@@ -2370,6 +2380,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
+    ctx.variant_compaction_paths = _cur_variant_compaction_paths;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();

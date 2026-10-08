@@ -555,7 +555,11 @@ public class SchemaTable extends Table {
                                     .column("TraceId", ScalarType.createVarchar(256))
                                     .column("Info", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                                     .column("FE", ScalarType.createVarchar(64))
-                                    .column("CloudCluster", ScalarType.createVarchar(64)).build(), true))
+                                    .column("CloudCluster", ScalarType.createVarchar(64))
+                                    // MySQL / ArrowFlightSQL. Keep it the last column: ConnectContext.ThreadInfo
+                                    // builds the row in this order, and the BE processlist scanner reads it
+                                    // by position and pads a row of an older FE that ends at CloudCluster.
+                                    .column("Protocol", ScalarType.createVarchar(16)).build(), true))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))

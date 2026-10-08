@@ -44,6 +44,7 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/segment/variant/binary_column_extract_iterator.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/json/path_in_data.h"
 
@@ -52,7 +53,7 @@ namespace doris::segment_v2 {
 // Implementation for merge processor
 class SparseColumnMergeIterator : public BaseBinaryColumnProcessor {
 public:
-    SparseColumnMergeIterator(const TabletSchema::PathsSetInfo& path_set_info,
+    SparseColumnMergeIterator(const VariantCompactionPaths& path_set_info,
                               BinaryColumnCacheSPtr sparse_column_cache,
                               SubstreamReaderTree&& src_subcolumns_for_sparse,
                               const StorageReadOptions* opts)

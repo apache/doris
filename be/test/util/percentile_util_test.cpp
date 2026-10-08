@@ -135,6 +135,90 @@ TEST_F(PercentileUtilTest, CountsSerializeMergedState) {
     EXPECT_DOUBLE_EQ(9.0, restored.terminate(1.0));
 }
 
+TEST_F(PercentileUtilTest, CountsMergeMergedStates) {
+    // Two merged states whose samples only live in sorted runs, e.g. partial states
+    // combined by different pipeline instances before the final merge.
+    Counts<int64_t> run0;
+    run0.increment(0);
+    Counts<int64_t> run1;
+    run1.increment(10);
+    run1.increment(0);
+    Counts<int64_t> left;
+    left.merge(&run0);
+    Counts<int64_t> right;
+    right.merge(&run1);
+
+    Counts<int64_t> merged;
+    merged.merge(&left);
+    merged.merge(&right);
+    // samples are [0, 0, 10], (3 - 1) * 0.625 = 1.25
+    EXPECT_DOUBLE_EQ(2.5, merged.terminate(0.625));
+
+    Counts<int64_t> merged_reverse;
+    Counts<int64_t> run2;
+    run2.increment(0);
+    Counts<int64_t> run3;
+    run3.increment(0);
+    run3.increment(10);
+    Counts<int64_t> left_reverse;
+    left_reverse.merge(&run2);
+    Counts<int64_t> right_reverse;
+    right_reverse.merge(&run3);
+    merged_reverse.merge(&right_reverse);
+    merged_reverse.merge(&left_reverse);
+    EXPECT_DOUBLE_EQ(2.5, merged_reverse.terminate(0.625));
+}
+
+TEST_F(PercentileUtilTest, CountsMergeRawStates) {
+    // Both sides hold unsorted raw samples, e.g. update states of different instances.
+    Counts<int64_t> dst;
+    dst.increment(9);
+    dst.increment(1);
+    Counts<int64_t> src;
+    src.increment(7);
+    src.increment(3);
+    src.increment(5);
+    dst.merge(&src);
+    // samples are [1, 3, 5, 7, 9]
+    EXPECT_DOUBLE_EQ(1.0, dst.terminate(0.0));
+    EXPECT_DOUBLE_EQ(4.0, dst.terminate(0.375));
+    EXPECT_DOUBLE_EQ(5.0, dst.terminate(0.5));
+    EXPECT_DOUBLE_EQ(8.0, dst.terminate(0.875));
+    EXPECT_DOUBLE_EQ(9.0, dst.terminate(1.0));
+
+    Counts<int64_t> single_run_dst;
+    single_run_dst.increment(4);
+    single_run_dst.increment(2);
+    Counts<int64_t> empty_src;
+    single_run_dst.merge(&empty_src);
+    EXPECT_DOUBLE_EQ(3.0, single_run_dst.terminate(0.5));
+}
+
+TEST_F(PercentileUtilTest, CountsSerializeMixedState) {
+    Counts<int64_t> src;
+    src.increment(8);
+    src.increment(2);
+    Counts<int64_t> merged;
+    merged.merge(&src);
+    // raw samples added after a merge must be kept together with the sorted runs
+    merged.increment(6);
+    merged.increment(4);
+
+    auto col = ColumnString::create();
+    BufferWritable writer(*col);
+    merged.serialize(writer);
+    writer.commit();
+
+    StringRef data(col->get_chars().data(), col->get_chars().size());
+    BufferReadable reader(data);
+    Counts<int64_t> restored;
+    restored.unserialize(reader);
+    // samples are [2, 4, 6, 8]
+    EXPECT_DOUBLE_EQ(2.0, restored.terminate(0.0));
+    EXPECT_DOUBLE_EQ(5.0, restored.terminate(0.5));
+    EXPECT_DOUBLE_EQ(8.0, restored.terminate(1.0));
+}
+
 TEST_F(PercentileUtilTest, CheckQuantileBoundary) {
     EXPECT_NO_THROW(check_quantile(0.0));
     EXPECT_NO_THROW(check_quantile(0.5));
