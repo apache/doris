@@ -99,6 +99,47 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
                 + "PARTITION BY List(c1) (PARTITION p1_3 VALUES IN (('1'),('3')),"
                 + "PARTITION p2 VALUES IN (('2'))) distributed by hash(c1) "
                 + "buckets 1 properties('replication_num' = '1');");
+
+        // Two partitions that meet at c1: p_single holds (c1=2020-01-01, c2=1) and p_double holds
+        // (c1=2020-01-01, c2=2) and (c1=2038-01-01, c2=2), so an MV partitioned by c1 sees them both describe
+        // the key 2020-01-01.
+        createTable("CREATE TABLE `t8` (`c1` date, `c2` int)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION p_single VALUES IN (('2020-01-01', 1)),"
+                + "PARTITION p_double VALUES IN (('2020-01-01', 2), ('2038-01-01', 2))) distributed by hash(c1) "
+                + "buckets 1 properties('replication_num' = '1');");
+    }
+
+    @Test
+    public void testOverlappingListDescsAreOnePartition() throws Exception {
+        // A partition of a list partitioned table can hold several keys of the MV's partition column, so two
+        // base partitions can describe keys that meet. An MV's own partitions cannot overlap, so the two are
+        // one partition whose keys are the union of theirs, and it is recorded with both of them -- which is
+        // what a refresh reads for it. Two descs here would be a create failure, not a wider partition: the
+        // MV would have two partition items repeating the key 2020-01-01.
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t8"));
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column), Maps.newHashMap());
+        Assertions.assertEquals(1, partitionKeyDescMap.size());
+        OlapTable t8 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t8");
+        Assertions.assertEquals(Sets.newHashSet("p_single", "p_double"),
+                partitionKeyDescMap.values().iterator().next().get(t8));
+    }
+
+    @Test
+    public void testDisjointListDescsKeepTheirPartitions() throws Exception {
+        // The control: partitions whose keys do not meet keep one MV partition each, and their names are the
+        // ones they had, since a desc that was not merged is not written out again.
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t7"));
+        Column c1Column = new Column("c1", PrimitiveType.INT);
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column), Maps.newHashMap());
+        Assertions.assertEquals(2, partitionKeyDescMap.size());
     }
 
     @Test

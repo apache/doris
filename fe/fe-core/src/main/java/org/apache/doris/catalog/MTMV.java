@@ -1626,8 +1626,10 @@ public class MTMV extends OlapTable {
      * by table, or none for a table that has no such partition.
      *
      * <p>Read once per mapping rather than per MV partition: the mapping describes every MV partition and the
-     * answer is the table's, not the partition's. The partition metadata is read without a lock, like the
-     * rest of the mapping this is part of.
+     * answer is the table's, not the partition's. The table's partitions are read under its read lock, so
+     * that a concurrent ADD or DROP PARTITION cannot be seen half applied -- its name list and the items the
+     * walk resolves against it have to come from one state of the table -- and so that this walk is not one
+     * more reader of a tree another thread is modifying.
      */
     private Map<MTMVRelatedTableIf, String> defaultListPartitionsOf() throws AnalysisException {
         Map<MTMVRelatedTableIf, String> res = Maps.newHashMap();
@@ -1639,11 +1641,16 @@ public class MTMV extends OlapTable {
             if (!(olapTable.getPartitionInfo() instanceof ListPartitionInfo)) {
                 continue;
             }
-            for (String partitionName : olapTable.getPartitionNames()) {
-                if (olapTable.getPartitionItemOrAnalysisException(partitionName).isDefaultPartition()) {
-                    res.put(pctTable, partitionName);
-                    break;
+            olapTable.readLock();
+            try {
+                for (String partitionName : olapTable.getPartitionNames()) {
+                    if (olapTable.getPartitionItemOrAnalysisException(partitionName).isDefaultPartition()) {
+                        res.put(pctTable, partitionName);
+                        break;
+                    }
                 }
+            } finally {
+                olapTable.readUnlock();
             }
         }
         return res;

@@ -151,24 +151,29 @@ suite("test_mtmv_base_partition_read_scope") {
     waitingMTMVTaskFinishedByMvName("list_default_mv")
     order_qt_list_default_tracked "SELECT d, k, total FROM list_default_mv"
 
-    // The same read with a partition_sync_limit window: the expired partition shares its `d` with the kept
-    // one, and the default partition's row is in the same MV partition. The MV partition has to keep the
-    // partitions the window kept plus the default partition's rows -- not the expired one, which no snapshot
-    // names, or dropping it later would leave its row in the MV with the partition still judged synchronized.
+    // The same table under a partition_sync_limit window: it is not windowed. The default partition takes
+    // the rows no other partition of the table claims, and ADD PARTITION makes an empty partition for a key
+    // without moving the rows the default partition already holds under it -- so which side of the window a
+    // row is on is not something a read can filter by the partition columns, and the read is left whole. The
+    // MV partition keeps every partition its key range covers, which is what it is recorded with.
     sql """drop materialized view if exists list_default_scope_mv"""
     sql """drop table if exists list_default_scope_base"""
     sql """
         CREATE TABLE list_default_scope_base (d DATE NOT NULL, k INT NOT NULL, amount BIGINT)
         DUPLICATE KEY(d, k)
         PARTITION BY LIST(d, k) (
-            PARTITION p_expired VALUES IN ((\"2020-01-01\", 1)),
             PARTITION p_kept VALUES IN ((\"2020-01-01\", 2), (\"2038-01-01\", 2)),
             PARTITION p_default
         )
         DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
     """
+    // Placed in the default partition: no explicit partition claims its key yet.
+    sql """INSERT INTO list_default_scope_base VALUES (\"2020-01-01\", 1, 1)"""
+    // And an explicit partition for that key, added afterwards: it is empty, and the row above stays in the
+    // default partition. It is an expired partition for the window below.
+    sql """ALTER TABLE list_default_scope_base ADD PARTITION p_expired VALUES IN ((\"2020-01-01\", 1))"""
     sql """INSERT INTO list_default_scope_base VALUES
-        (\"2020-01-01\", 1, 1), (\"2020-01-01\", 2, 2), (\"2038-01-01\", 2, 3), (\"2020-01-01\", 3, 4)"""
+        (\"2020-01-01\", 2, 2), (\"2038-01-01\", 2, 3), (\"2020-01-01\", 3, 4)"""
     sql """
         CREATE MATERIALIZED VIEW list_default_scope_mv
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
@@ -178,12 +183,16 @@ suite("test_mtmv_base_partition_read_scope") {
         AS SELECT d, k, SUM(amount) AS total FROM list_default_scope_base GROUP BY d, k
     """
     waitingMTMVTaskFinishedByMvName("list_default_scope_mv")
+    // The row whose key a later partition claimed is one the MV partition holds: what it is read through is
+    // the key range, not the partition a row sits in.
     order_qt_list_default_scope "SELECT d, k, total FROM list_default_scope_mv"
 
-    // And the expired partition is one no MV partition is recorded with, so dropping it is not a change the
-    // MV partition has to answer for: what it holds was read from what it is recorded with.
+    // The added partition is one the MV partition is recorded with -- the key range covers it -- so dropping
+    // it is a change the MV partition compares rather than one it stays synchronized through.
     sql """ALTER TABLE list_default_scope_base DROP PARTITION p_expired"""
-    order_qt_list_default_scope_dropped "SELECT d, k, total FROM list_default_scope_mv"
+    order_qt_list_default_scope_dropped """SELECT PartitionName, SyncWithBaseTables FROM
+        partitions('catalog'='internal','database'='${dbName}','table'='list_default_scope_mv')
+        ORDER BY PartitionName"""
 
     // A table's default partition belongs to every MV partition that reads the table, not only to the one
     // its own key maps to: here the join's other table has a partition for key 2 and a default partition
