@@ -27,7 +27,9 @@ import org.apache.doris.nereids.spm.manager.SessionBaselineStore;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.matcher.SPMPlaceholderReplacer;
 import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -325,8 +327,21 @@ public class SPMPlanner {
                 continue;
             }
             LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(fallbackAligned, matchPlan);
-            if (!limitContractPreserved(replay, matchPlan, bindTree)
-                    || !SPMPlanTreeSupport.orderContractPreserved(replay, matchPlan)) {
+            // The cap/order identity compared below is NAME-SPELLING sensitive (the table
+            // qualifiers AND the CTE aliases are part of the key, see
+            // SPMPlanTreeSupport#collectRowLimits) and the two sides spell the same query
+            // differently: the caller's tree was NAMESPACE-QUALIFIED for matching, while
+            // the stored parameterized tree keeps the names as written (unqualified, and
+            // with the ORIGINAL CTE aliases - the decompiled frozen text of other baselines
+            // carries the regenerated ones). Compare against a namespace-qualified VIEW of
+            // the fallback replay so an identical-text baseline is not rejected by
+            // spelling: qualification resolves the same session defaults the planner will
+            // apply to the bare names when the replayed tree is actually planned, so the
+            // view describes exactly what the replay will read.
+            LogicalPlan capView = SPMPlanTreeSupport.namespaceQualified(replay,
+                    captureCatalogName(ctx), captureDatabaseName(ctx));
+            if (!limitContractPreserved(capView, matchPlan, bindTree)
+                    || !SPMPlanTreeSupport.orderContractPreserved(capView, matchPlan)) {
                 LOG.info("SPM tryRewritePlan: baseline {} skipped: its plan cannot carry"
                                 + " the caller's LIMIT / OFFSET / ORDER BY contract"
                                 + " (caller {}, replayed {}, replayedCapsWithinCaller={},"
@@ -334,10 +349,10 @@ public class SPMPlanner {
                         candidate.getId(),
                         Arrays.toString(SPMPlanTreeSupport.topLevelLimitOf(matchPlan)),
                         Arrays.toString(SPMPlanTreeSupport.topLevelLimitOf(replay)),
-                        SPMPlanTreeSupport.rowLimitsWithin(replay, matchPlan),
-                        SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, matchPlan),
+                        SPMPlanTreeSupport.rowLimitsWithin(capView, matchPlan),
+                        SPMPlanTreeSupport.rowLimitsSurviveReplay(capView, matchPlan),
                         SPMPlanTreeSupport.rootOrderContractForTest(matchPlan),
-                        SPMPlanTreeSupport.rootOrderContractForTest(replay));
+                        SPMPlanTreeSupport.rootOrderContractForTest(capView));
                 continue;
             }
             usedBaselineId = candidate.getId();
@@ -393,8 +408,40 @@ public class SPMPlanner {
             // ORDER BY k LIMIT 2' against a manual plan carrying only the outer cap
             // passed the one-directional check (replayed caps ⊆ caller caps) although
             // the replay returns TWO rows where the caller returns one.
-            return SPMPlanTreeSupport.rowLimitsWithin(replayed, userPlan)
-                    && SPMPlanTreeSupport.rowLimitsSurviveReplay(replayed, userPlan);
+            if (SPMPlanTreeSupport.rowLimitsWithin(replayed, userPlan)
+                    && SPMPlanTreeSupport.rowLimitsSurviveReplay(replayed, userPlan)) {
+                return true;
+            }
+            // The captured-cap justification the comment above promises: the frozen
+            // replay is the decompiled OPTIMIZED plan of the BIND tree, and the
+            // optimizer folds a top-level LIMIT n into the plan (one cap per input
+            // scan, all with the SAME n) - so the IDENTICAL query's frozen plan
+            // legitimately exposes caps the RAW caller tree has no node for. Rejecting
+            // those skipped the original query's own baseline: tpcds q28/q77 re-ran
+            // their own query and got NO hit although caller and replay limits are
+            // identical. Three guards keep the reviewer's cases rejected:
+            //  - the top-level LIMIT must be UNCHANGED from the BIND tree's own: a
+            //    variant that changed the limit transfers the value POSITIONALLY and
+            //    the captured inner caps would truncate its different slice - unless the
+            //    replay carries NO cap besides the (merged) top one, where nothing can
+            //    truncate a different slice at all (tpcds q76's LIMIT 101 variant);
+            //  - every replay cap must be one the caller's own tree has, or a
+            //    same-valued pushdown of the caller's own top-level cap, with the
+            //    caller asking for NO order contract (an equal-valued inner cap below
+            //    an ordering-dependent slice truncates a DIFFERENT slice);
+            //  - every caller cap must still survive in the replay.
+            boolean topUnchangedFromBind = Arrays.equals(userLimit,
+                    SPMPlanTreeSupport.topLevelLimitOf(bindTree));
+            if ((topUnchangedFromBind || SPMPlanTreeSupport.onlyTopCap(replayed))
+                    && (SPMPlanTreeSupport.topCapContractPreserved(replayed, userPlan)
+                            || (topUnchangedFromBind
+                                    && SPMPlanTreeSupport.rowLimitsSurviveReplay(
+                                            replayed, userPlan)
+                                    && SPMPlanTreeSupport.replayCapsJustifiedByCallerTopLimit(
+                                            replayed, userPlan)))) {
+                return true;
+            }
+            return false;
         }
         // Matching the CAPTURED limit VALUE is not enough - the replayed tree
         // must actually CARRY the caller's cap. A manual plan 'SELECT k FROM t' freezes a
@@ -432,6 +479,9 @@ public class SPMPlanner {
         // literal and return the literal instead of evaluating the function.
         Boolean persistedFrozen = candidate.getPlanFrozen();
         if (persistedFrozen != null && !persistedFrozen) {
+            LOG.info("SPM replay baseline {} frozen replay unavailable: the row is marked as"
+                    + " raw planSql fallback text (the decompiler refused at creation)",
+                    candidate.getId());
             return null;
         }
         String planSql = candidate.getPlanSql();
@@ -485,6 +535,9 @@ public class SPMPlanner {
             // safety net: a plan-only placeholder (no user value extracted) would reach
             // the analyzer as an unregistered function - never rewrite with it
             if (SPMPlanTreeSupport.containsFrozenPlaceholder(rewritten)) {
+                LOG.info("SPM replay baseline {} frozen replay unavailable: placeholder ids"
+                        + " without an extracted value remain after substitution",
+                        candidate.getId());
                 return null;
             }
             if (LOG.isInfoEnabled()) {
@@ -495,6 +548,9 @@ public class SPMPlanner {
         } catch (Throwable t) {
             // legacy "?" frozen text or any other re-parse failure -> fall back to the
             // parameterized plan tree path
+            LOG.info("SPM replay baseline {} frozen replay unavailable: the frozen text does"
+                            + " not re-parse ({}: {})", candidate.getId(),
+                    t.getClass().getSimpleName(), t.getMessage());
             return null;
         }
     }
@@ -870,6 +926,17 @@ public class SPMPlanner {
                     planSql);
             frozen = new DecompiledPlan(planSql, false);
         }
+        // A successful decompilation is not proof the text can be re-planned: the
+        // optimizer's output slots may use names the emitted SQL never exposes (an
+        // ORDER BY over columns the FROM scope dropped - tpcds q78 renders
+        // "ORDER BY c_14 ..." although the subquery below projects only up to c_13).
+        // EVERY replay of such a text fails as a planning error ("SPM rewritten plan
+        // failed"), which is worse than the documented fallback; downgrade HERE so the
+        // baseline stays usable through the parameterized tree. The check plans the
+        // frozen text once - CREATE is a one-shot operation.
+        if (frozen.decompiled) {
+            frozen = validateFrozenTextReplannable(ctx, frozen, planSql, optimizeResult.getPhysicalPlan());
+        }
         if (globalScope) {
             // A GLOBAL baseline must never be frozen over a temporary table: the physical
             // relation's catalog object carries the CREATOR session's internal name
@@ -963,6 +1030,73 @@ public class SPMPlanner {
         private DecompiledPlan(String sql, boolean decompiled) {
             this.sql = sql;
             this.decompiled = decompiled;
+        }
+    }
+
+    /**
+     * Downgrades a decompiled frozen text that cannot be re-planned back to the user
+     * planSql (planFrozen=false), the same degradation the decompiler's own refusals
+     * use: a replay re-plans the frozen text on EVERY hit, so a text that fails
+     * analysis would surface as "SPM rewritten plan failed" for the matching caller
+     * instead of a working baseline. The validation is one nested SPM plan of the
+     * text; the nested planner applies the same SPM rule mask the capture used, so
+     * the analysis / binding that a replay hits first behaves identically.
+     */
+    private static DecompiledPlan validateFrozenTextReplannable(ConnectContext ctx,
+            DecompiledPlan frozen, String planSql, Plan writePlan) {
+        try {
+            LogicalPlan parsed = parseSelectIsolated(SqlModeHelper.MODE_DEFAULT, frozen.sql,
+                    "SPM planSql must be a SELECT statement: " + frozen.sql);
+            // Substitute the placeholders with the WRITER plan's own literal payloads
+            // before re-planning: the replay substitutes the caller's values by id, so
+            // re-planning the raw marker calls can only fail ("Can not found function
+            // '_spm_const_var'") and the downgrade would mask every scalar-subquery
+            // baseline. List placeholders (IN lists) need the caller's whole predicate,
+            // which the capture does not keep - such a text is accepted unvalidated.
+            Map<Long, Expression> placeholderValues = collectPlaceholderValues(writePlan);
+            SPMFrozenTreeReplacer replacer = new SPMFrozenTreeReplacer();
+            LogicalPlan substituted = SPMPlanTreeSupport.transform(parsed,
+                    expr -> expr.accept(replacer, placeholderValues));
+            if (SPMPlanTreeSupport.containsFrozenPlaceholder(substituted)) {
+                return frozen;
+            }
+            SPMOptimizer.optimize(ctx, substituted, frozen.sql);
+            return frozen;
+        } catch (UserException | RuntimeException e) {
+            LOG.warn("SPM decompiled text cannot be re-planned; storing the user planSql"
+                    + " instead (the baseline replays through the parameterized tree)", e);
+            return new DecompiledPlan(planSql, false);
+        }
+    }
+
+    /**
+     * Placeholder id -> original literal, collected from the writer plan's SpmConstVar
+     * payloads (the value child every placeholder keeps for readability).
+     */
+    private static Map<Long, Expression> collectPlaceholderValues(Plan plan) {
+        Map<Long, Expression> values = new HashMap<>();
+        collectPlaceholderValues(plan, values);
+        return values;
+    }
+
+    private static void collectPlaceholderValues(Plan plan, Map<Long, Expression> values) {
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            for (Expression expr : node.getExpressions()) {
+                collectPlaceholderValues(expr, values);
+            }
+        });
+    }
+
+    private static void collectPlaceholderValues(Expression expr, Map<Long, Expression> values) {
+        if (expr instanceof SpmConstVar) {
+            values.putIfAbsent(((SpmConstVar) expr).getId(), ((SpmConstVar) expr).getValue());
+        }
+        if (expr instanceof SubqueryExpr) {
+            Plan subqueryPlan = ((SubqueryExpr) expr).getQueryPlan();
+            collectPlaceholderValues(subqueryPlan, values);
+        }
+        for (Expression child : expr.children()) {
+            collectPlaceholderValues(child, values);
         }
     }
 

@@ -22,6 +22,8 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.DistributeHint;
@@ -41,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
@@ -57,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -68,6 +72,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -162,6 +167,148 @@ public class SPMMatchingSafetyTest {
         // arity mismatch (SELECT * keeps the star as ONE item) leaves the tree alone
         Assertions.assertSame(rewritten,
                 SPMPlanTreeSupport.alignRootOutputLabels(rewritten, parse("SELECT * FROM t")));
+    }
+
+    /**
+     * Round-52 #3: a MARK join exposes its mark slot AFTER the preserved side (see
+     * LogicalJoin#computeAsteriskOutput), so a star over such a join must derive the
+     * mark's label too. Omitting it left the caller's derived list SHORTER than the
+     * frozen sink's, and a literal-variant match (k + 1 -> k + 2) then failed the
+     * arity check and kept reporting the captured `k + 1` header instead of the
+     * caller's own label.
+     */
+    @Test
+    public void testMarkJoinStarDerivesTheMarkLabel() {
+        LogicalJoin<LogicalPlan, LogicalPlan> markSemi = new LogicalJoin<>(
+                JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE),
+                Optional.of(new MarkJoinSlotReference("mark")),
+                parse("SELECT k + 2 FROM t"), relation("u"), new JoinReorderContext());
+        LogicalPlan starSource = (LogicalPlan) parse("SELECT * FROM t").child(0);
+        LogicalPlan user = new UnboundResultSink<>(new LogicalProject<>(
+                List.of(((LogicalProject<?>) starSource).getProjects().get(0)), markSemi));
+        LogicalPlan rendered = parse("SELECT (k + 1) AS `k + 1`, (k > 0) AS `mark` FROM t");
+        LogicalPlan aligned = SPMPlanTreeSupport.alignRootOutputLabels(rendered, user);
+        List<String> labels = new ArrayList<>();
+        collectProjectLabels(aligned, labels);
+        Assertions.assertTrue(labels.contains("k + 2"),
+                "the preserved side's derived label must replace the captured one: "
+                        + labels);
+        Assertions.assertTrue(labels.contains("mark"),
+                "the mark slot keeps its own label: " + labels);
+
+        // A CROSS MARK join (an uncorrelated EXISTS folded to a cross join with a mark
+        // slot) exposes BOTH sides' columns and then the mark: its star must derive all
+        // three labels with the mark LAST (round-52 #3 also covers this shape).
+        LogicalJoin<LogicalPlan, LogicalPlan> crossMark = new LogicalJoin<>(
+                JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE),
+                Optional.of(new MarkJoinSlotReference("mark")),
+                parse("SELECT k + 2 FROM t"), parse("SELECT v FROM u"),
+                new JoinReorderContext());
+        LogicalPlan crossUser = new UnboundResultSink<>(new LogicalProject<>(
+                List.of(((LogicalProject<?>) starSource).getProjects().get(0)), crossMark));
+        LogicalPlan crossRendered = parse(
+                "SELECT (k + 1) AS `k + 1`, (v) AS `v`, (k > 0) AS `mark` FROM t");
+        LogicalPlan crossAligned = SPMPlanTreeSupport.alignRootOutputLabels(
+                crossRendered, crossUser);
+        List<String> crossLabels = new ArrayList<>();
+        collectProjectLabels(crossAligned, crossLabels);
+        Assertions.assertTrue(crossLabels.contains("k + 2"),
+                "the CROSS MARK star's left side derives the caller's label: "
+                        + crossLabels);
+        Assertions.assertTrue(crossLabels.contains("mark"),
+                "the CROSS MARK star includes the mark label: " + crossLabels);
+    }
+
+    /** Every project item's own label (explicit alias, derived text or column name). */
+    private static void collectProjectLabels(Plan plan, List<String> labels) {
+        if (plan instanceof LogicalProject) {
+            for (var item : ((LogicalProject<?>) plan).getProjects()) {
+                if (item instanceof UnboundAlias) {
+                    labels.add((String) ((UnboundAlias) item).getAlias().orElse(null));
+                } else if (item instanceof Slot) {
+                    labels.add(((Slot) item).getName());
+                } else {
+                    labels.add(String.valueOf(item));
+                }
+            }
+        }
+        for (Plan child : plan.children()) {
+            collectProjectLabels(child, labels);
+        }
+    }
+
+    /**
+     * Round-52 #4/#5: the USING star derivation follows the ANALYZER - ONE merged
+     * column per key, named after the merge-source side's own column (identifier-case
+     * rules: USING(k) binds a column aliased `K`), and only the PRESERVED side's
+     * remaining columns for a SEMI / ANTI join (BindExpression builds its asterisk
+     * output from join.getAsteriskOutput(), which returns that child alone). The old
+     * derivation compared the raw `k` case-sensitively and appended both key copies /
+     * both sides' columns, so five labels faced three frozen outputs and the arity
+     * mismatch kept the captured `v + 1` header.
+     */
+    @Test
+    public void testUsingJoinStarLabelsFollowTheAnalyzer() {
+        LogicalPlan rendered = parse(
+                "SELECT (k) AS `K`, (k + 1) AS `v + 1`, (k) AS `x` FROM t");
+        LogicalPlan inner = parse("SELECT * FROM (SELECT id AS K, v + 2 FROM t) s"
+                + " INNER JOIN (SELECT id AS K, x FROM u) r USING(k)");
+        LogicalPlan aligned = SPMPlanTreeSupport.alignRootOutputLabels(rendered, inner);
+        List<String> labels = new ArrayList<>();
+        collectProjectLabels(aligned, labels);
+        Assertions.assertTrue(labels.contains("v + 2"),
+                "one merged key + the preserved side's labels: " + labels);
+
+        LogicalPlan rightRendered = parse("SELECT (k) AS `K`, (k) AS `x + 1` FROM t");
+        LogicalPlan rightSemi = parse("SELECT * FROM (SELECT id AS K, v + 2 FROM t) s"
+                + " RIGHT SEMI JOIN (SELECT id AS K, x + 2 FROM u) r USING(k)");
+        LogicalPlan rightAligned = SPMPlanTreeSupport.alignRootOutputLabels(
+                rightRendered, rightSemi);
+        List<String> rightLabels = new ArrayList<>();
+        collectProjectLabels(rightAligned, rightLabels);
+        Assertions.assertTrue(rightLabels.contains("x + 2"),
+                "a RIGHT SEMI USING star exposes only the RIGHT side's labels: "
+                        + rightLabels);
+
+        // the mirrored LEFT direction: the merged key + the LEFT side's remaining
+        // columns only - the discarded right side must not contribute labels
+        LogicalPlan leftRendered = parse("SELECT (k) AS `K`, (k) AS `v + 1` FROM t");
+        LogicalPlan leftSemi = parse("SELECT * FROM (SELECT id AS K, v + 2 FROM t) s"
+                + " LEFT SEMI JOIN (SELECT id AS K, x + 2 FROM u) r USING(k)");
+        LogicalPlan leftAligned = SPMPlanTreeSupport.alignRootOutputLabels(
+                leftRendered, leftSemi);
+        List<String> leftLabels = new ArrayList<>();
+        collectProjectLabels(leftAligned, leftLabels);
+        Assertions.assertTrue(leftLabels.contains("v + 2"),
+                "a LEFT SEMI USING star exposes only the LEFT side's labels: "
+                        + leftLabels);
+        Assertions.assertFalse(leftLabels.contains("x + 2"),
+                "the discarded right side contributes no label: " + leftLabels);
+    }
+
+    /**
+     * Round-52 #6: a `* REPLACE(expr AS name)` payload renames its target position to
+     * the ALIAS name - BindExpression substitutes the matching column's item with the
+     * Alias, so the caller's own header is `k` even when the underlying column is
+     * aliased `K`. Applying only the EXCEPT payload left the underlying `K`, and
+     * alignRootOutputLabels renamed the frozen `k` output to `K` even for an identical
+     * replay.
+     */
+    @Test
+    public void testReplacedStarPayloadReportsTheAliasName() {
+        LogicalPlan rendered = parse(
+                "SELECT id + 1 AS `k` FROM (SELECT id AS K FROM t) s");
+        LogicalPlan user = parse(
+                "SELECT * REPLACE(K + 1 AS k) FROM (SELECT id AS K FROM t) s");
+        LogicalPlan aligned = SPMPlanTreeSupport.alignRootOutputLabels(rendered, user);
+        UnboundAlias item = findUnboundAlias(aligned);
+        Assertions.assertEquals("k", item.getAlias().orElse(null),
+                "the caller's header is the REPLACE alias, not the underlying label: "
+                        + aligned);
     }
 
     @Test
@@ -1378,5 +1525,49 @@ public class SPMMatchingSafetyTest {
         Assertions.assertTrue(new SPMAstCheckVisitor().checkExpression(bind,
                 new EqualTo(new IntegerLiteral(1), dotted), values));
         Assertions.assertEquals(1, values.size());
+    }
+
+    // ==================== function identity fields outside children() ====================
+
+    /**
+     * A function's NAME and DISTINCT flag live OUTSIDE children(), so the generic
+     * structural comparison (class + child list) cannot see them: abs(k) and sqrt(k)
+     * look like the same node. The visitor must reject such a pair itself instead of
+     * relying on the L1/L2 digest pre-filter - the digest upper-cases the name and
+     * carries the distinct flag today, but Level 3 is the documented authoritative
+     * check and must stay fail-closed if the two mechanisms ever drift apart
+     * (replaying an abs() baseline for a sqrt() query evaluates the wrong function).
+     */
+    @Test
+    public void testFunctionIdentityFieldsAreCompared() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        Expression bind = new UnboundFunction("abs", List.of(k));
+
+        // control: the same function still matches
+        Assertions.assertTrue(new SPMAstCheckVisitor().checkExpression(bind,
+                new UnboundFunction("abs", List.of(k)), new HashMap<>()));
+
+        // a different NAME must never match
+        Assertions.assertFalse(new SPMAstCheckVisitor().checkExpression(bind,
+                new UnboundFunction("sqrt", List.of(k)), new HashMap<>()),
+                "abs(k) must not match sqrt(k): the replay would evaluate abs()");
+
+        // the digest upper-cases function names: a case-only difference is the SAME
+        // function and must stay matchable
+        Assertions.assertTrue(new SPMAstCheckVisitor().checkExpression(bind,
+                new UnboundFunction("ABS", List.of(k)), new HashMap<>()),
+                "function names compare case-insensitively");
+
+        // the DISTINCT flag is outside children() as well
+        Assertions.assertFalse(new SPMAstCheckVisitor().checkExpression(
+                new UnboundFunction("count", List.of(k)),
+                new UnboundFunction("count", true, List.of(k)), new HashMap<>()),
+                "count(k) must not match count(distinct k)");
+
+        // the database qualifier keeps its exact comparison
+        Assertions.assertFalse(new SPMAstCheckVisitor().checkExpression(
+                new UnboundFunction("db1", "f", List.of(k)),
+                new UnboundFunction("db2", "f", List.of(k)), new HashMap<>()),
+                "db1.f must not match db2.f");
     }
 }

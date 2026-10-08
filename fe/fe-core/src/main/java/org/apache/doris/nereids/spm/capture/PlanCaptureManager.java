@@ -2205,7 +2205,8 @@ public class PlanCaptureManager extends MasterDaemon {
         ResultRow newest = firstCheckpointRow(CHECKPOINT_SELECT_SQL);
         ResultRow behind = firstCheckpointRow(CHECKPOINT_SELECT_PENDING_SQL);
         ResultRow chosen = chooseCheckpointRow(newest, behind, pendingWindowStart,
-                pendingWindowEnd, scannedFromMillis);
+                pendingWindowEnd, scannedFromMillis,
+                pendingWindowFilter != null ? pendingWindowFilter : filter);
         if (chosen != null && chosen != newest && LOG.isDebugEnabled()) {
             LOG.debug("SPM capture checkpoint read: preferring the earlier pending window"
                     + " [{}, {}) over the token-greatest progress",
@@ -2233,11 +2234,15 @@ public class PlanCaptureManager extends MasterDaemon {
      *       the higher token is at least as new;
      *   it IS the window this process already consumes (the current
      *       pendingWindow bounds): there is nothing to adopt;
-     *   it lies inside [scannedFrom, +infinity): this process's own window
-     *       chain (contiguous from the first window it scanned, see
-     *       scannedFromMillis) has scanned it or will scan it - adopting a
-     *       consumed window again would re-scan the same span on every wakeup, because
-     *       the append-only table keeps its reservation row.
+     *   it lies inside [scannedFrom, +infinity) AND its PINNED filter is the ACTIVE
+     *       one: this process's own window chain (contiguous from the first window
+     *       it scanned, see scannedFromMillis) has scanned it or will scan it -
+     *       adopting a consumed window again would re-scan the same span on every
+     *       wakeup, because the append-only table keeps its reservation row. A row
+     *       whose SAVED filter differs (a reservation taken under LOOSER thresholds
+     *       before a SET GLOBAL tightened them) still owns rows the chain's scans
+     *       skipped, so it must be adopted / re-scanned with its saved filter
+     *       instead of being called consumed (round-52 #1);
      *
      * @param newest the token-greatest row (null = none)
      * @param behind the most-behind pending row (null = none)
@@ -2249,6 +2254,19 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public static ResultRow chooseCheckpointRow(ResultRow newest, ResultRow behind,
             long currentPendingStart, long currentPendingEnd, long scannedFrom) {
+        return chooseCheckpointRow(newest, behind, currentPendingStart, currentPendingEnd,
+                scannedFrom, null);
+    }
+
+    /**
+     * Same decision, with the ACTIVE filter this process's scan chain uses (null = the
+     * caller cannot name one: the pinned-filter comparison is then skipped, keeping the
+     * coverage-only rule).
+     */
+    @VisibleForTesting
+    public static ResultRow chooseCheckpointRow(ResultRow newest, ResultRow behind,
+            long currentPendingStart, long currentPendingEnd, long scannedFrom,
+            PlanCaptureFilter activeFilter) {
         if (behind == null || !isPendingWindowRow(behind)) {
             return newest; // nothing behind, or the behind row is not a pending window
         }
@@ -2265,10 +2283,44 @@ public class PlanCaptureManager extends MasterDaemon {
         if (behindStart == currentPendingStart && behindEnd == currentPendingEnd) {
             return newest; // the window this process already consumes
         }
-        if (scannedFrom > 0 && behindStart >= scannedFrom) {
+        if (scannedFrom > 0 && behindStart >= scannedFrom
+                && samePinnedFilter(behind, activeFilter)) {
             return newest; // already scanned / will be scanned by this process's chain
         }
         return behind;
+    }
+
+    /**
+     * Whether a pending row's PINNED filter (columns 9-12, see applyCheckpointRow) is the
+     * one this process's scan chain uses: only then does covering the row's start prove
+     * its rows were judged by the SAME thresholds / patterns. A row whose saved filter
+     * DIFFERS (a reservation from before `SET GLOBAL plan_capture_min_query_time_ms`
+     * tightened the thresholds) still owns rows the chain's scans skipped, so it must be
+     * adopted / re-scanned with its SAVED filter instead of being discarded as consumed.
+     * A row without a pinned filter (a legacy row, or one fabricated by tests) follows
+     * the current globals - the same filters the chain applies - so it is treated as
+     * matching.
+     */
+    private static boolean samePinnedFilter(ResultRow row, PlanCaptureFilter activeFilter) {
+        if (row.getValues().size() <= 10 || row.get(9) == null || row.get(10) == null) {
+            return true;
+        }
+        long pinnedMinQueryTimeMs = parseLongValue(row.get(9));
+        long pinnedMinScanRows = parseLongValue(row.get(10));
+        if (pinnedMinQueryTimeMs < 0 || pinnedMinScanRows < 0) {
+            return true; // an unpinned window (see applyCheckpointRow)
+        }
+        if (activeFilter == null) {
+            return true;
+        }
+        String pinnedInclude = row.getValues().size() > 11 && row.get(11) != null
+                ? row.get(11) : "";
+        String pinnedExclude = row.getValues().size() > 12 && row.get(12) != null
+                ? row.get(12) : "";
+        return pinnedMinQueryTimeMs == activeFilter.getMinQueryTimeMs()
+                && pinnedMinScanRows == activeFilter.getMinScanRows()
+                && pinnedInclude.equals(activeFilter.getIncludePatternText())
+                && pinnedExclude.equals(activeFilter.getExcludePatternText());
     }
 
     /**

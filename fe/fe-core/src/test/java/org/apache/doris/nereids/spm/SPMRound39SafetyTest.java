@@ -188,4 +188,77 @@ public class SPMRound39SafetyTest {
         Assertions.assertTrue(failure.getMessage().contains("selectors"),
                 failure.getMessage());
     }
+
+    // ==================== CTE alias rename in the LIMIT-contract keys ====================
+
+    /**
+     * The frozen planSql replayed for an identical-text baseline is the DECOMPILED
+     * plan: the decompiler regenerates every WITH alias (the caller's `ws_wh` becomes
+     * `t_4`) while preserving the WITH structure and its order. The caller's cap key
+     * (`...:ws_wh#1`) could therefore never be contained in the replay's
+     * (`...:t_4#1`), the LIMIT contract of the identical query failed and 31 tpcds
+     * suites could not hit their own baselines. A CTE reference must be identified by
+     * its CTE's DEFINITION ORDER index, exactly like relation ordinals already replace
+     * table aliases.
+     */
+    @Test
+    public void testCteAliasRenameKeepsTheCapContractOfTheIdenticalQuery() {
+        LogicalPlan user = parse("WITH ws_wh AS (SELECT k FROM t)"
+                + " SELECT k FROM ws_wh ORDER BY k LIMIT 100");
+        LogicalPlan replay = parse("WITH t_4 AS (SELECT k FROM t)"
+                + " SELECT k FROM t_4 ORDER BY k LIMIT 100");
+        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(replay, user),
+                "the replayed cap must be recognized as the caller's own although the"
+                        + " CTE alias was regenerated");
+        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, user),
+                "every caller cap must survive in the replay although the CTE alias"
+                        + " was regenerated");
+        Assertions.assertEquals(SPMPlanTreeSupport.rowLimitKeysForTest(user),
+                SPMPlanTreeSupport.rowLimitKeysForTest(replay),
+                "the cap keys of the identical query must be equal modulo the"
+                        + " decompiler-regenerated CTE alias");
+    }
+
+    /** Distinct CTEs keep distinct identities - a cap moved between them still differs. */
+    @Test
+    public void testDifferentCtesStillGetDifferentCapIdentities() {
+        LogicalPlan first = parse("WITH a AS (SELECT k FROM t), b AS (SELECT k FROM t)"
+                + " SELECT k FROM a ORDER BY k LIMIT 100");
+        LogicalPlan second = parse("WITH a AS (SELECT k FROM t), b AS (SELECT k FROM t)"
+                + " SELECT k FROM b ORDER BY k LIMIT 100");
+        Assertions.assertNotEquals(SPMPlanTreeSupport.rowLimitKeysForTest(first),
+                SPMPlanTreeSupport.rowLimitKeysForTest(second),
+                "caps over DIFFERENT CTEs of the same table must not collapse into one"
+                        + " identity");
+    }
+
+    // ==================== optimizer CSE collapse in the TOP cap ====================
+
+    /**
+     * The optimizer collapses repeated scans (common-subexpression elimination): the RAW
+     * caller joins three occurrences of t while the frozen optimal plan reads t once
+     * (tpcds q76 folds three date_dim scans into one). The TOP cap truncates the same
+     * ordered result, so its occurrence-tagged keys must compare equal modulo the
+     * ordinals - while a different input set or an inner cap keeps the strict identity.
+     */
+    @Test
+    public void testTopCapToleratesOccurrenceCollapseFromCse() {
+        LogicalPlan user = parse("SELECT a1.k FROM t a1 CROSS JOIN t a2 CROSS JOIN t a3"
+                + " ORDER BY 1 LIMIT 100");
+        LogicalPlan replay = parse("SELECT a1.k FROM t a1 ORDER BY 1 LIMIT 100");
+        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, user),
+                "the strict occurrence-tagged comparison cannot hold across the"
+                        + " collapse - the relaxation below is what fixes the suite");
+        Assertions.assertTrue(SPMPlanTreeSupport.topCapContractPreserved(replay, user),
+                "the top cap truncates the same result; only the occurrence ordinals"
+                        + " differ");
+        LogicalPlan otherTable = parse("SELECT a1.k FROM u a1 ORDER BY 1 LIMIT 100");
+        Assertions.assertFalse(SPMPlanTreeSupport.topCapContractPreserved(otherTable, user),
+                "a DIFFERENT top-level input set must stay rejected");
+        LogicalPlan innerCap = parse("SELECT a1.k FROM (SELECT k FROM t LIMIT 5) a1"
+                + " ORDER BY 1 LIMIT 100");
+        Assertions.assertFalse(SPMPlanTreeSupport.topCapContractPreserved(replay, innerCap),
+                "a caller whose own tree carries an inner cap must keep the strict"
+                        + " comparison (the replay lacks it)");
+    }
 }

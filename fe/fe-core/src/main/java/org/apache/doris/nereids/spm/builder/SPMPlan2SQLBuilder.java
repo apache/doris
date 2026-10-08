@@ -102,12 +102,16 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -138,9 +142,21 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     private static final Logger LOG = LogManager.getLogger(SPMPlan2SQLBuilder.class);
 
+    /** Generated output names ("c_" + ExprId) produced by re-export labels and dedupe renames. */
+    private static final Pattern GENERATED_NAME_PATTERN = Pattern.compile("\\bc_\\d+\\b");
+
     /** JOIN distribution HINT prefix constants. */
     private static final String HINT_JOIN_BROADCAST = "BROADCAST";
     private static final String HINT_JOIN_SHUFFLE = "SHUFFLE";
+
+    /**
+     * Re-export labels a hoist step created one level below ("X AS c_N" items): maps the
+     * generated label back to the ExprId of the item it re-exports, so a later hoist step
+     * can re-export the SAME label through one more projection level (tpcds q78: the
+     * ORDER BY hoisted out of the 16-item projection references c_14/c_15/c_16, and the
+     * 11-item projection above it must therefore re-export them).
+     */
+    private final Map<String, ExprId> reExportedLabels = new HashMap<>();
 
     /** Expression printer (carries the columnNames mapping of SQLRelation). */
     private final SPMExprSqlBuilder exprSqlBuilder = new SPMExprSqlBuilder();
@@ -1777,6 +1793,203 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
+     * Tries to render a join that unnesting a SCALAR SUBQUERY introduced.
+     *
+     * ScalarApplyToJoin rewrites "expr cmp (SELECT one_value FROM sub)" into an
+     * INNER / CROSS join between the outer input and the subquery, the subquery side
+     * wrapped in a PhysicalAssertNumRows (the "at most one row" contract) and the
+     * comparison moved into the join condition:
+     *
+     *   INNER NLJ(main, Project(0.9 * rank_col AS e, ASSERT(sub)))
+     *       with otherCondition = [main.rank_col > e]
+     *
+     * The Nereids grammar has no ASSERT_ROWS production, so the join cannot be
+     * rendered as-is. What CAN be rendered is the scalar subquery itself - which is
+     * what the user query contained in the first place: every column of the assert
+     * input becomes "(SELECT col FROM (subquery) t_N)", every projection over it is
+     * re-printed through that mapping, and the join conjuncts move to a WHERE clause
+     * of the other side. Keeping the subquery in an EXPRESSION position preserves the
+     * single-row contract: the replayed query raises the executor's "scalar subquery
+     * returns more than one row" error exactly when the unnest join would.
+     *
+     * Only INNER / CROSS joins can collapse: a correlated LEFT OUTER shape needs its
+     * correlation predicates pushed back into the subquery (left to the ordinary
+     * rendering, which still refuses the assert node loudly).
+     *
+     * @return the collapsed relation, or null when the shape does not match
+     */
+    private SQLRelation tryCollapseScalarSubqueryJoin(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
+        if (join.isMarkJoin()) {
+            return null;
+        }
+        JoinType joinType = join.getJoinType();
+        if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN) {
+            return null;
+        }
+        ScalarSubquerySide leftSide = scalarSubquerySide(join.left());
+        ScalarSubquerySide rightSide = scalarSubquerySide(join.right());
+        if (leftSide != null && rightSide != null) {
+            LOG.info("SPM scalar collapse refused: both inputs of {} unnest a scalar subquery",
+                    join.getClass().getSimpleName());
+            return null;
+        }
+        if (leftSide == null && rightSide == null) {
+            return null; // no scalar subquery side
+        }
+        ScalarSubquerySide scalarSide = leftSide != null ? leftSide : rightSide;
+        Plan otherSide = leftSide != null ? join.right() : join.left();
+
+        // The other side is decompiled first: like every join, its relation is the
+        // scope the join's own expressions are rendered against.
+        SQLRelation base = process(otherSide);
+
+        // The subquery itself: its derived-table form exports one column per output slot.
+        PhysicalAssertNumRows<? extends Plan> assertNode = scalarSide.assertNode;
+        Plan subPlan = assertNode.child(0);
+        SQLRelation sub = process(subPlan);
+        String subSql = sub.toRelationSQL();
+        Map<ExprId, String> substitutions = new LinkedHashMap<>();
+        for (Slot slot : subPlan.getOutput()) {
+            String exported = exportedColumnName(sub, slot);
+            if (exported == null) {
+                LOG.info("SPM scalar collapse refused: the subquery relation does not export {}",
+                        slot);
+                return null;
+            }
+            substitutions.put(slot.getExprId(), "(SELECT " + exported + " FROM " + subSql + ")");
+        }
+
+        // Re-print every projection sitting between the join and the assert, from the
+        // inside out: the outermost wrapper's items may read the inner wrappers' slots.
+        SQLRelation printContext = new SQLRelation();
+        printContext.getColumnNames().putAll(base.getColumnNames());
+        printContext.getColumnNames().putAll(substitutions);
+        for (int i = scalarSide.wrappers.size() - 1; i >= 0; i--) {
+            Plan wrapper = scalarSide.wrappers.get(i);
+            if (wrapper instanceof PhysicalDistribute) {
+                continue;
+            }
+            for (NamedExpression item : ((PhysicalProject<? extends Plan>) wrapper).getProjects()) {
+                Expression value = item instanceof Alias ? item.child(0) : item;
+                Set<ExprId> referenced = new LinkedHashSet<>();
+                collectSlotRefs(value, referenced);
+                if (!printContext.getColumnNames().keySet().containsAll(referenced)) {
+                    Set<ExprId> missing = new LinkedHashSet<>(referenced);
+                    missing.removeAll(printContext.getColumnNames().keySet());
+                    LOG.info("SPM scalar collapse refused: wrapper {} reads unprintable slots {}",
+                            wrapper.getClass().getSimpleName(), missing);
+                    return null;
+                }
+                String text = exprSqlBuilder.print(value, printContext);
+                substitutions.put(item.getExprId(), text);
+                printContext.getColumnNames().put(item.getExprId(), text);
+            }
+        }
+
+        // The join conjuncts move to a WHERE over the other side; both their outer-side
+        // and scalar-side references resolve through the maps above.
+        SQLRelation result = new SQLRelation();
+        result.setFrom(base.toRelationSQL());
+        result.getColumnNames().putAll(base.getColumnNames());
+        result.getColumnNames().putAll(substitutions);
+        List<String> conjuncts = new ArrayList<>();
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            String text = printCollapsedConjunct(conjunct, result);
+            if (text == null) {
+                return null;
+            }
+            conjuncts.add(text);
+        }
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            String text = printCollapsedConjunct(conjunct, result);
+            if (text == null) {
+                return null;
+            }
+            conjuncts.add(text);
+        }
+        if (joinType == JoinType.CROSS_JOIN && !conjuncts.isEmpty()) {
+            return null; // a CROSS join never carries conjuncts
+        }
+        if (!conjuncts.isEmpty()) {
+            result.setWhere(String.join(" AND ", conjuncts));
+        }
+        result.newAlias();
+        return result;
+    }
+
+    /** One input of a join recognized as the unnest of a scalar subquery. */
+    private static final class ScalarSubquerySide {
+        private final PhysicalAssertNumRows<? extends Plan> assertNode;
+        /** Nodes between the join input and the assert, outermost first. */
+        private final List<Plan> wrappers;
+
+        private ScalarSubquerySide(PhysicalAssertNumRows<? extends Plan> assertNode, List<Plan> wrappers) {
+            this.assertNode = assertNode;
+            this.wrappers = wrappers;
+        }
+    }
+
+    /**
+     * Recognizes the scalar-subquery shape of one join input: an exchange / projection
+     * chain down to a single-row PhysicalAssertNumRows. Returns null for everything else
+     * (including the two-phase shapes the ordinary join rendering must refuse).
+     */
+    private static ScalarSubquerySide scalarSubquerySide(Plan root) {
+        List<Plan> wrappers = new ArrayList<>();
+        Plan plan = root;
+        while (!(plan instanceof PhysicalAssertNumRows)) {
+            if ((!(plan instanceof PhysicalDistribute) && !(plan instanceof PhysicalProject))
+                    || plan.children().size() != 1) {
+                return null;
+            }
+            wrappers.add(plan);
+            plan = plan.child(0);
+        }
+        return new ScalarSubquerySide((PhysicalAssertNumRows<? extends Plan>) plan, wrappers);
+    }
+
+    /** Prints one collapsed join conjunct, or null when it is not expressible. */
+    private String printCollapsedConjunct(Expression conjunct, SQLRelation context) {
+        Set<ExprId> referenced = new LinkedHashSet<>();
+        collectSlotRefs(conjunct, referenced);
+        if (!context.getColumnNames().keySet().containsAll(referenced)) {
+            Set<ExprId> missing = new LinkedHashSet<>(referenced);
+            missing.removeAll(context.getColumnNames().keySet());
+            LOG.info("SPM scalar collapse refused: conjunct {} references unprintable slots {}",
+                    conjunct, missing);
+            return null;
+        }
+        return exprSqlBuilder.print(conjunct, context);
+    }
+
+    private static void collectSlotRefs(Expression expression, Set<ExprId> referenced) {
+        if (expression instanceof SlotReference) {
+            referenced.add(((SlotReference) expression).getExprId());
+        }
+        for (Expression child : expression.children()) {
+            collectSlotRefs(child, referenced);
+        }
+    }
+
+    /**
+     * The name under which a subquery relation exports one of its output slots: the
+     * alias / output name of the matching SELECT item, or the registered column name
+     * when the relation renders as "SELECT *" (no explicit item list).
+     */
+    private static String exportedColumnName(SQLRelation relation, Slot slot) {
+        List<Pair<ExprId, String>> selects = relation.getSelects();
+        if (selects != null && !selects.isEmpty()) {
+            for (Pair<ExprId, String> select : selects) {
+                if (select.key().equals(slot.getExprId())) {
+                    return selectOutputName(select.value());
+                }
+            }
+            return null;
+        }
+        return relation.getColumnNames().get(slot.getExprId());
+    }
+
+    /**
      * Common Join handling: recursively process left/right, assemble FROM (including
      * the distribution HINT), build the ON condition, merge column names and wrap.
      *
@@ -1787,6 +2000,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * references stay unambiguous.
      */
     private SQLRelation visitPhysicalJoin(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join, Void context) {
+        SQLRelation scalarSubquery = tryCollapseScalarSubqueryJoin(join);
+        if (scalarSubquery != null) {
+            return scalarSubquery;
+        }
         JoinType joinType = join.getJoinType();
         boolean isMarkJoin = join.isMarkJoin();
         // ===== ASOF / MARK / NULL-AWARE join handling =====
@@ -3345,7 +3562,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      *         the clause cannot be hoisted safely - the caller keeps it inside the child
      *         then, where its own query block resolves every reference
      */
-    private static String hoistableOrderBy(SQLRelation child, String orderBy,
+    private String hoistableOrderBy(SQLRelation child, String orderBy,
             List<Pair<ExprId, String>> wrapperOutputs, boolean canAugment) {
         if (orderBy.isEmpty()) {
             return "";
@@ -3379,6 +3596,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             }
             if (!isPassThroughReference(name)) {
                 // a qualified / expression reference only the child scope resolves
+                LOG.info("SPM order-by hoist refused: '{}' references '{}' (non pass-through name)",
+                        orderBy, name);
                 return null;
             }
             String normalized = normalizeOutputName(name);
@@ -3389,11 +3608,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             if (shadowOwner != null && !shadowOwner.equals(entry.getKey())) {
                 // the wrapper's own output alias would capture the reference: dodge it
                 if (starChild || !canAugment) {
+                    LOG.info("SPM order-by hoist refused: '{}' name '{}' shadowed by the wrapper and"
+                            + " nothing can be re-exported", orderBy, name);
                     return null; // nothing to re-export the column from
                 }
                 String fresh = freshExportName(child, orderBy, exported, shadowed);
                 additions.add(Pair.of(entry.getKey(), name + " AS " + fresh));
                 exported.put(normalizeOutputName(fresh), entry.getKey());
+                reExportedLabels.put(fresh, entry.getKey());
                 rewritten = replaceStandaloneReference(rewritten, name, fresh);
                 continue;
             }
@@ -3408,6 +3630,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             if (owner == null) {
                 // not exported yet: export it under its own name
                 if (!canAugment) {
+                    LOG.info("SPM order-by hoist refused: '{}' name '{}' not exported by the child"
+                            + " and the child cannot be augmented", orderBy, name);
                     return null;
                 }
                 additions.add(Pair.of(entry.getKey(), name));
@@ -3417,17 +3641,88 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // the child exports this NAME for a DIFFERENT expression: the child scope
             // itself already shadows the reference - re-point it at a fresh export
             if (!canAugment) {
+                LOG.info("SPM order-by hoist refused: '{}' name '{}' belongs to a different"
+                        + " expression in the child scope and the child cannot be augmented",
+                        orderBy, name);
                 return null;
             }
             String fresh = freshExportName(child, orderBy, exported, shadowed);
             additions.add(Pair.of(entry.getKey(), name + " AS " + fresh));
             exported.put(normalizeOutputName(fresh), entry.getKey());
+            reExportedLabels.put(fresh, entry.getKey());
             rewritten = replaceStandaloneReference(rewritten, name, fresh);
+        }
+        // A clause the previous hoist steps already REWROTE carries output names ("c_N"
+        // re-export labels) that no child-map entry mentions, so the loop above never
+        // visits them: hoisting one level further past the scope that owns them froze an
+        // unresolvable reference (tpcds q78: "Unknown column 'c_14' ... in 'SORT'").
+        // Every generated name the rewritten clause references must be exported by the
+        // scope the clause lands in - the child below it, or the wrapper's own outputs.
+        // A label a previous hoist step created one level below resolved against the
+        // child's own scope there, so the child can re-export it with a bare item;
+        // without that the clause could only stay buried inside the child's block, and
+        // a buried ORDER BY / LIMIT is dropped by the replay planner (the baseline then
+        // fails the caller's ORDER BY / LIMIT contract).
+        for (String referenced : generatedNameReferences(rewritten)) {
+            String normalized = normalizeOutputName(referenced);
+            boolean resolvable;
+            if (starChild) {
+                // "SELECT *" exports every registered column under its own name
+                resolvable = normalizedIn(child.getColumnNames().values(), normalized);
+            } else {
+                resolvable = exported.containsKey(normalized)
+                        || wrapperExportsReference(wrapperOutputs, normalized);
+            }
+            if (resolvable) {
+                continue;
+            }
+            ExprId owner = starChild ? null : reExportedLabels.get(referenced);
+            if (owner == null) {
+                LOG.info("SPM order-by hoist refused: '{}' keeps referencing '{}' which the"
+                        + " wrapper scope does not re-export", orderBy, referenced);
+                return null;
+            }
+            additions.add(Pair.of(owner, referenced));
+            exported.put(normalized, owner);
         }
         if (!additions.isEmpty()) {
             child.getSelects().addAll(additions);
         }
         return rewritten;
+    }
+
+    /** Generated "c_N" output names referenced as standalone tokens in a clause. */
+    private static List<String> generatedNameReferences(String clause) {
+        List<String> names = new ArrayList<>();
+        Matcher matcher = GENERATED_NAME_PATTERN.matcher(clause);
+        while (matcher.find()) {
+            names.add(matcher.group());
+        }
+        return names;
+    }
+
+    /** Whether the wrapper's own SELECT list exports the given normalized name. */
+    private static boolean wrapperExportsReference(List<Pair<ExprId, String>> wrapperOutputs,
+            String normalized) {
+        if (wrapperOutputs == null) {
+            return false;
+        }
+        for (Pair<ExprId, String> select : wrapperOutputs) {
+            String outputName = selectOutputName(select.value());
+            if (outputName != null && normalized.equals(normalizeOutputName(outputName))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean normalizedIn(Collection<String> names, String normalized) {
+        for (String name : names) {
+            if (name != null && normalized.equals(normalizeOutputName(name))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

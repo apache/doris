@@ -119,6 +119,46 @@ public class PlanCaptureTest {
                 "", "", "{}", "{}", "", "-1", "-1", "", "", "", epoch, seq));
     }
 
+    /**
+     * Round-52 #1: a contained pending window whose SAVED filter differs from the
+     * chain's own must NOT be called consumed. A leader reserves [09:00,12:00) under
+     * the loose filter F1 while its row is unreadable; after `SET GLOBAL
+     * plan_capture_min_query_time_ms` grows, the successor scans [07:10,12:10) with the
+     * stricter F2 and its scannedFromMillis covers 09:00 - discarding A then treated
+     * the rows that were eligible under F1 but not F2 as captured, and a later
+     * checkpoint pruning A lost them permanently.
+     */
+    @Test
+    public void testContainedPendingWindowWithADifferentPinnedFilterIsNotConsumed() {
+        ResultRow newest = checkpointRowForChooser("500", "0", "0", "9", "7");
+        ResultRow behind = checkpointRowWithPinnedFilter("100", "200", 100L, 0L, "", "");
+        PlanCaptureFilter stricter = new PlanCaptureFilter("", "", 1000L, 0L);
+        Assertions.assertSame(behind, PlanCaptureManager.chooseCheckpointRow(
+                newest, behind, 0, 0, 50L, stricter),
+                "a contained window with a DIFFERENT (looser) pinned filter still owns"
+                        + " rows the chain's scans skipped");
+        Assertions.assertSame(newest, PlanCaptureManager.chooseCheckpointRow(
+                newest, behind, 0, 0, 50L, new PlanCaptureFilter("", "", 100L, 0L)),
+                "the chain's own filter proves the span covered");
+        Assertions.assertSame(newest, PlanCaptureManager.chooseCheckpointRow(
+                newest, behind, 0, 0, 50L),
+                "without an active filter the coverage-only rule stays");
+        Assertions.assertSame(behind, PlanCaptureManager.chooseCheckpointRow(
+                newest, behind, 0, 0, 150L, stricter),
+                "a start BEFORE the scanned range is adopted regardless (its prefix was"
+                        + " never scanned)");
+    }
+
+    /** One checkpoint row with a PINNED filter snapshot (columns 9-12, see
+     * applyCheckpointRow): only such a row takes part in the pinned-filter comparison. */
+    private static ResultRow checkpointRowWithPinnedFilter(String pendingStart,
+            String pendingEnd, long minQueryTimeMs, long minScanRows,
+            String includePattern, String excludePattern) {
+        return new ResultRow(List.of("0", pendingStart, pendingEnd, "-1",
+                "", "", "{}", "{}", "", String.valueOf(minQueryTimeMs),
+                String.valueOf(minScanRows), includePattern, excludePattern, "", "9", "7"));
+    }
+
     // ==================== table extraction ====================
 
     @Test

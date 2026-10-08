@@ -111,7 +111,9 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
         // UnboundStar: the REPLACE payload (a leaf with no children - a baseline
         //   captured with "* REPLACE(k + 1 AS k)" must not replay its captured
         //   expression for a query using "* REPLACE(k + 2 AS k)")
-        // UnboundFunction: the database qualifier (db1.f must not match db2.f)
+        // UnboundFunction: the name / DISTINCT flag / database qualifier (abs(k) must not
+        //   match sqrt(k), count(k) must not match count(distinct k), db1.f must not
+        //   match db2.f)
         // WindowExpression: the frame (ROWS 1 PRECEDING must not replay as 2 PRECEDING;
         //   WindowFrame is not an expression child, so neither the placeholder
         //   construction nor the generic child comparison sees its bound offsets)
@@ -138,10 +140,18 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
             return samePayloadExpressions(bindStar.getReplacedAlias(),
                     userStar.getReplacedAlias(), context);
         }
-        if (bindExpr instanceof UnboundFunction
-                && !Objects.equals(((UnboundFunction) bindExpr).getDbName(),
-                        ((UnboundFunction) userExpr).getDbName())) {
-            return false;
+        if (bindExpr instanceof UnboundFunction) {
+            UnboundFunction bindFunction = (UnboundFunction) bindExpr;
+            UnboundFunction userFunction = (UnboundFunction) userExpr;
+            // the NAME is compared case-insensitively: the digest upper-cases it, so a
+            // case-only spelling difference is the SAME function and must stay
+            // matchable; a genuinely different name (or DISTINCT flag) must never match,
+            // or the replay would evaluate another function
+            if (!bindFunction.getName().equalsIgnoreCase(userFunction.getName())
+                    || bindFunction.isDistinct() != userFunction.isDistinct()
+                    || !Objects.equals(bindFunction.getDbName(), userFunction.getDbName())) {
+                return false;
+            }
         }
         if (bindExpr instanceof WindowExpression) {
             WindowFrame bindFrame = ((WindowExpression) bindExpr).getWindowFrame().orElse(null);

@@ -325,6 +325,247 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
+     * The equal-top-limit acceptance for the OPTIMIZER-REDUCED caller tree: the RAW
+     * caller can contain MORE occurrences of one table than the frozen optimal plan,
+     * which collapses them (common-subexpression elimination folds three date_dim
+     * scans into one, tpcds q76), so the occurrence-tagged keys of the TOP-LEVEL cap
+     * differ although the cap truncates the same (ordered) result. Accept when the
+     * caller's and the replay's top-level cap agree on (limit, offset, ordered-slice)
+     * and on the occurrence-ordinal-FREE relation NAME set, while every OTHER cap on
+     * both sides keeps the strict two-way containment. The caller must already have
+     * established that the top-level (limit, offset) is unchanged from the stored
+     * bind tree (see SPMPlanner#limitContractPreserved): the value cannot come from a
+     * variant's positional transfer, and only the top cap - whose slice is the whole
+     * result, not one occurrence of a self-join - may ignore the ordinals.
+     *
+     * @param replayed the replayed tree AFTER the limit merge
+     * @param userPlan the caller's own tree
+     * @return whether the top caps agree modulo occurrence ordinals and everything
+     *         else stays strictly contained
+     */
+    @VisibleForTesting
+    static boolean topCapContractPreserved(Plan replayed, Plan userPlan) {
+        long[] top = topLevelLimitOf(userPlan);
+        if (top == null || !Arrays.equals(top, topLevelLimitOf(replayed))) {
+            return false;
+        }
+        Map<String, Integer> userCaps = new HashMap<>();
+        collectRowLimits(userPlan, userCaps);
+        Map<String, Integer> replayCaps = new HashMap<>();
+        collectRowLimits(replayed, replayCaps);
+        String prefix = top[0] + ":" + top[1] + ":";
+        String userTopKey = singleTopCapKey(userCaps, prefix);
+        String replayTopKey = singleTopCapKey(replayCaps, prefix);
+        if (userTopKey == null || replayTopKey == null) {
+            // more than one cap shares the top (limit, offset): keep the strict checks
+            return false;
+        }
+        if (!stripOccurrenceOrdinals(userTopKey).equals(stripOccurrenceOrdinals(replayTopKey))) {
+            return false;
+        }
+        consumeOne(userCaps, userTopKey);
+        consumeOne(replayCaps, replayTopKey);
+        for (Map.Entry<String, Integer> entry : replayCaps.entrySet()) {
+            Integer available = userCaps.get(entry.getKey());
+            if (available == null || available < entry.getValue()) {
+                return false;
+            }
+        }
+        for (Map.Entry<String, Integer> entry : userCaps.entrySet()) {
+            Integer present = replayCaps.get(entry.getKey());
+            if (present == null || present < entry.getValue()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** The single cap key of the given (limit, offset) prefix, or null when ambiguous. */
+    private static String singleTopCapKey(Map<String, Integer> caps, String prefix) {
+        String found = null;
+        for (Map.Entry<String, Integer> entry : caps.entrySet()) {
+            if (entry.getKey().startsWith(prefix)) {
+                if (found != null) {
+                    return null;
+                }
+                found = entry.getKey();
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Whether the tree's ONLY row cap is its top-level one: a LIMIT VARIANT (the caller's
+     * top value differs from the stored bind tree's) whose replay carries no OTHER cap
+     * cannot truncate a different slice - the positionally merged top cap governs the
+     * whole result (tpcds q76's folded plan has one cap for the entire tree, so the
+     * similar query raising LIMIT 100 to 101 replays it unchanged except for the value;
+     * see SPMPlanner#limitContractPreserved).
+     */
+    public static boolean onlyTopCap(Plan plan) {
+        long[] top = topLevelLimitOf(plan);
+        if (top == null) {
+            return false;
+        }
+        Map<String, Integer> caps = new HashMap<>();
+        collectRowLimits(plan, caps);
+        return caps.size() == 1
+                && caps.keySet().iterator().next().startsWith(top[0] + ":" + top[1] + ":");
+    }
+
+    /** Consumes one instance of the key's multiplicity (multiset bookkeeping). */
+    private static void consumeOne(Map<String, Integer> caps, String key) {
+        Integer count = caps.get(key);
+        if (count == null) {
+            return;
+        }
+        if (count <= 1) {
+            caps.remove(key);
+        } else {
+            caps.put(key, count - 1);
+        }
+    }
+
+    /**
+     * One cap key with the per-name occurrence ordinals dropped from its input section:
+     * "limit:offset:slice:name#N,name#M" becomes "limit:offset:slice:name1,name2"
+     * (sorted names, duplicates collapsed). The head - the limit, the offset and the
+     * ordered-slice fingerprint (order-key count and directions) - stays comparable.
+     */
+    private static String stripOccurrenceOrdinals(String capKey) {
+        int first = capKey.indexOf(':');
+        int second = first < 0 ? -1 : capKey.indexOf(':', first + 1);
+        int third = second < 0 ? -1 : capKey.indexOf(':', second + 1);
+        if (third < 0) {
+            return capKey;
+        }
+        TreeSet<String> names = new TreeSet<>();
+        String inputs = capKey.substring(third + 1);
+        for (String input : inputs.split(",")) {
+            if (input.isEmpty()) {
+                continue;
+            }
+            int hash = input.lastIndexOf('#');
+            names.add(hash < 0 ? input : input.substring(0, hash));
+        }
+        return capKey.substring(0, third + 1) + String.join(",", names);
+    }
+
+    /** The collected cap keys of one tree (sorted) - diagnostics and tests. */
+    @VisibleForTesting
+    static String rowLimitKeysForTest(Plan plan) {
+        Map<String, Integer> caps = new HashMap<>();
+        collectRowLimits(plan, caps);
+        List<String> keys = new ArrayList<>(caps.keySet());
+        Collections.sort(keys);
+        return keys.toString();
+    }
+
+    /**
+     * Whether every cap of the replayed tree is either one the CALLER's own tree carries
+     * (same value, offset and input identity, see rowLimitsWithin) or a pushdown OF THE
+     * CALLER's own top-level cap: the optimizer folds a top LIMIT n into the plan it
+     * plans (the tpcds q28 frozen plan carries one 100:0 cap per store_sales scan),
+     * so the frozen plan of the IDENTICAL query legitimately exposes caps the RAW
+     * caller tree has no node for. Only caps with EXACTLY the caller's top-level
+     * (limit, offset) qualify, and the caller must ask for NO order contract of its
+     * own: an equal-valued inner cap below an ordering-dependent slice truncates a
+     * DIFFERENT slice (see SPMPlanner#limitContractPreserved).
+     */
+    @VisibleForTesting
+    static boolean replayCapsJustifiedByCallerTopLimit(Plan replayed, Plan userPlan) {
+        long[] top = topLevelLimitOf(userPlan);
+        if (top == null) {
+            return false;
+        }
+        boolean ordered = !rootOrderContractForTest(userPlan).isEmpty();
+        // With a caller ORDER BY the folded cap must not cut a different slice. That is
+        // guaranteed when the replay still exposes the caller's own TOP-LEVEL ordering
+        // AND the folded caps sit on the BRANCHES of a set operation: the merge of the
+        // per-branch orders selects the caller's slice among each branch's own top rows
+        // (tpcds q49's union branches carry one 100 cap each), while a cap on the input
+        // of an ordinary sort would truncate before the ordering exists.
+        if (ordered && !orderContractPreserved(replayed, userPlan)) {
+            return false;
+        }
+        Map<String, Integer> allowed = new HashMap<>();
+        collectRowLimits(userPlan, allowed);
+        Map<String, Integer> used = new HashMap<>();
+        collectRowLimits(replayed, used);
+        String prefix = top[0] + ":" + top[1] + ":";
+        Set<String> topScope = null;
+        List<Set<String>> extraScopes = new ArrayList<>();
+        if (ordered) {
+            // the first set operation below the order/limit wrappers: the class-exact
+            // helper cannot be used here (the concrete Union / Intersect / Except class is
+            // what the caller-side comparison keys on), so descend on the base interface
+            Plan probe = replayed;
+            while (probe != null && !(probe instanceof LogicalSetOperation)
+                    && probe.children().size() == 1) {
+                probe = probe.child(0);
+            }
+            if (!(probe instanceof LogicalSetOperation)) {
+                return false;
+            }
+            topScope = topCapScopeOf(allowed, prefix);
+        }
+        for (Map.Entry<String, Integer> entry : used.entrySet()) {
+            if (allowed.containsKey(entry.getKey())) {
+                continue;
+            }
+            if (!entry.getKey().startsWith(prefix)) {
+                return false;
+            }
+            if (ordered) {
+                Set<String> scope = capKeyRelations(entry.getKey());
+                if (topScope == null || !topScope.containsAll(scope)) {
+                    return false;
+                }
+                extraScopes.add(scope);
+            }
+        }
+        if (ordered) {
+            // one cap per branch: overlapping branch scopes would let two folded caps
+            // truncate the same input
+            for (int i = 0; i < extraScopes.size(); i++) {
+                for (int j = i + 1; j < extraScopes.size(); j++) {
+                    for (String relation : extraScopes.get(i)) {
+                        if (extraScopes.get(j).contains(relation)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    /** The relation set of the WIDEST caller cap carrying the given (limit, offset) prefix. */
+    private static Set<String> topCapScopeOf(Map<String, Integer> allowed, String prefix) {
+        Set<String> widest = null;
+        for (String key : allowed.keySet()) {
+            if (key.startsWith(prefix)) {
+                Set<String> relations = capKeyRelations(key);
+                if (widest == null || relations.size() > widest.size()) {
+                    widest = relations;
+                }
+            }
+        }
+        return widest;
+    }
+
+    /** The relation names of one cap key ("limit:offset:slice:r1,r2,..."). */
+    private static Set<String> capKeyRelations(String key) {
+        int first = key.indexOf(':');
+        int second = first < 0 ? -1 : key.indexOf(':', first + 1);
+        int third = second < 0 ? -1 : key.indexOf(':', second + 1);
+        if (third < 0 || third + 1 >= key.length()) {
+            return Set.of();
+        }
+        return new HashSet<>(Arrays.asList(key.substring(third + 1).split(",")));
+    }
+
+    /**
      * Collects every row-limiting node of the tree as (limit, offset, INPUT IDENTITIES):
      * the (limit, offset) pair ALONE is not enough - a cap of the same value can sit on a
      * different input than the caller's own cap of that value, and the positional merge
@@ -363,90 +604,125 @@ public final class SPMPlanTreeSupport {
         // identical on both sides whenever the two trees render the occurrences in the
         // same relative order)
         IdentityHashMap<Plan, Integer> relationOrdinals = new IdentityHashMap<>();
-        assignRelationOrdinals(plan, new HashMap<>(), relationOrdinals,
+        // CTE references are named DIFFERENTLY on the two sides of a legitimate replay:
+        // the frozen planSql is the DECOMPILED plan and the decompiler regenerates
+        // every WITH alias (the caller's `ws_wh` becomes `t_4`), so a CTE reference is
+        // identified by its CTE's DEFINITION ORDER index instead of the alias - the
+        // same trick the occurrence ordinal plays for table aliases (see
+        // SPMPlanTreeSupport#relationNameOf).
+        Map<String, Integer> cteOrder = cteDefinitionOrder(plan);
+        assignRelationOrdinals(plan, new HashMap<>(), relationOrdinals, cteOrder,
                 Collections.newSetFromMap(new IdentityHashMap<>()));
-        collectRowLimits(plan, out, relationOrdinals,
+        collectRowLimits(plan, out, relationOrdinals, cteOrder,
                 Collections.newSetFromMap(new IdentityHashMap<>()));
     }
 
     private static void collectRowLimits(Plan plan, Map<String, Integer> out,
-            IdentityHashMap<Plan, Integer> relationOrdinals, Set<Plan> visited) {
+            IdentityHashMap<Plan, Integer> relationOrdinals,
+            Map<String, Integer> cteOrder, Set<Plan> visited) {
         if (plan == null || !visited.add(plan)) {
             return;
         }
         if (plan instanceof LogicalLimit) {
             out.merge(rowLimitKey(((LogicalLimit<?>) plan).getLimit(),
-                    ((LogicalLimit<?>) plan).getOffset(), plan, relationOrdinals),
+                    ((LogicalLimit<?>) plan).getOffset(), plan, relationOrdinals, cteOrder),
                     1, Integer::sum);
         } else if (plan instanceof LogicalTopN) {
             out.merge(rowLimitKey(((LogicalTopN<?>) plan).getLimit(),
-                    ((LogicalTopN<?>) plan).getOffset(), plan, relationOrdinals),
+                    ((LogicalTopN<?>) plan).getOffset(), plan, relationOrdinals, cteOrder),
                     1, Integer::sum);
         }
         for (Plan child : plan.children()) {
-            collectRowLimits(child, out, relationOrdinals, visited);
+            collectRowLimits(child, out, relationOrdinals, cteOrder, visited);
         }
         for (Plan extra : plan.extraPlans()) {
-            collectRowLimits(extra, out, relationOrdinals, visited);
+            collectRowLimits(extra, out, relationOrdinals, cteOrder, visited);
         }
         for (Expression expression : plan.getExpressions()) {
-            collectRowLimits(expression, out, relationOrdinals, visited);
+            collectRowLimits(expression, out, relationOrdinals, cteOrder, visited);
         }
     }
 
     /** Recurses one expression tree looking for subquery plans (see walkSubqueryPlans). */
     private static void collectRowLimits(Expression expression, Map<String, Integer> out,
-            IdentityHashMap<Plan, Integer> relationOrdinals, Set<Plan> visited) {
+            IdentityHashMap<Plan, Integer> relationOrdinals,
+            Map<String, Integer> cteOrder, Set<Plan> visited) {
         if (expression instanceof SubqueryExpr) {
             collectRowLimits(((SubqueryExpr) expression).getQueryPlan(), out,
-                    relationOrdinals, visited);
+                    relationOrdinals, cteOrder, visited);
         }
         if (expression instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                collectRowLimits(replaced, out, relationOrdinals, visited);
+                collectRowLimits(replaced, out, relationOrdinals, cteOrder, visited);
             }
         }
         for (Expression child : expression.children()) {
-            collectRowLimits(child, out, relationOrdinals, visited);
+            collectRowLimits(child, out, relationOrdinals, cteOrder, visited);
         }
+    }
+
+    /**
+     * Maps every CTE alias DEFINED in the tree (normalized, see normalizeCteName) to
+     * its definition-order index, assigned in the walk order of walkPlansScoped. The
+     * two sides of one replay - the caller's raw tree and the parsed frozen planSql -
+     * spell the same CTE with different aliases (the decompiler regenerates every
+     * derived alias), but the WITH structure and its order are preserved, so the
+     * INDEX is the name-independent identity the row-limit keys compare. Distinct
+     * CTEs keep distinct indices, so a cap moved between two CTEs still changes its
+     * key.
+     */
+    private static Map<String, Integer> cteDefinitionOrder(Plan root) {
+        Map<String, Integer> order = new HashMap<>();
+        int[] next = {0};
+        walkPlansScoped(root, Collections.emptySet(), (Plan node, Set<String> visibleCtes) -> {
+            if (node instanceof LogicalCTE) {
+                for (LogicalSubQueryAlias<Plan> alias
+                        : ((LogicalCTE<? extends Plan>) node).getAliasQueries()) {
+                    String name = normalizeCteName(alias.getAlias());
+                    order.putIfAbsent(name, next[0]++);
+                }
+            }
+        });
+        return order;
     }
 
     /** Pre-order walk assigning each relation node its per-name occurrence ordinal. */
     private static void assignRelationOrdinals(Plan plan, Map<String, Integer> counters,
-            IdentityHashMap<Plan, Integer> ordinals, Set<Plan> visited) {
+            IdentityHashMap<Plan, Integer> ordinals, Map<String, Integer> cteOrder,
+            Set<Plan> visited) {
         if (plan == null || !visited.add(plan)) {
             return;
         }
-        String name = relationNameOf(plan);
+        String name = relationNameOf(plan, cteOrder);
         if (name != null) {
             ordinals.put(plan, counters.merge(name, 1, Integer::sum));
         }
         for (Plan child : plan.children()) {
-            assignRelationOrdinals(child, counters, ordinals, visited);
+            assignRelationOrdinals(child, counters, ordinals, cteOrder, visited);
         }
         for (Plan extra : plan.extraPlans()) {
-            assignRelationOrdinals(extra, counters, ordinals, visited);
+            assignRelationOrdinals(extra, counters, ordinals, cteOrder, visited);
         }
         for (Expression expression : plan.getExpressions()) {
-            assignRelationOrdinals(expression, counters, ordinals, visited);
+            assignRelationOrdinals(expression, counters, ordinals, cteOrder, visited);
         }
     }
 
     /** Recurses one expression tree for relation ordinals (see assignRelationOrdinals). */
     private static void assignRelationOrdinals(Expression expression,
             Map<String, Integer> counters, IdentityHashMap<Plan, Integer> ordinals,
-            Set<Plan> visited) {
+            Map<String, Integer> cteOrder, Set<Plan> visited) {
         if (expression instanceof SubqueryExpr) {
             assignRelationOrdinals(((SubqueryExpr) expression).getQueryPlan(), counters,
-                    ordinals, visited);
+                    ordinals, cteOrder, visited);
         }
         if (expression instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                assignRelationOrdinals(replaced, counters, ordinals, visited);
+                assignRelationOrdinals(replaced, counters, ordinals, cteOrder, visited);
             }
         }
         for (Expression child : expression.children()) {
-            assignRelationOrdinals(child, counters, ordinals, visited);
+            assignRelationOrdinals(child, counters, ordinals, cteOrder, visited);
         }
     }
 
@@ -471,9 +747,10 @@ public final class SPMPlanTreeSupport {
      * was rejected by exactly that mismatch although both plans truncate the same slice).
      */
     private static String rowLimitKey(long limit, long offset, Plan limitNode,
-            IdentityHashMap<Plan, Integer> relationOrdinals) {
+            IdentityHashMap<Plan, Integer> relationOrdinals,
+            Map<String, Integer> cteOrder) {
         Set<String> inputs = new TreeSet<>();
-        collectRelationInputs(limitNode, relationOrdinals, inputs,
+        collectRelationInputs(limitNode, relationOrdinals, cteOrder, inputs,
                 Collections.newSetFromMap(new IdentityHashMap<>()));
         String slice = "-";
         if (limitNode instanceof LogicalTopN) {
@@ -496,50 +773,73 @@ public final class SPMPlanTreeSupport {
      * values alone, exactly as the caller's equivalent cap does.
      */
     private static void collectRelationInputs(Plan plan,
-            IdentityHashMap<Plan, Integer> relationOrdinals, Set<String> out,
+            IdentityHashMap<Plan, Integer> relationOrdinals,
+            Map<String, Integer> cteOrder, Set<String> out,
             Set<Plan> visited) {
         if (plan == null || !visited.add(plan)) {
             return;
         }
-        String name = relationNameOf(plan);
+        String name = relationNameOf(plan, cteOrder);
         if (name != null) {
             Integer ordinal = relationOrdinals.get(plan);
             out.add(ordinal == null ? name : name + "#" + ordinal);
         }
         for (Plan child : plan.children()) {
-            collectRelationInputs(child, relationOrdinals, out, visited);
+            collectRelationInputs(child, relationOrdinals, cteOrder, out, visited);
         }
         for (Plan extra : plan.extraPlans()) {
-            collectRelationInputs(extra, relationOrdinals, out, visited);
+            collectRelationInputs(extra, relationOrdinals, cteOrder, out, visited);
         }
         for (Expression expression : plan.getExpressions()) {
-            collectRelationInputs(expression, relationOrdinals, out, visited);
+            collectRelationInputs(expression, relationOrdinals, cteOrder, out, visited);
         }
     }
 
     /** Recurses one expression tree for relation inputs (see collectRelationInputs). */
     private static void collectRelationInputs(Expression expression,
-            IdentityHashMap<Plan, Integer> relationOrdinals, Set<String> out,
+            IdentityHashMap<Plan, Integer> relationOrdinals,
+            Map<String, Integer> cteOrder, Set<String> out,
             Set<Plan> visited) {
         if (expression instanceof SubqueryExpr) {
             collectRelationInputs(((SubqueryExpr) expression).getQueryPlan(),
-                    relationOrdinals, out, visited);
+                    relationOrdinals, cteOrder, out, visited);
         }
         if (expression instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                collectRelationInputs(replaced, relationOrdinals, out, visited);
+                collectRelationInputs(replaced, relationOrdinals, cteOrder, out, visited);
             }
         }
         for (Expression child : expression.children()) {
-            collectRelationInputs(child, relationOrdinals, out, visited);
+            collectRelationInputs(child, relationOrdinals, cteOrder, out, visited);
         }
     }
 
-    /** The qualified name of one relation node, or null when the node is not a relation. */
-    private static String relationNameOf(Plan plan) {
+    /**
+     * The identity name of one relation node used by the row-limit keys, or null when
+     * the node is not a relation.
+     *
+     * A one-part relation bound by a CTE alias is named by its CTE's DEFINITION ORDER
+     * index ("cte#N"), not by the alias: the frozen planSql replayed for an
+     * identical-text baseline is the DECOMPILED plan, and the decompiler regenerates
+     * every WITH alias (the caller's `ws_wh` becomes `t_4`) while preserving the WITH
+     * structure and its order (see SPMPlanTreeSupport#cteDefinitionOrder). Comparing
+     * the alias verbatim made the identical query fail its own cap contract. The
+     * index keeps distinct CTEs distinct, so a cap moved between two CTEs still
+     * changes its key.
+     */
+    private static String relationNameOf(Plan plan, Map<String, Integer> cteOrder) {
         if (plan instanceof UnboundRelation) {
             List<String> parts = ((UnboundRelation) plan).getNameParts();
-            return parts == null || parts.isEmpty() ? null : String.join(".", parts);
+            if (parts == null || parts.isEmpty()) {
+                return null;
+            }
+            if (parts.size() == 1 && cteOrder != null) {
+                Integer cteIndex = cteOrder.get(normalizeCteName(parts.get(0)));
+                if (cteIndex != null) {
+                    return "cte#" + cteIndex;
+                }
+            }
+            return String.join(".", parts);
         }
         if (plan instanceof LogicalCatalogRelation) {
             return ((LogicalCatalogRelation) plan).getTable().getNameWithFullQualifiers();
@@ -570,6 +870,30 @@ public final class SPMPlanTreeSupport {
 
     /** Plan visitor that rebuilds every node, transforming its expressions. */
     private static class TreeTransformer extends PlanVisitor<Plan, ExprTransform> {
+
+        /**
+         * GROUP BY mirror records (see mirrorProjectItem): a group-by expression's
+         * pre-parameterization text mapped to its transformed self. A select item spelling
+         * the SAME expression must reuse those placeholder ids, or the parameterized tree
+         * fails NormalizeAggregate ("PROJECT expression ... must appear in the GROUP BY
+         * clause"; tpcds q23_1 groups by substr(i_item_desc, 1, 30) and selects the same
+         * expression, whose literals otherwise receive their own ids and make the two
+         * copies structurally different). Records stay consumable for the projection
+         * directly above the aggregate and are dropped once its items were processed.
+         */
+        private final java.util.List<GroupByMirror> groupByMirrors = new java.util.ArrayList<>();
+
+        /** One recorded group-by mirror (pre-text + the transformed expression). */
+        private static final class GroupByMirror {
+            private final String text;
+            private final Expression expression;
+
+            private GroupByMirror(String text, Expression expression) {
+                this.text = text;
+                this.expression = expression;
+            }
+        }
+
         @Override
         public Plan visit(Plan plan, ExprTransform transform) {
             // LogicalUsingJoin.accept() dispatches to this generic visit (PlanVisitor has no
@@ -664,9 +988,12 @@ public final class SPMPlanTreeSupport {
         @Override
         public Plan visitLogicalProject(LogicalProject<? extends Plan> project,
                 ExprTransform transform) {
+            int mirrorMark = groupByMirrors.size();
             Plan child = project.child().accept(this, transform);
             boolean changed = child != project.child();
-            List<NamedExpression> newProjects = transformNamed(project.getProjects(), transform);
+            List<NamedExpression> newProjects = transformProjectItems(project.getProjects(),
+                    transform, mirrorMark);
+            dropGroupByMirrorsFrom(mirrorMark);
             if (newProjects != project.getProjects()) {
                 changed = true;
             }
@@ -674,6 +1001,74 @@ public final class SPMPlanTreeSupport {
                 return project;
             }
             return project.withProjectsAndChild(newProjects, child);
+        }
+
+        /**
+         * transformNamed with the GROUP BY mirror: an item whose pre-parameterization value
+         * text equals a group-by expression recorded by the aggregate below inherits that
+         * expression WITH its placeholder ids, keeping the two structurally equal (the
+         * analyzer requires a select expression to literally reappear in the GROUP BY: the
+         * ids allocated for one copy cannot be re-derived for the other, see
+         * mirrorProjectItem).
+         */
+        private List<NamedExpression> transformProjectItems(List<NamedExpression> expressions,
+                ExprTransform transform, int mirrorMark) {
+            boolean changed = false;
+            List<NamedExpression> newExpressions = new ArrayList<>(expressions.size());
+            for (int i = 0; i < expressions.size(); i++) {
+                NamedExpression expression = expressions.get(i);
+                NamedExpression mirrored = mirrorProjectItem(expression, mirrorMark);
+                if (mirrored != null) {
+                    newExpressions.add(mirrored);
+                    changed = true;
+                    continue;
+                }
+                // the item's POSITION in the list is part of the placeholder identity (see
+                // ExprTransform#enterProjectionItem)
+                transform.enterProjectionItem(i);
+                Expression transformed;
+                try {
+                    transformed = transform.apply(expression);
+                } finally {
+                    transform.exitProjectionItem();
+                }
+                if (transformed instanceof NamedExpression && transformed != expression) {
+                    newExpressions.add((NamedExpression) transformed);
+                    changed = true;
+                } else {
+                    newExpressions.add(expression);
+                }
+            }
+            return changed ? newExpressions : expressions;
+        }
+
+        /** One item rewritten to the recorded group-by expression, or null when none matches. */
+        private NamedExpression mirrorProjectItem(NamedExpression item, int mirrorMark) {
+            // the raw parse tree wraps select items in UnboundAlias, the analyzed tree in
+            // Alias: both expose the aliased expression as their only child
+            Expression value = item instanceof Alias || item instanceof UnboundAlias
+                    ? item.child(0) : item;
+            String text = value.toString();
+            Expression mirror = null;
+            for (int i = groupByMirrors.size() - 1; i >= mirrorMark; i--) {
+                if (groupByMirrors.get(i).text.equals(text)) {
+                    mirror = groupByMirrors.get(i).expression;
+                    break;
+                }
+            }
+            if (mirror == null) {
+                return null;
+            }
+            if (item instanceof Alias || item instanceof UnboundAlias) {
+                return (NamedExpression) item.withChildren(java.util.List.of(mirror));
+            }
+            return mirror instanceof NamedExpression ? (NamedExpression) mirror : null;
+        }
+
+        private void dropGroupByMirrorsFrom(int mirrorMark) {
+            while (groupByMirrors.size() > mirrorMark) {
+                groupByMirrors.remove(groupByMirrors.size() - 1);
+            }
         }
 
         @Override
@@ -757,16 +1152,25 @@ public final class SPMPlanTreeSupport {
                 ExprTransform transform) {
             Plan child = aggregate.child().accept(this, transform);
             boolean changed = child != aggregate.child();
+            int mirrorMark = groupByMirrors.size();
             List<Expression> newGroupBy = new ArrayList<>(aggregate.getGroupByExpressions().size());
             for (Expression groupByExpr : aggregate.getGroupByExpressions()) {
                 Expression newExpr = transform.apply(groupByExpr);
                 newGroupBy.add(newExpr);
                 if (newExpr != groupByExpr) {
                     changed = true;
+                    // a select item spelling the same expression must reuse these ids (see
+                    // mirrorProjectItem): the analyzer requires the select expression to
+                    // literally reappear in the GROUP BY of the parameterized tree
+                    groupByMirrors.add(new GroupByMirror(groupByExpr.toString(), newExpr));
                 }
             }
-            List<NamedExpression> newOutput = transformNamed(aggregate.getOutputExpressions(),
-                    transform);
+            // The SELECT list of an aggregate query lives in the aggregate's OWN output
+            // expressions for aggregate-rooted shapes, and in the PROJECT above it for
+            // project-rooted shapes: the records stay alive for BOTH consumers and are
+            // dropped by the enclosing projection's own cleanup after its items ran.
+            List<NamedExpression> newOutput = transformProjectItems(
+                    aggregate.getOutputExpressions(), transform, mirrorMark);
             if (newOutput != aggregate.getOutputExpressions()) {
                 changed = true;
             }
@@ -2206,12 +2610,42 @@ public final class SPMPlanTreeSupport {
                 // no positional rename can be applied. Realigning is unnecessary when
                 // every label already equals the wrapper's, and must not be faked
                 // otherwise (the caller would keep the captured header).
+                // The branch's top node may also be a non-output WRAPPER of the raw
+                // parse - "SELECT 'store' channel, ... FROM (...) x WHERE ..." parses as
+                // Filter(Project(...)), so the labels live one/several wrappers down
+                // (tpcds q49's union branches carry a WHERE). Derive them from the
+                // nearest output-carrying node below; the check stays conservative
+                // because nothing is renamed on this path.
                 List<String> callerLabels = firstBranch instanceof LogicalPlan
-                        ? branchLabels(firstBranch) : null;
-                if (callerLabels == null
+                        ? derivableBranchLabels(firstBranch) : null;
+                // A left-deep union parse (A UNION ALL B UNION ALL C) nests the set
+                // operations on the LEFT: the caller's "first branch" may itself be a set
+                // operation (whose output list is not materialized), so the
+                // caller-visible labels live on its leftmost LEAF branch.
+                Plan callerBranch = firstBranch;
+                while (callerLabels == null && callerBranch instanceof LogicalSetOperation) {
+                    callerBranch = callerBranch.child(0);
+                    callerLabels = callerBranch instanceof LogicalPlan
+                            ? derivableBranchLabels(callerBranch) : null;
+                }
+                if (callerLabels == null && callerBranch != null) {
+                    // The optimized caller's branch top may be a join carrying no
+                    // rebuildable item list (the branch projection merged into its join);
+                    // the caller-visible labels are then exactly the branch's own OUTPUT
+                    // SLOT NAMES, taken positionally.
+                    callerLabels = new ArrayList<>();
+                    for (Slot slot : callerBranch.getOutput()) {
+                        callerLabels.add(slot.getName());
+                    }
+                }
+                if (callerLabels == null || callerLabels.isEmpty()
                         || !labelsEqual(callerLabels, outputItemsOf(probe))) {
                     throw new UnalignableOutputLabelsException(
-                            "the caller's set-operation header labels cannot be determined");
+                            "the caller's set-operation header labels cannot be determined"
+                                    + " (caller branch=" + (callerBranch == null ? null
+                                            : callerBranch.getClass().getSimpleName())
+                                    + ", caller labels=" + callerLabels + ", replay items="
+                                    + outputItemsOf(probe) + ")");
                 }
                 return rewritten;
             }
@@ -2462,6 +2896,21 @@ public final class SPMPlanTreeSupport {
         return labels;
     }
 
+    /**
+     * branchLabels through the branch's non-output wrappers: "SELECT 'store' channel,
+     * ... FROM (...) x WHERE ..." parses as Filter(Project(...)), so the labels of a
+     * union branch live below its WHERE (see alignRootOutputLabels' constant-branch
+     * case, tpcds q49). Only the EQUALITY check uses this widening - nothing is
+     * renamed through a wrapper that cannot rebuild its list.
+     */
+    private static List<String> derivableBranchLabels(Plan branch) {
+        Plan node = branch;
+        while (node != null && !carriesOutputList(node) && node.children().size() == 1) {
+            node = node.child(0);
+        }
+        return node == null ? null : branchLabels(node);
+    }
+
     /** Position-by-position label equality (null on either side = not equal). */
     private static boolean labelsEqual(List<String> callerLabels, List<NamedExpression> items) {
         if (callerLabels.size() != items.size()) {
@@ -2469,12 +2918,35 @@ public final class SPMPlanTreeSupport {
         }
         for (int i = 0; i < callerLabels.size(); i++) {
             String itemLabel = outputLabelOf(items.get(i));
-            if (callerLabels.get(i) == null || itemLabel == null
-                    || !callerLabels.get(i).equals(itemLabel)) {
+            if (!labelMatches(callerLabels.get(i), itemLabel)) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Whether a caller-visible label names the same column as an item label. The
+     * caller's project may hold an UNBOUND slot whose name still carries its qualifier
+     * ("web.item") - the column the caller sees is the bare name, exactly what the
+     * frozen sink pins ("item"), so a qualified name matches its own tail. Both sides
+     * keep their exact-match path first: two DIFFERENT qualified names that merely share
+     * a tail stay unequal.
+     */
+    private static boolean labelMatches(String callerLabel, String itemLabel) {
+        if (callerLabel == null || itemLabel == null) {
+            return false;
+        }
+        if (callerLabel.equals(itemLabel)) {
+            return true;
+        }
+        return unqualifiedTail(callerLabel).equals(itemLabel)
+                || unqualifiedTail(itemLabel).equals(callerLabel);
+    }
+
+    private static String unqualifiedTail(String label) {
+        int dot = label.lastIndexOf('.');
+        return dot >= 0 ? label.substring(dot + 1) : label;
     }
 
     /**
@@ -2530,12 +3002,17 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * One payload star's caller-visible labels: the underlying relation's labels with the
-     * EXCEPT columns removed. An EXCEPT name that matches no derivable label declines:
-     * silently keeping the frozen list would report the captured header of a column the
-     * caller removed.
+     * One payload star's caller-visible labels: the underlying relation's labels with
+     * the EXCEPT columns removed and the REPLACE aliases applied. An EXCEPT name that
+     * matches no derivable label declines: silently keeping the frozen list would
+     * report the captured header of a column the caller removed.
      */
     private static List<String> exceptAdjustedLabels(UnboundStar star, List<String> labels) {
+        return applyReplacedAliases(star, applyExceptedLabels(star, labels));
+    }
+
+    /** The EXCEPT removal half of one payload star's label derivation. */
+    private static List<String> applyExceptedLabels(UnboundStar star, List<String> labels) {
         List<String> excepted = new ArrayList<>();
         for (NamedExpression slot : star.getExceptedSlots()) {
             String name = outputLabelOf(slot);
@@ -2570,6 +3047,49 @@ public final class SPMPlanTreeSupport {
             throw new UnalignableOutputLabelsException(
                     "the caller's * EXCEPT payload does not match the replay's derived"
                             + " output labels; the headers cannot be positioned");
+        }
+        return adjusted;
+    }
+
+    /**
+     * The REPLACE half of one payload star's label derivation: each replacement
+     * renames the output position it targets. The analyzer resolves the alias NAME
+     * against the relation's scope with identifier-case rules and swaps the matching
+     * column's item for the Alias, so the CALLER's own header for that position is the
+     * alias name (SELECT * REPLACE (K + 1 AS k) FROM (SELECT id AS K FROM t) s reports
+     * `k`). Applying only the EXCEPT payload left the underlying label `K` and
+     * alignRootOutputLabels renamed the frozen `k` output to `K` even for an identical
+     * replay. A replacement addressing no derived position (or more than one) DECLINES:
+     * the analyzer rejects such a query, so guessing here would report headers the
+     * caller's own analysis never produced.
+     */
+    private static List<String> applyReplacedAliases(UnboundStar star, List<String> labels) {
+        if (star.getReplacedAlias().isEmpty()) {
+            return labels;
+        }
+        List<String> adjusted = new ArrayList<>(labels);
+        for (NamedExpression replaced : star.getReplacedAlias()) {
+            String aliasName = outputLabelOf(replaced);
+            if (aliasName == null) {
+                throw new UnalignableOutputLabelsException(
+                        "the caller's * REPLACE column name cannot be read; the headers"
+                                + " cannot be positioned");
+            }
+            int matches = 0;
+            for (int i = 0; i < adjusted.size(); i++) {
+                String label = adjusted.get(i);
+                if (label != null && (label.equalsIgnoreCase(aliasName)
+                        || lastNamePart(label).equalsIgnoreCase(aliasName))) {
+                    adjusted.set(i, aliasName);
+                    matches++;
+                }
+            }
+            if (matches != 1) {
+                throw new UnalignableOutputLabelsException(
+                        "the caller's * REPLACE column " + aliasName
+                                + " does not address exactly one derived output label;"
+                                + " the headers cannot be positioned");
+            }
         }
         return adjusted;
     }
@@ -2812,8 +3332,9 @@ public final class SPMPlanTreeSupport {
                 // every position, and a matching caller had the surviving column renamed
                 // with the other side's derived label (SELECT * FROM (SELECT id, v + 1
                 // FROM t) s RIGHT SEMI JOIN u ON s.id = u.id renamed u.x to v + 2).
-                return starExpansion(join.getJoinType().isRightSemiOrAntiJoin()
-                        ? children.get(1) : children.get(0));
+                return withMarkLabel(join, starExpansion(
+                        join.getJoinType().isRightSemiOrAntiJoin()
+                                ? children.get(1) : children.get(0)));
             }
             List<String> labels = new ArrayList<>();
             boolean openSeen = false;
@@ -2837,37 +3358,89 @@ public final class SPMPlanTreeSupport {
                 }
                 labels.addAll(child.labels);
             }
-            return new StarLabels(labels, openSeen);
+            return withMarkLabel(join, new StarLabels(labels, openSeen));
         }
         return new StarLabels(List.of(), true);
     }
 
     /**
+     * Appends a MARK join's mark slot label AFTER the side / joined labels: a mark
+     * join's ASTERISK output exposes the mark column there (see
+     * LogicalJoin#computeAsteriskOutput), so omitting it left the caller's derived
+     * list SHORTER than the frozen sink's - alignRootOutputLabels then gave up on a
+     * literal-variant match and kept reporting the CAPTURED headers (the stale
+     * `v + 1` header of the mark-join query). An open tail already covers the
+     * trailing positions (the mark slot is the LAST one); a mark label that cannot
+     * be derived DECLINES the replay instead of guessing.
+     */
+    private static StarLabels withMarkLabel(LogicalJoin<?, ?> join, StarLabels labels) {
+        if (!join.isMarkJoin() || labels.openTail) {
+            return labels;
+        }
+        String markLabel = outputLabelOf(join.getMarkJoinSlotReference().get());
+        if (markLabel == null) {
+            throw new UnalignableOutputLabelsException(
+                    "the caller's mark-join slot label cannot be derived; the caller's"
+                            + " headers cannot be positioned");
+        }
+        List<String> extended = new ArrayList<>(labels.labels);
+        extended.add(markLabel);
+        return new StarLabels(extended, false);
+    }
+
+    /**
      * The labels a USING join's `*` exposes: each key merges into ONE leading column (in
-     * USING order), then the left side's remaining columns, then the right side's. The
-     * merged column carries the key's name; a side whose expansion is underivable ends
-     * the derivation with an open tail (its columns are real names), while a DERIVABLE
-     * side behind an open one cannot be positioned and declines.
+     * USING order), then the PRESERVED side's remaining columns. The merged column
+     * carries the key's RESOLVED name - the analyzer renames it from the merge-source
+     * side's own column (BindExpression#bindUsingJoin analyzes the key against the child
+     * scopes and emits Alias(slot, slot.getName())) - so the derivation matches the key
+     * against that side's labels with the ANALYZER's identifier-case rules instead of
+     * comparing the raw spelling (USING(k) binds a column aliased K). A SEMI / ANTI
+     * join exposes ONLY its preserved side (asterisk-binding reads
+     * join.getAsteriskOutput(), which returns that child alone for those join types), so
+     * the discarded side must not contribute labels; a side whose expansion is
+     * underivable ends the derivation with an open tail (its columns are real names),
+     * while a DERIVABLE side behind an open one cannot be positioned and declines.
      */
     private static StarLabels usingJoinStarExpansion(LogicalUsingJoin<?, ?> join) {
+        List<Plan> children = join.children();
+        boolean semiOrAnti = join.getJoinType().isSemiOrAntiJoin()
+                && children.size() == 2;
+        boolean rightPreserved = join.getJoinType().isRightJoin()
+                || join.getJoinType().isRightSemiOrAntiJoin();
+        // the sides contributing VISIBLE non-key columns, in output order
+        List<Integer> visible = new ArrayList<>();
+        if (semiOrAnti) {
+            visible.add(rightPreserved ? 1 : 0);
+        } else {
+            visible.add(0);
+            visible.add(1);
+        }
+        StarLabels[] sides = new StarLabels[children.size()];
+        for (int index : visible) {
+            sides[index] = starExpansion(children.get(index));
+        }
         List<String> labels = new ArrayList<>();
-        Set<String> consumedKeys = new LinkedHashSet<>();
+        // the identifier-case comparison set: the analyzer's key consumption follows the
+        // bound slots, where a derived name only differs from the raw key by case
+        Set<String> consumedKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        int keySource = rightPreserved ? 1 : 0;
         for (Expression key : join.getUsingSlots()) {
-            String name = outputLabelOf(key);
-            if (name == null) {
+            String raw = outputLabelOf(key);
+            if (raw == null) {
                 throw new UnalignableOutputLabelsException(
                         "the caller's USING key label cannot be derived; the headers"
                                 + " cannot be positioned");
             }
+            String name = resolvedUsingKeyLabel(raw, sides[keySource]);
             labels.add(name);
             consumedKeys.add(name);
         }
         boolean openSeen = false;
-        List<Plan> children = join.children();
-        for (int i = 0; i < children.size(); i++) {
-            StarLabels side = starExpansion(children.get(i));
+        for (int i = 0; i < visible.size(); i++) {
+            StarLabels side = sides[visible.get(i)];
             if (side.openTail) {
-                if (i == children.size() - 1) {
+                if (i == visible.size() - 1) {
                     return new StarLabels(labels, true);
                 }
                 openSeen = true;
@@ -2880,14 +3453,39 @@ public final class SPMPlanTreeSupport {
             }
             for (String label : side.labels) {
                 // the key columns are CONSUMED by the merge (one output column per key,
-                // already contributed above): both sides' copies must be skipped or every
-                // later position shifts
-                if (!consumedKeys.contains(label)) {
+                // already contributed above): every side's copy must be skipped or every
+                // later position shifts. The comparison follows the analyzer's
+                // IDENTIFIER-case rules (USING(k) binds a column aliased K), and a
+                // QUALIFIED label is matched by its last component like the scope does.
+                if (label == null || !isConsumedUsingKey(consumedKeys, label)) {
                     labels.add(label);
                 }
             }
         }
         return new StarLabels(labels, false);
+    }
+
+    /**
+     * One USING key's caller-visible label: the merge-source side's OWN label for the
+     * key (identifier-case match, qualified labels compared by their last component),
+     * falling back to the raw spelling when that side's expansion is underivable.
+     */
+    private static String resolvedUsingKeyLabel(String rawKeyName, StarLabels sourceSide) {
+        if (sourceSide != null && !sourceSide.openTail) {
+            for (String label : sourceSide.labels) {
+                if (label != null && (label.equalsIgnoreCase(rawKeyName)
+                        || lastNamePart(label).equalsIgnoreCase(rawKeyName))) {
+                    return label;
+                }
+            }
+        }
+        return rawKeyName;
+    }
+
+    /** Whether one side label IS one of the merged USING keys. */
+    private static boolean isConsumedUsingKey(Set<String> consumedKeys, String label) {
+        return consumedKeys.contains(label)
+                || consumedKeys.contains(lastNamePart(label));
     }
 
     /**

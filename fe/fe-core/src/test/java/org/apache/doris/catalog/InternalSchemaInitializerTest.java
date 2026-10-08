@@ -718,6 +718,33 @@ class InternalSchemaInitializerTest {
     }
 
     /**
+     * Round-52 #2: a populated PRE-scan_zone checkpoint has no scan_zone column -
+     * readCheckpointStateForModelUpgrade only reads the columns that exist - while every
+     * payload column is NOT NULL WITHOUT a default in the recreated / staging schema.
+     * Omitting the absent historical field failed the carry INSERT with "Column has no
+     * default value" on EVERY retry, so the old table never reached the append-only
+     * model and capture could not resume. The absent columns must be named and filled
+     * with their compatible historical values instead (numeric 0, text empty).
+     */
+    @Test
+    public void testCarriedCheckpointInsertFillsColumnsTheOldTableLacks() {
+        Map<String, String> olderRow = new LinkedHashMap<>();
+        olderRow.put("last_scan_timestamp", "1000");
+        olderRow.put("pending_window_start", "900");
+        olderRow.put("pending_window_end", "1100");
+        olderRow.put("min_query_time_ms", "5");
+        olderRow.put("min_scan_rows", "7");
+        String insert = InternalSchemaInitializer.buildCarriedCheckpointInsert(olderRow, 42L);
+        for (String column : InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS) {
+            Assertions.assertTrue(insert.contains("`" + column + "`"),
+                    "carried column " + column + " missing: " + insert);
+        }
+        Assertions.assertTrue(insert.endsWith("'')"),
+                "the LAST payload column (scan_zone, absent from the old row) carries the"
+                        + " empty-string default instead of being omitted: " + insert);
+    }
+
+    /**
      * SET GLOBAL accepts ANY compiling regex for
      * plan_capture_include_pattern / plan_capture_exclude_pattern, so a fixed
      * VARCHAR(4096) made a valid 4097-byte pattern fail the reservation INSERT - the
@@ -803,8 +830,9 @@ class InternalSchemaInitializerTest {
         Assertions.assertTrue(stagedInsert.startsWith("INSERT INTO `__internal_schema`."
                         + "`" + InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_STAGE_TBL_NAME
                         + "`"), stagedInsert);
-        Assertions.assertTrue(stagedInsert.contains("VALUES (1, 7, 0, NOW(), 900, 1100"),
-                "the staged copy keeps the token and the window: " + stagedInsert);
+        Assertions.assertTrue(stagedInsert.contains("VALUES (1, 7, 0, NOW(), 0, 900, 1100"),
+                "the staged copy keeps the token and the window (the absent historical"
+                        + " fields carry their defaults, round-52 #2): " + stagedInsert);
 
         String readback = InternalSchemaInitializer.buildCarriedCheckpointReadbackSql(7L, "900");
         Assertions.assertTrue(readback.contains("`leader_epoch` = 7")

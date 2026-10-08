@@ -1143,9 +1143,18 @@ public class InternalSchemaInitializer extends Thread {
                 + " `update_time`");
         StringBuilder values = new StringBuilder("(1, ").append(epoch).append(", 0, NOW()");
         for (String column : SPM_CAPTURE_CHECKPOINT_PAYLOAD_COLUMNS) {
+            // A column the OLD table did not have yet (readCheckpointStateForModelUpgrade
+            // only reads what exists there) is filled with its compatible historical
+            // value: every payload column is NOT NULL in the recreated / staging schema
+            // WITHOUT a default, so omitting it failed the carry INSERT with "Column has
+            // no default value" on EVERY retry and the old table never reached the
+            // append-only model - capture could not resume (round-52 #2). Numeric cells
+            // carry 0, text cells the empty string: the values a row written by the
+            // older build implicitly stands for (scan_zone empty = never scanned, the
+            // reader then follows the current global zone).
             String value = state.get(column);
             if (value == null) {
-                continue;
+                value = SPM_CAPTURE_CHECKPOINT_NUMERIC_COLUMNS.contains(column) ? "0" : "";
             }
             columns.append(", `").append(column).append('`');
             values.append(", ");
