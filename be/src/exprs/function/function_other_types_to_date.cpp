@@ -486,9 +486,12 @@ struct DateTrunc {
         if (!context->is_col_constant(DateArgIsFirst ? 1 : 0)) {
             return Status::OK();
         }
-        return create_state(
-                context,
-                context->get_constant_col(DateArgIsFirst ? 1 : 0)->column_ptr->get_data_at(0));
+        const auto& unit_column = context->get_constant_col(DateArgIsFirst ? 1 : 0)->column_ptr;
+        // The nullable wrapper returns NULL without calling execute when the constant unit is NULL.
+        if (unit_column->is_null_at(0)) {
+            return Status::OK();
+        }
+        return create_state(context, unit_column->get_data_at(0));
     }
 
     static Status create_state(FunctionContext* context, const StringRef& data_str) {

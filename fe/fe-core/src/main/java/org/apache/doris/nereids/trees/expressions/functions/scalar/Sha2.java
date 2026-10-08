@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -89,6 +90,9 @@ public class Sha2 extends ScalarFunction
         // the value of a constant FE cannot fold is validated by BE when it is evaluated
         if (!(digestLength instanceof Literal)) {
             return;
+        }
+        if (digestLength instanceof NullLiteral) {
+            throw new AnalysisException("sha2 functions only support digest length of " + validDigest.toString());
         }
         final int constParam = ((IntegerLikeLiteral) digestLength).getIntValue();
         if (!validDigest.contains(constParam)) {

@@ -33,6 +33,7 @@
 #include "core/call_on_type_index.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -76,8 +77,8 @@ public:
             block.replace_by_position(result, block.get_by_position(result).type->create_column());
             return Status::OK();
         }
-        ColumnPtr src_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto& [src_column, src_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
         if (!src_column_array) {
             return Status::RuntimeError(
@@ -99,7 +100,9 @@ public:
         RETURN_IF_CATCH_EXCEPTION(
                 RETURN_IF_ERROR(_execute(*src_nested_column, nested_type, src_offsets, condition,
                                          rhs_value_column, &result_ptr)));
-        block.replace_by_position(result, std::move(result_ptr));
+        block.replace_by_position(result,
+                                  src_const ? ColumnConst::create(result_ptr, input_rows_count)
+                                            : std::move(result_ptr));
         return Status::OK();
     }
 

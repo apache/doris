@@ -142,6 +142,8 @@ public class ConstantFunctionArgumentTest {
     @Test
     public void testScalarFunctionValueIsCheckedBeforeTypeCoercion() {
         assertAnalysisError("select sha2('abc', 200 + 100)", "sha2 functions only support digest length of");
+        assertAnalysisError("select sha2('abc', cast(null as int))",
+                "sha2 functions only support digest length of");
         assertAnalysisError("select split_by_regexp('a,b,c', ',', 0 - 1)", "must be a positive constant");
         assertAnalysisError("select array_apply([1, 2, 3], concat('>', '>'), 2)", "op support =, >=, <=, >, <, !=");
         assertAnalysisError("select tokenize('x', concat('par', 'ser'))",

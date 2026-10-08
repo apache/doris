@@ -81,6 +81,10 @@ true
 -- !insert_values --
 1	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 2	bbc
+3	\N
+4	\N
+5	\N
+6	\N
 
 -- !sha2_be --
 ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
@@ -148,6 +152,16 @@ true	true	true	bbc	2024-03-01T00:00
 0	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad	["a", "b,c"]	true
 1	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad	["a", "b,c"]	true
 2	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad	["a", "b,c"]	true
+
+-- !array_apply_const_source --
+0	[]
+1	[]
+2	[]
+
+-- !regexp_replace_const_source --
+0	0	0
+1	0	0
+2	0	0
 
 -- !date_trunc_open_non_constant_be --
 1	2024-03-01T00:00
