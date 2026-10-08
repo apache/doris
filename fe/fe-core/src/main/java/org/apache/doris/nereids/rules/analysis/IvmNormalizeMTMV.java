@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -1107,17 +1108,20 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             Slot valueStateSlot = target.getValueStateSlot();
             if (aggFunctionRegistry.visibleColumnHoldsValueState(target)) {
                 // The column currently carrying this target's value: the carrier materialized by a lower
-                // layer if there is one, otherwise the visible column the aggregate still produces.
+                // layer if there is one, otherwise the visible column the aggregate still produces. Apply
+                // reads the MV column under the visible column's name, which is also the name an insert
+                // coercion project keeps.
                 Slot carried = materializeAggStateSlot(extendedOutputs,
-                        valueStateSlot != null ? valueStateSlot : target.getVisibleSlot(), aggMeta);
+                        valueStateSlot != null ? valueStateSlot : target.getVisibleSlot(),
+                        target.getVisibleSlot().getName(), aggMeta);
                 // The visible column reaching the MV is not a separate carrier.
                 valueStateSlot = carried.getExprId().equals(target.getVisibleSlot().getExprId())
                         ? null : carried;
             }
             ImmutableMap.Builder<IvmAggStateKey, Slot> hiddenStateSlots = ImmutableMap.builder();
             for (Map.Entry<IvmAggStateKey, Slot> hiddenStateSlot : target.getHiddenStateSlots().entrySet()) {
-                hiddenStateSlots.put(hiddenStateSlot.getKey(),
-                        materializeAggStateSlot(extendedOutputs, hiddenStateSlot.getValue(), aggMeta));
+                hiddenStateSlots.put(hiddenStateSlot.getKey(), materializeAggStateSlot(extendedOutputs,
+                        hiddenStateSlot.getValue(), hiddenStateSlot.getValue().getName(), aggMeta));
             }
             IvmAggTarget reboundTarget = target.withStateSlots(valueStateSlot, hiddenStateSlots.build());
             rebound |= reboundTarget != target;
@@ -1136,28 +1140,30 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      * Returns the slot that carries {@code stateSlot} above this layer, appending a hidden pass-through
      * alias when this layer drops it.
      *
-     * <p>A layer keeps the state alive when it projects the state slot itself, when it projects a
-     * hidden-named alias over it (the refresh sink rebinds the normalized hidden columns to the MV's own
-     * slots that way), or when it emits any column under the state column's name. That last case is the
-     * insert path: the binder renames the state column locally (for example {@code m} to {@code m1}) and
-     * coerces it back into the MV column with the original name, so the column apply reads from the MV is
-     * unchanged and the local rename must not move the state.
+     * <p>A layer keeps the state alive when it projects the state slot itself or a pure rename of it (the
+     * refresh sink rebinds the normalized hidden columns to the MV's own slots that way), or when it
+     * coerces the state into the MV column that keeps the state column's name, which is what the insert
+     * path does for a clamped key column. Only when neither holds does the state need a carrier.
+     *
+     * <p>Matching a same-named output is not enough on its own: a view may alias its own expression to
+     * the state column's name ({@code SELECT SUM(v) * 100 AS `sum(v)`}), and such a column holds a derived
+     * value rather than the raw state.
      */
-    private Slot materializeAggStateSlot(List<NamedExpression> outputs, Slot stateSlot, IvmAggMeta aggMeta) {
+    private Slot materializeAggStateSlot(List<NamedExpression> outputs, Slot stateSlot, String stateColumnName,
+            IvmAggMeta aggMeta) {
         NamedExpression projected = findProjectedKey(outputs, stateSlot);
         if (projected != null) {
-            if (projected instanceof Alias && !IvmUtil.isIvmHiddenColumn(projected.getName())) {
-                // A binder project renamed the state column locally; the MV column keeps its own name.
-                return stateSlot;
-            }
-            // The projecting output's own slot is what carries the value: a visible column projecting
-            // through, a hidden state column, or a carrier another target needed for this same state.
+            // The projecting output's own slot is what carries the value: the column itself, a column it
+            // projects through, or a carrier another target needed for this same state.
             return projected.toSlot();
         }
-        if (outputs.stream().anyMatch(output -> output.getName().equals(stateSlot.getName()))) {
-            // A binder coercion project rebuilt a column under the state column's name, so the MV column
-            // apply reads still exists and the state does not need a carrier.
-            return stateSlot;
+        for (NamedExpression output : outputs) {
+            if (output instanceof Alias && output.getName().equals(stateColumnName)
+                    && isInsertCoercionOfState(((Alias) output).child(), stateSlot)) {
+                // The insert path stores the state in the MV column of the same name, so the state stays
+                // readable there and needs no carrier.
+                return output.toSlot();
+            }
         }
         IvmAggTarget owner = aggTargetOwningVisibleSlot(stateSlot, aggMeta);
         // The carrier is named after the owning target's ordinal and kind, which is the name the delta
@@ -1166,6 +1172,24 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                 IvmUtil.ivmAggHiddenColumnName(owner.getOrdinal(), owner.getFunctionKind().name()));
         outputs.add(carrier);
         return carrier.toSlot();
+    }
+
+    /**
+     * Returns true when {@code expression} is the insert path coercion of {@code slot}: a length or type
+     * coercion with the slot as its only input.
+     *
+     * <p>The insert binder wraps a state column in such a coercion when the MV key column type is clamped
+     * (for example {@code SUBSTRING(m, 1, 65533)} for a STRING column stored as VARCHAR(65533)) and keeps
+     * the state column's name on the coerced output, which is why the caller also requires the output name
+     * to be the state column's name. Any other expression over the slot derives a new value and cannot
+     * stand in for the raw state.
+     */
+    private boolean isInsertCoercionOfState(Expression expression, Slot slot) {
+        if (!(expression instanceof Cast || expression instanceof Substring)) {
+            return false;
+        }
+        Set<Slot> inputs = expression.getInputSlots();
+        return inputs.size() == 1 && inputs.iterator().next().getExprId().equals(slot.getExprId());
     }
 
     /**
