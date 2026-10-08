@@ -443,7 +443,8 @@ Status ArrowBlockConvertor::write_plain_arrow_column(const std::shared_ptr<const
                                                      int64_t start, int64_t end,
                                                      const cctz::time_zone& ctz) const {
     std::shared_ptr<arrow::DataType> plain_arrow_type;
-    RETURN_IF_ERROR(convert_to_arrow_type(type, &plain_arrow_type, ctz.name()));
+    RETURN_IF_ERROR(
+            DorisArrowSchemaConvertor(ctz.name()).convert_to_arrow_type(type, &plain_arrow_type));
     const auto storage_type = extension_storage_type(field->type());
     // This is an exact binding check selected by the target converter, not a recovery path. A
     // mismatch returns without invoking SerDe, and a SerDe error is never retried elsewhere.
@@ -501,8 +502,16 @@ Status DorisArrowBlockConvertor::init() {
     if (_arrow_schema == nullptr) {
         // cctz names fixed offsets as "Fixed/UTC+HH:MM:SS", which is not the Arrow
         // protocol label. Keep the declared name so Python metadata and batches agree.
-        RETURN_IF_ERROR(get_arrow_schema_from_block(_header, &_arrow_schema, _timezone_name,
-                                                    _datetime_naive));
+        RETURN_IF_ERROR(DorisArrowSchemaConvertor(_header, _timezone_name)
+                                .get_arrow_schema(&_arrow_schema));
+    }
+    return ArrowBlockConvertor::init();
+}
+
+Status ArrowFlightArrowBlockConvertor::init() {
+    if (_arrow_schema == nullptr) {
+        RETURN_IF_ERROR(ArrowFlightSchemaConvertor(_header, _timezone_name)
+                                .get_arrow_schema(&_arrow_schema));
     }
     return ArrowBlockConvertor::init();
 }

@@ -73,6 +73,9 @@ public class ResultSink extends DataSink {
             tResultSink.setFetchOption(fetchOption);
         }
         tResultSink.setType(resultSinkType);
+        if (resultSinkType == TResultSinkType.ARROW_FLIGHT_PROTOCOL) {
+            tResultSink.setEnableArrowTypeMetadata(true);
+        }
         result.setResultSink(tResultSink);
         return result;
     }
