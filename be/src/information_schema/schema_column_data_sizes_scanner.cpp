@@ -119,15 +119,10 @@ void SchemaColumnDataSizesScanner::_collect_column_data_sizes_from_rowsets(
                     if (cid == -1) {
                         return;
                     }
-                    // Aggregate stats by column_unique_id
-                    if (aggregated_stats.contains(column_unique_id)) {
-                        auto& existing_stats = aggregated_stats[column_unique_id];
-                        existing_stats.compressed_data_bytes += column_meta.compressed_data_bytes();
-                        existing_stats.uncompressed_data_bytes +=
-                                column_meta.uncompressed_data_bytes();
-                        existing_stats.raw_data_bytes += column_meta.raw_data_bytes();
-                    } else {
-                        aggregated_stats[column_unique_id] = ColumnDataSizeInfo {
+                    auto [it, inserted] = aggregated_stats.try_emplace(column_unique_id);
+                    auto& stats = it->second;
+                    if (inserted) {
+                        stats = ColumnDataSizeInfo {
                                 .backend_id = backend_id_,
                                 .table_id = table_id,
                                 .index_id = index_id,
@@ -138,11 +133,14 @@ void SchemaColumnDataSizesScanner::_collect_column_data_sizes_from_rowsets(
                                 .column_name = schema->column(cid).name(),
                                 .column_type = TabletColumn::get_string_by_field_type(
                                         schema->column(cid).type()),
-                                .compressed_data_bytes = column_meta.compressed_data_bytes(),
-                                .uncompressed_data_bytes = column_meta.uncompressed_data_bytes(),
-                                .raw_data_bytes = column_meta.raw_data_bytes(),
+                                .compressed_data_bytes = 0,
+                                .uncompressed_data_bytes = 0,
+                                .raw_data_bytes = 0,
                         };
                     }
+                    stats.compressed_data_bytes += column_meta.compressed_data_bytes();
+                    stats.uncompressed_data_bytes += column_meta.uncompressed_data_bytes();
+                    stats.raw_data_bytes += column_meta.raw_data_bytes();
                 }
             };
             auto footer_collector = [&](const segment_v2::ColumnMetaPB& column_meta) {
