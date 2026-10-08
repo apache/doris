@@ -339,9 +339,10 @@ Status DataTypeTimeStampNsSerDe::deserialize_column_from_jsonb(IColumn& column,
 }
 
 Status DataTypeTimeStampNsSerDe::deserialize_column_from_jsonb_vector(
-        ColumnNullable& column_to, const ColumnString& column_from,
-        CastParameters& cast_params) const {
-    return DataTypeSerDe::deserialize_column_from_jsonb_vector(column_to, column_from, cast_params);
+        ColumnNullable& column_to, const ColumnString& column_from, CastParameters& cast_params,
+        const NullMap::value_type* source_null_map) const {
+    return DataTypeSerDe::deserialize_column_from_jsonb_vector(column_to, column_from, cast_params,
+                                                               source_null_map);
 }
 
 Status DataTypeTimeStampNsSerDe::write_column_to_arrow(const IColumn& column,

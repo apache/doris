@@ -74,9 +74,9 @@ public:
                                                const FormatOptions& options) const override;
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& cast_params) const override;
-    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
-                                                const ColumnString& column_from,
-                                                CastParameters& cast_params) const override;
+    Status deserialize_column_from_jsonb_vector(
+            ColumnNullable& column_to, const ColumnString& column_from, CastParameters& cast_params,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
