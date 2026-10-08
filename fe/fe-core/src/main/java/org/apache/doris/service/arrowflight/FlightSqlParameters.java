@@ -18,6 +18,9 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -31,6 +34,8 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -53,6 +58,7 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.TimeStampVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.Types;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 
 import java.math.BigDecimal;
@@ -64,7 +70,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Converts one parameter row into detached values consumed by Nereids placeholder analysis. */
 final class FlightSqlParameters {
@@ -72,6 +80,44 @@ final class FlightSqlParameters {
     static final int MAX_PARAMETERS = 1024;
 
     private FlightSqlParameters() {
+    }
+
+    static Map<PlaceholderId, DataType> inferCastTypes(Plan plan) {
+        Map<PlaceholderId, DataType> types = new HashMap<>();
+        plan.foreach(node -> {
+            ((Plan) node).getExpressions().forEach(expression -> expression.foreach(child -> {
+                if (child instanceof Cast && ((Cast) child).child() instanceof Placeholder) {
+                    // Only the innermost explicit cast constrains the value supplied for this placeholder.
+                    types.put(((Placeholder) ((Cast) child).child()).getPlaceholderId(), ((Cast) child).getDataType());
+                } else if (child instanceof SubqueryExpr) {
+                    types.putAll(inferCastTypes(((SubqueryExpr) child).getQueryPlan()));
+                }
+            }));
+        });
+        return types;
+    }
+
+    static boolean supportsParameterType(ArrowType type) {
+        switch (Types.getMinorTypeForArrowType(type)) {
+            case NULL:
+            case BIT:
+            case TINYINT:
+            case SMALLINT:
+            case INT:
+            case BIGINT:
+            case FLOAT4:
+            case FLOAT8:
+            case VARCHAR:
+            case DATEDAY:
+            case TIMESTAMPSEC:
+            case TIMESTAMPMILLI:
+            case TIMESTAMPMICRO:
+            case TIMESTAMPNANO:
+            case DECIMAL:
+                return true;
+            default:
+                return false;
+        }
     }
 
     static void bind(StatementContext context, List<Literal> parameters) {

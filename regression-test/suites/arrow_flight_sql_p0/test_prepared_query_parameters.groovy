@@ -29,10 +29,66 @@ import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.Float8Vector
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.VarCharVector
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.VectorSchemaRoot
 
+import java.sql.DriverManager
+import java.sql.Types
+
 suite("test_prepared_query_parameters", "arrow_flight_sql") {
     def config = context.config.otherConfigs
     def location = Location.forGrpcInsecure(config.get("extArrowFlightSqlHost"),
             Integer.parseInt(config.get("extArrowFlightSqlPort")))
+    Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
+    def jdbcUrl = "jdbc:arrow-flight-sql://${config.get('extArrowFlightSqlHost')}:" +
+            "${config.get('extArrowFlightSqlPort')}?useEncryption=false"
+    DriverManager.getConnection(jdbcUrl, config.get("extArrowFlightSqlUser"),
+            config.get("extArrowFlightSqlPassword")).withCloseable { connection ->
+        // Exercise JDBC's schema-driven binder and query classifier, not only direct vector uploads.
+        connection.prepareStatement("SELECT CAST(? AS BIGINT) AS value").withCloseable { statement ->
+            assertEquals(1, statement.getMetaData().getColumnCount())
+            assertEquals(Types.BIGINT, statement.getParameterMetaData().getParameterType(1))
+            [42L, -7L, Long.MAX_VALUE].each { value ->
+                statement.setLong(1, value)
+                assertTrue(statement.execute())
+                statement.getResultSet().withCloseable { result ->
+                    assertTrue(result.next())
+                    assertEquals(value, result.getLong(1))
+                    assertTrue(!result.next())
+                }
+            }
+            statement.setNull(1, Types.BIGINT)
+            statement.executeQuery().withCloseable { result ->
+                assertTrue(result.next())
+                assertEquals(null, result.getObject(1))
+                assertTrue(!result.next())
+            }
+        }
+        connection.prepareStatement("SELECT CAST(? AS BIGINT), CAST(? AS STRING), CAST(? AS DOUBLE)")
+                .withCloseable { statement ->
+            statement.setLong(1, 17L)
+            statement.setString(2, "quoted ' ? 中文")
+            statement.setDouble(3, 2.5d)
+            statement.executeQuery().withCloseable { result ->
+                assertTrue(result.next())
+                assertEquals(17L, result.getLong(1))
+                assertEquals("quoted ' ? 中文", result.getString(2))
+                assertEquals(2.5d, result.getDouble(3))
+                assertTrue(!result.next())
+            }
+        }
+        connection.prepareStatement('SELECT number FROM numbers("number"="10") '
+                + 'WHERE number >= ? AND ? > number ORDER BY number').withCloseable { statement ->
+            [[2L, 5L], [6L, 9L]].each { bounds ->
+                statement.setLong(1, bounds[0])
+                statement.setLong(2, bounds[1])
+                statement.executeQuery().withCloseable { result ->
+                    def rows = []
+                    while (result.next()) {
+                        rows.add(result.getLong(1))
+                    }
+                    assertEquals((bounds[0]..<bounds[1]).toList(), rows)
+                }
+            }
+        }
+    }
     new RootAllocator().withCloseable { allocator ->
         FlightClient.builder(allocator, location).build().withCloseable { flight ->
             def token = flight.authenticateBasicToken(config.get("extArrowFlightSqlUser"),

@@ -36,6 +36,7 @@ import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import org.apache.arrow.flight.Action;
 import org.apache.arrow.flight.AsyncPutListener;
+import org.apache.arrow.flight.CallHeaders;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightProducer.CallContext;
@@ -72,6 +73,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.Types;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -102,6 +107,11 @@ public class FlightSqlPreparedQueryTest extends TestWithFeService {
                     public String getPeerIdentity() {
                         return "parameter-peer";
                     }
+
+                    @Override
+                    public void appendToOutgoingHeaders(CallHeaders headers) {
+                        headers.insert("authorization", "Bearer parameter-peer");
+                    }
                 }).build().start();
         client = FlightClient.builder(allocator, server.getLocation()).build();
         sqlClient = new FlightSqlClient(client);
@@ -124,7 +134,7 @@ public class FlightSqlPreparedQueryTest extends TestWithFeService {
                 ActionCreatePreparedStatementRequest.newBuilder().setQuery(sql).build()).toByteArray());
         ActionCreatePreparedStatementResult prepared = Any.parseFrom(client.doAction(action).next().getBody())
                 .unpack(ActionCreatePreparedStatementResult.class);
-        Assertions.assertTrue(prepared.getDatasetSchema().isEmpty());
+        Assertions.assertFalse(prepared.getDatasetSchema().isEmpty());
         return CommandPreparedStatementQuery.newBuilder()
                 .setPreparedStatementHandle(prepared.getPreparedStatementHandle()).build();
     }
@@ -147,8 +157,83 @@ public class FlightSqlPreparedQueryTest extends TestWithFeService {
     }
 
     @Test
+    public void jdbcPrepareAdvertisesResultAndParameterTypes() throws Exception {
+        Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver");
+        try (Connection connection = DriverManager.getConnection("jdbc:arrow-flight-sql://127.0.0.1:"
+                + server.getPort() + "?useEncryption=false", "fixture", "fixture");
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT CAST(? AS BIGINT) AS n, CAST(? AS STRING) AS s, CAST(? AS DOUBLE) AS d")) {
+            Assertions.assertEquals(3, statement.getMetaData().getColumnCount());
+            for (int i = 0; i < 3; i++) {
+                int type = new int[] {Types.BIGINT, Types.VARCHAR, Types.DOUBLE}[i];
+                Assertions.assertEquals(type, statement.getMetaData().getColumnType(i + 1));
+                Assertions.assertEquals(type, statement.getParameterMetaData().getParameterType(i + 1));
+            }
+        }
+    }
+
+    @Test
+    public void jdbcPrepareInfersRangePredicateTypes() throws Exception {
+        Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver");
+        try (Connection connection = DriverManager.getConnection("jdbc:arrow-flight-sql://127.0.0.1:"
+                + server.getPort() + "?useEncryption=false", "fixture", "fixture");
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT number FROM numbers(\"number\"=\"10\") WHERE number >= ? AND ? > number")) {
+            Assertions.assertEquals(Types.BIGINT, statement.getParameterMetaData().getParameterType(1));
+            Assertions.assertEquals(Types.BIGINT, statement.getParameterMetaData().getParameterType(2));
+            Assertions.assertEquals(Types.BIGINT, statement.getMetaData().getColumnType(1));
+        }
+    }
+
+    @Test
+    public void jdbcPreparePreservesInnerCastsAndSubqueryTypes() throws Exception {
+        Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver");
+        try (Connection connection = DriverManager.getConnection("jdbc:arrow-flight-sql://127.0.0.1:"
+                + server.getPort() + "?useEncryption=false", "fixture", "fixture");
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT CAST(CAST(? AS BIGINT) AS STRING), (SELECT CAST(? AS DOUBLE))")) {
+            Assertions.assertEquals(Types.BIGINT, statement.getParameterMetaData().getParameterType(1));
+            Assertions.assertEquals(Types.DOUBLE, statement.getParameterMetaData().getParameterType(2));
+            Assertions.assertEquals(Types.VARCHAR, statement.getMetaData().getColumnType(1));
+            Assertions.assertEquals(Types.DOUBLE, statement.getMetaData().getColumnType(2));
+        }
+    }
+
+    @Test
+    public void unknownParameterTypesAreNotInvented() throws Exception {
+        try (FlightSqlClient.PreparedStatement statement = sqlClient.prepare("SELECT ? AS value")) {
+            Assertions.assertEquals(new ArrowType.Null(),
+                    statement.getParameterSchema().getFields().get(0).getType());
+            Assertions.assertEquals(new ArrowType.Null(),
+                    statement.getResultSetSchema().getFields().get(0).getType());
+        }
+        Assertions.assertThrows(FlightRuntimeException.class,
+                () -> sqlClient.prepare("SELECT CAST(? AS BIGINT) FROM missing_parameter_table"));
+    }
+
+    @Test
+    public void unsupportedParameterVectorsDoNotRestrictResultTypes() throws Exception {
+        try (FlightSqlClient.PreparedStatement statement = sqlClient.prepare("SELECT CAST(? AS ARRAY<INT>)")) {
+            Assertions.assertEquals(new ArrowType.Null(),
+                    statement.getParameterSchema().getFields().get(0).getType());
+            Assertions.assertEquals(new ArrowType.List(),
+                    statement.getResultSetSchema().getFields().get(0).getType());
+        }
+        try (FlightSqlClient.PreparedStatement statement = sqlClient.prepare(
+                "SELECT CAST(CAST(? AS STRING) AS ARRAY<INT>)")) {
+            Assertions.assertEquals(new ArrowType.Utf8(),
+                    statement.getParameterSchema().getFields().get(0).getType());
+            Assertions.assertEquals(new ArrowType.List(),
+                    statement.getResultSetSchema().getFields().get(0).getType());
+        }
+    }
+
+    @Test
     public void bindsAndRebindsIntegerQueryOverFlight() throws Exception {
         CommandPreparedStatementQuery command = prepare("SELECT CAST(? AS BIGINT) AS value");
+        Assertions.assertEquals(new ArrowType.Int(64, true), schema(command).getFields().get(0).getType());
+        Assertions.assertThrows(FlightRuntimeException.class,
+                () -> client.getInfo(FlightDescriptor.command(Any.pack(command).toByteArray())));
         try (BigIntVector value = new BigIntVector("parameter", allocator);
                 VectorSchemaRoot root = VectorSchemaRoot.of(value)) {
             for (long expected : new long[] {42, -7, Long.MAX_VALUE}) {
@@ -219,7 +304,8 @@ public class FlightSqlPreparedQueryTest extends TestWithFeService {
                     () -> bind(command, root));
             Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, failure.status().code());
             Assertions.assertNull(flightContext.getPreparedQueryParameters(id(command)));
-            Assertions.assertThrows(FlightRuntimeException.class, () -> schema(command));
+            Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> client.getInfo(FlightDescriptor.command(Any.pack(command).toByteArray())));
             root.setRowCount(1);
             value.setSafe(0, 3);
             bind(command, root);

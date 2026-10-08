@@ -85,8 +85,6 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
-import org.apache.arrow.vector.types.pojo.ArrowType;
-import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.logging.log4j.LogManager;
@@ -97,7 +95,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
@@ -411,6 +408,19 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             final CallContext context, final FlightDescriptor descriptor) {
         ConnectContext connection = flightSessionsManager.getConnectContext(context.peerIdentity());
         synchronized (connection) {
+            String id = preparedStatementId(context, command.getPreparedStatementHandle());
+            String query = connection.getPreparedQuery(id);
+            if (query != null && connection.getPreparedQueryParameterCount(id) > 0
+                    && connection.getPreparedQueryParameters(id) == null) {
+                try {
+                    // Metadata discovery does not execute a query and must work before values are bound.
+                    return new SchemaResult(FlightSqlQuerySchema.prepare(connection, query).first);
+                } catch (FlightRuntimeException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw CallStatus.INVALID_ARGUMENT.withDescription(e.getMessage()).withCause(e).toRuntimeException();
+                }
+            }
             return new SchemaResult(preparedQuery(connection, context, command).getRight());
         }
     }
@@ -493,19 +503,15 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     String query = request.getQuery();
                     // ADBC ExecuteSchema reads this dataset schema directly without calling GetSchema.
                     // Analyze before registering a handle so failed preparation does not retain a query.
-                    org.apache.doris.common.Pair<Schema, Integer> prepared = FlightSqlQuerySchema.prepare(
+                    org.apache.doris.common.Pair<Schema, Schema> prepared = FlightSqlQuerySchema.prepare(
                             connectContext, query);
                     Schema schema = prepared.first;
-                    List<Field> parameters = new ArrayList<>();
-                    for (int i = 0; i < prepared.second; i++) {
-                        parameters.add(Field.nullable(
-                                String.valueOf(i), new ArrowType.Null()));
-                    }
                     preparedStatementId = UUID.randomUUID().toString();
                     ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
                     Result result = new Result(Any.pack(buildCreatePreparedStatementResult(handle,
-                            new Schema(parameters), schema)).toByteArray());
-                    connectContext.addPreparedQuery(preparedStatementId, query, schema, prepared.second);
+                            prepared.second, schema)).toByteArray());
+                    connectContext.addPreparedQuery(preparedStatementId, query, schema,
+                            prepared.second.getFields().size());
                     listener.onNext(result);
                     listener.onCompleted();
                 }
