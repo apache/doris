@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.collect.ImmutableList;
@@ -68,23 +70,28 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
     }
 
     /**
-     * A COUNT pushdown over one file split does not benefit from creating local
-     * shuffle instances: the scanner already produces the complete scalar
-     * result.  In particular, the local-shuffle path otherwise uses the
-     * fragment parallelism and can create many empty scan instances.  Apply
-     * this restriction only after ranges have been selected, and only when this
-     * worker has one assigned range for the COUNT case. Other aggregates,
-     * multi-split scans and non-file remote scans retain the base
-     * parallelization rules.
+     * Avoid extra local-shuffle instances for a file TVF row-count scan with one
+     * actual split assigned to this worker. The scan still feeds the upper COUNT
+     * aggregation; this shortcut only reduces fragment-instance overhead.
+     * Dynamic split sources and existing external-table COUNT paths retain their
+     * original parallelism.
      */
     @Override
-    protected int degreeOfParallelism(int maxParallel, boolean useLocalShuffleToAddParallel) {
-        int instanceNum = super.degreeOfParallelism(maxParallel, useLocalShuffleToAddParallel);
+    protected int degreeOfParallelism(ScanSource scanSource, int maxParallel,
+            boolean useLocalShuffleToAddParallel) {
         ScanNode scanNode = scanNodes.get(0);
-        if (scanNode.getPushDownAggNoGroupingOp() == TPushAggOp.COUNT && maxParallel == 1) {
-            return 1;
+        if (scanNode instanceof TVFScanNode && scanNode.getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
+                && scanSource instanceof DefaultScanSource) {
+            ScanRanges scanRanges = ((DefaultScanSource) scanSource).scanNodeToScanRanges.get(scanNode);
+            if (scanRanges.params.size() == 1) {
+                TFileScanRange fileScanRange = scanRanges.params.get(0).getScanRange()
+                        .getExtScanRange().getFileScanRange();
+                if (!fileScanRange.isSetSplitSource() && fileScanRange.getRangesSize() == 1) {
+                    return 1;
+                }
+            }
         }
-        return instanceNum;
+        return super.degreeOfParallelism(scanSource, maxParallel, useLocalShuffleToAddParallel);
     }
 
     /**
