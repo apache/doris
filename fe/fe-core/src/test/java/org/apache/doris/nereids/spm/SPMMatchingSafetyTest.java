@@ -325,6 +325,38 @@ public class SPMMatchingSafetyTest {
                 failure.getMessage());
     }
 
+    /**
+     * The REPLACE payload and the EXCEPT list of a star live OUTSIDE children(), so the
+     * output-text comparison must still record their slot COMPONENTS: the bare excepted
+     * slot renders through UnboundSlot#computeToSql, where `a.b` (ONE dotted component)
+     * and the qualified reference a.b (two components) coincide - a manual plan could
+     * exclude / replace the OTHER column while the output texts matched.
+     */
+    @Test
+    public void testStarPayloadSlotComponentsAreCompared() throws Exception {
+        RuntimeException exceptFailure = Assertions.assertThrows(RuntimeException.class,
+                () -> new SPMPlanner().buildBaseline(
+                        "SELECT * EXCEPT(`a.b`) FROM t a",
+                        "SELECT * EXCEPT(a.b) FROM t a"));
+        Assertions.assertTrue(exceptFailure.getMessage() != null
+                        && exceptFailure.getMessage().contains("align"),
+                "EXCEPT(`a.b`) must not align with EXCEPT(a.b): " + exceptFailure.getMessage());
+
+        RuntimeException replaceFailure = Assertions.assertThrows(RuntimeException.class,
+                () -> new SPMPlanner().buildBaseline(
+                        "SELECT * REPLACE(a.b AS x) FROM t a",
+                        "SELECT * REPLACE(`a.b` AS x) FROM t a"));
+        Assertions.assertTrue(replaceFailure.getMessage() != null
+                        && replaceFailure.getMessage().contains("align"),
+                "REPLACE(a.b AS x) must not align with REPLACE(`a.b` AS x): "
+                        + replaceFailure.getMessage());
+
+        // control: the same spelling on both sides still aligns
+        Assertions.assertNotNull(new SPMPlanner().buildBaseline(
+                "SELECT * EXCEPT(`a.b`) FROM t a",
+                "SELECT * EXCEPT(`a.b`) FROM t a"));
+    }
+
     // ==================== subquery LIMIT is part of the match ====================
 
     @Test

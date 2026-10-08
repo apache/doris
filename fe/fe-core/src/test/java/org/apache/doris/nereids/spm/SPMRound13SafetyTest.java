@@ -21,9 +21,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
@@ -153,6 +156,44 @@ public class SPMRound13SafetyTest {
         } finally {
             ConnectContext.remove();
         }
+    }
+
+    /**
+     * The guard on an alias-UDF expansion is the DEPENDENCY MARKER of the definition's
+     * saved settings, so it must be retained even when the creator's result-affecting
+     * variables currently EQUAL them: without it SPM saw no guard and froze the plain
+     * arithmetic as ordinary SQL, and a later caller with different enable_decimal256
+     * / decimal_overflow_scale re-planned the frozen arithmetic under the CALLER's
+     * settings instead of the definition's saved ones.
+     */
+    @Test
+    public void testUdfDependencyMarkerIsRetainedWhenCreatorVariablesMatch() {
+        ConnectContext ctx = context();
+        try {
+            Map<String, String> savedVariables =
+                    ctx.getSessionVariable().getAffectQueryResultInPlanVariables();
+            AliasUdf alias = new AliasUdf("abs", List.of(IntegerType.INSTANCE),
+                    new NereidsParser().parseExpression("x * 1"), List.of("x"), savedVariables);
+            Expression expansion = new AliasUdfBuilder(alias)
+                    .build("abs", List.of(new IntegerLiteral(1))).first;
+            Assertions.assertTrue(containsSessionVarGuard(expansion),
+                    "the expansion must keep the guard marker although the creator's variables"
+                            + " match the saved ones: " + expansion);
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    private static boolean containsSessionVarGuard(Expression expression) {
+        if (expression instanceof SessionVarGuardExpr) {
+            return true;
+        }
+        for (Expression child : expression.children()) {
+            if (containsSessionVarGuard(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static AliasUdfBuilder aliasAbs(String bodySql) {

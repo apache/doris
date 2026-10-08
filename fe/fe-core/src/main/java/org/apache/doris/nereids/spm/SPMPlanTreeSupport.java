@@ -4873,6 +4873,21 @@ public final class SPMPlanTreeSupport {
         if (expression instanceof UnboundSlot) {
             slots.add(slotComponentEncoding((UnboundSlot) expression));
         }
+        if (expression instanceof UnboundStar) {
+            // The REPLACE payload and the EXCEPT list live OUTSIDE children() (see
+            // SPMAstCheckVisitor), so the child descent below never records their slots:
+            // the bare excepted slot renders through UnboundSlot#toSql, where
+            // `a.b` (ONE dotted component) and the qualified reference a.b (two
+            // components) coincide - a manual plan could exclude / replace the OTHER
+            // column while the output texts matched and hand its column to callers.
+            UnboundStar star = (UnboundStar) expression;
+            for (Expression excepted : star.getExceptedSlots()) {
+                collectSlotEncodings(excepted, slots);
+            }
+            for (Expression replaced : star.getReplacedAlias()) {
+                collectSlotEncodings(replaced, slots);
+            }
+        }
         for (Expression child : expression.children()) {
             collectSlotEncodings(child, slots);
         }

@@ -23,7 +23,6 @@ import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
-import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter.AddSessionVarGuardRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -97,8 +96,6 @@ public class AliasUdfBuilder extends UdfBuilder {
                 .map(Expression.class::cast).collect(Collectors.toList())));
         Map<String, String> sessionVariables = aliasUdf.getSessionVariables();
         ConnectContext ctx = ConnectContext.get();
-        Map<String, String> currentSessionVars = ctx == null
-                ? Maps.newHashMap() : ctx.getSessionVariable().getAffectQueryResultInPlanVariables();
         Expression analyzedExpression;
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx, sessionVariables)) {
             Expression processedExpression = TypeCoercionUtils.processBoundFunction(boundAliasFunction);
@@ -128,7 +125,14 @@ public class AliasUdfBuilder extends UdfBuilder {
                 }
             };
             analyzedExpression = udfAnalyzer.analyze(aliasUdf.getUnboundFunction());
-            if (!SessionVarGuardRewriter.checkSessionVariablesMatch(currentSessionVars, sessionVariables)) {
+            // The guard is the expansion's UDF DEPENDENCY MARKER, not only a runtime
+            // patch: the body evaluates under the DEFINITION's saved variables, so every
+            // expansion must keep the marker even when the creator's variables currently
+            // equal them. Adding it only on a mismatch let SPM freeze the unguarded
+            // arithmetic as ordinary SQL; a later caller with different enable_decimal256
+            // / decimal_overflow_scale then matched the bind SQL and the frozen replay
+            // re-analyzed it under the CALLER's settings, changing type, scale or value.
+            if (sessionVariables != null && !sessionVariables.isEmpty()) {
                 analyzedExpression = analyzedExpression.accept(
                         new AddSessionVarGuardRewriter(sessionVariables), Boolean.FALSE);
             }

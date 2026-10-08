@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -276,7 +277,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Rejects freezing when any expression of the plan carries a
      * SessionVarGuardExpr (see containsSessionVarGuard): the guard holds the
-     * alias-UDF DEFINITION's saved session variables and has no SQL rendering.
+     * alias-UDF DEFINITION's saved session variables and has no SQL rendering. Every
+     * expansion of a definition with saved variables retains the guard (see
+     * AliasUdfBuilder), including creators whose variables already matched - the frozen
+     * text would otherwise re-analyze the arithmetic under the CALLER's settings.
      *
      * @param plan the physical plan about to be decompiled
      */
@@ -1473,6 +1477,21 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             relation.setSelects(selects);
         }
         if (!generate.getConjuncts().isEmpty()) {
+            // The conjuncts are the generate's original join ON predicates (they reach
+            // the TableFunctionNode as expandConjuncts). On an OUTER generator the BE
+            // keeps ONE NULL-extended left row when every generated value fails them
+            // (LEFT JOIN UNNEST(arr) AS u(x) ON u.x > 0 over arr = [-1] keeps the left
+            // row), while the LATERAL VIEW + WHERE rendering below would filter that row
+            // away. The frozen text has no rendering for that ON semantics, so decline
+            // and let the rewrite replay the parameterized tree.
+            for (Function generator : generators) {
+                if (isOuterGenerator(generator)) {
+                    throw new UnsupportedOperationException("SPM decompile generate: the join ON"
+                            + " conjuncts of the outer generator " + generator + " rely on"
+                            + " expandConjuncts keeping the NULL-extended row when every generated"
+                            + " value fails them; replay the parameterized tree instead");
+                }
+            }
             String conjuncts = generate.getConjuncts().stream()
                     .map(expr -> exprSqlBuilder.print(expr, relation))
                     .collect(Collectors.joining(" AND "));
@@ -1481,6 +1500,20 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     : relation.getWhere() + " AND " + conjuncts);
         }
         return relation;
+    }
+
+    /**
+     * Whether one generator renders its OUTER form - the "xxx_outer" function family
+     * (explode_outer / posexplode_outer / ...; the catalog derives the same name for
+     * outer lookup) or an Unnest still carrying the outer flag before convertUnnest.
+     * Only the outer form keeps the NULL-extended row when the expandConjuncts fail
+     * (see visitPhysicalGenerate).
+     */
+    private static boolean isOuterGenerator(Function generator) {
+        if (generator instanceof Unnest) {
+            return ((Unnest) generator).isOuter();
+        }
+        return generator.getName().endsWith("_outer");
     }
 
     // ==================== CTE (anchor / producer / consumer) ====================

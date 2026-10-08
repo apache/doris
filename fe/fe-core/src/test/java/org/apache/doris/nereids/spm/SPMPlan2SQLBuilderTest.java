@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -92,6 +93,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
@@ -1543,6 +1545,38 @@ public class SPMPlan2SQLBuilderTest {
                 "the input column keeps its name");
         Assertions.assertTrue(relation.getColumnNames().containsValue("x_"),
                 "the generator slot is registered under the unique name");
+    }
+
+    /**
+     * An OUTER generator carrying join ON conjuncts (LEFT JOIN UNNEST(arr) AS u(x)
+     * ON u.x > 0) must not freeze: the conjuncts reach the TableFunctionNode as
+     * expandConjuncts and the BE keeps ONE NULL-extended left row when every generated
+     * value fails them (arr = [-1] keeps the left row), while the LATERAL VIEW + WHERE
+     * rendering would filter that row away.
+     */
+    @Test
+    public void testOuterGeneratorWithJoinConjunctsIsNotFrozen() {
+        SlotReference arr = new SlotReference("arr", ArrayType.of(IntegerType.INSTANCE));
+        PhysicalOlapScan scan = mockScan("t1", List.of(arr));
+        PhysicalGenerate<?> generate = mockGenerate(scan, new ExplodeOuter(arr));
+        Mockito.when(generate.getConjuncts()).thenReturn(List.of(new GreaterThan(
+                new SlotReference("x", IntegerType.INSTANCE), new IntegerLiteral(0))));
+
+        UnsupportedOperationException failure = Assertions.assertThrows(
+                UnsupportedOperationException.class,
+                () -> new SPMPlan2SQLBuilder().visitPhysicalGenerate(generate, null));
+        Assertions.assertTrue(failure.getMessage().contains("NULL-extended"), failure.getMessage());
+
+        // control: an outer generator WITHOUT conjuncts keeps freezing (no ON semantics
+        // to preserve), and the INNER form keeps the WHERE translation
+        PhysicalGenerate<?> plainOuter = mockGenerate(scan, new ExplodeOuter(arr));
+        Assertions.assertTrue(new SPMPlan2SQLBuilder()
+                .visitPhysicalGenerate(plainOuter, null).getFrom().contains("explode_outer"));
+        PhysicalGenerate<?> inner = mockGenerate(scan, new Explode(arr));
+        Mockito.when(inner.getConjuncts()).thenReturn(List.of(new GreaterThan(
+                new SlotReference("x", IntegerType.INSTANCE), new IntegerLiteral(0))));
+        Assertions.assertTrue(new SPMPlan2SQLBuilder()
+                .visitPhysicalGenerate(inner, null).getWhere().contains(">"));
     }
 
     /**
