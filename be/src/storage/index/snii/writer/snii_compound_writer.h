@@ -55,9 +55,9 @@ class SniiRewriteSnapshot;
 //   for each logical index, in add order:
 //     [Core metadata][SampledTermIndex blob][DICT block directory blob]
 //   [metadata directory]     raw SniiMetadataDirectoryPB bytes
-//   [block padding]          OPTIONAL run of zero bytes, see write_tail(). Written only for
-//                            containers of >= kMinPaddingLeverage cache blocks, and only when the
-//                            file cache is on, so that the container ends on a block boundary.
+//   [block padding]          OPTIONAL run of zero bytes, see write_tail(). Written only in cloud
+//                            mode and only for containers of >= kMinPaddingLeverage cache blocks,
+//                            so that the container ends on a block boundary.
 //                            Referenced by nothing and read by nobody -- but it means the metadata
 //                            directory is NOT necessarily adjacent to the tail pointer, and that
 //                            container length is not a pure function of the indexed content (two
