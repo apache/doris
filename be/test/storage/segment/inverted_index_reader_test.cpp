@@ -24,13 +24,11 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <chrono>
 #include <cstring>
 #include <initializer_list>
 #include <map>
 #include <memory>
 #include <roaring/roaring.hh>
-#include <semaphore>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,24 +53,6 @@
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
-
-// Holds a single-flight leader before it computes until the test releases it, and counts the
-// followers that join meanwhile.
-struct SingleFlightGate {
-    std::binary_semaphore leader_entered {0};
-    std::binary_semaphore release_leader {0};
-    std::counting_semaphore<8> follower_joined {0};
-};
-
-void hold_leader(void* opaque) noexcept {
-    auto* gate = static_cast<SingleFlightGate*>(opaque);
-    gate->leader_entered.release();
-    gate->release_leader.acquire();
-}
-
-void count_follower(void* opaque) noexcept {
-    static_cast<SingleFlightGate*>(opaque)->follower_joined.release();
-}
 
 // Statistics a scoring query can run against without a collected tablet.
 class FixedCollectionStatistics final : public CollectionStatistics {
@@ -3081,64 +3061,57 @@ public:
         EXPECT_EQ(run.rows, (std::vector<uint32_t> {4}));
     }
 
-    // Concurrent identical queries run once: the followers wait for the leader's bitmap.
-    void test_fulltext_single_flight() {
+    void test_fulltext_independent_queries() {
         TabletIndex idx_meta;
         const std::string prefix = write_english_index(
-                "test_single_flight", &idx_meta, 0,
+                "test_independent_queries", &idx_meta, 0,
                 {Slice("apple banana"), Slice("cherry"), Slice("apple"), Slice("banana")}, 0);
         auto reader = FullTextIndexReader::create_shared(&idx_meta, open_v2_file(prefix));
-        SingleFlightGate gate;
-        reader->set_single_flight_leader_before_compute_observer_for_test(hold_leader, &gate);
-        reader->set_single_flight_follower_joined_observer_for_test(count_follower, &gate);
-
-        constexpr size_t kQueries = 3;
-        std::array<std::vector<uint32_t>, kQueries> rows;
-        std::array<uint8_t, kQueries> ok {};
-        const auto run = [&](size_t i) {
-            SCOPED_INIT_THREAD_CONTEXT();
-            OlapReaderStatistics stats;
-            RuntimeState runtime_state;
-            TQueryOptions query_options;
-            query_options.enable_inverted_index_query_cache = true;
-            query_options.inverted_index_max_expansions = 50;
-            runtime_state.set_query_options(query_options);
-            io::IOContext io_ctx;
-            auto context = std::make_shared<IndexQueryContext>();
-            context->io_ctx = &io_ctx;
-            context->stats = &stats;
-            context->runtime_state = &runtime_state;
-            auto bitmap = std::make_shared<roaring::Roaring>();
-            ok[i] = reader->query(context, "1", Field::create_field<TYPE_STRING>("apple"),
-                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap)
-                            .ok();
-            rows[i] = std::vector<uint32_t>(bitmap->begin(), bitmap->end());
+        std::atomic<int> flight_calls {0};
+        const auto count_flight = [](void* opaque) noexcept {
+            static_cast<std::atomic<int>*>(opaque)->fetch_add(1, std::memory_order_relaxed);
         };
-        std::vector<std::thread> threads;
-        threads.emplace_back(run, 0);
-        // Without single flight no leader is held, and the waits end on their own.
-        const bool leader_held = gate.leader_entered.try_acquire_for(std::chrono::seconds(5));
-        threads.emplace_back(run, 1);
-        threads.emplace_back(run, 2);
-        // Both followers join while the leader is held.
-        const bool joined = leader_held &&
-                            gate.follower_joined.try_acquire_for(std::chrono::seconds(5)) &&
-                            gate.follower_joined.try_acquire_for(std::chrono::seconds(5));
-        if (leader_held) {
-            gate.release_leader.release();
-        }
-        for (auto& thread : threads) {
-            thread.join();
+        reader->set_single_flight_leader_before_compute_observer_for_test(count_flight,
+                                                                          &flight_calls);
+        reader->set_single_flight_follower_joined_observer_for_test(count_flight, &flight_calls);
+        for (const bool cache_enabled : {false, true}) {
+            constexpr size_t kQueries = 3;
+            std::array<std::vector<uint32_t>, kQueries> rows;
+            std::array<uint8_t, kQueries> ok {};
+            const auto run = [&](size_t i) {
+                SCOPED_INIT_THREAD_CONTEXT();
+                OlapReaderStatistics stats;
+                RuntimeState runtime_state;
+                TQueryOptions query_options;
+                query_options.enable_inverted_index_query_cache = cache_enabled;
+                query_options.inverted_index_max_expansions = 50;
+                runtime_state.set_query_options(query_options);
+                io::IOContext io_ctx;
+                auto context = std::make_shared<IndexQueryContext>();
+                context->io_ctx = &io_ctx;
+                context->stats = &stats;
+                context->runtime_state = &runtime_state;
+                auto bitmap = std::make_shared<roaring::Roaring>();
+                ok[i] = reader->query(context, "1", Field::create_field<TYPE_STRING>("apple"),
+                                      InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap)
+                                .ok();
+                rows[i] = std::vector<uint32_t>(bitmap->begin(), bitmap->end());
+            };
+            std::vector<std::thread> threads;
+            for (size_t i = 0; i < kQueries; ++i) {
+                threads.emplace_back(run, i);
+            }
+            for (auto& thread : threads) {
+                thread.join();
+            }
+            EXPECT_EQ(flight_calls.load(), 0);
+            for (size_t i = 0; i < kQueries; ++i) {
+                EXPECT_TRUE(ok[i]);
+                EXPECT_EQ(rows[i], (std::vector<uint32_t> {0, 2}));
+            }
         }
         reader->set_single_flight_leader_before_compute_observer_for_test(nullptr, nullptr);
         reader->set_single_flight_follower_joined_observer_for_test(nullptr, nullptr);
-
-        EXPECT_TRUE(leader_held);
-        EXPECT_TRUE(joined);
-        for (size_t i = 0; i < kQueries; ++i) {
-            EXPECT_TRUE(ok[i]);
-            EXPECT_EQ(rows[i], (std::vector<uint32_t> {0, 2}));
-        }
     }
 
     // A scoring query publishes its scores while it runs, so it neither reads nor writes the
@@ -4991,8 +4964,8 @@ TEST_F(InvertedIndexReaderTest, FulltextCountOnlyFastPathWithNulls) {
     test_fulltext_count_only_fastpath_with_nulls();
 }
 
-TEST_F(InvertedIndexReaderTest, FulltextSingleFlight) {
-    test_fulltext_single_flight();
+TEST_F(InvertedIndexReaderTest, FulltextIndependentQueries) {
+    test_fulltext_independent_queries();
 }
 
 TEST_F(InvertedIndexReaderTest, FulltextScoringBypassesTheResultCache) {

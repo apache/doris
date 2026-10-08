@@ -183,6 +183,7 @@ Status SniiIndexReader::_admit(const IndexQueryContextPtr& /*context*/,
     // The segment's gram scheme decides whether the analyzer's terms mean anything here, so the
     // analyzer is asked only once the segment is admitted.
     admission->plan_before_open = false;
+    admission->coalesce = true;
     const InvertedIndexQueryType query_type = request.query_type;
     if (is_gram_query(query_type)) {
         // Only an index under an analyzer policy can have been written as a gram index.

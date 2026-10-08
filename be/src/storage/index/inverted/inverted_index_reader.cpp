@@ -847,27 +847,28 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
         return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(msg);
     }
 
-    // Under a cold cache, parallel scanners open and decode the same segment's index for the
-    // same query; identical concurrent queries collapse into one execution (see SingleFlight),
-    // which caches the result it computes.
     static inverted_index::SingleFlight<std::pair<Status, std::shared_ptr<roaring::Roaring>>>
             query_single_flight;
     const auto run_shared = [&](const auto& run, std::shared_ptr<roaring::Roaring>* out) {
-        return run_query_single_flight(
-                query_single_flight, cache_key.encode(), out,
+        const auto compute = [&](std::shared_ptr<roaring::Roaring>* shared) {
+            Status run_status = run(shared);
+            if (run_status.ok()) {
+                insert_query_cache(context, cache, cache_key, *shared, &cache_handler,
+                                   allow_result_cache);
+            }
+            return run_status;
+        };
+        if (!admission.coalesce) {
+            return compute(out);
+        }
+        return run_query_single_flight(query_single_flight, cache_key.encode(), out,
 #ifdef BE_TEST
-                _single_flight_follower_joined_observer, _single_flight_follower_joined_opaque,
-                _single_flight_leader_before_compute_observer,
-                _single_flight_leader_before_compute_opaque,
+                                       _single_flight_follower_joined_observer,
+                                       _single_flight_follower_joined_opaque,
+                                       _single_flight_leader_before_compute_observer,
+                                       _single_flight_leader_before_compute_opaque,
 #endif
-                [&](std::shared_ptr<roaring::Roaring>* shared) {
-                    Status run_status = run(shared);
-                    if (run_status.ok()) {
-                        insert_query_cache(context, cache, cache_key, *shared, &cache_handler,
-                                           allow_result_cache);
-                    }
-                    return run_status;
-                });
+                                       compute);
     };
     std::shared_ptr<roaring::Roaring> result;
 

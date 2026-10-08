@@ -410,8 +410,10 @@ struct LeafRequest {
 
 // What a format decides about a request before the result cache is read.
 struct Admission {
-    // Whether the result may enter the result cache and be shared by single flight.
+    // Whether the result may enter the result cache.
     bool cacheable = true;
+    // Whether concurrent identical full-segment queries share one execution.
+    bool coalesce = false;
     // Whether the request is planned before the index opens, so a value its analyzer rejects
     // fails without reading the index. A format whose analysis depends on the opened segment
     // plans after it.
