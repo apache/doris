@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
@@ -943,6 +944,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Schema IDs belong to this resolved table/branch; avoid reloading one schema for every file.
         Map<Long, Boolean> legacyOrcTimestampSchemas = new HashMap<>();
+        Set<Integer> readFieldIds = scanReadFieldIds(rowType, columns, filter);
         // $ro wraps the pinned file-store table; resolve its schema dictionary once, only if native is considered.
         java.util.function.Supplier<Table> legacyOrcSchemaTable = com.google.common.base.Suppliers.memoize(
                 () -> resolveSchemaDictTable(table, paimonHandle));
@@ -966,7 +968,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     isForceJniScannerEnabled(session), hasVariantProjection,
                     physicalVariantSchemaIds, optRawFiles)
                     && !requiresLegacyOrcTimestampReader(
-                            legacyOrcSchemaTable.get(), optRawFiles, legacyOrcTimestampSchemas)) {
+                            legacyOrcSchemaTable.get(), optRawFiles, readFieldIds, legacyOrcTimestampSchemas)) {
                 if (ignoreNative) {
                     if (requiresMetadataColumns) {
                         throw new DorisConnectorException(
@@ -1933,25 +1935,53 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .anyMatch(index -> containsVariant(rowType.getTypeAt(index)));
     }
 
+    private static Set<Integer> scanReadFieldIds(RowType rowType, List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter) {
+        Set<String> names = columns.stream().filter(PaimonColumnHandle.class::isInstance)
+                .map(PaimonColumnHandle.class::cast)
+                .filter(column -> !column.isMetadataColumn())
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        filter.ifPresent(expression -> collectFilterColumnNames(expression, names));
+        return rowType.getFields().stream()
+                .filter(field -> names.contains(field.name().toLowerCase(Locale.ROOT)))
+                .map(DataField::id).collect(Collectors.toSet());
+    }
+
+    private static void collectFilterColumnNames(ConnectorExpression expression, Set<String> names) {
+        if (expression instanceof ConnectorColumnRef) {
+            names.add(((ConnectorColumnRef) expression).getColumnName().toLowerCase(Locale.ROOT));
+        }
+        expression.getChildren().forEach(child -> collectFilterColumnNames(child, names));
+    }
+
     static boolean requiresLegacyOrcTimestampReader(Table table, Optional<List<RawFile>> rawFiles,
-            Map<Long, Boolean> schemaTimestamps) {
-        if (!rawFiles.isPresent() || rawFiles.get().stream().noneMatch(f -> f.path().endsWith(".orc"))
+            Set<Integer> readFieldIds, Map<Long, Boolean> schemaTimestamps) {
+        if (readFieldIds.isEmpty() || !rawFiles.isPresent()
+                || rawFiles.get().stream().noneMatch(f -> f.path().endsWith(".orc"))
                 || !new org.apache.paimon.options.Options(table.options()).get(
                         org.apache.paimon.format.OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE)) {
             return false;
         }
-        // Legacy ORC LTZ bytes require the SDK's JVM-zone conversion, including old nested schemas.
-        if (containsTimestampLtz(table.rowType())) {
+        // Only decoded fields require SDK timezone conversion. Unread LTZ columns must not disable
+        // native splitting or metadata columns; stable field IDs also scope historical schemas after renames.
+        if (readsTimestampLtz(table.rowType(), readFieldIds)) {
             return true;
         }
         FileStoreTable fileStoreTable = (FileStoreTable) table;
         for (RawFile file : rawFiles.get()) {
             if (file.path().endsWith(".orc") && schemaTimestamps.computeIfAbsent(file.schemaId(),
-                    id -> containsTimestampLtz(fileStoreTable.schemaManager().schema(id).logicalRowType()))) {
+                    id -> readsTimestampLtz(
+                            fileStoreTable.schemaManager().schema(id).logicalRowType(), readFieldIds))) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean readsTimestampLtz(RowType rowType, Set<Integer> readFieldIds) {
+        return rowType.getFields().stream().anyMatch(
+                field -> readFieldIds.contains(field.id()) && containsTimestampLtz(field.type()));
     }
 
     private static boolean containsTimestampLtz(DataType type) {

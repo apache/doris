@@ -115,6 +115,8 @@ TEST(VIcebergTableWriterTest, TimestampIdentityPreservesUtcCommitAndNull) {
               writer._static_partition_value_list);
 }
 
+// GTest assertion macros inflate complexity; keep the NULL-partition invariants together.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitValues) {
     for (int kind = 0; kind < 3; ++kind) {
         SCOPED_TRACE(kind);
@@ -144,7 +146,8 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
         protocol.writeString(std::string("null"));
         protocol.writeMapEnd();
         protocol.writeFieldEnd();
-        protocol.writeFieldBegin("static_partition_null_keys", T_SET, 19);
+        // Field 19 belongs to NaN counts; the reader skips NULL markers encoded under that ID.
+        protocol.writeFieldBegin("static_partition_null_keys", T_SET, 20);
         protocol.writeSetBegin(T_STRING, 1);
         protocol.writeString(std::string("key"));
         protocol.writeSetEnd();
@@ -153,6 +156,8 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
         protocol.writeStructEnd();
         TIcebergTableSink sink;
         sink.read(&protocol);
+        ASSERT_TRUE(sink.__isset.static_partition_null_keys);
+        ASSERT_EQ(1, sink.static_partition_null_keys.count("key"));
         TDataSink data_sink;
         data_sink.__set_iceberg_table_sink(sink);
         VExprContextSPtrs exprs;

@@ -55,22 +55,24 @@ class PaimonLegacyOrcTimestampTest {
             Optional<List<RawFile>> oldFiles = Optional.of(Collections.singletonList(
                     new RawFile("part.orc", 0L, 100L, 1L, "orc", original.schema().id(), 0L)));
             Assertions.assertTrue(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
-                    original, oldFiles, new HashMap<>()));
+                    original, oldFiles, Collections.singleton(1), new HashMap<>()));
             new SchemaManager(original.fileIO(), original.location())
                     .commitChanges(SchemaChange.dropColumn("events"));
             FileStoreTable evolved = (FileStoreTable) catalog.getTable(id);
             Map<Long, Boolean> schemaCache = new HashMap<>();
-            // Dropping the nested field must not make old physical files eligible for native decoding.
+            // Historical field IDs, rather than all file columns, determine whether LTZ is decoded.
+            Assertions.assertFalse(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
+                    evolved, oldFiles, Collections.singleton(0), new HashMap<>()));
             Assertions.assertTrue(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
-                    evolved, oldFiles, schemaCache));
+                    evolved, oldFiles, Collections.singleton(1), schemaCache));
             Assertions.assertEquals(Collections.singletonMap(original.schema().id(), true), schemaCache);
             Assertions.assertFalse(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
                     evolved.copy(Collections.singletonMap(OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key(), "false")),
-                    oldFiles, new HashMap<>()));
+                    oldFiles, Collections.singleton(1), new HashMap<>()));
             Assertions.assertFalse(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(evolved,
                     Optional.of(Collections.singletonList(
                             new RawFile("part.parquet", 0L, 100L, 1L, "parquet", original.schema().id(), 0L))),
-                    new HashMap<>()));
+                    Collections.singleton(1), new HashMap<>()));
         }
     }
 }

@@ -2600,6 +2600,66 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void unusedLegacyOrcTimestampKeepsNativeMetadataScan(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "events");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("event_time", new org.apache.paimon.types.LocalZonedTimestampType(6))
+                    .option("file.format", "orc")
+                    .option("orc.timestamp-ltz.legacy-type", "true")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder builder = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = builder.newWrite()) {
+                write.write(GenericRow.of(1, org.apache.paimon.data.Timestamp.fromEpochMillis(1000)));
+                try (BatchTableCommit commit = builder.newCommit()) {
+                    commit.commit(write.prepareCommit());
+                }
+            }
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "events", Collections.emptyList(), Collections.emptyList());
+            ConnectorSession session = sessionWithProps(Collections.emptyMap());
+            List<ConnectorColumnHandle> metadataProjection = Arrays.asList(
+                    new PaimonColumnHandle("id", 0), new PaimonColumnHandle(PAIMON_FILE_PATH_COL, -1));
+            List<ConnectorScanRange> nativeRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, metadataProjection).build());
+            Assertions.assertFalse(nativeRanges.isEmpty());
+            Assertions.assertTrue(nativeRanges.stream().allMatch(range -> range.getPath().isPresent()));
+
+            List<ConnectorScanRange> timestampRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("event_time", 1))).build());
+            Assertions.assertFalse(timestampRanges.isEmpty());
+            Assertions.assertTrue(timestampRanges.stream().noneMatch(range -> range.getPath().isPresent()));
+            List<ConnectorScanRange> filterRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("id", 0)))
+                    .filter(Optional.of(new org.apache.doris.connector.spi.pushdown.ConnectorIsNull(
+                            new ConnectorColumnRef("event_time", ConnectorType.of("TIMESTAMPTZ", 6, -1)), true)))
+                    .build());
+            Assertions.assertFalse(filterRanges.isEmpty());
+            Assertions.assertTrue(filterRanges.stream().noneMatch(range -> range.getPath().isPresent()));
+
+            // Historical files can retain a dropped LTZ column that the current scan never decodes.
+            catalog.alterTable(id, Collections.singletonList(SchemaChange.dropColumn("event_time")), false);
+            ops.table = catalog.getTable(id);
+            List<ConnectorScanRange> historicalRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(new PaimonTableHandle(
+                            "db", "events", Collections.emptyList(), Collections.emptyList()), metadataProjection)
+                    .build());
+            Assertions.assertFalse(historicalRanges.isEmpty());
+            Assertions.assertTrue(historicalRanges.stream().allMatch(range -> range.getPath().isPresent()));
+        }
+    }
+
+    @Test
     public void nativeFileIsSubSplitWhenFileSplitSizeForcesIt(@TempDir Path warehouse) throws Exception {
         // An append-only (no-PK) table yields a native-eligible raw file; a small file_split_size forces
         // that single file to slice into >=2 contiguous sub-ranges end-to-end through planScan.

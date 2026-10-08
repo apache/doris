@@ -43,10 +43,23 @@ class JdbcTimestampProjectionTest {
                     Assertions.assertTrue(sql.contains("transform(\"events\", doris_ts_0 -> transform(doris_ts_0"), sql);
                 }
             }
-            Assertions.assertTrue(tvf.endsWith("FROM (SELECT ts, events FROM tbl) doris_jdbc_query"), tvf);
+            Assertions.assertTrue(tvf.endsWith("FROM (SELECT ts, events FROM tbl\n) doris_jdbc_query"), tvf);
             Assertions.assertEquals("SELECT local_time FROM tbl;", builder.wrapPassthroughQuery(
                     "SELECT local_time FROM tbl;", java.util.Collections.singletonList(
                             new JdbcColumnHandle("local_time", "local_time", ConnectorType.of("DATETIMEV2", 6, 0)))));
+        }
+    }
+
+    @Test
+    void terminalLineCommentsDoNotConsumeTheWrapper() {
+        for (JdbcDbType dialect : new JdbcDbType[] {JdbcDbType.TRINO, JdbcDbType.PRESTO, JdbcDbType.CLICKHOUSE}) {
+            String sql = new JdbcQueryBuilder(dialect).wrapPassthroughQuery(
+                    "SELECT ts FROM tbl -- terminal comment\n",
+                    java.util.Collections.singletonList(new JdbcColumnHandle(
+                            "ts", "ts", ConnectorType.of("TIMESTAMPTZ", 6, 0))));
+            // A line comment must not consume the derived table's closing parenthesis and alias.
+            String withoutComments = sql.replaceAll("(?m)--[^\r\n]*", "");
+            Assertions.assertTrue(withoutComments.endsWith(") doris_jdbc_query"), sql);
         }
     }
 

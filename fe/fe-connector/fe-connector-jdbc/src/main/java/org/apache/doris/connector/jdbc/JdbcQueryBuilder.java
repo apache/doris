@@ -233,7 +233,8 @@ public final class JdbcQueryBuilder {
             projections.add(timestampProjection(name, jdbcColumn.getType(), 0) + " AS " + name);
         }
         String inner = query.trim().replaceAll(";+$", "");
-        return "SELECT " + projections + " FROM (" + inner + ") doris_jdbc_query";
+        // A trailing SQL line comment must end before the wrapper closes its derived table.
+        return "SELECT " + projections + " FROM (" + inner + "\n) doris_jdbc_query";
     }
 
     private static boolean hasInstant(ConnectorExpression expr) {
