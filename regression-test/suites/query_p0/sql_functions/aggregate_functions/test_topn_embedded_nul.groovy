@@ -15,24 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+suite("test_topn_embedded_nul") {
+    // A STRING value is binary, so a NUL byte inside a key must not truncate
+    // the JSON key that topn() emits, and two keys differing after the NUL
+    // must stay distinct in the result.
+    qt_topn_single_key """
+        SELECT topn(s, 1) FROM (SELECT concat('a', unhex('00'), 'b') AS s) t
+    """
 
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
+    qt_topn_distinct_keys """
+        SELECT topn(s, 2) FROM (
+            SELECT concat('a', unhex('00'), 'b') AS s
+            UNION ALL SELECT concat('a', unhex('00'), 'b')
+            UNION ALL SELECT concat('a', unhex('00'), 'c')
+        ) t
+    """
 
-/** monotonicity for XX_DIFF */
-public interface DateDiffMonotonic extends Monotonic {
-    @Override
-    default boolean isMonotonic(Literal lower, Literal upper) {
-        return MonotonicityUtils.hasOneVariableArgument(this);
-    }
-
-    @Override
-    default boolean isPositive() {
-        return child(1) instanceof Literal;
-    }
-
-    @Override
-    default int getMonotonicFunctionChildIndex() {
-        return child(1) instanceof Literal ? 0 : 1;
-    }
+    qt_topn_array_element_hex """
+        SELECT hex(element_at(topn_array(s, 1), 1)) FROM (
+            SELECT concat('a', unhex('00'), 'b') AS s
+        ) t
+    """
 }
