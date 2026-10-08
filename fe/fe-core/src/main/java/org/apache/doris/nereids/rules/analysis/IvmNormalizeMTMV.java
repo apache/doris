@@ -1186,7 +1186,6 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         return carrier.toSlot();
     }
 
-
     /**
      * Finds the target whose visible column is {@code stateSlot}. That target owns the state column's
      * name: the carrier is named after its ordinal and kind so the name matches the delta sub-plan's
