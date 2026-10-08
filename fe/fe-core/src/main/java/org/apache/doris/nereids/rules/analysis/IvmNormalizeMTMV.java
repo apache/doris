@@ -1135,15 +1135,29 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     /**
      * Returns the slot that carries {@code stateSlot} above this layer, appending a hidden pass-through
      * alias when this layer drops it.
+     *
+     * <p>A layer keeps the state alive when it projects the state slot itself, when it projects a
+     * hidden-named alias over it (the refresh sink rebinds the normalized hidden columns to the MV's own
+     * slots that way), or when it emits any column under the state column's name. That last case is the
+     * insert path: the binder renames the state column locally (for example {@code m} to {@code m1}) and
+     * coerces it back into the MV column with the original name, so the column apply reads from the MV is
+     * unchanged and the local rename must not move the state.
      */
     private Slot materializeAggStateSlot(List<NamedExpression> outputs, Slot stateSlot, IvmAggMeta aggMeta) {
         NamedExpression projected = findProjectedKey(outputs, stateSlot);
         if (projected != null) {
-            // Already carried above this layer: a visible column projecting through, a hidden state
-            // column (which always propagates), or a carrier another target needed for this same state.
-            // The projecting output's own slot is what holds the value, so an alias that passes the
-            // state through under another name rebinds the target to that name.
+            if (projected instanceof Alias && !IvmUtil.isIvmHiddenColumn(projected.getName())) {
+                // A binder project renamed the state column locally; the MV column keeps its own name.
+                return stateSlot;
+            }
+            // The projecting output's own slot is what carries the value: a visible column projecting
+            // through, a hidden state column, or a carrier another target needed for this same state.
             return projected.toSlot();
+        }
+        if (outputs.stream().anyMatch(output -> output.getName().equals(stateSlot.getName()))) {
+            // A binder coercion project rebuilt a column under the state column's name, so the MV column
+            // apply reads still exists and the state does not need a carrier.
+            return stateSlot;
         }
         IvmAggTarget owner = aggTargetOwningVisibleSlot(stateSlot, aggMeta);
         // The carrier is named after the owning target's ordinal and kind, which is the name the delta
