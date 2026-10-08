@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.ColumnPosition;
@@ -40,9 +41,11 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheBudgetManager;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
+import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.IdNameIndex;
@@ -50,6 +53,7 @@ import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.persist.TruncateTableInfo;
@@ -75,6 +79,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -350,8 +356,14 @@ public abstract class ExternalCatalog
                 this.errorMsg = "";
             }
         } catch (Exception e) {
-            LOG.warn("failed to init catalog {}:{}", name, id, e);
-            this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
+            this.errorMsg = initErrorMessage(getType(), e);
+            if ("jdbc".equalsIgnoreCase(getType())) {
+                String diagnosticTrace = JdbcExceptionUtils.stackTrace(e,
+                        getProperties().get(JdbcResource.PASSWORD), getProperties().get(JdbcResource.JDBC_URL));
+                LOG.warn("failed to init catalog {}:{}: {}", name, id, diagnosticTrace);
+            } else {
+                LOG.warn("failed to init catalog {}:{}", name, id, e);
+            }
             throw new RuntimeException("Failed to init catalog: " + name + ", error: " + this.errorMsg, e);
         } finally {
             isInitializing = false;
@@ -368,7 +380,23 @@ public abstract class ExternalCatalog
      * {@code alter catalog ... set properties} triggers {@link #resetToUninitialized(boolean)}.
      */
     protected void recordDeferredInitError(Throwable t) {
-        this.errorMsg = ExceptionUtils.getRootCauseMessage(t);
+        this.errorMsg = initErrorMessage(getType(), t);
+    }
+
+    static String initErrorMessage(String catalogType, Throwable error) {
+        if (!"jdbc".equalsIgnoreCase(catalogType)) {
+            return ExceptionUtils.getRootCauseMessage(error);
+        }
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable current = error; current != null && visited.add(current); current = current.getCause()) {
+            if ((current instanceof DorisConnectorException || current instanceof JdbcClientException)
+                    && current.getMessage() != null) {
+                // The JDBC wrapper already includes both remote chains and sanitized context.
+                // Unwrapping it would discard diagnostics and expose the raw driver message.
+                return current.getMessage();
+            }
+        }
+        return ExceptionUtils.getRootCauseMessage(error);
     }
 
     protected final void initLocalObjects() {

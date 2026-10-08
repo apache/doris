@@ -19,7 +19,6 @@ package org.apache.doris.connector.jdbc.client;
 
 import org.apache.doris.connector.jdbc.JdbcDbType;
 import org.apache.doris.connector.spi.ConnectorType;
-import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -81,7 +80,7 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to get database name list from ClickHouse", e);
+            throw jdbcException("Failed to get database name list from ClickHouse", e);
         } finally {
             closeResources(rs, conn);
         }
@@ -105,7 +104,7 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
             }
             consumer.accept(rs);
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to process table", e);
+            throw jdbcException("Failed to process table", e);
         } finally {
             closeResources(rs, conn);
         }

@@ -20,6 +20,8 @@ package org.apache.doris.jdbc;
 import org.apache.doris.jni.spi.JniScanner;
 import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcIOException;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
@@ -158,9 +160,9 @@ public class JdbcConnectionTester extends JniScanner {
                         "Failed to test connection: query executed but returned no results.");
             }
             rs.close();
-            LOG.info("JdbcConnectionTester: connection test succeeded for " + jdbcUrl);
+            LOG.info("JdbcConnectionTester: connection test succeeded for " + JdbcExceptionUtils.redact(jdbcUrl));
         } catch (Exception e) {
-            throw new IOException("Failed to test JDBC connection: " + e.getMessage(), e);
+            throw new JdbcIOException("Failed to test JDBC connection", e, jdbcPassword, jdbcUrl);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -184,7 +186,9 @@ public class JdbcConnectionTester extends JniScanner {
                 conn.close();
             }
         } catch (SQLException e) {
-            LOG.warn("JdbcConnectionTester close error: " + e.getMessage(), e);
+            String diagnostic = JdbcExceptionUtils.format("JdbcConnectionTester close error",
+                    e, jdbcPassword, jdbcUrl);
+            LOG.warn("{}", diagnostic);
         } finally {
             stmt = null;
             conn = null;

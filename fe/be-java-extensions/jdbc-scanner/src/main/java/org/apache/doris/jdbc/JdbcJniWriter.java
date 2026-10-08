@@ -22,6 +22,8 @@ import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.spi.vec.VectorColumn;
 import org.apache.doris.jni.spi.vec.VectorTable;
 import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcIOException;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
@@ -133,7 +135,7 @@ public class JdbcJniWriter extends JniWriter {
             LOG.debug("JdbcJniWriter: Preparing insert statement: " + insertSql);
             preparedStatement = conn.prepareStatement(insertSql);
         } catch (Exception e) {
-            throw new IOException("JdbcJniWriter open failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniWriter open failed", e, jdbcPassword, jdbcUrl);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -158,7 +160,7 @@ public class JdbcJniWriter extends JniWriter {
             insertTime += System.nanoTime() - startInsert;
             writtenRows += numRows;
         } catch (SQLException e) {
-            throw new IOException("JdbcJniWriter write failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniWriter write failed", e, jdbcPassword, jdbcUrl);
         }
     }
 
@@ -184,10 +186,11 @@ public class JdbcJniWriter extends JniWriter {
                     conn.rollback();
                 }
             } catch (SQLException rollbackEx) {
-                LOG.warn("JdbcJniWriter rollback on close failure also failed: "
-                        + rollbackEx.getMessage(), rollbackEx);
+                String diagnostic = JdbcExceptionUtils.format("JdbcJniWriter rollback on close failure also failed",
+                        rollbackEx, jdbcPassword, jdbcUrl);
+                LOG.warn("{}", diagnostic);
             }
-            throw new IOException("JdbcJniWriter close failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniWriter close failed", e, jdbcPassword, jdbcUrl);
         } finally {
             preparedStatement = null;
             conn = null;
@@ -372,7 +375,7 @@ public class JdbcJniWriter extends JniWriter {
                     }
                     hikariDataSource = ds;
                     JdbcDataSource.getDataSource().putSource(cacheKey, hikariDataSource);
-                    LOG.info("JdbcJniWriter: Created connection pool for " + jdbcUrl);
+                    LOG.info("JdbcJniWriter: Created connection pool for " + JdbcExceptionUtils.redact(jdbcUrl));
                 }
             }
         }

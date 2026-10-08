@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.base.Preconditions;
@@ -71,7 +71,7 @@ public class JdbcMySQLClient extends JdbcClient {
             }
         } catch (SQLException | JdbcClientException e) {
             closeClient();
-            throw new JdbcClientException("Failed to initialize JdbcMySQLClient: %s", e.getMessage());
+            throw jdbcException("Failed to initialize JdbcMySQLClient", e);
         } finally {
             close(rs, stmt, conn);
         }
@@ -111,7 +111,7 @@ public class JdbcMySQLClient extends JdbcClient {
                     tableCommentBuilder.add(Strings.nullToEmpty(rs.getString("REMARKS")));
                 }
             } catch (SQLException e) {
-                throw new JdbcClientException(
+                throw jdbcException(
                     "failed to get table's comment for remote database: `%s`, remote table: `%s`",
                     e, remoteDbName, remoteTableName);
             }
@@ -145,7 +145,7 @@ public class JdbcMySQLClient extends JdbcClient {
                 }
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get database name list from jdbc", e);
+            throw jdbcException("failed to get database name list from jdbc", e);
         } finally {
             close(rs, conn);
         }
@@ -163,7 +163,7 @@ public class JdbcMySQLClient extends JdbcClient {
             rs = databaseMetaData.getTables(remoteDbName, null, remoteTableName, tableTypes);
             resultSetConsumer.accept(rs);
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to process table", e);
+            throw jdbcException("Failed to process table", e);
         } finally {
             close(rs, conn);
         }
@@ -204,8 +204,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
-                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get jdbc columns info for remote table `%s.%s`",
+                    e, remoteDbName, remoteTableName);
         } finally {
             close(rs, conn);
         }
@@ -226,8 +226,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 primaryKeys.put(rs.getShort("KEY_SEQ"), rs.getString("COLUMN_NAME"));
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc primary key info for remote table `%s.%s`: %s",
-                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get jdbc primary key info for remote table `%s.%s`",
+                    e, remoteDbName, remoteTableName);
         } finally {
             close(rs, conn);
         }
@@ -404,8 +404,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 fieldToType.put(fieldName, typeName);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
-                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get jdbc columns info for remote table `%s.%s`",
+                    e, remoteDbName, remoteTableName);
         } finally {
             close(resultSet, stmt, conn);
         }

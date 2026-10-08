@@ -55,7 +55,7 @@ public class JdbcDB2Client extends JdbcClient {
                 }
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get database name list from jdbc", e);
+            throw jdbcException("failed to get database name list from jdbc", e);
         } finally {
             close(rs, conn);
         }

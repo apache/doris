@@ -17,16 +17,22 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
+
 public class JdbcClientException extends RuntimeException {
     public JdbcClientException(String format, Throwable cause, Object... msg) {
-        super(formatMessage(format, msg), cause);
+        super(JdbcExceptionUtils.appendSqlDiagnostics(formatMessage(format, msg), cause), cause);
     }
 
     public JdbcClientException(String format, Object... msg) {
         super(formatMessage(format, msg));
     }
 
-    private static String formatMessage(String format, Object... msg) {
+    JdbcClientException(Throwable cause, String diagnosticMessage) {
+        super(diagnosticMessage, cause);
+    }
+
+    static String formatMessage(String format, Object... msg) {
         if (msg == null || msg.length == 0) {
             return format;
         } else {
@@ -50,17 +56,6 @@ public class JdbcClientException extends RuntimeException {
     }
 
     public static String getAllExceptionMessages(Throwable throwable) {
-        StringBuilder sb = new StringBuilder();
-        while (throwable != null) {
-            String message = throwable.getMessage();
-            if (message != null && !message.isEmpty()) {
-                if (sb.length() > 0) {
-                    sb.append(" | Caused by: ");
-                }
-                sb.append(message);
-            }
-            throwable = throwable.getCause();
-        }
-        return sb.toString();
+        return JdbcExceptionUtils.format("", throwable);
     }
 }

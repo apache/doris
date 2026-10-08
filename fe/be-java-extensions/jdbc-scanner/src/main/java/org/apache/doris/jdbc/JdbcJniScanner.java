@@ -21,6 +21,8 @@ import org.apache.doris.jni.spi.JniScanner;
 import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcIOException;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
@@ -211,8 +213,7 @@ public class JdbcJniScanner extends JniScanner {
                 outputConverters[i] = typeHandler.getOutputConverter(types[i], replaceStr);
             }
         } catch (Exception e) {
-            LOG.warn("JdbcJniScanner " + jdbcUrl + " open failed: " + e.getMessage(), e);
-            throw new IOException("JdbcJniScanner open failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniScanner open failed", e, jdbcPassword, jdbcUrl);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -294,8 +295,7 @@ public class JdbcJniScanner extends JniScanner {
             readRows += curRows;
             return curRows;
         } catch (Exception e) {
-            LOG.warn("JdbcJniScanner getNext failed: " + e.getMessage(), e);
-            throw new IOException("JdbcJniScanner getNext failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniScanner getNext failed", e, jdbcPassword, jdbcUrl);
         }
     }
 
@@ -307,7 +307,9 @@ public class JdbcJniScanner extends JniScanner {
                 typeHandler.abortReadConnection(conn, resultSet);
             }
         } catch (Exception e) {
-            LOG.warn("JdbcJniScanner abort connection error: " + e.getMessage(), e);
+            String diagnostic = JdbcExceptionUtils.format("JdbcJniScanner abort connection error",
+                    e, jdbcPassword, jdbcUrl);
+            LOG.warn("{}", diagnostic);
         }
         try {
             if (resultSet != null && !resultSet.isClosed()) {
@@ -320,7 +322,9 @@ public class JdbcJniScanner extends JniScanner {
                 conn.close();
             }
         } catch (Exception e) {
-            LOG.warn("JdbcJniScanner close error: " + e.getMessage(), e);
+            String diagnostic = JdbcExceptionUtils.format("JdbcJniScanner close error",
+                    e, jdbcPassword, jdbcUrl);
+            LOG.warn("{}", diagnostic);
         } finally {
             resultSet = null;
             stmt = null;
@@ -387,7 +391,7 @@ public class JdbcJniScanner extends JniScanner {
                     }
                     hikariDataSource = ds;
                     JdbcDataSource.getDataSource().putSource(cacheKey, hikariDataSource);
-                    LOG.info("JdbcJniScanner: Created connection pool for " + jdbcUrl);
+                    LOG.info("JdbcJniScanner: Created connection pool for " + JdbcExceptionUtils.redact(jdbcUrl));
                 }
             }
         }
