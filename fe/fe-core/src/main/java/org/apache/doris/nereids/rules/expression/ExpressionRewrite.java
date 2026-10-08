@@ -234,10 +234,10 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<Expression> groupByExprs = agg.getGroupByExpressions();
                 ExpressionRewriteContext context = new ExpressionRewriteContext(agg, ctx.cascadesContext);
                 List<Expression> newGroupByExprs = rewriter.rewrite(groupByExprs, context);
-
+                boolean groupByChanged = !newGroupByExprs.equals(groupByExprs);
                 List<NamedExpression> outputExpressions = agg.getOutputExpressions();
                 RewriteResult<NamedExpression> result = rewriteAll(outputExpressions, rewriter, context);
-                if (!result.changed) {
+                if (!result.changed && !groupByChanged) {
                     return agg;
                 }
                 return new LogicalAggregate<>(newGroupByExprs, result.result,
