@@ -25,9 +25,9 @@
 namespace doris {
 
 bool is_valid_gcp_storage_endpoint(std::string_view endpoint) {
-    // Match the FE GcpAuth policy: Google-owned XML API hosts, HTTPS and port 443 only.
+    // Only service-base XML API endpoints: the S3 clients add the bucket themselves.
     static const std::regex pattern(
-            R"(https://([a-z0-9-]+\.)*(storage\.googleapis\.com|[a-z0-9-]+-storage\.googleapis\.com|storage\.[a-z0-9-]+\.rep\.googleapis\.com)(:443)?/?)",
+            R"(https://(storage\.googleapis\.com|[a-z0-9-]+-storage\.googleapis\.com|storage\.[a-z0-9-]+\.rep\.googleapis\.com)(:443)?/?)",
             std::regex::icase);
     return std::regex_match(endpoint.begin(), endpoint.end(), pattern);
 }

@@ -445,7 +445,9 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
 // whether to return a public endpoint.
 std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
                                                  bool is_public_endpoint) const {
-    std::string key = fmt::format("{}/{}", _prefix, path.native());
+    // An empty prefix must not add a separator absent from the uploaded object key.
+    std::string key =
+            _prefix.empty() ? path.native() : fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
     if (is_public_endpoint &&
         _client->s3_client_conf().endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {

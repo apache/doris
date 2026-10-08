@@ -53,11 +53,13 @@ public final class GcpAuth {
             "https://www.googleapis.com/auth/devstorage.read_write";
     private static final String CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
     private static final int IMPERSONATION_LIFETIME_SECONDS = 3600;
-    // Global, locational and regional XML API endpoints, including virtual-hosted buckets.
+    // Endpoint overrides must be service-base hosts; SDK resolvers add the bucket.
+    private static final Pattern STORAGE_BASE_HOST = Pattern.compile(
+            "(?:storage\\.googleapis\\.com|[a-z0-9-]+-storage\\.googleapis\\.com|"
+                    + "storage\\.[a-z0-9-]+\\.rep\\.googleapis\\.com)", Pattern.CASE_INSENSITIVE);
+    // Resolved virtual-hosted requests legitimately contain the bucket prefix.
     private static final Pattern STORAGE_HOST = Pattern.compile(
-            "(?:[a-z0-9-]+\\.)*(?:storage\\.googleapis\\.com|"
-                    + "[a-z0-9-]+-storage\\.googleapis\\.com|storage\\.[a-z0-9-]+\\.rep\\.googleapis\\.com)",
-            Pattern.CASE_INSENSITIVE);
+            "(?:[a-z0-9-]+\\.)*" + STORAGE_BASE_HOST.pattern(), Pattern.CASE_INSENSITIVE);
 
     private GcpAuth() {
     }
@@ -91,6 +93,10 @@ public final class GcpAuth {
     static URI validateEndpoint(String endpoint) {
         URI uri = URI.create(endpoint.contains("://") ? endpoint : "https://" + endpoint);
         validateRequestUri(uri);
+        if (!STORAGE_BASE_HOST.matcher(uri.getHost()).matches()) {
+            throw new IllegalArgumentException(
+                    "Native GCP OAuth endpoint must be a service-base host without a bucket");
+        }
         if (uri.getRawQuery() != null || (!uri.getRawPath().isEmpty() && !"/".equals(uri.getRawPath()))) {
             throw new IllegalArgumentException("Native GCP OAuth endpoint must not contain a path or query");
         }

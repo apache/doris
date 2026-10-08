@@ -5074,6 +5074,33 @@ TEST(MetaServiceTest, NativeGcpLegacyAddReadback) {
               obj->credential().SerializeAsString());
     ASSERT_FALSE(instance.obj_info(0).has_ak());
     ASSERT_FALSE(instance.obj_info(0).has_encryption_info());
+
+    // A changed account or credential source at the same location is a new configuration.
+    const auto original_credential = instance.obj_info(0).credential().SerializeAsString();
+    int expected_count = 1;
+    credential->set_impersonation_service_account("rotated@test.iam.gserviceaccount.com");
+    for (auto provider : {GcpCredentialPB::COMPUTE_ENGINE, GcpCredentialPB::DEFAULT}) {
+        credential->set_credential_provider_type(provider);
+        res.Clear();
+        meta_service->alter_obj_store_info(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ++expected_count;
+
+        // An exact repeat must still be rejected without appending another entry.
+        res.Clear();
+        meta_service->alter_obj_store_info(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(res.status().msg(), "original obj infos has a same conf, please check it");
+
+        txn.reset();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(instance.ParseFromString(val));
+        ASSERT_EQ(instance.obj_info_size(), expected_count);
+        EXPECT_EQ(instance.obj_info(0).credential().SerializeAsString(), original_credential);
+        EXPECT_EQ(instance.obj_info(expected_count - 1).credential().SerializeAsString(),
+                  obj->credential().SerializeAsString());
+    }
 }
 
 TEST(MetaServiceTest, AddRoleOnlyVaultDefaultsToInstanceProfile) {

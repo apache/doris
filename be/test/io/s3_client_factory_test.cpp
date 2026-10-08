@@ -50,6 +50,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -68,6 +69,7 @@
 #include "cpp/obj-client/auth/aws_credential_factory.h"
 #include "cpp/obj-client/auth/gcp/gcp_auth.h"
 #include "cpp/obj-client/auth/gcp/gcp_s3_client.h"
+#include "cpp/obj-client/auth/gcp/gcs_signed_url.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
@@ -432,10 +434,13 @@ TEST_F(S3ClientFactoryTest, GcpBearerHeaderSurvivesAnonymousAwsSigning) {
 }
 
 TEST_F(S3ClientFactoryTest, GcpRejectsUntrustedEndpointsBeforeFetchingToken) {
-    for (const auto* endpoint : {"https://attacker.example", "http://storage.googleapis.com",
-                                 "https://storage.googleapis.com.attacker.example",
-                                 "https://storage.googleapis.com@attacker.example",
-                                 "https://storage.googleapis.com:8443", ""}) {
+    for (const auto* endpoint :
+         {"https://attacker.example", "http://storage.googleapis.com",
+          "https://storage.googleapis.com.attacker.example",
+          "https://storage.googleapis.com@attacker.example", "https://storage.googleapis.com:8443",
+          "https://bucket.storage.googleapis.com",
+          "https://bucket.us-central1-storage.googleapis.com",
+          "https://bucket.storage.us-central1.rep.googleapis.com", ""}) {
         FixedTokenGcpS3Client client(endpoint);
         Aws::S3::Model::GetObjectRequest request;
         request.SetBucket("bucket");
@@ -454,10 +459,49 @@ TEST_F(S3ClientFactoryTest, GcpRejectsUntrustedEndpointsBeforeFetchingToken) {
 
 TEST_F(S3ClientFactoryTest, GcpAcceptsGoogleStorageEndpoints) {
     for (const auto* endpoint :
-         {"https://storage.googleapis.com", "https://bucket.storage.googleapis.com:443/",
+         {"https://storage.googleapis.com", "https://storage.googleapis.com:443/",
           "https://us-central1-storage.googleapis.com",
           "https://storage.us-central1.rep.googleapis.com"}) {
         EXPECT_TRUE(is_valid_gcp_storage_endpoint(endpoint)) << endpoint;
+    }
+}
+
+TEST_F(S3ClientFactoryTest, GcpErrorLogPresigningUsesUploadedKey) {
+    for (const std::string prefix : {"", "instance-prefix"}) {
+        S3Conf conf;
+        conf.bucket = "test-bucket";
+        conf.prefix = prefix;
+        io::S3FileSystem fs(std::move(conf), "gcp-error-log-test");
+        const std::string expected_key =
+                prefix.empty() ? "error_log/id" : "instance-prefix/error_log/id";
+        io::Path upload_path;
+        ASSERT_TRUE(fs.absolute_path("error_log/id", upload_path).ok());
+        S3URI upload_uri(upload_path.native());
+        ASSERT_TRUE(upload_uri.parse().ok());
+        ASSERT_EQ(upload_uri.get_key(), expected_key);
+
+        fs.client_holder()->_client = std::make_shared<S3ObjStorageClient>(
+                nullptr, ObjStorageEndpointInfo {},
+                [&](const ObjStoragePath& path, int64_t expiration_secs) {
+                    EXPECT_EQ(path.key, upload_uri.get_key());
+                    GcsV4SignedUrlOptions options {
+                            .endpoint = "https://storage.googleapis.com",
+                            .bucket = path.bucket,
+                            .key = path.key,
+                            .signer_email = "signer@test.iam.gserviceaccount.com",
+                            .expiration_secs = expiration_secs,
+                    };
+                    auto result = build_gcs_v4_signed_url(
+                            options, std::chrono::system_clock::time_point {},
+                            [](std::string_view) {
+                                return GcsSignBlobResult {.signature = "test"};
+                            });
+                    EXPECT_TRUE(result.ok()) << result.error;
+                    return result.signed_url;
+                });
+        EXPECT_TRUE(fs.generate_presigned_url("error_log/id", 60, false)
+                            .starts_with("https://storage.googleapis.com/test-bucket/" +
+                                         expected_key + "?"));
     }
 }
 

@@ -19,6 +19,7 @@
 #include <butil/guid.h>
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
+#include <google/protobuf/util/message_differencer.h>
 
 #include <algorithm>
 #include <cctype>
@@ -1609,7 +1610,10 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         for (auto& it : objs) {
             if (bucket == it.bucket() && prefix == it.prefix() && endpoint == it.endpoint() &&
                 region == it.region() && ak == it.ak() && sk == it.sk() &&
-                obj.provider() == it.provider() && external_endpoint == it.external_endpoint()) {
+                obj.provider() == it.provider() && external_endpoint == it.external_endpoint() &&
+                obj.has_credential() == it.has_credential() &&
+                google::protobuf::util::MessageDifferencer::Equivalent(obj.credential(),
+                                                                       it.credential())) {
                 // err, anything not changed
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "original obj infos has a same conf, please check it";
@@ -2012,7 +2016,10 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         for (auto& it : objs) {
             if (bucket == it.bucket() && prefix == it.prefix() && endpoint == it.endpoint() &&
                 region == it.region() && ak == it.ak() && sk == it.sk() &&
-                obj.provider() == it.provider() && external_endpoint == it.external_endpoint()) {
+                obj.provider() == it.provider() && external_endpoint == it.external_endpoint() &&
+                obj.has_credential() == it.has_credential() &&
+                google::protobuf::util::MessageDifferencer::Equivalent(obj.credential(),
+                                                                       it.credential())) {
                 // err, anything not changed
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "original obj infos has a same conf, please check it";

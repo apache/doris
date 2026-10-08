@@ -93,17 +93,16 @@ std::optional<std::string> parse_endpoint(std::string endpoint, Endpoint* parsed
         parsed->scheme = endpoint.substr(0, scheme_end);
         endpoint.erase(0, scheme_end + 3);
     }
-    if (parsed->scheme != "http" && parsed->scheme != "https") {
-        return fmt::format("unsupported GCS endpoint scheme: {}", parsed->scheme);
+    if (!is_valid_gcp_storage_endpoint(parsed->scheme + "://" + endpoint)) {
+        return "GCS signed URL requires a Google Storage HTTPS service-base endpoint without a "
+               "bucket";
     }
-    while (endpoint.ends_with('/')) {
+    if (endpoint.ends_with('/')) {
         endpoint.pop_back();
     }
-    if (endpoint.empty() || endpoint.find_first_of("/?#") != std::string::npos) {
-        return fmt::format(
-                "GCS signed URL endpoint must not contain a path, query, "
-                "or fragment: {}",
-                endpoint);
+    // HTTP clients omit the default TLS port from Host. Sign the same authority.
+    if (endpoint.ends_with(":443")) {
+        endpoint.resize(endpoint.size() - 4);
     }
     parsed->authority = std::move(endpoint);
     return std::nullopt;

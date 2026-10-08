@@ -130,7 +130,9 @@ class GcsFileSystemPropertiesTest {
     void nativeOauthRejectsUntrustedEndpointsButPreservesHmacAndAnonymous() {
         for (String endpoint : new String[] {"https://attacker.example", "http://storage.googleapis.com",
                 "https://storage.googleapis.com.attacker.example", "https://storage.googleapis.com@attacker.example",
-                "https://storage.googleapis.com:8443"}) {
+                "https://storage.googleapis.com:8443", "https://bucket.storage.googleapis.com",
+                "https://bucket.us-central1-storage.googleapis.com",
+                "https://bucket.storage.us-central1.rep.googleapis.com"}) {
             Assertions.assertThrows(IllegalArgumentException.class,
                     () -> GcsFileSystemProperties.of(Map.of("gs.endpoint", endpoint)));
             Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of(

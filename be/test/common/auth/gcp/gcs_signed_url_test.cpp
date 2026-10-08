@@ -55,6 +55,74 @@ TEST(GcsSignedUrlTest, BuildsV4UrlAndPassesCanonicalStringToSigner) {
               "f741db2e699530357ae34622ae689c7ec43e10e418af0ff7f1487beb1f144ce5");
 }
 
+TEST(GcsSignedUrlTest, DefaultHttpsPortProducesTheSameSignatureAndUrl) {
+    GcsV4SignedUrlOptions options {
+            .endpoint = "https://storage.googleapis.com",
+            .bucket = "test-bucket",
+            .key = "error_log/id",
+            .signer_email = "signer@my-project.iam.gserviceaccount.com",
+            .expiration_secs = 60,
+    };
+    std::string without_port;
+    auto expected = build_gcs_v4_signed_url(options, std::chrono::system_clock::time_point {},
+                                            [&](std::string_view value) {
+                                                without_port = value;
+                                                return GcsSignBlobResult {.signature = "test"};
+                                            });
+    ASSERT_TRUE(expected.ok()) << expected.error;
+    for (const auto* endpoint :
+         {"https://storage.googleapis.com:443", "storage.googleapis.com:443/"}) {
+        options.endpoint = endpoint;
+        std::string with_port;
+        auto result = build_gcs_v4_signed_url(options, std::chrono::system_clock::time_point {},
+                                              [&](std::string_view value) {
+                                                  with_port = value;
+                                                  return GcsSignBlobResult {.signature = "test"};
+                                              });
+        ASSERT_TRUE(result.ok()) << result.error;
+        EXPECT_EQ(result.signed_url, expected.signed_url);
+        EXPECT_EQ(with_port, without_port);
+    }
+}
+
+TEST(GcsSignedUrlTest, RejectsBucketEndpointsBeforeSigning) {
+    GcsV4SignedUrlOptions options {
+            .bucket = "test-bucket",
+            .key = "error_log/id",
+            .signer_email = "signer@my-project.iam.gserviceaccount.com",
+            .expiration_secs = 60,
+    };
+    for (const auto* endpoint : {"https://test-bucket.storage.googleapis.com",
+                                 "https://test-bucket.us-central1-storage.googleapis.com",
+                                 "https://test-bucket.storage.us-central1.rep.googleapis.com"}) {
+        options.endpoint = endpoint;
+        bool signer_called = false;
+        auto result = build_gcs_v4_signed_url(options, std::chrono::system_clock::time_point {},
+                                              [&](std::string_view) {
+                                                  signer_called = true;
+                                                  return GcsSignBlobResult {.signature = "test"};
+                                              });
+        EXPECT_FALSE(result.ok()) << endpoint;
+        EXPECT_FALSE(signer_called);
+    }
+}
+
+TEST(GcsSignedUrlTest, PreservesLiteralLeadingSlashInObjectKey) {
+    GcsV4SignedUrlOptions options {
+            .endpoint = "https://storage.googleapis.com",
+            .bucket = "test-bucket",
+            .key = "/error_log/id",
+            .signer_email = "signer@my-project.iam.gserviceaccount.com",
+            .expiration_secs = 60,
+    };
+    auto result = build_gcs_v4_signed_url(
+            options, std::chrono::system_clock::time_point {},
+            [](std::string_view) { return GcsSignBlobResult {.signature = "test"}; });
+    ASSERT_TRUE(result.ok()) << result.error;
+    EXPECT_TRUE(result.signed_url.starts_with(
+            "https://storage.googleapis.com/test-bucket//error_log/id?"));
+}
+
 TEST(GcsSignedUrlTest, RejectsInvalidExpirationBeforeSigning) {
     GcsV4SignedUrlOptions options {
             .endpoint = "storage.googleapis.com",
