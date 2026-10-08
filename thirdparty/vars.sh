@@ -580,11 +580,11 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-# Includes lance-c #93: scoped boolean scalar-index expressions and Substrait label filters.
-LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/cd63420bfbe27f6f0a1edcc873b9191af7d52852"
-LANCE_C_NAME="lance-c-cd63420bfbe27f6f0a1edcc873b9191af7d52852.tar.gz"
-LANCE_C_SOURCE="lance-c-cd63420bfbe27f6f0a1edcc873b9191af7d52852"
-LANCE_C_MD5SUM="37d82907559c4fdb8ed6e5b767b0d309"
+# Includes lance-c #94: synchronous index prewarm through the upstream C/C++ APIs.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/98468344bc9d56aa7ed4a4192e844afa62b34ba1"
+LANCE_C_NAME="lance-c-98468344bc9d56aa7ed4a4192e844afa62b34ba1.tar.gz"
+LANCE_C_SOURCE="lance-c-98468344bc9d56aa7ed4a4192e844afa62b34ba1"
+LANCE_C_MD5SUM="b452bab5d05f5bce5f0bfebe8b1fb831"
 
 # paimon-rust
 PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
