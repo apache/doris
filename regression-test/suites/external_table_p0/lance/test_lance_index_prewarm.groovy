@@ -58,10 +58,13 @@ suite("test_lance_index_prewarm", "p0,external") {
     def warm = sql(statement)
     assertEquals(1, warm.size())
     assertEquals(indexName, warm[0][1])
-    assertEquals(entries[0][1].toString(), warm[0][2].toString())
+    // Physical entries record the index build version; prewarm pins the current dataset snapshot.
+    assertTrue(warm[0][2].toLong() >= entries[0][1].toLong())
     assertTrue(warm[0][3].toInteger() > 0)
     assertEquals(before, sql(query), "Prewarm must preserve query results")
-    assertEquals(warm[0][3], sql(statement)[0][3], "Retry must cover the same eligible backend set")
+    def retry = sql(statement)
+    assertEquals(warm[0][2], retry[0][2], "Prewarm must not change the dataset version")
+    assertEquals(warm[0][3], retry[0][3], "Retry must cover the same eligible backend set")
 
     // Binary PREPARE and EXECUTE must agree on the result schema, including repeated executions.
     def prepared = prepareStatement(statement)
