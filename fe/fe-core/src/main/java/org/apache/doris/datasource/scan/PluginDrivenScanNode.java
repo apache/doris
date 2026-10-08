@@ -178,6 +178,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private int nativeReadSplitNum;
     private int totalReadSplitNum;
 
+    // Whether the connector planned a range that can be read only once (ConnectorScanRange.isSingleUse),
+    // which keeps the plan from being dispatched again (cannotBeRedispatched). Set by toSplit, which the
+    // asynchronous batch-mode split generation runs on other threads as well.
+    private volatile boolean plannedSingleUseRange;
+
     // Populated from ConnectorScanPlanProvider.getScanNodePropertiesResult()
     private ScanNodePropertiesResult cachedPropertiesResult;
     private Map<String, String> scanNodeProperties;
@@ -1742,7 +1747,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
-            splits.add(new PluginDrivenSplit(range));
+            splits.add(toSplit(range));
         }
         // FIX-E (explain gap): accumulate the native/total scan-range counts (for the connector
         // EXPLAIN line paimonNativeReadSplits) and, under COUNT(*) pushdown, the precomputed merged row
@@ -1829,6 +1834,25 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return false;
         }
         return ctx.getExecutor().getParsedStmt().isExplain();
+    }
+
+    // Every range the connector plans becomes a split here, on the planning thread or on the batch-mode
+    // split generation threads, so that the plan's single-use ranges are known (cannotBeRedispatched).
+    private Split toSplit(ConnectorScanRange range) {
+        if (range.isSingleUse()) {
+            plannedSingleUseRange = true;
+        }
+        return new PluginDrivenSplit(range);
+    }
+
+    /**
+     * True once the connector planned a range that can be read only once (ConnectorScanRange#isSingleUse):
+     * a partition of a remote query that already ran, which the failed attempt may have drained. The same
+     * plan dispatched again would read only what that attempt left of it.
+     */
+    @Override
+    public boolean cannotBeRedispatched() {
+        return plannedSingleUseRange;
     }
 
     /**
@@ -2118,7 +2142,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                                 connectorSession, batchRequest, batch));
                                 List<Split> batchSplits = new ArrayList<>(ranges.size());
                                 for (ConnectorScanRange range : ranges) {
-                                    batchSplits.add(new PluginDrivenSplit(range));
+                                    batchSplits.add(toSplit(range));
                                 }
                                 if (splitAssignment.needMoreSplit()) {
                                     splitAssignment.addToQueue(batchSplits);
@@ -2209,7 +2233,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // heap stays bounded for million-file scans.
                 while (splitAssignment.needMoreSplit() && source.hasNext()) {
                     List<Split> one = new ArrayList<>(1);
-                    one.add(new PluginDrivenSplit(source.next()));
+                    one.add(toSplit(source.next()));
                     splitAssignment.addToQueue(one);
                 }
                 splitAssignment.finishSchedule();
