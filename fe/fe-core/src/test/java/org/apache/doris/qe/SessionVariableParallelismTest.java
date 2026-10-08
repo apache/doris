@@ -107,6 +107,61 @@ public class SessionVariableParallelismTest {
     }
 
     @Test
+    public void testHistoricalConcurrencyHintRestoration() throws Exception {
+        for (String variable : new String[] {SessionVariable.PARALLEL_PIPELINE_TASK_NUM,
+                SessionVariable.COLOCATE_MAX_PARALLEL_NUM, SessionVariable.MAX_SCANNERS_CONCURRENCY,
+                SessionVariable.MAX_FILE_SCANNERS_CONCURRENCY, SessionVariable.MIN_SCANNERS_CONCURRENCY,
+                SessionVariable.MIN_FILE_SCANNERS_CONCURRENCY, SessionVariable.PARALLEL_SCAN_MAX_SCANNERS_COUNT,
+                SessionVariable.SEND_BATCH_PARALLELISM, SessionVariable.LOAD_STREAM_PER_NODE}) {
+            for (int value : new int[] {257, 2000, Integer.MAX_VALUE}) {
+                assertHistoricalHintRestoration(variable, value, 256);
+            }
+            assertHistoricalHintRestoration(variable, 256, 256);
+            assertHistoricalHintRestoration(variable, 8, 8);
+        }
+    }
+
+    @Test
+    public void testHistoricalConcurrencyDefaultValues() throws Exception {
+        assertHistoricalHintRestoration(SessionVariable.PARALLEL_PIPELINE_TASK_NUM, 0, 0);
+        for (String variable : new String[] {SessionVariable.COLOCATE_MAX_PARALLEL_NUM,
+                SessionVariable.LOAD_STREAM_PER_NODE}) {
+            assertHistoricalHintRestoration(variable, 0, 1);
+            assertHistoricalHintRestoration(variable, -1, 1);
+        }
+        for (String variable : new String[] {SessionVariable.MAX_SCANNERS_CONCURRENCY,
+                SessionVariable.MAX_FILE_SCANNERS_CONCURRENCY, SessionVariable.MIN_SCANNERS_CONCURRENCY,
+                SessionVariable.MIN_FILE_SCANNERS_CONCURRENCY, SessionVariable.PARALLEL_SCAN_MAX_SCANNERS_COUNT,
+                SessionVariable.SEND_BATCH_PARALLELISM}) {
+            for (int value : new int[] {0, -1, Integer.MIN_VALUE}) {
+                assertHistoricalHintRestoration(variable, value, value);
+            }
+        }
+    }
+
+    private void assertHistoricalHintRestoration(String variable, int value, int expected) throws Exception {
+        SessionVariable fromJson = new SessionVariable();
+        fromJson.readFromJson("{\"" + variable + "\":" + value + "}");
+        assertHintRestoration(fromJson, variable, expected);
+
+        SessionVariable fromMap = new SessionVariable();
+        fromMap.readFromMap(Collections.singletonMap(variable, Integer.toString(value)));
+        assertHintRestoration(fromMap, variable, expected);
+
+        SessionVariable forwarded = new SessionVariable();
+        if (forwarded.getForwardVariables().containsKey(variable)) {
+            forwarded.setForwardedSessionVariables(Collections.singletonMap(variable, Integer.toString(value)));
+            assertHintRestoration(forwarded, variable, expected);
+        }
+    }
+
+    private void assertHintRestoration(SessionVariable restored, String variable, int expected) throws Exception {
+        Assertions.assertTrue(restored.setVarOnce(variable, "8"));
+        VariableMgr.revertSessionValue(restored);
+        Assertions.assertEquals(expected, VariableMgr.getVarContext(variable).getField().getInt(restored), variable);
+    }
+
+    @Test
     public void testUserPropertyPrecedenceAndReset() throws Exception {
         assertEffectiveParallelism(8);
         for (int value : new int[] {1, 256, 0, -1, Integer.MIN_VALUE}) {

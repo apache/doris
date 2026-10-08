@@ -5867,12 +5867,29 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    private static int normalizeIntValue(String name, String value) {
+    static int normalizeIntValue(String name, String value) {
         int intValue = Integer.valueOf(value);
-        if (RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
-            return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+        switch (name.toLowerCase(Locale.ROOT)) {
+            case RUNTIME_FILTER_TYPE:
+                return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+            // Historical and forwarded values bypass statement-time validation. Keep them valid
+            // before SET_VAR saves the original value for restoration through the strict setters.
+            case PARALLEL_PIPELINE_TASK_NUM:
+                return Math.max(0, Math.min(intValue, 256));
+            case COLOCATE_MAX_PARALLEL_NUM:
+            case LOAD_STREAM_PER_NODE:
+                return Math.max(1, Math.min(intValue, 256));
+            case MAX_SCANNERS_CONCURRENCY:
+            case MAX_FILE_SCANNERS_CONCURRENCY:
+            case MIN_SCANNERS_CONCURRENCY:
+            case MIN_FILE_SCANNERS_CONCURRENCY:
+            case PARALLEL_SCAN_MAX_SCANNERS_COUNT:
+            case SEND_BATCH_PARALLELISM:
+                // Non-positive values retain their existing BE default-selection semantics.
+                return Math.min(intValue, 256);
+            default:
+                return intValue;
         }
-        return intValue;
     }
 
     /**

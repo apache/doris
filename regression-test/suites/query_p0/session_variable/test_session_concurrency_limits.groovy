@@ -36,6 +36,9 @@ suite("test_session_concurrency_limits") {
             sql "SET ${variable} = ${upperBound}"
             "order_qt_${variable}_upper_bound"("SELECT @@${variable} = ${upperBound}")
 
+            "order_qt_${variable}_valid_hint"("SELECT /*+ SET_VAR(${variable}=8) */ @@${variable} = 8")
+            "order_qt_${variable}_hint_restored"("SELECT @@${variable} = ${upperBound}")
+
             [upperBound + 1, 2147483647L].each { invalid ->
                 test {
                     sql "SET ${variable} = ${invalid}"

@@ -791,12 +791,12 @@ public class StmtExecutor {
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
-                // origin value init
-                sessionVariable.setIsSingleSetVar(false);
-                sessionVariable.clearSessionOriginValue();
             } catch (DdlException e) {
                 LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+            } finally {
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
             }
         }
     }
@@ -2268,12 +2268,12 @@ public class StmtExecutor {
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
-                // origin value init
-                sessionVariable.setIsSingleSetVar(false);
-                sessionVariable.clearSessionOriginValue();
             } catch (DdlException e) {
                 LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+            } finally {
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
             }
         }
     }

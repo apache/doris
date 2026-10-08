@@ -254,6 +254,33 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testHistoricalConcurrencyHintCleanup() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        try {
+            for (String variable : new String[] {SessionVariable.PARALLEL_PIPELINE_TASK_NUM,
+                    SessionVariable.COLOCATE_MAX_PARALLEL_NUM, SessionVariable.MAX_SCANNERS_CONCURRENCY,
+                    SessionVariable.MAX_FILE_SCANNERS_CONCURRENCY, SessionVariable.MIN_SCANNERS_CONCURRENCY,
+                    SessionVariable.MIN_FILE_SCANNERS_CONCURRENCY, SessionVariable.PARALLEL_SCAN_MAX_SCANNERS_COUNT,
+                    SessionVariable.SEND_BATCH_PARALLELISM, SessionVariable.LOAD_STREAM_PER_NODE}) {
+                SessionVariable restored = new SessionVariable();
+                restored.readFromJson("{\"" + variable + "\":2000}");
+                connectContext.setSessionVariable(restored);
+
+                executeNereidsSql("SELECT /*+ SET_VAR(" + variable + "=8) */ 1");
+                Assertions.assertEquals(256, VariableMgr.getVarContext(variable).getField().getInt(restored), variable);
+                Assertions.assertFalse(restored.getIsSingleSetVar());
+                Assertions.assertTrue(restored.getSessionOriginValue().isEmpty());
+
+                executeNereidsSql("SELECT 1");
+                Assertions.assertEquals(256, VariableMgr.getVarContext(variable).getField().getInt(restored), variable);
+                Assertions.assertTrue(restored.getSessionOriginValue().isEmpty());
+            }
+        } finally {
+            connectContext.setSessionVariable(original);
+        }
+    }
+
+    @Test
     public void testAiSessionVariableChecker() throws Exception {
         SessionVariable sv = new SessionVariable();
 
