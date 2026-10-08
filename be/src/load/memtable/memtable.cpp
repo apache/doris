@@ -294,6 +294,7 @@ Status MemTable::insert(const Block* input_block, const TabletAddRowsPayload& ro
         _input_mutable_block.get_column_by_position(_row_lsn_col_pos)
                 ->replace_column_data_range(*lsn_column, 0, num_rows, cursor_in_mutableblock);
     }
+    DBUG_EXECUTE_IF("MemTable.insert.row_batch_allocation", DBUG_RUN_CALLBACK(this));
     auto row_batch = make_row_batch(num_rows, [&](size_t i) {
         return RowInBlock(cursor_in_mutableblock + i, _need_lsn ? allocated_lsns[i] : 0);
     });
@@ -675,6 +676,7 @@ void MemTable::_aggregate() {
         _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
         // Repack surviving rows so they do not retain batches of merged-away rows.
         // Aggregation states belong to the memtable; preserve their pointers and flags.
+        DBUG_EXECUTE_IF("MemTable.aggregate.row_batch_allocation", DBUG_RUN_CALLBACK(this));
         auto rows = make_row_batch(temp_row_in_blocks.size(),
                                    [&](size_t i) { return *temp_row_in_blocks[i]; });
         for (size_t i = 0; i < temp_row_in_blocks.size(); ++i) {
