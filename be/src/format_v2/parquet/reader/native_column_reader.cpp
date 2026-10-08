@@ -542,6 +542,16 @@ Status NativeColumnReader::read_with_fixed_width_filter(
             row_filter->clear();
             return Status::OK();
         }
+        // A skipped page can advance the native cursor without evaluating a predicate. Its NONE
+        // execution kind must not replace or conflict with the preceding data page's kind.
+        if (loop_rows == 0) {
+            if (!eof && ++consecutive_empty_calls > _row_group_rows + 1) {
+                return Status::Corruption(
+                        "Native parquet fixed-width predicate made no progress for column {}",
+                        _name);
+            }
+            continue;
+        }
         if (*execution_kind == DirectPredicateExecutionKind::NONE) {
             *execution_kind = loop_kind;
         } else if (loop_kind != DirectPredicateExecutionKind::DEFINITION_LEVEL) {
@@ -550,14 +560,6 @@ Status NativeColumnReader::read_with_fixed_width_filter(
             *execution_kind = loop_kind;
         }
         row_filter->insert(row_filter->end(), loop_filter.begin(), loop_filter.end());
-        if (loop_rows == 0 && !eof) {
-            if (++consecutive_empty_calls > _row_group_rows + 1) {
-                return Status::Corruption(
-                        "Native parquet fixed-width predicate made no progress for column {}",
-                        _name);
-            }
-            continue;
-        }
         consecutive_empty_calls = 0;
         *rows_read += static_cast<int64_t>(loop_rows);
     }

@@ -1067,11 +1067,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_dictionary_page(bool
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ensure_first_data_page_parsed() {
-    if (_first_data_page_parsed) {
+    if (_first_data_page_parsed && _page_reader->has_active_offset_index()) {
         return Status::OK();
     }
-    // OffsetIndex row bounds are untrusted until page zero has been reconciled and its declared
-    // cardinality checked, so no indexed skip may observe them before this one-time parse.
+    // OffsetIndex bounds need an initial reconciliation. If the index is discarded, every later
+    // page needs its header parsed before callers use its sequential row bounds.
     return parse_page_header();
 }
 

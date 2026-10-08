@@ -43,6 +43,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/reader/native/byte_array_dict_decoder.h"
 #include "format_v2/parquet/reader/native/column_reader.h"
 #include "format_v2/parquet/reader/native/decoder.h"
@@ -51,6 +52,8 @@
 #include "format_v2/parquet/reader/native/level_decoder.h"
 #include "format_v2/parquet/reader/native/level_reader.h"
 #include "format_v2/parquet/reader/native/page_reader.h"
+#include "format_v2/parquet/reader/native_column_reader.h"
+#include "format_v2/parquet/reader/variant_column_reader.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "util/block_compression.h"
@@ -1316,7 +1319,7 @@ TEST(ParquetV2NativeDecoderTest, NullableSparsePlainDateTimeSelectionBatchesPhys
     ColumnChunkReaderStatistics statistics;
     const ParquetDecodeContext context {.physical_type = ParquetPhysicalType::INT64,
                                         .logical_type = ParquetLogicalType::TIMESTAMP,
-                                        .time_unit = ParquetTimeUnit::MICROS};
+                                        .time_unit = ::doris::ParquetTimeUnit::MICROS};
     ASSERT_TRUE(materialize_selected_plain_int64(physical_micros, LOGICAL_VALUES, null_runs, filter,
                                                  type, &column, &null_map, &statistics, context)
                         .ok());
@@ -1342,10 +1345,10 @@ TEST(ParquetV2NativeDecoderTest, NegativeNanosFloorAcrossPlainAndDictionaryTimes
             "1970-01-01 00:00:00.000000", "1970-01-01 00:00:00.000001"};
     const ParquetDecodeContext local_context {.physical_type = ParquetPhysicalType::INT64,
                                               .logical_type = ParquetLogicalType::TIMESTAMP,
-                                              .time_unit = ParquetTimeUnit::NANOS};
+                                              .time_unit = ::doris::ParquetTimeUnit::NANOS};
     const ParquetDecodeContext utc_context {.physical_type = ParquetPhysicalType::INT64,
                                             .logical_type = ParquetLogicalType::TIMESTAMP,
-                                            .time_unit = ParquetTimeUnit::NANOS,
+                                            .time_unit = ::doris::ParquetTimeUnit::NANOS,
                                             .timestamp_is_adjusted_to_utc = true};
 
     for (const bool dictionary : {false, true}) {
@@ -3454,6 +3457,81 @@ TEST(ParquetV2NativeDecoderTest, LazyFixedWidthFilterUsesReconciledFirstPageRang
     EXPECT_EQ(row_filter, (IColumn::Filter {1, 1}));
 }
 
+// Exercise the adapter and native reader together: an empty fragment must not change the
+// predicate domain, and an index fallback must still refresh every subsequent page's row bounds.
+void check_fixed_width_filter_across_pages(bool shifted_index) {
+    const std::vector<std::vector<uint8_t>> pages {serialize_plain_int32_page({10, 11}),
+                                                   serialize_plain_int32_page({20, 21}),
+                                                   serialize_plain_int32_page({30, 31})};
+    std::vector<uint8_t> bytes;
+    tparquet::OffsetIndex offset_index;
+    for (size_t page = 0; page < pages.size(); ++page) {
+        tparquet::PageLocation location;
+        location.__set_offset(bytes.size() + (shifted_index && page > 0 ? 1 : 0));
+        location.__set_compressed_page_size(pages[page].size() +
+                                            (shifted_index && page == 0 ? 1 : 0));
+        location.__set_first_row_index(page * 2);
+        offset_index.page_locations.push_back(location);
+        bytes.insert(bytes.end(), pages[page].begin(), pages[page].end());
+    }
+    bytes.push_back(0);
+    tparquet::ColumnChunk chunk;
+    chunk.meta_data.__set_type(tparquet::Type::INT32);
+    chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    chunk.meta_data.__set_num_values(6);
+    chunk.meta_data.__set_total_compressed_size(bytes.size());
+    chunk.meta_data.__set_data_page_offset(0);
+    chunk.meta_data.__set_encodings({tparquet::Encoding::PLAIN});
+    NativeFieldSchema field;
+    field.physical_type = tparquet::Type::INT32;
+    field.data_type = std::make_shared<DataTypeInt32>();
+    field.parquet_schema.__set_type(tparquet::Type::INT32);
+    field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    auto ranges = ::doris::RowRanges::create_single(0, shifted_index ? 6 : 2);
+    if (!shifted_index) {
+        ranges.add({4, 6});
+    }
+    auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
+    auto native = std::make_unique<ScalarColumnReader<false, true>>(ranges, 6, chunk, &offset_index,
+                                                                    nullptr, nullptr);
+    ASSERT_TRUE(native->init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+                        .ok());
+    ParquetColumnSchema schema;
+    schema.name = "value";
+    schema.type = field.data_type;
+    NativeColumnReader reader(schema, schema.type, schema.type, nullptr, {});
+    reader._native_reader = std::move(native);
+    reader._row_group_rows = 6;
+    auto projected = ColumnInt32::create();
+    IColumn::Filter row_filter;
+    int64_t rows = 0;
+    bool used_filter = false;
+    DirectPredicateExecutionKind kind = DirectPredicateExecutionKind::NONE;
+    const auto status = reader.read_with_fixed_width_filter(
+            ranges.count(), nullptr, false,
+            {create_int32_raw_comparison(0, "gt", TExprOpcode::GT, 10)}, 0, projected.get(),
+            &row_filter, &rows, &used_filter, &kind);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(used_filter);
+    EXPECT_EQ(rows, ranges.count());
+    EXPECT_EQ(kind, DirectPredicateExecutionKind::CONVERTED_FIXED);
+    if (shifted_index) {
+        EXPECT_EQ(row_filter, (IColumn::Filter {0, 1, 1, 1, 1, 1}));
+        EXPECT_EQ(projected->get_data(), (ColumnInt32::Container {11, 20, 21, 30, 31}));
+    } else {
+        EXPECT_EQ(row_filter, (IColumn::Filter {0, 1, 1, 1}));
+        EXPECT_EQ(projected->get_data(), (ColumnInt32::Container {11, 30, 31}));
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, FixedWidthFilterSkipsEmptyPageFragments) {
+    check_fixed_width_filter_across_pages(false);
+}
+
+TEST(ParquetV2NativeDecoderTest, FixedWidthFilterContinuesAfterOffsetIndexFallback) {
+    check_fixed_width_filter_across_pages(true);
+}
+
 TEST(ParquetV2NativeDecoderTest, LazyFlatIndexedFallbackUsesReconciledFirstPageRange) {
     const auto first_page = serialize_plain_int32_page({10, 11});
     const auto second_page = serialize_plain_int32_page({20});
@@ -3484,7 +3562,7 @@ TEST(ParquetV2NativeDecoderTest, LazyFlatIndexedFallbackUsesReconciledFirstPageR
     field.parquet_schema.__set_type(tparquet::Type::INT32);
     field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
-    const auto row_ranges = ::doris::RowRanges::create_single(0, 2);
+    const auto row_ranges = ::doris::RowRanges::create_single(0, 3);
     ScalarColumnReader<false, true> reader(row_ranges, 3, chunk, &offset_index, nullptr, nullptr);
     ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
                         .ok());
@@ -3500,6 +3578,12 @@ TEST(ParquetV2NativeDecoderTest, LazyFlatIndexedFallbackUsesReconciledFirstPageR
     ASSERT_EQ(rows, 2);
     EXPECT_EQ(assert_cast<const ColumnInt32&>(*values).get_data(),
               (ColumnInt32::Container {10, 11}));
+    values = ColumnInt32::create();
+    ASSERT_TRUE(
+            reader.read_column_data(values, field.data_type, nullptr, filter, 1, &rows, &eof, false)
+                    .ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(*values).get_data(), (ColumnInt32::Container {20}));
 }
 
 TEST(ParquetV2NativeDecoderTest, LazyNestedV2SeekValidatesFirstPageRowRange) {
