@@ -75,6 +75,23 @@ public class IcebergPartitionUtilsTest {
     // ---- serializePartitionValue: legacy type matrix (direct, package-private) ----
 
     @Test
+    public void uuidIdentityPartitionUsesBinaryBytesWithoutChangingPartitionText() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "key", Types.UUIDType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("key").build();
+        Table table = tableWith(schema, spec);
+        PartitionData data = new PartitionData(spec.partitionType());
+        UUID value = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        data.set(0, value);
+        Assertions.assertEquals("0x00112233445566778899aabbccddeeff",
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(data, spec, table, ZoneOffset.UTC).get("key"));
+        Assertions.assertEquals(value.toString(),
+                IcebergPartitionUtils.serializePartitionValue(Types.UUIDType.get(), value, ZoneOffset.UTC));
+        data.set(0, null);
+        Assertions.assertNull(
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(data, spec, table, ZoneOffset.UTC).get("key"));
+    }
+
+    @Test
     public void serializePrimitiveValuesUseToString() {
         Assertions.assertEquals("true",
                 IcebergPartitionUtils.serializePartitionValue(Types.BooleanType.get(), Boolean.TRUE, ZoneOffset.UTC));

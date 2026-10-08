@@ -44,6 +44,33 @@ class CatalogVarbinaryMigrationTest {
     private static final String MARKER = CatalogProperty.ENABLE_MAPPING_VARBINARY;
 
     @Test
+    void testMigrationClosesAuthorizationOutsideTheCatalogLock() throws Exception {
+        CatalogMgr manager = new CatalogMgr();
+        BinaryCatalog catalog = new BinaryCatalog(49, Collections.singletonMap(MARKER, "false"));
+        addCatalog(manager, catalog);
+        List<CatalogLog> persisted = new ArrayList<>();
+        Env env = journalEnv(persisted);
+        Field lockField = CatalogMgr.class.getDeclaredField("lock");
+        lockField.setAccessible(true);
+        org.apache.doris.common.lock.MonitoredReentrantReadWriteLock lock =
+                (org.apache.doris.common.lock.MonitoredReentrantReadWriteLock) lockField.get(manager);
+        java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
+        Mockito.when(env.getAccessManager().detachAccessController(Mockito.anyString(), Mockito.anyLong()))
+                .thenReturn(() -> {
+                    Assertions.assertFalse(lock.isWriteLockedByCurrentThread(),
+                            "plugin cleanup must not hold the outer migration lock");
+                    Assertions.assertEquals(1, persisted.size(), "journal must precede cleanup");
+                    Assertions.assertEquals("true", catalog.getProperties().get(MARKER));
+                    closed.set(true);
+                });
+        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+            mocked.when(Env::getCurrentEnv).thenReturn(env);
+            manager.migrateVarbinaryMappingProperties();
+        }
+        Assertions.assertTrue(closed.get());
+    }
+
+    @Test
     void testTimestampMarkerIsJournaledAndCannotBeDisabledByAlter() throws Exception {
         String timestampMarker = CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ;
         CatalogMgr manager = new CatalogMgr();

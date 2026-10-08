@@ -247,6 +247,15 @@ public final class JdbcQueryBuilder {
         return expr.getChildren().stream().anyMatch(JdbcQueryBuilder::hasInstant);
     }
 
+    private static boolean hasWallClockColumn(ConnectorExpression expr) {
+        if (expr instanceof ConnectorColumnRef) {
+            String name = ((ConnectorColumnRef) expr).getType().getTypeName();
+            return "DATETIMEV2".equalsIgnoreCase(name) || "DATETIME".equalsIgnoreCase(name)
+                    || "DATEV2".equalsIgnoreCase(name) || "DATE".equalsIgnoreCase(name);
+        }
+        return expr.getChildren().stream().anyMatch(JdbcQueryBuilder::hasWallClockColumn);
+    }
+
     private static boolean containsBinaryLiteral(ConnectorExpression expr) {
         return expr instanceof ConnectorLiteral
                 && "VARBINARY".equalsIgnoreCase(((ConnectorLiteral) expr).getType().getTypeName())
@@ -326,6 +335,10 @@ public final class JdbcQueryBuilder {
      * Mirrors the old JdbcScanNode.shouldPushDownConjunct() guards.
      */
     private boolean shouldPushDownExpression(ConnectorExpression expr) {
+        // Stripped CASTs lose the Doris session zone when an instant is compared with wall-clock fields.
+        if (hasInstant(expr) && hasWallClockColumn(expr)) {
+            return false;
+        }
         // Remote NULL handling and calendar operations can differ from decoded Doris instants.
         if ((dbType == JdbcDbType.POSTGRESQL && hasInstant(expr)) || hasInstantLiteral(expr)
                 || (containsFunctionCall(expr) && hasInstant(expr))) {

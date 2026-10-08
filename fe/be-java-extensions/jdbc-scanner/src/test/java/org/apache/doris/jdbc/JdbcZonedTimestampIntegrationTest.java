@@ -261,8 +261,23 @@ class JdbcZonedTimestampIntegrationTest {
     @Test
     @EnabledIfSystemProperty(named = "presto.integration.url", matches = ".+")
     void testPrestoTimestampWriteRoundTrip() throws Exception {
-        verifyTimestampWriteRoundTrip("presto", "io.prestosql.jdbc.PrestoDriver", TrinoTypeHandler.class,
+        verifyTimestampWriteRoundTrip("presto", "io.prestosql.jdbc.PrestoDriver", PrestoTypeHandler.class,
                 null, new String[] {"TIMESTAMP(6) WITH TIME ZONE"}, "");
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "prestodb.integration.url", matches = ".+")
+    void testOfficialPrestoDbTimestampWriteRoundTrip() throws Exception {
+        verifyTimestampWriteRoundTrip("prestodb", "com.facebook.presto.jdbc.PrestoDriver", PrestoTypeHandler.class,
+                null, new String[] {"TIMESTAMP WITH TIME ZONE"}, "");
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "oraclelegacy.integration.url", matches = ".+")
+    void testOracleLegacyDriverTimestampWriteRoundTrip() throws Exception {
+        verifyTimestampWriteRoundTrip("oraclelegacy", "oracle.jdbc.OracleDriver", OracleTypeHandler.class,
+                "ALTER SESSION SET TIME_ZONE = '-07:00'",
+                new String[] {"TIMESTAMP(6) WITH TIME ZONE", "TIMESTAMP(6) WITH LOCAL TIME ZONE"}, "");
     }
 
     private void verifyTimestampWriteRoundTrip(String prefix, String driver,
@@ -275,9 +290,10 @@ class JdbcZonedTimestampIntegrationTest {
                 String column = "event_time" + i;
                 definitions.add(column + " " + types[i]);
                 projections.add(dialect == ClickHouseTypeHandler.class ? "toUnixTimestamp64Micro(" + column + ")"
-                        : dialect == TrinoTypeHandler.class ? "at_timezone(" + column + ", 'UTC')" : column);
+                        : (dialect == TrinoTypeHandler.class || dialect == PrestoTypeHandler.class)
+                                ? "at_timezone(" + column + ", 'UTC')" : column);
             }
-            if (dialect == TrinoTypeHandler.class) {
+            if (dialect == TrinoTypeHandler.class || dialect == PrestoTypeHandler.class) {
                 // The driver API sets the remote session zone independently of the JVM default.
                 connection.getClass().getMethod("setTimeZoneId", String.class).invoke(connection, "America/New_York");
             }
@@ -290,7 +306,23 @@ class JdbcZonedTimestampIntegrationTest {
                     JdbcTypeHandler executor = dialect.getDeclaredConstructor().newInstance();
                     String[] values = {"2020-01-02T04:01:00.111333Z", "1969-12-31T23:59:59.999999Z",
                         "2023-11-05T08:30:00.123456Z", "2023-11-05T09:30:00.123456Z", "2020-01-02T00:00:00Z", null};
-                    String parameters = String.join(", ", java.util.Collections.nCopies(types.length + 1, "?"));
+                    if ("prestodb".equals(prefix)) {
+                        // PrestoDB timestamps have millisecond precision, unlike PrestoSQL's timestamp(6).
+                        for (int i = 0; i < values.length; i++) {
+                            if (values[i] != null) {
+                                values[i] = Instant.parse(values[i]).truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+                                        .toString();
+                            }
+                        }
+                    }
+                    String zonedParameter = dialect == OracleTypeHandler.class
+                            ? "TO_TIMESTAMP_TZ(?, 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM')"
+                            : dialect == PrestoTypeHandler.class ? "CAST(? AS TIMESTAMP(6) WITH TIME ZONE)" : "?";
+                    if ("prestodb".equals(prefix)) {
+                        zonedParameter = "CAST(? AS TIMESTAMP WITH TIME ZONE)";
+                    }
+                    String parameters = "?, " + String.join(", ",
+                            java.util.Collections.nCopies(types.length, zonedParameter));
                     try (java.sql.PreparedStatement insert = connection.prepareStatement(
                             "INSERT INTO " + table + " VALUES (" + parameters + ")")) {
                         for (int row = 0; row < values.length; ++row) {
@@ -321,11 +353,21 @@ class JdbcZonedTimestampIntegrationTest {
                                 } else if (dialect == TrinoTypeHandler.class) {
                                     java.time.ZonedDateTime value = rows.getObject(col, java.time.ZonedDateTime.class);
                                     actual = value == null ? null : value.toInstant();
+                                } else if (dialect == OracleTypeHandler.class || dialect == PrestoTypeHandler.class) {
+                                    java.sql.Timestamp value = rows.getTimestamp(col);
+                                    actual = value == null ? null : value.toInstant();
                                 } else {
                                     java.time.OffsetDateTime value = rows.getObject(col, java.time.OffsetDateTime.class);
                                     actual = value == null ? null : value.toInstant();
                                 }
                                 Assertions.assertEquals(text == null ? null : Instant.parse(text), actual);
+                                if (dialect == OracleTypeHandler.class || dialect == PrestoTypeHandler.class) {
+                                    Assertions.assertEquals(actual == null ? null
+                                                    : LocalDateTime.ofInstant(actual, ZoneOffset.UTC),
+                                            executor.getColumnValue(rows, col,
+                                                    ColumnType.parseType("event_time", "timestamptz(6)"),
+                                                    rows.getMetaData()));
+                                }
                             }
                         }
                         Assertions.assertFalse(rows.next());

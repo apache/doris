@@ -181,8 +181,11 @@ final class IcebergPartitionUtils {
             }
             Object value = partitionData.get(i);
             try {
-                partitionInfoMap.put(columnName,
-                        serializePartitionValue(field.type(), value, zone));
+                // UUID scan slots are VARBINARY; partition display/commit text must remain canonical UUIDs.
+                String encoded = partitionTypeId == TypeID.UUID && value != null
+                        ? "0x" + value.toString().replace("-", "")
+                        : serializePartitionValue(field.type(), value, zone);
+                partitionInfoMap.put(columnName, encoded);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
                         e.getMessage());

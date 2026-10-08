@@ -36,6 +36,19 @@ import java.util.TimeZone;
 
 class JdbcTimestampBindTest {
     @Test
+    void oracleAndPrestoBindUtcTextForExplicitServerCasts() throws Exception {
+        for (String dialect : new String[] {"ORACLE", "PRESTO"}) {
+            JdbcTypeHandler handler = JdbcTypeHandlerFactory.create(dialect);
+            PreparedStatement statement = Mockito.mock(PreparedStatement.class);
+            handler.setTimestampTz(statement, 1, LocalDateTime.of(2020, 1, 2, 4, 1, 0, 111333000));
+            Mockito.verify(statement).setString(1, "2020-01-02 04:01:00.111333"
+                    + (dialect.equals("ORACLE") ? " +00:00" : " UTC"));
+            handler.setTimestampTzNull(statement, 1);
+            Mockito.verify(statement).setNull(1, Types.VARCHAR);
+        }
+    }
+
+    @Test
     void testPostgresBindsExplicitOffset() throws Exception {
         verifyBind(PostgreSQLTypeHandler.class);
     }
@@ -87,6 +100,9 @@ class JdbcTimestampBindTest {
                         Mockito.verify(statement).setObject(1,
                                 utc.format(DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS")) + " UTC",
                                 Types.TIMESTAMP_WITH_TIMEZONE);
+                    } else if (dialect == OracleTypeHandler.class) {
+                        Mockito.verify(statement).setString(1,
+                                utc.format(DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS")) + " +00:00");
                     } else if (dialect == ClickHouseTypeHandler.class) {
                         Mockito.verify(statement).setObject(1, utc.atOffset(ZoneOffset.UTC));
                     } else {
@@ -99,7 +115,8 @@ class JdbcTimestampBindTest {
                 column.appendTimeStampTz(new LocalDateTime[] {null}, true);
                 insert.invoke(executor, 0, 0, column);
                 Mockito.verify(statement).setNull(1,
-                        dialect == TrinoTypeHandler.class ? Types.NULL : Types.TIMESTAMP_WITH_TIMEZONE);
+                        dialect == TrinoTypeHandler.class ? Types.NULL
+                                : dialect == OracleTypeHandler.class ? Types.VARCHAR : Types.TIMESTAMP_WITH_TIMEZONE);
                 Mockito.clearInvocations(statement);
             }
         } finally {

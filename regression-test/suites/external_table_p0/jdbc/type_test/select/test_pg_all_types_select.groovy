@@ -41,47 +41,38 @@ suite("test_pg_all_types_select", "p0,external") {
 
         qt_desc_all_types_null """desc catalog_pg_test.extreme_test;"""
 
-        // PostgreSQL infinities and BC/out-of-range years cannot be packed into Doris timestamps.
-        assertEquals([[true], [true], [true], [true]],
-                sql("select timestamptz_val is null from catalog_pg_test.extreme_test order by id"))
+        // Range conversion and local filtering must agree, including before a pushed LIMIT.
+        order_qt_extreme_nulls "select timestamptz_val is null from catalog_pg_test.extreme_test"
+        order_qt_extreme_null_ids "select id from catalog_pg_test.extreme_test where timestamptz_val is null"
+        order_qt_extreme_non_null_ids "select id from catalog_pg_test.extreme_test where timestamptz_val is not null"
+        order_qt_extreme_null_limit """select id from catalog_pg_test.extreme_test
+                                     where timestamptz_val is null order by id limit 1"""
 
-        // Filtering must see the same decoded NULLs as projection, even with a remote LIMIT candidate.
-        def extremeIds = sql("select id from catalog_pg_test.extreme_test order by id")
-        assertEquals(extremeIds,
-                sql("select id from catalog_pg_test.extreme_test where timestamptz_val is null order by id"))
-        assertEquals([], sql("select id from catalog_pg_test.extreme_test where timestamptz_val is not null"))
-        assertEquals(extremeIds.take(1), sql("select id from catalog_pg_test.extreme_test " +
-                "where timestamptz_val is null order by id limit 1"))
-
-        // A PostgreSQL NOT NULL constraint does not cover NULLs introduced by Doris range conversion.
-        String rangeTable = "catalog_pg_test.timestamp_range_nullability"
+        // Keep the remote table after the run so failed range conversions can be inspected.
         def executeRangeDdl = { String statement ->
             sql("CALL EXECUTE_STMT('pg_all_type_test', '" + statement.replace("'", "''") + "')")
         }
-        executeRangeDdl("DROP TABLE IF EXISTS ${rangeTable}")
-        try {
-            executeRangeDdl("CREATE TABLE ${rangeTable} " +
-                    "(id INT NOT NULL, event_time TIMESTAMPTZ NOT NULL, other_time TIMESTAMPTZ NOT NULL)")
-            executeRangeDdl("INSERT INTO ${rangeTable} VALUES " +
-                    "(1, '9999-12-31 23:59:59-08', '10000-01-02 00:00:00+00'), " +
-                    "(2, '2023-11-05 08:30:00+00', '2023-11-05 08:30:00+00'), " +
-                    "(3, 'infinity', '-infinity'), (4, '-infinity', 'infinity'), " +
-                    "(5, '0002-01-01 00:00:00+00 BC', '0002-01-02 00:00:00+00 BC'), " +
-                    "(6, '99999-01-01 00:00:00+00', '99999-01-02 00:00:00+00')")
-            assertEquals([[1, true], [2, false], [3, true], [4, true], [5, true], [6, true]],
-                    sql("select id, event_time is null from ${rangeTable} order by id"))
-            assertEquals([[1], [3], [4], [5], [6]],
-                    sql("select id from ${rangeTable} where event_time is null order by id"))
-            assertEquals([[2]], sql("select id from ${rangeTable} where event_time is not null"))
-            assertEquals([[1], [2], [3], [4], [5], [6]],
-                    sql("select id from ${rangeTable} where event_time <=> other_time order by id"))
-            assertEquals([[2]], sql("select id from ${rangeTable} where event_time = other_time"))
-            assertEquals([[1]], sql("select id from ${rangeTable} where event_time is null order by id limit 1"))
-            // COUNT returns JDBC BIGINT (Long); nested JUnit list equality also compares numeric types.
-            assertEquals([[1L]], sql("select count(event_time) from ${rangeTable}"))
-        } finally {
-            executeRangeDdl("DROP TABLE IF EXISTS ${rangeTable}")
-        }
+        executeRangeDdl("DROP TABLE IF EXISTS catalog_pg_test.timestamp_range_nullability")
+        executeRangeDdl("CREATE TABLE catalog_pg_test.timestamp_range_nullability " +
+                "(id INT NOT NULL, event_time TIMESTAMPTZ NOT NULL, other_time TIMESTAMPTZ NOT NULL)")
+        executeRangeDdl("INSERT INTO catalog_pg_test.timestamp_range_nullability VALUES " +
+                "(1, '9999-12-31 23:59:59-08', '10000-01-02 00:00:00+00'), " +
+                "(2, '2023-11-05 08:30:00+00', '2023-11-05 08:30:00+00'), " +
+                "(3, 'infinity', '-infinity'), (4, '-infinity', 'infinity'), " +
+                "(5, '0002-01-01 00:00:00+00 BC', '0002-01-02 00:00:00+00 BC'), " +
+                "(6, '99999-01-01 00:00:00+00', '99999-01-02 00:00:00+00')")
+        order_qt_range_nulls "select id, event_time is null from catalog_pg_test.timestamp_range_nullability"
+        order_qt_range_null_ids """select id from catalog_pg_test.timestamp_range_nullability
+                                  where event_time is null"""
+        order_qt_range_non_null_ids """select id from catalog_pg_test.timestamp_range_nullability
+                                      where event_time is not null"""
+        order_qt_range_null_safe_equal """select id from catalog_pg_test.timestamp_range_nullability
+                                         where event_time <=> other_time"""
+        order_qt_range_equal """select id from catalog_pg_test.timestamp_range_nullability
+                               where event_time = other_time"""
+        order_qt_range_null_limit """select id from catalog_pg_test.timestamp_range_nullability
+                                    where event_time is null order by id limit 1"""
+        order_qt_range_count "select count(event_time) from catalog_pg_test.timestamp_range_nullability"
 
         qt_select_all_types_null """SELECT 
                                     id,

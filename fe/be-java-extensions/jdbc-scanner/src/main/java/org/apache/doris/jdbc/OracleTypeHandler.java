@@ -41,7 +41,6 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 
 /**
  * Oracle-specific type handler.
@@ -54,6 +53,8 @@ import java.time.ZoneOffset;
  *   Old drivers don't support rs.getObject(int, Class), so we fall back to typed getters.
  */
 public class OracleTypeHandler extends DefaultTypeHandler {
+    private static final java.time.format.DateTimeFormatter TIMESTAMP_TZ_FORMAT =
+            java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
     private static final Logger LOG = LoggerFactory.getLogger(OracleTypeHandler.class);
 
     // Whether the JDBC driver supports JDBC 4.1 getObject(int, Class) method.
@@ -122,7 +123,7 @@ public class OracleTypeHandler extends DefaultTypeHandler {
         if (type.getType() == ColumnType.Type.TIMESTAMPTZ) {
             // Both driver paths preserve the instant instead of passing local wall-clock fields to JNI.
             Timestamp value = rs.getTimestamp(columnIndex);
-            return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
+            return value == null ? null : checkedUtcTimestamp(value.toInstant());
         }
         if (jdbc41Supported) {
             return newGetColumnValue(rs, columnIndex, type);
@@ -296,8 +297,14 @@ public class OracleTypeHandler extends DefaultTypeHandler {
     @Override
     public void setTimestampTz(java.sql.PreparedStatement statement, int parameterIndex, LocalDateTime value)
             throws SQLException {
-        // An unzoned TIMESTAMP bind is session-local for both Oracle TZ and LOCAL TIME ZONE columns.
-        statement.setObject(parameterIndex, value.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE);
+        // FE wraps this VARCHAR parameter in TO_TIMESTAMP_TZ, including on pre-JDBC-4.2 drivers.
+        statement.setString(parameterIndex,
+                value.format(TIMESTAMP_TZ_FORMAT) + " +00:00");
+    }
+
+    @Override
+    public void setTimestampTzNull(java.sql.PreparedStatement statement, int parameterIndex) throws SQLException {
+        statement.setNull(parameterIndex, Types.VARCHAR);
     }
 
 }

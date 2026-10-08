@@ -32,7 +32,6 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
@@ -53,7 +52,7 @@ public class TrinoTypeHandler extends DefaultTypeHandler {
         if (type.getType() == ColumnType.Type.TIMESTAMPTZ) {
             // The remote projection and driver preserve the instant; JNI receives UTC fields.
             ZonedDateTime value = rs.getObject(columnIndex, ZonedDateTime.class);
-            return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
+            return value == null ? null : checkedUtcTimestamp(value.toInstant());
         }
         switch (type.getType()) {
             case BOOLEAN:
@@ -140,7 +139,7 @@ public class TrinoTypeHandler extends DefaultTypeHandler {
                 // Trino JDBC exposes timestamp-with-zone array elements as java.sql.Timestamp.
                 for (Object element : array) {
                     result.add(element == null ? null
-                            : LocalDateTime.ofInstant(((Timestamp) element).toInstant(), ZoneOffset.UTC));
+                            : checkedUtcTimestamp(((Timestamp) element).toInstant()));
                 }
                 return result;
             }

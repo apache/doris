@@ -24,6 +24,22 @@ import org.junit.jupiter.api.Test;
 
 class JdbcTimestampProjectionTest {
     @Test
+    void mysqlMixedTimestampComparisonsRemainLocal() {
+        ConnectorType instant = ConnectorType.of("TIMESTAMPTZ", 6, 0);
+        ConnectorType local = ConnectorType.of("DATETIMEV2", 6, 0);
+        org.apache.doris.connector.spi.pushdown.ConnectorComparison filter =
+                new org.apache.doris.connector.spi.pushdown.ConnectorComparison(
+                        org.apache.doris.connector.spi.pushdown.ConnectorComparison.Operator.GT,
+                        new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef("ts", instant),
+                        new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef("dt", local));
+        String sql = new JdbcQueryBuilder(JdbcDbType.MYSQL).buildQuery("db", "tbl",
+                java.util.Arrays.asList(new JdbcColumnHandle("ts", "ts", instant),
+                        new JdbcColumnHandle("dt", "dt", local)), java.util.Optional.of(filter), 1);
+        Assertions.assertFalse(sql.contains("WHERE"), sql);
+        Assertions.assertFalse(sql.contains("LIMIT"), sql);
+    }
+
+    @Test
     void scalarAndNestedInstantsAreProjectedBeforeDecoding() {
         ConnectorType instant = ConnectorType.of("TIMESTAMPTZ", 6, 0);
         ConnectorType nested = ConnectorType.arrayOf(ConnectorType.arrayOf(instant));

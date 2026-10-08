@@ -16,72 +16,54 @@
 // under the License.
 
 suite("test_varbinary_sql_support") {
-    def source = "binary_sql_input"
-    def table = "binary_sql_source"
-    def view = "binary_sql_view"
-    def ctas = "binary_sql_ctas"
-    def nested = "binary_sql_nested"
-    def mv = "binary_sql_mv"
-    def cleanup = {
-        sql "DROP MATERIALIZED VIEW IF EXISTS ${mv}"
-        sql "DROP VIEW IF EXISTS ${view}"
-        [nested, table].each { sql "DROP VIEW IF EXISTS ${it}" }
-        [ctas, source].each { sql "DROP TABLE IF EXISTS ${it}" }
+    // Drop before setup so failures leave the binary values and views available for inspection.
+    sql "DROP MATERIALIZED VIEW IF EXISTS binary_sql_mv"
+    sql "DROP VIEW IF EXISTS binary_sql_view"
+    sql "DROP VIEW IF EXISTS binary_sql_nested"
+    sql "DROP VIEW IF EXISTS binary_sql_source"
+    sql "DROP TABLE IF EXISTS binary_sql_ctas"
+    sql "DROP TABLE IF EXISTS binary_sql_input"
+
+    // Decode bytes in the execution layer; OLAP storage remains an ordinary STRING column.
+    sql """CREATE TABLE binary_sql_input (id INT, encoded STRING)
+           DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 3
+           PROPERTIES ('replication_num'='1')"""
+    sql """INSERT INTO binary_sql_input VALUES
+           (0, NULL), (1, ''), (2, '00'), (3, '7F'), (4, '80'),
+           (5, 'AB'), (6, 'AB00'), (7, 'AB0001'), (8, 'AB'), (9, 'FF')"""
+    // TO_BINARY treats empty input as NULL; a literal exercises a distinct empty binary value.
+    sql """CREATE VIEW binary_sql_source AS SELECT id,
+           CASE WHEN encoded = '' THEN X'' ELSE to_binary(encoded) END AS payload FROM binary_sql_input"""
+    order_qt_binary_values "SELECT id, from_binary(payload) FROM binary_sql_source"
+    sql "CREATE VIEW binary_sql_view AS SELECT id, payload FROM binary_sql_source WHERE id <> 6"
+    order_qt_view_values "SELECT id, from_binary(payload) FROM binary_sql_view"
+    order_qt_view_schema "DESC binary_sql_view"
+    test {
+        sql """CREATE TABLE binary_sql_ctas DISTRIBUTED BY HASH(id) BUCKETS 1
+               PROPERTIES ('replication_num'='1') AS SELECT * FROM binary_sql_source"""
+        exception "varbinary"
     }
-    cleanup()
-    try {
-        // Decode bytes in the execution layer; OLAP storage remains an ordinary STRING column.
-        sql """CREATE TABLE ${source} (id INT, encoded STRING)
-               DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 3
-               PROPERTIES ('replication_num'='1')"""
-        sql """INSERT INTO ${source} VALUES
-               (0, NULL), (1, ''), (2, '00'), (3, '7F'), (4, '80'),
-               (5, 'AB'), (6, 'AB00'), (7, 'AB0001'), (8, 'AB'), (9, 'FF')"""
-        // TO_BINARY treats empty input as NULL; use a literal to exercise a distinct empty binary value.
-        sql """CREATE VIEW ${table} AS SELECT id,
-               CASE WHEN encoded = '' THEN X'' ELSE to_binary(encoded) END AS payload FROM ${source}"""
-        def bytes = [[0, null], [1, ""], [2, "00"], [3, "7F"], [4, "80"],
-                     [5, "AB"], [6, "AB00"], [7, "AB0001"], [8, "AB"], [9, "FF"]]
-        def readBytes = { name -> sql "SELECT id, from_binary(payload) FROM ${name} ORDER BY id" }
-        assertEquals(bytes, readBytes(table))
-        // Exercise binary transport through views without requiring binary predicates or hash keys.
-        sql "CREATE VIEW ${view} AS SELECT id, payload FROM ${table} WHERE id <> 6"
-        assertEquals(bytes.findAll { it[0] != 6 }, readBytes(view))
-        assertTrue(sql("DESC ${view}").find { it[0] == "payload" }[1].toLowerCase().startsWith("varbinary"))
-        test {
-            sql """CREATE TABLE ${ctas} DISTRIBUTED BY HASH(id) BUCKETS 1
-                   PROPERTIES ('replication_num'='1') AS SELECT * FROM ${table}"""
-            exception "varbinary"
-        }
-        test {
-            sql """CREATE MATERIALIZED VIEW ${mv} BUILD DEFERRED REFRESH COMPLETE ON MANUAL
-                   DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1')
-                   AS SELECT id, payload FROM ${table}"""
-            exception "varbinary"
-        }
-
-        // Materialization is explicit: hexadecimal STRING storage is reversible without a new OLAP type.
-        sql """CREATE TABLE ${ctas} DISTRIBUTED BY HASH(id) BUCKETS 1
-               PROPERTIES ('replication_num'='1')
-               AS SELECT id, from_binary(payload) AS payload_hex FROM ${table}"""
-        assertEquals(bytes, sql("SELECT id, payload_hex FROM ${ctas} ORDER BY id"))
-
-        sql """CREATE VIEW ${nested} AS SELECT id, array(payload) AS a,
-               map('key', payload) AS m, named_struct('b', payload) AS s FROM ${table}"""
-        assertEquals(sql("SELECT id, from_binary(payload), from_binary(payload), from_binary(payload) "
-                + "FROM ${table} ORDER BY id"),
-                sql("SELECT id, from_binary(a[1]), from_binary(m['key']), from_binary(s.b) "
-                + "FROM ${nested} ORDER BY id"))
-
-        // Long execution values must outlive source batches and retain their bytes.
-        sql """INSERT INTO ${source} SELECT number + 100,
-               concat(repeat('FF', 700), '00AB') FROM numbers('number'='2048')"""
-        def longBytes = sql "SELECT id, from_binary(payload) FROM ${table} WHERE id >= 100 ORDER BY id"
-        assertEquals(2048, longBytes.size())
-        longBytes.eachWithIndex { row, index ->
-            assertEquals([index + 100, "FF" * 700 + "00AB"], row)
-        }
-    } finally {
-        cleanup()
+    test {
+        sql """CREATE MATERIALIZED VIEW binary_sql_mv BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+               DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num'='1')
+               AS SELECT id, payload FROM binary_sql_source"""
+        exception "varbinary"
     }
+
+    // Materialization remains explicit: hexadecimal STRING storage is reversible.
+    sql """CREATE TABLE binary_sql_ctas DISTRIBUTED BY HASH(id) BUCKETS 1
+           PROPERTIES ('replication_num'='1')
+           AS SELECT id, from_binary(payload) AS payload_hex FROM binary_sql_source"""
+    order_qt_materialized_hex "SELECT id, payload_hex FROM binary_sql_ctas"
+    sql """CREATE VIEW binary_sql_nested AS SELECT id, array(payload) AS a,
+           map('key', payload) AS m, named_struct('b', payload) AS s FROM binary_sql_source"""
+    order_qt_nested_bytes """SELECT id, from_binary(a[1]), from_binary(m['key']), from_binary(s.b)
+                             FROM binary_sql_nested"""
+
+    // Compare every long value while keeping generated output compact across source batches.
+    sql """INSERT INTO binary_sql_input SELECT number + 100,
+           concat(repeat('FF', 700), '00AB') FROM numbers('number'='2048')"""
+    order_qt_long_bytes """SELECT count(*), min(id), max(id),
+            sum(if(from_binary(payload) = concat(repeat('FF', 700), '00AB'), 1, 0))
+            FROM binary_sql_source WHERE id >= 100"""
 }

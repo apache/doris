@@ -495,7 +495,8 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
         List<PartitionInfo> flussPartitions = adminOps.listPartitionInfos(flussHandle.toTablePath());
         List<ConnectorPartitionInfo> result = new ArrayList<>(flussPartitions.size());
         for (PartitionInfo partition : flussPartitions) {
-            FlussScanRange.Partition resolved = FlussPartitions.toScanPartition(partition, partitionKeys);
+            FlussScanRange.Partition resolved = FlussPartitions.toScanPartition(
+                    partition, partitionKeys, flussHandle.getKeyColumnTypes());
             // The values already follow partition-COLUMN order (fe-core zips them positionally against
             // the partition columns); the null-flag list stays empty because fluss allows no null value.
             result.add(new ConnectorPartitionInfo(

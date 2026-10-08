@@ -1885,24 +1885,16 @@ public class FlussSplitPlanTest {
     }
 
     @Test
-    public void localTimestampKeyFallsBackUnlessCatalogPreservesItsInstant() {
+    public void localTimestampKeyPreservesItsInstantEvenWithLegacyMarkerDisabled() {
         registerPkLakeTableKeyedBy(DataTypes.TIMESTAMP_LTZ(6));
         kvSnapshots(null, new long[] {4L}, new long[] {10L});
         latestOffsets(null, 105L);
-
-        List<ConnectorScanRange> fallback = plan(PK_TABLE, catalog());
-        Assertions.assertEquals(1, fallback.size());
-        assertPkRange(fallback.get(0), 0, 4L, 10L, 105L);
-
-        DorisConnectorException required = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(PK_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "required")));
-        Assertions.assertTrue(required.getMessage().contains("DATETIMEV2"), required.getMessage());
 
         lakeSnapshotAt(9L, offsets(100L));
         earliestOffsets(null, 0L);
         lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0));
         List<ConnectorScanRange> mapped = plan(PK_TABLE,
-                catalog(FlussCatalogProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true"));
+                catalog(FlussCatalogProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
         Assertions.assertEquals(2, mapped.size());
         assertSuppressed(mapped.get(0), 0, 100L, 105L);
         assertTailRange(mapped.get(1), 0, 100L, 105L);

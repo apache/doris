@@ -37,6 +37,25 @@ class JdbcTimestampSemanticsTest {
     private static final LocalDateTime UTC_VALUE = LocalDateTime.ofInstant(INSTANT, ZoneOffset.UTC);
 
     @Test
+    void oracleAndTrinoRejectOutOfRangeUtcInstants() throws Exception {
+        ResultSet rs = Mockito.mock(ResultSet.class);
+        ColumnType scalar = ColumnType.parseType("event_time", "timestamptz(6)");
+        ColumnType array = ColumnType.parseType("events", "array<timestamptz(6)>");
+        OracleTypeHandler oracle = new OracleTypeHandler();
+        TrinoTypeHandler trino = new TrinoTypeHandler();
+        for (LocalDateTime value : new LocalDateTime[] {
+                LocalDateTime.of(-1, 1, 1, 0, 0), LocalDateTime.of(10000, 1, 1, 0, 0)}) {
+            Timestamp timestamp = Timestamp.from(value.toInstant(ZoneOffset.UTC));
+            Mockito.when(rs.getTimestamp(1)).thenReturn(timestamp);
+            Mockito.when(rs.getObject(1, ZonedDateTime.class)).thenReturn(value.atZone(ZoneOffset.UTC));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> oracle.getColumnValue(rs, 1, scalar, null));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> trino.getColumnValue(rs, 1, scalar, null));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> trino.getOutputConverter(array, "")
+                    .convert(new Object[] {java.util.Collections.singletonList(timestamp)}));
+        }
+    }
+
+    @Test
     void testPostgreSqlTimestampRejectsUnrepresentableCalendarYears() throws Exception {
         PostgreSQLTypeHandler executor = new PostgreSQLTypeHandler();
         ResultSet resultSet = Mockito.mock(ResultSet.class);

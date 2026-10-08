@@ -489,6 +489,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Migrate legacy markers after fenced master replay, before accepting queries or starting checkpoints.
      */
     public void migrateVarbinaryMappingProperties() throws DdlException {
+        List<Runnable> cleanups = Lists.newArrayList();
         writeLock();
         try {
             for (CatalogIf catalog : idToCatalog.values()) {
@@ -514,10 +515,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
                 // Migration must not revalidate unrelated legacy connection properties or contact
                 // the external system while the master is still becoming ready.
-                replayAlterCatalogProps(log, null, true);
+                cleanups.add(applyAlterCatalogProps(log, null, true, true, false));
             }
         } finally {
             writeUnlock();
+            // Reentrant replay would close plugins while the outer migration write lock is still held.
+            for (Runnable cleanup : cleanups) {
+                cleanup.run();
+            }
         }
     }
 
