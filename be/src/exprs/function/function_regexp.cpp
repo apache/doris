@@ -266,15 +266,19 @@ struct RegexpExtractEngine {
 struct RegexpCountImpl {
     using StringColumnView = ColumnView<TYPE_STRING>;
 
+    // `null_map` holds the NULL rows to skip when CheckNull, and is nullptr otherwise.
+    template <bool CheckNull>
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                              size_t input_rows_count, ColumnInt32::Container& result_data,
-                             const NullMap& null_map) {
+                             const NullMap* null_map) {
         auto str_col = StringColumnView::create(argument_columns[0]);
         auto pattern_col = StringColumnView::create(argument_columns[1]);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map[i]) {
-                result_data[i] = 0;
-                continue;
+            if constexpr (CheckNull) {
+                if ((*null_map)[i]) {
+                    result_data[i] = 0;
+                    continue;
+                }
             }
             DCHECK(!str_col.is_null_at(i));
             DCHECK(!pattern_col.is_null_at(i));
@@ -371,7 +375,24 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const bool result_nullable = block.get_by_position(result).type->is_nullable();
+        auto& result_column = block.get_by_position(result);
+        const bool result_nullable = result_column.type->is_nullable();
+        if (!have_null_column(block, arguments)) {
+            // No argument can hold a NULL row: count over the original columns without building
+            // a NULL map.
+            auto result_data_column = ColumnInt32::create(input_rows_count);
+            ColumnPtr argument_columns[2] = {block.get_by_position(arguments[0]).column,
+                                             block.get_by_position(arguments[1]).column};
+            RegexpCountImpl::execute_impl<false>(context, argument_columns, input_rows_count,
+                                                 result_data_column->get_data(), nullptr);
+            if (result_nullable) {
+                result_column.column = ColumnNullable::create(
+                        std::move(result_data_column), ColumnUInt8::create(input_rows_count, 0));
+            } else {
+                result_column.column = std::move(result_data_column);
+            }
+            return Status::OK();
+        }
         return execute_regexp_with_nulls(
                 block, arguments, result, input_rows_count,
                 [&](const Block& nested_block, const ColumnNumbers& nested_arguments,
@@ -380,9 +401,9 @@ public:
                     ColumnPtr argument_columns[2] = {
                             nested_block.get_by_position(nested_arguments[0]).column,
                             nested_block.get_by_position(nested_arguments[1]).column};
-                    RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count,
-                                                  result_data_column->get_data(),
-                                                  null_map->get_data());
+                    RegexpCountImpl::execute_impl<true>(context, argument_columns, input_rows_count,
+                                                        result_data_column->get_data(),
+                                                        &null_map->get_data());
                     if (!result_nullable) {
                         return std::move(result_data_column);
                     }

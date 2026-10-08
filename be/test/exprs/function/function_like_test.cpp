@@ -1066,6 +1066,78 @@ TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
              nullable_int32, std::nullopt);
 }
 
+// regexp_count over non-nullable arguments counts the original columns directly and returns
+// the declared result type: a plain Int32 column, or a Nullable one without NULL rows.
+TEST(FunctionLikeTest, regexp_count_non_nullable_arguments) {
+    auto str_type = std::make_shared<DataTypeString>();
+    auto int32_type = std::make_shared<DataTypeInt32>();
+
+    auto make_str_col = [](const std::vector<std::string>& values) {
+        auto col = ColumnString::create();
+        for (const auto& value : values) {
+            col->insert_data(value.data(), value.size());
+        }
+        return col;
+    };
+    const std::vector<std::string> strs = {"a1b22c333", "book keeper", "aaa"};
+
+    auto run_case = [&](ColumnsWithTypeAndName arg_cols, const DataTypePtr& return_type,
+                        const std::vector<int32_t>& expected) {
+        Block block;
+        ColumnNumbers arguments;
+        std::vector<DataTypePtr> arg_types;
+        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+        for (auto& arg : arg_cols) {
+            arguments.push_back(static_cast<unsigned int>(block.columns()));
+            arg_types.push_back(arg.type);
+            constant_cols.push_back(is_column_const(*arg.column)
+                                            ? std::make_shared<ColumnPtrWrapper>(arg.column)
+                                            : nullptr);
+            block.insert(std::move(arg));
+        }
+        auto func = SimpleFunctionFactory::instance().get_function(
+                "regexp_count", block.get_columns_with_type_and_name(), return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        auto result = block.columns();
+        block.insert({nullptr, return_type, "result"});
+
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(constant_cols);
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, arguments, result, strs.size()));
+
+        const auto& result_column = block.get_by_position(result).column;
+        ASSERT_EQ(return_type->is_nullable(), result_column->is_nullable());
+        const IColumn* data_column = result_column.get();
+        if (return_type->is_nullable()) {
+            const auto& nullable = assert_cast<const ColumnNullable&>(*result_column);
+            EXPECT_FALSE(nullable.has_null());
+            data_column = &nullable.get_nested_column();
+        }
+        const auto& data = assert_cast<const ColumnInt32&>(*data_column).get_data();
+        ASSERT_EQ(expected.size(), data.size());
+        for (size_t i = 0; i < expected.size(); ++i) {
+            EXPECT_EQ(expected[i], data[i]) << "row " << i;
+        }
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    for (const auto& return_type : {DataTypePtr(int32_type), make_nullable(int32_type)}) {
+        run_case({{make_str_col(strs), str_type, "str"},
+                  {make_str_col({"\\d+", "oo|ee", "^a"}), str_type, "pattern"}},
+                 return_type, {3, 2, 1});
+        run_case({{make_str_col(strs), str_type, "str"},
+                  {ColumnConst::create(make_str_col({"[a-z]"}), strs.size()), str_type, "pattern"}},
+                 return_type, {3, 10, 3});
+    }
+}
+
 // Enhanced tests for better coverage
 
 TEST(FunctionLikeTest, pattern_optimization_allpass) {
