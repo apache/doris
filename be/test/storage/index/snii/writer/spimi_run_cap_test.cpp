@@ -27,19 +27,10 @@
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii/writer/term_posting_test_utils.h"
 
-// G09 run-file FD hygiene: a SPIMI buffer's spill runs are ALL (re)opened
-// simultaneously -- one fd each, held for the whole k-way merge -- so an
-// unbounded run count across ~100 concurrent writers exhausted the BE nofile
-// rlimit in the conc=16 wikipedia field failure ('Too many open files' at run
-// reopen). The cap (set_max_run_files / config
-// snii_spill_max_run_files_per_buffer) merge-compacts the accumulated runs
-// into ONE before a new spill would exceed it. These tests pin:
-//   * the cap is HONORED: the tracked run count never exceeds it, and the
-//     compaction seam records each collapse;
-//   * compaction is INVISIBLE in the output: a capped buffer drains the
-//     byte-identical term stream (terms, docids, freqs, positions) of an
-//     uncapped control fed the same tokens;
-//   * cap 0 disables compaction entirely (pre-cap behavior).
+// Ingestion retains one append-only spool regardless of logical run count.
+// Final reduction limits active inputs, preserves chronological ranges and
+// coalesces a document split across runs. The historical run-file knob may
+// further restrict fan-in; zero still uses the workspace and fd bounds.
 using doris::Status;
 using doris::snii::writer::SpimiTermBuffer;
 using doris::snii::writer::StreamedTermPostings;
@@ -74,11 +65,6 @@ void feed_step(SpimiTermBuffer* buf, uint32_t k) {
     buf->add_token(unigram(k), /*docid=*/k, /*pos=*/2);
 }
 
-// Bounds the honored-cap search loop; far below unigram()'s 17576 distinct
-// strings so every step's unigram is DISTINCT (the drained-term-count
-// assertions rely on that).
-constexpr uint32_t kMaxSteps = 16000;
-
 struct DrainedTerm {
     std::vector<uint32_t> docids;
     std::vector<uint32_t> freqs;
@@ -100,25 +86,19 @@ std::map<std::string, DrainedTerm> drain(SpimiTermBuffer* buf) {
     return out;
 }
 
-TEST(SniiSpimiRunCap, CapIsHonoredAndCompactionSeamFires) {
+TEST(SniiSpimiRunCap, IngestionUsesOneSpoolWithoutRewritingEarlierRuns) {
     snii_testing::reset_run_compactions();
     SpimiTermBuffer buf(/*has_positions=*/true, /*spill_threshold_bytes=*/1024);
     constexpr size_t kCap = 3;
     buf.set_max_run_files(kCap);
-
-    // Feed until the cap has forced a compaction (bounded); the cap must hold
-    // at EVERY step, so track the running maximum of the run count.
-    size_t max_runs_seen = 0;
-    uint32_t steps = 0;
-    while (steps < kMaxSteps && snii_testing::run_compactions() < 1) {
-        feed_step(&buf, steps);
-        ++steps;
-        max_runs_seen = std::max(max_runs_seen, buf.run_count_for_test());
+    constexpr uint32_t steps = 30;
+    for (uint32_t k = 0; k < steps; ++k) {
+        feed_step(&buf, k);
+        EXPECT_LE(buf.spill_file_count_for_test(), 1U);
     }
-    ASSERT_TRUE(buf.status().ok()) << buf.status().to_string();
-    ASSERT_GE(snii_testing::run_compactions(), 1U)
-            << "the cap was never hit within " << steps << " steps";
-    EXPECT_LE(max_runs_seen, kCap) << "run count exceeded the cap";
+    ASSERT_TRUE(buf.status().ok()) << buf.status();
+    EXPECT_GT(buf.run_count_for_test(), kCap);
+    EXPECT_EQ(snii_testing::run_compactions(), 0U);
 
     // The capped buffer still drains every term exactly once with the full
     // posting content.
@@ -144,21 +124,21 @@ TEST(SniiSpimiRunCap, CapIsHonoredAndCompactionSeamFires) {
 
 TEST(SniiSpimiRunCap, CompactedDrainMatchesUncappedControl) {
     snii_testing::reset_run_compactions();
-    // 30 steps == 90 tokens == 90 runs uncapped (per-token spills, see
-    // feed_step): plenty of cap-2 compactions on the capped side while the
-    // control's 90-way merge stays trivial.
+    // Both sides retain 90 logical ranges. Two-input and automatically sized
+    // contiguous merge groups must produce the same term stream.
     constexpr uint32_t kSteps = 30;
 
     SpimiTermBuffer capped(/*has_positions=*/true, /*spill_threshold_bytes=*/1024);
-    capped.set_max_run_files(2); // aggressive: compact on nearly every spill
+    capped.set_max_run_files(2); // two active inputs per contiguous merge group
     for (uint32_t k = 0; k < kSteps; ++k) {
         feed_step(&capped, k);
     }
     ASSERT_TRUE(capped.status().ok()) << capped.status().to_string();
-    ASSERT_GE(snii_testing::run_compactions(), 1U);
+    EXPECT_EQ(capped.spill_file_count_for_test(), 1U);
+    EXPECT_EQ(snii_testing::run_compactions(), 0U);
 
     SpimiTermBuffer control(/*has_positions=*/true, /*spill_threshold_bytes=*/1024);
-    control.set_max_run_files(0); // uncapped: the pre-cap spill pipeline
+    control.set_max_run_files(0); // choose fan-in from workspace and fd limits
     for (uint32_t k = 0; k < kSteps; ++k) {
         feed_step(&control, k);
     }
@@ -166,6 +146,7 @@ TEST(SniiSpimiRunCap, CompactedDrainMatchesUncappedControl) {
     ASSERT_GT(control.run_count_for_test(), 2U) << "the control must hold many runs";
 
     std::map<std::string, DrainedTerm> got = drain(&capped);
+    EXPECT_GT(snii_testing::run_compactions(), 0U);
     std::map<std::string, DrainedTerm> want = drain(&control);
     ASSERT_TRUE(capped.status().ok()) << capped.status().to_string();
     ASSERT_TRUE(control.status().ok()) << control.status().to_string();
@@ -179,7 +160,7 @@ TEST(SniiSpimiRunCap, CompactedDrainMatchesUncappedControl) {
     }
 }
 
-TEST(SniiSpimiRunCap, ZeroCapDisablesCompaction) {
+TEST(SniiSpimiRunCap, ZeroCapKeepsIngestionBoundedAndChoosesMergeFanInFromBudget) {
     snii_testing::reset_run_compactions();
     SpimiTermBuffer buf(/*has_positions=*/true, /*spill_threshold_bytes=*/1024);
     buf.set_max_run_files(0);
@@ -189,6 +170,7 @@ TEST(SniiSpimiRunCap, ZeroCapDisablesCompaction) {
     }
     ASSERT_TRUE(buf.status().ok()) << buf.status().to_string();
     EXPECT_GT(buf.run_count_for_test(), 2U);
+    EXPECT_EQ(buf.spill_file_count_for_test(), 1U);
     EXPECT_EQ(snii_testing::run_compactions(), 0U);
     // Still drains cleanly through the plain multi-run merge.
     std::map<std::string, DrainedTerm> got = drain(&buf);

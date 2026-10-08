@@ -382,9 +382,10 @@ public class StreamingJobUtils {
         JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
         try {
             String database = getRemoteDbName(sourceType, properties);
+            String sourceLocation = sourceType == DataSourceType.POSTGRES ? "schema" : "database";
             List<String> tablesNameList = jdbcClient.getTablesNameList(database);
             if (tablesNameList.isEmpty()) {
-                throw new JobException("No tables found in database " + database);
+                throw new JobException("No source tables found in " + sourceLocation + " '" + database + "'");
             }
             Database targetDatabase = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
             Preconditions.checkNotNull(targetDatabase, "target database %s does not exist", targetDb);
@@ -483,8 +484,9 @@ public class StreamingJobUtils {
             }
 
             if (!noPrimaryKeyTables.isEmpty()) {
-                throw new JobException("The following tables do not have primary key defined: "
-                        + String.join(", ", noPrimaryKeyTables));
+                throw new JobException("Source tables require primary keys: "
+                        + String.join(", ", noPrimaryKeyTables)
+                        + ". Add a primary key or exclude these tables.");
             }
             return createtblCmds;
         } finally {
@@ -499,7 +501,8 @@ public class StreamingJobUtils {
         List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
         columns.forEach(col -> {
             Preconditions.checkArgument(!col.getType().isUnsupported(),
-                    "Unsupported column type, table:[%s], column:[%s]", table, col.getName());
+                    "Unsupported column type for source column '%s.%s.%s'",
+                    database, table, col.getName());
             if (col.getType().isVarchar()) {
                 // The length of varchar needs to be multiplied by 3.
                 int len = col.getType().getLength() * 3;

@@ -19,10 +19,12 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -57,16 +59,34 @@ public class NgramSearch extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!child(1).isConstant()) {
+        if (!getArgument(1).isConstant()) {
             throw new AnalysisException(
                     "ngram_search(text,pattern,gram_num): pattern support const value only.");
         }
-        Expression gramNum = child(2);
-        if (!(gramNum instanceof IntegerLikeLiteral)) {
+        Expression gramNum = getArgument(2);
+        if (!gramNum.isConstant() || !gramNum.getDataType().isIntegralType()) {
             throw new AnalysisException(
                     "ngram_search(text,pattern,gram_num): gram_num support const value only.");
         }
-        if (((IntegerLikeLiteral) gramNum).getIntValue() <= 0) {
+        // Constant folding has not run yet, so a constant expression such as `1 + 2` is not a
+        // literal here. Reject the values FE can already determine now, before NULL propagation or
+        // plan pruning can drop the whole call and skip checkLegalityAfterRewrite.
+        checkGramNumValue(FoldConstantRuleOnFE.evaluateWithoutContext(gramNum));
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        // Constant folding (FE or BE) may have produced the literal by now. A constant that is
+        // still not a literal is evaluated by BE, which rejects a nonpositive gram_num itself.
+        checkGramNumValue(getArgument(2));
+    }
+
+    private static void checkGramNumValue(Expression gramNum) {
+        if (gramNum instanceof NullLiteral) {
+            throw new AnalysisException(
+                    "ngram_search(text,pattern,gram_num): gram_num support const value only.");
+        }
+        if (gramNum instanceof IntegerLikeLiteral && ((IntegerLikeLiteral) gramNum).getLongValue() <= 0) {
             throw new AnalysisException(
                     "ngram_search(text,pattern,gram_num): gram_num must be a positive constant.");
         }

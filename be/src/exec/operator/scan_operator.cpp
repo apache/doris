@@ -303,7 +303,8 @@ void ScanLocalStateBase::_init_slot_value_range(
     M(DECIMALV2)                 \
     M(BOOLEAN)                   \
     M(IPV4)                      \
-    M(IPV6)
+    M(IPV6)                      \
+    M(UUID)
         APPLY_FOR_SCALAR_TYPE(M)
 #undef M
     default: {
@@ -955,7 +956,8 @@ Status ScanLocalStateBase::_change_value_range(bool is_equal_op,
                          (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_BOOLEAN) ||
                          (PrimitiveType == TYPE_DATEV2) || (PrimitiveType == TYPE_TIMESTAMPTZ) ||
-                         (PrimitiveType == TYPE_DATETIME) || is_string_type(PrimitiveType)) {
+                         (PrimitiveType == TYPE_DATETIME) || is_string_type(PrimitiveType) ||
+                         (PrimitiveType == TYPE_UUID)) {
         func(temp_range, to_olap_filter_type(fn_name), value.template get<PrimitiveType>());
     } else {
         static_assert(always_false_v<PrimitiveType>);

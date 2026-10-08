@@ -184,6 +184,7 @@ public class FileQueryScanNodeTest {
         node.initSchemaParamsForTest();
 
         Assertions.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
+        Assertions.assertEquals(1, node.getFileScanRangeParams().getParquetTimestampSemanticsVersion());
     }
 
     @Test
@@ -262,6 +263,7 @@ public class FileQueryScanNodeTest {
         node.initSchemaParamsForTest();
 
         Assertions.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
+        Assertions.assertEquals(1, node.getFileScanRangeParams().getParquetTimestampSemanticsVersion());
     }
 
     @Test

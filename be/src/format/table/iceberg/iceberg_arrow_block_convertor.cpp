@@ -32,7 +32,7 @@ Status IcebergArrowBlockConvertor::init() {
     // Field IDs, Variant storage and timestamp bindings must share the same target schema.
     std::vector<std::shared_ptr<arrow::Field>> fields;
     // Arrow consumers need the declared label, not cctz's internal fixed-offset name.
-    RETURN_IF_ERROR(ArrowSchemaUtil::convert(_schema, _timezone_name, fields));
+    RETURN_IF_ERROR(ArrowSchemaUtil::convert(_schema, _timezone_name, fields, true));
     _arrow_schema = arrow::schema(std::move(fields));
     if (!_schema_json.empty()) {
         _arrow_schema = _arrow_schema->WithMetadata(
