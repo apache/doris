@@ -32,6 +32,7 @@ import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.base.Strings;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import org.apache.arrow.flight.Action;
@@ -355,8 +356,9 @@ public class FlightSqlPreparedQueryTest extends TestWithFeService {
     @Test
     public void limitsRetainedParametersAcrossHandlesAndReleasesTheirBudget() {
         ConnectContext connection = new ConnectContext();
+        // Test sources also target Java 8, where String.repeat is unavailable.
         List<Literal> parameters = Arrays.asList(
-                new StringLiteral("x".repeat(512 * 1024)));
+                new StringLiteral(Strings.repeat("x", 512 * 1024)));
         for (int i = 0; i < 15; i++) {
             connection.addPreparedQuery("p" + i, "SELECT ?", null, 1);
             connection.setPreparedQueryParameters("p" + i, parameters, null);

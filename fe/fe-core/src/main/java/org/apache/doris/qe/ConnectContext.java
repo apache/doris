@@ -87,6 +87,7 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -1009,8 +1010,8 @@ public class ConnectContext {
             }
             flightParameterBytes += bytes - query.parameterBytes;
             query.parameterBytes = bytes;
-            // Retain detached immutable values, never vectors owned and reused by the Flight stream.
-            query.parameters = parameters == null ? null : List.copyOf(parameters);
+            // Keep a detached immutable snapshot using a Java 8-compatible copy implementation.
+            query.parameters = parameters == null ? null : ImmutableList.copyOf(parameters);
             query.schema = schema;
         }
     }
