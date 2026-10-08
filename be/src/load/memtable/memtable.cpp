@@ -57,11 +57,6 @@ namespace {
 // retains an address record and a stack trace per row when memory diagnostics are enabled.
 template <typename RowFactory>
 std::shared_ptr<RowInBlock[]> make_row_batch(size_t num_rows, RowFactory&& make_row) {
-    if (num_rows == 1) {
-        // Keep single-row writes as compact as a scalar allocation.
-        auto row = std::allocate_shared<RowInBlock>(CustomStdAllocator<RowInBlock>(), make_row(0));
-        return {row, row.get()};
-    }
     auto rows = std::allocate_shared<RowInBlock[]>(CustomStdAllocator<RowInBlock>(), num_rows);
     for (size_t i = 0; i < num_rows; ++i) {
         rows[i] = make_row(i);
