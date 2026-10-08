@@ -776,7 +776,9 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
     const bool allow_result_cache = !scoring && admission.cacheable;
     InvertedIndexQueryCache::CacheKey cache_key;
     std::string index_file_key;
-    if (allow_result_cache) {
+    if (allow_result_cache &&
+        (admission.coalesce ||
+         context->runtime_state->query_options().enable_inverted_index_query_cache)) {
         index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
         const int32_t max_expansions = index_query::max_expansions(*context);
         if (request.leaf != nullptr) {
