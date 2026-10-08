@@ -245,3 +245,29 @@ __DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
 -- !cast_collision_complete_source --
 1	3
 
+-- !min_boundary_desc --
+__DORIS_IVM_ROW_ID_COL__	int	Yes	true	\N	
+k	int	Yes	false	\N	NONE
+m2	bigint	Yes	false	\N	NONE
+__DORIS_IVM_AGG_COUNT_COL__	bigint	No	false	\N	NONE
+__DORIS_IVM_AGG_0_COUNT_COL__	bigint	No	false	\N	NONE
+__DORIS_IVM_AGG_0_MIN_COL__	int	Yes	false	\N	NONE
+__DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
+__DORIS_VERSION_COL__	bigint	No	false	0	NONE
+__DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
+
+-- !min_boundary_initial --
+1	20
+
+-- !min_boundary_initial_source --
+1	20
+
+-- !min_boundary_after_strict_failure --
+1	20
+
+-- !min_boundary_after_fallback --
+1	40
+
+-- !min_boundary_after_fallback_source --
+1	40
+

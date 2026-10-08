@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
 suite("test_ivm_agg_expr_over_agg_2") {
 
     // =========================================================
@@ -42,6 +45,8 @@ suite("test_ivm_agg_expr_over_agg_2") {
     sql """drop materialized view if exists test_ivm_expr_over_agg_full_keys;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_alias_collision;"""
     sql """drop table if exists test_ivm_expr_over_agg_alias_base;"""
+    sql """drop materialized view if exists test_ivm_expr_over_agg_min_boundary;"""
+    sql """drop table if exists test_ivm_expr_over_agg_min_base;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_cast_collision;"""
     sql """drop table if exists test_ivm_expr_over_agg_cast_base;"""
     sql """drop table if exists test_ivm_expr_over_agg_2_base;"""
@@ -365,4 +370,82 @@ suite("test_ivm_agg_expr_over_agg_2") {
     order_qt_cast_collision_complete """SELECT k, `sum(d)` FROM test_ivm_expr_over_agg_cast_collision"""
     order_qt_cast_collision_complete_source """
         SELECT k, CAST(SUM(d) AS DECIMAL(20, 0)) AS `sum(d)` FROM test_ivm_expr_over_agg_cast_base GROUP BY k"""
+
+    // =========================================================
+    // Part 11: deleting an extremal value cannot be merged into a
+    // MIN state through a carrier either, so the runtime guard
+    // must still classify it and degrade to a COMPLETE refresh
+    // instead of writing a value derived from the stale extreme.
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_expr_over_agg_min_boundary;"""
+    sql """drop table if exists test_ivm_expr_over_agg_min_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_expr_over_agg_min_base (
+            id INT,
+            k INT,
+            v INT
+        )
+        UNIQUE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+    sql """INSERT INTO test_ivm_expr_over_agg_min_base VALUES (1, 1, 10), (2, 1, 20), (3, 1, 30);"""
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_expr_over_agg_min_boundary
+        BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS SELECT k, MIN(v) * 2 AS m2 FROM test_ivm_expr_over_agg_min_base GROUP BY k;
+    """
+    sql """set show_hidden_columns=true"""
+    qt_min_boundary_desc """DESC test_ivm_expr_over_agg_min_boundary"""
+    sql """set show_hidden_columns=false"""
+
+    def latestTask = {
+        def taskResult
+        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
+            taskResult = sql_return_maparray("""
+                SELECT Status, RefreshMode, IvmFallbackReason, ErrorMsg
+                FROM tasks('type'='mv')
+                WHERE MvDatabaseName = '${context.dbName}'
+                  AND MvName = 'test_ivm_expr_over_agg_min_boundary'
+                ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
+            """)
+            return !taskResult.isEmpty()
+                    && taskResult[0].Status.toString() != 'PENDING'
+                    && taskResult[0].Status.toString() != 'RUNNING'
+        })
+        return taskResult[0]
+    }
+
+    refreshIncremental("test_ivm_expr_over_agg_min_boundary")
+    order_qt_min_boundary_initial """SELECT k, m2 FROM test_ivm_expr_over_agg_min_boundary"""
+    order_qt_min_boundary_initial_source """SELECT k, MIN(v) * 2 AS m2 FROM test_ivm_expr_over_agg_min_base GROUP BY k"""
+
+    // Delete the row that holds the current minimum: the new extreme cannot be derived from the
+    // stored state, so a strict incremental refresh must fail and name the reason.
+    sql """DELETE FROM test_ivm_expr_over_agg_min_base WHERE id = 1;"""
+    Thread.sleep(1000)
+    sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_min_boundary INCREMENTAL"""
+    def strictTask = latestTask()
+    assertEquals("FAILED", strictTask.Status.toString())
+    assertEquals("MIN_MAX_BOUNDARY_HIT", strictTask.IvmFallbackReason.toString())
+    order_qt_min_boundary_after_strict_failure """SELECT k, m2 FROM test_ivm_expr_over_agg_min_boundary"""
+
+    // With the fallback allowed, the refresh recomputes completely and matches the source query.
+    sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_min_boundary INCREMENTAL FALLBACK"""
+    def fallbackTask = latestTask()
+    assertEquals("SUCCESS", fallbackTask.Status.toString())
+    assertEquals("COMPLETE", fallbackTask.RefreshMode.toString())
+    assertEquals("MIN_MAX_BOUNDARY_HIT", fallbackTask.IvmFallbackReason.toString())
+    order_qt_min_boundary_after_fallback """SELECT k, m2 FROM test_ivm_expr_over_agg_min_boundary"""
+    order_qt_min_boundary_after_fallback_source """SELECT k, MIN(v) * 2 AS m2 FROM test_ivm_expr_over_agg_min_base GROUP BY k"""
 }
