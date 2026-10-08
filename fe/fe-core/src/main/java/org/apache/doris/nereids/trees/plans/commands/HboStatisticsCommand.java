@@ -140,8 +140,9 @@ public class HboStatisticsCommand extends Command {
             String canonical = validateStructCanonical(fingerprint, structCanonical, type, literalMode,
                     scope != Scope.LEARNED, scope != Scope.LEARNED);
             if (type == PinnedType.JOIN_EXPANSION) {
-                // a fan-out factor: >= 1 means the join expands, < 1 means it filters (0.1 keeps 10%
-                // of the left input), so only zero and negative values are meaningless
+                // a fan-out factor relative to the larger input of the join: >= 1 means the join
+                // expands, < 1 means it filters (0.1 keeps 10% of that input), so only zero and
+                // negative values are meaningless
                 if (value <= 0) {
                     throw new AnalysisException(
                             "hbo join expansion must be greater than 0: " + value);
@@ -276,6 +277,14 @@ public class HboStatisticsCommand extends Command {
         if (type == PinnedType.FILTER_SMALL && !structCanonical.startsWith("F{")) {
             throw new AnalysisException("TYPE=FILTER_SMALL can only guard a filter entry,"
                     + " its STRUCT must be a filter root: STRUCT='F{...}(...)'");
+        }
+        if (keyedEntry && type != PinnedType.JOIN_EXPANSION && structCanonical.startsWith("JE{")) {
+            // the row count of a join is pinned by the struct info of its group (J{...}); a
+            // condition canonical is only read by the expansion path, so such an entry could never
+            // be applied - report it instead of storing an entry which silently does nothing
+            throw new AnalysisException("a join row count entry is keyed by the group struct info,"
+                    + " its STRUCT must be the group canonical: STRUCT='J{...}(...)'. A JE{...}"
+                    + " condition canonical is only read by TYPE=JOIN_EXPANSION");
         }
         if (keyedEntry && type != PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL
                 && (structCanonical.startsWith("J{") || structCanonical.startsWith("A{"))) {

@@ -86,8 +86,9 @@ public class HboPlanStatisticsManager {
          */
         FILTER_SMALL,
         /**
-         * Not a row count but a factor relative to the <b>left input</b> of one join (0.1 keeps 10%
-         * of the left input, 1000 fans out to 1000 times it, see
+         * Not a row count but a fan-out factor relative to the <b>larger</b> of the two inputs of
+         * one join ({@code output rows / max(left rows, right rows)}: 0.1 keeps 10% of the larger
+         * input, 1000 fans out to 1000 times it, see
          * {@code HboStatsCalculator.applyPinnedJoinExpansion}). The factor is kept in
          * {@link PinnedHboStatistics#getExpansion()} and the key is the fingerprint of the join
          * equality conditions (see {@link HboJoinConditions}), not the fingerprint of a sub tree.
@@ -266,8 +267,8 @@ public class HboPlanStatisticsManager {
      * row count and its key is the join condition fingerprint.
      *
      * @param fingerprint sha256 of the canonical equality-condition set
-     * @param expansion measured factor relative to the left input of the join (0.1 keeps 10% of the
-     *                  left input, 1000 fans out to 1000 times it), greater than 0
+     * @param expansion measured fan-out factor relative to the larger input of the join (0.1 keeps
+     *                  10% of the larger input, 1000 fans out to 1000 times it), greater than 0
      * @param condCanonical the canonical equality-condition set the factor was measured for
      */
     public void putPinnedExpansionStatistics(String fingerprint, double expansion, String condCanonical) {

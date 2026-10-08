@@ -128,9 +128,18 @@ public class HboStatsCalculator extends StatsCalculator {
     }
 
     /**
-     * Apply an injected join expansion entry ({@code HBO SET EXPANSION}): the measured fan-out
-     * factor of the join equality conditions scales the current input estimates, so that a join
-     * known to explode looks expensive and is scheduled as late as possible.
+     * Apply an injected join expansion entry ({@code HBO SET STATISTICS ... TYPE=JOIN_EXPANSION}):
+     * the fan-out factor of the join equality conditions scales the current input estimates, so
+     * that a join known to explode looks expensive and is scheduled as late as possible.
+     *
+     * <p>The factor is relative to the <b>larger</b> of the two inputs
+     * ({@code output rows / max(left rows, right rows)}). Anchoring it to one side instead - e.g. to
+     * the left child, as this method once did - makes the estimate depend on which side the planner
+     * happens to put on the left: the key is the equality conditions only, and
+     * {@link HboJoinConditions} sorts the operands of every equality, so one entry is matched by
+     * both child orders. The same entry would then describe {@code factor * max(l, r)} in one
+     * orientation and {@code factor * min(l, r)} in the other, and for a skewed pair the injected
+     * join could even look cheaper than the optimizer's own estimate.
      *
      * <p>Semi / anti / asof style joins can never expand, so an injected entry is deliberately not
      * applied there (the reason is reported by the explain annotation). A cross join has no
@@ -154,9 +163,11 @@ public class HboStatsCalculator extends StatsCalculator {
         double leftRows = groupExpression.childStatistics(0).getRowCount();
         double rightRows = groupExpression.childStatistics(1).getRowCount();
         double expansion = expansionOpt.get().getExpansion();
-        // the factor is relative to the left input of this node: 0.1 means "the join keeps 10% of
-        // the left input", 1000 means "it fans out to 1000 times the left input"
-        double estimated = expansion * leftRows;
+        // the factor is relative to the larger input of this node, so that the estimate does not
+        // depend on the child order: 0.1 means "the join keeps 10% of the larger input", 1000 means
+        // "it fans out to 1000 times the larger input"
+        double baseRows = Math.max(leftRows, rightRows);
+        double estimated = expansion * baseRows;
         // an equi join can never produce more rows than the cartesian product of its inputs
         estimated = Math.min(estimated, leftRows * rightRows);
         // outer joins can not produce fewer rows than their preserved side
@@ -174,19 +185,20 @@ public class HboStatsCalculator extends StatsCalculator {
                 break;
         }
         long rows = Math.max(1L, (long) estimated);
-        recordExpansionApplied(condFingerprint.get(), expansion, leftRows, rightRows, rows);
+        recordExpansionApplied(condFingerprint.get(), expansion, leftRows, rightRows, baseRows, rows);
         return delegateStats.withRowCountAndHboFlag(rows);
     }
 
     private void recordExpansionApplied(String condFingerprint, double expansion, double leftRows,
-            double rightRows, long estimated) {
+            double rightRows, double baseRows, long estimated) {
         String queryId = currentQueryId();
         if (queryId == null) {
             return;
         }
         Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
                 .putExpansionApplied(queryId, condFingerprint, "exp=" + trimDouble(expansion) + "x (left="
-                        + (long) leftRows + ",right=" + (long) rightRows + ",est=" + estimated + ")");
+                        + (long) leftRows + ",right=" + (long) rightRows + ",base=" + (long) baseRows
+                        + ",est=" + estimated + ")");
     }
 
     private void recordExpansionSkip(String condFingerprint, String reason) {

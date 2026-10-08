@@ -119,18 +119,64 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
         sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
     }
 
-    // a factor below 1 means the join filters: 0.1 keeps 10% of the left input of the join node
+    // a factor below 1 means the join filters: 0.1 keeps 10% of the larger input of the join node
     try {
         sql """ HBO SET STATISTICS VALUE=0.1 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
                 STRUCT='${condCanonical}'; """
-        // the applied entry reports the inputs and the resulting estimate, so the relation between
-        // the factor and the left input can be checked directly
-        def marker = (annotation(query) =~ /expansion=exp=0\.1x \(left=([0-9\.]+),right=([0-9\.]+),est=([0-9\.]+)\)/)
+        // the applied entry reports both inputs, the base the factor is applied to and the resulting
+        // estimate, so the relation between the factor and that base can be checked directly. The
+        // base is the larger input, which is what makes the estimate independent of the child order
+        // of the join node (the key is the condition set, and the operands of an equality are
+        // sorted, so one entry is matched by both child orders)
+        def marker = (annotation(query) =~
+                /expansion=exp=0\.1x \(left=([0-9\.]+),right=([0-9\.]+),base=([0-9\.]+),est=([0-9\.]+)\)/)
         assertTrue(marker.find(), annotation(query))
         double leftRows = marker.group(1).toDouble()
-        double estimated = marker.group(3).toDouble()
-        assertEquals(leftRows * 0.1, estimated, 1.0, annotation(query))
+        double rightRows = marker.group(2).toDouble()
+        double baseRows = marker.group(3).toDouble()
+        double estimated = marker.group(4).toDouble()
+        assertEquals(Math.max(leftRows, rightRows), baseRows, 0.5, annotation(query))
+        assertEquals(baseRows * 0.1, estimated, 1.0, annotation(query))
         assertTrue((annotation(query) =~ /expansion=exp=0\.1x/).find(), annotation(query))
+    } finally {
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
+    }
+
+    // the factor is applied to the larger input, so the same entry must estimate the join
+    // identically whichever side the join puts on the left: the annotation reports the base and the
+    // estimate of the applied entry, and the plan cardinality of the join must be the same too
+    try {
+        sql """ HBO SET STATISTICS VALUE=1000 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
+                STRUCT='${condCanonical}'; """
+        def applied = { String text ->
+            def marker = (text =~
+                    /expansion=exp=1000x \(left=([0-9\.]+),right=([0-9\.]+),base=([0-9\.]+),est=([0-9\.]+)\)/)
+            assertTrue(marker.find(), "no applied expansion entry in:\n" + text)
+            [marker.group(1).toDouble(), marker.group(2).toDouble(),
+             marker.group(3).toDouble(), marker.group(4).toDouble()]
+        }
+        // the first cardinality of the plan text is the join itself (the only operator above it is a
+        // projection)
+        def joinCardinality = { String text ->
+            def marker = (text =~ /cardinality=([0-9,]+)/)
+            assertTrue(marker.find(), "no cardinality in:\n" + text)
+            marker.group(1).replace(",", "").toDouble()
+        }
+        def leftIsT1 = annotation("select /*+ leading(hbo_je_t1 hbo_je_t2) */ * from hbo_je_t1"
+                + " join hbo_je_t2 on hbo_je_t1.a = hbo_je_t2.a")
+        def leftIsT2 = annotation("select /*+ leading(hbo_je_t2 hbo_je_t1) */ * from hbo_je_t1"
+                + " join hbo_je_t2 on hbo_je_t1.a = hbo_je_t2.a")
+        def first = applied(leftIsT1)
+        def second = applied(leftIsT2)
+        // both orientations report the larger input as the base (the two sides are just swapped)
+        assertEquals(Math.max(first[0], first[1]), first[2], 0.5, leftIsT1)
+        assertEquals(Math.max(second[0], second[1]), second[2], 0.5, leftIsT2)
+        assertEquals(first[2], second[2], 0.5, leftIsT1 + "\n" + leftIsT2)
+        // ... and the same estimate, both in the annotation and in the plan
+        assertEquals(first[3], second[3], 1.0, leftIsT1 + "\n" + leftIsT2)
+        assertEquals(joinCardinality(leftIsT1), joinCardinality(leftIsT2), 1.0,
+                leftIsT1 + "\n" + leftIsT2)
+        assertEquals(first[2] * 1000, joinCardinality(leftIsT1), 1.0, leftIsT1)
     } finally {
         sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
     }
@@ -151,5 +197,13 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
         sql """ HBO SET STATISTICS VALUE=2 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
                 STRUCT='JE{EqualTo(col(internal.hbo_test.other.a),col(internal.hbo_test.other.b))}'; """
         exception "hbo statistics STRUCT does not match the fingerprint ${condFingerprint}"
+    }
+    // the row count of a join is pinned by the struct info of its group (J{...}), while a JE{...}
+    // condition canonical is only read by the expansion path: such an entry is rejected here instead
+    // of being stored and then silently ignored by every query
+    test {
+        sql """ HBO SET STATISTICS VALUE=1000 TYPE=EXACT FINGERPRINT='${condFingerprint}'
+                STRUCT='${condCanonical}'; """
+        exception "a join row count entry is keyed by the group struct info"
     }
 }
