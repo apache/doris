@@ -388,6 +388,72 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     /**
+     * A subquery that answers for a name of its own is a dependency only where the table being changed is
+     * one that subquery reads: what a name falls back to is what the scope that used to answer for it
+     * holds, so a scope that never read the table holds nothing for it. Two sibling subqueries are the
+     * shape -- the changed table is one only the first reads, and the `flag` of the second is its own --
+     * where reading every subquery's own names reads a dependency the change cannot have made.
+     */
+    @Test
+    public void testASubqueryTheChangeDoesNotReachIsNotADependency() throws Exception {
+        String db = "ivm_column_change_sibling_scopes";
+        createDatabaseAndUse(db);
+        createTable("CREATE TABLE " + db + ".ivm_base (id int, flag int) DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE " + db + ".ivm_other (u int) DUPLICATE KEY(u)\n"
+                + "DISTRIBUTED BY HASH(u) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE " + db + ".ivm_spare (id int) DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT o.id FROM ivm_base o\n"
+                + "WHERE EXISTS (SELECT 1 FROM ivm_spare c WHERE c.id = o.id)\n"
+                + "  AND EXISTS (SELECT 1 AS flag, COUNT(*) AS n FROM ivm_other u\n"
+                + "      GROUP BY flag HAVING flag = 1)");
+        MTMV mtmv = getMtmv(db);
+
+        long versionBefore = mtmv.getSchemaChangeVersion();
+        executeSql("ALTER TABLE ivm_spare ADD COLUMN flag int default 0");
+        assertNotInvalidated(mtmv, versionBefore,
+                "a name a subquery names itself, where the changed table is not one that subquery reads,"
+                        + " must not invalidate the MV");
+    }
+
+    /**
+     * A subquery inside another one is judged by its own output being read: an EXISTS is asked whether it
+     * has a row and never what it projects, and an IN around it reads its own subquery, not the scopes
+     * inside it. Adding the column the inner projection is then read from leaves every row of the query
+     * where it was, so the MV is left alone -- while a column the IN itself compares is not.
+     */
+    @Test
+    public void testAProjectionTheSubqueryAroundItDoesNotReadIsNotADependency() throws Exception {
+        String db = "ivm_column_change_nested_scope";
+        createDatabaseAndUse(db);
+        createTable("CREATE TABLE " + db + ".ivm_base (id int, k int) DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE " + db + ".ivm_mid (k int, id int, spare int) DUPLICATE KEY(k)\n"
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createTable("CREATE TABLE " + db + ".ivm_spare (id int) DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT o.id FROM ivm_base o\n"
+                + "WHERE o.k IN (SELECT m.k FROM ivm_mid m\n"
+                + "    WHERE EXISTS (SELECT spare FROM ivm_spare i WHERE i.id = m.id))");
+        MTMV mtmv = getMtmv(db);
+
+        long versionBefore = mtmv.getSchemaChangeVersion();
+        executeSql("ALTER TABLE ivm_spare ADD COLUMN spare int default 0");
+        assertNotInvalidated(mtmv, versionBefore,
+                "a projection an EXISTS does not compare, inside a subquery the IN around it reads the rows"
+                        + " of, must not invalidate the MV");
+    }
+
+    /**
      * Which MV partitions must be rebuilt is decided by the MV's partition mapping, not by what the
      * refresh snapshot happens to record. This test publishes no snapshot at all: an MV whose partitions
      * follow the base table's still narrows the rebuild down to the partitions that read the dropped one.

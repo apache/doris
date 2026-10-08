@@ -457,4 +457,89 @@ suite("test_drop_unreferenced_column_mtmv") {
     waitingMTMVTaskFinishedByMvName(namedMv)
     sql """ALTER TABLE ${namedInner} ADD COLUMN flag INT DEFAULT 0"""
     order_qt_named_not_read_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${namedMv}'"
+
+    // ---- a name a subquery names itself, in a scope the change reaches nothing of ----
+    // The name below is the second subquery's own, and the table being changed is one only the first
+    // subquery reads: nothing inside the second scope ever answered for the changed column, so the name it
+    // answers for is not one the change moved, and the MV is left where it is. Reading what a subquery
+    // names itself has to be limited to the scopes the changed table is one of, or a scope elsewhere in the
+    // query that happens to name the same word is read as a dependency of this view's rows.
+    String siblingOuter = "${suiteName}_sibling_outer"
+    String siblingOther = "${suiteName}_sibling_other"
+    String siblingChanged = "${suiteName}_sibling_changed"
+    String siblingMv = "${suiteName}_sibling_mv"
+    sql """drop materialized view if exists ${siblingMv}"""
+    sql """drop table if exists ${siblingOuter}"""
+    sql """drop table if exists ${siblingOther}"""
+    sql """drop table if exists ${siblingChanged}"""
+    sql """
+        CREATE TABLE ${siblingOuter} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE ${siblingOther} (u INT) DUPLICATE KEY(u)
+        DISTRIBUTED BY HASH(u) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE ${siblingChanged} (id INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${siblingOuter} VALUES (1, 1)"""
+    sql """INSERT INTO ${siblingOther} VALUES (1)"""
+    sql """INSERT INTO ${siblingChanged} VALUES (1)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${siblingMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT o.id FROM ${siblingOuter} o
+        WHERE EXISTS (SELECT 1 FROM ${siblingChanged} c WHERE c.id = o.id)
+          AND EXISTS (SELECT 1 AS flag, COUNT(*) AS n FROM ${siblingOther} u GROUP BY flag HAVING flag = 1)
+    """
+    waitingMTMVTaskFinishedByMvName(siblingMv)
+    order_qt_sibling_baseline "SELECT id FROM ${siblingMv}"
+    sql """ALTER TABLE ${siblingChanged} ADD COLUMN flag INT DEFAULT 0"""
+    order_qt_sibling_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${siblingMv}'"
+    order_qt_sibling_rows "SELECT id FROM ${siblingMv}"
+
+    // ---- a projection of a subquery that the subquery around it never reads ----
+    // The IN compares the rows of its own subquery; the EXISTS inside that subquery is asked only whether
+    // it has a row, never what it projects. So the `spare` the inner subquery projects is the inner table's
+    // column only after the add, and either way the rows of this query are the same -- the scope of the
+    // inner EXISTS is not read by the IN around it, and is judged with the EXISTS it belongs to.
+    String nestedOuter = "${suiteName}_nested_outer"
+    String nestedMid = "${suiteName}_nested_mid"
+    String nestedInner = "${suiteName}_nested_inner"
+    String nestedMv = "${suiteName}_nested_mv"
+    sql """drop materialized view if exists ${nestedMv}"""
+    sql """drop table if exists ${nestedOuter}"""
+    sql """drop table if exists ${nestedMid}"""
+    sql """drop table if exists ${nestedInner}"""
+    sql """
+        CREATE TABLE ${nestedOuter} (id INT, k INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE ${nestedMid} (k INT, id INT, spare INT) DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE ${nestedInner} (id INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${nestedOuter} VALUES (1, 1)"""
+    sql """INSERT INTO ${nestedMid} VALUES (1, 1, 7)"""
+    sql """INSERT INTO ${nestedInner} VALUES (1)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${nestedMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT o.id FROM ${nestedOuter} o
+        WHERE o.k IN (SELECT m.k FROM ${nestedMid} m
+            WHERE EXISTS (SELECT spare FROM ${nestedInner} i WHERE i.id = m.id))
+    """
+    waitingMTMVTaskFinishedByMvName(nestedMv)
+    order_qt_nested_baseline "SELECT id FROM ${nestedMv}"
+    sql """ALTER TABLE ${nestedInner} ADD COLUMN spare INT DEFAULT 0"""
+    order_qt_nested_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${nestedMv}'"
+    order_qt_nested_rows "SELECT id FROM ${nestedMv}"
 }

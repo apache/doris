@@ -90,3 +90,21 @@ test_drop_unreferenced_column_mtmv_ignored_mv	NORMAL	SUCCESS	true
 -- !named_not_read_state --
 test_drop_unreferenced_column_mtmv_named_mv	NORMAL	SUCCESS	true
 
+-- !sibling_baseline --
+1
+
+-- !sibling_state --
+test_drop_unreferenced_column_mtmv_sibling_mv	NORMAL	SUCCESS	true
+
+-- !sibling_rows --
+1
+
+-- !nested_baseline --
+1
+
+-- !nested_state --
+test_drop_unreferenced_column_mtmv_nested_mv	NORMAL	SUCCESS	true
+
+-- !nested_rows --
+1
+

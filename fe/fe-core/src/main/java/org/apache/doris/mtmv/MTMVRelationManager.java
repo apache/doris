@@ -39,12 +39,14 @@ import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
@@ -449,18 +451,27 @@ public class MTMVRelationManager implements MTMVHookService {
      *
      * <p>Two things are read. One is a value the subquery itself names -- an expression of its own under one
      * of these names, rather than a column of a table -- because that is what a name the change takes away
-     * falls back to, and it decides the rows whether the subquery is a predicate or a value. The other is a
-     * column of the table the change is about, which decides the rows only when the subquery's output is
-     * one the query reads: an EXISTS tests the rows of its subquery and not what it projects, so a name it
-     * projects and never compares is one this view's rows do not depend on.
+     * falls back to, and it decides the rows whether the subquery is a predicate or a value. It is read only
+     * where the table the change is about is one that subquery reads: what a name falls back to is what the
+     * scope that answered for it holds, so a scope that does not read the table holds nothing for the name
+     * and one of its own is one the change never reached. The other is a column of the table the change is
+     * about, which decides the rows only when the subquery's output is one the query reads: an EXISTS tests
+     * the rows of its subquery and not what it projects, so a name it projects and never compares is one
+     * this view's rows do not depend on.
+     *
+     * <p>Each scope is read on its own. A subquery inside one of these is a scope of its own, and it is
+     * judged where it is read and not as a part of its enclosing one: its projection is held only where
+     * that scope's own output is read, so an EXISTS inside an IN is still not compared by the IN.
      */
     private static boolean reachesAnyColumnOfASubquery(Plan plan, Set<String> names,
             BaseTableInfo baseTableInfo) {
         for (LogicalApply<?, ?> apply : plan.<LogicalApply>collectToList(LogicalApply.class::isInstance)) {
-            boolean outputDecidesRows = !((LogicalApply<?, ?>) apply).isExist();
-            for (Plan node : apply.right().<Plan>collectToList(Plan.class::isInstance)) {
+            List<Plan> itsOwnScope = ownScopeOf(apply);
+            boolean outputDecidesRows = !apply.isExist();
+            boolean isOneOfItsTables = readsAnyTableOf(itsOwnScope, baseTableInfo);
+            for (Plan node : itsOwnScope) {
                 for (Expression expression : node.getExpressions()) {
-                    if (readsAnyNameTheSubqueryAnswersFor(expression, names)
+                    if ((isOneOfItsTables && readsAnyNameTheSubqueryAnswersFor(expression, names))
                             || (outputDecidesRows && reachesAnyColumn(expression, names, baseTableInfo))) {
                         return true;
                     }
@@ -468,6 +479,36 @@ public class MTMVRelationManager implements MTMVHookService {
             }
         }
         return false;
+    }
+
+    /**
+     * The nodes of a subquery that belong to the scope this Apply stands for: its right side, with the
+     * right side of every subquery nested in it left out.
+     *
+     * <p>A nested Apply is a scope of its own and is read as one, so its right side belongs to that read
+     * rather than to this one; the relation it is asked about is the enclosing scope's own and stays.
+     */
+    private static List<Plan> ownScopeOf(LogicalApply<?, ?> apply) {
+        List<Plan> itsOwnScope = Lists.newArrayList();
+        collectItsOwnScope((Plan) apply.right(), itsOwnScope);
+        return itsOwnScope;
+    }
+
+    private static void collectItsOwnScope(Plan node, List<Plan> itsOwnScope) {
+        itsOwnScope.add(node);
+        if (node instanceof LogicalApply) {
+            collectItsOwnScope(((LogicalApply<?, ?>) node).left(), itsOwnScope);
+            return;
+        }
+        for (Plan child : node.children()) {
+            collectItsOwnScope(child, itsOwnScope);
+        }
+    }
+
+    /** Whether one of these nodes reads this table, through whatever views stand between the two. */
+    private static boolean readsAnyTableOf(List<Plan> itsOwnScope, BaseTableInfo baseTableInfo) {
+        return itsOwnScope.stream().anyMatch(node -> node instanceof LogicalCatalogRelation
+                && new BaseTableInfo(((LogicalCatalogRelation) node).getTable()).equals(baseTableInfo));
     }
 
     /**
