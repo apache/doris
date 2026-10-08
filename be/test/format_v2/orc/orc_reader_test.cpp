@@ -150,8 +150,9 @@ DateV2Value<DateV2ValueType> make_date_v2(uint16_t year, uint8_t month, uint8_t 
 }
 
 int64_t orc_date_offset(uint16_t year, uint8_t month, uint8_t day) {
-    static constexpr int32_t DATE_THRESHOLD = 719528;
-    return make_date_v2(year, month, day).daynr() - DATE_THRESHOLD;
+    // ORC DATE is days since 1970-01-01 in the proleptic Gregorian calendar, which is not the
+    // same as Doris's daynr minus the epoch daynr for year-zero dates.
+    return daynr_to_epoch_days(make_date_v2(year, month, day).daynr());
 }
 
 DateV2Value<DateTimeV2ValueType> make_datetime_v2(uint16_t year, uint8_t month, uint8_t day,
@@ -3339,7 +3340,6 @@ void write_complex_orc_file(const std::string& file_path) {
 
 void write_map_decimal_date_orc_file(const std::string& file_path) {
     constexpr size_t ROWS = 4;
-    constexpr int64_t HIVE_012_1900_DAY_OFFSET = -719530;
     constexpr int64_t YEAR_0000_12_29_DAY_OFFSET = -719165;
     constexpr int64_t YEAR_1000_10_16_DAY_OFFSET = -353997;
 
@@ -3371,7 +3371,9 @@ void write_map_decimal_date_orc_file(const std::string& file_path) {
     key_batch.values[1] = 9999999999L;
     key_batch.values[2] = 0;
     key_batch.values[3] = 1;
-    value_batch.data[0] = HIVE_012_1900_DAY_OFFSET;
+    // The smallest DATE Doris can represent: -719528 in the proleptic Gregorian calendar the ORC
+    // spec defines DATE in, one day below what Doris's own MySQL-calendar daynr would suggest.
+    value_batch.data[0] = orc_date_offset(0, 1, 1);
     value_batch.data[1] = orc_date_offset(9999, 12, 31);
     value_batch.data[2] = YEAR_0000_12_29_DAY_OFFSET;
     value_batch.data[3] = YEAR_1000_10_16_DAY_OFFSET;
@@ -3382,6 +3384,42 @@ void write_map_decimal_date_orc_file(const std::string& file_path) {
     key_batch.numElements = ROWS;
     value_batch.numElements = ROWS;
 
+    writer->add(*batch);
+    writer->close();
+
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
+// A flat `struct<id:int,d:date>` file whose DATE ordinals are written verbatim, so a test can
+// place a value that no Doris DATE maps to (the proleptic-only 0000-02-29, or an ordinal outside
+// the type's range) next to representable ones.
+void write_date_orc_file(const std::string& file_path,
+                         const std::vector<std::optional<int64_t>>& day_offsets) {
+    auto type =
+            std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString("struct<id:int,d:date>"));
+
+    MemoryOutputStream memory_stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setMemoryPool(::orc::getDefaultPool());
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+    auto batch = writer->createRowBatch(day_offsets.size());
+    auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& id_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[0]);
+    auto& date_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[1]);
+
+    date_batch.hasNulls = true;
+    for (size_t row = 0; row < day_offsets.size(); ++row) {
+        id_batch.data[row] = static_cast<int64_t>(row) + 1;
+        date_batch.notNull[row] = day_offsets[row].has_value() ? 1 : 0;
+        // Deliberately garbage under a null slot: a decoder must never look at it.
+        date_batch.data[row] = day_offsets[row].value_or(std::numeric_limits<int64_t>::min());
+    }
+
+    struct_batch.numElements = day_offsets.size();
+    id_batch.numElements = day_offsets.size();
+    date_batch.numElements = day_offsets.size();
     writer->add(*batch);
     writer->close();
 
@@ -11096,10 +11134,138 @@ TEST_F(NewOrcReaderTest, ReadMapDecimalDateWithCenturyBoundary) {
     const auto& map_column = assert_cast<const ColumnMap&>(map_nullable.get_nested_column());
     ASSERT_EQ(map_column.get_offsets().size(), 4);
     ASSERT_EQ(map_column.get_values().size(), 4);
-    EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 0), "1900-01-01");
+    EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 0), "0000-01-01");
     EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 1), "9999-12-31");
     EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 2), "0000-12-29");
     EXPECT_EQ(schema[1].children[1].type->to_string(map_column.get_values(), 3), "1000-10-16");
+}
+
+// ORC DATE is a proleptic Gregorian day ordinal, so year zero is the window where Doris's own
+// MySQL-calendar day number disagrees with the file. Pin the decode there, including a null row
+// whose payload must never be looked at.
+TEST_F(NewOrcReaderTest, ReadDateYearZeroWindow) {
+    const auto file_path = (_test_dir / "date_year_zero.orc").string();
+    write_date_orc_file(file_path, {orc_date_offset(0, 1, 1), orc_date_offset(0, 2, 28),
+                                    orc_date_offset(0, 3, 1), std::nullopt,
+                                    orc_date_offset(1970, 1, 1), orc_date_offset(2024, 1, 1)});
+    auto reader = create_reader_for_path(file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    Block block = build_file_block(schema);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 6);
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    const std::vector<std::string> expected = {"0000-01-01", "0000-02-28", "0000-03-01",
+                                               "",           "1970-01-01", "2024-01-01"};
+    for (size_t row = 0; row < expected.size(); ++row) {
+        if (expected[row].empty()) {
+            EXPECT_TRUE(nullable.is_null_at(row)) << "row " << row;
+            continue;
+        }
+        ASSERT_FALSE(nullable.is_null_at(row)) << "row " << row;
+        EXPECT_EQ(expected[row], schema[1].type->to_string(nullable, row)) << "row " << row;
+    }
+}
+
+TEST_F(NewOrcReaderTest, ReadDateRejectsUnrepresentableOrdinals) {
+    // -719469 is 0000-02-29, which exists in the proleptic Gregorian calendar but not in Doris;
+    // -719530 is below 0000-01-01. Both used to decode as 1900-01-01 through the day dictionary.
+    for (const int64_t bad_offset : {int64_t {-719469}, int64_t {-719530}, int64_t {2932897}}) {
+        const auto file_path = (_test_dir / fmt::format("date_bad_{}.orc", bad_offset)).string();
+        write_date_orc_file(file_path, {orc_date_offset(2024, 1, 1), bad_offset});
+        auto reader = create_reader_for_path(file_path);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        Block block = build_file_block(schema);
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {field_projection(0), field_projection(1)};
+        ASSERT_TRUE(reader->open(request).ok());
+
+        size_t rows = 0;
+        bool eof = false;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        EXPECT_FALSE(status.ok()) << "offset " << bad_offset;
+        // The message must name the column and the offending value, and must not claim a format
+        // it did not come from: the helper is shared with Parquet.
+        EXPECT_NE(std::string::npos, status.to_string().find("outside the Doris DATE range"))
+                << status.to_string();
+        EXPECT_NE(std::string::npos, status.to_string().find(std::to_string(bad_offset)))
+                << status.to_string();
+        EXPECT_NE(std::string::npos, status.to_string().find("'d'")) << status.to_string();
+        EXPECT_EQ(std::string::npos, status.to_string().find("Parquet")) << status.to_string();
+    }
+}
+
+// A pushed-down MIN/MAX is answered from stripe statistics without reading a row, so the
+// statistics have to be decoded with exactly the same calendar as the rows. Decoding them through
+// the day dictionary used to report 1900-01-01 as the minimum of a file whose smallest row is
+// 0000-01-01 -- a value present in no row at all.
+TEST_F(NewOrcReaderTest, AggregatePushdownDateMinMaxAgreesWithRowDecode) {
+    const auto file_path = (_test_dir / "date_year_zero_minmax.orc").string();
+    write_date_orc_file(file_path, {orc_date_offset(0, 1, 1), orc_date_offset(0, 2, 1),
+                                    std::nullopt, orc_date_offset(0, 2, 28)});
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    auto reader = create_reader_for_path(file_path);
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+    aggregate_request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(1))});
+    format::FileAggregateResult aggregate_result;
+    const auto status = reader->get_aggregate_result(aggregate_request, &aggregate_result);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(aggregate_result.columns.size(), 1);
+    EXPECT_EQ(aggregate_result.count, 4);
+    ASSERT_TRUE(aggregate_result.columns[0].has_min);
+    ASSERT_TRUE(aggregate_result.columns[0].has_max);
+    EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATEV2>(), make_date_v2(0, 1, 1));
+    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATEV2>(), make_date_v2(0, 2, 28));
+}
+
+TEST_F(NewOrcReaderTest, AggregatePushdownDateMinMaxFallsBackForUnrepresentableBound) {
+    const auto file_path = (_test_dir / "date_minmax_fallback.orc").string();
+    // The minimum is the proleptic-only 0000-02-29: no Doris DATE bounds this file, so the
+    // statistics must be refused rather than silently rounded onto a neighbouring day.
+    write_date_orc_file(file_path, {std::optional<int64_t> {-719469}, orc_date_offset(2024, 1, 1)});
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    auto reader = create_reader_for_path(file_path);
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+    aggregate_request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(1))});
+    format::FileAggregateResult aggregate_result;
+    const auto status = reader->get_aggregate_result(aggregate_request, &aggregate_result);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
 }
 
 TEST_F(NewOrcReaderTest, ReadDeepNestedComplexTypes) {
@@ -11565,6 +11731,389 @@ TEST_F(NewOrcReaderTest, ReadProjectedComplexChildrenWithNulls) {
     ASSERT_EQ(value_a.size(), 2);
     EXPECT_EQ(value_a.get_element(0), 101);
     EXPECT_EQ(value_a.get_element(1), 202);
+}
+
+TEST_F(NewOrcReaderTest, DateInteriorLeapDayDisablesAggregateAndSarg) {
+    const auto path = (_test_dir / "date_interior_leap_day.orc").string();
+    write_date_orc_file(path, {-719528, -719469, -719468});
+    for (bool pruning : {false, true}) {
+        auto reader = create_reader_for_path(path);
+        TQueryOptions options;
+        options.__set_enable_orc_filter_by_min_max(pruning);
+        RuntimeState state {options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(1)};
+        request->conjuncts = {
+                VExprContext::create_shared(std::make_shared<NullableGreaterThanExpr<TYPE_DATEV2>>(
+                        0, remove_nullable(schema[1].type),
+                        Field::create_field<TYPE_DATEV2>(make_date_v2(1, 1, 1)), "d"))};
+        ASSERT_TRUE(reader->open(request).ok());
+        Block block = build_file_block({schema[1]});
+        size_t rows = 0;
+        bool eof = false;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        EXPECT_FALSE(status.ok()) << "pruning=" << pruning;
+        EXPECT_NE(status.to_string().find("-719469"), std::string::npos);
+    }
+    auto reader = create_reader_for_path(path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+    format::FileAggregateRequest aggregate;
+    aggregate.agg_type = TPushAggOp::type::MINMAX;
+    aggregate.columns.push_back({.projection = field_projection(1)});
+    format::FileAggregateResult result;
+    EXPECT_TRUE(reader->get_aggregate_result(aggregate, &result)
+                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+}
+
+TEST_F(NewOrcReaderTest, DateCountValidatesScalarAndNestedValues) {
+    const std::vector<std::vector<std::optional<int64_t>>> cases = {
+            {-719528, -719469, -719468},
+            {-719530, 0, 1},
+            {0, 1, 2932897},
+            {-719528, -719470, -719470},
+            {-719468, 0, 1},
+            {std::nullopt, std::nullopt, std::nullopt}};
+    for (size_t case_id = 0; case_id < cases.size(); ++case_id) {
+        SCOPED_TRACE(case_id);
+        const auto& days = cases[case_id];
+        const auto path = (_test_dir / "count_nested_dates.orc").string();
+        auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
+                "struct<d:date,a:array<date>,s:struct<d:date>,m:map<int,date>>"));
+        MemoryOutputStream stream(1024 * 1024);
+        auto writer = ::orc::createWriter(*type, &stream, ::orc::WriterOptions());
+        auto batch = writer->createRowBatch(days.size());
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        auto fill = [&](auto&& self, ::orc::ColumnVectorBatch& column) -> void {
+            column.numElements = days.size();
+            if (auto* record = dynamic_cast<::orc::StructVectorBatch*>(&column)) {
+                for (auto* field : record->fields) {
+                    self(self, *field);
+                }
+            } else if (auto* list = dynamic_cast<::orc::ListVectorBatch*>(&column)) {
+                for (size_t i = 0; i <= days.size(); ++i) {
+                    list->offsets[i] = i;
+                }
+                self(self, *list->elements);
+            } else if (auto* map = dynamic_cast<::orc::MapVectorBatch*>(&column)) {
+                for (size_t i = 0; i <= days.size(); ++i) {
+                    map->offsets[i] = i;
+                }
+                auto& keys = dynamic_cast<::orc::LongVectorBatch&>(*map->keys);
+                keys.numElements = days.size();
+                for (size_t i = 0; i < days.size(); ++i) {
+                    keys.data[i] = i;
+                }
+                self(self, *map->elements);
+            } else {
+                auto& dates = dynamic_cast<::orc::LongVectorBatch&>(column);
+                dates.hasNulls = true;
+                for (size_t i = 0; i < days.size(); ++i) {
+                    dates.notNull[i] = days[i].has_value();
+                    dates.data[i] = days[i].value_or(0);
+                }
+            }
+        };
+        fill(fill, root);
+        writer->add(*batch);
+        writer->close();
+        std::ofstream out(path, std::ios::binary);
+        out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+        out.close();
+
+        for (int column_id = 0; column_id < 4; ++column_id) {
+            SCOPED_TRACE(column_id);
+            auto reader = create_reader_for_path(path);
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            ASSERT_TRUE(reader->init(&state).ok());
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {field_projection(column_id)};
+            ASSERT_TRUE(reader->open(request).ok());
+            format::FileAggregateRequest aggregate;
+            aggregate.agg_type = TPushAggOp::type::COUNT;
+            format::FileAggregateResult result;
+            ASSERT_TRUE(reader->get_aggregate_result(aggregate, &result).ok());
+            EXPECT_EQ(result.count, 3);
+            aggregate.columns.push_back({.projection = field_projection(column_id)});
+            const auto status = reader->get_aggregate_result(aggregate, &result);
+            const bool invalid = case_id < 3;
+            if (invalid) {
+                EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+            } else {
+                ASSERT_TRUE(status.ok()) << status;
+                EXPECT_EQ(result.count, column_id == 0 && case_id == 5 ? 0 : 3);
+            }
+            auto block = build_file_block({schema[column_id]});
+            size_t rows = 0;
+            bool eof = false;
+            const auto scan_status = reader->get_block(&block, &rows, &eof);
+            if (invalid) {
+                EXPECT_TRUE(scan_status.is<ErrorCode::DATA_QUALITY_ERROR>()) << scan_status;
+                EXPECT_NE(scan_status.to_string().find("outside the Doris DATE range"),
+                          std::string::npos);
+            } else {
+                ASSERT_TRUE(scan_status.ok()) << scan_status;
+                EXPECT_EQ(rows, 3);
+            }
+        }
+    }
+}
+
+TEST_F(NewOrcReaderTest, DateSargGuardIgnoresUnprojectedStructChild) {
+    const auto path = (_test_dir / "partial_struct_date.orc").string();
+    auto type = std::unique_ptr<::orc::Type>(
+            ::orc::Type::buildTypeFromString("struct<id:int,s:struct<x:int,d:date>>"));
+    MemoryOutputStream stream(1024 * 1024);
+    auto writer = ::orc::createWriter(*type, &stream, ::orc::WriterOptions());
+    auto batch = writer->createRowBatch(3);
+    auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& ids = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[0]);
+    auto& record = dynamic_cast<::orc::StructVectorBatch&>(*root.fields[1]);
+    auto& values = dynamic_cast<::orc::LongVectorBatch&>(*record.fields[0]);
+    auto& dates = dynamic_cast<::orc::LongVectorBatch&>(*record.fields[1]);
+    root.numElements = ids.numElements = record.numElements = values.numElements =
+            dates.numElements = 3;
+    for (int row = 0; row < 3; ++row) {
+        ids.data[row] = values.data[row] = row;
+        dates.data[row] = -719469;
+    }
+    writer->add(*batch);
+    writer->close();
+    std::ofstream out(path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+    out.close();
+
+    for (bool project_date : {false, true}) {
+        SCOPED_TRACE(project_date);
+        auto reader = create_reader_for_path(path);
+        TQueryOptions options;
+        options.__set_enable_orc_lazy_mat(false);
+        RuntimeState state {options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->non_predicate_columns = {project_date ? field_projection(1)
+                                                       : struct_child_projection(1, 0)};
+        request->conjuncts = {
+                VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 7))};
+        ASSERT_TRUE(reader->open(request).ok());
+        // Only a decoded DATE can require disabling SARG to preserve a conversion error.
+        EXPECT_EQ(reader->get_total_rows(), project_date ? 3 : 0);
+        EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, project_date ? 0 : 1);
+        if (project_date) {
+            auto block = build_file_block(schema);
+            size_t rows = 0;
+            bool eof = false;
+            const auto status = reader->get_block(&block, &rows, &eof);
+            EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+        }
+    }
+}
+
+TEST_F(NewOrcReaderTest, DateSargRetainsUnsafeStripeWithoutDisablingSafeStripePruning) {
+    const auto path = (_test_dir / "mixed_date_stripes.orc").string();
+    auto type = std::unique_ptr<::orc::Type>(
+            ::orc::Type::buildTypeFromString("struct<id:int,d:date,payload:string>"));
+    MemoryOutputStream stream(4 * 1024 * 1024);
+    ::orc::WriterOptions writer_options;
+    writer_options.setStripeSize(1);
+    writer_options.setCompression(::orc::CompressionKind_NONE);
+    writer_options.setDictionaryKeySizeThreshold(0);
+    auto writer = ::orc::createWriter(*type, &stream, writer_options);
+    // The safe stripes cannot match id > 7, but the invalid middle stripe must be decoded.
+    for (const int64_t day : {0, -719469, 1}) {
+        auto batch = writer->createRowBatch(200);
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        auto& ids = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[0]);
+        auto& dates = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[1]);
+        auto& payload = dynamic_cast<::orc::StringVectorBatch&>(*root.fields[2]);
+        std::vector<std::string> values;
+        values.reserve(200);
+        root.numElements = ids.numElements = dates.numElements = payload.numElements = 200;
+        for (int row = 0; row < 200; ++row) {
+            ids.data[row] = 0;
+            dates.data[row] = day;
+            values.emplace_back(2048, static_cast<char>('a' + row % 26));
+            set_string_value(payload, row, values.back());
+        }
+        writer->add(*batch);
+    }
+    writer->close();
+    std::ofstream out(path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+    out.close();
+    ASSERT_EQ(get_orc_stripe_count(path), 3);
+
+    for (bool pruning : {false, true}) {
+        SCOPED_TRACE(pruning);
+        auto reader = create_reader_for_path(path);
+        TQueryOptions options;
+        options.__set_enable_orc_filter_by_min_max(pruning);
+        options.__set_enable_orc_lazy_mat(false);
+        RuntimeState state {options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->non_predicate_columns = {field_projection(1)};
+        request->conjuncts = {
+                VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 7))};
+        ASSERT_TRUE(reader->open(request).ok());
+        EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, pruning ? 2 : 0);
+        auto block = build_file_block({schema[0], schema[1]});
+        bool eof = false;
+        Status status;
+        while (!eof && status.ok()) {
+            block.clear_column_data();
+            size_t rows = 0;
+            status = reader->get_block(&block, &rows, &eof);
+        }
+        EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+        EXPECT_NE(status.to_string().find("-719469"), std::string::npos);
+    }
+}
+
+TEST_F(NewOrcReaderTest, ReadExternalDateRejectsLargeOrdinal) {
+    // This external file encoded YYYYMMDD as an ORC day ordinal; the old dictionary hid it
+    // by substituting 1900-01-01. Reading other columns must remain possible.
+    const auto path = find_repo_file("be/test/exec/test_data/orc_scanner/date_large_ordinal.orc");
+    ASSERT_TRUE(std::filesystem::exists(path));
+    for (bool project_date : {false, true}) {
+        SCOPED_TRACE(project_date);
+        auto reader = create_reader_for_path(path.string());
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        ASSERT_EQ(schema.size(), 9);
+        ASSERT_EQ(remove_nullable(schema[3].type)->get_primitive_type(), TYPE_DATEV2);
+        const int column_id = project_date ? 3 : 0;
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {field_projection(column_id)};
+        ASSERT_TRUE(reader->open(request).ok());
+        auto block = build_file_block({schema[column_id]});
+        size_t rows = 0;
+        bool eof = false;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        if (project_date) {
+            EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+            EXPECT_NE(
+                    status.to_string().find("DATE value 20191111 is outside the Doris DATE range"),
+                    std::string::npos);
+        } else {
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(rows, 10);
+        }
+    }
+}
+
+TEST_F(NewOrcReaderTest, ReadExternalMapDateRejectsOutOfRangeOrdinal) {
+    // Keep the external LZ4 fixture: the old offset dictionary silently replaced -719530
+    // with 1900-01-01, hiding an unrepresentable DATE inside the map values.
+    const auto path = find_repo_file("be/test/exec/test_data/orc_scanner/date_out_of_range.orc");
+    ASSERT_TRUE(std::filesystem::exists(path));
+    auto reader = create_reader_for_path(path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    ASSERT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_MAP);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+    auto block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("DATE value -719530 is outside the Doris DATE range"),
+              std::string::npos);
+}
+
+TEST_F(NewOrcReaderTest, DatePreflightDoesNotReadPrunedStripeIndexes) {
+    std::array<size_t, 2> io_calls {};
+    std::array<size_t, 2> io_bytes {};
+    for (bool project_date : {false, true}) {
+        RuntimeProfile profile("date_preflight");
+        const auto path = find_repo_file("be/test/exec/test_data/orc_scanner/date_preflight.orc");
+        io::FileReaderStats stats;
+        auto io_ctx = std::make_shared<io::IOContext>();
+        io_ctx->file_reader_stats = &stats;
+        auto reader = create_reader_for_path(path.string(), &profile, io_ctx);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        if (project_date) {
+            request->non_predicate_columns = {field_projection(1)};
+        }
+        request->conjuncts = {
+                VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 7))};
+        ASSERT_TRUE(reader->open(request).ok());
+        EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
+        ASSERT_TRUE(reader->close().ok());
+        io_calls[project_date] = stats.read_calls;
+        io_bytes[project_date] = stats.read_bytes;
+    }
+    // Projecting DATE must only inspect the already loaded file-level stripe metadata.
+    EXPECT_GT(io_calls[0], 0);
+    EXPECT_EQ(io_calls[1], io_calls[0]);
+    EXPECT_EQ(io_bytes[1], io_bytes[0]);
+}
+
+TEST_F(NewOrcReaderTest, DatePreflightSkipsMalformedIndexInPrunedStripe) {
+    // Only the unused column's ROW_INDEX stream ID is changed from 3 to 100.
+    const auto path =
+            find_repo_file("be/test/exec/test_data/orc_scanner/date_preflight_bad_index.orc");
+    auto reader = create_reader_for_path(path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1)};
+    request->conjuncts = {
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 7))};
+    ASSERT_TRUE(reader->open(request).ok());
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
+}
+
+TEST_F(NewOrcReaderTest, DateCountRejectsTruncatedNestedStatistics) {
+    // The schema includes s.d (ID 3), but stripe statistics stop at its parent (ID 2).
+    const auto path =
+            find_repo_file("be/test/exec/test_data/orc_scanner/date_count_truncated_stats.orc");
+    auto reader = create_reader_for_path(path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::COUNT;
+    aggregate_request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(1))});
+    format::FileAggregateResult result;
+    const auto status = reader->get_aggregate_result(aggregate_request, &result);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    // Falling back still reads both struct values from the intact data streams.
+    auto block = build_file_block({schema[1]});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 2);
 }
 
 } // namespace
