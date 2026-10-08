@@ -391,6 +391,7 @@ private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
     Status _ensure_dictionary_page_loaded();
+    Status _finish_indexed_nested_page();
     Status _decode_dict_page();
 
     void _reserve_decompress_buf(size_t size);
@@ -434,6 +435,8 @@ private:
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;
+    // Sum of parsed data-page num_values in either navigation mode. The sum is a complete
+    // prefix only until an unparsed indexed page is skipped; fallback rejects an incomplete prefix.
     size_t _chunk_parsed_values = 0;
     // this page remaining rep/def nums
     // if max_rep_level = 0 / max_def_level = 0, this value retail hava value.

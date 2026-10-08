@@ -1105,9 +1105,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
         return Status::Corruption("Parquet OffsetIndex fallback after skipping an unverified page");
     }
     if (page_num_values < 0 || page_num_values > _metadata.num_values ||
-        (!active_offset_index &&
-         static_cast<uint64_t>(page_num_values) >
-                 static_cast<uint64_t>(_metadata.num_values) - _chunk_parsed_values)) {
+        static_cast<uint64_t>(page_num_values) >
+                static_cast<uint64_t>(_metadata.num_values) - _chunk_parsed_values) {
         // Page counts are untrusted and feed both level decoders and scratch sizing. Bound each
         // page by the column metadata before converting to unsigned counters.
         return Status::Corruption("Parquet data page value count {} exceeds column total {}",
@@ -1141,12 +1140,47 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     _remaining_def_nums = page_num_values;
     _remaining_num_values = page_num_values;
 
-    // no offset will parse all header.
-    if (!active_offset_index) {
-        _chunk_parsed_values += _remaining_num_values;
-    }
+    // Count each parsed data header exactly once, including the indexed prefix. A safe fallback
+    // uses this physical value count for EOF; nested logical rows are not interchangeable with it.
+    _chunk_parsed_values += _remaining_num_values;
     _first_data_page_parsed = true;
     _state = HEADER_PARSED;
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::_finish_indexed_nested_page() {
+    if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+        if (_state != INITIALIZED && _page_reader->has_active_offset_index() &&
+            !_page_reader->is_header_v2()) {
+            // A V1 header has no logical row count. Loading only a prefix does not validate its
+            // indexed span: drain the remaining level runs before trusting the next indexed row.
+            // No value decoding or per-value scratch is needed for a page we are leaving.
+            RETURN_IF_ERROR(load_page_data_idempotent());
+            SCOPED_RAW_TIMER(&_chunk_statistics.decode_level_time);
+            const size_t end_row = _page_reader->end_row();
+            while (_remaining_rep_nums > 0) {
+                level_t level = -1;
+                const size_t run = _rep_level_decoder.get_next_run(&level, _remaining_rep_nums);
+                if (run == 0) {
+                    return Status::Corruption(
+                            "Parquet repetition level stream ended while leaving an indexed page");
+                }
+                if (level == 0) {
+                    if (_current_row > end_row || run > end_row - _current_row) {
+                        return Status::Corruption(
+                                "Parquet nested page exceeds its indexed row span");
+                    }
+                    _current_row += run;
+                }
+                _remaining_rep_nums -= run;
+            }
+            if (_current_row != end_row) {
+                return Status::Corruption(
+                        "Parquet nested page does not match its indexed row span");
+            }
+        }
+    }
     return Status::OK();
 }
 
@@ -1154,6 +1188,7 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
     if constexpr (OFFSET_INDEX) {
         RETURN_IF_ERROR(ensure_first_data_page_parsed());
+        RETURN_IF_ERROR(_finish_indexed_nested_page());
         if (_state == INITIALIZED && _page_reader->has_active_offset_index()) {
             _skipped_unverified_indexed_page = true;
         }
@@ -1173,7 +1208,18 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
         _decompress_release_pending = false;
         _decompress_release_threshold = std::numeric_limits<size_t>::max();
     }
+    const bool indexed = _page_reader->has_active_offset_index();
+    if (!indexed && (_page_reader->is_header_v2() || !IN_COLLECTION)) {
+        _current_row = _page_reader->end_row();
+    }
     RETURN_IF_ERROR(_page_reader->next_page());
+    if (indexed) {
+        _current_row = _page_reader->start_row();
+    } else if constexpr (IN_COLLECTION) {
+        // V1 row counts come from repetition levels, so PageReader cannot advance this coordinate
+        // from its header. Synchronize before a following V2 header derives its sequential bounds.
+        _page_reader->set_sequential_row_start(_current_row);
+    }
     _state = INITIALIZED;
     return Status::OK();
 }
@@ -2276,29 +2322,29 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::seek_to_nested_row(size_t
     if constexpr (IN_COLLECTION && OFFSET_INDEX) {
         RETURN_IF_ERROR(ensure_first_data_page_parsed());
     }
-    if constexpr (OFFSET_INDEX) {
-        if (_page_reader->has_active_offset_index()) {
-            while (true) {
+    while (true) {
+        if constexpr (OFFSET_INDEX) {
+            if (_page_reader->has_active_offset_index()) {
                 if (_page_reader->start_row() <= left_row && left_row < _page_reader->end_row()) {
-                    break;
+                    RETURN_IF_ERROR(parse_page_header());
+                    if (_page_reader->has_active_offset_index()) {
+                        RETURN_IF_ERROR(load_page_data());
+                        RETURN_IF_ERROR(_skip_nested_rows_in_page(left_row - _current_row));
+                        _current_row = left_row;
+                        return Status::OK();
+                    }
+                    // Parsing can discard the index and change this page's bounds. Re-enter the
+                    // sequential decision below instead of seeking within the stale indexed span.
                 } else if (has_next_page()) {
                     RETURN_IF_ERROR(next_page());
-                    _current_row = _page_reader->start_row();
+                    continue;
                 } else [[unlikely]] {
                     return Status::InternalError("no match seek row {}, current row {}", left_row,
                                                  _current_row);
                 }
             }
-
-            RETURN_IF_ERROR(parse_page_header());
-            RETURN_IF_ERROR(load_page_data());
-            RETURN_IF_ERROR(_skip_nested_rows_in_page(left_row - _current_row));
-            _current_row = left_row;
-            return Status::OK();
         }
-    }
 
-    while (true) {
         RETURN_IF_ERROR(parse_page_header());
         if (_page_reader->is_header_v2() || !IN_COLLECTION) {
             if (_page_reader->start_row() <= left_row && left_row < _page_reader->end_row()) {
