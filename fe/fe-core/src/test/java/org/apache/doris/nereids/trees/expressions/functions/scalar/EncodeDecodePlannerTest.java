@@ -18,8 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -46,6 +49,38 @@ class EncodeDecodePlannerTest extends TestWithFeService implements MemoPatternMa
                 .matches(logicalResultSink(
                         logicalOneRowRelation().when(oneRow ->
                                 oneRow.getProjects().get(0).child(0).equals(decoded))));
+    }
+
+    @Test
+    void testEncodeWithNullCharsetFoldsToNull() {
+        NullLiteral encoded = new NullLiteral(VarBinaryType.INSTANCE);
+        for (String sql : new String[] {
+                "select encode('hello', NULL)",
+                "select encode('', NULL)",
+                "select encode(NULL, NULL)"}) {
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalResultSink(
+                            logicalOneRowRelation().when(oneRow ->
+                                    oneRow.getProjects().get(0).child(0).equals(encoded))));
+        }
+    }
+
+    @Test
+    void testDecodeWithNullCharsetFoldsToNull() {
+        NullLiteral decoded = new NullLiteral(StringType.INSTANCE);
+        for (String sql : new String[] {
+                "select decode(X'6869', NULL)",
+                "select decode(X'', NULL)",
+                "select decode(NULL, NULL)"}) {
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalResultSink(
+                            logicalOneRowRelation().when(oneRow ->
+                                    oneRow.getProjects().get(0).child(0).equals(decoded))));
+        }
     }
 
     @Test

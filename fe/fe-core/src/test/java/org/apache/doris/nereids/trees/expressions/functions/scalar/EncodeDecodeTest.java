@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
@@ -114,16 +115,21 @@ public class EncodeDecodeTest {
         AnalysisException encodeException = Assertions.assertThrows(
                 AnalysisException.class, encode::checkLegalityBeforeTypeCoercion);
         Assertions.assertTrue(encodeException.getMessage().contains(
-                "second argument of function encode must be a literal"));
+                "second argument of function encode must be a string literal"));
         AnalysisException decodeException = Assertions.assertThrows(
                 AnalysisException.class, decode::checkLegalityBeforeTypeCoercion);
         Assertions.assertTrue(decodeException.getMessage().contains(
-                "second argument of function decode must be a literal"));
+                "second argument of function decode must be a string literal"));
 
         AnalysisException encodeUpper = Assertions.assertThrows(AnalysisException.class,
                 new Encode(new StringLiteral("hello"), new Upper(new StringLiteral("utf-8")))
                         ::checkLegalityBeforeTypeCoercion);
-        Assertions.assertTrue(encodeUpper.getMessage().contains("must be a literal"));
+        Assertions.assertTrue(encodeUpper.getMessage().contains("must be a string literal"));
+
+        AnalysisException decodeUpper = Assertions.assertThrows(AnalysisException.class,
+                new Decode(new VarBinaryLiteral(new byte[] {0x68, 0x69}),
+                        new Upper(new StringLiteral("utf-8")))::checkLegalityBeforeTypeCoercion);
+        Assertions.assertTrue(decodeUpper.getMessage().contains("must be a string literal"));
 
         Encode literalEncode = new Encode(new StringLiteral("hello"), new StringLiteral("utf-8"));
         Decode literalDecode = new Decode(new VarBinaryLiteral(new byte[] {0x68, 0x69}),
@@ -133,12 +139,34 @@ public class EncodeDecodeTest {
         Assertions.assertDoesNotThrow(literalDecode::checkLegalityBeforeTypeCoercion);
         Assertions.assertDoesNotThrow(literalDecode::checkLegalityAfterRewrite);
 
-        Encode nullCharset = new Encode(new StringLiteral("hello"), new NullLiteral(StringType.INSTANCE));
-        Assertions.assertDoesNotThrow(nullCharset::checkLegalityBeforeTypeCoercion);
-
         AnalysisException unsupported = Assertions.assertThrows(AnalysisException.class,
                 new Encode(new StringLiteral("hello"), new StringLiteral("GBK"))
                         ::checkLegalityBeforeTypeCoercion);
         Assertions.assertTrue(unsupported.getMessage().contains("Unsupported character set"));
+    }
+
+    @Test
+    public void testNullCharsetIsAccepted() {
+        for (NullLiteral characterSet : new NullLiteral[] {
+                NullLiteral.INSTANCE, new NullLiteral(StringType.INSTANCE)}) {
+            Encode encode = new Encode(new StringLiteral("hello"), characterSet);
+            Decode decode = new Decode(new VarBinaryLiteral(new byte[] {0x68, 0x69}), characterSet);
+            Assertions.assertDoesNotThrow(encode::checkLegalityBeforeTypeCoercion);
+            Assertions.assertDoesNotThrow(encode::checkLegalityAfterRewrite);
+            Assertions.assertDoesNotThrow(decode::checkLegalityBeforeTypeCoercion);
+            Assertions.assertDoesNotThrow(decode::checkLegalityAfterRewrite);
+        }
+    }
+
+    @Test
+    public void testNonStringCharsetLiteralIsRejected() {
+        Encode encode = new Encode(new StringLiteral("hello"), new IntegerLiteral(1));
+        Decode decode = new Decode(new VarBinaryLiteral(new byte[] {0x68, 0x69}), new IntegerLiteral(1));
+        AnalysisException encodeError = Assertions.assertThrows(
+                AnalysisException.class, encode::checkLegalityBeforeTypeCoercion);
+        Assertions.assertTrue(encodeError.getMessage().contains("must be a string literal"));
+        AnalysisException decodeError = Assertions.assertThrows(
+                AnalysisException.class, decode::checkLegalityBeforeTypeCoercion);
+        Assertions.assertTrue(decodeError.getMessage().contains("must be a string literal"));
     }
 }

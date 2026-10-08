@@ -35,10 +35,6 @@ final class CharacterSetLiterals {
 
     static void checkSecondArgument(ScalarFunction function) {
         Expression characterSet = function.getArgument(1);
-        if (!characterSet.isLiteral()) {
-            throw new AnalysisException("the second argument of function "
-                    + function.getName() + " must be a literal: " + function.toSql());
-        }
         if (characterSet.isNullLiteral()) {
             return;
         }

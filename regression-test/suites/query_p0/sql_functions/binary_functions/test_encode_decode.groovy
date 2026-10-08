@@ -130,22 +130,22 @@ suite("test_encode_decode") {
 
     test {
         sql "select encode(plain_text, charset) from test_encode_decode where id = 1"
-        exception "second argument of function encode must be a literal"
+        exception "second argument of function encode must be a string literal"
     }
 
     test {
         sql "select decode(cast(binary_value as varbinary), charset) from test_encode_decode where id = 1"
-        exception "second argument of function decode must be a literal"
+        exception "second argument of function decode must be a string literal"
     }
 
     test {
         sql "select hex(encode('中', upper('utf-8')))"
-        exception "must be a literal"
+        exception "must be a string literal"
     }
 
     test {
         sql "select decode(X'E4B8AD', upper('utf-8'))"
-        exception "must be a literal"
+        exception "must be a string literal"
     }
 
     test {
