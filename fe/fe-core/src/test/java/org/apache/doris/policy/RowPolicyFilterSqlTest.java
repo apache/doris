@@ -69,7 +69,9 @@ public class RowPolicyFilterSqlTest {
             "concat(a, b) = 'ab'",
             "substr(phone, 1, 3) = '138'",
             "k1 + 1 > 2",
-            "k1 = 1 and region in ('cn', 'us') and name like 'x%'"
+            "k1 = 1 and region in ('cn', 'us') and name like 'x%'",
+            "region = @authorized_region",
+            "k1 = @@session.k1_limit"
     })
     public void testPredicateSurvivesTheRoundTripToThePlanner(String original) throws AnalysisException {
         RowPolicy policy = policyOver(original);
@@ -140,6 +142,18 @@ public class RowPolicyFilterSqlTest {
         Assertions.assertFalse(replayed.isInvalid(), "the replayed policy lost its predicate");
         Assertions.assertEquals(PARSER.parseExpression("k2 = 2"),
                 PARSER.parseExpression(replayed.getFilterSql()));
+    }
+
+    /** SHOW ROW POLICY renders a predicate on an unbound user variable instead of failing. */
+    @Test
+    public void testShowInfoRendersAPredicateOnAUserVariable() throws AnalysisException {
+        RowPolicy policy = policyOver("region = @authorized_region");
+
+        String shownPredicate = policy.getShowInfo().get(6);
+
+        Assertions.assertEquals(PARSER.parseExpression("region = @authorized_region"),
+                PARSER.parseExpression(shownPredicate),
+                "SHOW ROW POLICY renders a different predicate than the policy holds: " + shownPredicate);
     }
 
     /** Builds the policy the way CREATE ROW POLICY does: statement text plus the predicate parsed from it. */

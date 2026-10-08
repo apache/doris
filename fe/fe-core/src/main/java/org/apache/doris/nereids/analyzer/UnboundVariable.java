@@ -81,6 +81,20 @@ public class UnboundVariable extends Expression implements Unbound {
     }
 
     @Override
+    public String computeToSql() {
+        switch (type) {
+            case USER:
+                return "@" + name;
+            case GLOBAL:
+                return "@@global." + name;
+            case SESSION:
+                return "@@session." + name;
+            default:
+                return "@@" + name;
+        }
+    }
+
+    @Override
     public String toDigest() {
         return toString();
     }
