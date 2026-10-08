@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <tuple>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_timestamptz.h"
@@ -719,6 +720,32 @@ TEST_F(PartitionTransformersTest, test_nullable_column_string_truncate_transform
     EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(0), result_column->get_null_map_column()[2]);
     EXPECT_EQ("ice", result_strings->get_data_at(1).to_string());
     EXPECT_EQ("db", result_strings->get_data_at(2).to_string());
+}
+
+TEST_F(PartitionTransformersTest, DatePartitionsMatchYearZeroFileOrdinals) {
+    auto column = ColumnDateV2::create();
+    const std::vector<std::tuple<int, int, int, int64_t>> cases = {
+            {0, 1, 1, -719528}, {0, 2, 28, -719470}, {0, 3, 1, -719468},
+            {1969, 12, 31, -1}, {1970, 1, 1, 0},     {2024, 1, 1, 19723}};
+    for (const auto& [year, month, day, ordinal] : cases) {
+        DateV2Value<DateV2ValueType> value;
+        value.unchecked_set_time(year, month, day, 0, 0, 0, 0);
+        column->get_data().push_back(value);
+    }
+    auto type = std::make_shared<DataTypeDateV2>();
+    Block block({{std::move(column), type, "d"}});
+    DateDayPartitionColumnTransform day_transform(type);
+    DateBucketPartitionColumnTransform bucket_transform(type, 16);
+    const auto days = day_transform.apply(block, 0);
+    const auto buckets = bucket_transform.apply(block, 0);
+    for (size_t i = 0; i < cases.size(); ++i) {
+        // Iceberg hashes a signed, eight-byte epoch day, including for DATE's INT32 carrier.
+        const int64_t ordinal = std::get<3>(cases[i]);
+        const auto hash = HashUtil::murmur_hash3_32(&ordinal, sizeof(ordinal), 0);
+        EXPECT_EQ(ordinal, assert_cast<const ColumnInt32&>(*days.column).get_data()[i]);
+        EXPECT_EQ((hash & INT32_MAX) % 16,
+                  assert_cast<const ColumnInt32&>(*buckets.column).get_data()[i]);
+    }
 }
 
 } // namespace doris
