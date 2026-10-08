@@ -1291,9 +1291,9 @@ public class MTMVTask extends AbstractTask {
             Set<String> execPartitionNames = Sets.newHashSet(partitions
                     .subList(start, Math.min(end, partitions.size())));
             // What this batch reads and what it records are the same set, both decided here from the one
-            // mapping the snapshots below are generated from; see mappedBasePartitions.
+            // mapping the snapshots below are generated from; see MTMVPartitionUtil#mappedBasePartitions.
             Map<BaseTableInfo, Set<String>> readableBasePartitions = mtmv.isIvm()
-                    ? null : mappedBasePartitions(tableWithPartKey, context, execPartitionNames);
+                    ? null : MTMVPartitionUtil.mappedBasePartitions(tableWithPartKey, context, execPartitionNames);
             Map<BaseTableInfo, Set<Long>> batchResetPartitionIds = useIvmFallbackStreams
                     ? collectPctResetPartitionIds(context, execPartitionNames) : Maps.newHashMap();
             Optional<IvmRewriteContext> rewriteContext = Optional.empty();
@@ -1516,26 +1516,6 @@ public class MTMVTask extends AbstractTask {
      * by the tables the MV's partition info holds and this reads them by the name it is given, so what
      * identifies a table here is the table it names, not which of the two objects it was read from.
      */
-    private Map<BaseTableInfo, Set<String>> mappedBasePartitions(Map<TableIf, String> tableWithPartKey,
-            MTMVRefreshContext context, Set<String> execPartitionNames) {
-        Map<BaseTableInfo, Set<String>> res = Maps.newHashMap();
-        for (TableIf table : tableWithPartKey.keySet()) {
-            if (table instanceof OlapTable) {
-                res.put(new BaseTableInfo(table), Sets.newHashSet());
-            }
-        }
-        for (String mvPartitionName : execPartitionNames) {
-            for (Entry<MTMVRelatedTableIf, Set<String>> entry
-                    : context.getByPartitionName(mvPartitionName).entrySet()) {
-                Set<String> readable = res.get(new BaseTableInfo(entry.getKey()));
-                if (readable != null) {
-                    readable.addAll(entry.getValue());
-                }
-            }
-        }
-        return res;
-    }
-
     private Map<BaseTableInfo, Set<Long>> collectPctResetPartitionIds(MTMVRefreshContext context,
             Set<String> execPartitionNames) throws AnalysisException {
         Map<BaseTableInfo, Set<Long>> resetPartitionIds = Maps.newHashMap();

@@ -31,6 +31,8 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
@@ -43,8 +45,12 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapTableSink;
@@ -115,6 +121,17 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "distributed by random buckets 1\n"
                 + "properties('replication_num' = '1')\n"
                 + "as select k1, sum(value) as total from test.pct_base group by k1;");
+        createTable("create table test.compensate_base (\n"
+                + "  d date,\n"
+                + "  region varchar(10),\n"
+                + "  value int\n"
+                + ") duplicate key(d, region)\n"
+                + "partition by list(d, region) (\n"
+                + "  partition p_us values in ((\"2024-01-01\",\"US\")),\n"
+                + "  partition p_eu values in ((\"2024-01-01\",\"EU\"))\n"
+                + ")\n"
+                + "distributed by hash(d) buckets 1\n"
+                + "properties('replication_num' = '1');");
     }
 
     @Test
@@ -378,6 +395,53 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         String sql = predicates.iterator().next().toSql();
         Assertions.assertTrue(sql.contains("2024-02-01"), sql);
         Assertions.assertTrue(sql.contains("2024-03-01"), sql);
+    }
+
+    @Test
+    void testACompensationFilterIsWrittenWithTheRelationSlots() throws Exception {
+        // The compensation adds its filter to a plan that is already bound and that nothing binds again, so a
+        // whole-key predicate has to be written against the slots the relation itself reads. Built from unbound
+        // slots instead, the filter fails the rewrite -- the candidate is dropped and the query is answered
+        // from the base table -- rather than narrowing the read.
+        OlapTable base = getOlapTable("compensate_base");
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select d, region from test.compensate_base").getPlan();
+        // The compensation adds a filter only for a base partition that has data, and no backend reads rows
+        // in this test: this is the flag Partition#hasData answers a unit test with, so that the filter is
+        // built and can be inspected.
+        boolean originRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            UpdateMvByPartitionCommand.PredicateAddContext context =
+                    new UpdateMvByPartitionCommand.PredicateAddContext(null,
+                            ImmutableMap.of(new BaseColInfo("d", new BaseTableInfo(base)), Sets.newHashSet("p_eu")),
+                            ImmutableMap.of());
+            Plan filtered = plan.accept(new UpdateMvByPartitionCommand.PredicateAdder(), context);
+            Assertions.assertTrue(context.isHandleSuccess());
+
+            Set<Slot> slots = ExpressionUtils.collect(
+                    ImmutableList.of(findFilter(filtered).getPredicate()), expression -> expression instanceof Slot);
+            Assertions.assertFalse(slots.isEmpty());
+            for (Slot slot : slots) {
+                Assertions.assertInstanceOf(SlotReference.class, slot,
+                        "the filter is added to a bound plan, so the column is read through its own slot: " + slot);
+            }
+        } finally {
+            FeConstants.runningUnitTest = originRunningUnitTest;
+        }
+    }
+
+    private LogicalFilter<?> findFilter(Plan plan) {
+        if (plan instanceof LogicalFilter) {
+            return (LogicalFilter<?>) plan;
+        }
+        for (Plan child : plan.children()) {
+            LogicalFilter<?> res = findFilter(child);
+            if (res != null) {
+                return res;
+            }
+        }
+        throw new AssertionError("no filter in the plan: " + plan.treeString());
     }
 
     @Test

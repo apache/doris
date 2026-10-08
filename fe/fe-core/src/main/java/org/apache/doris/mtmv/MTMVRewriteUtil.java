@@ -70,11 +70,11 @@ public class MTMVRewriteUtil {
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
         for (Partition partition : allPartitions) {
-            if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
-                    + gracePeriodMills) && !forceConsistent) {
-                res.add(partition);
-                continue;
-            }
+            // Which MV partitions the query's base partitions are mapped from is a fact about the query, not
+            // about this MV partition, and a base partition the query reads that no MV partition is mapped
+            // from is one whose rows the MV does not hold. So it is answered before the grace period below,
+            // which reports a partition usable without comparing it: taken afterwards, a partition inside its
+            // grace period would answer the query from the MV and drop that partition's rows.
             if (refreshContext == null) {
                 try {
                     refreshContext = MTMVRefreshContext.buildContext(mtmv,
@@ -93,6 +93,18 @@ public class MTMVRewriteUtil {
                     LOG.warn(e);
                     return res;
                 }
+            }
+            if (mtmvNeedComparePartitions.isEmpty()) {
+                // A base partition the query reads is mapped from no MV partition of this one -- a partition
+                // the mapping left out, an expired one for instance -- so no MV partition holds its rows.
+                // None of them may answer this query, whatever the state of the partitions in grace below:
+                // the answer is the base table.
+                return Lists.newArrayList();
+            }
+            if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
+                    + gracePeriodMills) && !forceConsistent) {
+                res.add(partition);
+                continue;
             }
             // if the partition which query not used, should not compare partition version
             if (!mtmvNeedComparePartitions.contains(partition.getName())) {
@@ -124,6 +136,22 @@ public class MTMVRewriteUtil {
             } catch (AnalysisException e) {
                 // ignore it
                 LOG.warn("check isMTMVPartitionSync failed", e);
+            }
+        }
+        // The union rewrite takes the partitions that are not valid out of the MV plan and compensates them
+        // from the base table, so a partially valid answer is a complete one. Without it the MV alone answers
+        // the query, and it has to be the whole of what the query reads: a partition that is not valid would
+        // otherwise be read from the MV as it is, stale rows and all. Read as a subset rather than as a size,
+        // since a partition within its grace period is answered usable without having been compared and is not
+        // necessarily one the query reads.
+        if (mtmvNeedComparePartitions != null
+                && !ctx.getSessionVariable().isEnableMaterializedViewUnionRewrite()) {
+            Set<String> usable = Sets.newHashSet();
+            for (Partition partition : res) {
+                usable.add(partition.getName());
+            }
+            if (!usable.containsAll(mtmvNeedComparePartitions)) {
+                return Lists.newArrayList();
             }
         }
         return res;

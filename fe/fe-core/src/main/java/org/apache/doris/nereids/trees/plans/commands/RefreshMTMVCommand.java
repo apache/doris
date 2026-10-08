@@ -28,7 +28,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
@@ -198,11 +200,19 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                     statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.fullExplain(mtmv)));
                 }
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
-                // Explained through the MV partitions' own key ranges: the read a refresh narrows to its
-                // partition mapping is decided by that refresh's context, which a plan built here has not.
-                return UpdateMvByPartitionCommand.from(
-                        mtmv, getCompleteRefreshPartitions(mtmv), getIncrementalTableMap(mtmv), statementContext,
-                        null);
+                Set<String> completeRefreshPartitions = getCompleteRefreshPartitions(mtmv);
+                Map<TableIf, String> tableWithPartKey = getIncrementalTableMap(mtmv);
+                // Explained through the base partitions the refresh reads for these MV partitions, from the
+                // same mapping the refresh records them with. The MV partitions' own key ranges are wider
+                // than that read: with a partition_sync_limit window, a base partition it leaves out can lie
+                // inside a retained MV partition, and an explain written from the ranges alone would show the
+                // expired partition as read -- a read the refresh does not make. An IVM MV is not scoped at
+                // all, as in the refresh.
+                return UpdateMvByPartitionCommand.from(mtmv, completeRefreshPartitions, tableWithPartKey,
+                        statementContext, mtmv.isIvm() ? null
+                                : MTMVPartitionUtil.mappedBasePartitions(tableWithPartKey,
+                                        MTMVRefreshContext.buildContext(mtmv, Maps.newHashMap()),
+                                        completeRefreshPartitions));
             default:
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         "EXPLAIN REFRESH currently supports COMPLETE and INCREMENTAL only");

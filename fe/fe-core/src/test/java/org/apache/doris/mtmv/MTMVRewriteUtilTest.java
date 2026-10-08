@@ -165,6 +165,65 @@ public class MTMVRewriteUtilTest {
     }
 
     @Test
+    public void testGetMTMVCanRewritePartitionsInGracePeriodStillNeedsTheQueryCovered() throws AnalysisException {
+        // A partition inside its grace period is answered usable without being compared, but that says nothing
+        // about the base partitions the query reads. One that no MV partition is mapped from is one whose rows
+        // the MV does not hold, so the coverage has to be read before the grace period answers: taken after it,
+        // the query would be answered from the MV and that partition's rows dropped.
+        try (MockedStatic<MTMVRefreshContext> refreshContextStatic =
+                Mockito.mockStatic(MTMVRefreshContext.class)) {
+            MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+            refreshContextStatic.when(() -> MTMVRefreshContext.buildContext(
+                    Mockito.any(MTMV.class), Mockito.anyMap())).thenReturn(context);
+            Mockito.when(context.getPartitionMappings()).thenReturn(Maps.newHashMap());
+
+            MTMVRelatedTableIf pctTable = Mockito.mock(MTMVRelatedTableIf.class);
+            List<String> qualifier = Lists.newArrayList("internal", "test", "base");
+            Mockito.when(pctTable.getFullQualifiers()).thenReturn(qualifier);
+            Mockito.when(mvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.EXPR);
+            Mockito.when(mvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(pctTable));
+            mtmvUtilStatic.when(() -> MTMVUtil.getTable(qualifier)).thenReturn(pctTable);
+
+            Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
+            Map<List<String>, Set<String>> queryUsedPartitions = Maps.newHashMap();
+            queryUsedPartitions.put(qualifier, Sets.newHashSet("p_expired"));
+
+            Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                    mtmv, ctx, currentTimeMills, false, queryUsedPartitions);
+            Assertions.assertEquals(0, mtmvCanRewritePartitions.size());
+        }
+    }
+
+    @Test
+    public void testGetMTMVCanRewritePartitionsWithoutUnionRewriteNeedsEveryPartitionValid() {
+        // Without the union rewrite to compensate the partitions that are not valid, the MV alone answers the
+        // query: one stale partition of the query's scope is enough that it must not answer at all.
+        Partition p2 = Mockito.mock(Partition.class);
+        Mockito.when(mtmv.getPartitions()).thenReturn(Lists.newArrayList(p1, p2));
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet("p1", "p2"));
+        Mockito.when(p2.getName()).thenReturn("p2");
+        Mockito.when(p2.getVisibleVersionTime()).thenReturn(1L);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.eq("p1"),
+                Mockito.any(Set.class), Mockito.any(Set.class))).thenReturn(true);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class),
+                Mockito.any(MTMVRefreshContext.PreparedPartitionSnapshots.class), Mockito.eq("p2"),
+                Mockito.any(Set.class), Mockito.any(Set.class))).thenReturn(false);
+
+        Mockito.when(sessionVariable.isEnableMaterializedViewUnionRewrite()).thenReturn(false);
+        Assertions.assertEquals(0, MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMills, false, null).size());
+
+        // With the union rewrite the stale partition is compensated from the base table, so the valid one is
+        // still an answer.
+        Mockito.when(sessionVariable.isEnableMaterializedViewUnionRewrite()).thenReturn(true);
+        Assertions.assertEquals(1, MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMills, false, null).size());
+    }
+
+    @Test
     public void testGetMTMVCanRewritePartitionsNotInGracePeriod() throws AnalysisException {
         Mockito.when(mtmv.getGracePeriod()).thenReturn(1L);
 
