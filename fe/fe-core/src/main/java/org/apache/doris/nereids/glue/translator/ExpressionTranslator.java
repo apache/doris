@@ -37,7 +37,6 @@ import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SearchPredicate;
-import org.apache.doris.analysis.ShortCircuitFunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TryCastExpr;
@@ -751,9 +750,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         // create catalog FunctionCallExpr without analyze again
         FunctionParams functionParams = new FunctionParams(false, arguments);
-        return function instanceof RequiresShortCircuitEvaluation
-                ? new ShortCircuitFunctionCallExpr(catalogFunction, functionParams, function.nullable())
-                : new FunctionCallExpr(catalogFunction, functionParams, function.nullable());
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(
+                catalogFunction, functionParams, function.nullable());
+        functionCallExpr.setShortCircuitEvaluation(function instanceof RequiresShortCircuitEvaluation);
+        return functionCallExpr;
     }
 
     @Override

@@ -91,7 +91,7 @@ final class PaimonCacheSizeEstimator {
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable fallback = (FallbackReadFileStoreTable) table;
             bytes = add(bytes, estimateFileStoreTable(fallback.wrapped(), visited));
-            return add(bytes, estimateFileStoreTable(fallback.fallback(), visited));
+            return add(bytes, estimateFileStoreTable(fallback.other(), visited));
         }
         if (table instanceof DelegatedFileStoreTable) {
             return add(bytes, estimateFileStoreTable(
