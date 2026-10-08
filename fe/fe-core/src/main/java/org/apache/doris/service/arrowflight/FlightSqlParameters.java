@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import org.apache.arrow.flight.CallStatus;
@@ -113,6 +115,10 @@ final class FlightSqlParameters {
             case TIMESTAMPMILLI:
             case TIMESTAMPMICRO:
             case TIMESTAMPNANO:
+            case TIMESTAMPSECTZ:
+            case TIMESTAMPMILLITZ:
+            case TIMESTAMPMICROTZ:
+            case TIMESTAMPNANOTZ:
             case DECIMAL:
                 return true;
             default:
@@ -229,6 +235,14 @@ final class FlightSqlParameters {
             case TIMESTAMPNANO:
                 type = DateTimeV2Type.of(6);
                 break;
+            case TIMESTAMPSECTZ:
+            case TIMESTAMPMILLITZ:
+            case TIMESTAMPMICROTZ:
+            case TIMESTAMPNANOTZ:
+                // Arrow Java uses TZ vectors even for an empty annotation, which still means wall-clock time.
+                type = ((ArrowType.Timestamp) vector.getField().getType()).getTimezone().isEmpty()
+                        ? DateTimeV2Type.of(6) : TimeStampTzType.of(6);
+                break;
             case DECIMAL:
                 ArrowType.Decimal decimal = (ArrowType.Decimal) vector.getField().getType();
                 if (decimal.getScale() < 0 || decimal.getScale() > decimal.getPrecision()) {
@@ -297,6 +311,13 @@ final class FlightSqlParameters {
                 LocalDateTime time = LocalDateTime.ofEpochSecond(
                         Math.floorDiv(timestamp, units), (int) nanos, ZoneOffset.UTC);
                 checkYear(time.getYear());
+                if (type instanceof TimeStampTzType) {
+                    // Zoned Arrow timestamps already encode a UTC instant. A DATETIMEV2 literal would
+                    // reinterpret these fields in the session timezone when cast to TIMESTAMPTZ.
+                    return new TimestampTzLiteral((TimeStampTzType) type, time.getYear(), time.getMonthValue(),
+                            time.getDayOfMonth(), time.getHour(), time.getMinute(), time.getSecond(),
+                            time.getNano() / 1000);
+                }
                 return new DateTimeV2Literal((DateTimeV2Type) type, time.getYear(), time.getMonthValue(),
                         time.getDayOfMonth(), time.getHour(), time.getMinute(), time.getSecond(),
                         time.getNano() / 1000);

@@ -22,10 +22,14 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
@@ -59,17 +63,18 @@ import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.TimeStampMicroVector;
+import org.apache.arrow.vector.TimeStampVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -122,7 +127,7 @@ public class FlightSqlPreparedQueryTest extends TestWithFeService {
     protected void runAfterAll() throws Exception {
         sqlClient.close();
         server.close();
-        Field executor = DorisFlightSqlProducer.class.getDeclaredField("executorService");
+        java.lang.reflect.Field executor = DorisFlightSqlProducer.class.getDeclaredField("executorService");
         executor.setAccessible(true);
         ((ExecutorService) executor.get(producer)).shutdownNow();
         producer.close();
@@ -284,7 +289,7 @@ public class FlightSqlPreparedQueryTest extends TestWithFeService {
             Assertions.assertEquals(3, schema(command).getFields().size());
             // Exercise the execution parser hook without requiring a BE in the FE unit test fixture.
             try (FlightSqlConnectProcessor processor = new FlightSqlConnectProcessor(flightContext)) {
-                Field bindings = FlightSqlConnectProcessor.class.getDeclaredField("parameters");
+                java.lang.reflect.Field bindings = FlightSqlConnectProcessor.class.getDeclaredField("parameters");
                 bindings.setAccessible(true);
                 bindings.set(processor, parameters);
                 List<StatementBase> statements = processor.parseWithFallback(query, query,
@@ -458,6 +463,102 @@ public class FlightSqlPreparedQueryTest extends TestWithFeService {
             Assertions.assertEquals("1969-12-31 23:59:59.999999", values.get(2).getStringValue());
             date.setSafe(0, Integer.MAX_VALUE);
             Assertions.assertThrows(FlightRuntimeException.class, () -> FlightSqlParameters.convert(root));
+        }
+    }
+
+    @Test
+    public void preservesTimestampSemanticsAndNulls() {
+        for (String zone : Arrays.asList(null, "", "UTC", "Asia/Shanghai", "America/New_York")) {
+            for (org.apache.arrow.vector.types.TimeUnit unit : org.apache.arrow.vector.types.TimeUnit.values()) {
+                ArrowType.Timestamp type = new ArrowType.Timestamp(unit, zone);
+                long nanosPerUnit = java.util.concurrent.TimeUnit.valueOf(unit.name() + "S").toNanos(1);
+                try (VectorSchemaRoot root = VectorSchemaRoot.create(
+                        new Schema(Arrays.asList(Field.nullable("value", type))), allocator)) {
+                    root.allocateNew();
+                    TimeStampVector vector = (TimeStampVector) root.getVector(0);
+                    for (long value : new long[] {-1000, 0, 1000}) {
+                        vector.setSafe(0, value);
+                        root.setRowCount(1);
+                        Literal literal = FlightSqlParameters.convert(root).get(0);
+                        Assertions.assertEquals(zone != null && !zone.isEmpty(), literal instanceof TimestampTzLiteral);
+                        Assertions.assertEquals(java.time.LocalDateTime.of(1970, 1, 1, 0, 0)
+                                .plusNanos(value * nanosPerUnit), ((DateTimeLiteral) literal).toJavaDateType());
+                    }
+                    vector.setNull(0);
+                    Literal literal = FlightSqlParameters.convert(root).get(0);
+                    Assertions.assertTrue(literal instanceof NullLiteral);
+                    Assertions.assertEquals(zone != null && !zone.isEmpty()
+                            ? TimeStampTzType.of(6) : DateTimeV2Type.of(6), literal.getDataType());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void rejectsTimezoneTimestampPrecisionLossAndOverflow() {
+        for (org.apache.arrow.vector.types.TimeUnit unit : Arrays.asList(
+                org.apache.arrow.vector.types.TimeUnit.NANOSECOND, org.apache.arrow.vector.types.TimeUnit.SECOND)) {
+            try (VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(Arrays.asList(
+                    Field.nullable("value", new ArrowType.Timestamp(unit, "UTC")))), allocator)) {
+                root.allocateNew();
+                TimeStampVector vector = (TimeStampVector) root.getVector(0);
+                long[] values = unit == org.apache.arrow.vector.types.TimeUnit.NANOSECOND
+                        ? new long[] {-1, 1, 1001} : new long[] {Long.MIN_VALUE, Long.MAX_VALUE};
+                for (long value : values) {
+                    vector.setSafe(0, value);
+                    root.setRowCount(1);
+                    FlightStream stream = Mockito.mock(FlightStream.class);
+                    Mockito.when(stream.next()).thenReturn(true, false);
+                    Mockito.when(stream.getRoot()).thenReturn(root);
+                    FlightRuntimeException failure = Assertions.assertThrows(FlightRuntimeException.class,
+                            () -> FlightSqlParameters.read(stream, 1));
+                    Assertions.assertEquals(FlightStatusCode.INVALID_ARGUMENT, failure.status().code());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void bindsTimezoneTimestampInNonUtcSession() throws Exception {
+        String previousZone = flightContext.getSessionVariable().getTimeZone();
+        try {
+            for (String zone : Arrays.asList("Asia/Shanghai", "America/New_York")) {
+                flightContext.getSessionVariable().setTimeZone(zone);
+                try (FlightSqlClient.PreparedStatement statement = sqlClient.prepare("SELECT CAST(? AS TIMESTAMPTZ(6))")) {
+                    Assertions.assertEquals(new ArrowType.Timestamp(
+                            org.apache.arrow.vector.types.TimeUnit.MICROSECOND, zone),
+                            statement.getParameterSchema().getFields().get(0).getType());
+                }
+                CommandPreparedStatementQuery command = prepare("SELECT CAST(? AS TIMESTAMPTZ(6))");
+                try (VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(Arrays.asList(Field.nullable("value",
+                        new ArrowType.Timestamp(org.apache.arrow.vector.types.TimeUnit.MICROSECOND, "UTC")))), allocator)) {
+                    root.allocateNew();
+                    TimeStampVector vector = (TimeStampVector) root.getVector(0);
+                    for (long value : new long[] {0, -1, 1234567}) {
+                        vector.setSafe(0, value);
+                        root.setRowCount(1);
+                        bind(command, root);
+                        TimestampTzLiteral literal = (TimestampTzLiteral) flightContext
+                                .getPreparedQueryParameters(id(command)).get(0);
+                        Assertions.assertEquals(java.time.LocalDateTime.of(1970, 1, 1, 0, 0)
+                                .plusNanos(value * 1000), literal.toJavaDateType());
+                        Assertions.assertEquals(new ArrowType.Timestamp(
+                                org.apache.arrow.vector.types.TimeUnit.MICROSECOND, zone),
+                                schema(command).getFields().get(0).getType());
+                    }
+                    vector.setNull(0);
+                    bind(command, root);
+                    Assertions.assertEquals(TimeStampTzType.of(6), flightContext
+                            .getPreparedQueryParameters(id(command)).get(0).getDataType());
+                } finally {
+                    client.doAction(new Action("ClosePreparedStatement", Any.pack(
+                            ActionClosePreparedStatementRequest.newBuilder()
+                                    .setPreparedStatementHandle(command.getPreparedStatementHandle()).build())
+                            .toByteArray())).forEachRemaining(result -> { });
+                }
+            }
+        } finally {
+            flightContext.getSessionVariable().setTimeZone(previousZone);
         }
     }
 

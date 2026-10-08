@@ -26,6 +26,7 @@ import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.sql.FlightSql
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.memory.RootAllocator
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.BigIntVector
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.Float8Vector
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.TimeStampMicroTZVector
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.VarCharVector
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.VectorSchemaRoot
 
@@ -178,6 +179,40 @@ suite("test_prepared_query_parameters", "arrow_flight_sql") {
                     }
                 } finally {
                     prepared.close(options)
+                }
+                def originalZone = fetch(client.execute("SHOW VARIABLES LIKE 'time_zone'", options))[0][1]
+                try {
+                    ["UTC", "Asia/Shanghai", "America/New_York"].each { sessionZone ->
+                        fetch(client.execute("SET time_zone='${sessionZone}'".toString(), options))
+                        prepared = client.prepare('SELECT number FROM numbers("number"="3") '
+                                + 'WHERE CAST(? AS TIMESTAMPTZ(6)) = CAST(? AS TIMESTAMPTZ(6)) ORDER BY number', options)
+                        try {
+                            assertEquals(sessionZone,
+                                    prepared.getParameterSchema().getFields()[0].getType().getTimezone())
+                            ["UTC", "America/New_York"].each { inputZone ->
+                                VectorSchemaRoot.of(new TimeStampMicroTZVector("instant", allocator, inputZone),
+                                        new VarCharVector("expected", allocator)).withCloseable { root ->
+                                    prepared.setParameters(root)
+                                    // The timezone annotation must not shift the epoch or change predicate matches.
+                                    [[0L, "1970-01-01 00:00:00+00:00"],
+                                            [-1L, "1969-12-31 23:59:59.999999+00:00"],
+                                            [1234567L, "1970-01-01 00:00:01.234567+00:00"],
+                                            [1710054000000000L, "2024-03-10 07:00:00+00:00"]].each { value ->
+                                        root.getVector(0).setSafe(0, value[0])
+                                        root.getVector(1).setSafe(0, value[1].getBytes("UTF-8"))
+                                        root.setRowCount(1)
+                                        assertEquals([["0"], ["1"], ["2"]], fetch(prepared.execute(options)))
+                                    }
+                                    root.getVector(0).setNull(0)
+                                    assertEquals([], fetch(prepared.execute(options)))
+                                }
+                            }
+                        } finally {
+                            prepared.close(options)
+                        }
+                    }
+                } finally {
+                    fetch(client.execute("SET time_zone='${originalZone}'".toString(), options))
                 }
                 assertEquals([["1"]], fetch(client.execute("SELECT 1", options)))
             } finally {
