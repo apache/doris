@@ -1096,14 +1096,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
     }
     int32_t page_num_values = _page_reader->is_header_v2() ? header->data_page_header_v2.num_values
                                                            : header->data_page_header.num_values;
-    if constexpr (IN_COLLECTION && OFFSET_INDEX) {
-        if (!_page_reader->is_header_v2() && _page_reader->has_active_offset_index()) {
-            // V1 nested pages do not declare their logical row count. An OffsetIndex span cannot
-            // be trusted until repetition levels are decoded, so keep the sequential cursor path.
-            _page_reader->discard_offset_index();
-            _offset_index = nullptr;
-        }
-    }
+    // A later V1 page can still use a valid OffsetIndex in a mixed-version chunk. Its first
+    // repetition level is checked when loaded, and its row count when the levels are exhausted.
     const bool active_offset_index = _page_reader->has_active_offset_index();
     if (_skipped_unverified_indexed_page && !active_offset_index) {
         // Skipped headers leave their indexed row spans unverified. If that index is discarded,
@@ -1402,6 +1396,18 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
             RETURN_IF_ERROR(_rep_level_decoder.init(
                     &_page_data, header->data_page_header.repetition_level_encoding, _max_rep_level,
                     _remaining_rep_nums));
+        }
+    }
+    if constexpr (IN_COLLECTION && OFFSET_INDEX) {
+        if (_max_rep_level > 0 && _remaining_rep_nums > 0 &&
+            _page_reader->has_active_offset_index()) {
+            // Indexed pages must start at a row boundary, including V1 pages after indexed skips.
+            // Reject continuations before a partial selection can expose values from the wrong row.
+            if (_rep_level_decoder.get_next() != 0) {
+                return Status::Corruption(
+                        "Indexed Parquet nested page must start at a row boundary");
+            }
+            _rep_level_decoder.rewind_one();
         }
     }
     if (_max_def_level > 0) {
