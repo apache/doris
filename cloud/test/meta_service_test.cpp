@@ -956,6 +956,29 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         ASSERT_EQ(stored_instance.storage_vault_names(1), gcp_vault_name);
         req.mutable_vault()->clear_alter_name();
 
+        // Empty or half-empty key replacements must not remove native authentication
+        // or persist the rename that was applied to the transaction's candidate.
+        for (int empty_keys = 1; empty_keys <= 3; ++empty_keys) {
+            AlterObjStoreInfoRequest empty_req;
+            empty_req.set_cloud_unique_id("test_cloud_unique_id");
+            empty_req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+            empty_req.mutable_vault()->set_name(gcp_vault_name);
+            empty_req.mutable_vault()->set_alter_name("empty_key_rename");
+            auto* empty_update = empty_req.mutable_vault()->mutable_obj_info();
+            empty_update->set_ak((empty_keys & 1) ? "" : "replacement-ak");
+            empty_update->set_sk((empty_keys & 2) ? "" : "replacement-sk");
+            brpc::Controller empty_cntl;
+            AlterObjStoreInfoResponse empty_res;
+            meta_service->alter_storage_vault(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&empty_cntl), &empty_req,
+                    &empty_res, nullptr);
+            ASSERT_EQ(empty_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+            get_test_vault("3", stored);
+            ASSERT_EQ(stored.SerializeAsString(), original);
+            get_test_instance(stored_instance);
+            ASSERT_EQ(stored_instance.storage_vault_names(1), gcp_vault_name);
+        }
+
         // Switching from encrypted static keys creates a new native credential.
         update->Clear();
         update->set_ak("gcp-ak");

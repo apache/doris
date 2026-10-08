@@ -244,6 +244,25 @@ class GcsFileSystemPropertiesTest {
     }
 
     @Test
+    void nativeHadoopEndpointCannotBeOverriddenByRawProperties() {
+        for (String mode : new String[] {"DEFAULT", "COMPUTE_ENGINE"}) {
+            for (String key : new String[] {"fs.gs.storage.root.url", "fs.gs.storage.service.path"}) {
+                IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> GcsFileSystemProperties.of(Map.of("provider", "GCP",
+                                "gs.credential_provider_type", mode, key, "https://untrusted.example/")));
+                Assertions.assertTrue(error.getMessage().contains(key));
+            }
+        }
+        GcsFileSystemProperties nativeProps = GcsFileSystemProperties.of(Map.of("provider", "GCP",
+                "gs.endpoint", "https://us-central1-storage.googleapis.com"));
+        Assertions.assertEquals("https://us-central1-storage.googleapis.com/",
+                nativeProps.toHadoopConfigurationMap().get("fs.gs.storage.root.url"));
+        // The restriction applies to native OAuth; preserve legacy HMAC Hadoop configuration.
+        Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of("provider", "GCP",
+                "gs.access_key", "ak", "gs.secret_key", "sk", "fs.gs.storage.root.url", "https://custom.example/")));
+    }
+
+    @Test
     void explicitAnonymousUsesUnsignedBackendAndHadoop() {
         GcsFileSystemProperties props = GcsFileSystemProperties.of(Map.of(
                 "provider", "GCP", "gs.credential_provider_type", "ANONYMOUS"));

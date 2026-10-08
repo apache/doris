@@ -1186,6 +1186,12 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
     }
 
     if (obj_info.has_ak()) {
+        if (has_obj_credential(new_vault.obj_info()) &&
+            (obj_info.ak().empty() || obj_info.sk().empty())) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "Replacing native credentials requires nonempty accesskey and secretkey";
+            return -1;
+        }
         EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
         AkSkPair new_ak_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
 

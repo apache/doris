@@ -137,6 +137,14 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
         validateHmacDialect("gs", "GCS");
         if (auth.getNativeCredential().isPresent()) {
             GcpAuth.validateEndpoint(getEndpoint());
+            // Connectors overlay raw Hadoop properties after this canonical configuration.
+            // Keep the OAuth destination on the validated gs.endpoint path.
+            for (String key : Set.of("fs.gs.storage.root.url", "fs.gs.storage.service.path")) {
+                if (rawProperties().containsKey(key)) {
+                    throw new IllegalArgumentException("Native GCP authentication does not allow " + key
+                            + "; configure the storage endpoint with gs.endpoint instead");
+                }
+            }
         }
     }
 
