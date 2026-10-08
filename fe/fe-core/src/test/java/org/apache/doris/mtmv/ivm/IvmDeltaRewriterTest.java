@@ -19,7 +19,10 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
@@ -50,8 +53,12 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
@@ -110,6 +117,25 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
             LogicalOlapScan left, LogicalOlapScan right) {
         return new LogicalJoin<>(JoinType.CROSS_JOIN, left, right,
                 new JoinReorderContext());
+    }
+
+    private Plan generateMergedDeltaWithScope(Plan plan, Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
+        ConnectContext connectContext = newConnectContext();
+        JobContext jobContext = newJobContextForRoot(plan, connectContext);
+        Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(plan, jobContext);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        MTMV mtmv = buildMtmvFromPlan(normalizedPlan.getOutput());
+        return new IvmDeltaRewriter().generateIncrRefreshPlan(normalizedPlan, rewriteResult,
+                IvmRewriteContext.incremental(mtmv, scopePartitionIds), connectContext);
+    }
+
+    /** The partition selection of every olap scan in the plan, in plan order. */
+    private List<List<Long>> collectedPartitionSelections(Plan plan) {
+        List<List<Long>> selections = new ArrayList<>();
+        for (LogicalOlapScan scan : collectScans(plan)) {
+            selections.add(new ArrayList<>(scan.getSelectedPartitionIds()));
+        }
+        return selections;
     }
 
     private List<LogicalOlapScan> collectScans(Plan plan) {
@@ -295,6 +321,53 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Plan rewritten = generateMergedDelta(scan, true);
 
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(collectScans(rewritten).get(0)));
+    }
+
+    @Test
+    void testIncrementalScopeRestrictsDeltaToScopePartitions() {
+        LogicalOlapScan scan = buildScanForTableWithTwoPartitions(120, "scope_subset");
+        OlapTable table = scan.getTable();
+        bumpBaseTableTso(table, 20);
+        setStreamOffset(table, getRegisteredStream(table, 1L), 10);
+        long keptPartitionId = table.getPartition("p2").getId();
+
+        Plan rewritten = generateMergedDeltaWithScope(scan,
+                ImmutableMap.of(new BaseTableInfo(table), Sets.newHashSet(keptPartitionId)));
+
+        List<LogicalOlapScan> scans = collectScans(rewritten);
+        Assertions.assertFalse(scans.isEmpty());
+        for (LogicalOlapScan rewrittenScan : scans) {
+            Assertions.assertEquals(ImmutableList.of(keptPartitionId),
+                    rewrittenScan.getSelectedPartitionIds());
+        }
+    }
+
+    @Test
+    void testIncrementalScopeCoveringAllPartitionsLeavesScanUnchanged() {
+        LogicalOlapScan scan = buildScanForTableWithTwoPartitions(121, "scope_all");
+        OlapTable table = scan.getTable();
+        bumpBaseTableTso(table, 20);
+        setStreamOffset(table, getRegisteredStream(table, 1L), 10);
+
+        Plan withoutScope = generateMergedDelta(scan, false);
+        Plan withScope = generateMergedDeltaWithScope(scan, ImmutableMap.of(new BaseTableInfo(table),
+                table.getPartitions().stream().map(Partition::getId).collect(Collectors.toSet())));
+
+        Assertions.assertEquals(collectedPartitionSelections(withoutScope),
+                collectedPartitionSelections(withScope));
+    }
+
+    @Test
+    void testIncrementalScopeWithoutPartitionsProducesEmptyRelation() {
+        LogicalOlapScan scan = buildScanForTableWithTwoPartitions(122, "scope_empty");
+        OlapTable table = scan.getTable();
+        bumpBaseTableTso(table, 20);
+        setStreamOffset(table, getRegisteredStream(table, 1L), 10);
+
+        Plan rewritten = generateMergedDeltaWithScope(scan,
+                ImmutableMap.of(new BaseTableInfo(table), Sets.newHashSet()));
+
+        Assertions.assertInstanceOf(LogicalEmptyRelation.class, rewritten);
     }
 
     @Test

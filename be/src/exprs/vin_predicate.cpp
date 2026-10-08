@@ -76,6 +76,7 @@ size_t raw_in_value_size(PrimitiveType primitive_type) {
         RETURN_RAW_IN_SIZE(TYPE_DECIMAL256);
         RETURN_RAW_IN_SIZE(TYPE_IPV4);
         RETURN_RAW_IN_SIZE(TYPE_IPV6);
+        RETURN_RAW_IN_SIZE(TYPE_UUID);
 #undef RETURN_RAW_IN_SIZE
     default:
         return 0;
@@ -176,7 +177,9 @@ void VInPredicate::_prepare_zonemap_min_max(VExprContext* context) {
     // dictionary, and raw evaluation direct-slot-only while Bloom may consume a nested leaf.
     const auto data_type = remove_nullable(bloom_probe->value_type);
     DORIS_CHECK(data_type != nullptr);
-    if (is_complex_type(data_type->get_primitive_type())) {
+    // Binary IN is rejected by the SQL function; do not build storage predicates for its keys.
+    if (is_complex_type(data_type->get_primitive_type()) ||
+        data_type->get_primitive_type() == TYPE_VARBINARY) {
         return;
     }
 

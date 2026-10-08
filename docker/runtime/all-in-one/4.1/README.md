@@ -20,9 +20,14 @@ under the License.
 # Doris all-in-one image (branch-4.1)
 
 One FE and one BE in a single container, sized to be a test fixture in a
-downstream project's CI. It is assembled from the official `apache/doris:fe-*`
-and `apache/doris:be-*` images, so a new Doris release needs no repackaging of
+downstream project's CI. It is assembled from the official `apache/doris:fe-*`,
+`be-*` and `ms-*` images, so a new Doris release needs no repackaging of
 anything here.
+
+The same image also runs one Doris process per container, which is what the
+two compose files under `compose/` do: a three-FE / three-BE cluster, and a
+compute-storage separated (cloud) cluster with its meta-service, FoundationDB
+and MinIO. See [Multi-node and cloud clusters](#multi-node-and-cloud-clusters).
 
 This directory targets the **4.1 release line only**. Other lines differ enough
 in payload layout to deserve their own directory rather than a version switch.
@@ -31,14 +36,15 @@ in payload layout to deserve their own directory rather than a version switch.
 
 | tag | covers | size |
 |---|---|---|
-| `apache/doris:all-in-one-<version>` | internal tables, Hive, Iceberg (including system tables), Paimon, JDBC catalogs, external-table writeback, Java UDF | 2.46 GB |
-| `apache/doris:all-in-one-<version>-full` | the above plus Hudi, Trino connector, MaxCompute | 2.99 GB |
+| `apache/doris:all-in-one-<version>` | internal tables, Hive, Iceberg (including system tables), Paimon, JDBC catalogs, external-table writeback, Java UDF | 2.68 GB |
+| `apache/doris:all-in-one-<version>-full` | the above plus Hudi, Trino connector, MaxCompute | 3.21 GB |
 
 Pick `-full` only if the tests touch Hudi, the Trino connector or MaxCompute.
 
 Both come up `healthy` in under 20 seconds. Sizes are the uncompressed layer
-sum measured on 4.1.3/arm64, against 4.9 GB for the same payload untouched.
-`docker image inspect --format '{{.Size}}'` reports 1.61 / 2.06 GiB for them;
+sum measured on 4.1.3/arm64, against 5.6 GB for the same payload untouched;
+about 0.2 GB of each is the meta-service, which only the cloud compose file
+uses. `docker image inspect --format '{{.Size}}'` reports 1.73 / 2.18 GiB;
 `docker images` can print a much larger figure when the containerd image store
 is enabled, because it adds the compressed blobs to the unpacked snapshot.
 
@@ -54,12 +60,19 @@ A plain run builds for the host architecture only. Multi-arch needs an explicit
 # base tag only, then smoke test it
 ./build.sh -v 4.1.3 -f base -t
 
-# from a locally built ./output instead
+# from a locally built ./output instead (build.sh --fe --be --cloud; without
+# --cloud there is no ms/ and the image cannot serve the cloud compose file)
 ./build.sh -v dev -s local
+
+# from an extracted release tarball, e.g. while the component images for a
+# new release are not on Docker Hub yet
+./build.sh -v 4.1.4 -s tarball --tarball-dir ~/apache-doris-4.1.4-bin-arm64
 ```
 
 `./build.sh --help` lists the rest. The build context is the repository root,
-narrowed to a few KB by `Dockerfile.dockerignore`; run the script from anywhere.
+narrowed to a few KB by `Dockerfile.dockerignore`; a local `./output` or a
+tarball directory is passed as BuildKit named contexts instead, so it can live
+anywhere. Run the script from anywhere.
 
 ## Multi-architecture
 
@@ -208,6 +221,7 @@ deliberately omits them and says so.
 | | base | -full |
 |---|---|---|
 | `strip --strip-debug` on `doris_be` | 2213 MB → 430 MB (450 MB on arm64) | same |
+| `strip --strip-debug` on the meta-service (`doris_cloud` and its two `libfdb_c.so`) | 664 MB → 183 MB | same |
 | `be/lib/meta_tool`, `be/lib/cdc_client`, `fe/arthas` | removed | removed |
 | hudi / trino / maxcompute scanners | removed | kept |
 
@@ -235,17 +249,117 @@ It does **not** read a real external table. To check that end of things, point
 the built image at the fixtures under `docker/thirdparties` and run an Iceberg
 or Hive query by hand.
 
+## Multi-node and cloud clusters
+
+The image's entrypoint takes a `DORIS_ROLE`. The default, `all`, is the
+single container described above; the other roles run one process each and
+are what the compose files are built from:
+
+| `DORIS_ROLE` | runs | needs |
+|---|---|---|
+| `all` | FE + BE on loopback | nothing |
+| `fe` | one FE; bootstraps the cluster when `FE_MASTER` is empty, otherwise registers with it as `FE_ROLE` (`follower` \| `observer`) and joins | `FE_MASTER` |
+| `be` | one BE, registered with `FE_MASTER`; in cloud mode into `COMPUTE_GROUP` | `FE_MASTER` |
+| `ms`, `recycler` | the cloud meta-service / recycler | `FDB_CLUSTER` |
+| `cloud-init` | one-shot: creates the cloud instance on an S3-compatible store, then exits | `MS_ENDPOINT`, `INSTANCE_ID`, `S3_*` |
+| `client` | waits for `EXPECT_FE` / `EXPECT_BE` live nodes, then idles with `mysql` and `curl` | `FE_MASTER` |
+
+`DEPLOY_MODE=cloud` turns `fe` and `be` into cloud nodes (`deploy_mode`,
+`meta_service_endpoint`, file cache); the FE takes `INSTANCE_ID` as its
+`cluster_id` and manages nodes by SQL, so no `cloud_unique_id` has to be handed
+out. `FE_MASTER` may list several FEs (`fe-1,fe-2,fe-3`): the first one that
+answers is used, which keeps a node restart from waiting on the one FE that is
+down. An FE that already has metadata rejoins on its own. Every role honours
+`FE_CONFIG_EXTRA` / `BE_CONFIG_EXTRA` / `MS_CONFIG_EXTRA`, `FE_HEAP` / `BE_HEAP`
+and drops a ready flag that the image `HEALTHCHECK` keys on.
+
+Topology-dependent settings (`priority_networks`, replica count, balancing,
+cloud keys) are written by the entrypoint at container start; the conf files
+baked into the image only carry the size-related defaults.
+
+### `compose/multi-node.yml` — three FEs, three BEs
+
+```shell
+cd docker/runtime/all-in-one/4.1/compose
+docker compose -f multi-node.yml up --wait        # ~35 s to healthy
+docker compose -f multi-node.yml exec client mysql -uroot -hfe-1 -P9030
+docker compose -f multi-node.yml kill fe-1        # a new master in a few seconds
+docker compose -f multi-node.yml start fe-1       # rejoins as a follower
+docker compose -f multi-node.yml down             # nothing persists
+```
+
+Tables default to three replicas, one per BE. `fe-3` becomes an observer with
+`FE3_ROLE=observer`. Host ports: `9030`/`8030` for `fe-1`, `9031`/`8031` and
+`9032`/`8032` for the other two, `8040` for `be-1`.
+
+### `compose/cloud.yml` — compute-storage separated
+
+```shell
+docker compose -f cloud.yml up --wait             # ~50 s to healthy
+docker compose -f cloud.yml --profile ha up --wait   # ... plus two follower FEs
+docker compose -f cloud.yml exec client mysql -uroot -hfe-1 -P9030
+```
+
+```
+fdb ─ fdb-init ─┬─ ms ─ cloud-init ─ fe-1 ─┬─ be-1, be-2  (compute group cg_a)
+                └─ recycler                 ├─ be-3        (compute group cg_b)
+minio ─ minio-init ─┘                       └─ client
+```
+
+`cloud-init` creates the instance in storage-vault mode with MinIO as the
+vault (path-style, plain HTTP), and `fe-1` marks `built_in_storage_vault` as
+the default, so `CREATE TABLE` works as is. Both are idempotent, so
+`docker compose stop` / `up` keeps the data; `down` wipes everything. The
+MinIO console is on `9001` (`minioadmin` / `minioadmin`), the meta-service
+HTTP API on `15000` (`5000` is taken by AirPlay on macOS).
+
+What this is for: `use @cg_b`, `SHOW COMPUTE GROUPS`, `ALTER SYSTEM ADD
+BACKEND ... ("tag.compute_group_name" = ...)`, storage vaults, warm-up, FE
+failover in cloud mode, watching objects land in the bucket. What it is not:
+a stand-in for the cloud regression pipelines, and the `docker()` suites in
+`regression-test/suites/cloud_p0` still need `doris-compose`.
+
+### Things to know
+
+- **Addresses.** Nodes get fixed IPs on a private subnet (`SUBNET`, default
+  `172.31.80` for cloud and `172.31.81` for multi-node), so a restarted
+  container keeps the identity Doris knows it by. Both files can run at once
+  if one of them is given other host ports.
+- **From the host.** Use the published ports. On Docker Desktop the container
+  addresses are not routable from the host, so a stream load from the host
+  cannot follow FE's redirect to a BE; run it from the `client` service
+  instead, which is inside the network. Linux hosts can reach the nodes
+  directly.
+- **Memory.** Defaults are `FE_HEAP=1024m` and `mem_limit = 25%` per BE. A
+  full cloud cluster is around 9 GB; give Docker Desktop 12 GB or more, and do
+  not expect both topologies to fit side by side on a 16 GB VM.
+- **FoundationDB on arm64.** The upstream `foundationdb/foundationdb:7.1.x`
+  images are amd64 only, so on an Apple Silicon host `fdb` runs under
+  emulation. It is fine for this purpose; `FDB_IMAGE` / `FDB_PLATFORM` switch
+  it out. The meta-service links the 7.1 client, so stay on a 7.1 server.
+- **Smoke test.** `compose/smoke-test.sh <multi-node|cloud> [image:tag]`
+  brings the topology up under its own project name, subnet and host ports,
+  checks replicas or compute groups and the vault, stream loads through the
+  client, kills the master FE, restarts a BE while the old master is down,
+  brings the master back, and tears everything down. Two minutes each.
+
 ## Layout
 
 ```
 4.1/
-├── Dockerfile                 three artifact sources -> strip + prune -> runtime
+├── Dockerfile                 artifact sources -> strip + prune -> runtime
 ├── Dockerfile.dockerignore    keeps the repo-root context to a few KB
 ├── build.sh                   the only entry point you need
+├── compose/
+│   ├── multi-node.yml         3 FE + 3 BE, storage and compute together
+│   ├── cloud.yml              fdb + ms + recycler + minio + 1..3 FE + 3 BE in 2 compute groups
+│   └── smoke-test.sh          guards the two compose files
 └── resource/
-    ├── entrypoint.sh          FE -> readiness -> BE -> register -> fail-fast wait
-    ├── health_check.sh        backs HEALTHCHECK
-    ├── smoke-test.sh          guards prune.txt
+    ├── entrypoint.sh          one entrypoint, dispatched on DORIS_ROLE
+    ├── lib.sh                 shared by entrypoint.sh, health_check.sh and cloud_init.sh
+    ├── cloud_init.sh          creates the cloud instance (DORIS_ROLE=cloud-init)
+    ├── health_check.sh        backs HEALTHCHECK, per role
+    ├── smoke-test.sh          guards prune.txt and the single-container role
     ├── prune.txt              what each flavor drops, and what must never be dropped
     └── conf/{fe_ci.conf,be_ci.conf}   appended to the upstream conf at build time
 ```

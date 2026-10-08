@@ -17,11 +17,12 @@
 
 package org.apache.doris.jdbc;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValueConverter;
 
 import com.zaxxer.hikari.HikariDataSource;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -51,7 +52,7 @@ import java.time.LocalDateTime;
  *   Old drivers don't support rs.getObject(int, Class), so we fall back to typed getters.
  */
 public class OracleTypeHandler extends DefaultTypeHandler {
-    private static final Logger LOG = Logger.getLogger(OracleTypeHandler.class);
+    private static final Logger LOG = LoggerFactory.getLogger(OracleTypeHandler.class);
 
     // Whether the JDBC driver supports JDBC 4.1 getObject(int, Class) method.
     // Determined at runtime from the driver version. Oracle ojdbc6 (< 12.2.0) does not.
@@ -269,7 +270,6 @@ public class OracleTypeHandler extends DefaultTypeHandler {
     /**
      * Oracle RAW type returns byte[]. Try to decode as UTF-8 first;
      * if it's not valid UTF-8, fall back to hex string with "0x" prefix.
-     * This matches the behavior of the old OracleJdbcExecutor.
      */
     private static String convertByteArrayToString(byte[] bytes) {
         CharsetDecoder utf8Decoder = StandardCharsets.UTF_8.newDecoder();

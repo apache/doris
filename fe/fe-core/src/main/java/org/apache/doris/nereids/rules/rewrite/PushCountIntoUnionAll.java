@@ -195,7 +195,7 @@ public class PushCountIntoUnionAll implements RewriteRuleFactory {
 
     private boolean hasUnsuportedAggFunc(LogicalAggregate aggregate) {
         // only support count, not suport sum,min... and not support count(distinct)
-        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr -> {
+        return ExpressionUtils.deepAnyMatch(aggregate.getOutputExpressions(), expr -> {
             if (expr instanceof AggregateFunction) {
                 if (!(expr instanceof Count)) {
                     return true;

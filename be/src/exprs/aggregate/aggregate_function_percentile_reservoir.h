@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "common/exception.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
@@ -44,7 +45,15 @@ struct QuantileReservoirSampler {
     }
 
     void merge(const QuantileReservoirSampler& rhs) {
-        level = rhs.level;
+        if (rhs.data.empty()) {
+            return;
+        }
+        if (data.empty()) {
+            level = rhs.level;
+        } else if (UNLIKELY(level != rhs.level)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "percentile_reservoir aggregate states have incompatible quantiles");
+        }
         data.merge(rhs.data);
     }
 

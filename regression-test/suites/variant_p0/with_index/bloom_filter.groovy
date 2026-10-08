@@ -16,7 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_with_bf", ""){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def table_name = "var_with_bloom_filter"
     sql "DROP TABLE IF EXISTS var_with_bloom_filter"
     sql """

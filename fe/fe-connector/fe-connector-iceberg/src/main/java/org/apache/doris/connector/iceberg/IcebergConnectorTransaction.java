@@ -902,11 +902,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 }
                 Object partitionValue = IcebergPartitionUtils.parsePartitionValueFromString(
                         partitionValueStr, sourceField.type(), zone);
-                String sourceColName = sourceField.name();
-                Expression eqExpr = partitionValue == null
-                        ? Expressions.isNull(sourceColName)
-                        : Expressions.equal(sourceColName, partitionValue);
-                predicates.add(eqExpr);
+                predicates.add(identityPartitionPredicate(sourceField.name(), partitionValue));
             }
         }
 
@@ -920,6 +916,28 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             result = Expressions.and(result, predicates.get(i));
         }
         return result;
+    }
+
+    /**
+     * {@code sourceCol = value} for one identity partition key, or the unary predicate the value demands.
+     *
+     * <p>A NaN cannot be an iceberg literal at all — {@code Literals.from} throws "Cannot create expression
+     * literal from NaN", and iceberg models it only through {@code isNaN}/{@code notNaN}. Meanwhile
+     * {@link IcebergPartitionUtils#parsePartitionValueFromString} deliberately parses Doris's {@code nan}
+     * spelling into {@link Double#NaN}, so a FLOAT/DOUBLE identity partition holding NaN used to abort the
+     * whole commit ("Failed to commit iceberg transaction: Cannot create expression literal from NaN") on
+     * both paths that build this predicate: DELETE/UPDATE/MERGE conflict detection and
+     * {@code INSERT OVERWRITE ... PARTITION(d='nan')}.
+     */
+    private static Expression identityPartitionPredicate(String sourceColName, Object value) {
+        if (value == null) {
+            return Expressions.isNull(sourceColName);
+        }
+        if ((value instanceof Double || value instanceof Float)
+                && Double.isNaN(((Number) value).doubleValue())) {
+            return Expressions.isNaN(sourceColName);
+        }
+        return Expressions.equal(sourceColName, value);
     }
 
     /**
@@ -1205,9 +1223,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 valueStr = null;
             }
             Object value = IcebergPartitionUtils.parsePartitionValueFromString(valueStr, sourceField.type(), zone);
-            Expression predicate = value == null
-                    ? Expressions.isNull(sourceField.name())
-                    : Expressions.equal(sourceField.name(), value);
+            Expression predicate = identityPartitionPredicate(sourceField.name(), value);
             expression = expression == null ? predicate : Expressions.and(expression, predicate);
         }
         return expression;

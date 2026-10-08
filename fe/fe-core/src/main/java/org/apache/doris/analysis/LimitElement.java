@@ -20,6 +20,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.nereids.util.Utils;
+
 import java.util.List;
 
 /**
@@ -79,12 +81,8 @@ public class LimitElement {
         int size = rows.size();
         long begin = Math.min(Math.max(offset, 0L), size);
         long end = size;
-        if (hasLimit()) {
-            end = begin + limit;
-            // A negative sum means the long addition itself overflowed.
-            if (end < 0 || end > size) {
-                end = size;
-            }
+        if (hasLimit() && !Utils.addOverflows(begin, limit)) {
+            end = Math.min(begin + limit, size);
         }
         return rows.subList((int) begin, (int) end);
     }

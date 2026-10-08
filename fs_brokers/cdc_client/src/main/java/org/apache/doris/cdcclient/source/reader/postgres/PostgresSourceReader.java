@@ -540,9 +540,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
     }
 
-    // Detect a replication slot that was dropped (or dropped and recreated) out from under us while
-    // the job was paused/retrying. Recreating it silently would resume from a position whose WAL is
-    // already gone -> data loss. Fail with a fixed marker so FE classifies it as non-resumable.
+    // A missing slot cannot safely resume from the committed position; do not recreate it.
     @Override
     protected void validateStreamSource(Offset startingOffset, JobBaseRecordRequest baseReq)
             throws Exception {
@@ -559,24 +557,6 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                                         + " upstream (dropped externally), cannot resume from the"
                                         + " committed position without data loss.",
                                 baseReq.getJobId(), dialect.getSlotName()));
-            }
-            Lsn requestedLsn = ((PostgresOffset) startingOffset).getLsn();
-            Lsn restartLsn = slotState.slotRestartLsn();
-            // A higher restart_lsn may indicate slot recreation or other slot advancement;
-            // safe recovery from the committed position can no longer be guaranteed.
-            if (requestedLsn != null
-                    && requestedLsn.asLong() > 0
-                    && restartLsn != null
-                    && restartLsn.compareTo(requestedLsn) > 0) {
-                throw new CdcClientException(
-                        String.format(
-                                "Replication slot invalidated for job %s: slot %s restart_lsn %s is"
-                                        + " ahead of the committed position %s (e.g. slot recreated),"
-                                        + " cannot guarantee recovery without data loss.",
-                                baseReq.getJobId(),
-                                dialect.getSlotName(),
-                                restartLsn,
-                                requestedLsn));
             }
         }
     }

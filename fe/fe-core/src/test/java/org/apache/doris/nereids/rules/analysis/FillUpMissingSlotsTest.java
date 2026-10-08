@@ -320,6 +320,24 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
     }
 
     @Test
+    void testHavingAggregateFunctionDoesNotLeakHelperOutput() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("SELECT 1 FROM t1 HAVING SUM(a1) > 0")
+                .getPlan();
+        Assertions.assertEquals(1, plan.getOutput().size());
+
+        PlanChecker.from(connectContext)
+                .analyze("SELECT (SELECT 1 FROM t1 HAVING SUM(a1) > 0)");
+
+        ExceptionChecker.expectThrowsWithMsg(
+                AnalysisException.class,
+                "Multiple columns returned by subquery are not yet supported. Found 2",
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT (SELECT 1, 2 FROM t1 HAVING SUM(a1) > 0)"
+                ));
+    }
+
+    @Test
     void testJoinWithHaving() {
         String sql = "SELECT a1, sum(a2) FROM t1, t2 WHERE t1.pk = t2.pk GROUP BY a1 HAVING a1 > sum(b1)";
         SlotReference a1 = new SlotReference(

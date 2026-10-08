@@ -109,7 +109,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
-import org.apache.doris.tso.TSOTimestamp;
+import org.apache.doris.tso.TSOServiceState;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -1493,7 +1493,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
-                    env.getTSOService().replayWindowEndTSO((TSOTimestamp) journal.getData());
+                    env.getTSOService().replayWindowEndTSO((TSOServiceState) journal.getData());
                     break;
                 }
                 default: {
@@ -1947,7 +1947,7 @@ public class EditLog {
         logEdit(OperationType.OP_TIMESTAMP, stamp);
     }
 
-    public void logTSOTimestampWindowEnd(TSOTimestamp windowEnd) {
+    public void logTSOTimestampWindowEnd(TSOServiceState windowEnd) {
         logEdit(OperationType.OP_TSO_TIMESTAMP_WINDOW_END, windowEnd);
     }
 

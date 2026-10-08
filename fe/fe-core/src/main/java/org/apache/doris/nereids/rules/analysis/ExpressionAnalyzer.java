@@ -225,7 +225,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
      * ******************************************************************************************** */
     @Override
     public Expression visitUnboundVariable(UnboundVariable unboundVariable, ExpressionRewriteContext context) {
-        return resolveUnboundVariable(unboundVariable);
+        Variable variable = resolveUnboundVariable(unboundVariable);
+        if (wantToParseSqlFromSqlCache) {
+            getCascadesContext().getStatementContext().getSqlCacheContext()
+                    .ifPresent(sqlCacheContext -> sqlCacheContext.addUsedVariable(variable));
+        }
+        return variable.getRealExpression();
     }
 
     /** resolveUnboundVariable */
@@ -321,18 +326,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         boolean relationQualifierOccupied = false;
 
         // A multipart name can be either a relation-qualified column (t.col) or a nested field
-        // reference (col.field). In a correlated subquery, try the relation-qualified interpretation
-        // in both visible scopes first, so an inner column named "t" does not hide an outer alias "t".
-        if (canBindOuterScope && shouldPrioritizeRelationQualifier()
-                && unboundSlot.getNameParts().size() > 1) {
+        // reference (col.field). Try the relation-qualified interpretation in every visible scope
+        // first, so a nearer name "t" does not hide a farther relation alias "t". The visible scopes
+        // are the local ones, which HAVING, QUALIFY and ORDER BY layer from the select output and its
+        // child output in a clause specific order, and then the outer scope of a correlated subquery:
+        //   select q.v as q from t q order by q.v  -- q.v is the column of relation q, not alias q
+        if (shouldPrioritizeRelationQualifier() && unboundSlot.getNameParts().size() > 1) {
             SlotBinding localRelationBinding = bindSlotByRelationQualifierInThisScope(unboundSlot);
             bounded = localRelationBinding.getBoundSlots();
             foundInThisScope = !bounded.isEmpty();
-            if (!foundInThisScope) {
+            if (!foundInThisScope && canBindOuterScope) {
                 relationQualifierOccupied = localRelationBinding.isRelationQualifierOccupied();
-            }
-            if (!foundInThisScope && !relationQualifierOccupied) {
-                bounded = bindSlotsByRelationQualifier(unboundSlot, outerScope.get());
+                if (!relationQualifierOccupied) {
+                    bounded = bindSlotsByRelationQualifier(unboundSlot, outerScope.get());
+                }
             }
         }
 
@@ -469,32 +476,55 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Lambda lambda = (Lambda) unboundFunction.children().get(0);
         Expression lambdaFunction = lambda.getLambdaFunction();
         LambdaBinding binding = bindingSpec.bind(unboundFunction.getName(), lambda, subChildren);
-        lambdaFunction = analyzeLambdaFunction(
-                lambda, lambdaFunction, binding.getAnalysisSlots(), context);
+        lambdaFunction = analyzeLambdaFunction(lambdaFunction, binding.getAnalysisSlots(), context);
         Lambda lambdaClosure = binding.close(lambdaFunction);
 
         // We don't add the ArrayExpression in high order function at all
         return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
     }
 
-    private Expression analyzeLambdaFunction(Lambda lambda, Expression lambdaFunction,
+    private Expression analyzeLambdaFunction(Expression lambdaFunction,
             List<Slot> boundedSlots, ExpressionRewriteContext context) {
+        ExpressionAnalyzer enclosingAnalyzer = this;
         ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
                 boundedSlots), context == null ? null : context.cascadesContext,
                 true, true) {
             @Override
-            protected boolean shouldPrioritizeRelationQualifier() {
-                return false;
+            public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
+                // The lambda arguments are the nearest lexical scope. Every other name is resolved by the
+                // enclosing analyzer rather than by its default scope, because ORDER BY, HAVING and QUALIFY
+                // layer several local scopes and a correlated subquery sees its outer scope:
+                //   select id from t order by array_sum(array_map(x -> x + v, arr))  -- v is not in the output
+                if (bindSlotByThisScope(unboundSlot).isEmpty()) {
+                    return enclosingAnalyzer.visitUnboundSlotOfLambdaBody(unboundSlot, context, this);
+                }
+                return super.visitUnboundSlot(unboundSlot, context);
             }
 
             @Override
-            protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
-                throw new AnalysisException("Unknown lambda slot '"
-                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                        + " in lambda arguments" + lambda.getLambdaArgumentNames());
+            protected boolean shouldPrioritizeRelationQualifier() {
+                // a name that starts with a lambda argument is a field of it, even if a relation of the
+                // enclosing scope has the same name: array_map(x -> x.value, x.items) from t x
+                return false;
             }
         };
         return lambdaAnalyzer.analyze(lambdaFunction, context);
+    }
+
+    /**
+     * Bind a name of a lambda body that is not a lambda argument. The element_at chain around the name is
+     * visited by the lambda analyzer, so whether the variant cast of the name is suppressed is the state of
+     * the lambda analyzer, not the state of this analyzer, which may be in a chain around the lambda.
+     */
+    private Expression visitUnboundSlotOfLambdaBody(UnboundSlot unboundSlot, ExpressionRewriteContext context,
+            ExpressionAnalyzer lambdaAnalyzer) {
+        int enclosingDepth = suppressVariantElementAtCastDepth;
+        suppressVariantElementAtCastDepth = lambdaAnalyzer.suppressVariantElementAtCastDepth;
+        try {
+            return visitUnboundSlot(unboundSlot, context);
+        } finally {
+            suppressVariantElementAtCastDepth = enclosingDepth;
+        }
     }
 
     /** Whether relation-qualified columns should be resolved across scopes before nested fields. */

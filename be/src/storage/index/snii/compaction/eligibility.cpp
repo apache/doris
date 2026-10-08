@@ -27,6 +27,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
@@ -244,8 +245,11 @@ Status validate_snii_compaction_eligibility(
                                                              source_ordinal));
     }
     RETURN_IF_ERROR(validate_destination_policy(destination_index, analyzer_provider_factory));
-    out->destination_writes_norms =
-            inverted_index::InvertedIndexAnalyzer::should_analyzer(destination_index.properties());
+    // Merged norms are rebuilt from the postings, so the destination follows the same norms
+    // policy as a fresh write whether or not the sources carry norms.
+    out->destination_writes_norms = inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                                            destination_index.properties()) &&
+                                    should_write_index_norms(destination_index);
     return Status::OK();
 }
 

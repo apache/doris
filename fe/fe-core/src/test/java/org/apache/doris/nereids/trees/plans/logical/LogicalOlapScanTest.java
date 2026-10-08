@@ -244,4 +244,23 @@ public class LogicalOlapScanTest {
         Assertions.assertNotSame(scan1, snapshot);
     }
 
+    @Test
+    public void testWithSelectedPartitionIdsPreservesPartitionPredicateFlagForAllScanTypes() {
+        LogicalOlapScan scan = createMockScan(ImmutableList.of())
+                .withSelectedPartitionIds(ImmutableList.of(), true);
+
+        LogicalOlapScan copiedScan = scan.withSelectedPartitionIds(ImmutableList.of());
+
+        Assertions.assertTrue(copiedScan.hasPartitionPredicate());
+
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan
+                .withPreSnapshot(Optional.of(stream));
+        streamScan = streamScan.withSelectedPartitionIds(ImmutableList.of(), true);
+
+        LogicalOlapTableStreamScan copiedStreamScan = streamScan.withSelectedPartitionIds(ImmutableList.of());
+
+        Assertions.assertTrue(copiedStreamScan.hasPartitionPredicate());
+    }
+
 }

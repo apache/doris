@@ -233,6 +233,22 @@ class AdbcCatalogPropertiesTest {
         }
     }
 
+    @Test
+    void weightValidationDistinguishesSubmittedAndPersistedUnknownEntries() {
+        AdbcConnectorProvider provider = new AdbcConnectorProvider();
+        Map<String, String> current = minimal();
+        current.put("meta.cache.adbc.future_entry.max-weight", "future-format");
+        Assertions.assertDoesNotThrow(() -> AdbcCatalogProperties.of(current));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(current));
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(current, Map.of("comment", "new")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Map.of("meta.cache.adbc.metdata.max-weight", "1MB")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Map.of("meta.cache.adbc.metadata.max-weight", "invalid")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Map.of("meta.cache.max-weight", "1MB", "meta.cache.adbc.metadata.max-weight", "2MB")));
+    }
+
     /**
      * A cache knob is read through {@code CacheSpec}, which answers an unparseable value with the default
      * rather than an error. Silently caching for ten minutes when the operator wrote {@code ttl-second=6O0}

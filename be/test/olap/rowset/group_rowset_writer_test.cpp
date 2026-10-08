@@ -402,11 +402,15 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     const auto& row_binlog_schema = _row_binlog_tablet->tablet_schema();
     ASSERT_EQ(7, row_binlog_schema->num_columns());
     RowsetReaderContext reader_context;
-    reader_context.tablet_schema = row_binlog_schema;
     reader_context.need_ordered_result = false;
     // Read schema covers all row-binlog columns in order.
     auto read_schema = std::make_shared<ReadSchema>(row_binlog_schema->columns());
     reader_context.read_schema = read_schema;
+    EXPECT_TRUE(read_schema
+                        ->init_from_tablet_schema(*row_binlog_schema,
+                                                  /*merge_by_sequence_mapping=*/false,
+                                                  /*map_row_binlog_columns=*/false)
+                        .ok());
 
     RowsetReaderSharedPtr rowset_reader;
     ASSERT_TRUE(row_binlog_rowset->create_reader(&rowset_reader).ok());
@@ -471,9 +475,13 @@ TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdatePreservesNarrowBlock) {
     auto read_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
             row_binlog_schema->columns(), std::vector<ColumnId> {0, 1, 2, 3, 4, 5, 6}));
     RowsetReaderContext reader_context;
-    reader_context.tablet_schema = row_binlog_schema;
     reader_context.need_ordered_result = false;
     reader_context.read_schema = read_schema;
+    EXPECT_TRUE(read_schema
+                        ->init_from_tablet_schema(*row_binlog_schema,
+                                                  /*merge_by_sequence_mapping=*/false,
+                                                  /*map_row_binlog_columns=*/false)
+                        .ok());
 
     RowsetReaderSharedPtr rowset_reader;
     ASSERT_TRUE(rowsets[1]->create_reader(&rowset_reader).ok());

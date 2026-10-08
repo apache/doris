@@ -174,6 +174,7 @@ public class CloudEnv extends Env {
         cloudClusterCheck.start();
         cloudTabletRebalancer.start();
         if (Config.enable_fetch_cluster_cache_hotspot) {
+            cacheHotspotMgr.recoverRunningJobsBeforeStart();
             cacheHotspotMgr.start();
         }
         upgradeMgr.start();

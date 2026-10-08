@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.Optional;
 
 public class JdbcClickHouseConnectorClientTest {
 
@@ -66,5 +67,17 @@ public class JdbcClickHouseConnectorClientTest {
         Assertions.assertArrayEquals(
                 new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"},
                 createClient().getTableTypes());
+    }
+
+    @Test
+    void testUuidMapsToNativeType() {
+        JdbcFieldInfo field = new JdbcFieldInfo("u", Optional.of("UUID"), 0,
+                Optional.empty(), Optional.empty(), Optional.empty());
+        JdbcFieldInfo arrayField = new JdbcFieldInfo("a", Optional.of("Array(Nullable(UUID))"), 0,
+                Optional.empty(), Optional.empty(), Optional.empty());
+
+        Assertions.assertEquals("UUID", createClient().jdbcTypeToConnectorType(field).getTypeName());
+        Assertions.assertEquals("UUID", createClient().jdbcTypeToConnectorType(arrayField)
+                .getChildren().get(0).getTypeName());
     }
 }

@@ -77,6 +77,15 @@ static StorageEngine* engine_ref = nullptr;
 class OrderedDataCompactionTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        _saved_enable_ordered_data_compaction = config::enable_ordered_data_compaction;
+        _saved_ordered_data_compaction_min_segment_size =
+                config::ordered_data_compaction_min_segment_size;
+        _saved_segments_key_bounds_truncation_threshold =
+                config::segments_key_bounds_truncation_threshold;
+        config::enable_ordered_data_compaction = true;
+        config::ordered_data_compaction_min_segment_size = 10;
+        config::segments_key_bounds_truncation_threshold = -1;
+
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
@@ -103,15 +112,23 @@ protected:
         _data_dir = std::make_unique<DataDir>(*engine_ref, absolute_dir);
         static_cast<void>(_data_dir->update_capacity());
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
-        config::enable_ordered_data_compaction = true;
-        config::ordered_data_compaction_min_segment_size = 10;
-        config::segments_key_bounds_truncation_threshold = -1;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        // Otherwise the relaxed minimum segment size leaks into every later suite and sends its
+        // compactions down the ordered link-file path instead of a real merge.
+        config::enable_ordered_data_compaction = _saved_enable_ordered_data_compaction;
+        config::ordered_data_compaction_min_segment_size =
+                _saved_ordered_data_compaction_min_segment_size;
+        config::segments_key_bounds_truncation_threshold =
+                _saved_segments_key_bounds_truncation_threshold;
     }
+
+    bool _saved_enable_ordered_data_compaction = true;
+    int32_t _saved_ordered_data_compaction_min_segment_size = 0;
+    int32_t _saved_segments_key_bounds_truncation_threshold = 0;
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
@@ -492,11 +509,15 @@ TEST_F(OrderedDataCompactionTest, test_01) {
 
     // create output rowset reader
     RowsetReaderContext reader_context;
-    reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
     reader_context.read_schema = read_schema;
+    EXPECT_TRUE(read_schema
+                        ->init_from_tablet_schema(*tablet_schema,
+                                                  /*merge_by_sequence_mapping=*/false,
+                                                  /*map_row_binlog_columns=*/false)
+                        .ok());
     RowsetReaderSharedPtr output_rs_reader;
     LOG(INFO) << "create rowset reader in test";
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);

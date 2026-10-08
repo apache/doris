@@ -35,6 +35,7 @@ import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.AfterEach;
@@ -44,11 +45,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.slf4j.Logger;
-import org.xnio.StreamConnection;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
-import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -63,7 +62,6 @@ public class MysqlProtoTest {
     private AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
     private LdapManager ldapManager = Mockito.mock(LdapManager.class);
     private MysqlClearTextPacket clearTextPacket = Mockito.mock(MysqlClearTextPacket.class);
-    private StreamConnection streamConnection = Mockito.mock(StreamConnection.class);
     private LdapAuthenticator ldapAuthenticator = Mockito.mock(LdapAuthenticator.class);
     private AuthenticatorManager authenticatorManager = Mockito.mock(AuthenticatorManager.class);
 
@@ -73,10 +71,6 @@ public class MysqlProtoTest {
     @BeforeEach
     public void setUp() throws DdlException, AuthenticationException, IOException {
         FeConstants.runningUnitTest = true;
-
-        // mock StreamConnection.getPeerAddress() to avoid NPE in MysqlChannel constructor
-        Mockito.when(streamConnection.getPeerAddress())
-                .thenReturn(new java.net.InetSocketAddress("127.0.0.1", 12345));
 
         // static mocks
         mockedMysqlPassword = Mockito.mockStatic(MysqlPassword.class);
@@ -124,11 +118,7 @@ public class MysqlProtoTest {
     }
 
     private ConnectContext createContext() throws Exception {
-        ConnectContext context = new ConnectContext(streamConnection);
-        Field channelField = ConnectContext.class.getDeclaredField("mysqlChannel");
-        channelField.setAccessible(true);
-        channelField.set(context, channel);
-        return context;
+        return new ConnectContext(new MysqlProtocolAdapter(channel));
     }
 
     private void mockChannel(String user, boolean sendOk) throws Exception {

@@ -36,8 +36,10 @@ import java.util.Set;
  * create when an IVM materialized view is created, normalize when an IVM materialized view is analyzed,
  * incremental when an incremental refresh plan is generated, and full when a complete refresh plan uses IVM
  * stream scans.
- * It contains rewrite configuration only; per-statement rewrite artifacts are stored in
- * {@link IvmRewriteResult}.
+ * It contains rewrite configuration, and one thing the rewrite feeds back: whether a snapshot read of a
+ * table the MV does not partition by answered with the image at the stream offset rather than with the
+ * table as it is now. A refresh owns one context per statement it runs, so that is where the answer
+ * reaches it. Per-statement rewrite artifacts proper are stored in {@link IvmRewriteResult}.
  */
 public class IvmRewriteContext {
     public enum Mode {
@@ -76,14 +78,25 @@ public class IvmRewriteContext {
     private final Optional<IvmDryRunLimit> dryRunLimit;
     private final Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds;
     private final Optional<StreamReadMode> fullRefreshNonPctReadMode;
+    // Base partitions the incremental delta may read, per base table. A table that is absent is
+    // read in full, so an empty map keeps the unrestricted behaviour. Unlike
+    // fullRefreshResetPartitionIds, which names the partitions a COMPLETE refresh must reset,
+    // every entry here is an upper bound on what the delta is allowed to read.
+    private final Map<BaseTableInfo, Set<Long>> incrementalScopePartitionIds;
     // Set by MTMVPlanUtil before normalization: true means the MV unique keys include identity key columns.
     // Null when the rewrite context is created outside the analyzeQuery flow.
     private Boolean useFullKeys;
 
+    // Whether a read of this statement answered with a base table as of the stream offset, which a snapshot
+    // read does for the partitions that hold data the offset has not consumed. Set by the rewrite that binds
+    // such a read; read by the refresh that ran it. See MTMVTask#executePartitionBasedRefresh.
+    private boolean readFromAStreamOffset;
+
     private IvmRewriteContext(Mode mode, MTMV mtmv, String createMtmvName, boolean includeExhaustedStreams,
             ExecutionKind executionKind, Optional<IvmDryRunLimit> dryRunLimit,
             Map<BaseTableInfo, Set<Long>> fullRefreshResetPartitionIds,
-            Optional<StreamReadMode> fullRefreshNonPctReadMode) {
+            Optional<StreamReadMode> fullRefreshNonPctReadMode,
+            Map<BaseTableInfo, Set<Long>> incrementalScopePartitionIds) {
         this.mode = Objects.requireNonNull(mode, "mode can not be null");
         this.mtmv = mode == Mode.CREATE ? mtmv : Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.createMtmvName = createMtmvName;
@@ -97,45 +110,66 @@ public class IvmRewriteContext {
         this.fullRefreshResetPartitionIds = Collections.unmodifiableMap(resetPartitionIds);
         this.fullRefreshNonPctReadMode = Objects.requireNonNull(
                 fullRefreshNonPctReadMode, "fullRefreshNonPctReadMode can not be null");
+        Map<BaseTableInfo, Set<Long>> scopePartitionIds = new HashMap<>();
+        Objects.requireNonNull(incrementalScopePartitionIds, "incrementalScopePartitionIds can not be null")
+                .forEach((baseTableInfo, partitionIds) -> scopePartitionIds.put(baseTableInfo,
+                        Collections.unmodifiableSet(new HashSet<>(partitionIds))));
+        this.incrementalScopePartitionIds = Collections.unmodifiableMap(scopePartitionIds);
     }
 
     public static IvmRewriteContext create(String mtmvName) {
         return new IvmRewriteContext(Mode.CREATE, null,
                 Objects.requireNonNull(mtmvName, "mtmvName can not be null"), false,
-                ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty());
+                ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty(),
+                Collections.emptyMap());
     }
 
     public static IvmRewriteContext normalize(MTMV mtmv) {
         return new IvmRewriteContext(Mode.NORMALIZE, Objects.requireNonNull(mtmv, "mtmv can not be null"),
-                null, false, ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty());
+                null, false, ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty(),
+                Collections.emptyMap());
     }
 
     public static IvmRewriteContext incremental(MTMV mtmv) {
+        return incremental(mtmv, Collections.emptyMap());
+    }
+
+    /**
+     * Incremental refresh whose delta may only read the given base partitions. A base partition
+     * outside the scope is read neither through its stream nor through the join-opposite
+     * snapshot, so a base partition the MV no longer mirrors cannot produce delta rows that the
+     * MV has no target partition for.
+     */
+    public static IvmRewriteContext incremental(MTMV mtmv, Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
         return new IvmRewriteContext(Mode.INCREMENTAL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
-                null, false, ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty());
+                null, false, ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty(),
+                scopePartitionIds);
     }
 
     /** EXPLAIN REFRESH INCREMENTAL [ALL]: only a plan is produced. */
     public static IvmRewriteContext incrementalExplain(MTMV mtmv, boolean includeExhaustedStreams) {
         return new IvmRewriteContext(Mode.INCREMENTAL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
                 null, includeExhaustedStreams, ExecutionKind.EXPLAIN,
-                Optional.empty(), Collections.emptyMap(), Optional.empty());
+                Optional.empty(), Collections.emptyMap(), Optional.empty(), Collections.emptyMap());
     }
 
     public static IvmRewriteContext incrementalDryRun(MTMV mtmv, Optional<IvmDryRunLimit> dryRunLimit) {
         return new IvmRewriteContext(Mode.INCREMENTAL, mtmv, null, false,
-                ExecutionKind.DRY_RUN, dryRunLimit, Collections.emptyMap(), Optional.empty());
+                ExecutionKind.DRY_RUN, dryRunLimit, Collections.emptyMap(), Optional.empty(),
+                Collections.emptyMap());
     }
 
     /** EXPLAIN REFRESH COMPLETE: only a plan is produced. */
     public static IvmRewriteContext fullExplain(MTMV mtmv) {
         return new IvmRewriteContext(Mode.FULL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
-                null, false, ExecutionKind.EXPLAIN, Optional.empty(), Collections.emptyMap(), Optional.empty());
+                null, false, ExecutionKind.EXPLAIN, Optional.empty(), Collections.emptyMap(), Optional.empty(),
+                Collections.emptyMap());
     }
 
     public static IvmRewriteContext full(MTMV mtmv) {
         return new IvmRewriteContext(Mode.FULL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
-                null, false, ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty());
+                null, false, ExecutionKind.EXECUTE, Optional.empty(), Collections.emptyMap(), Optional.empty(),
+                Collections.emptyMap());
     }
 
     public static IvmRewriteContext full(MTMV mtmv,
@@ -143,7 +177,8 @@ public class IvmRewriteContext {
             StreamReadMode nonPctReadMode) {
         return new IvmRewriteContext(Mode.FULL, mtmv, null, false, ExecutionKind.EXECUTE, Optional.empty(),
                 resetPartitionIds,
-                Optional.of(Objects.requireNonNull(nonPctReadMode, "nonPctReadMode can not be null")));
+                Optional.of(Objects.requireNonNull(nonPctReadMode, "nonPctReadMode can not be null")),
+                Collections.emptyMap());
     }
 
     public Mode getMode() {
@@ -181,12 +216,25 @@ public class IvmRewriteContext {
         return dryRunLimit;
     }
 
+    public void markReadFromAStreamOffset() {
+        this.readFromAStreamOffset = true;
+    }
+
+    public boolean isReadFromAStreamOffset() {
+        return readFromAStreamOffset;
+    }
+
     public boolean hasFullRefreshStreamScans() {
         return !fullRefreshResetPartitionIds.isEmpty() || fullRefreshNonPctReadMode.isPresent();
     }
 
     public Optional<Set<Long>> getFullRefreshResetPartitionIds(BaseTableInfo baseTableInfo) {
         return Optional.ofNullable(fullRefreshResetPartitionIds.get(baseTableInfo)).map(HashSet::new);
+    }
+
+    /** Empty when the incremental delta is not limited to a partition subset. */
+    public Map<BaseTableInfo, Set<Long>> getIncrementalScopePartitionIds() {
+        return incrementalScopePartitionIds;
     }
 
     public Optional<StreamReadMode> getFullRefreshNonPctReadMode() {

@@ -53,6 +53,34 @@ public class CreateTableTest extends TestWithFeService {
     }
 
     @Test
+    public void testInternalQueryStateDoesNotExemptUserTable() {
+        boolean originalAllowStateTypes = Config.enable_non_aggregate_table_state_types;
+        boolean originalInternal = connectContext.getState().isInternal();
+        boolean originalEnableAggState = connectContext.getSessionVariable().enableAggState;
+        Config.enable_non_aggregate_table_state_types = false;
+        connectContext.getSessionVariable().enableAggState = true;
+        // An ordinary SHOW can leave the internal-query flag set on a user connection.
+        connectContext.getState().setInternal(true);
+        try {
+            for (String keysType : new String[] {"DUPLICATE", "UNIQUE"}) {
+                for (String type : new String[] {"HLL NOT NULL", "QUANTILE_STATE NOT NULL",
+                        "AGG_STATE<sum(INT NOT NULL)>"}) {
+                    AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                            () -> createTable("CREATE TABLE test.user_state_type (k INT, v " + type + ") "
+                                    + keysType + " KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                                    + "PROPERTIES('replication_num'='1')"));
+                    Assertions.assertTrue(exception.getMessage().contains(
+                            "type is only supported in aggregate key tables"));
+                }
+            }
+        } finally {
+            Config.enable_non_aggregate_table_state_types = originalAllowStateTypes;
+            connectContext.getState().setInternal(originalInternal);
+            connectContext.getSessionVariable().enableAggState = originalEnableAggState;
+        }
+    }
+
+    @Test
     public void testDuplicateCreateTable() throws Exception {
         // test
         Env env = Env.getCurrentEnv();
@@ -89,15 +117,18 @@ public class CreateTableTest extends TestWithFeService {
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TEMPORARY TABLE test.temp_row_binlog (k1 INT) "
+        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
+                "CREATE TEMPORARY TABLE test.temp_row_binlog (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.row_binlog_normal (k1 INT) "
+        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
+                "CREATE TABLE test.row_binlog_normal (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.row_binlog_unique (k1 INT, v1 INT) "
+        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
+                "CREATE TABLE test.row_binlog_unique (k1 INT, v1 INT) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW');"));
@@ -641,7 +672,7 @@ public class CreateTableTest extends TestWithFeService {
                     + ");"));
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "binlog<Row>",
-                () -> createTable("CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
+                () -> createTableWithRowBinlog("CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
                         + "AGGREGATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                         + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
     }

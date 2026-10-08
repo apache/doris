@@ -18,24 +18,28 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Registry of {@link RowLevelDmlTransform}s. The dispatching DML commands consult this instead of testing the
  * target table type, so the reverse {@code instanceof} dispatch is consolidated here.
  *
  * <p>Explicit static registration (no {@code ServiceLoader}) — avoids the thread-context-classloader pitfalls
- * seen with SPI loaders. Today the single entry is {@link IcebergRowLevelDmlTransform}, whose {@code handles}
- * is a connector-capability probe (supportsDelete/supportsMerge), not a source-type check.</p>
+ * seen with SPI loaders. Each entry checks the connector's row-change representation and operations,
+ * not its source name.</p>
  */
 public final class RowLevelDmlRegistry {
 
     private static final List<RowLevelDmlTransform> TRANSFORMS =
-            ImmutableList.of(new IcebergRowLevelDmlTransform());
+            ImmutableList.of(new PositionDeleteRowLevelDmlTransform(), new ChangelogRowLevelDmlTransform());
 
     private RowLevelDmlRegistry() {
     }
@@ -50,6 +54,20 @@ public final class RowLevelDmlRegistry {
                 return Optional.of(transform);
             }
         }
+        if (table instanceof PluginDrivenExternalTable) {
+            PluginDrivenExternalTable connectorTable = (PluginDrivenExternalTable) table;
+            Set<WriteOperation> operations = connectorTable.connectorSupportedWriteOperations();
+            if (supportsAnyRowLevelDml(operations)) {
+                throw new AnalysisException("No row-level DML plan for connector row-change style "
+                        + connectorTable.getConnectorRowChangeStyle());
+            }
+        }
         return Optional.empty();
+    }
+
+    static boolean supportsAnyRowLevelDml(Set<WriteOperation> operations) {
+        return operations.contains(WriteOperation.DELETE)
+                || operations.contains(WriteOperation.UPDATE)
+                || operations.contains(WriteOperation.MERGE);
     }
 }

@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <limits>
 #include <string>
 
 #include "core/string_ref.h"
@@ -49,6 +50,44 @@ const StringSearch UrlParser::_s_colon_search(&_s_colon);
 const StringSearch UrlParser::_s_question_search(&_s_question);
 const StringSearch UrlParser::_s_hash_search(&_s_hash);
 
+bool UrlParser::find_query_component(const StringRef& url, StringRef* query) {
+    // The query component starts right after the first '?'.
+    int32_t query_pos = _s_question_search.search(&url);
+    if (query_pos < 0) {
+        // Query component is missing.
+        return false;
+    }
+
+    // The first '#' bounds the query component from the right, so this single search also
+    // provides the position of the fragment.
+    int32_t fragment_pos = _s_hash_search.search(&url);
+    if (fragment_pos >= 0 && fragment_pos < query_pos) {
+        // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+        // fragment and url has no query component.
+        return false;
+    }
+
+    int32_t query_start = query_pos + cast_set<int32_t>(_s_question.size);
+    int32_t query_end = fragment_pos >= 0 ? fragment_pos : cast_set<int32_t>(url.size);
+    *query = url.substring(query_start, query_end - query_start);
+    return true;
+}
+
+StringRef UrlParser::find_authority(const StringRef& protocol_end) {
+    // The authority component runs from the end of '://' up to the first '/', '?' or '#',
+    // whichever comes first.
+    int32_t end_pos = _s_slash_search.search(&protocol_end);
+    int32_t question_pos = _s_question_search.search(&protocol_end);
+    if (question_pos >= 0 && (end_pos < 0 || question_pos < end_pos)) {
+        end_pos = question_pos;
+    }
+    int32_t hash_pos = _s_hash_search.search(&protocol_end);
+    if (hash_pos >= 0 && (end_pos < 0 || hash_pos < end_pos)) {
+        end_pos = hash_pos;
+    }
+    return protocol_end.substring(0, end_pos);
+}
+
 bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result) {
     result->data = nullptr;
     result->size = 0;
@@ -66,9 +105,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
 
     switch (part) {
     case AUTHORITY: {
-        // Find first '/'.
-        int32_t end_pos = _s_slash_search.search(&protocol_end);
-        *result = protocol_end.substring(0, end_pos);
+        *result = find_authority(protocol_end);
         break;
     }
 
@@ -103,31 +140,21 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case HOST: {
-        // Find '@'.
-        int32_t start_pos = _s_at_search.search(&protocol_end);
+        StringRef authority = find_authority(protocol_end);
+        // Find '@' to strip out the userinfo.
+        int32_t start_pos = _s_at_search.search(&authority);
 
         if (start_pos < 0) {
-            // No '@' was found, i.e., no user:pass info was given, start after _s_protocol.
+            // No '@' was found, i.e., no user:pass info was given.
             start_pos = 0;
         } else {
             // Skip '@'.
             start_pos += _s_at.size;
         }
 
-        StringRef host_start = protocol_end.substring(start_pos);
-        // Find first '?'.
-        int32_t query_start_pos = _s_question_search.search(&host_start);
-        if (query_start_pos > 0) {
-            host_start = host_start.substring(0, query_start_pos);
-        }
+        StringRef host_start = authority.substring(start_pos);
         // Find ':' to strip out port.
         int32_t end_pos = _s_colon_search.search(&host_start);
-
-        if (end_pos < 0) {
-            // No port was given. search for '/' to determine ending position.
-            end_pos = _s_slash_search.search(&host_start);
-        }
-
         *result = host_start.substring(0, end_pos);
         break;
     }
@@ -138,18 +165,15 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case QUERY: {
-        // Find first '?'.
-        int32_t start_pos = _s_question_search.search(&protocol_end);
-
-        if (start_pos < 0) {
+        // The query component starts at the first '?' and ends before the '#' that starts the
+        // fragment, so a url whose first '#' comes before its first '?' has no query.
+        StringRef query;
+        if (!find_query_component(protocol_end, &query)) {
             // Indicate no query was found.
             return false;
         }
 
-        StringRef query_start = protocol_end.substring(start_pos + _s_question.size);
-        // End string _s_at next '#'.
-        int32_t end_pos = _s_hash_search.search(&query_start);
-        *result = query_start.substring(0, end_pos);
+        *result = query;
         break;
     }
 
@@ -167,31 +191,33 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case USERINFO: {
+        StringRef authority = find_authority(protocol_end);
         // Find '@'.
-        int32_t end_pos = _s_at_search.search(&protocol_end);
+        int32_t end_pos = _s_at_search.search(&authority);
 
         if (end_pos < 0) {
             // Indicate no user and pass were given.
             return false;
         }
 
-        *result = protocol_end.substring(0, end_pos);
+        *result = authority.substring(0, end_pos);
         break;
     }
 
     case PORT: {
-        // Find '@'.
-        int32_t start_pos = _s_at_search.search(&protocol_end);
+        StringRef authority = find_authority(protocol_end);
+        // Find '@' to strip out the userinfo.
+        int32_t start_pos = _s_at_search.search(&authority);
 
         if (start_pos < 0) {
-            // No '@' was found, i.e., no user:pass info was given, start after _s_protocol.
+            // No '@' was found, i.e., no user:pass info was given.
             start_pos = 0;
         } else {
             // Skip '@'.
             start_pos += _s_at.size;
         }
 
-        StringRef host_start = protocol_end.substring(start_pos);
+        StringRef host_start = authority.substring(start_pos);
         // Find ':' to strip out port.
         int32_t end_pos = _s_colon_search.search(&host_start);
         //no port found
@@ -199,13 +225,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
             return false;
         }
 
-        StringRef port_start_str = host_start.substring(end_pos + _s_colon.size);
-        int32_t port_end_pos = _s_slash_search.search(&port_start_str);
-        //if '/' not found, try to find '?'
-        if (port_end_pos < 0) {
-            port_end_pos = _s_question_search.search(&port_start_str);
-        }
-        *result = port_start_str.substring(0, port_end_pos);
+        *result = host_start.substring(end_pos + _s_colon.size);
         break;
     }
 
@@ -226,57 +246,58 @@ bool UrlParser::parse_url_key(const StringRef& url, UrlPart part, const StringRe
     // Remove leading and trailing spaces.
     StringRef trimmed_url = url.trim();
 
-    // Search for the key in the url, ignoring malformed URLs for now.
-    StringSearch key_search(&key);
+    // The key can only be found in the query component, which starts at the first '?' and ends
+    // before the '#' that starts the fragment (if any).
+    StringRef query;
+    if (!find_query_component(trimmed_url, &query)) {
+        // Query component is missing, the whole url is the path plus the fragment.
+        return false;
+    }
 
-    while (trimmed_url.size > 0) {
-        // Search for the key in the current substring.
-        int32_t key_pos = key_search.search(&trimmed_url);
-        bool match = true;
+    // Search for the key inside the query component, ignoring malformed URLs for now.
+    StringSearch key_search(&key);
+    // Offset of the next search inside the query component. The query component starts right
+    // after the '?', so a key at offset 0 is a query key as well.
+    int32_t offset = 0;
+
+    while (offset < query.size) {
+        // Search for the key in the remaining part of the query component.
+        StringRef rest = query.substring(offset);
+        int32_t key_pos = key_search.search(&rest);
 
         if (key_pos < 0) {
-            return false;
-        }
-
-        // Key pos must be != 0 because it must be preceded by a '?' or a '&'.
-        // Check that the char before key_pos is either '?' or '&'.
-        if (key_pos == 0 ||
-            (trimmed_url.data[key_pos - 1] != '?' && trimmed_url.data[key_pos - 1] != '&')) {
-            match = false;
-        }
-
-        // Advance substring beyond matching key.
-        trimmed_url = trimmed_url.substring(key_pos + key.size);
-
-        if (!match) {
-            continue;
-        }
-
-        if (trimmed_url.size <= 0) {
+            // No (more) key in the query component.
             break;
         }
 
-        // Next character must be '=', otherwise the match cannot be a key in the query part.
-        if (trimmed_url.data[0] != '=') {
+        offset += key_pos;
+        // The key must start the query component or be preceded by a '&'.
+        if (offset != 0 && query.data[offset - 1] != '&') {
+            // The matched text is not a key, step over it and keep searching.
+            offset += cast_set<int32_t>(key.size);
             continue;
         }
 
-        int32_t pos = 1;
+        // Positioned to the char right after the key.
+        int32_t value_pos = offset + cast_set<int32_t>(key.size);
 
-        // Find ending position of key's value by matching '#' or '&'.
-        while (pos < trimmed_url.size) {
-            switch (trimmed_url.data[pos]) {
-            case '#':
-            case '&':
-                *result = trimmed_url.substring(1, pos - 1);
-                return true;
-            }
-
-            ++pos;
+        // The key must be followed by a '=' and a value, otherwise the match cannot be a key.
+        if (value_pos >= cast_set<int32_t>(query.size) || query.data[value_pos] != '=') {
+            // Step over the matched text and keep searching.
+            offset += cast_set<int32_t>(key.size);
+            continue;
         }
 
-        // Ending position is end of string.
-        *result = trimmed_url.substring(1);
+        ++value_pos;
+
+        // Find the ending position of the key's value by matching '&'.
+        StringRef value_rest = query.substring(value_pos);
+        size_t value_end_rel_pos = value_rest.find_first_of('&');
+        int32_t value_end_pos = value_end_rel_pos == std::numeric_limits<size_t>::max()
+                                        ? cast_set<int32_t>(query.size)
+                                        : value_pos + cast_set<int32_t>(value_end_rel_pos);
+        // A duplicated key keeps the behaviour of returning the first value.
+        *result = query.substring(value_pos, value_end_pos - value_pos);
         return true;
     }
 
@@ -359,21 +380,13 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
     StringRef result("", 0);
     // Remove leading and trailing spaces.
     StringRef trimmed_url = url.trim();
-    // find '?'
-    int32_t question_pos = _s_question_search.search(&trimmed_url);
-    if (question_pos < 0) {
+    // The parameters can only be found in the query component, which starts at the first '?'
+    // and ends before the '#' that starts the fragment (if any).
+    StringRef sub_url;
+    if (!find_query_component(trimmed_url, &sub_url)) {
         // this url no parameters.
         // Example: https://doris.apache.org/
         return result;
-    }
-
-    // find '#'
-    int32_t hash_pos = _s_hash_search.search(&trimmed_url);
-    StringRef sub_url;
-    if (hash_pos < 0) {
-        sub_url = trimmed_url.substring(question_pos + 1, trimmed_url.size - question_pos - 1);
-    } else {
-        sub_url = trimmed_url.substring(question_pos + 1, hash_pos - question_pos - 1);
     }
 
     // find '&' and '=', and extract target parameter
@@ -390,8 +403,7 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
             key_url = sub_url.substring(0, and_pod);
             sub_url = sub_url.substring(and_pod + 1, len - and_pod - 1);
         } else {
-            auto end_pos = sub_url.find_first_of('#');
-            key_url = end_pos == -1 ? sub_url : sub_url.substring(0, end_pos);
+            key_url = sub_url;
             sub_url = result;
         }
         len = sub_url.size;

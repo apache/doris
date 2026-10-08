@@ -43,89 +43,86 @@ class Schema;
 
 namespace doris {
 
+// ORC and Arrow Iceberg writers share this parser so textual and binary UUID inputs always use
+// the same canonical 16-byte representation.
 Status parse_iceberg_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes);
 
-class FromBlockToRecordBatchConverter {
+// One converter owns both batch orchestration and its format-specific column bindings.
+// Schema and timezone belong to the instance so one writer cannot borrow another protocol's bindings.
+class ArrowBlockConvertor {
 public:
-    FromBlockToRecordBatchConverter(const Block& block,
-                                    const std::shared_ptr<arrow::Schema>& schema,
-                                    arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj)
-            : _block(block),
-              _schema(schema),
-              _pool(pool),
-              _cur_field_idx(-1),
-              _timezone_obj(timezone_obj),
-              _row_range_start(0),
-              _row_range_end(0) {}
+    ArrowBlockConvertor(std::shared_ptr<arrow::Schema> schema, const cctz::time_zone& timezone)
+            : _arrow_schema(std::move(schema)), _timezone(timezone) {}
+    virtual ~ArrowBlockConvertor() = default;
 
-    FromBlockToRecordBatchConverter(const Block& block,
-                                    const std::shared_ptr<arrow::Schema>& schema,
-                                    arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj,
-                                    size_t start_row, size_t end_row)
-            : _block(block),
-              _schema(schema),
-              _pool(pool),
-              _cur_field_idx(-1),
-              _timezone_obj(timezone_obj),
-              _row_range_start(start_row),
-              _row_range_end(end_row) {}
+    virtual Status init();
+    const std::shared_ptr<arrow::Schema>& arrow_schema() const { return _arrow_schema; }
 
-    ~FromBlockToRecordBatchConverter() = default;
+    Status convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
+                            std::shared_ptr<arrow::RecordBatch>* result, size_t start_row = 0,
+                            size_t end_row = 0) const;
 
-    Status convert(std::shared_ptr<arrow::RecordBatch>* out);
+    virtual Status convert_from_arrow(const std::shared_ptr<arrow::RecordBatch>& batch,
+                                      const DataTypes& types, Block* block) const;
 
-private:
-    const Block& _block;
-    const std::shared_ptr<arrow::Schema>& _schema;
-    arrow::MemoryPool* _pool;
+protected:
+    std::shared_ptr<arrow::Schema> _arrow_schema;
+    const cctz::time_zone _timezone;
 
-    size_t _cur_field_idx;
-    size_t _cur_start;
-    size_t _cur_rows;
-    ColumnPtr _cur_col;
-    DataTypePtr _cur_type;
-    arrow::ArrayBuilder* _cur_builder = nullptr;
+    virtual Status write_column(const std::shared_ptr<const IDataType>& type,
+                                const DataTypeSerDe& serde, const IColumn& column,
+                                const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                const cctz::time_zone& ctz) const = 0;
 
-    const cctz::time_zone& _timezone_obj;
-
-    // Row range for zero-copy slicing (0 means use all rows from _row_range_start)
-    size_t _row_range_start;
-    size_t _row_range_end;
-
-    std::vector<std::shared_ptr<arrow::Array>> _arrays;
+    Status write_plain_arrow_column(const std::shared_ptr<const IDataType>& type,
+                                    const DataTypeSerDe& serde, const IColumn& column,
+                                    const NullMap* null_map,
+                                    const std::shared_ptr<arrow::Field>& field,
+                                    arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                    const cctz::time_zone& ctz) const;
 };
 
-class FromRecordBatchToBlockConverter {
+// The ordinary Doris Arrow protocol is shared explicitly by its consumers, never selected
+// as a fallback for table formats with different timestamp or nested-type semantics.
+class DorisArrowBlockConvertor : public ArrowBlockConvertor {
 public:
-    FromRecordBatchToBlockConverter(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                    const DataTypes& types, const cctz::time_zone& timezone_obj)
-            : _batch(batch), _types(types), _timezone_obj(timezone_obj) {}
+    using ArrowBlockConvertor::ArrowBlockConvertor;
+    DorisArrowBlockConvertor(const Block& header, std::string timezone_name,
+                             const cctz::time_zone& timezone, bool datetime_naive = false)
+            : ArrowBlockConvertor(nullptr, timezone),
+              _header(header.clone_empty()),
+              _timezone_name(std::move(timezone_name)),
+              _datetime_naive(datetime_naive) {}
 
-    ~FromRecordBatchToBlockConverter() = default;
+    Status init() override;
+    Status convert_from_arrow(const std::shared_ptr<arrow::RecordBatch>& batch,
+                              const DataTypes& types, Block* block) const override;
 
-    Status convert(Block* block);
+protected:
+    Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
+                        const IColumn& column, const NullMap* null_map,
+                        const std::shared_ptr<arrow::Field>& field,
+                        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                        const cctz::time_zone& ctz) const override;
 
 private:
-    const std::shared_ptr<arrow::RecordBatch>& _batch;
-    const DataTypes& _types;
-    const cctz::time_zone& _timezone_obj;
-    ColumnsWithTypeAndName _columns;
+    Block _header;
+    std::string _timezone_name;
+    bool _datetime_naive = false;
 };
 
-Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
-                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
-                              const cctz::time_zone& timezone_obj);
+class ArrowFlightArrowBlockConvertor final : public DorisArrowBlockConvertor {
+public:
+    using DorisArrowBlockConvertor::DorisArrowBlockConvertor;
+};
 
-Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
-                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
-                              const cctz::time_zone& timezone_obj, size_t start_row,
-                              size_t end_row);
+class PythonArrowBlockConvertor final : public DorisArrowBlockConvertor {
+public:
+    using DorisArrowBlockConvertor::DorisArrowBlockConvertor;
+};
 
 Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema, int64_t rows,
                                     std::shared_ptr<arrow::RecordBatch>* result);
-
-Status convert_from_arrow_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                const DataTypes& types, Block* block,
-                                const cctz::time_zone& timezone_obj);
 
 } // namespace doris
