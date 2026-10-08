@@ -393,6 +393,39 @@ TEST(ArrowFlightVariantTest, SchemaMappingAndConstantScalar) {
     }
 }
 
+TEST(ArrowFlightVariantTest, NativeSchemaPreservesNestedLogicalMetadata) {
+    for (DataTypePtr variant : {DataTypePtr(std::make_shared<DataTypeVariant>()),
+                                DataTypePtr(std::make_shared<DataTypeVariantV2>())}) {
+        const auto nullable = make_nullable(variant);
+        const auto string = std::make_shared<DataTypeString>();
+        DataTypes types {nullable, std::make_shared<DataTypeArray>(nullable),
+                         std::make_shared<DataTypeMap>(string, nullable),
+                         std::make_shared<DataTypeStruct>(DataTypes {nullable}, Strings {"v"})};
+        Block block;
+        for (size_t i = 0; i < types.size(); ++i) {
+            block.insert({types[i]->create_column(), types[i], std::to_string(i)});
+        }
+        for (bool native : {false, true}) {
+            std::shared_ptr<arrow::Schema> schema;
+            ASSERT_TRUE(ArrowFlightSchemaConvertor(block, "UTC", native)
+                                .get_arrow_schema(&schema)
+                                .ok());
+            const auto& map = static_cast<const arrow::MapType&>(*schema->field(2)->type());
+            for (const auto& field : {schema->field(0), schema->field(1)->type()->field(0),
+                                      map.item_field(), schema->field(3)->type()->field(0)}) {
+                EXPECT_TRUE(field->type()->Equals(native ? native_variant() : arrow::utf8()));
+                EXPECT_TRUE(field->nullable());
+                ASSERT_NE(nullptr, field->metadata());
+                EXPECT_EQ("VARIANT", field->metadata()->Get("doris_type").ValueOrDie());
+            }
+            EXPECT_FALSE(map.key_field()->nullable());
+        }
+        std::shared_ptr<arrow::Schema> schema;
+        ASSERT_TRUE(DorisArrowSchemaConvertor(block, "UTC").get_arrow_schema(&schema).ok());
+        EXPECT_TRUE(schema->field(0)->type()->Equals(arrow::utf8()));
+    }
+}
+
 TEST(ArrowFlightVariantTest, TypedV2AndNestedStructPreserveNonJsonNumbers) {
     auto numbers = ColumnFloat64::create();
     numbers->insert_value(std::numeric_limits<double>::quiet_NaN());
@@ -559,7 +592,8 @@ TEST(ArrowFlightVariantTest, NestedTimezoneAliasesMatchPublishedSchema) {
         cctz::time_zone timezone;
         ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, timezone));
         std::shared_ptr<arrow::DataType> mapped;
-        ASSERT_TRUE(convert_to_arrow_type(type, &mapped, zone, true, true).ok());
+        ASSERT_TRUE(
+                ArrowFlightSchemaConvertor(zone, true).convert_to_arrow_type(type, &mapped).ok());
         ArrowFlightArrowBlockConvertor converter(arrow::schema({arrow::field("s", mapped, false)}),
                                                  timezone);
         std::shared_ptr<arrow::RecordBatch> batch;

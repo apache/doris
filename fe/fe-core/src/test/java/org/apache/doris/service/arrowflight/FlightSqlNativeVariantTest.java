@@ -107,10 +107,14 @@ public class FlightSqlNativeVariantTest {
                     Assert.assertEquals("", leaf.getMetadata().get("ARROW:extension:metadata"));
                     Assert.assertEquals(Arrays.asList(Field.notNullable("metadata", new ArrowType.Binary()),
                             Field.notNullable("value", new ArrowType.Binary())), leaf.getChildren());
-                } else {
-                    Assert.assertTrue(leaf.getMetadata().isEmpty());
                 }
+                Assert.assertEquals("VARIANT", leaf.getMetadata().get("doris_type"));
             }
+            // Model execution's metadata enrichment to catch Prepare/DoGet schema mismatches.
+            Field execution = FlightSqlSchemaHelper.withDorisTypeMetadata(result, nested);
+            Assert.assertTrue(FlightSqlQuerySchema.matchesExecutionSchema(
+                    new Schema(Collections.singletonList(result)),
+                    new Schema(Collections.singletonList(execution)), Collections.singletonList("s")));
         }
     }
 
