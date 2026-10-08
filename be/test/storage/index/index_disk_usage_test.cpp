@@ -154,6 +154,18 @@ protected:
         return schema;
     }
 
+    // The test schema plus a VARIANT column, whose extracted paths can have their own index files.
+    static TabletSchemaSPtr create_variant_schema() {
+        auto schema = create_schema();
+        TabletColumn variant;
+        variant.set_name("v");
+        variant.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        variant.set_is_key(false);
+        variant.set_is_nullable(true);
+        schema->append_column(variant);
+        return schema;
+    }
+
     static TabletIndex text_index(int64_t index_id, bool support_phrase) {
         TabletIndexPB index_pb;
         index_pb.set_index_type(IndexType::INVERTED);
@@ -192,10 +204,10 @@ protected:
         return index;
     }
 
-    static TabletIndexPB path_index_pb(const std::string& suffix) {
+    static TabletIndexPB path_index_pb(const std::string& suffix, int64_t index_id = 1) {
         TabletIndexPB index_pb;
         index_pb.set_index_type(IndexType::INVERTED);
-        index_pb.set_index_id(1);
+        index_pb.set_index_id(index_id);
         index_pb.set_index_name("idx_text");
         index_pb.add_col_unique_id(1);
         (*index_pb.mutable_properties())["parser"] = "english";
@@ -204,9 +216,9 @@ protected:
         return index_pb;
     }
 
-    static TabletIndex path_index(const std::string& suffix) {
+    static TabletIndex path_index(const std::string& suffix, int64_t index_id = 1) {
         TabletIndex index;
-        index.init_from_pb(path_index_pb(suffix));
+        index.init_from_pb(path_index_pb(suffix, index_id));
         return index;
     }
 
@@ -1082,7 +1094,7 @@ TEST_F(IndexDiskUsageCollectorTest, CollectPassesQueryContextToFileReads) {
 // A V1 VARIANT index writes one file per extracted path under the parent index id, while the
 // rowset schema only lists the parent index.
 TEST_F(IndexDiskUsageCollectorTest, CollectV1VariantPathFilesFromFileInfo) {
-    auto schema = create_schema();
+    auto schema = create_variant_schema();
     schema->append_index(text_index(1, true));
     auto path_index = [](const std::string& suffix) {
         TabletIndexPB index_pb;
@@ -1118,15 +1130,132 @@ TEST_F(IndexDiskUsageCollectorTest, CollectV1VariantPathFilesFromFileInfo) {
         index_info->set_index_file_size(size);
         files_size += size;
     }
+    DirectoryFileNames listing;
+    IndexDiskUsageOptions options;
+    options.directory_files = &listing;
     IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
                                       InvertedIndexStorageFormatPB::V1, 1001, file_info);
     std::vector<IndexDiskUsageRecord> records;
-    const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+    const Status st = collector.collect(options, &records);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(2U, records.size());
     EXPECT_EQ("v%2Ea", records[0].index_suffix);
     EXPECT_EQ("v%2Eb", records[1].index_suffix);
     EXPECT_EQ(files_size, sum_total(records));
+    // The rowset meta names every file, so the directory is not listed.
+    EXPECT_EQ(0, listing.listings());
+}
+
+// A VARIANT rowset without index file info may hold files of extracted paths that its schema does
+// not list, so the segment directory is searched for them.
+TEST_F(IndexDiskUsageCollectorTest, CollectV1VariantPathFilesFromDirectory) {
+    auto schema = create_variant_schema();
+    schema->append_index(text_index(1, true));
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_text},
+            {.index = path_index("v%2Ea"), .column_index = 1, .feed = feed_text},
+            {.index = path_index("v%2Eb"), .column_index = 1, .feed = feed_text},
+            {.index = path_index("v%2Ec", 12), .column_index = 1, .feed = feed_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::V1, "rs_v1_dir", schema, &specs);
+    // Files of other segments, a V2 container, a non-numeric index id and another extension must
+    // not be taken for index files of this segment. Segment 12 shares the prefix of segment 1.
+    for (const char* other : {"rs_v1_dir_1_1@v%2Ec.idx", "rs_v1_dir_012_1.idx", "rs_v1_dir_0.idx",
+                              "rs_v1_dir_0_x.idx", "rs_v1_dir_0_1.tmp", "rs_v1_dir_0_-1.idx"}) {
+        io::FileWriterPtr writer;
+        ASSERT_TRUE(
+                io::global_local_filesystem()->create_file(kTestDir + "/" + other, &writer).ok());
+        ASSERT_TRUE(writer->close().ok());
+    }
+
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::V1, 1001);
+    std::vector<IndexDiskUsageRecord> records;
+    const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(4U, records.size());
+    EXPECT_EQ(std::make_pair(int64_t {1}, std::string()),
+              std::make_pair(records[0].index_id, records[0].index_suffix));
+    EXPECT_EQ("v%2Ea", records[1].index_suffix);
+    EXPECT_EQ("v%2Eb", records[2].index_suffix);
+    EXPECT_EQ(std::make_pair(int64_t {12}, std::string("v%2Ec")),
+              std::make_pair(records[3].index_id, records[3].index_suffix));
+    EXPECT_EQ(v1_file_size(prefix, 1, "") + v1_file_size(prefix, 1, "v%2Ea") +
+                      v1_file_size(prefix, 1, "v%2Eb") + v1_file_size(prefix, 12, "v%2Ec"),
+              sum_total(records));
+}
+
+// Only a VARIANT schema can have extracted paths, so other V1 rowsets never list the directory.
+TEST_F(IndexDiskUsageCollectorTest, CollectV1WithoutVariantColumnDoesNotListDirectory) {
+    auto schema = create_schema();
+    schema->append_index(text_index(1, true));
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_text},
+            {.index = path_index("v%2Ea"), .column_index = 1, .feed = feed_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::V1, "rs_v1_nodir", schema, &specs);
+
+    DirectoryFileNames listing;
+    IndexDiskUsageOptions options;
+    options.directory_files = &listing;
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::V1, 1001);
+    std::vector<IndexDiskUsageRecord> records;
+    const Status st = collector.collect(options, &records);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(1U, records.size());
+    EXPECT_EQ(0, listing.listings());
+}
+
+// The segments of a tablet share its directory, so one listing serves all of them.
+TEST_F(IndexDiskUsageCollectorTest, CollectV1SegmentsShareOneDirectoryListing) {
+    auto schema = create_variant_schema();
+    schema->append_index(text_index(1, true));
+    std::vector<std::string> prefixes;
+    for (const char* rowset_id : {"rs_v1_share_a", "rs_v1_share_b"}) {
+        std::vector<IndexSpec> specs {
+                {.index = text_index(1, true), .column_index = 1, .feed = feed_text},
+                {.index = path_index("v%2Ea"), .column_index = 1, .feed = feed_text}};
+        prefixes.push_back(
+                write_segment(InvertedIndexStorageFormatPB::V1, rowset_id, schema, &specs));
+    }
+
+    DirectoryFileNames listing;
+    IndexDiskUsageOptions options;
+    options.directory_files = &listing;
+    for (const std::string& prefix : prefixes) {
+        IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                          InvertedIndexStorageFormatPB::V1, 1001);
+        std::vector<IndexDiskUsageRecord> records;
+        const Status st = collector.collect(options, &records);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(2U, records.size()) << prefix;
+        EXPECT_EQ("v%2Ea", records[1].index_suffix) << prefix;
+    }
+    EXPECT_EQ(1, listing.listings());
+}
+
+TEST_F(IndexDiskUsageCollectorTest, DirectoryFileNamesListsSortedNamesOnce) {
+    for (const char* name : {"b.idx", "a.idx", "c_1.idx"}) {
+        io::FileWriterPtr writer;
+        ASSERT_TRUE(
+                io::global_local_filesystem()->create_file(kTestDir + "/" + name, &writer).ok());
+        ASSERT_TRUE(writer->close().ok());
+    }
+    DirectoryFileNames listing;
+    const std::vector<std::string>* names = nullptr;
+    ASSERT_TRUE(listing.list(kTestDir, &names).ok());
+    EXPECT_EQ((std::vector<std::string> {"a.idx", "b.idx", "c_1.idx"}), *names);
+    ASSERT_TRUE(listing.list(kTestDir, &names).ok());
+    EXPECT_EQ(1, listing.listings());
+}
+
+TEST_F(IndexDiskUsageCollectorTest, DirectoryFileNamesOfMissingDirectoryIsEmpty) {
+    DirectoryFileNames listing;
+    const std::vector<std::string>* names = nullptr;
+    const Status st = listing.list(kTestDir + "/no_such_dir", &names);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(names->empty());
 }
 
 static TabletIndex usage_test_index(int64_t index_id, const std::string& name,

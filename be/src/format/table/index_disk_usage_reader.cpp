@@ -205,8 +205,10 @@ Status IndexDiskUsageReader::_collect_tablet(const TIndexDiskUsageTablet& target
     *current_schema = label_schema(tablet->tablet_schema(), rowsets);
 
     const io::IOContext io_ctx = tablet_io_context(_io_ctx, tablet->ttl_seconds());
+    segment_v2::DirectoryFileNames directory_files;
     segment_v2::IndexDiskUsageOptions options = _options;
     options.io_ctx = &io_ctx;
+    options.directory_files = &directory_files;
     for (const RowsetSharedPtr& rowset : rowsets) {
         RETURN_IF_ERROR(segment_v2::collect_rowset_index_disk_usage(rowset, options,
                                                                     target.tablet_id, rows));

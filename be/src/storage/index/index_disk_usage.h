@@ -51,6 +51,22 @@ struct IndexDiskUsageRecord {
     int64_t other_bytes = 0;
 };
 
+// The sorted names of the files in one local directory, listed on first use and shared by the
+// segments that live there.
+class DirectoryFileNames {
+public:
+    // Sets `names` to the sorted file names in `dir`, which are none when `dir` does not exist.
+    Status list(const std::string& dir, const std::vector<std::string>** names);
+    // How many times a directory was listed.
+    int listings() const { return _listings; }
+
+private:
+    std::string _dir;
+    std::vector<std::string> _names;
+    bool _listed = false;
+    int _listings = 0;
+};
+
 struct IndexDiskUsageOptions {
     // Scan SNII dictionary blocks to split positions out of postings.
     bool position_detail = false;
@@ -62,6 +78,9 @@ struct IndexDiskUsageOptions {
     // The query context passed to every index file read, so the file cache accounts these reads
     // to the query. Unset means the default read behavior.
     const io::IOContext* io_ctx = nullptr;
+    // The listing of the directory that holds the segments of one tablet. Unset means each
+    // segment that needs a listing lists the directory itself.
+    DirectoryFileNames* directory_files = nullptr;
 };
 
 enum class IndexDiskUsageLevel : uint8_t { kTablet, kRowset, kSegment };

@@ -18,8 +18,15 @@
 #include "storage/index/index_disk_usage.h"
 
 #include <algorithm>
+#include <charconv>
+#include <deque>
+#include <filesystem>
+#include <limits>
 #include <map>
 #include <memory>
+#include <optional>
+#include <set>
+#include <system_error>
 #include <tuple>
 #include <utility>
 
@@ -83,11 +90,11 @@ struct V1IndexFile {
 
 // Lists the V1 index files of a segment from the rowset meta, which records every written file,
 // including the extracted VARIANT paths that the schema does not list. Rowsets without that record
-// fall back to the inverted and ANN indexes of their own schema, which list each extracted path.
+// fall back to the inverted and ANN indexes of their own schema.
 // `owned` keeps the indexes built from the rowset meta.
 std::vector<V1IndexFile> list_v1_index_files(const TabletSchema& schema,
                                              const InvertedIndexFileInfo& file_info,
-                                             std::vector<TabletIndex>* owned) {
+                                             std::deque<TabletIndex>* owned) {
     std::vector<V1IndexFile> files;
     if (file_info.index_info_size() == 0) {
         for (const TabletIndex* index : schema.inverted_and_ann_indexes()) {
@@ -95,7 +102,6 @@ std::vector<V1IndexFile> list_v1_index_files(const TabletSchema& schema,
         }
         return files;
     }
-    owned->reserve(file_info.index_info_size());
     for (const auto& index_info : file_info.index_info()) {
         TabletIndexPB index_pb;
         index_pb.set_index_type(IndexType::INVERTED);
@@ -108,6 +114,68 @@ std::vector<V1IndexFile> list_v1_index_files(const TabletSchema& schema,
                                                    : -1});
     }
     return files;
+}
+
+// Parses the index id and suffix out of `{segment}_{index_id}[@{suffix}].idx`, the name of a V1
+// index file of the segment named `segment`.
+std::optional<std::pair<int64_t, std::string>> parse_v1_index_file_name(std::string_view name,
+                                                                        std::string_view segment) {
+    constexpr std::string_view extension = InvertedIndexDescriptor::index_suffix;
+    if (name.size() < segment.size() + extension.size() + 2 || !name.starts_with(segment) ||
+        !name.ends_with(extension) || name[segment.size()] != '_') {
+        return std::nullopt;
+    }
+    std::string_view rest = name.substr(segment.size() + 1);
+    rest.remove_suffix(extension.size());
+    uint64_t index_id = 0;
+    const auto [digits_end, error] =
+            std::from_chars(rest.data(), rest.data() + rest.size(), index_id);
+    if (error != std::errc() || index_id > std::numeric_limits<int64_t>::max()) {
+        return std::nullopt;
+    }
+    std::string_view tail = rest.substr(digits_end - rest.data());
+    if (tail.empty()) {
+        return std::make_pair(static_cast<int64_t>(index_id), std::string());
+    }
+    if (tail.front() != '@') {
+        return std::nullopt;
+    }
+    return std::make_pair(static_cast<int64_t>(index_id), std::string(tail.substr(1)));
+}
+
+// A legacy local VARIANT rowset has no index file info, and its schema may not name every file
+// that was written for an extracted path. Adds the V1 index files of the segment that exist in its
+// directory and are not in `files` yet, in index id and suffix order.
+Status add_v1_index_files_on_disk(const std::string& index_path_prefix,
+                                  DirectoryFileNames* directory_files,
+                                  std::deque<TabletIndex>* owned, std::vector<V1IndexFile>* files) {
+    const std::filesystem::path prefix(index_path_prefix);
+    const std::vector<std::string>* names = nullptr;
+    RETURN_IF_ERROR(directory_files->list(prefix.parent_path().string(), &names));
+    std::set<std::pair<int64_t, std::string>> listed;
+    for (const V1IndexFile& file : *files) {
+        listed.emplace(file.index->index_id(), file.index->get_index_suffix());
+    }
+    // The names are sorted, so the files of this segment are adjacent.
+    const std::string segment_name = prefix.filename().string();
+    const std::string name_prefix = segment_name + "_";
+    std::set<std::pair<int64_t, std::string>> on_disk;
+    for (auto it = std::lower_bound(names->begin(), names->end(), name_prefix);
+         it != names->end() && it->starts_with(name_prefix); ++it) {
+        if (auto parsed = parse_v1_index_file_name(*it, segment_name);
+            parsed.has_value() && !listed.contains(*parsed)) {
+            on_disk.insert(std::move(*parsed));
+        }
+    }
+    for (const auto& [index_id, suffix] : on_disk) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_type(IndexType::INVERTED);
+        index_pb.set_index_id(index_id);
+        index_pb.set_index_suffix_name(suffix);
+        owned->emplace_back().init_from_pb(index_pb);
+        files->push_back({.index = &owned->back(), .persisted_size = -1});
+    }
+    return Status::OK();
 }
 
 // Classifies every sub-file of a CLucene directory into `record` and adds their total length to
@@ -164,6 +232,35 @@ int64_t merge_component(int64_t lhs, int64_t rhs) {
 }
 
 } // namespace
+
+Status DirectoryFileNames::list(const std::string& dir, const std::vector<std::string>** names) {
+    if (!_listed || _dir != dir) {
+        // The file sizes are not read: unused rowsets delete their files from the tablet directory
+        // while it is listed, and the stat of a vanished file would fail the listing. An entry whose
+        // type cannot be read is gone and is skipped.
+        std::error_code ec;
+        std::filesystem::directory_iterator it(dir, ec);
+        if (ec && ec != std::errc::no_such_file_or_directory) {
+            return Status::IOError("failed to list {}: {}", dir, ec.message());
+        }
+        _names.clear();
+        for (const std::filesystem::directory_iterator end; !ec && it != end; it.increment(ec)) {
+            std::error_code type_ec;
+            if (it->is_regular_file(type_ec)) {
+                _names.push_back(it->path().filename().string());
+            }
+        }
+        if (ec && ec != std::errc::no_such_file_or_directory) {
+            return Status::IOError("failed to list {}: {}", dir, ec.message());
+        }
+        std::sort(_names.begin(), _names.end());
+        _dir = dir;
+        _listed = true;
+        ++_listings;
+    }
+    *names = &_names;
+    return Status::OK();
+}
 
 std::vector<IndexDiskUsageRow> aggregate_index_disk_usage(std::vector<IndexDiskUsageRow> rows,
                                                           IndexDiskUsageLevel level) {
@@ -265,8 +362,18 @@ Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options
                                             std::vector<IndexDiskUsageRecord>* out) {
     IndexFileReader reader(_fs, _index_path_prefix, _format, _index_file_info, _tablet_id);
     RETURN_IF_ERROR(reader.init(config::inverted_index_read_buffer_size, options.io_ctx));
-    std::vector<TabletIndex> file_indexes;
-    for (const V1IndexFile& file : list_v1_index_files(*_schema, _index_file_info, &file_indexes)) {
+    std::deque<TabletIndex> file_indexes;
+    std::vector<V1IndexFile> v1_files =
+            list_v1_index_files(*_schema, _index_file_info, &file_indexes);
+    if (_index_file_info.index_info_size() == 0 && _schema->num_variant_columns() > 0 &&
+        _fs->type() == io::FileSystemType::LOCAL) {
+        DirectoryFileNames own_listing;
+        RETURN_IF_ERROR(add_v1_index_files_on_disk(
+                _index_path_prefix,
+                options.directory_files != nullptr ? options.directory_files : &own_listing,
+                &file_indexes, &v1_files));
+    }
+    for (const V1IndexFile& file : v1_files) {
         const TabletIndex& index = *file.index;
         if (!is_wanted(options, index.index_id())) {
             continue;
