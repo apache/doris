@@ -305,8 +305,7 @@ Status OperatorXBase::close(RuntimeState* state) {
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
-    _origin_block.clear_column_data(
-            _parent->operator_row_desc_before_projection().num_materialized_slots());
+    _origin_block.clear_column_data(_parent->operator_row_desc_before_projection().num_slots());
 }
 
 Status PipelineXLocalStateBase::filter_block(const VExprContextSPtrs& expr_contexts, Block* block) {
@@ -398,7 +397,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
     }
 
     origin_block->clear_column_data(
-            local_state->_parent->operator_row_desc_before_projection().num_materialized_slots());
+            local_state->_parent->operator_row_desc_before_projection().num_slots());
     DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
@@ -746,7 +745,7 @@ Status StatefulOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Bl
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data(
                 OperatorX<LocalStateType>::_child->operator_row_desc_after_projection()
-                        .num_materialized_slots());
+                        .num_slots());
         RETURN_IF_ERROR(OperatorX<LocalStateType>::_child->get_block_after_projects(
                 state, local_state._child_block.get(), &local_state._child_eos));
         *eos = local_state._child_eos;
