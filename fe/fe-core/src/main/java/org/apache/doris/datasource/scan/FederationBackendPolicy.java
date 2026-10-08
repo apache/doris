@@ -323,10 +323,13 @@ public class FederationBackendPolicy {
 
             Backend selectedBackend = isSpreadEnabled() && split.isRemotelyAccessible()
                     ? chooseNodeForSpread(candidateNodes) : chooseNodeForSplit(candidateNodes);
-            List<Backend> alternativeBackends = new ArrayList<>(candidateNodes);
-            alternativeBackends.remove(selectedBackend);
-            split.setAlternativeHosts(
-                    alternativeBackends.stream().map(each -> each.getHost()).collect(Collectors.toList()));
+            // Alternative hosts are used only by global redistribution, which spread mode disables.
+            if (!isSpreadEnabled()) {
+                List<Backend> alternativeBackends = new ArrayList<>(candidateNodes);
+                alternativeBackends.remove(selectedBackend);
+                split.setAlternativeHosts(
+                        alternativeBackends.stream().map(each -> each.getHost()).collect(Collectors.toList()));
+            }
             assignment.put(selectedBackend, split);
             assignedWeightPerBackend.put(selectedBackend,
                     assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());

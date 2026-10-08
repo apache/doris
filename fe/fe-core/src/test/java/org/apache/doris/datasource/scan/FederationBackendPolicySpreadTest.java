@@ -131,7 +131,7 @@ public class FederationBackendPolicySpreadTest {
             Backend target = assign(policy, split);
             Assertions.assertEquals(candidates.get(index), target);
             selected.add(target);
-            Assertions.assertEquals(2, split.getAlternativeHosts().size());
+            Assertions.assertNull(split.getAlternativeHosts());
         }
         Assertions.assertEquals(new HashSet<>(backends), selected);
     }
@@ -421,6 +421,26 @@ public class FederationBackendPolicySpreadTest {
             local.setHosts(new String[] {otherGroup.getHost()});
             Assertions.assertThrows(UserException.class, () -> assign(policy, local));
         }
+    }
+
+    @Test
+    public void testSpreadDoesNotRetainUnusedAlternativeHosts() throws Exception {
+        for (NodeSelectionStrategy strategy : Arrays.asList(NodeSelectionStrategy.RANDOM,
+                NodeSelectionStrategy.CONSISTENT_HASHING)) {
+            FederationBackendPolicy policy = new FederationBackendPolicy(strategy, 0, bound -> bound - 1);
+            policy.init();
+            List<Split> splits = new ArrayList<>();
+            for (int i = 0; i < 30; i++) {
+                splits.add(split());
+            }
+            Assertions.assertEquals(30, policy.computeScanRangeAssignment(splits).size());
+            for (Split split : splits) {
+                Assertions.assertNull(split.getAlternativeHosts());
+            }
+        }
+        FileSplit legacySplit = split();
+        assign(policy(1, bound -> bound - 1), legacySplit);
+        Assertions.assertEquals(1, legacySplit.getAlternativeHosts().size());
     }
 
     @Test
