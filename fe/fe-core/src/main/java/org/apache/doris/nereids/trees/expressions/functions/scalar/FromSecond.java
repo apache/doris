@@ -41,6 +41,7 @@ public class FromSecond extends ScalarFunction
         FromSecondMonotonic {
 
     public static final int RESULT_SCALE = 0;
+
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.of(RESULT_SCALE)).args(BigIntType.INSTANCE));
 
@@ -67,6 +68,11 @@ public class FromSecond extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitScalarFunction(this, context);
+    }
+
+    @Override
+    public long getEpochUnitsPerSecond() {
+        return 1;
     }
 
     @Override
