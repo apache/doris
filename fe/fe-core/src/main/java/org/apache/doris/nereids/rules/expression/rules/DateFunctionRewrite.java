@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -103,19 +104,33 @@ public class DateFunctionRewrite implements ExpressionPatternRuleFactory {
             // V1
             if (greaterThan.left().child(0).getDataType() instanceof DateTimeType
                     && greaterThan.right() instanceof DateLiteral) {
-                DateTimeLiteral newLiteral = ((DateLiteral) greaterThan.right()).toBeginOfTomorrow();
-                return new GreaterThanEqual(greaterThan.left().child(0), newLiteral);
+                Expression dateTime = greaterThan.left().child(0);
+                DateLiteral date = (DateLiteral) greaterThan.right();
+                if (isTomorrowOutOfRange(date)) {
+                    return ExpressionUtils.falseOrNull(dateTime);
+                }
+                DateTimeLiteral newLiteral = date.toBeginOfTomorrow();
+                return new GreaterThanEqual(dateTime, newLiteral);
             }
 
             // V2
             if (greaterThan.left().child(0).getDataType() instanceof DateTimeV2Type
                     && greaterThan.right() instanceof DateV2Literal) {
-                DateTimeV2Literal newLiteral = ((DateV2Literal) greaterThan.right()).toBeginOfTomorrow();
-                return new GreaterThanEqual(greaterThan.left().child(0), newLiteral);
+                Expression dateTime = greaterThan.left().child(0);
+                DateV2Literal date = (DateV2Literal) greaterThan.right();
+                if (isTomorrowOutOfRange(date)) {
+                    return ExpressionUtils.falseOrNull(dateTime);
+                }
+                DateTimeV2Literal newLiteral = date.toBeginOfTomorrow();
+                return new GreaterThanEqual(dateTime, newLiteral);
             }
         }
 
         return greaterThan;
+    }
+
+    private static boolean isTomorrowOutOfRange(DateLiteral date) {
+        return DateLiteral.isDateOutOfRange(date.toJavaDateType().plusDays(1));
     }
 
     private static Expression rewriteGreaterThanEqual(GreaterThanEqual greaterThanEqual) {

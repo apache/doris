@@ -38,6 +38,7 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -90,11 +91,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
-import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -363,14 +361,6 @@ public class BindSink implements AnalysisRuleFactory {
 
     @VisibleForTesting
     static Expression coerceSinkExpression(Expression expression, DataType targetType) {
-        if (!Config.enable_variant_v2
-                && expression.getDataType() instanceof ConnectorComputeVariantType
-                && targetType instanceof VariantType
-                && !(targetType instanceof ConnectorComputeVariantType)) {
-            // JSONB is the executable carrier shared by compute-only V2 and legacy Variant;
-            // a direct cast crosses incompatible physical columns at CTAS/MTMV sink boundaries.
-            return new Cast(new Cast(expression, JsonType.INSTANCE), targetType);
-        }
         return TypeCoercionUtils.castIfNotSameType(expression, targetType);
     }
 
@@ -716,17 +706,16 @@ public class BindSink implements AnalysisRuleFactory {
                             + ", query output: " + child.getOutput().size());
         }
 
-        // Build columnToOutput mapping and reuse getOutputProjectByCoercion for type cast,
-        // same as OlapTable INSERT INTO.
-        Map<String, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
+        // TVF schemas mirror query output positions; display names can repeat and must not identify values.
+        ImmutableList.Builder<NamedExpression> outputBuilder = ImmutableList.builderWithExpectedSize(cols.size());
         for (int i = 0; i < cols.size(); i++) {
             Column col = cols.get(i);
             NamedExpression childExpr = (NamedExpression) child.getOutput().get(i);
             Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
                     childExpr, DataType.fromCatalogType(col.getType())), col.getName());
-            columnToOutput.put(col.getName(), output);
+            outputBuilder.add(output);
         }
-        LogicalProject<?> projectWithCast = getOutputProjectByCoercion(cols, child, columnToOutput);
+        LogicalProject<?> projectWithCast = new LogicalProject<>(outputBuilder.build(), child);
 
         List<NamedExpression> outputExprs = projectWithCast.getOutput().stream()
                 .map(NamedExpression.class::cast)
@@ -759,7 +748,7 @@ public class BindSink implements AnalysisRuleFactory {
      * stay in the connector (iceberg). A connector {@link DorisConnectorException} is surfaced as the
      * analysis-time {@link AnalysisException} the legacy native path threw, preserving the user-facing message
      * and the exception type. The literal-value check is connector-agnostic and stays here, where the Nereids
-     * expression is available. Plumbing mirrors {@code IcebergRowLevelDmlTransform.checkPluginMode}.
+     * expression is available. Plumbing mirrors {@code PositionDeleteRowLevelDmlTransform.checkPluginMode}.
      */
     private void checkConnectorStaticPartitions(PluginDrivenExternalTable table,
             Map<String, Expression> staticPartitions, Set<String> staticPartitionColNames) {
@@ -907,6 +896,26 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> targetWriteSchema = resolvedTargetSchema.stream()
                 .filter(column -> isConnectorSinkWriteColumn(column, sink.isRewrite()))
                 .collect(ImmutableList.toImmutableList());
+        if (sink.getRowChangeSpec().isPresent()) {
+            ConnectorChangelogMode changelogMode = table.getConnectorChangelogMode()
+                    .orElseThrow(() -> new AnalysisException(
+                            "Connector changelog write mode is not configured for table " + table.getName()));
+            child = ConnectorChangelogPlanBuilder.build(targetWriteSchema, table,
+                    table.getConnectorRowLevelPrimaryKeyColumns(), changelogMode,
+                    sink.getRowChangeSpec().get(), child, ctx.cascadesContext);
+            List<NamedExpression> outputExpressions = child.getOutput().stream()
+                    .map(NamedExpression.class::cast)
+                    .collect(ImmutableList.toImmutableList());
+            if (outputExpressions.size() != targetWriteSchema.size() + 1) {
+                throw new AnalysisException("Connector changelog sink must produce an operation column and "
+                        + targetWriteSchema.size() + " table columns, but got " + outputExpressions.size());
+            }
+            return new LogicalConnectorTableSink<>(database, table, targetWriteSchema,
+                    targetMetadata.getPartitionColumns(), targetMetadata.getWriteMetadataIdentity(),
+                    targetWriteSchema, outputExpressions, sink.getDMLCommandType(), false,
+                    true,
+                    Optional.empty(), Optional.empty(), child);
+        }
         if (sink.isRewrite()) {
             List<NamedExpression> rewriteOutputs = selectConnectorRewriteOutputs(
                     targetWriteSchema, child.getOutput());

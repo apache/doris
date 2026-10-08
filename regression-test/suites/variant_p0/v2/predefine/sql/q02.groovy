@@ -18,8 +18,6 @@
 import org.apache.doris.regression.util.SqlUtils
 
 suite("q02", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-        assertTrue(getFeConfig("enable_variant_v2").toBoolean())
         String sqlText = $/
 select * from test_predefine2 order by id limit 10;
 select * from test_predefine2 where array_contains(cast(v1['array_int'] as array<int>), 1) order by id limit 4;
@@ -50,5 +48,5 @@ select * from test_predefine2 where cast(v1['varchar_'] as varchar) = 'hello wor
         sqls.eachWithIndex { String statement, int index ->
             quickTest(index == 0 ? "q02" : "q02_${index + 1}", statement, false)
         }
-    }
+
 }

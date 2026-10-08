@@ -30,19 +30,24 @@
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/value/uuid_value.h"
 #include "format/orc/vorc_reader.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -59,6 +64,80 @@ protected:
     std::string _file_path;
     std::shared_ptr<io::FileSystem> _fs;
 };
+
+TEST_F(VOrcTransformerTest, RejectsLossyPreEpochFractions) {
+    for (const auto& type : DataTypes {std::make_shared<DataTypeDateTimeV2>(6),
+                                       std::make_shared<DataTypeTimeStampTz>(6)}) {
+        for (int microsecond : {0, 1, 999, 1000, 999999}) {
+            auto column = type->create_column();
+            DateV2Value<DateTimeV2ValueType> value;
+            value.unchecked_set_time(1969, 12, 31, 23, 59, 59, microsecond);
+            auto packed = value.to_date_int_val();
+            column->insert_data(reinterpret_cast<const char*>(&packed), sizeof(packed));
+            orc::TimestampVectorBatch batch(1, *orc::getDefaultPool());
+            batch.notNull[0] = 1;
+            Arena arena;
+            auto status = type->get_serde()->write_column_to_orc("UTC", *column, nullptr, &batch, 0,
+                                                                 1, arena, {});
+            // ORC-645 makes this fractional interval alias positive timestamps on disk.
+            EXPECT_EQ(microsecond < 1000, status.ok()) << microsecond << " " << status.to_string();
+            batch.notNull[0] = 0;
+            EXPECT_TRUE(
+                    type->get_serde()
+                            ->write_column_to_orc("UTC", *column, nullptr, &batch, 0, 1, arena, {})
+                            .ok());
+        }
+    }
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): assertions cover the timezone/type matrix.
+TEST_F(VOrcTransformerTest, TimestampBoundsRetainMicroseconds) {
+    TimezoneUtils::load_timezones_to_cache();
+    // UTC aliases must share ORC's UTC encoding, including names without a zoneinfo file.
+    for (const std::string timezone :
+         {"UTC", "Etc/UTC", "UTC+0", "+00:00", "Asia/Shanghai", "America/New_York"}) {
+        SCOPED_TRACE(timezone);
+        for (const auto& type : DataTypes {std::make_shared<DataTypeDateTimeV2>(6),
+                                           std::make_shared<DataTypeTimeStampTz>(6)}) {
+            SCOPED_TRACE(type->get_name());
+            std::string schema_json =
+                    R"({"type":"struct","fields":[{"id":1,"name":"event_time","required":true,"type":")";
+            schema_json +=
+                    type->get_primitive_type() == TYPE_TIMESTAMPTZ ? "timestamptz" : "timestamp";
+            schema_json += R"("}]})";
+            auto schema = iceberg::SchemaParser::from_json(schema_json);
+            auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+            io::FileWriterPtr file_writer;
+            ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+            RuntimeState state;
+            state.set_timezone(timezone);
+            VOrcTransformer transformer(&state, file_writer.get(), exprs, "", {"event_time"}, false,
+                                        TFileCompressType::PLAIN, schema.get(), _fs);
+            ASSERT_TRUE(transformer.open().ok());
+            auto column = type->create_column();
+            for (const auto& fields : std::vector<std::array<int, 7>> {
+                         {1969, 12, 31, 23, 59, 58, 999999}, {2021, 11, 7, 6, 30, 0, 123456}}) {
+                DateV2Value<DateTimeV2ValueType> value;
+                value.unchecked_set_time(fields[0], fields[1], fields[2], fields[3], fields[4],
+                                         fields[5], fields[6]);
+                auto packed = value.to_date_int_val();
+                column->insert_data(reinterpret_cast<const char*>(&packed), sizeof(packed));
+            }
+            ASSERT_TRUE(transformer.write(Block({{std::move(column), type, "event_time"}})).ok());
+            ASSERT_TRUE(transformer.close().ok());
+            TIcebergColumnStats stats;
+            ASSERT_TRUE(transformer.collect_file_statistics_after_close(&stats).ok());
+            ASSERT_EQ(sizeof(int64_t), stats.lower_bounds.at(1).size());
+            ASSERT_EQ(sizeof(int64_t), stats.upper_bounds.at(1).size());
+            int64_t lower;
+            int64_t upper;
+            memcpy(&lower, stats.lower_bounds.at(1).data(), sizeof(lower));
+            memcpy(&upper, stats.upper_bounds.at(1).data(), sizeof(upper));
+            EXPECT_EQ(-1000001, lower);
+            EXPECT_EQ(1636266600123456, upper);
+        }
+    }
+}
 
 TEST_F(VOrcTransformerTest, CollectsBoundsForTopLevelFieldAfterStruct) {
     auto int_type = std::make_shared<DataTypeInt32>();
@@ -147,6 +226,85 @@ TEST_F(VOrcTransformerTest, IcebergBinaryTypesOverrideLegacyStringCarrier) {
     auto binary_type = transformer._build_orc_type(string_type, fields.data() + 2);
     EXPECT_EQ(orc::BINARY, binary_type->getKind());
     EXPECT_EQ("BINARY", binary_type->getAttributeValue("iceberg.binary-type"));
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest assertions expand to branches.
+TEST_F(VOrcTransformerTest, NativeUuidBinaryFileRoundTrip) {
+    for (const std::string& schema_text : {"", "struct<u:binary,a:array<binary>,text:string>"}) {
+        auto uuid_type = make_nullable(std::make_shared<DataTypeUUID>());
+        auto array_type = std::make_shared<DataTypeArray>(uuid_type);
+        auto string_type = std::make_shared<DataTypeString>();
+        DataTypes types {uuid_type, array_type, string_type};
+        auto expressions = MockSlotRef::create_mock_contexts(types);
+        Block block;
+        const std::vector<std::string> inputs {
+                "00112233-4455-6677-8899-aabbccddeeff",
+                R"(["ffffffff-ffff-ffff-ffff-ffffffffffff",null,"00000000-0000-0000-0000-000000000000"])",
+                "00112233-4455-6677-8899-aabbccddeeff"};
+        for (size_t index = 0; index < types.size(); ++index) {
+            auto column = types[index]->create_column();
+            Slice input(inputs[index]);
+            ASSERT_TRUE(types[index]
+                                ->get_serde()
+                                ->deserialize_one_cell_from_json(*column, input, {})
+                                .ok());
+            column->insert_default();
+            block.insert({std::move(column), types[index], std::to_string(index)});
+        }
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+        RuntimeState state;
+        state.set_timezone("UTC");
+        VOrcTransformer transformer(&state, file_writer.get(), expressions, schema_text,
+                                    {"u", "a", "text"}, false, TFileCompressType::PLAIN, nullptr,
+                                    _fs);
+        ASSERT_TRUE(transformer.open().ok());
+        ASSERT_TRUE(transformer.write(block).ok());
+        ASSERT_TRUE(transformer.close().ok());
+        auto reader = orc::createReader(orc::readLocalFile(_file_path), orc::ReaderOptions());
+        const auto& schema = reader->getType();
+        EXPECT_EQ(schema.getSubtype(0)->getKind(), orc::BINARY);
+        EXPECT_EQ(schema.getSubtype(0)->getAttributeValue("doris.logical_type"), "uuid");
+        EXPECT_EQ(schema.getSubtype(1)->getSubtype(0)->getKind(), orc::BINARY);
+        EXPECT_EQ(schema.getSubtype(1)->getSubtype(0)->getAttributeValue("doris.logical_type"),
+                  "uuid");
+        EXPECT_EQ(schema.getSubtype(2)->getKind(), orc::STRING);
+        auto row_reader = reader->createRowReader();
+        auto batch = row_reader->createRowBatch(10);
+        ASSERT_TRUE(row_reader->next(*batch));
+        const auto& root = assert_cast<const orc::StructVectorBatch&>(*batch);
+        const auto& uuid_batch = assert_cast<const orc::StringVectorBatch&>(*root.fields[0]);
+        EXPECT_EQ(uuid_batch.length[0], 16);
+        const std::array<uint8_t, 16> expected {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                                0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+        EXPECT_EQ(std::memcmp(uuid_batch.data[0], expected.data(), expected.size()), 0);
+        for (size_t index = 0; index < types.size(); ++index) {
+            OrcDecodedColumnView view;
+            view.file_type = schema.getSubtype(index);
+            view.selected_type = view.file_type;
+            view.batch = root.fields[index];
+            view.rows = batch->numElements;
+            auto restored = types[index]->create_column();
+            ASSERT_TRUE(types[index]->get_serde()->read_column_from_orc(*restored, view).ok());
+            ASSERT_EQ(restored->size(), block.rows());
+            for (size_t row = 0; row < block.rows(); ++row) {
+                EXPECT_EQ((*restored)[row], (*block.get_by_position(index).column)[row]);
+            }
+        }
+    }
+}
+
+TEST_F(VOrcTransformerTest, RejectsTextSchemaForNativeUuid) {
+    auto array_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeUUID>()));
+    auto expressions = MockSlotRef::create_mock_contexts(DataTypes {array_type});
+    RuntimeState state;
+    state.set_timezone("UTC");
+    VOrcTransformer transformer(&state, nullptr, expressions, "struct<a:array<string>>", {"a"},
+                                false, TFileCompressType::PLAIN, nullptr, _fs);
+    const auto status = transformer.open();
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("ORC UUID requires BINARY"), std::string::npos);
 }
 
 TEST_F(VOrcTransformerTest, ConvertsNestedLegacyUuidAndValidatesFixedBeforeOrcWrite) {

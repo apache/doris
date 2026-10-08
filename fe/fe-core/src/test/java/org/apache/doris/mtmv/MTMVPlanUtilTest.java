@@ -353,6 +353,22 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     }
 
     @Test
+    public void testCreateMTMVWithAggStateColumn() throws Exception {
+        boolean originalEnableAggState = connectContext.getSessionVariable().enableAggState;
+        connectContext.getSessionVariable().enableAggState = true;
+        connectContext.setThreadLocalInfo();
+        try {
+            Assertions.assertDoesNotThrow(() -> createMvByNereids(
+                    "create materialized view mv_with_agg_state BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                            + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                            + "PROPERTIES ('replication_num' = '1')\n"
+                            + "as select id, sum_union(sum_state(score)) from test.T1 group by id"));
+        } finally {
+            connectContext.getSessionVariable().enableAggState = originalEnableAggState;
+        }
+    }
+
+    @Test
     public void testEnsureMTMVQueryUsable() throws Exception {
         createMvByNereids("create materialized view mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
@@ -488,6 +504,76 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(incrementalMtmv, incrementalCtx));
         Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
                 incrementalCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+    }
+
+    @Test
+    public void testEnsureMTMVQueryUsableWithRowBinlogHiddenColumns() throws Exception {
+        // A table created with row binlog carries hidden columns its query never produces:
+        // __DORIS_COMMIT_TSO_COL__ for merge-on-write unique keys, plus __DORIS_ROW_LSN_COL__ for
+        // duplicate keys. InternalCatalog#createOlapTable adds them while the table is built, so an
+        // MV that enables row binlog itself ends up with them in its physical schema.
+        // ensureMTMVQueryUsable re-derives the schema from the query and compares the two
+        // (checkColumnIfChange), so the analyzed column list has to carry them too -- otherwise
+        // every refresh of such an MV fails with a spurious "column length not equals".
+        createTableWithRowBinlog("CREATE TABLE IF NOT EXISTS row_binlog_schema_base (\n"
+                + "    k1 int,\n"
+                + "    v1 int\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')\n");
+
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            createMvByNereids("create materialized view row_binlog_schema_ivm "
+                    + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
+                    + "'binlog.format' = 'ROW') \n"
+                    + "        as select k1, v1 from test.row_binlog_schema_base;");
+            createMvByNereids("create materialized view row_binlog_schema_dup "
+                    + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
+                    + "'binlog.format' = 'ROW') \n"
+                    + "        as select k1, v1 from test.row_binlog_schema_base;");
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+        createMvByNereids("create materialized view row_binlog_schema_plain "
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select k1, v1 from test.row_binlog_schema_base;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV ivmMv = (MTMV) db.getTableOrAnalysisException("row_binlog_schema_ivm");
+        MTMV dupMv = (MTMV) db.getTableOrAnalysisException("row_binlog_schema_dup");
+        MTMV plainMv = (MTMV) db.getTableOrAnalysisException("row_binlog_schema_plain");
+
+        Assertions.assertEquals(Lists.newArrayList(Column.COMMIT_TSO_COL), rowBinlogHiddenColumns(ivmMv));
+        Assertions.assertEquals(Lists.newArrayList(Column.COMMIT_TSO_COL, Column.ROW_LSN_COL),
+                rowBinlogHiddenColumns(dupMv));
+        Assertions.assertTrue(rowBinlogHiddenColumns(plainMv).isEmpty());
+
+        for (MTMV mtmv : Lists.newArrayList(ivmMv, dupMv, plainMv)) {
+            ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv,
+                    MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
+            Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx),
+                    "analyzed schema must match the physical schema of " + mtmv.getName());
+        }
+    }
+
+    private static List<String> rowBinlogHiddenColumns(MTMV mtmv) {
+        List<String> hidden = Lists.newArrayList();
+        for (Column column : mtmv.getBaseSchema(true)) {
+            if (column.getName().equalsIgnoreCase(Column.COMMIT_TSO_COL)
+                    || column.getName().equalsIgnoreCase(Column.ROW_LSN_COL)) {
+                hidden.add(column.getName().toUpperCase());
+            }
+        }
+        return hidden;
     }
 
     @Test

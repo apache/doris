@@ -17,8 +17,12 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "util/jni-util.h"
 
@@ -49,15 +53,15 @@ public:
     ~JniUtilTest() override = default;
 
     Status init() {
-        auto st = doris::Jni::Util::Init();
+        JNIEnv* env = nullptr;
+        // Creates the JVM if this process has none yet.
+        auto st = Jni::Env::Get(&env);
 
         if (!st.ok()) {
             exit(1);
         }
-        JNIEnv* env;
 
         // jvm mem
-        RETURN_IF_ERROR(Jni::Env::Get(&env));
         RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/Runtime", &runtime_cls));
 
         RETURN_IF_ERROR(runtime_cls.get_static_method(env, "getRuntime", "()Ljava/lang/Runtime;",
@@ -677,6 +681,96 @@ TEST_F(JniUtilTest, TestConvertMap) {
     ASSERT_TRUE(check_mem_diff(info_before, info_after_gc, 5.0));
 
     ASSERT_TRUE(Jni::Env::Get(&env).ok());
+}
+
+// The JVM heap size BE reads back out of its own options, which is what rate limits hdfs
+// writes. It needs no JVM to test, and every case below is one the option string can really
+// carry: the options come from an operator's be.conf.
+class JniUtilHeapSizeTest : public testing::Test {
+protected:
+    void SetUp() override {
+        for (const char* name : {"JAVA_OPTS", "LIBHDFS_OPTS"}) {
+            if (const char* value = getenv(name); value != nullptr) {
+                _saved.emplace_back(name, value);
+            }
+            unsetenv(name);
+        }
+        _saved_size = Jni::Util::max_jvm_heap_memory_size_;
+    }
+
+    void TearDown() override {
+        for (const auto& [name, value] : _saved) {
+            setenv(name.c_str(), value.c_str(), 1);
+        }
+        Jni::Util::max_jvm_heap_memory_size_ = _saved_size;
+    }
+
+    static jlong parsed_from_env() {
+        Jni::Util::max_jvm_heap_memory_size_ = 0;
+        Jni::Util::_parse_max_heap_memory_size_from_jvm();
+        return Jni::Util::max_jvm_heap_memory_size_;
+    }
+
+private:
+    std::vector<std::pair<std::string, std::string>> _saved;
+    jlong _saved_size = 0;
+};
+
+TEST_F(JniUtilHeapSizeTest, EveryXmxUnitIsUnderstood) {
+    EXPECT_EQ(4L * 1024 * 1024 * 1024, Jni::Util::_parse_xmx("-Xmx4g"));
+    EXPECT_EQ(4L * 1024 * 1024 * 1024, Jni::Util::_parse_xmx("-Xmx4G"));
+    EXPECT_EQ(4096L * 1024 * 1024, Jni::Util::_parse_xmx("-Xmx4096m"));
+    EXPECT_EQ(512L * 1024, Jni::Util::_parse_xmx("-Xmx512K"));
+    // No unit means bytes, as it does for the JVM.
+    EXPECT_EQ(1048576L, Jni::Util::_parse_xmx("-Xmx1048576"));
+    // Found among the other options, and the last one wins - again as it does for the JVM.
+    EXPECT_EQ(2L * 1024 * 1024 * 1024,
+              Jni::Util::_parse_xmx("-Dfoo=bar -Xmx1g -XX:-CriticalJNINatives -Xmx2g"));
+}
+
+// Malformed sizes must not throw: std::stoll does, this runs on the first hdfs write of a
+// query, and the JVM the options came from started anyway.
+TEST_F(JniUtilHeapSizeTest, MalformedXmxIsIgnored) {
+    EXPECT_EQ(0, Jni::Util::_parse_xmx(""));
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx"));
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmxg"));
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmxbig"));
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx12big"));
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx99999999999999999999g"));
+    // Twenty digits do not reach the range check above: std::stoll throws first and the catch
+    // takes it. Eleven digits parse fine and only overflow on the multiply by the unit, which is
+    // the case that check exists for - and the only input that exercises it.
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx99999999999g"));
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx99999999999999m"));
+    // The boundary itself, named exactly rather than approached from far away: the check is
+    // `digits > jlong_max / multiplier`, so for 'g' the largest accepted digit string is
+    // 9223372036854775807 / 1073741824 == 8589934591. A test that only asserts "-Xmx8g" parses
+    // pins nothing - every wrong threshold between 8 and 8589934591 keeps it green.
+    EXPECT_EQ(8589934591L * 1024 * 1024 * 1024, Jni::Util::_parse_xmx("-Xmx8589934591g"));
+    EXPECT_EQ(0, Jni::Util::_parse_xmx("-Xmx8589934592g"));
+    // An ordinary large value still parses: the check must reject overflow, not big heaps.
+    EXPECT_EQ(8L * 1024 * 1024 * 1024, Jni::Util::_parse_xmx("-Xmx8g"));
+    // A good one next to a bad one still counts.
+    EXPECT_EQ(1024L * 1024 * 1024, Jni::Util::_parse_xmx("-Xmxbig -Xmx1g"));
+}
+
+// No -Xmx at all is not fatal any more: it used to be LOG(FATAL), and 1g is what the JVM is
+// created with when the deployment says nothing.
+TEST_F(JniUtilHeapSizeTest, MissingXmxFallsBackToTheDefaultHeap) {
+    EXPECT_EQ(1024L * 1024 * 1024, parsed_from_env());
+
+    setenv("JAVA_OPTS", "-Dsun.java.command=DorisBE", 1);
+    EXPECT_EQ(1024L * 1024 * 1024, parsed_from_env());
+}
+
+// The same precedence JvmLauncher::_build_options() applies, because it has to be the same
+// options: this value is only right if it describes the heap the JVM actually got.
+TEST_F(JniUtilHeapSizeTest, JavaOptsWinsOverLibhdfsOpts) {
+    setenv("LIBHDFS_OPTS", "-Xmx2g", 1);
+    EXPECT_EQ(2L * 1024 * 1024 * 1024, parsed_from_env());
+
+    setenv("JAVA_OPTS", "-Xmx4096m", 1);
+    EXPECT_EQ(4096L * 1024 * 1024, parsed_from_env());
 }
 
 } // namespace doris

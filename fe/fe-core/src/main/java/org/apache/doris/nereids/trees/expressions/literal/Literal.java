@@ -402,6 +402,7 @@ public abstract class Literal extends Expression implements LeafExpression {
             case JSONB: return new JsonLiteral(literalExpr.getStringValue());
             case IPV4: return new IPv4Literal(literalExpr.getStringValue());
             case IPV6: return new IPv6Literal(literalExpr.getStringValue());
+            case UUID: return new UuidLiteral(literalExpr.getStringValue());
             case TIMEV2: return new TimeV2Literal((TimeV2Type) dataType, literalExpr.getStringValue());
             default: {
                 throw new AnalysisException("Unsupported convert the " + literalExpr.getType()

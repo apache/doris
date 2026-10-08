@@ -23,8 +23,8 @@ import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheRemovalReason;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
-import org.apache.doris.connector.cache.ScopedMetaCache.CacheMetrics;
 
 import com.github.benmanes.caffeine.cache.RemovalListener;
 
@@ -84,7 +84,7 @@ public class FeMetaCacheEntry<K, V> {
     private final boolean autoRefresh;
     private final int stripeCount;
     private final AtomicReferenceArray<StripeState<K>> stripeStates;
-    private final CatalogMetaCache owner = new CatalogMetaCache();
+    private final CatalogMetaCache owner = CatalogMetaCache.unmanaged();
     private final MetaCache<K, V> data;
 
     public FeMetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor) {
@@ -155,8 +155,9 @@ public class FeMetaCacheEntry<K, V> {
         }
         effectiveEnabled = CacheSpec.isCacheEnabled(
                 cacheSpec.isEnable(), cacheSpec.getTtlSecond(), cacheSpec.getCapacity());
-        MetaCacheDefinition.Builder<K, V> builder = MetaCacheDefinition.builder(
-                name, cacheSpec, ignored -> ScopePath.catalog());
+        MetaCacheDefinition.Builder<K, V> builder = MetaCacheDefinition.<K, V>builder(
+                name, cacheSpec, ignored -> ScopePath.catalog())
+                .sizeEstimator(MetaCacheSizeEstimators.reflective());
         if (loader != null) {
             builder.loader(key -> loadAndPause(key, loader));
         }
@@ -377,17 +378,7 @@ public class FeMetaCacheEntry<K, V> {
     }
 
     public MetaCacheEntryStats stats() {
-        CacheMetrics metrics = data.metrics();
-        long requests = metrics.getRequestCount();
-        long loads = metrics.getLoadSuccessCount() + metrics.getLoadFailureCount();
-        return new MetaCacheEntryStats(
-                cacheSpec.isEnable(), effectiveEnabled, autoRefresh, cacheSpec.getTtlSecond(), cacheSpec.getCapacity(),
-                metrics.getPhysicalEntryCount(), requests, metrics.getHitCount(), metrics.getMissCount(),
-                requests == 0L ? 0D : (double) metrics.getHitCount() / requests,
-                metrics.getLoadSuccessCount(), metrics.getLoadFailureCount(), metrics.getTotalLoadTimeNanos(),
-                loads == 0L ? 0D : (double) metrics.getTotalLoadTimeNanos() / loads,
-                metrics.getEvictionCount(), metrics.getInvalidateCount(), metrics.getLastLoadSuccessTimeMs(),
-                metrics.getLastLoadFailureTimeMs(), metrics.getLastError());
+        return MetaCacheEntryStats.from(data);
     }
 
     public static int defaultObjectStripeCount() {

@@ -43,6 +43,7 @@
 #include "core/value/jsonb_value.h"
 #include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "storage/segment/variant/v2/variant_assembler.h"
 #include "storage/segment/variant/v2/variant_column_reader.h"
@@ -1034,6 +1035,28 @@ TEST(VariantAssemblerLegacyTest, DepthBoundaries) {
     }
 }
 
+TEST(VariantAssemblerLegacyTest, UuidStorageCellRetainsNativeIdentity) {
+    UUIDValueType value;
+    ASSERT_TRUE(UUIDValue::from_string(value, "00112233-4455-6677-8899-aabbccddeeff"));
+    const auto cell = fixed_storage_cell<UUIDValueType>(FieldType::OLAP_FIELD_TYPE_UUID, value);
+    const auto text = string_storage_cell("text");
+    const std::array<StringRef, 2> cells {StringRef(cell), StringRef(text)};
+    const std::array<uint8_t, 2> masks {0, 0};
+    // One UUID uses the typed fast path; a heterogeneous batch exercises the generic adapter.
+    for (size_t count : {1, 2}) {
+        ColumnNullable::MutablePtr output;
+        ASSERT_TRUE(decode_v1_storage_cells(std::span(cells).first(count),
+                                            std::span(masks).first(count),
+                                            std::span(masks).first(count), &output)
+                            .ok());
+        auto& variants = assembled_values(output);
+        variants.ensure_encoded();
+        const auto result = variants.get_value_ref(0);
+        EXPECT_EQ(result.primitive_id(), VariantPrimitiveId::UUID);
+        EXPECT_EQ(result.get_uuid(), UUIDValue::to_big_endian(value));
+    }
+}
+
 TEST(VariantAssemblerLegacyTest, MalformedStorageCellsFailAtomicallyAndAllowLaterBatches) {
     LegacyCells source;
     auto truncated_date = source.date_cells[0];
@@ -1409,7 +1432,7 @@ TEST(VariantAssemblerLegacyTest, EmptyDocRowKeepsRawOrderedMaterializedPaths) {
               R"({"a":{"b":"1970-01-03"},"a-":"1970-01-02"})");
 }
 
-TEST(VariantAssemblerLegacyTest, EmptyPhysicalRowsPublishAsNull) {
+TEST(VariantAssemblerLegacyTest, EmptyPhysicalRowsPreserveOuterNullBoundary) {
     VariantAssemblerOptions root_options;
     root_options.has_root = true;
     auto root_assembler = create_assembler(std::move(root_options));
@@ -1428,7 +1451,7 @@ TEST(VariantAssemblerLegacyTest, EmptyPhysicalRowsPublishAsNull) {
     ASSERT_TRUE(root_assembler->assemble(root_batch, &root_output).ok());
     EXPECT_EQ(json_at(assembled_values(root_output), 0), "null");
     EXPECT_EQ(json_at(assembled_values(root_output), 1), "null");
-    EXPECT_EQ(root_output->get_null_map_data(), (PaddedPODArray<uint8_t> {1, 1}));
+    EXPECT_EQ(root_output->get_null_map_data(), (PaddedPODArray<uint8_t> {0, 1}));
 
     VariantAssemblerOptions subtree_options;
     subtree_options.requested_path = PathInData("a");

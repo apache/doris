@@ -48,7 +48,9 @@ public:
     SortCursorCmp(const MergeSortCursor& cursor) : row(cursor->pos), impl(cursor.impl) {}
 
     void reset() {
-        impl->reset();
+        // A new sorting pass has no previous peer group. Rewinding the old cursor
+        // would make a matching first group appear already seen and go uncounted.
+        impl.reset();
         row = 0;
     }
     bool compare_two_rows(const MergeSortCursor& rhs) const {

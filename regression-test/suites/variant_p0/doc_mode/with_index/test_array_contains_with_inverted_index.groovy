@@ -16,7 +16,7 @@
 // under the License.
 
 suite("array_contains_with_index_doc_value", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     // prepare test table
     def indexTblName = "tai"
     def resultColumns = "apply_date, id, sort_json_object_keys(cast(inventors as json))"

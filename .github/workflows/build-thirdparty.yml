@@ -82,6 +82,9 @@ jobs:
         run: |
           thirdparty/test/adbc-jni-config-test.sh
 
+      - name: Test Lance installation
+        run: bash thirdparty/test/lance-install-test.sh
+
   build_linux:
     name: Build Third Party Libraries (Linux)
     needs: changes
@@ -195,6 +198,11 @@ jobs:
           cd thirdparty
           #./build-thirdparty.sh -j "$(nproc)"
           ./build-thirdparty.sh -j 2
+
+          # CI has no 64 KiB-page aarch64 host; this drives the libunwind just built
+          # through an emulated one, so it also runs on this x86_64 4 KiB runner.
+          cd "${GITHUB_WORKSPACE}"
+          thirdparty/test/libunwind-page-size-test.sh
 
   build_macos:
     name: Build Third Party Libraries (macOS)

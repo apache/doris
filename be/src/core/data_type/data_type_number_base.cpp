@@ -41,6 +41,7 @@
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "core/value/large_int_value.h"
+#include "core/value/uuid_value.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
@@ -51,9 +52,11 @@ namespace doris {
 template <PrimitiveType T>
 std::string DataTypeNumberBase<T>::to_string(
         const typename PrimitiveTypeTraits<T>::CppType& value) {
-    if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::CppType, int128_t>::value ||
-                  std::is_same<typename PrimitiveTypeTraits<T>::CppType, uint128_t>::value ||
-                  std::is_same<typename PrimitiveTypeTraits<T>::CppType, UInt128>::value) {
+    if constexpr (T == TYPE_UUID) {
+        return UUIDValue::to_string(value);
+    } else if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::CppType, int128_t>::value ||
+                         std::is_same<typename PrimitiveTypeTraits<T>::CppType, uint128_t>::value ||
+                         std::is_same<typename PrimitiveTypeTraits<T>::CppType, UInt128>::value) {
         if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::CppType, int128_t>::value) {
             return CastToString::from_int128(value);
         } else {
@@ -211,6 +214,7 @@ template class DataTypeNumberBase<TYPE_DATETIMEV2>;
 template class DataTypeNumberBase<TYPE_TIMESTAMP_NS>;
 template class DataTypeNumberBase<TYPE_IPV4>;
 template class DataTypeNumberBase<TYPE_IPV6>;
+template class DataTypeNumberBase<TYPE_UUID>;
 template class DataTypeNumberBase<TYPE_TIMEV2>;
 template class DataTypeNumberBase<TYPE_TIMESTAMPTZ>;
 

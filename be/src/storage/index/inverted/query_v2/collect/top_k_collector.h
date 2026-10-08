@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-#include "storage/compaction/collection_similarity.h"
+#include "storage/index/collection_similarity.h"
 #include "storage/index/inverted/query_v2/weight.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {

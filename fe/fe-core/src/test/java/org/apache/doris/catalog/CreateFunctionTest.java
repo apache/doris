@@ -39,6 +39,9 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.proto.FunctionService;
+import org.apache.doris.proto.PFunctionServiceGrpc;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -47,6 +50,9 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.ImmutableList;
+import io.grpc.Server;
+import io.grpc.ServerBuilder;
+import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -58,6 +64,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /*
  * Author: Chenmingyu
@@ -71,6 +78,34 @@ public class CreateFunctionTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
+    }
+
+    @Test
+    public void testRpcUuidSignature() throws Exception {
+        AtomicReference<FunctionService.PCheckFunctionRequest> received = new AtomicReference<>();
+        Server server = ServerBuilder.forPort(0).addService(new PFunctionServiceGrpc.PFunctionServiceImplBase() {
+            @Override
+            public void checkFn(FunctionService.PCheckFunctionRequest request,
+                    StreamObserver<FunctionService.PCheckFunctionResponse> observer) {
+                received.set(request);
+                observer.onNext(FunctionService.PCheckFunctionResponse.newBuilder()
+                        .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+                observer.onCompleted();
+            }
+        }).build().start();
+        try {
+            ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+            createDatabase(ctx, "create database rpc_uuid_db");
+            createFunction("create function rpc_uuid_db.uuid_echo(UUID) returns UUID properties("
+                    + "'type'='RPC', 'symbol'='uuid_echo', 'file'='127.0.0.1:" + server.getPort() + "')", ctx);
+            Assertions.assertNotNull(received.get());
+            Assertions.assertEquals(Types.PGenericType.TypeId.UUID,
+                    received.get().getFunction().getInputs(0).getId());
+            Assertions.assertEquals(Types.PGenericType.TypeId.UUID,
+                    received.get().getFunction().getOutput().getId());
+        } finally {
+            server.shutdownNow();
+        }
     }
 
     @Test

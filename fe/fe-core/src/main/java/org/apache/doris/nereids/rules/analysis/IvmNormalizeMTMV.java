@@ -383,9 +383,19 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                 NamedExpression projected = findProjectedKey(baseOutputs, keySlot);
                 if (projected != null) {
                     survivingKeys.add(projected.toSlot());
-                } else {
-                    extendedOutputs.add(keySlot);
+                } else if (IvmUtil.isIvmHiddenColumn(keySlot.getName())) {
+                    // Already materialized by a lower layer: keep the hidden key slot as is.
                     survivingKeys.add(keySlot);
+                } else {
+                    // An unprojected business key is materialized here as a hidden key column
+                    // instead of being passed through: the result sink (CREATE) and the
+                    // olap-table sink (refresh) then see the same hidden layout and agree on
+                    // the hidden column names. Keys are matched by slot identity, so a
+                    // same-named key from another table (e.g. r.id next to an output l.id)
+                    // still gets its own hidden column.
+                    Alias hiddenAlias = materializeHiddenKey(keySlot);
+                    extendedOutputs.add(hiddenAlias);
+                    survivingKeys.add(hiddenAlias.toSlot());
                 }
             }
             finalOutputs = ImmutableList.copyOf(extendedOutputs);
@@ -414,6 +424,21 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             }
         }
         return null;
+    }
+
+    /**
+     * Materializes an unprojected identity key under a unique hidden key column name. The
+     * same helper is used by the project layer (where refresh and CREATE plans first drop a
+     * key) and by the sink (direct-child fallback), so both paths agree on hidden names.
+     *
+     * <p>Note: the returned alias owns a fresh ExprId, so a later delta rewrite cannot match
+     * the hidden column to the original key slot by identity; it resolves it through the
+     * hidden column name (see the agg handler's sanitized-name fallback).
+     */
+    private Alias materializeHiddenKey(Slot keySlot) {
+        String hiddenName = Column.IVM_KEY_COL_PREFIX + (++sinkKeyCounter) + "_"
+                + IvmUtil.sanitizeIvmKeyName(keySlot.getName()) + "_COL__";
+        return new Alias(keySlot, hiddenName);
     }
 
     @Override
@@ -927,19 +952,20 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         List<Slot> sinkKeys = new ArrayList<>();
         List<NamedExpression> finalOutputs = new ArrayList<>(baseOutputs);
         if (childKeys != null && !childKeys.isEmpty()) {
-            Set<String> outputNames = finalOutputs.stream()
-                    .map(NamedExpression::getName)
-                    .collect(Collectors.toSet());
             for (Slot keySlot : childKeys) {
                 String keyName = keySlot.getName();
                 if (IvmUtil.isIvmHiddenColumn(keyName)) {
                     sinkKeys.add(keySlot);
-                } else if (outputNames.contains(keyName)) {
+                } else if (findProjectedKey(finalOutputs, keySlot) != null) {
+                    // The key is already materialized by an output that directly emits the
+                    // key slot (bare slot or alias over it). Matching by slot identity -
+                    // as the project layer does - instead of by name is required: a
+                    // same-named key from another table (e.g. r.id next to an output l.id)
+                    // must still be materialized under its own hidden column, or the
+                    // full-keys identity set silently loses one dimension.
                     sinkKeys.add(keySlot);
                 } else {
-                    String hiddenName = Column.IVM_KEY_COL_PREFIX + (++sinkKeyCounter) + "_"
-                            + IvmUtil.sanitizeIvmKeyName(keyName) + "_COL__";
-                    Alias hiddenAlias = new Alias(keySlot, hiddenName);
+                    Alias hiddenAlias = materializeHiddenKey(keySlot);
                     finalOutputs.add(hiddenAlias);
                     sinkKeys.add(hiddenAlias.toSlot());
                 }

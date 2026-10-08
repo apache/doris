@@ -22,13 +22,13 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../../../.." && pwd)"
-DOCKERFILE="docker/runtime/all-in-one/4.1/Dockerfile"
+DOCKERFILE="${HERE}/Dockerfile"
 
 IMAGE="${IMAGE:-apache/doris}"
 VERSION=""
 SOURCE="image"
 FLAVORS=""
-STRIP_BE="debug"
+STRIP_MODE="debug"
 PLATFORM=""
 LOCAL_OUTPUT="output"
 TARBALL_DIR=""
@@ -51,16 +51,19 @@ Options:
   -v, --version <v>     Doris version, e.g. 4.1.3. Required.
   -f, --flavor <f>      base | full | both        (default: both)
   -s, --source <s>      image | local | tarball   (default: image)
-                          image   -> apache/doris:fe-<v> and :be-<v>
-                          local   -> ./output/{fe,be} from a local build
+                          image   -> apache/doris:fe-<v>, :be-<v> and :ms-<v>
+                          local   -> ./output/{fe,be,ms} from a local build
+                                     (ms is optional; without it the image
+                                     cannot serve the cloud compose file)
                           tarball -> --tarball-dir
-      --tarball-dir <d> Extracted release package holding fe/ and be/,
-                        as a path relative to the repository root.
+      --tarball-dir <d> Extracted release package holding fe/, be/ and ms/.
+                        Relative paths are tried against the repository root
+                        first, then the current directory.
       --local-output <d> Override the ./output path for --source local.
       --strip <mode>    debug | full | none       (default: debug)
                           debug -> strip --strip-debug, keeps .symtab
                           full  -> strip -s
-                          none  -> ship doris_be as-is (+1.8 GB)
+                          none  -> ship doris_be and doris_cloud as-is (+2.2 GB)
       --platform <p>    Target platform(s), e.g. linux/amd64 or
                         linux/amd64,linux/arm64. Comma-separated values produce
                         one multi-arch tag (an OCI image index) that resolves to
@@ -76,7 +79,10 @@ Options:
 Examples:
   ./build.sh -v 4.1.3                     # both flavors from the official images
   ./build.sh -v 4.1.3 -f base -t          # base only, then smoke test it
-  ./build.sh -v dev -s local -f full      # from a local ./output
+  ./build.sh -v dev -s local -f full      # from a local ./output (build.sh --fe --be --cloud)
+  ./build.sh -v 4.1.4 -s tarball --tarball-dir ~/apache-doris-4.1.4-bin-arm64
+                                          # from a release tarball, e.g. before the
+                                          # component images are on Docker Hub
   ./build.sh -v 4.1.3 --platform linux/amd64,linux/arm64 --push
                                           # one multi-arch tag for both
 
@@ -102,7 +108,7 @@ while [[ $# -gt 0 ]]; do
         -s|--source)       SOURCE="$2"; shift 2 ;;
         --tarball-dir)     TARBALL_DIR="$2"; shift 2 ;;
         --local-output)    LOCAL_OUTPUT="$2"; shift 2 ;;
-        --strip)           STRIP_BE="$2"; shift 2 ;;
+        --strip)           STRIP_MODE="$2"; shift 2 ;;
         --platform)        PLATFORM="$2"; shift 2 ;;
         -i|--image)        IMAGE="$2"; shift 2 ;;
         --no-cache)        NO_CACHE=true; shift ;;
@@ -126,16 +132,34 @@ case "${SOURCE}" in
     image|local|tarball) ;;
     *) echo "error: bad --source '${SOURCE}'" >&2; exit 1 ;;
 esac
-case "${STRIP_BE}" in
+case "${STRIP_MODE}" in
     debug|full|none) ;;
-    *) echo "error: bad --strip '${STRIP_BE}'" >&2; exit 1 ;;
+    *) echo "error: bad --strip '${STRIP_MODE}'" >&2; exit 1 ;;
 esac
 
-if [[ "${SOURCE}" == tarball && -z "${TARBALL_DIR}" ]]; then
-    echo "error: --source tarball needs --tarball-dir" >&2; exit 1
+# A local build and a release tarball are the same thing to the Dockerfile: a
+# directory with fe/, be/ and (optionally) ms/, handed over as named build
+# contexts so that the main context can stay narrowed to a few KB.
+ARTIFACT_DIR=""
+if [[ "${SOURCE}" == tarball ]]; then
+    [[ -n "${TARBALL_DIR}" ]] || { echo "error: --source tarball needs --tarball-dir" >&2; exit 1; }
+    if [[ -d "${REPO_ROOT}/${TARBALL_DIR}" ]]; then
+        ARTIFACT_DIR="$(cd "${REPO_ROOT}/${TARBALL_DIR}" && pwd)"
+    elif [[ -d "${TARBALL_DIR}" ]]; then
+        ARTIFACT_DIR="$(cd "${TARBALL_DIR}" && pwd)"
+    else
+        echo "error: --tarball-dir ${TARBALL_DIR} not found" >&2; exit 1
+    fi
+elif [[ "${SOURCE}" == local ]]; then
+    ARTIFACT_DIR="${REPO_ROOT}/${LOCAL_OUTPUT}"
 fi
-if [[ "${SOURCE}" == local && ! -d "${REPO_ROOT}/${LOCAL_OUTPUT}/be" ]]; then
-    echo "error: ${REPO_ROOT}/${LOCAL_OUTPUT}/be not found; build Doris first" >&2; exit 1
+if [[ -n "${ARTIFACT_DIR}" ]]; then
+    for part in fe be; do
+        [[ -d "${ARTIFACT_DIR}/${part}" ]] || { echo "error: ${ARTIFACT_DIR}/${part} not found; build Doris first" >&2; exit 1; }
+    done
+    if [[ ! -d "${ARTIFACT_DIR}/ms" ]]; then
+        echo "note: ${ARTIFACT_DIR}/ms not found (build.sh --cloud); the image will not serve the cloud compose file"
+    fi
 fi
 
 command -v docker >/dev/null || { echo "error: docker not found" >&2; exit 1; }
@@ -159,7 +183,12 @@ if [[ "${MULTI_PLATFORM}" == true && "${RUN_TEST}" == true ]]; then
 fi
 
 builder="docker buildx build"
-docker buildx version >/dev/null 2>&1 || builder="docker build"
+if ! docker buildx version >/dev/null 2>&1; then
+    builder="docker build"
+    if [[ -n "${ARTIFACT_DIR}" ]]; then
+        echo "error: --source ${SOURCE} needs docker buildx (named build contexts)" >&2; exit 1
+    fi
+fi
 
 # Say which platforms are being built. Leaving --platform unset means the host
 # architecture only, which is easy to mistake for a multi-arch build.
@@ -173,7 +202,7 @@ fi
 echo "repository root : ${REPO_ROOT}"
 echo "doris version   : ${VERSION}"
 echo "artifact source : ${SOURCE}"
-echo "strip mode      : ${STRIP_BE}"
+echo "strip mode      : ${STRIP_MODE}"
 echo "flavors         : ${FLAVORS}"
 echo "platform(s)     : ${platform_note}"
 echo "output          : $([[ "${PUSH}" == true ]] && echo 'push to registry' || echo 'load into local image store')"
@@ -188,12 +217,22 @@ for flavor in ${FLAVORS}; do
 
     args=(
         --build-arg "DORIS_VERSION=${VERSION}"
-        --build-arg "ARTIFACT_SOURCE=${SOURCE}"
         --build-arg "FLAVOR=${flavor}"
-        --build-arg "STRIP_BE=${STRIP_BE}"
-        --build-arg "LOCAL_OUTPUT=${LOCAL_OUTPUT}"
+        --build-arg "STRIP_MODE=${STRIP_MODE}"
     )
-    [[ -n "${TARBALL_DIR}" ]] && args+=(--build-arg "TARBALL_DIR=${TARBALL_DIR}")
+    if [[ -n "${ARTIFACT_DIR}" ]]; then
+        args+=(--build-arg "ARTIFACT_SOURCE=dir"
+               --build-context "doris-fe=${ARTIFACT_DIR}/fe"
+               --build-context "doris-be=${ARTIFACT_DIR}/be")
+        if [[ -d "${ARTIFACT_DIR}/ms" ]]; then
+            args+=(--build-context "doris-ms=${ARTIFACT_DIR}/ms")
+        else
+            empty_ms="$(mktemp -d)"
+            args+=(--build-context "doris-ms=${empty_ms}")
+        fi
+    else
+        args+=(--build-arg "ARTIFACT_SOURCE=image")
+    fi
     [[ -n "${PLATFORM}" ]] && args+=(--platform "${PLATFORM}")
     [[ "${NO_CACHE}" == true ]] && args+=(--no-cache)
     if [[ "${PUSH}" == true ]]; then

@@ -736,7 +736,8 @@ template <bool is_final>
 void MemTable::_aggregate_for_flexible_partial_update_with_seq_col(
         MutableBlock& mutable_block, DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks) {
     // For flexible partial update, when table has sequence column, we don't do any aggregation
-    // in memtable. These duplicate rows will be aggregated in VerticalSegmentWriter
+    // in memtable. These duplicate rows will be aggregated by the BlockAggregator
+    // in the flush transform chain
     int row_pos = -1;
     for (const auto& row_ptr : *_row_in_blocks) {
         RowInBlock* row = row_ptr.get();

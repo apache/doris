@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -48,6 +49,17 @@ const int agg_test_batch_size = 4096;
 namespace doris {
 // declare function
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
+
+TEST(BinaryAggregateTest, SingleValueAggregatesAreNotSupported) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_minmax(factory);
+    for (const auto& type : DataTypes {std::make_shared<DataTypeVarbinary>(),
+                                       make_nullable(std::make_shared<DataTypeVarbinary>())}) {
+        for (const auto& name : {"min", "max"}) {
+            EXPECT_THROW(factory.get(name, {type}, nullptr, type->is_nullable(), -1), Exception);
+        }
+    }
+}
 
 class AggMinMaxTest : public ::testing::TestWithParam<std::string> {};
 

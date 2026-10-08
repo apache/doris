@@ -18,10 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.SqlCacheContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -39,7 +36,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
-import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -118,26 +114,14 @@ public class PhysicalEmptyRelation extends PhysicalRelation
     }
 
     @Override
-    public Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext,
-            Optional<SqlCacheContext> sqlCacheContext, List<Slot> outputSlots) {
+    public Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext, List<Slot> outputSlots) {
         List<Column> columns = Lists.newArrayList();
         for (NamedExpression output : outputSlots) {
             columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
         }
 
-        StatementContext statementContext = cascadesContext.getStatementContext();
-        boolean enableSqlCache
-                = CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable());
-
         ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
         ResultSet resultSet = new CommonResultSet(metadata, ImmutableList.of());
-        if (sqlCacheContext.isPresent() && enableSqlCache) {
-            sqlCacheContext.get().setResultSetInFe(resultSet);
-            Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
-                    statementContext.getConnectContext(),
-                    statementContext.getOriginStatement().originStmt
-            );
-        }
         return Optional.of(resultSet);
     }
 }

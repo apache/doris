@@ -100,14 +100,11 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     @Override
     public Plan visit(Plan plan, PushDownAggContext context) {
-        return plan;
+        return genAggregate(plan, context);
     }
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
-        if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
-            return join;
-        }
         ConnectContext connectContext = context.getCascadesContext().getConnectContext();
         boolean isSmallBroadcastBottomJoin = isSmallBroadcastJoin(join, connectContext) && isBottomJoin(join);
         if (connectContext.getSessionVariable().eagerAggregationOnBroadcastJoin
@@ -175,10 +172,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
         Plan newLeft = join.left();
         Plan newRight = join.right();
-        if (leftChildContext.isPresent()) {
+        if (leftChildContext.isPresent() && leftChildContext.get().isValid()) {
             newLeft = join.left().accept(this, leftChildContext.get());
         }
-        if (rightChildContext.isPresent()) {
+        if (rightChildContext.isPresent() && rightChildContext.get().isValid()) {
             newRight = join.right().accept(this, rightChildContext.get());
         }
 
@@ -541,8 +538,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, PushDownAggContext context) {
         if (union.getQualifier() != Qualifier.ALL || !union.getConstantExprsList().isEmpty()
-                || !union.getOutputs().stream().allMatch(e -> e instanceof SlotReference)
-                || context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
+                || !union.getOutputs().stream().allMatch(e -> e instanceof SlotReference)) {
             return union;
         }
         List<Plan> newChildren = Lists.newArrayList();
@@ -573,10 +569,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 Alias aliasForChild = new Alias(newFunc, alias.getName(), alias.getQualifier());
                 aliasMapForChild.put(newFunc, aliasForChild);
             }
-            if (PushDownAggContext.containsVolatileFunction(aggFunctionsForChild)) {
-                allChildrenChanged = false;
-                break;
-            }
 
             List<SlotReference> groupKeysForChild = context.getGroupKeys().stream()
                     .map(slot -> (SlotReference) union.pushDownExpressionPastSetOperator(slot, childIdx))
@@ -585,6 +577,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     aliasMapForChild, context.getCascadesContext(),
                     context.isPassThroughHeavyJoin(), context.hasDecomposedAggIf, context.containsNullToNonNull,
                     context.getBilateralState(), context.needOutputCount(), true, false);
+            if (!contextForChild.isValid()) {
+                allChildrenChanged = false;
+                break;
+            }
             inheritHintActionsToUnionChild(context, contextForChild, aggFunctionsForChild);
             Plan newChild = child.accept(this, contextForChild);
             if (newChild != child) {
@@ -672,12 +668,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
-        if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
-            return project;
-        }
         if (containsVolatileGroupKeyAfterProject(project, context) || project.containsNoneMovableFunction()) {
             return genAggregate(project, context);
         }
+
         if (project.child() instanceof LogicalCatalogRelation
                 || (project.child() instanceof LogicalFilter
                         && project.child().child(0) instanceof LogicalCatalogRelation)) {
@@ -695,10 +689,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         Map<ExprId, ExprId> projectToChildExprIdMap = new HashMap<>();
         PushDownAggContext newContext = createContextFromProject(project, context, projectToChildExprIdMap);
-        if (newContext.aggFuncAndGroupKeyAllEmpty()) {
-            return project;
-        }
-        if (PushDownAggContext.containsVolatileFunction(newContext.getAggFunctions())) {
+        if (!newContext.isValid()) {
             return genAggregate(project, context);
         }
         Plan newChild = project.child().accept(this, newContext);
@@ -775,15 +766,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     @Override
-    public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, PushDownAggContext context) {
-        return agg;
-    }
-
-    @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, PushDownAggContext context) {
-        if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
-            return filter;
-        }
         if (filter.getConjuncts().stream().anyMatch(Expression::containsVolatileExpression)) {
             return genAggregate(filter, context);
         }
@@ -799,6 +782,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 .distinct()
                 .collect(Collectors.toList());
         PushDownAggContext childContext = context.withGroupKeys(childGroupKeys);
+        if (!childContext.isValid()) {
+            return genAggregate(filter, context);
+        }
         Plan newChild = filter.child().accept(this, childContext);
         if (newChild != filter.child()) {
             Plan newFilter = filter.withChildren(newChild);
@@ -811,9 +797,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     @Override
     public Plan visitLogicalRelation(LogicalRelation relation, PushDownAggContext context) {
-        if (context.aggFuncAndGroupKeyAllEmpty()) {
-            return relation;
-        }
         return genAggregate(relation, context);
     }
 

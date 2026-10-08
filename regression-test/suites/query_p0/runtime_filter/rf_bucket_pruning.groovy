@@ -18,7 +18,7 @@
 import org.apache.doris.regression.action.ProfileAction
 
 suite("rf_bucket_pruning", "nonConcurrent") {
-    sql "set enable_runtime_filter_prune=false"
+    sql "set enable_runtime_filter_prune=true"
     sql "set enable_runtime_filter_partition_prune=false"
     sql "set enable_runtime_filter_bucket_prune=true"
     sql "set runtime_filter_wait_infinitely=true"

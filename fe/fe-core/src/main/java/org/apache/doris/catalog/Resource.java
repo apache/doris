@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -129,11 +130,18 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     }
 
     public static Resource fromCommand(CreateResourceCommand command) throws DdlException {
+        return fromCommand(command, null);
+    }
+
+    public static Resource fromCommand(CreateResourceCommand command, UserIdentity creator) throws DdlException {
         CreateResourceInfo info = command.getInfo();
         Resource resource = getResourceInstance(info.getResourceType(), info.getResourceName());
         resource.id = Env.getCurrentEnv().getNextId();
         resource.version = 0;
         resource.setProperties(info.getProperties());
+        if (resource instanceof AIResource) {
+            ((AIResource) resource).setCreatedByRoot(creator != null && creator.isRootUser());
+        }
         return resource;
     }
 

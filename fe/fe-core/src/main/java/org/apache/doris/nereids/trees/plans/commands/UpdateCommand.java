@@ -110,7 +110,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
             RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(
-                    table, nameParts, tableAlias, assignments, logicalQuery);
+                    table, nameParts, tableAlias, assignments, logicalQuery, cte);
             new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.UPDATE).run(ctx, executor);
             return;
         }
@@ -280,7 +280,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
             RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(
-                    table, nameParts, tableAlias, assignments, logicalQuery);
+                    table, nameParts, tableAlias, assignments, logicalQuery, cte);
             return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.UPDATE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);
