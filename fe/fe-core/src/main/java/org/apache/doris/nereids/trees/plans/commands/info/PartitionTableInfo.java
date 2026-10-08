@@ -104,16 +104,51 @@ public class PartitionTableInfo {
     }
 
     /**
-     * Paimon persists only partition column names. Reject expressions and explicit bounds
-     * that would otherwise be silently discarded when building its schema.
+     * Validate external partition models before conversion can discard unsupported information.
+     * Schema-specific checks, including Iceberg transform binding, remain with the metadata builders.
      */
-    public void validatePaimonPartition() {
-        if (partitionList != null && partitionList.stream().anyMatch(expr -> !(expr instanceof UnboundSlot))) {
-            throw new AnalysisException("Paimon only supports partitioning by columns; "
+    public void validateExternalPartition(String engineName) {
+        if (partitionType.equalsIgnoreCase(PartitionType.UNPARTITIONED.name())) {
+            return;
+        }
+
+        String formatName;
+        boolean supportsTransforms = false;
+        switch (engineName) {
+            case CreateTableInfo.ENGINE_HIVE:
+                if (!partitionType.equalsIgnoreCase(PartitionType.LIST.name())) {
+                    throw new AnalysisException("Only support 'LIST' partition type in hive catalog.");
+                }
+                formatName = "Hive";
+                break;
+            case CreateTableInfo.ENGINE_PAIMON:
+                formatName = "Paimon";
+                break;
+            case CreateTableInfo.ENGINE_MAXCOMPUTE:
+                formatName = "MaxCompute";
+                break;
+            case CreateTableInfo.ENGINE_ICEBERG:
+                formatName = "Iceberg";
+                supportsTransforms = true;
+                break;
+            case CreateTableInfo.ENGINE_ELASTICSEARCH:
+                // Elasticsearch mapping partitions are validated by EsUtil after descriptor conversion.
+                return;
+            default:
+                throw new AnalysisException("Create " + engineName + " table should not contain partition desc");
+        }
+
+        // Column-only formats must not silently lose function expressions from their partition keys.
+        if (!supportsTransforms && partitionList != null
+                && partitionList.stream().anyMatch(expr -> !(expr instanceof UnboundSlot))) {
+            throw new AnalysisException(formatName + " only supports partitioning by columns; "
                     + "partition expressions are not supported");
         }
         if (partitionDefs != null && !partitionDefs.isEmpty()) {
-            throw new AnalysisException("Paimon does not support explicit partition definitions");
+            if (engineName.equals(CreateTableInfo.ENGINE_HIVE)) {
+                throw new AnalysisException("Partition values expressions is not supported in hive catalog.");
+            }
+            throw new AnalysisException(formatName + " does not support explicit partition definitions");
         }
     }
 
