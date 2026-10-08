@@ -258,4 +258,27 @@ public class VariableMgrTest extends TestWithFeService {
                         new StringLiteral("0"))));
         Assertions.assertTrue(blockSizeException.getMessage().contains("preferred_block_size_bytes"));
     }
+
+    @Test
+    public void testExternalScanConsistentHashSpreadVariable() throws Exception {
+        SessionVariable var = new SessionVariable();
+        Assertions.assertEquals(1, var.getExternalScanConsistentHashSpreadNum());
+        for (String value : new String[] {"1", "2", "3", "2147483647"}) {
+            VariableMgr.setVar(var, new SetVar(SetType.SESSION,
+                    SessionVariable.EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM, new StringLiteral(value)));
+            Assertions.assertEquals(Integer.parseInt(value), var.getExternalScanConsistentHashSpreadNum());
+        }
+        for (String value : new String[] {"0", "-1", "2147483648", "abc"}) {
+            Assertions.assertThrows(DdlException.class, () -> VariableMgr.setVar(var, new SetVar(SetType.SESSION,
+                    SessionVariable.EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM, new StringLiteral(value))));
+            Assertions.assertEquals(Integer.MAX_VALUE, var.getExternalScanConsistentHashSpreadNum());
+        }
+        SessionVariable forwarded = new SessionVariable();
+        forwarded.setForwardedSessionVariables(var.getForwardVariables());
+        Assertions.assertEquals(Integer.MAX_VALUE, forwarded.getExternalScanConsistentHashSpreadNum());
+        VariableMgr.setVar(var, new SetVar(SetType.SESSION,
+                SessionVariable.EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM, null));
+        Assertions.assertEquals(1, var.getExternalScanConsistentHashSpreadNum());
+    }
+
 }

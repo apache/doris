@@ -47,7 +47,8 @@ public abstract class ExternalScanNode extends ScanNode {
     protected final FederationBackendPolicy backendPolicy = (ConnectContext.get() != null
             && (ConnectContext.get().getSessionVariable().enableFileCache
                 || ConnectContext.get().getSessionVariable().getUseConsistentHashForExternalScan()))
-            ? new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING)
+            ? new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING,
+                    ConnectContext.get().getSessionVariable().getExternalScanConsistentHashSpreadNum())
             : new FederationBackendPolicy();
 
     public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,

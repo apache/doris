@@ -67,6 +67,8 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.IntUnaryOperator;
 import java.util.stream.Collectors;
 
 public class FederationBackendPolicy {
@@ -90,6 +92,8 @@ public class FederationBackendPolicy {
 
     private NodeSelectionStrategy nodeSelectionStrategy;
     private boolean enableSplitsRedistribution = true;
+    private final int consistentHashSpreadNum;
+    private final IntUnaryOperator randomIndex;
 
     // Create a ConsistentHash ring may be a time-consuming operation, so we cache it.
     private static LoadingCache<HashCacheKey, ConsistentHash<Split, Backend>> consistentHashCache;
@@ -142,7 +146,20 @@ public class FederationBackendPolicy {
     }
 
     public FederationBackendPolicy(NodeSelectionStrategy nodeSelectionStrategy) {
+        this(nodeSelectionStrategy, 1);
+    }
+
+    public FederationBackendPolicy(NodeSelectionStrategy nodeSelectionStrategy, int consistentHashSpreadNum) {
+        this(nodeSelectionStrategy, consistentHashSpreadNum, bound -> ThreadLocalRandom.current().nextInt(bound));
+    }
+
+    @VisibleForTesting
+    FederationBackendPolicy(NodeSelectionStrategy nodeSelectionStrategy, int consistentHashSpreadNum,
+            IntUnaryOperator randomIndex) {
+        Preconditions.checkArgument(consistentHashSpreadNum > 0, "consistentHashSpreadNum must be at least 1");
         this.nodeSelectionStrategy = nodeSelectionStrategy;
+        this.consistentHashSpreadNum = consistentHashSpreadNum;
+        this.randomIndex = randomIndex;
     }
 
     public FederationBackendPolicy() {
@@ -285,7 +302,8 @@ public class FederationBackendPolicy {
                     }
                     case CONSISTENT_HASHING: {
                         candidateNodes = consistentHash.getNode(split,
-                                Config.split_assigner_min_consistent_hash_candidate_num);
+                                isConsistentHashSpreadEnabled() ? Math.min(consistentHashSpreadNum, backends.size())
+                                        : Config.split_assigner_min_consistent_hash_candidate_num);
                         break;
                     }
                     default: {
@@ -301,7 +319,8 @@ public class FederationBackendPolicy {
                 throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
             }
 
-            Backend selectedBackend = chooseNodeForSplit(candidateNodes);
+            Backend selectedBackend = isConsistentHashSpreadEnabled() && split.isRemotelyAccessible()
+                    ? chooseNodeForSpread(candidateNodes) : chooseNodeForSplit(candidateNodes);
             List<Backend> alternativeBackends = new ArrayList<>(candidateNodes);
             alternativeBackends.remove(selectedBackend);
             split.setAlternativeHosts(
@@ -311,7 +330,9 @@ public class FederationBackendPolicy {
                     assignedWeightPerBackend.get(selectedBackend) + split.getSplitWeight().getRawValue());
         }
 
-        if (enableSplitsRedistribution) {
+        // Global redistribution can move a split outside its hash candidates or its locality constraints.
+        // The spread mode balances weights within each split's candidates during initial assignment instead.
+        if (enableSplitsRedistribution && !isConsistentHashSpreadEnabled()) {
             equateDistribution(assignment);
         }
         return assignment;
@@ -481,6 +502,28 @@ public class FederationBackendPolicy {
             }
         }
 
+        return chosenNode;
+    }
+
+    private boolean isConsistentHashSpreadEnabled() {
+        return nodeSelectionStrategy == NodeSelectionStrategy.CONSISTENT_HASHING && consistentHashSpreadNum > 1;
+    }
+
+    private Backend chooseNodeForSpread(List<Backend> candidateNodes) {
+        Backend chosenNode = null;
+        long minWeight = Long.MAX_VALUE;
+        int tiedNodes = 0;
+        for (Backend node : candidateNodes) {
+            long queuedWeight = assignedWeightPerBackend.get(node);
+            if (queuedWeight < minWeight) {
+                chosenNode = node;
+                minWeight = queuedWeight;
+                tiedNodes = 1;
+            } else if (queuedWeight == minWeight && randomIndex.applyAsInt(++tiedNodes) == 0) {
+                // Reservoir sampling gives every node with the minimum weight the same probability.
+                chosenNode = node;
+            }
+        }
         return chosenNode;
     }
 

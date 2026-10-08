@@ -1486,6 +1486,15 @@ public class SessionVariable implements Serializable, Writable {
             description = "Use consistent hashing to split the appearance for external scan")
     public boolean useConsistentHashForExternalScan = false;
 
+    public static final String EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM = "external_scan_consistent_hash_spread_num";
+    @VarAttrDef.VarAttr(name = EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM,
+            checker = "checkExternalScanConsistentHashSpreadNum", needForward = true,
+            description = "Number of consistent hash candidates for spreading hot remote external splits. "
+                    + "1 preserves the original scheduling; values above 1 enable random tie breaking within "
+                    + "the lowest assigned weight candidates and disable global split redistribution. "
+                    + "Requires file cache or use_consistent_hash_for_external_scan.")
+    public int externalScanConsistentHashSpreadNum = 1;
+
     @VarAttrDef.VarAttr(name = PROFILE_LEVEL, fuzzy = false, needForward = true,
             setter = "setProfileLevel", checker = "checkProfileLevel",
             description = "The level of query profile, "
@@ -6401,6 +6410,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getUseConsistentHashForExternalScan() {
         return useConsistentHashForExternalScan;
+    }
+
+    public int getExternalScanConsistentHashSpreadNum() {
+        return externalScanConsistentHashSpreadNum;
+    }
+
+    public void checkExternalScanConsistentHashSpreadNum(String value) throws Exception {
+        checkFieldValue(EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM, 1, value);
     }
 
     public void setForceJniScanner(boolean force) {
