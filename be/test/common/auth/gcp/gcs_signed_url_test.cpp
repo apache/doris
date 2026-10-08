@@ -87,6 +87,7 @@ TEST(GcsSignedUrlTest, DefaultHttpsPortProducesTheSameSignatureAndUrl) {
 
 TEST(GcsSignedUrlTest, RejectsBucketEndpointsBeforeSigning) {
     GcsV4SignedUrlOptions options {
+            .endpoint = "",
             .bucket = "test-bucket",
             .key = "error_log/id",
             .signer_email = "signer@my-project.iam.gserviceaccount.com",
