@@ -42,6 +42,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
 
 public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMatchSupported {
@@ -123,6 +124,25 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                 (PhysicalTopN<? extends Plan>) plan.child(0).child(0).child(0);
         Assertions.assertTrue(localTopN.getSortPhase().isLocal());
         Assertions.assertFalse(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+    }
+
+    @Test
+    public void testNotUseTopNRfForUnsupportedComplexOrderKey() {
+        String sql = "select c_custkey from customer order by array(c_custkey) limit 5";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+
+        List<PhysicalTopN<? extends Plan>> localTopNs = plan.collectToList(
+                node -> node instanceof PhysicalTopN
+                        && ((PhysicalTopN<?>) node).getSortPhase().isLocal());
+        Assertions.assertFalse(localTopNs.isEmpty(), plan.treeString());
+        for (PhysicalTopN<? extends Plan> localTopN : localTopNs) {
+            Assertions.assertFalse(
+                    checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+        }
     }
 
     @Test

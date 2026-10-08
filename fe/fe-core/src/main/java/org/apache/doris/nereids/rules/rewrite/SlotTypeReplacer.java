@@ -65,6 +65,7 @@ import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
+import org.apache.doris.thrift.DescriptorsConstants;
 import org.apache.doris.thrift.TAccessPathType;
 import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TDataAccessPath;
@@ -635,6 +636,7 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                 );
                 TColumnAccessPath newAccessPath = new TColumnAccessPath(TAccessPathType.DATA);
                 newAccessPath.data_access_path = new TDataAccessPath(icebergColumnAccessPath);
+                copyAccessPathVersion(accessPath, newAccessPath);
                 replacedAccessPaths.add(newAccessPath);
             } else {
                 icebergColumnAccessPath.addAll(accessPath.meta_access_path.path);
@@ -643,6 +645,7 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                 );
                 TColumnAccessPath newAccessPath = new TColumnAccessPath(TAccessPathType.META);
                 newAccessPath.meta_access_path = new TMetaAccessPath(icebergColumnAccessPath);
+                copyAccessPathVersion(accessPath, newAccessPath);
                 replacedAccessPaths.add(newAccessPath);
             }
         }
@@ -685,6 +688,15 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             } else {
                 originPath.set(index, String.valueOf(column.getUniqueId()));
             }
+        }
+    }
+
+    /** Keep the FE/BE access-path wire contract when a path is rebuilt with Iceberg field ids. */
+    private static void copyAccessPathVersion(TColumnAccessPath source, TColumnAccessPath target) {
+        if (source.isSetVersion()) {
+            target.setVersion(source.getVersion());
+        } else {
+            target.setVersion(DescriptorsConstants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
         }
     }
 

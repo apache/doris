@@ -19,11 +19,11 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.types.DataType;
 
 /**
  * topN opt
@@ -60,13 +60,20 @@ public class TopNScanOpt extends PlanPostProcessor {
             return false;
         }
 
-        Expression firstKey = topN.getOrderKeys().get(0).getExpr();
+        DataType firstKeyType = topN.getOrderKeys().get(0).getExpr().getDataType();
 
-        if (firstKey.getDataType().isFloatType()
-                || firstKey.getDataType().isDoubleType()) {
-            return false;
-        }
-        return true;
+        return isSupportedTopNRuntimeFilterType(firstKeyType);
+    }
+
+    private boolean isSupportedTopNRuntimeFilterType(DataType dataType) {
+        return dataType.isBooleanType()
+                || dataType.isIntegralType()
+                || dataType.isDecimalLikeType()
+                || dataType.isStringLikeType()
+                || dataType.isDateLikeType()
+                || dataType.isTimeType()
+                || dataType.isIPType()
+                || dataType.isVarBinaryType();
     }
 
 }
