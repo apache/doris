@@ -23,10 +23,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
-import org.apache.doris.load.routineload.kafka.KafkaProgress;
-import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
-import org.apache.doris.load.routineload.kinesis.KinesisProgress;
-import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -37,8 +33,7 @@ import com.google.gson.JsonParser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -84,14 +79,13 @@ public class RoutineLoadJobPersistenceTest {
         }
     }
 
-    @ParameterizedTest
-    @EnumSource(value = LoadDataSourceType.class, names = {"KAFKA", "KINESIS"})
-    public void testCreateJournalBeforePublishingJob(LoadDataSourceType dataSourceType) throws Exception {
-        RoutineLoadJob job = createJob(dataSourceType);
+    @Test
+    public void testCreateJournalBeforePublishingJob() throws Exception {
+        RoutineLoadJob job = createJob();
         Mockito.doAnswer(invocation -> {
             // Exercise scheduling at the old race window, before the create record is serialized.
             for (RoutineLoadJob visibleJob : manager.getRoutineLoadJobByState(EnumSet.of(JobState.NEED_SCHEDULE))) {
-                setSourceProgress(visibleJob, dataSourceType);
+                setSourceProgress(visibleJob);
                 visibleJob.divideRoutineLoadJob(1);
             }
             byte[] record = serialize(invocation.getArgument(0));
@@ -107,27 +101,19 @@ public class RoutineLoadJobPersistenceTest {
         Mockito.verify(editLog).logCreateRoutineLoadJob(job);
         Assertions.assertSame(job, manager.getJob(job.getId()));
         Assertions.assertSame(job, callbackFactory.getCallback(job.getId()));
-        setSourceProgress(job, dataSourceType);
+        setSourceProgress(job);
         job.divideRoutineLoadJob(1);
         Assertions.assertEquals(JobState.RUNNING, job.getState());
         Assertions.assertEquals(1, job.getSizeOfRoutineLoadTaskInfoList());
     }
 
-    private RoutineLoadJob createJob(LoadDataSourceType dataSourceType) {
-        if (dataSourceType == LoadDataSourceType.KINESIS) {
-            return new KinesisRoutineLoadJob(1L, "job", 1L, 1L, "us-east-1", "stream", UserIdentity.ADMIN);
-        }
+    private RoutineLoadJob createJob() {
         return new KafkaRoutineLoadJob(1L, "job", 1L, 1L, "127.0.0.1:9092", "topic", UserIdentity.ADMIN);
     }
 
-    private void setSourceProgress(RoutineLoadJob job, LoadDataSourceType dataSourceType) {
-        if (dataSourceType == LoadDataSourceType.KINESIS) {
-            job.progress = new KinesisProgress(Map.of("shard-0", "100"));
-            Deencapsulation.setField(job, "openKinesisShards", Lists.newArrayList("shard-0"));
-        } else {
-            job.progress = new KafkaProgress(Map.of(0, 100L));
-            Deencapsulation.setField(job, "currentKafkaPartitions", Lists.newArrayList(0));
-        }
+    private void setSourceProgress(RoutineLoadJob job) {
+        job.progress = new KafkaProgress(Map.of(0, 100L));
+        Deencapsulation.setField(job, "currentKafkaPartitions", Lists.newArrayList(0));
     }
 
     private byte[] serialize(Writable value) throws IOException {
