@@ -78,7 +78,7 @@ public class RemoteDorisExternalTable extends ExternalTable {
 
     private class RefreshTask {
         private final FutureTask<RemoteOlapTable> task;
-        private final FutureTask<RemoteOlapTable> predecessor;
+        private volatile FutureTask<RemoteOlapTable> predecessor;
         private volatile boolean started;
 
         private RefreshTask(FutureTask<RemoteOlapTable> predecessor) {
@@ -91,8 +91,10 @@ public class RemoteDorisExternalTable extends ExternalTable {
         }
 
         private void run() {
-            if (predecessor != null) {
-                waitForRefreshCompletion(predecessor);
+            FutureTask<RemoteOlapTable> previousTask = predecessor;
+            if (previousTask != null) {
+                waitForRefreshCompletion(previousTask);
+                predecessor = null;
             }
             started = true;
             task.run();
