@@ -63,7 +63,7 @@ Status append_flight_variant_value(VariantRef value, VariantBatchBuilder::Row& o
     if (depth > VARIANT_MAX_NESTING_DEPTH) {
         return Status::NotSupported(
                 "Native Arrow Variant nesting exceeds {}; "
-                "use enable_arrow_flight_sql_native_variant=false for UTF8 output",
+                "cast the result to STRING for text output",
                 VARIANT_MAX_NESTING_DEPTH);
     }
     if (value.value_size() != value.value.size) {

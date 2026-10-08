@@ -247,13 +247,13 @@ std::string DorisArrowSchemaConvertor::timestamp_timezone(PrimitiveType) const {
 
 Status ArrowFlightSchemaConvertor::convert_to_arrow_type(
         const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result) const {
-    // Keep native Variant opt-in scoped to Flight, including recursively converted children.
-    if (_native_variant && type->get_primitive_type() == TYPE_VARIANT) {
+    // Flight always uses native Variant, including recursively converted children.
+    if (type->get_primitive_type() == TYPE_VARIANT) {
         // Reject by type before reading rows, including empty results and nested legacy leaves.
         if (dynamic_cast<const DataTypeVariantV2*>(remove_nullable(type).get()) == nullptr) {
             return Status::NotSupported(
                     "Native Arrow Flight output only supports Variant V2, not legacy Variant; "
-                    "use enable_arrow_flight_sql_native_variant=false for UTF8 output");
+                    "cast the result to STRING for text output");
         }
         RETURN_IF_ERROR(register_arrow_variant_extension());
         *result = arrow::extension::variant(

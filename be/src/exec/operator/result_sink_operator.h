@@ -168,7 +168,6 @@ private:
 
     Status _second_phase_fetch_data(RuntimeState* state, Block* final_block);
     const TResultSinkType::type _sink_type;
-    const bool _native_variant;
     const bool _enable_arrow_type_metadata;
     std::shared_ptr<const DorisArrowSchemaConvertor> _arrow_schema_convertor;
     const int _result_sink_buffer_size_rows;

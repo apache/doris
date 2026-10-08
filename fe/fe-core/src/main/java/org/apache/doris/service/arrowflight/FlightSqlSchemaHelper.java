@@ -38,6 +38,7 @@ import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTableStatus;
 
+import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.sql.FlightSqlColumnMetadata;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetDbSchemas;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetTables;
@@ -171,6 +172,15 @@ public class FlightSqlSchemaHelper {
     }
 
     static Field withDorisTypeMetadata(Field field, Type type) {
+        if (type.isVariantType()) {
+            FlightSqlNativeVariant.requireSupported();
+            if (field.getMetadata() == null
+                    || !"arrow.parquet.variant".equals(field.getMetadata().get("ARROW:extension:name"))) {
+                throw CallStatus.UNIMPLEMENTED.withDescription(
+                        "Backend returned a non-native Variant schema; complete the BE upgrade "
+                                + "or cast the result to STRING").toRuntimeException();
+            }
+        }
         List<Field> children = new ArrayList<>(field.getChildren());
         if (type.isArrayType()) {
             children.set(0, withDorisTypeMetadata(children.get(0), ((ArrayType) type).getItemType()));
@@ -326,7 +336,6 @@ public class FlightSqlSchemaHelper {
     private Map<String, List<Field>> buildTableToFields(String dbName, TDescribeTablesResult describeTablesResult,
             List<String> tablesName) {
         Map<String, List<Field>> tableToFields = new HashMap<>();
-        boolean nativeVariant = FlightSqlNativeVariant.isEnabled(ctx);
         int columnIndex = 0;
         for (int tableIndex = 0; tableIndex < describeTablesResult.getTablesOffsetSize(); tableIndex++) {
             String tableName = tablesName.get(tableIndex);
@@ -334,7 +343,7 @@ public class FlightSqlSchemaHelper {
             Integer tableOffset = describeTablesResult.getTablesOffset().get(tableIndex);
             for (; columnIndex < tableOffset; columnIndex++) {
                 TColumnDef columnDef = describeTablesResult.getColumns().get(columnIndex);
-                fields.add(buildField(dbName, tableName, columnDef.getColumnDesc(), nativeVariant));
+                fields.add(buildField(dbName, tableName, columnDef.getColumnDesc()));
             }
             tableToFields.put(tableName, fields);
         }
@@ -343,11 +352,7 @@ public class FlightSqlSchemaHelper {
 
     /** One column, with its nested types described down to the leaves. */
     private static Field buildField(String dbName, String tableName, TColumnDesc desc) {
-        return buildField(dbName, tableName, desc, false);
-    }
-
-    private static Field buildField(String dbName, String tableName, TColumnDesc desc, boolean nativeVariant) {
-        if (nativeVariant && desc.getColumnType() == TPrimitiveType.VARIANT) {
+        if (desc.getColumnType() == TPrimitiveType.VARIANT) {
             return nativeVariantField(desc.getColumnName(), desc.isIsAllowNull(),
                     createFlightSqlColumnMetadata(dbName, tableName, desc));
         }
@@ -355,10 +360,11 @@ public class FlightSqlSchemaHelper {
         return new Field(desc.getColumnName(),
                 new FieldType(desc.isIsAllowNull(), arrowType, null,
                         createFlightSqlColumnMetadata(dbName, tableName, desc)),
-                arrowChildren(dbName, tableName, desc, arrowType, nativeVariant));
+                arrowChildren(dbName, tableName, desc, arrowType));
     }
 
     static Field nativeVariantField(String name, boolean nullable, Map<String, String> columnMetadata) {
+        FlightSqlNativeVariant.requireSupported();
         Map<String, String> metadata = new HashMap<>(columnMetadata);
         // Discovery and execution must share the extension metadata as well as its storage type.
         metadata.put("ARROW:extension:name", "arrow.parquet.variant");
@@ -384,7 +390,7 @@ public class FlightSqlSchemaHelper {
      * that cannot describe its nested types is no worse off than before.
      */
     private static List<Field> arrowChildren(String dbName, String tableName, TColumnDesc desc,
-            ArrowType arrowType, boolean nativeVariant) {
+            ArrowType arrowType) {
         List<TColumnDesc> children = desc.isSetChildren() ? desc.getChildren() : Collections.emptyList();
         switch (arrowType.getTypeID()) {
             case List:
@@ -395,7 +401,7 @@ public class FlightSqlSchemaHelper {
                             Field.notNullable(BaseRepeatedValueVector.DATA_VECTOR_NAME,
                                     ZeroVector.INSTANCE.getField().getType()));
                 }
-                return Collections.singletonList(buildField(dbName, tableName, children.get(0), nativeVariant));
+                return Collections.singletonList(buildField(dbName, tableName, children.get(0)));
             case Map:
                 // Arrow spells a map as list<entries: struct<key, value>>, with the entries struct and
                 // the key both non-nullable -- the descriptor's key nullability is not carried over,
@@ -404,8 +410,8 @@ public class FlightSqlSchemaHelper {
                     return Collections.singletonList(
                             Field.notNullable(MapVector.DATA_VECTOR_NAME, new ArrowType.List()));
                 }
-                Field key = buildField(dbName, tableName, children.get(0), nativeVariant);
-                Field value = buildField(dbName, tableName, children.get(1), nativeVariant);
+                Field key = buildField(dbName, tableName, children.get(0));
+                Field value = buildField(dbName, tableName, children.get(1));
                 Field entries = new Field(MapVector.DATA_VECTOR_NAME,
                         new FieldType(false, new ArrowType.Struct(), null),
                         Arrays.asList(new Field(key.getName(),
@@ -419,7 +425,7 @@ public class FlightSqlSchemaHelper {
                 }
                 List<Field> structFields = new ArrayList<>(children.size());
                 for (TColumnDesc child : children) {
-                    structFields.add(buildField(dbName, tableName, child, nativeVariant));
+                    structFields.add(buildField(dbName, tableName, child));
                 }
                 return structFields;
             default:

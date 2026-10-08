@@ -29,6 +29,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/arrow/arrow_block_convertor.h"
@@ -104,7 +105,10 @@ class ArrowLogicalTypeMetadataTest
 
 TEST_P(ArrowLogicalTypeMetadataTest, PreservesTopLevelAndNestedFields) {
     const auto [primitive, name] = GetParam();
-    auto type = make_nullable(DataTypeFactory::instance().create_data_type(primitive, false));
+    auto type =
+            make_nullable(primitive == TYPE_VARIANT
+                                  ? DataTypePtr(std::make_shared<DataTypeVariantV2>())
+                                  : DataTypeFactory::instance().create_data_type(primitive, false));
     auto string_type = std::make_shared<DataTypeString>();
     DataTypes types {type, std::make_shared<DataTypeArray>(type),
                      std::make_shared<DataTypeStruct>(DataTypes {type, string_type},
@@ -129,7 +133,10 @@ TEST_P(ArrowLogicalTypeMetadataTest, PreservesTopLevelAndNestedFields) {
 
 TEST_P(ArrowLogicalTypeMetadataTest, OldFeReceivesLegacySchema) {
     const auto [primitive, name] = GetParam();
-    auto type = make_nullable(DataTypeFactory::instance().create_data_type(primitive, false));
+    auto type =
+            make_nullable(primitive == TYPE_VARIANT
+                                  ? DataTypePtr(std::make_shared<DataTypeVariantV2>())
+                                  : DataTypeFactory::instance().create_data_type(primitive, false));
     auto string_type = std::make_shared<DataTypeString>();
     DataTypes types {
             type, std::make_shared<DataTypeArray>(type),

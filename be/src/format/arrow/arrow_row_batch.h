@@ -82,21 +82,16 @@ private:
 
 class ArrowFlightSchemaConvertor : public DorisArrowSchemaConvertor {
 public:
-    explicit ArrowFlightSchemaConvertor(std::string timezone, bool native_variant = false)
-            : DorisArrowSchemaConvertor(std::move(timezone)), _native_variant(native_variant) {}
-    ArrowFlightSchemaConvertor(const Block& header, std::string timezone,
-                               bool native_variant = false)
-            : DorisArrowSchemaConvertor(header, std::move(timezone)),
-              _native_variant(native_variant) {}
+    explicit ArrowFlightSchemaConvertor(std::string timezone)
+            : DorisArrowSchemaConvertor(std::move(timezone)) {}
+    ArrowFlightSchemaConvertor(const Block& header, std::string timezone)
+            : DorisArrowSchemaConvertor(header, std::move(timezone)) {}
 
     Status convert_to_arrow_type(const DataTypePtr& type,
                                  std::shared_ptr<arrow::DataType>* result) const override;
 
 protected:
     std::string timestamp_timezone(PrimitiveType type) const override;
-
-private:
-    const bool _native_variant;
 };
 
 // Old FEs require the pre-capability metadata layout, including metadata-free nested fields.

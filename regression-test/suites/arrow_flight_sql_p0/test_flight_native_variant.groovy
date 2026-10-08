@@ -99,93 +99,83 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
                 .collect { it.BackendId }.unique().size()
         [false, true].each { parallel ->
             executeSetting("SET enable_parallel_result_sink=${parallel}")
-            [false, true, false].each { nativeVariant ->
-                executeSetting("SET enable_arrow_flight_sql_native_variant=${nativeVariant}")
-                if (nativeVariant && !variantV2) {
-                    // Reject by type even for constants, SQL NULL, and empty result sets.
-                    ["SELECT id, v FROM ${table}",
-                     "SELECT CAST(42 AS VARIANT) AS v",
-                     "SELECT CAST(NULL AS VARIANT) AS v",
-                     "SELECT v FROM ${table} WHERE id < 0"].each { query ->
-                        expectUnsupported { read(query.toString(), { root -> }) }
-                        expectUnsupported { client.getExecuteSchema(query.toString(), auth) }
-                        expectUnsupported {
-                            def prepared = client.prepare(query.toString(), auth)
-                            try {
-                                prepared.resultSetSchema
-                            } finally {
-                                prepared.close(auth)
-                            }
+            // Text output is an explicit SQL conversion, for either Variant representation.
+            assertEquals(60, read("SELECT CAST(v AS STRING) AS text_value FROM ${table}", { root ->
+                assertEquals("Utf8", root.getVector(0).field.type.toString())
+            }))
+            if (!variantV2) {
+                // Reject by type even for constants, SQL NULL, and empty result sets.
+                ["SELECT id, v FROM ${table}",
+                 "SELECT CAST(42 AS VARIANT) AS v",
+                 "SELECT CAST(NULL AS VARIANT) AS v",
+                 "SELECT v FROM ${table} WHERE id < 0"].each { query ->
+                    expectUnsupported { read(query.toString(), { root -> }) }
+                    expectUnsupported { client.getExecuteSchema(query.toString(), auth) }
+                    expectUnsupported {
+                        def prepared = client.prepare(query.toString(), auth)
+                        try {
+                            prepared.resultSetSchema
+                        } finally {
+                            prepared.close(auth)
                         }
                     }
-                    return
                 }
-                def seen = []
-                assertEquals(60, read("SELECT id, v FROM ${table}", { root ->
-                    def vector = root.getVector(1)
-                    def field = vector.field
-                    if (nativeVariant) {
-                        assertEquals("arrow.parquet.variant", field.metadata.get("ARROW:extension:name"))
+                return
+            }
+            def seen = []
+            assertEquals(60, read("SELECT id, v FROM ${table}", { root ->
+                def vector = root.getVector(1)
+                def field = vector.field
+                assertEquals("arrow.parquet.variant", field.metadata.get("ARROW:extension:name"))
+                assertEquals("Struct", field.type.toString())
+                assertEquals(["metadata", "value"], field.children.collect { it.name })
+                field.children.each { child ->
+                    assertFalse(child.nullable)
+                    assertEquals("Binary", child.type.toString())
+                }
+                for (int i = 0; i < root.rowCount; i++) {
+                    int id = root.getVector(0).get(i)
+                    seen.add(id)
+                    assertEquals(id % 4 == 0, vector.isNull(i))
+                    if (id % 4 != 0) {
+                        assertTrue(vector.getChild("metadata").get(i).length > 0)
+                        assertTrue(vector.getChild("value").get(i).length > 0)
+                        if (id % 4 == 1) {
+                            assertEquals([12, 42], vector.getChild("value").get(i).collect { it & 0xff })
+                        }
+                    }
+                }
+            }, parallel, resultBackendCount))
+            assertEquals((1..60).toList(), seen.sort())
+            def scannedColumns = "v, ARRAY(v) AS a, MAP('key', v) AS m, STRUCT(v) AS s"
+            // Prepare and GetSchema must advertise the same Variant leaves as execution.
+            ["SELECT CAST(42 AS VARIANT) AS v",
+             "SELECT ${scannedColumns} FROM ${table} WHERE id = 1",
+             "SELECT ${scannedColumns} FROM ${table} WHERE id < 0"].eachWithIndex { query, index ->
+                def prepared = client.prepare(query.toString(), auth)
+                try {
+                    def schema = prepared.resultSetSchema
+                    assertEquals(schema, client.getExecuteSchema(query.toString(), auth).schema)
+                    assertEquals(schema, prepared.fetchSchema(auth).schema)
+                    def leaves = [schema.fields[0]]
+                    if (index > 0) {
+                        leaves.add(schema.fields[1].children[0])
+                        leaves.add(schema.fields[2].children[0].children[1])
+                        leaves.add(schema.fields[3].children[0])
+                    }
+                    leaves.each { field ->
                         assertEquals("Struct", field.type.toString())
-                        assertEquals(["metadata", "value"], field.children.collect { it.name })
-                        field.children.each { child ->
-                            assertFalse(child.nullable)
-                            assertEquals("Binary", child.type.toString())
-                        }
-                    } else {
-                        assertEquals("Utf8", field.type.toString())
+                        assertEquals("arrow.parquet.variant", field.metadata.get("ARROW:extension:name"))
                     }
-                    for (int i = 0; i < root.rowCount; i++) {
-                        int id = root.getVector(0).get(i)
-                        seen.add(id)
-                        assertEquals(id % 4 == 0, vector.isNull(i))
-                        if (nativeVariant && id % 4 != 0) {
-                            assertTrue(vector.getChild("metadata").get(i).length > 0)
-                            assertTrue(vector.getChild("value").get(i).length > 0)
-                            if (id % 4 == 1) {
-                                assertEquals([12, 42], vector.getChild("value").get(i).collect { it & 0xff })
-                            }
-                        } else if (!nativeVariant && id % 4 == 1) {
-                            assertEquals("42", vector.getObject(i).toString())
-                        }
-                    }
-                }, parallel, resultBackendCount))
-                assertEquals((1..60).toList(), seen.sort())
-                // Exercise nested native output only for V2; legacy uses the existing UTF8 path.
-                def scannedColumns = variantV2Function
-                        ? "v, ARRAY(v) AS a, MAP('key', v) AS m, STRUCT(v) AS s" : "v"
-                // Prepare and GetSchema must advertise the same Variant leaves as execution.
-                ["SELECT CAST(42 AS VARIANT) AS v",
-                 "SELECT ${scannedColumns} FROM ${table} WHERE id = 1",
-                 "SELECT ${scannedColumns} FROM ${table} WHERE id < 0"].eachWithIndex { query, index ->
-                    def prepared = client.prepare(query.toString(), auth)
-                    try {
-                        def schema = prepared.resultSetSchema
-                        assertEquals(schema, client.getExecuteSchema(query.toString(), auth).schema)
-                        assertEquals(schema, prepared.fetchSchema(auth).schema)
-                        def leaves = [schema.fields[0]]
-                        if (index > 0 && variantV2Function) {
-                            leaves.add(schema.fields[1].children[0])
-                            leaves.add(schema.fields[2].children[0].children[1])
-                            leaves.add(schema.fields[3].children[0])
-                        }
-                        leaves.each { field ->
-                            assertEquals(nativeVariant ? "Struct" : "Utf8", field.type.toString())
-                            if (nativeVariant) {
-                                assertEquals("arrow.parquet.variant", field.metadata.get("ARROW:extension:name"))
-                            }
-                        }
-                        assertEquals(index == 2 ? 0 : 1, read(query.toString(), { root -> }, false, 1, prepared))
-                    } finally {
-                        prepared.close(auth)
-                    }
+                    assertEquals(index == 2 ? 0 : 1, read(query.toString(), { root -> }, false, 1, prepared))
+                } finally {
+                    prepared.close(auth)
                 }
             }
         }
         if (!variantV2) {
             return
         }
-        executeSetting("SET enable_arrow_flight_sql_native_variant=true")
         // Each row owns its wire dictionary; unrelated keys must not multiply Arrow metadata.
         def keyExpression = "CONCAT(REPEAT('k', 244), LPAD(CAST(number AS STRING), 6, '0'))"
         def variantExpression = """parse_to_variant(CONCAT('{"', ${keyExpression}, '":', CAST(number AS STRING), '}'))"""

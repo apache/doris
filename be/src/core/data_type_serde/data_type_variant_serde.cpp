@@ -161,7 +161,7 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
         // Native Flight output must not reinterpret legacy storage as Variant V2.
         return Status::NotSupported(
                 "Native Arrow Flight output only supports Variant V2, not legacy Variant; "
-                "use enable_arrow_flight_sql_native_variant=false for UTF8 output");
+                "cast the result to STRING for text output");
     }
     if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
         auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);

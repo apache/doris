@@ -482,8 +482,8 @@ Status ArrowFlightArrowBlockConvertor::write_column(const std::shared_ptr<const 
                                                     const cctz::time_zone& ctz) const {
     if (contains_extension_type(field->type())) {
         std::shared_ptr<arrow::DataType> native_type;
-        RETURN_IF_ERROR(ArrowFlightSchemaConvertor(ctz.name(), true)
-                                .convert_to_arrow_type(type, &native_type));
+        RETURN_IF_ERROR(
+                ArrowFlightSchemaConvertor(ctz.name()).convert_to_arrow_type(type, &native_type));
         // Check the extension identity and its complete nested shape before allowing the
         // Variant SerDe to write binary storage. An arbitrary STRUCT is not a Variant binding.
         // Timestamp labels may differ for equivalent fixed offsets, including inside containers.

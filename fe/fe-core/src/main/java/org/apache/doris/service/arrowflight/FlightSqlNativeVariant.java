@@ -19,8 +19,10 @@ package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.common.Config;
 import org.apache.doris.system.Backend;
+
+import org.apache.arrow.flight.CallStatus;
 
 import java.util.Collection;
 
@@ -28,24 +30,27 @@ public final class FlightSqlNativeVariant {
     private FlightSqlNativeVariant() {
     }
 
-    public static boolean isEnabled(ConnectContext context) {
-        if (context == null) {
-            return false;
-        }
-        // Schema analysis temporarily installs SET_VAR state under this monitor. Metadata
-        // requests must wait for that scope to end instead of observing another query's hints.
-        synchronized (context) {
-            if (!context.getSessionVariable().isEnableArrowFlightSqlNativeVariant()) {
-                return false;
-            }
-        }
+    public static boolean isSupported() {
         try {
             Collection<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values();
-            // A Flight ticket may be proxied through a BE outside the query's result sinks.
-            // Require every registered BE, including unknown heartbeat capabilities, to support the format.
+            // Flight tickets can be proxied through a BE outside the result sinks.
             return !backends.isEmpty() && backends.stream().allMatch(Backend::isArrowFlightNativeVariantSupported);
         } catch (AnalysisException e) {
             return false;
+        }
+    }
+
+    static void requireSupported() {
+        if (!Config.enable_variant_v2) {
+            throw CallStatus.UNIMPLEMENTED.withDescription(
+                    "Native Arrow Flight output only supports Variant V2, not legacy Variant; "
+                            + "cast the result to STRING for text output").toRuntimeException();
+        }
+        if (!isSupported()) {
+            // Never silently change the wire type while a cluster is being upgraded.
+            throw CallStatus.UNIMPLEMENTED.withDescription(
+                    "Native Arrow Variant requires support from every registered BE; "
+                            + "complete the BE upgrade or cast the result to STRING").toRuntimeException();
         }
     }
 }

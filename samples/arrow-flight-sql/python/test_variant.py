@@ -49,40 +49,34 @@ class NativeVariantTest(unittest.TestCase):
                 execute("SET enable_sql_cache=false")
                 for parallel in (False, True):
                     execute(f"SET enable_parallel_result_sink={str(parallel).lower()}")
-                    for native in (False, True, False):
-                        execute(f"SET enable_arrow_flight_sql_native_variant={str(native).lower()}")
-                        table = execute(query)
-                        self.check_result(table, native)
-                        # ExecuteSchema and Prepare must agree with the subsequently fetched batches.
-                        with adbc_driver_manager.AdbcStatement(connection) as statement:
-                            statement.set_sql_query(query)
-                            schema_handle = statement.execute_schema()
-                            schema = pa.Schema._import_from_c(schema_handle.address)
-                            self.assertEqual(schema, table.schema)
-                            statement.prepare()
-                            stream, _ = statement.execute_query()
-                            prepared = pa.RecordBatchReader._import_from_c(stream.address).read_all()
-                            self.assertEqual(prepared.schema, schema)
-                            self.check_result(prepared, native)
+                    table = execute(query)
+                    self.check_result(table)
+                    # ExecuteSchema and Prepare must agree with the subsequently fetched batches.
+                    with adbc_driver_manager.AdbcStatement(connection) as statement:
+                        statement.set_sql_query(query)
+                        schema_handle = statement.execute_schema()
+                        schema = pa.Schema._import_from_c(schema_handle.address)
+                        self.assertEqual(schema, table.schema)
+                        statement.prepare()
+                        stream, _ = statement.execute_query()
+                        prepared = pa.RecordBatchReader._import_from_c(stream.address).read_all()
+                        self.assertEqual(prepared.schema, schema)
+                        self.check_result(prepared)
 
-                        with adbc_driver_manager.AdbcStatement(connection) as statement:
-                            statement.set_sql_query(query)
-                            partitions, _, _ = statement.execute_partitions()
-                            tables = []
-                            for partition in partitions:
-                                stream = connection.read_partition(partition)
-                                tables.append(pa.RecordBatchReader._import_from_c(stream.address).read_all())
-                            self.check_result(pa.concat_tables(tables), native)
+                    with adbc_driver_manager.AdbcStatement(connection) as statement:
+                        statement.set_sql_query(query)
+                        partitions, _, _ = statement.execute_partitions()
+                        tables = []
+                        for partition in partitions:
+                            stream = connection.read_partition(partition)
+                            tables.append(pa.RecordBatchReader._import_from_c(stream.address).read_all())
+                        self.check_result(pa.concat_tables(tables))
 
-    def check_result(self, table, native):
+    def check_result(self, table):
         table = table.sort_by("id")
         self.assertEqual(table.num_rows, 2)
         field = table.schema.field("v")
         values = table.column("v").combine_chunks()
-        if not native:
-            self.assertEqual(field.type, pa.string())
-            self.assertEqual(values.to_pylist(), ["42", None])
-            return
         # Clients without a registered extension expose its storage plus field metadata.
         if isinstance(values, pa.ExtensionArray):
             self.assertEqual(values.type.extension_name, "arrow.parquet.variant")

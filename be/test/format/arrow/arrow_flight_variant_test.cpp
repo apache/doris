@@ -88,12 +88,11 @@ TEST(ArrowFlightVariantTest, NativeSchemaRejectsLegacyIncludingNestedAndEmptyRes
         SCOPED_TRACE(type->get_name());
         Block block {{type->create_column(), type, "v"}};
         std::shared_ptr<arrow::Schema> schema;
-        auto status = ArrowFlightSchemaConvertor(block, "UTC", true).get_arrow_schema(&schema);
+        auto status = ArrowFlightSchemaConvertor(block, "UTC").get_arrow_schema(&schema);
         EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
         EXPECT_NE(status.to_string().find("only supports Variant V2"), std::string::npos);
-        EXPECT_NE(status.to_string().find("enable_arrow_flight_sql_native_variant=false"),
-                  std::string::npos);
-        EXPECT_TRUE(ArrowFlightSchemaConvertor(block, "UTC").get_arrow_schema(&schema).ok());
+        EXPECT_NE(status.to_string().find("cast the result to STRING"), std::string::npos);
+        EXPECT_TRUE(DorisArrowSchemaConvertor(block, "UTC").get_arrow_schema(&schema).ok());
     }
 }
 
@@ -121,7 +120,7 @@ TEST(ArrowFlightVariantTest, LegacyNativeOutputRejectsValuesConstantsAndNulls) {
         EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
         EXPECT_NE(status.to_string().find("only supports Variant V2"), std::string::npos);
 
-        ArrowFlightArrowBlockConvertor utf8(block, "UTC", cctz::utc_time_zone());
+        DorisArrowBlockConvertor utf8(block, "UTC", cctz::utc_time_zone());
         ASSERT_TRUE(utf8.init().ok());
         ASSERT_TRUE(utf8.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
         EXPECT_EQ(batch->num_rows(), block.rows());
@@ -192,9 +191,9 @@ TEST(ArrowFlightVariantTest, NativeResultPreservesValuesAndSqlNulls) {
 TEST(ArrowFlightVariantTest, SchemaMappingAndConstantScalar) {
     auto type = std::make_shared<DataTypeVariantV2>();
     std::shared_ptr<arrow::DataType> mapped;
-    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").convert_to_arrow_type(type, &mapped).ok());
+    ASSERT_TRUE(DorisArrowSchemaConvertor("UTC").convert_to_arrow_type(type, &mapped).ok());
     EXPECT_TRUE(mapped->Equals(arrow::utf8()));
-    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC", true).convert_to_arrow_type(type, &mapped).ok());
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").convert_to_arrow_type(type, &mapped).ok());
     EXPECT_TRUE(mapped->Equals(native_variant()));
     auto column = type->create_column();
     std::string json = R"("te\"xt\n\u4e2d")";
@@ -224,14 +223,13 @@ TEST(ArrowFlightVariantTest, NativeSchemaPreservesNestedLogicalMetadata) {
     for (size_t i = 0; i < types.size(); ++i) {
         block.insert({types[i]->create_column(), types[i], std::to_string(i)});
     }
-    for (bool native : {false, true}) {
+    {
         std::shared_ptr<arrow::Schema> schema;
-        ASSERT_TRUE(
-                ArrowFlightSchemaConvertor(block, "UTC", native).get_arrow_schema(&schema).ok());
+        ASSERT_TRUE(ArrowFlightSchemaConvertor(block, "UTC").get_arrow_schema(&schema).ok());
         const auto& map = static_cast<const arrow::MapType&>(*schema->field(2)->type());
         for (const auto& field : {schema->field(0), schema->field(1)->type()->field(0),
                                   map.item_field(), schema->field(3)->type()->field(0)}) {
-            EXPECT_TRUE(field->type()->Equals(native ? native_variant() : arrow::utf8()));
+            EXPECT_TRUE(field->type()->Equals(native_variant()));
             EXPECT_TRUE(field->nullable());
             ASSERT_NE(nullptr, field->metadata());
             EXPECT_EQ("VARIANT", field->metadata()->Get("doris_type").ValueOrDie());
@@ -254,7 +252,7 @@ TEST(ArrowFlightVariantTest, TypedV2AndNestedStructPreserveNonJsonNumbers) {
     Block block;
     block.insert({ColumnStruct::create(Columns {std::move(values)}), type, "s"});
     std::shared_ptr<arrow::DataType> mapped;
-    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC", true).convert_to_arrow_type(type, &mapped).ok());
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").convert_to_arrow_type(type, &mapped).ok());
     ArrowFlightArrowBlockConvertor converter(arrow::schema({arrow::field("s", mapped, false)}),
                                              cctz::utc_time_zone());
     std::shared_ptr<arrow::RecordBatch> batch;
@@ -281,8 +279,7 @@ TEST(ArrowFlightVariantTest, NestedTimezoneAliasesMatchPublishedSchema) {
         cctz::time_zone timezone;
         ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, timezone));
         std::shared_ptr<arrow::DataType> mapped;
-        ASSERT_TRUE(
-                ArrowFlightSchemaConvertor(zone, true).convert_to_arrow_type(type, &mapped).ok());
+        ASSERT_TRUE(ArrowFlightSchemaConvertor(zone).convert_to_arrow_type(type, &mapped).ok());
         ArrowFlightArrowBlockConvertor converter(arrow::schema({arrow::field("s", mapped, false)}),
                                                  timezone);
         std::shared_ptr<arrow::RecordBatch> batch;
@@ -499,7 +496,7 @@ TEST(ArrowFlightVariantTest, NestedArrayAndDefaultJsonMode) {
     EXPECT_EQ(value_at(values, 2).get_int(), 42);
     EXPECT_EQ(value_at(values, 3).get_string().to_string(), "text");
 
-    ArrowFlightArrowBlockConvertor json(block, "UTC", cctz::utc_time_zone());
+    DorisArrowBlockConvertor json(block, "UTC", cctz::utc_time_zone());
     ASSERT_TRUE(json.init().ok());
     ASSERT_TRUE(json.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
     EXPECT_EQ(static_cast<const arrow::ListArray&>(*batch->column(0)).values()->type_id(),
