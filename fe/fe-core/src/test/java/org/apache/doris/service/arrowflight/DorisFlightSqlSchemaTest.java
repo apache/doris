@@ -182,11 +182,20 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
 
     @Test
     void invalidSqlIsRejectedAndConnectionRecovers() throws Exception {
-        for (String sql : Arrays.asList("SELEC 1", "SELECT missing_column FROM schema_input")) {
-            Assertions.assertThrows(FlightRuntimeException.class, () -> schema(sql));
+        for (String sql : Arrays.asList("SELEC 1", "SELECT missing_column FROM schema_input",
+                "SELECT CAST(? AS BIGINT) FROM missing_schema_table")) {
+            FlightRuntimeException schemaFailure = Assertions.assertThrows(
+                    FlightRuntimeException.class, () -> schema(sql));
+            Assertions.assertEquals(FlightStatusCode.INVALID_ARGUMENT, schemaFailure.status().code());
             Mockito.clearInvocations(connectContext);
-            Assertions.assertThrows(java.util.concurrent.ExecutionException.class, () -> prepare(sql));
+            java.util.concurrent.ExecutionException prepareFailure = Assertions.assertThrows(
+                    java.util.concurrent.ExecutionException.class, () -> prepare(sql));
+            Assertions.assertTrue(prepareFailure.getCause() instanceof FlightRuntimeException);
+            Assertions.assertEquals(FlightStatusCode.INVALID_ARGUMENT,
+                    ((FlightRuntimeException) prepareFailure.getCause()).status().code());
             Mockito.verify(connectContext, Mockito.never()).addPreparedQuery(Mockito.anyString(), Mockito.anyString(), Mockito.any());
+            Mockito.verify(connectContext, Mockito.never()).addPreparedQuery(
+                    Mockito.anyString(), Mockito.anyString(), Mockito.any(), Mockito.anyInt());
             Assertions.assertEquals("id", preparedSchema("SELECT id FROM schema_input")
                     .getFields().get(0).getName());
         }

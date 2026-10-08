@@ -412,14 +412,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             String query = connection.getPreparedQuery(id);
             if (query != null && connection.getPreparedQueryParameterCount(id) > 0
                     && connection.getPreparedQueryParameters(id) == null) {
-                try {
-                    // Metadata discovery does not execute a query and must work before values are bound.
-                    return new SchemaResult(FlightSqlQuerySchema.prepare(connection, query).first);
-                } catch (FlightRuntimeException e) {
-                    throw e;
-                } catch (Exception e) {
-                    throw CallStatus.INVALID_ARGUMENT.withDescription(e.getMessage()).withCause(e).toRuntimeException();
-                }
+                // Metadata discovery does not execute a query and must work before values are bound.
+                return new SchemaResult(prepareQuerySchema(connection, query).first);
             }
             return new SchemaResult(preparedQuery(connection, context, command).getRight());
         }
@@ -469,6 +463,18 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         }
     }
 
+    private org.apache.doris.common.Pair<Schema, Schema> prepareQuerySchema(ConnectContext context, String query) {
+        try {
+            return FlightSqlQuerySchema.prepare(context, query);
+        } catch (FlightRuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            // Invalid SQL must report the same client error through Prepare and GetSchema.
+            throw CallStatus.INVALID_ARGUMENT.withDescription("Cannot determine query schema: " + e.getMessage())
+                    .withCause(e).toRuntimeException();
+        }
+    }
+
     @Override
     public void close() throws Exception {
         AutoCloseables.close(rootAllocator);
@@ -503,7 +509,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     String query = request.getQuery();
                     // ADBC ExecuteSchema reads this dataset schema directly without calling GetSchema.
                     // Analyze before registering a handle so failed preparation does not retain a query.
-                    org.apache.doris.common.Pair<Schema, Schema> prepared = FlightSqlQuerySchema.prepare(
+                    org.apache.doris.common.Pair<Schema, Schema> prepared = prepareQuerySchema(
                             connectContext, query);
                     Schema schema = prepared.first;
                     preparedStatementId = UUID.randomUUID().toString();

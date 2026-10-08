@@ -208,8 +208,22 @@ public class FlightSqlPreparedQueryTest extends TestWithFeService {
             Assertions.assertEquals(new ArrowType.Null(),
                     statement.getResultSetSchema().getFields().get(0).getType());
         }
-        Assertions.assertThrows(FlightRuntimeException.class,
-                () -> sqlClient.prepare("SELECT CAST(? AS BIGINT) FROM missing_parameter_table"));
+    }
+
+    @Test
+    public void invalidSqlReportsClientErrorOverFlight() throws Exception {
+        for (String query : Arrays.asList("SELEC 1", "SELECT definitely_missing_schema_column",
+                "SELECT CAST(? AS BIGINT) FROM missing_parameter_table")) {
+            FlightRuntimeException prepareFailure = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> sqlClient.prepare(query));
+            Assertions.assertEquals(FlightStatusCode.INVALID_ARGUMENT, prepareFailure.status().code());
+            FlightRuntimeException schemaFailure = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> sqlClient.getExecuteSchema(query));
+            Assertions.assertEquals(FlightStatusCode.INVALID_ARGUMENT, schemaFailure.status().code());
+            try (FlightSqlClient.PreparedStatement statement = sqlClient.prepare("SELECT 1 AS id")) {
+                Assertions.assertEquals("id", statement.getResultSetSchema().getFields().get(0).getName());
+            }
+        }
     }
 
     @Test
