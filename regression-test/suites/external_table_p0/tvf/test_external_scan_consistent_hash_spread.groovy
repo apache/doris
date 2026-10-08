@@ -53,8 +53,14 @@ suite("test_external_scan_consistent_hash_spread", "p0,external") {
     sql "set enable_sql_cache = false"
     sql "set enable_query_cache = false"
     sql "set enable_file_cache = false"
+    sql "set use_consistent_hash_for_external_scan = false"
+    sql "unset variable external_scan_consistent_hash_spread_num"
+    order_qt_automatic remoteQuery("${prefix}single_*.parquet")
+    sql "set enable_file_cache = true"
+    order_qt_automatic_cache remoteQuery("${prefix}single_*.parquet")
+    sql "set enable_file_cache = false"
     sql "set use_consistent_hash_for_external_scan = true"
-    for (int candidates : [1, 2, 3, 2147483647]) {
+    for (int candidates : [0, 1, 2, 3, 2147483647]) {
         sql "set external_scan_consistent_hash_spread_num = ${candidates}"
         order_qt_remote remoteQuery("${prefix}single_*.parquet")
     }

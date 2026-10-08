@@ -156,7 +156,7 @@ public class FederationBackendPolicy {
     @VisibleForTesting
     FederationBackendPolicy(NodeSelectionStrategy nodeSelectionStrategy, int consistentHashSpreadNum,
             IntUnaryOperator randomIndex) {
-        Preconditions.checkArgument(consistentHashSpreadNum > 0, "consistentHashSpreadNum must be at least 1");
+        Preconditions.checkArgument(consistentHashSpreadNum >= 0, "consistentHashSpreadNum must be at least 0");
         this.nodeSelectionStrategy = nodeSelectionStrategy;
         this.consistentHashSpreadNum = consistentHashSpreadNum;
         this.randomIndex = randomIndex;
@@ -297,12 +297,14 @@ public class FederationBackendPolicy {
                     }
                     case RANDOM: {
                         randomCandidates.reset();
-                        candidateNodes = selectNodes(Config.split_assigner_min_random_candidate_num, randomCandidates);
+                        candidateNodes = consistentHashSpreadNum == 0 ? backends
+                                : selectNodes(Config.split_assigner_min_random_candidate_num, randomCandidates);
                         break;
                     }
                     case CONSISTENT_HASHING: {
                         candidateNodes = consistentHash.getNode(split,
-                                isConsistentHashSpreadEnabled() ? Math.min(consistentHashSpreadNum, backends.size())
+                                consistentHashSpreadNum == 0 ? backends.size()
+                                        : isSpreadEnabled() ? Math.min(consistentHashSpreadNum, backends.size())
                                         : Config.split_assigner_min_consistent_hash_candidate_num);
                         break;
                     }
@@ -319,7 +321,7 @@ public class FederationBackendPolicy {
                 throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
             }
 
-            Backend selectedBackend = isConsistentHashSpreadEnabled() && split.isRemotelyAccessible()
+            Backend selectedBackend = isSpreadEnabled() && split.isRemotelyAccessible()
                     ? chooseNodeForSpread(candidateNodes) : chooseNodeForSplit(candidateNodes);
             List<Backend> alternativeBackends = new ArrayList<>(candidateNodes);
             alternativeBackends.remove(selectedBackend);
@@ -332,7 +334,7 @@ public class FederationBackendPolicy {
 
         // Global redistribution can move a split outside its hash candidates or its locality constraints.
         // The spread mode balances weights within each split's candidates during initial assignment instead.
-        if (enableSplitsRedistribution && !isConsistentHashSpreadEnabled()) {
+        if (enableSplitsRedistribution && !isSpreadEnabled()) {
             equateDistribution(assignment);
         }
         return assignment;
@@ -505,8 +507,9 @@ public class FederationBackendPolicy {
         return chosenNode;
     }
 
-    private boolean isConsistentHashSpreadEnabled() {
-        return nodeSelectionStrategy == NodeSelectionStrategy.CONSISTENT_HASHING && consistentHashSpreadNum > 1;
+    private boolean isSpreadEnabled() {
+        return (nodeSelectionStrategy == NodeSelectionStrategy.CONSISTENT_HASHING && consistentHashSpreadNum != 1)
+                || (nodeSelectionStrategy == NodeSelectionStrategy.RANDOM && consistentHashSpreadNum == 0);
     }
 
     private Backend chooseNodeForSpread(List<Backend> candidateNodes) {

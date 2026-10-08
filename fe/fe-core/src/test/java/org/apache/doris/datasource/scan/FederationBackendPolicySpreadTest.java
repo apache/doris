@@ -327,7 +327,7 @@ public class FederationBackendPolicySpreadTest {
     @Test
     public void testInvalidSpreadCountFails() {
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING, 0));
+                () -> new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING, -1));
     }
 
     @Test
@@ -363,6 +363,86 @@ public class FederationBackendPolicySpreadTest {
         ConnectContext.remove();
         FederationBackendPolicy noContext = new TestExternalScanNode().backendPolicy;
         Assertions.assertEquals(1, (int) Deencapsulation.getField(noContext, "consistentHashSpreadNum"));
+    }
+
+    @Test
+    public void testAutomaticModeSupportsAnyBackendCountAndBatches() throws Exception {
+        for (int count : Arrays.asList(1, 2, 3, 5)) {
+            backends = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                Backend backend = new Backend(NEXT_BACKEND_ID.getAndIncrement(), "192.0.2." + (i + 1), 9050);
+                backend.setAlive(true);
+                backends.add(backend);
+            }
+            for (NodeSelectionStrategy strategy : Arrays.asList(NodeSelectionStrategy.RANDOM,
+                    NodeSelectionStrategy.CONSISTENT_HASHING)) {
+                Set<Backend> targets = new HashSet<>();
+                for (int index = 0; index < count; index++) {
+                    FederationBackendPolicy policy = new FederationBackendPolicy(strategy, 0, selectCandidate(index));
+                    policy.init();
+                    targets.add(assign(policy, split()));
+                }
+                Assertions.assertEquals(new HashSet<>(backends), targets);
+                FederationBackendPolicy batched = new FederationBackendPolicy(strategy, 0, bound -> bound - 1);
+                batched.init();
+                for (int batch = 0; batch < 2; batch++) {
+                    for (int i = 0; i < count; i++) {
+                        assign(batched, split());
+                    }
+                    for (Backend backend : backends) {
+                        Assertions.assertEquals((batch + 1) * 100L,
+                                batched.getAssignedWeightPerBackend().get(backend));
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testAutomaticModeRetainsEligibilityAndMandatoryLocality() throws Exception {
+        Backend unavailable = backends.get(2);
+        unavailable.setAlive(false);
+        Backend otherGroup = backends.remove(1);
+        for (NodeSelectionStrategy strategy : Arrays.asList(NodeSelectionStrategy.RANDOM,
+                NodeSelectionStrategy.CONSISTENT_HASHING)) {
+            FederationBackendPolicy policy = new FederationBackendPolicy(strategy, 0, bound -> bound - 1);
+            policy.init();
+            Assertions.assertEquals(1, policy.numBackends());
+            Assertions.assertEquals(backends.get(0), assign(policy, split()));
+            Assertions.assertFalse(policy.getBackends().contains(otherGroup));
+            FileSplit local = new FileSplit(LocationPath.of("file:///hot.csv"), 0, 1000, 1000,
+                    0, new String[] {backends.get(0).getHost()}, Collections.emptyList()) {
+                @Override
+                public boolean isRemotelyAccessible() {
+                    return false;
+                }
+            };
+            Assertions.assertEquals(backends.get(0), assign(policy, local));
+            local.setHosts(new String[] {otherGroup.getHost()});
+            Assertions.assertThrows(UserException.class, () -> assign(policy, local));
+        }
+    }
+
+    @Test
+    public void testAutomaticExternalScanStrategyAndLegacyOptOut() {
+        SessionVariable session = context.getSessionVariable();
+        Assertions.assertEquals(0, session.getExternalScanConsistentHashSpreadNum());
+        for (boolean cache : Arrays.asList(false, true)) {
+            for (boolean hash : Arrays.asList(false, true)) {
+                session.enableFileCache = cache;
+                session.useConsistentHashForExternalScan = hash;
+                FederationBackendPolicy policy = new TestExternalScanNode().backendPolicy;
+                Assertions.assertEquals(cache || hash ? NodeSelectionStrategy.CONSISTENT_HASHING
+                                : NodeSelectionStrategy.RANDOM,
+                        Deencapsulation.getField(policy, "nodeSelectionStrategy"));
+                Assertions.assertEquals(0, (int) Deencapsulation.getField(policy, "consistentHashSpreadNum"));
+            }
+        }
+        session.enableFileCache = false;
+        session.useConsistentHashForExternalScan = false;
+        session.externalScanConsistentHashSpreadNum = 1;
+        Assertions.assertEquals(NodeSelectionStrategy.ROUND_ROBIN,
+                Deencapsulation.getField(new TestExternalScanNode().backendPolicy, "nodeSelectionStrategy"));
     }
 
     private static class TestExternalScanNode extends ExternalScanNode {
