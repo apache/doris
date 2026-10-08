@@ -475,6 +475,18 @@ struct TLanceFileDesc {
     3: optional i64 version
 }
 
+// Delta Lake deletion-vector descriptor attached to one data file.
+// storage_type follows the Delta protocol: i (inline), p (absolute path), or u (UUID path).
+struct TDeltaFileDesc {
+    1: optional string storage_type
+    2: optional string path_or_inline_dv
+    3: optional i64 offset
+    4: optional i64 size_in_bytes
+    5: optional i64 cardinality
+    // Required for UUID-backed DVs; harmless for inline/path descriptors.
+    6: optional string table_path
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -509,6 +521,7 @@ struct TTableFormatFileDesc {
     // straight to the Java scanner, so a typed struct would only add a transcription step (see
     // es_params, jdbc_params).
     15: optional map<string, string> fluss_params
+    16: optional TDeltaFileDesc delta_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -624,6 +637,9 @@ struct TFileScanRangeParams {
     // Fluss scan-level properties (bootstrap servers, table identity, client/table options,
     // projected columns). Set at ScanNode level to avoid redundant serialization in each split.
     41: optional map<string, string> fluss_properties
+    // Versioned external-file scan semantics negotiated by FE. This is separate from the
+    // Iceberg marker so non-Iceberg native connectors can use the same schema mapping path.
+    42: optional i32 external_scan_semantics_version
 }
 
 struct TFileRangeDesc {

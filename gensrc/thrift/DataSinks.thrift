@@ -388,6 +388,10 @@ struct THiveTableSink {
     13: optional bool supports_deferred_azure_multipart
     // Absent: legacy session timezone; empty: wall-clock INT96; otherwise: named catalog timezone.
     14: optional string hive_parquet_time_zone
+    // Routes file results to a connector transaction instead of an HMS transaction.
+    15: optional bool connector_file_sink
+    // Preserves the table format's declared partition column order.
+    16: optional list<string> connector_partition_columns
 }
 
 enum TUpdateMode {
@@ -411,6 +415,15 @@ struct THivePartitionUpdate {
     5: optional i64 row_count
     6: optional i64 file_size
     7: optional list<TS3MPUPendingUpload> s3_mpu_pending_uploads
+}
+
+struct TConnectorFileCommitData {
+    1: required string file_path
+    2: required i64 row_count
+    3: required i64 file_size
+    4: required i64 modification_time
+    5: optional map<string, string> partition_values
+    6: optional set<string> null_partition_columns
 }
 
 enum TFileContent {

@@ -455,10 +455,14 @@ VExprSPtr executable_struct_element(const VExprSPtr& parent, DataTypePtr child_t
 }
 
 VExprSPtr executable_binary_predicate(TExprOpcode::type opcode, const VExprSPtr& left,
-                                      const VExprSPtr& right) {
-    const auto result_type = u8();
+                                      const VExprSPtr& right, bool is_nullable = false) {
+    const auto result_type = is_nullable ? make_nullable(u8()) : u8();
     TFunctionName fn_name;
-    fn_name.__set_function_name(opcode == TExprOpcode::GT ? "gt" : "eq");
+    if (opcode == TExprOpcode::GE) {
+        fn_name.__set_function_name("ge");
+    } else {
+        fn_name.__set_function_name(opcode == TExprOpcode::GT ? "gt" : "eq");
+    }
     TFunction fn;
     fn.__set_name(fn_name);
     fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
@@ -472,7 +476,7 @@ VExprSPtr executable_binary_predicate(TExprOpcode::type opcode, const VExprSPtr&
     node.__set_type(result_type->to_thrift());
     node.__set_fn(fn);
     node.__set_num_children(2);
-    node.__set_is_nullable(false);
+    node.__set_is_nullable(is_nullable);
 
     auto expr = VectorizedFnCall::create_shared(node);
     expr->add_child(left);
@@ -3628,6 +3632,94 @@ TEST_F(ColumnMapperCastTest, ColumnMapperTreatsEquivalentTypesAsTrivial) {
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(mapper.mappings().size(), 1);
     EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+}
+
+// Scenario: the table requires BIGINT, but the physical file column is nullable.
+TEST_F(ColumnMapperCastTest, ScalarConjunctStaysTableLevelForNullableFileMappedToRequiredTable) {
+    const auto table_type = i64();
+    const auto file_type = make_nullable(table_type);
+    const auto table_column = name_col("id", table_type);
+    const auto file_column = name_col("id", file_type, 7);
+    auto predicate =
+            executable_binary_predicate(TExprOpcode::GE, table_slot(0, 0, table_type, "id"),
+                                        literal(table_type, Field::create_field<TYPE_BIGINT>(1)));
+    ASSERT_FALSE(predicate->data_type()->is_nullable());
+    TableFilter filter {.conjunct = VExprContext::create_shared(predicate),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {file_column}).ok());
+    FileScanRequest request;
+    FilterLocalizationResult localization_result;
+    const auto status = mapper.create_scan_request({filter}, {table_column}, &request, &state,
+                                                   &localization_result);
+    ASSERT_TRUE(status.ok()) << status;
+
+    // A Delta NOT NULL column can still be physically optional in Parquet. Rewriting the slot
+    // and literal to Nullable(BIGINT) would make the unchanged non-nullable `ge` return nullable
+    // BOOL. More importantly, file filtering must not hide NULL from table-schema validation.
+    ASSERT_EQ(localization_result.localized_filters.size(), 1);
+    EXPECT_FALSE(localization_result.localized_filters[0]);
+    EXPECT_TRUE(request.conjuncts.empty());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    EXPECT_EQ(projection_ids(request.non_predicate_columns), std::vector<int32_t>({7}));
+    EXPECT_FALSE(filter.conjunct->root()->data_type()->is_nullable());
+    EXPECT_TRUE(filter.conjunct->root()->children()[0]->data_type()->equals(*table_type));
+}
+
+// The single three-case loop is inflated by GTest's assertion branches.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(ColumnMapperCastTest, ScalarConjunctRemainsFileLocalWhenNullabilityDoesNotTighten) {
+    const auto required_type = i64();
+    const auto nullable_type = make_nullable(required_type);
+    const std::vector<std::pair<DataTypePtr, DataTypePtr>> file_table_types {
+            {required_type, required_type},
+            {required_type, nullable_type},
+            {nullable_type, nullable_type}};
+    for (const auto& [file_type, table_type] : file_table_types) {
+        SCOPED_TRACE(file_type->get_name() + " -> " + table_type->get_name());
+        const auto table_column = name_col("id", table_type);
+        const auto file_column = name_col("id", file_type, 7);
+        auto predicate = executable_binary_predicate(
+                TExprOpcode::GE, table_slot(0, 0, table_type, "id"),
+                literal(required_type, Field::create_field<TYPE_BIGINT>(2)),
+                table_type->is_nullable());
+        TableFilter filter {.conjunct = VExprContext::create_shared(predicate),
+                            .global_indices = {GlobalIndex(0)}};
+
+        TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+        ASSERT_TRUE(mapper.create_mapping({table_column}, {}, {file_column}).ok());
+        FileScanRequest request;
+        FilterLocalizationResult localization_result;
+        auto status = mapper.create_scan_request({filter}, {table_column}, &request, &state,
+                                                 &localization_result);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(localization_result.localized_filters.size(), 1);
+        EXPECT_TRUE(localization_result.localized_filters[0]);
+        ASSERT_EQ(request.conjuncts.size(), 1);
+        EXPECT_EQ(projection_ids(request.predicate_columns), std::vector<int32_t>({7}));
+        EXPECT_TRUE(request.non_predicate_columns.empty());
+
+        ColumnPtr values =
+                file_type->is_nullable()
+                        ? ColumnHelper::create_nullable_column<DataTypeInt64>({1, 2}, {0, 0})
+                        : ColumnHelper::create_column<DataTypeInt64>({1, 2});
+        Block block;
+        block.insert({std::move(values), file_type, "id"});
+        auto* conjunct = request.conjuncts[0].get();
+        status = conjunct->prepare(&state, RowDescriptor());
+        ASSERT_TRUE(status.ok()) << status;
+        status = conjunct->open(&state);
+        ASSERT_TRUE(status.ok()) << status;
+        IColumn::Filter result(block.rows(), 1);
+        bool can_filter_all = false;
+        status = conjunct->execute_filter(&block, result.data(), block.rows(), false,
+                                          &can_filter_all);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_FALSE(can_filter_all);
+        EXPECT_EQ(result, IColumn::Filter({0, 1}));
+        conjunct->close();
+    }
 }
 
 // Scenario: a table predicate on a widened type is localized by casting the file slot to table type.

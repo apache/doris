@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TConnectorFileCommitData;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
@@ -63,6 +64,16 @@ class QeProcessorImplReportAckTest {
         TReportExecStatusParams params = params(new TUniqueId(12345, 6));
         params.unsetIcebergCommitDatas();
         params.setConnectorCommitData(Collections.singletonList(ByteBuffer.wrap(new byte[] {1})));
+
+        TReportExecStatusResult result = report(params);
+
+        Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
+        Assertions.assertFalse(result.isExternalFileCommitDataAccepted());
+    }
+
+    @Test
+    void rejectsTypedConnectorFileReportWithoutCoordinator() {
+        TReportExecStatusParams params = connectorFileParams(new TUniqueId(12345, 8));
 
         TReportExecStatusResult result = report(params);
 
@@ -133,6 +144,26 @@ class QeProcessorImplReportAckTest {
     }
 
     @Test
+    void retriesTypedConnectorFileReportWithoutFeedingItAgain() throws Exception {
+        TUniqueId queryId = new TUniqueId(12345, 9);
+        Coordinator coordinator = register(queryId);
+        Mockito.when(coordinator.updateFragmentExecStatus(Mockito.any())).thenReturn(true);
+        TReportExecStatusParams params = connectorFileParams(queryId);
+
+        TReportExecStatusResult first = report(params);
+        TReportExecStatusResult liveRetry = report(params);
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        registeredQueryId = null;
+        TReportExecStatusResult removedRetry = report(params);
+
+        Assertions.assertTrue(first.isExternalFileCommitDataAccepted());
+        Assertions.assertTrue(liveRetry.isExternalFileCommitDataAccepted());
+        Assertions.assertTrue(removedRetry.isExternalFileCommitDataAccepted());
+        Assertions.assertEquals(TStatusCode.OK, removedRetry.getStatus().getStatusCode());
+        Mockito.verify(coordinator, Mockito.times(1)).updateFragmentExecStatus(params);
+    }
+
+    @Test
     void evictedAcceptanceTokenRejectsRetryAfterCoordinatorRemoval() throws Exception {
         TUniqueId queryId = new TUniqueId(12345, 5);
         Coordinator coordinator = register(queryId);
@@ -196,6 +227,16 @@ class QeProcessorImplReportAckTest {
 
     private static TReportExecStatusResult report(TReportExecStatusParams params) {
         return QeProcessorImpl.INSTANCE.reportExecStatus(params, new TNetworkAddress("127.0.0.1", 9050));
+    }
+
+    private static TReportExecStatusParams connectorFileParams(TUniqueId queryId) {
+        TReportExecStatusParams params = params(queryId);
+        params.unsetIcebergCommitDatas();
+        params.setConnectorFileCommitDatas(Collections.singletonList(new TConnectorFileCommitData()
+                .setFilePath("s3://bucket/data/0.parquet")
+                .setFileSize(32)
+                .setRowCount(1)));
+        return params;
     }
 
     @SuppressWarnings("unchecked")

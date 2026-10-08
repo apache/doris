@@ -17,10 +17,25 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand.ConnectorSourceSnapshot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.junit.jupiter.api.Assertions;
@@ -28,6 +43,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -48,6 +64,95 @@ import java.util.Set;
  * table types still rejected.</p>
  */
 public class InsertOverwriteTableCommandTest {
+
+    @Test
+    void copyOnWriteDeleteRequiresOneConsistentSnapshot() {
+        ConnectorTableHandle target = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTableHandle changed = Mockito.mock(ConnectorTableHandle.class);
+
+        Assertions.assertSame(target,
+                InsertOverwriteTableCommand.requireConsistentConnectorOverwriteSnapshot(
+                        target, List.of(target, target)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> InsertOverwriteTableCommand.requireConsistentConnectorOverwriteSnapshot(
+                        target, List.of(changed)));
+    }
+
+    @Test
+    void connectorSourceSnapshotIncludesSchemaAndPartitionVersions() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        Column column = new Column("id", Type.BIGINT);
+        Mockito.when(table.getId()).thenReturn(7L);
+        Mockito.when(table.getFullSchema()).thenReturn(List.of(column));
+        Mockito.when(table.getPartitions()).thenReturn(List.of(partition));
+        Mockito.when(partition.getId()).thenReturn(11L);
+        Mockito.when(partition.getVisibleVersion()).thenReturn(3L, 3L, 4L, 4L);
+
+        ConnectorSourceSnapshot first = InsertOverwriteTableCommand.snapshotConnectorSource(table);
+        ConnectorSourceSnapshot unchanged = InsertOverwriteTableCommand.snapshotConnectorSource(table);
+        ConnectorSourceSnapshot advanced = InsertOverwriteTableCommand.snapshotConnectorSource(table);
+        column.setName("renamed_id");
+        ConnectorSourceSnapshot schemaChanged = InsertOverwriteTableCommand.snapshotConnectorSource(table);
+
+        Assertions.assertEquals(first, unchanged);
+        Assertions.assertNotEquals(first, advanced);
+        Assertions.assertNotEquals(advanced, schemaChanged);
+        Mockito.verify(table, Mockito.times(4)).readLock();
+        Mockito.verify(table, Mockito.times(4)).readUnlock();
+    }
+
+    @Test
+    void copyOnWriteHandleResolutionRestoresPluginClassLoaderOnSuccessAndFailure() {
+        UnboundConnectorTableSink<?> sink = Mockito.mock(UnboundConnectorTableSink.class);
+        Mockito.when(sink.getDMLCommandType()).thenReturn(DMLCommandType.DELETE);
+        InsertOverwriteTableCommand command = new InsertOverwriteTableCommand(
+                sink, Optional.empty(), Optional.empty(), Optional.empty());
+        NereidsPlanner planner = Mockito.mock(NereidsPlanner.class);
+        Mockito.when(planner.getScanNodes()).thenReturn(List.of());
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Connector connector = Mockito.mock(Connector.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        Mockito.when(session.getUser()).thenReturn("test");
+        Mockito.when(connector.getMetadata(session)).thenAnswer(invocation -> {
+            Assertions.assertSame(connector.getClass().getClassLoader(),
+                    Thread.currentThread().getContextClassLoader());
+            return metadata;
+        });
+        Mockito.when(table.resolveConnectorTableHandle(session, metadata)).thenAnswer(invocation -> {
+            Assertions.assertSame(connector.getClass().getClassLoader(),
+                    Thread.currentThread().getContextClassLoader());
+            return Optional.of(handle);
+        });
+
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        ClassLoader callerClassLoader = new ClassLoader(previous) { };
+        try {
+            Thread.currentThread().setContextClassLoader(callerClassLoader);
+            Optional<ConnectorTableHandle> resolved = Deencapsulation.invoke(command,
+                    "resolveConnectorOverwriteBaseHandle", planner, table);
+            Assertions.assertSame(handle, resolved.orElseThrow());
+            Assertions.assertSame(callerClassLoader, Thread.currentThread().getContextClassLoader());
+
+            Mockito.doAnswer(invocation -> {
+                Assertions.assertSame(connector.getClass().getClassLoader(),
+                        Thread.currentThread().getContextClassLoader());
+                throw new IllegalStateException("table resolution failed");
+            }).when(table).resolveConnectorTableHandle(session, metadata);
+            Assertions.assertThrows(IllegalStateException.class, () -> Deencapsulation.invoke(command,
+                    "resolveConnectorOverwriteBaseHandle", planner, table));
+            Assertions.assertSame(callerClassLoader, Thread.currentThread().getContextClassLoader());
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
 
     private static InsertOverwriteTableCommand newCommand() {
         // allowInsertOverwrite is field-independent; a minimal command (mock query plan) suffices.

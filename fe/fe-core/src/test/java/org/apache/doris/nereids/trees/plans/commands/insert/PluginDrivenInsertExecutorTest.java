@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.ConnectorSessionBuilder;
@@ -42,6 +43,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Ordering / routing tests for {@link PluginDrivenInsertExecutor}'s unified single-transaction
@@ -64,6 +66,36 @@ import java.util.Optional;
  * every assertion exercises real production code.</p>
  */
 public class PluginDrivenInsertExecutorTest {
+
+    @Test
+    void emptyOverwriteCannotUseTheEmptyInsertFastPath() {
+        Assertions.assertTrue(PluginDrivenInsertExecutor.canSkipEmptyInput(true, false));
+        Assertions.assertFalse(PluginDrivenInsertExecutor.canSkipEmptyInput(true, true));
+        Assertions.assertFalse(PluginDrivenInsertExecutor.canSkipEmptyInput(false, true));
+
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        Deencapsulation.setField(exec, "emptyInsert", true);
+        Assertions.assertFalse(exec.requiresTransaction());
+        Deencapsulation.setField(exec, "overwrite", true);
+        Assertions.assertTrue(exec.requiresTransaction(),
+                "the new insert lifecycle must still open and finalize an empty overwrite transaction");
+
+        Deencapsulation.setField(exec, "overwrite", false);
+        exec.setStreamUpdateInfos(Collections.singletonList(Mockito.mock(TableStreamUpdateInfo.class)));
+        Assertions.assertTrue(exec.requiresTransaction(), "the upstream empty stream-offset commit must remain intact");
+    }
+
+    @Test
+    void removedRowsAreCalculatedBeforeCommit() throws Exception {
+        Assertions.assertEquals(2,
+                PluginDrivenInsertExecutor.calculateRemovedRowCount(
+                        OptionalLong.of(3), 1).orElseThrow());
+        Assertions.assertFalse(PluginDrivenInsertExecutor.calculateRemovedRowCount(
+                OptionalLong.empty(), 1).isPresent());
+        Assertions.assertThrows(UserException.class,
+                () -> PluginDrivenInsertExecutor.calculateRemovedRowCount(
+                        OptionalLong.of(1), 2));
+    }
 
     @Test
     public void beginTransactionOpensConnectorTxnRegistersGloballyAndStampsTxnId() {
@@ -123,6 +155,43 @@ public class PluginDrivenInsertExecutorTest {
                         + "otherwise the plan-provider write plan fails loud");
         Assertions.assertSame(connectorTx, provider.txnSeenAtPlanWrite.get(),
                 "planWrite must observe exactly the transaction beginTransaction opened");
+    }
+
+    @Test
+    public void copyOnWriteUsesTheSameExplicitBaseForTransactionAndSink() {
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        ConnectorTableHandle base = new ConnectorTableHandle() { };
+        ConnectorTableHandle latest = new ConnectorTableHandle() { };
+        PluginDrivenInsertCommandContext insertContext = new PluginDrivenInsertCommandContext();
+        insertContext.setOverwrite(true);
+        insertContext.setOverwriteBaseHandle(base);
+        Deencapsulation.setField(exec, "insertCtx", Optional.of(insertContext));
+        Deencapsulation.setField(exec, "connectorSession", ConnectorSessionBuilder.create().build());
+        StubConnectorTransaction tx = new StubConnectorTransaction(70011L);
+        FakeTxnWriteOps writeOps = new FakeTxnWriteOps(tx);
+        Deencapsulation.setField(exec, "writeOps", writeOps);
+        Deencapsulation.setField(exec, "transactionManager", new PluginDrivenTransactionManager());
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.connectorSupportsCopyOnWriteDml()).thenReturn(true);
+        Deencapsulation.setField(exec, "table", table);
+        ConnectorSession sinkSession = ConnectorSessionBuilder.create().build();
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider();
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, sinkSession, latest, Collections.emptyList());
+
+        exec.beginTransaction();
+        try {
+            exec.finalizeSink(null, sink, null);
+
+            Assertions.assertSame(base, writeOps.handleSeenAtBegin);
+            Assertions.assertSame(base, provider.handleSeenAtPlanWrite.getTableHandle());
+            Assertions.assertTrue(provider.handleSeenAtPlanWrite.isOverwrite());
+            Assertions.assertSame(tx, provider.txnSeenAtPlanWrite.orElseThrow());
+            Assertions.assertTrue((Boolean) Deencapsulation.getField(exec, "requiresFileCommitReports"));
+            Mockito.verify(table, Mockito.never()).resolveWriteTargetHandle();
+        } finally {
+            Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().removeTxnById(70011L);
+        }
     }
 
     @Test
@@ -217,6 +286,62 @@ public class PluginDrivenInsertExecutorTest {
     }
 
     @Test
+    public void nonEmptyFileWritesRejectMissingReportsBeforeOverwritingCoordinatorCount() {
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        Deencapsulation.setField(exec, "table", Mockito.mock(PluginDrivenExternalTable.class));
+        Deencapsulation.setField(exec, "requiresFileCommitReports", true);
+        Deencapsulation.setField(exec, "loadedRows", 7L);
+        Deencapsulation.setField(exec, "connectorTx", new StubConnectorTransaction(70070L, 0L));
+
+        UserException error = Assertions.assertThrows(UserException.class, exec::doBeforeCommit);
+
+        Assertions.assertTrue(error.getMessage().contains("did not report any data files"));
+        Assertions.assertEquals(7L, (Long) Deencapsulation.getField(exec, "loadedRows"));
+    }
+
+    @Test
+    public void emptyFileOverwriteMayCommitWithoutReports() throws UserException {
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        Deencapsulation.setField(exec, "requiresFileCommitReports", true);
+        Deencapsulation.setField(exec, "overwrite", true);
+        Deencapsulation.setField(exec, "connectorTx", new StubConnectorTransaction(70071L, 0L));
+
+        exec.doBeforeCommit();
+
+        Assertions.assertEquals(0L, (Long) Deencapsulation.getField(exec, "loadedRows"));
+    }
+
+    @Test
+    public void nonFileConnectorKeepsItsAuthoritativeTransactionCount() throws UserException {
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        Deencapsulation.setField(exec, "loadedRows", 7L);
+        Deencapsulation.setField(exec, "connectorTx", new StubConnectorTransaction(70072L, 0L));
+
+        exec.doBeforeCommit();
+
+        Assertions.assertEquals(0L, (Long) Deencapsulation.getField(exec, "loadedRows"));
+    }
+
+    @Test
+    public void copyOnWriteReportsDeletedAndExplicitlyMatchedRowsBeforeCommit() throws UserException {
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        ConnectorTransaction tx = Mockito.mock(ConnectorTransaction.class);
+        Mockito.when(tx.getUpdateCnt()).thenReturn(3L);
+        Mockito.when(tx.getOriginalRowCount()).thenReturn(OptionalLong.of(5L));
+        Deencapsulation.setField(exec, "connectorTx", tx);
+        Deencapsulation.setField(exec, "reportRemovedRows", true);
+
+        exec.doBeforeCommit();
+        Assertions.assertEquals(2L, (Long) Deencapsulation.getField(exec, "loadedRows"));
+
+        Deencapsulation.setField(exec, "reportRemovedRows", false);
+        Deencapsulation.setField(exec, "explicitAffectedRowCount", OptionalLong.of(1L));
+        exec.doBeforeCommit();
+        Assertions.assertEquals(1L, (Long) Deencapsulation.getField(exec, "loadedRows"));
+        Mockito.verify(tx, Mockito.never()).commit();
+    }
+
+    @Test
     public void postCommitListenerFailureDoesNotTurnACommittedWriteIntoAnError() {
         PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
         Deencapsulation.setField(exec, "txnStatus", TransactionStatus.COMMITTED);
@@ -232,7 +357,12 @@ public class PluginDrivenInsertExecutorTest {
      * javadoc: the constructor builds a Coordinator that needs a live planner/EnvFactory.
      */
     private static PluginDrivenInsertExecutor newUnconstructedExecutor() {
-        return Mockito.mock(PluginDrivenInsertExecutor.class, Mockito.CALLS_REAL_METHODS);
+        PluginDrivenInsertExecutor executor =
+                Mockito.mock(PluginDrivenInsertExecutor.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(executor, "insertCtx", Optional.empty());
+        Deencapsulation.setField(executor, "explicitAffectedRowCount", OptionalLong.empty());
+        Deencapsulation.setField(executor, "streamUpdateInfos", Collections.emptyList());
+        return executor;
     }
 
     /** Write ops that hand back a fixed connector transaction and record the handle the executor threads in. */
@@ -261,10 +391,12 @@ public class PluginDrivenInsertExecutorTest {
     /** Captures the transaction visible on the session at the moment planWrite is invoked. */
     private static final class RecordingWritePlanProvider implements ConnectorWritePlanProvider {
         private Optional<ConnectorTransaction> txnSeenAtPlanWrite;
+        private ConnectorWriteHandle handleSeenAtPlanWrite;
 
         @Override
         public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
             this.txnSeenAtPlanWrite = session.getCurrentTransaction();
+            this.handleSeenAtPlanWrite = handle;
             return new ConnectorSinkPlan(new TDataSink());
         }
     }

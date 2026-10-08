@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ConnectorMergeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlArgs;
 import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlCommand;
@@ -132,6 +134,12 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf table = getTargetTableIf(ctx);
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).connectorSupportsCopyOnWriteDml()) {
+            new ConnectorMergeCommand(targetNameParts, targetAlias, cte, source,
+                    onClause, matchedClauses, notMatchedClauses).run(ctx, executor);
+            return;
+        }
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
             RowLevelDmlArgs args = RowLevelDmlArgs.forMerge(table, targetNameParts, targetAlias, cte,
@@ -151,6 +159,11 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
         TableIf table = getTargetTableIf(ctx);
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).connectorSupportsCopyOnWriteDml()) {
+            return new ConnectorMergeCommand(targetNameParts, targetAlias, cte, source,
+                    onClause, matchedClauses, notMatchedClauses).getExplainPlan(ctx);
+        }
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
             RowLevelDmlArgs args = RowLevelDmlArgs.forMerge(table, targetNameParts, targetAlias, cte,

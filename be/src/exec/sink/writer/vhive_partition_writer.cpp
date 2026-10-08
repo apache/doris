@@ -29,20 +29,22 @@
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
 #include "runtime/runtime_state.h"
+#include "util/time.h"
 
 namespace doris {
 
-VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,
-                                           TUpdateMode::type update_mode,
-                                           const VExprContextSPtrs& write_output_expr_ctxs,
-                                           std::vector<std::string> write_column_names,
-                                           WriteInfo write_info, std::string file_name,
-                                           int file_name_index,
-                                           TFileFormatType::type file_format_type,
-                                           TFileCompressType::type hive_compress_type,
-                                           const THiveSerDeProperties* hive_serde_properties,
-                                           const std::map<std::string, std::string>& hadoop_conf)
+VHivePartitionWriter::VHivePartitionWriter(
+        const TDataSink& t_sink, std::string partition_name, TUpdateMode::type update_mode,
+        const VExprContextSPtrs& write_output_expr_ctxs,
+        std::vector<std::string> write_column_names, WriteInfo write_info,
+        std::map<std::string, std::string> partition_values,
+        std::set<std::string> null_partition_columns, std::string file_name, int file_name_index,
+        TFileFormatType::type file_format_type, TFileCompressType::type hive_compress_type,
+        const THiveSerDeProperties* hive_serde_properties,
+        const std::map<std::string, std::string>& hadoop_conf)
         : _partition_name(std::move(partition_name)),
+          _partition_values(std::move(partition_values)),
+          _null_partition_columns(std::move(null_partition_columns)),
           _update_mode(update_mode),
           _write_output_expr_ctxs(write_output_expr_ctxs),
           _write_column_names(std::move(write_column_names)),
@@ -55,7 +57,9 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
           _hadoop_conf(hadoop_conf),
           _supports_deferred_azure_multipart(
                   t_sink.hive_table_sink.__isset.supports_deferred_azure_multipart &&
-                  t_sink.hive_table_sink.supports_deferred_azure_multipart) {
+                  t_sink.hive_table_sink.supports_deferred_azure_multipart),
+          _connector_file_sink(t_sink.hive_table_sink.__isset.connector_file_sink &&
+                               t_sink.hive_table_sink.connector_file_sink) {
     if (t_sink.hive_table_sink.__isset.hive_parquet_time_zone) {
         _hive_parquet_time_zone = t_sink.hive_table_sink.hive_parquet_time_zone;
     }
@@ -73,17 +77,21 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
             .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
-    if (auto* s3_fs = dynamic_cast<io::S3FileSystem*>(_fs.get());
-        s3_fs != nullptr &&
-        !hive_multipart_protocol_supported(s3_fs->client_holder()->s3_client_conf().provider,
-                                           _supports_deferred_azure_multipart)) {
+    if (_connector_file_sink) {
+        // Connector writers publish completed objects; they do not use the Hive coordinator's
+        // deferred multipart-completion protocol.
+        RETURN_IF_ERROR(_fs->create_directory(_write_info.write_path));
+    } else if (auto* s3_fs = dynamic_cast<io::S3FileSystem*>(_fs.get());
+               s3_fs != nullptr &&
+               !hive_multipart_protocol_supported(s3_fs->client_holder()->s3_client_conf().provider,
+                                                  _supports_deferred_azure_multipart)) {
         // An old coordinator cannot publish namespaced Azure block IDs; lease expiry is not a
         // compatibility fence, so reject before creating an upload that it could corrupt.
         return Status::NotSupported(
                 "Azure Hive writes require a coordinator that supports deferred multipart "
                 "completion");
     }
-    io::FileWriterOptions file_writer_options = {.used_by_s3_committer = true};
+    io::FileWriterOptions file_writer_options = {.used_by_s3_committer = !_connector_file_sink};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
     switch (_file_format_type) {
@@ -171,10 +179,26 @@ Status VHivePartitionWriter::close(const Status& status) {
         }
     }
     if (status_ok) {
-        auto partition_update = _build_partition_update();
-        _state->add_hive_partition_updates(partition_update);
+        if (_connector_file_sink) {
+            _state->add_connector_file_commit_data(_build_connector_file_commit_data());
+        } else {
+            _state->add_hive_partition_updates(_build_partition_update());
+        }
     }
     return result_status;
+}
+
+TConnectorFileCommitData VHivePartitionWriter::_build_connector_file_commit_data() const {
+    TConnectorFileCommitData commit_data;
+    commit_data.__set_file_path(
+            fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()));
+    commit_data.__set_row_count(_row_count);
+    DCHECK(_file_format_transformer != nullptr);
+    commit_data.__set_file_size(_file_format_transformer->written_len());
+    commit_data.__set_modification_time(UnixMillis());
+    commit_data.__set_partition_values(_partition_values);
+    commit_data.__set_null_partition_columns(_null_partition_columns);
+    return commit_data;
 }
 
 Status VHivePartitionWriter::write(Block& block) {
@@ -211,7 +235,11 @@ bool VHivePartitionWriter::_build_s3_mpu_pending_upload(TS3MPUPendingUpload* pen
 
     doris::io::S3FileWriter* s3_mpu_file_writer =
             dynamic_cast<doris::io::S3FileWriter*>(_file_writer.get());
-    DCHECK(s3_mpu_file_writer != nullptr);
+    if (s3_mpu_file_writer == nullptr) {
+        // FILE_S3 also covers the GCS OAuth writer, whose resumable session is cancelled by
+        // the writer itself and has no S3 multipart state for the Hive committer.
+        return false;
+    }
     std::string upload_id = s3_mpu_file_writer->upload_id();
     if (upload_id.empty()) {
         return false;
@@ -248,8 +276,8 @@ void VHivePartitionWriter::_add_s3_mpu_pending_upload_for_rollback() {
     _state->add_hive_partition_updates(hive_partition_update);
 }
 
-std::string VHivePartitionWriter::_get_file_extension(TFileFormatType::type file_format_type,
-                                                      TFileCompressType::type write_compress_type) {
+std::string VHivePartitionWriter::_get_file_extension(
+        TFileFormatType::type file_format_type, TFileCompressType::type write_compress_type) const {
     std::string compress_name;
     switch (write_compress_type) {
     case TFileCompressType::SNAPPYBLOCK: {
@@ -300,7 +328,7 @@ std::string VHivePartitionWriter::_get_file_extension(TFileFormatType::type file
     return fmt::format("{}{}", compress_name, file_format_name);
 }
 
-std::string VHivePartitionWriter::_get_target_file_name() {
+std::string VHivePartitionWriter::_get_target_file_name() const {
     return fmt::format("{}-{}{}", _file_name, _file_name_index,
                        _get_file_extension(_file_format_type, _hive_compress_type));
 }

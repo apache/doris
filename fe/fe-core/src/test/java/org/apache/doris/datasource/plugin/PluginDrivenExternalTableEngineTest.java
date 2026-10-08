@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
@@ -299,6 +300,55 @@ public class PluginDrivenExternalTableEngineTest {
                 "toThrift() must pass table.getRemoteName() as remoteName, not the local table name");
         Assertions.assertEquals(expectedNumCols, numColsCaptor.getValue().intValue(),
                 "toThrift() must pass schema.size() as numCols");
+    }
+
+    @Test
+    public void testCopyOnWriteCapabilityRejectsUnavailableConnectorAndTable() {
+        Assertions.assertFalse(createTableWithCatalogType("custom_type", (Connector) null)
+                .connectorSupportsCopyOnWriteDml());
+        Assertions.assertFalse(createTableWithCatalogType("custom_type", createMockConnector(false, false))
+                .connectorSupportsCopyOnWriteDml());
+    }
+
+    @Test
+    public void testCopyOnWriteCapabilityDefaultsToFalse() {
+        Connector connector = createMockConnector(true, false);
+        Mockito.when(connector.getWritePlanProvider(Mockito.any(ConnectorTableHandle.class)))
+                .thenReturn(new ConnectorWritePlanProvider() {});
+
+        Assertions.assertFalse(createTableWithCatalogType("custom_type", connector)
+                .connectorSupportsCopyOnWriteDml());
+    }
+
+    @Test
+    public void testCopyOnWriteCapabilityUsesPerTableProviderAndPluginClassLoader() {
+        Connector connector = createMockConnector(true, false);
+        ConnectorWritePlanProvider provider = new ConnectorWritePlanProvider() {
+            @Override
+            public boolean supportsCopyOnWriteDml() {
+                Assertions.assertSame(getClass().getClassLoader(),
+                        Thread.currentThread().getContextClassLoader());
+                return true;
+            }
+        };
+        Mockito.when(connector.getWritePlanProvider(Mockito.any(ConnectorTableHandle.class)))
+                .thenAnswer(invocation -> {
+                    Assertions.assertSame(connector.getClass().getClassLoader(),
+                            Thread.currentThread().getContextClassLoader());
+                    return provider;
+                });
+        PluginDrivenExternalTable table = createTableWithCatalogType("custom_type", connector);
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        ClassLoader caller = new ClassLoader(previous) {};
+        try {
+            Thread.currentThread().setContextClassLoader(caller);
+            Assertions.assertTrue(table.connectorSupportsCopyOnWriteDml());
+            Assertions.assertSame(caller, Thread.currentThread().getContextClassLoader());
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+        Mockito.verify(connector).getWritePlanProvider(Mockito.any(ConnectorTableHandle.class));
+        Mockito.verify(connector, Mockito.never()).getWritePlanProvider();
     }
 
     // -------- Helpers --------

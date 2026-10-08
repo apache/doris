@@ -40,6 +40,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -137,6 +138,12 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
         } catch (Exception e) {
             // Table not found, will be handled by regular error flow
+        }
+
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).connectorSupportsCopyOnWriteDml()) {
+            new ConnectorDeleteCommand(nameParts, isTempPart, partitions, logicalQuery).run(ctx, executor);
+            return;
         }
 
         // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
@@ -496,6 +503,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
     public Plan getExplainPlan(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).connectorSupportsCopyOnWriteDml()) {
+            return new ConnectorDeleteCommand(nameParts, isTempPart, partitions, logicalQuery).getExplainPlan(ctx);
+        }
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
             RowLevelDmlArgs args = rowLevelDmlArgs(table);

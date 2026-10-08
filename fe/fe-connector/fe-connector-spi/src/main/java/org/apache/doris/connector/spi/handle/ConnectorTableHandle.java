@@ -18,9 +18,14 @@
 package org.apache.doris.connector.spi.handle;
 
 import java.io.Serializable;
+import java.util.OptionalLong;
 
 /**
  * Opaque table handle. Connector implementations define their own subclasses.
  */
 public interface ConnectorTableHandle extends Serializable {
+    /** Returns the numeric snapshot version used to pin copy-on-write DML, when available. */
+    default OptionalLong getCopyOnWriteSnapshotVersion() {
+        return OptionalLong.empty();
+    }
 }

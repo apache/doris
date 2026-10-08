@@ -1,0 +1,2 @@
+{"protocol":{"minReaderVersion":2,"minWriterVersion":5}}
+{"metaData":{"id":"b953901b-f444-4e83-b2c4-96756af53265","format":{"provider":"parquet","options":{}},"schemaString":"{\"type\":\"struct\",\"fields\":[{\"name\":\"id\",\"type\":\"long\",\"nullable\":false,\"metadata\":{\"delta.columnMapping.id\":1,\"delta.columnMapping.physicalName\":\"col-91e40a2f-1b63-42a0-a044-35764a3b259a\"}}]}","partitionColumns":[],"configuration":{"delta.columnMapping.mode":"name","delta.columnMapping.maxColumnId":"1"},"createdTime":1700000000000}}

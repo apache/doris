@@ -46,7 +46,8 @@ public final class CommitDataSerializer {
     /** Returns whether a fragment report carries any external connector commit data. */
     public static boolean hasCommitData(TReportExecStatusParams params) {
         return params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                || params.isSetMcCommitDatas() || params.isSetConnectorCommitData();
+                || params.isSetMcCommitDatas() || params.isSetConnectorCommitData()
+                || params.isSetConnectorFileCommitDatas();
     }
 
     /** Delivers every commit-data representation carried by one fragment report. */
@@ -62,6 +63,9 @@ public final class CommitDataSerializer {
         }
         if (params.isSetConnectorCommitData()) {
             feedRaw(txn, params.getConnectorCommitData());
+        }
+        if (params.isSetConnectorFileCommitDatas()) {
+            feed(txn, params.getConnectorFileCommitDatas());
         }
     }
 

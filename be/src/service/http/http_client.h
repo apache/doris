@@ -47,7 +47,7 @@ public:
 
     // this function must call before other function,
     // you can call this multiple times to reuse this object
-    Status init(const std::string& url, bool set_fail_on_error = true);
+    Status init(const std::string& url, bool set_fail_on_error = true, bool escape_url = true);
 
     void set_method(HttpMethod method);
 
@@ -149,6 +149,9 @@ public:
     // Get the value of the header CONTENT-MD5. The output is empty if no such header exists.
     Status get_content_md5(std::string* md5) const;
 
+    // Returns one response header value. Header lookup is case-insensitive.
+    Status get_response_header(const std::string& name, std::string* value) const;
+
     long get_http_status() const {
         long code;
         curl_easy_getinfo(_curl, CURLINFO_RESPONSE_CODE, &code);
@@ -202,6 +205,7 @@ public:
     }
 
 private:
+    Status _set_url(const std::string& url, bool escape_url);
     const char* _to_errmsg(CURLcode code) const;
     const char* _get_url() const;
 

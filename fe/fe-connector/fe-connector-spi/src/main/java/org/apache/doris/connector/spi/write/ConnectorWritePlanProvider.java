@@ -205,10 +205,21 @@ public interface ConnectorWritePlanProvider {
      * resolves the provider for the target table handle, so a heterogeneous connector may return a provider
      * whose operation set varies by table. Per-table mode constraints stay in
      * {@link org.apache.doris.connector.spi.ConnectorWriteOps#validateRowLevelDmlMode}. A provider
-     * advertising DELETE, UPDATE, or MERGE must also declare its {@link #getRowChangeStyle()}.
+     * advertising DELETE, UPDATE, or MERGE must also declare its {@link #getRowChangeStyle()}, unless it
+     * opts into {@link #supportsCopyOnWriteDml()} to replace the whole table through an OVERWRITE sink.
      */
     default Set<WriteOperation> supportedOperations() {
         return EnumSet.of(WriteOperation.INSERT);
+    }
+
+    /**
+     * Whether DELETE / UPDATE / MERGE are planned as a full-table copy-on-write replacement instead of a
+     * row-id sink. The engine pins the source snapshot and passes that same base handle to the OVERWRITE
+     * sink; the connector must reject a commit if that base snapshot became stale. Default: false, keeping
+     * existing row-id DML providers unchanged.
+     */
+    default boolean supportsCopyOnWriteDml() {
+        return false;
     }
 
     /**

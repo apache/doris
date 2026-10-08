@@ -121,8 +121,13 @@ bool contains_variant_type(const DataTypePtr& input) {
     }
 }
 
-bool is_supported_table_format(const TFileRangeDesc& range) {
+bool is_supported_table_format(const TFileRangeDesc& range, TFileFormatType::type file_format) {
     const auto table_format = table_format_name(range);
+    if (table_format == "delta") {
+        // Delta data files are Parquet. Keep the first native Delta route fail-closed instead of
+        // silently accepting formats for which Delta does not define data-file semantics.
+        return file_format == TFileFormatType::FORMAT_PARQUET;
+    }
     if (table_format == "hudi" && range.__isset.table_format_params &&
         range.table_format_params.__isset.hudi_params &&
         range.table_format_params.hudi_params.__isset.delta_logs &&
@@ -346,7 +351,7 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     const auto format_type = get_range_format_type(params, range);
     if (format_type == TFileFormatType::FORMAT_PARQUET ||
         format_type == TFileFormatType::FORMAT_ORC) {
-        return is_supported_table_format(range);
+        return is_supported_table_format(range, format_type);
     } else if (format_type == TFileFormatType::FORMAT_ARROW) {
         return is_supported_arrow_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
@@ -355,7 +360,7 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
         return table_format_name(range) == "NotSet";
     } else if (is_csv_format(format_type) || is_text_format(format_type) ||
                is_json_format(format_type)) {
-        return is_supported_table_format(range);
+        return is_supported_table_format(range, format_type);
     } else {
         LOG(WARNING) << "Unsupported file format type " << format_type << " for file scanner v2";
         return false;
@@ -749,7 +754,7 @@ Status FileScannerV2::_create_table_reader_for_format(
         return Status::OK();
     }
     const auto table_format = table_format_name(range);
-    if (table_format == "NotSet" || table_format == "tvf") {
+    if (table_format == "NotSet" || table_format == "tvf" || table_format == "delta") {
         *reader = std::make_unique<format::TableReader>();
     } else if (table_format == "hive") {
         *reader = format::hive::HiveReader::create_unique();
@@ -921,9 +926,9 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
             .range = &_current_range,
             .runtime_state = _state,
     };
-    // Field 34 is the rollout boundary for root and nested exact-name precedence.
+    // The scan-semantics marker is the rollout boundary for root and nested exact-name precedence.
     const bool prefer_exact_name_match =
-            !_params->__isset.history_schema_info || supports_iceberg_scan_semantics_v1(_params);
+            !_params->__isset.history_schema_info || supports_external_scan_semantics_v1(_params);
 
     for (size_t slot_idx = 0; slot_idx < _params->required_slots.size(); ++slot_idx) {
         const auto& slot_info = _params->required_slots[slot_idx];

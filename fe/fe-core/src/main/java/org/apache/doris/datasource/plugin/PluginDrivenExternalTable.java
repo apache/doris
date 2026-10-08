@@ -241,6 +241,20 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .orElseGet(() -> EnumSet.noneOf(WriteOperation.class));
     }
 
+    /** Returns whether this table's write provider replaces the whole table for row-level DML. */
+    public boolean connectorSupportsCopyOnWriteDml() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return false;
+        }
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider, provider::supportsCopyOnWriteDml))
+                .orElse(false);
+    }
+
     /** Returns the row-change representation declared for this table's write provider. */
     public ConnectorRowChangeStyle getConnectorRowChangeStyle() {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {

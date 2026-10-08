@@ -47,10 +47,15 @@ public class DatasourcePrintableMapTest {
         // All four iceberg REST secret keys must stay masked. These are enumerated explicitly in
         // DatasourcePrintableMap (formerly reflected off the now-removed fe-core IcebergRestProperties);
         // a dropped key is a silent SHOW CREATE CATALOG secret leak, so pin the full set.
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains(
+                "http.header.Authorization"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.credential"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.token"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.secret-access-key"));
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("iceberg.rest.session-token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("unity.token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains(
+                "unity.oauth.client-secret"));
 
         // Verify cloud storage related sensitive keys (these are constants added in static initialization block)
         Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("s3.secret_key"));
@@ -177,6 +182,7 @@ public class DatasourcePrintableMapTest {
         testMap.put("kerberos_keytab_content", "kerberos_content");
         testMap.put("iceberg.rest.oauth2.credential", "iceberg_rest_credential");
         testMap.put("iceberg.rest.oauth2.token", "iceberg_rest_token");
+        testMap.put("unity.oauth.client-secret", "unity_client_secret");
 
         DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false, true);
         String result = printableMap.toString();
@@ -189,6 +195,8 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(result.contains("iceberg.rest.oauth2.credential = "
                 + DatasourcePrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("iceberg.rest.oauth2.token = "
+                + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("unity.oauth.client-secret = "
                 + DatasourcePrintableMap.PASSWORD_MASK));
     }
 
