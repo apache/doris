@@ -237,6 +237,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         statementContext = jobContext.getCascadesContext().getStatementContext();
         this.useFullKeys = resolveUseFullKeys();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
+        validateAggStateColumnsPersisted(result);
         rewriteResult.setNormalizedPlan(result);
         IvmPlanSignature planSignature = new IvmPlanSignatureGenerator().generate(result);
         rewriteResult.setPlanSignature(planSignature);
@@ -369,8 +370,8 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                     "IVM does not support DISTINCT project.");
         }
         Plan newChild = project.child().accept(this, context);
-        List<NamedExpression> baseOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects(),
-                context.isFirstNonSink);
+        List<NamedExpression> baseOutputs = materializeDroppedAggState(
+                rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects(), context.isFirstNonSink));
 
         List<Slot> childKeys = useFullKeys && !context.isInsideAggregate
                 ? identityKeysByNode.get(newChild) : null;
@@ -935,7 +936,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             }
 
             resolved.add(new IvmAggTarget(target.getOrdinal(), target.getFunctionKind(),
-                    resolvedVisible, resolvedHidden.build(), target.getExprArgs()));
+                    resolvedVisible, resolvedHidden.build(), target.getValueStateSlot(), target.getExprArgs()));
         }
         return resolved;
     }
@@ -945,8 +946,8 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, NormalizeContext context) {
         validateUserOutputColumnNames(sink.getOutputExprs());
         Plan newChild = sink.child().accept(this, context);
-        List<NamedExpression> baseOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs(),
-                context.isFirstNonSink);
+        List<NamedExpression> baseOutputs = materializeDroppedAggState(
+                rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs(), context.isFirstNonSink));
 
         List<Slot> childKeys = useFullKeys ? identityKeysByNode.get(newChild) : null;
         List<Slot> sinkKeys = new ArrayList<>();
@@ -1067,6 +1068,143 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         return normalizedChild.getOutput().stream()
                 .filter(slot -> IvmUtil.isIvmHiddenColumn(slot.getName()))
                 .collect(Collectors.toMap(Slot::getName, slot -> slot, (left, right) -> left, LinkedHashMap::new));
+    }
+
+    /**
+     * Materializes the aggregate state columns this layer drops, so an incremental refresh can still
+     * read the old aggregate state from the MV.
+     *
+     * <p>Every state slot the apply stage reads must be a persisted MV column, because apply resolves
+     * the old state by column name from the MV physical table. Hidden state columns are hidden-named
+     * and therefore propagate through every layer, but the aggregate functions whose own value is
+     * their mergeable state (SUM, COUNT(expr), MIN/MAX, COLLECT_LIST/ARRAY_AGG, BITMAP_UNION) keep
+     * that state in their visible column, which disappears as soon as an upper layer consumes it
+     * inside an expression without projecting it, as in {@code SELECT SUM(v) * 100}. Such a slot is
+     * materialized here as a bare pass-through hidden alias, and every target reading it is rebound
+     * to that alias.
+     *
+     * <p>Rebinding matters as much as materializing: the column pool lets a target reuse a visible
+     * aggregate column as its own hidden state (AVG reusing a visible SUM column), so a reusing target
+     * must follow the column's owner onto the materialized carrier instead of reading a column that no
+     * longer reaches the MV.
+     *
+     * <p>The materialized name is the name the delta sub-plan already generates for that state
+     * ({@link IvmUtil#ivmAggHiddenColumnName}, keyed by the owning target's ordinal and kind), so delta
+     * aggregate outputs and delta slot lookups are unaffected and both sides of the merge agree on the
+     * column name. A slot an earlier layer already materialized, or that another target already
+     * materialized for the same aggregate state, is reused instead of materializing a duplicate.
+     */
+    private List<NamedExpression> materializeDroppedAggState(List<NamedExpression> outputs) {
+        IvmAggMeta aggMeta = rewriteResult.getAggMeta();
+        if (aggMeta == null) {
+            // Below the aggregate no target is known yet, so no aggregate state can be dropped here.
+            return outputs;
+        }
+        List<NamedExpression> extendedOutputs = new ArrayList<>(outputs);
+        List<IvmAggTarget> reboundTargets = new ArrayList<>(aggMeta.getAggTargets().size());
+        boolean rebound = false;
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            Slot valueStateSlot = target.getValueStateSlot();
+            if (aggFunctionRegistry.visibleColumnHoldsValueState(target)) {
+                // The column currently carrying this target's value: the carrier materialized by a lower
+                // layer if there is one, otherwise the visible column the aggregate still produces.
+                Slot carried = materializeAggStateSlot(extendedOutputs,
+                        valueStateSlot != null ? valueStateSlot : target.getVisibleSlot(), aggMeta);
+                // The visible column reaching the MV is not a separate carrier.
+                valueStateSlot = carried.getExprId().equals(target.getVisibleSlot().getExprId())
+                        ? null : carried;
+            }
+            ImmutableMap.Builder<IvmAggStateKey, Slot> hiddenStateSlots = ImmutableMap.builder();
+            for (Map.Entry<IvmAggStateKey, Slot> hiddenStateSlot : target.getHiddenStateSlots().entrySet()) {
+                hiddenStateSlots.put(hiddenStateSlot.getKey(),
+                        materializeAggStateSlot(extendedOutputs, hiddenStateSlot.getValue(), aggMeta));
+            }
+            IvmAggTarget reboundTarget = target.withStateSlots(valueStateSlot, hiddenStateSlots.build());
+            rebound |= reboundTarget != target;
+            reboundTargets.add(reboundTarget);
+        }
+        if (rebound) {
+            // Keep the rebinding visible to the layers above: a layer that passes a state column through
+            // under a different slot (the refresh sink rebinds the normalized hidden columns to the MV's
+            // own slots) changes which slot carries the state without adding any column.
+            rewriteResult.setAggMeta(aggMeta.withAggTargets(reboundTargets));
+        }
+        return extendedOutputs;
+    }
+
+    /**
+     * Returns the slot that carries {@code stateSlot} above this layer, appending a hidden pass-through
+     * alias when this layer drops it.
+     */
+    private Slot materializeAggStateSlot(List<NamedExpression> outputs, Slot stateSlot, IvmAggMeta aggMeta) {
+        NamedExpression projected = findProjectedKey(outputs, stateSlot);
+        if (projected != null) {
+            // Already carried above this layer: a visible column projecting through, a hidden state
+            // column (which always propagates), or a carrier another target needed for this same state.
+            // The projecting output's own slot is what holds the value, so an alias that passes the
+            // state through under another name rebinds the target to that name.
+            return projected.toSlot();
+        }
+        IvmAggTarget owner = aggTargetOwningVisibleSlot(stateSlot, aggMeta);
+        // The carrier is named after the owning target's ordinal and kind, which is the name the delta
+        // sub-plan already generates for the same state, so no delta-side lookup changes.
+        Alias carrier = new Alias(stateSlot,
+                IvmUtil.ivmAggHiddenColumnName(owner.getOrdinal(), owner.getFunctionKind().name()));
+        outputs.add(carrier);
+        return carrier.toSlot();
+    }
+
+    /**
+     * Finds the target whose visible column is {@code stateSlot}. That target owns the state column's
+     * name: the carrier is named after its ordinal and kind so the name matches the delta sub-plan's
+     * name for the same aggregate state.
+     */
+    private IvmAggTarget aggTargetOwningVisibleSlot(Slot stateSlot, IvmAggMeta aggMeta) {
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            if (target.getVisibleSlot().getExprId().equals(stateSlot.getExprId())) {
+                return target;
+            }
+        }
+        throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                "IVM normalization error: aggregate state column '" + stateSlot.getName()
+                        + "' is dropped by an upper projection but no visible aggregate output owns it");
+    }
+
+    /**
+     * Checks that every aggregate state slot the apply stage reads survived normalization into the MV
+     * schema.
+     *
+     * <p>Apply reads the old state by column name from the MV physical table, so a state column missing
+     * from the normalized output would surface only much later, as a PLAN_REWRITE_FAILED during the
+     * first incremental refresh of an otherwise accepted MV. Failing here instead keeps the failure
+     * attached to the statement that produced the layout: CREATE MATERIALIZED VIEW, or a refresh
+     * re-normalizing the same query SQL.
+     */
+    private void validateAggStateColumnsPersisted(Plan normalizedPlan) {
+        IvmAggMeta aggMeta = rewriteResult.getAggMeta();
+        if (aggMeta == null) {
+            return;
+        }
+        Set<String> persistedColumns = normalizedPlan.getOutput().stream()
+                .map(Slot::getName)
+                .collect(Collectors.toSet());
+        List<Slot> requiredStateSlots = new ArrayList<>();
+        requiredStateSlots.add(aggMeta.getGroupCountSlot());
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            if (aggFunctionRegistry.visibleColumnHoldsValueState(target)) {
+                requiredStateSlots.add(target.getValueStateSlot() != null
+                        ? target.getValueStateSlot() : target.getVisibleSlot());
+            }
+            requiredStateSlots.addAll(target.getHiddenStateSlots().values());
+        }
+        for (Slot stateSlot : requiredStateSlots) {
+            if (!persistedColumns.contains(stateSlot.getName())) {
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM normalization error: aggregate state column '" + stateSlot.getName()
+                                + "' is missing from the normalized MV output, so incremental refresh"
+                                + " could not read the old aggregate state");
+            }
+        }
     }
 
     private NamedExpression rewriteIvmHiddenOutput(NamedExpression output, Map<String, Slot> ivmHiddenSlotsByName) {

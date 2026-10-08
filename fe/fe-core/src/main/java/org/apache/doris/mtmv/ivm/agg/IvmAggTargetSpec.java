@@ -64,6 +64,9 @@ public class IvmAggTargetSpec {
         for (Map.Entry<IvmAggStateKey, Alias> entry : hiddenStateAliases.entrySet()) {
             hiddenSlots.put(entry.getKey(), entry.getValue().toSlot());
         }
-        return new IvmAggTarget(ordinal, functionKind, visibleAlias.toSlot(), hiddenSlots.build(), targetArguments);
+        // No value-state carrier yet: normalize materializes one only if an upper layer drops the
+        // visible column, which is not known while the spec is still being built.
+        return new IvmAggTarget(ordinal, functionKind, visibleAlias.toSlot(), hiddenSlots.build(), null,
+                targetArguments);
     }
 }

@@ -42,16 +42,23 @@ public class IvmAggTarget {
     private final Slot visibleSlot;
     // Persisted hidden state column slots. For example, an AVG target has hidden SUM and COUNT states.
     private final Map<IvmAggStateKey, Slot> hiddenStateSlots;
+    // Column carrying this target's own aggregate value state when the visible column does not
+    // survive to the MV (see IvmAggFunctionProcessor#visibleColumnHoldsValueState). Null means the
+    // visible column carries it: either because it reaches the MV as a visible column, or because
+    // this target's old value is derived from hidden state instead (AVG, BITMAP_UNION_COUNT,
+    // COUNT(*)). Apply reads the old value through getValueStateColumnName().
+    private final Slot valueStateSlot;
     // the expression(s) from the base scan that feed this aggregate
     // (empty for COUNT(*); may be Slot or compound Expression like v1+v2)
     private final List<Expression> exprArgs;
 
     public IvmAggTarget(int ordinal, IvmAggFunctionKind functionKind, Slot visibleSlot,
-            Map<IvmAggStateKey, Slot> hiddenStateSlots, List<Expression> exprArgs) {
+            Map<IvmAggStateKey, Slot> hiddenStateSlots, Slot valueStateSlot, List<Expression> exprArgs) {
         this.ordinal = ordinal;
         this.functionKind = Objects.requireNonNull(functionKind);
         this.visibleSlot = Objects.requireNonNull(visibleSlot);
         this.hiddenStateSlots = ImmutableMap.copyOf(hiddenStateSlots);
+        this.valueStateSlot = valueStateSlot;
         this.exprArgs = ImmutableList.copyOf(exprArgs);
     }
 
@@ -78,6 +85,30 @@ public class IvmAggTarget {
 
     public Slot getHiddenStateSlot(IvmAggStateKey stateKey) {
         return hiddenStateSlots.get(stateKey);
+    }
+
+    /** Column carrying this target's own value state, or null when the visible column carries it. */
+    public Slot getValueStateSlot() {
+        return valueStateSlot;
+    }
+
+    /**
+     * Name of the MV column apply reads this target's old value state from.
+     *
+     * <p>Processors whose apply merges the old value from the MV ({@code visibleColumnHoldsValueState})
+     * read through this name, so a target whose visible column was dropped in favor of a materialized
+     * hidden carrier resolves to that carrier instead.
+     */
+    public String getValueStateColumnName() {
+        return valueStateSlot != null ? valueStateSlot.getName() : visibleSlot.getName();
+    }
+
+    /** Rebinds this target to the state slots materialized for it by normalize. */
+    public IvmAggTarget withStateSlots(Slot newValueStateSlot, Map<IvmAggStateKey, Slot> newHiddenStateSlots) {
+        if (Objects.equals(valueStateSlot, newValueStateSlot) && hiddenStateSlots.equals(newHiddenStateSlots)) {
+            return this;
+        }
+        return new IvmAggTarget(ordinal, functionKind, visibleSlot, newHiddenStateSlots, newValueStateSlot, exprArgs);
     }
 
     /**
