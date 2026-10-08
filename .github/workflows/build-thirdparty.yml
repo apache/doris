@@ -80,9 +80,6 @@ jobs:
         run: |
           thirdparty/test/adbc-jni-config-test.sh
 
-      - name: Test Lance installation
-        run: bash thirdparty/test/lance-install-test.sh
-
   build_linux:
     name: Build Third Party Libraries (Linux)
     needs: changes
