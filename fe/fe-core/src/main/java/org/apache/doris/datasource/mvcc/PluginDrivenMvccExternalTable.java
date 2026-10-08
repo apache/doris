@@ -700,14 +700,16 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             if (pin.isPartitionViewUnavailable()) {
                 return Collections.emptyMap();
             }
-            Map<String, PartitionItem> preloadedView = sharedLatestPartitionView(snapshot);
-            if (preloadedView != null) {
-                return preloadedView;
+            Optional<ExternalTablePreloadInfo> sharedView = sharedLatestPartitionView(snapshot);
+            if (sharedView.isPresent() && sharedView.get().getScanPartitionView().isPresent()) {
+                return sharedView.get().getScanPartitionView().get();
             }
             // The latest Hive query pin intentionally carries no partition map so selective scans can send a
             // predicate to HMS first. Consumers that explicitly ask for a partition map (MTMV alignment,
             // no-filter scan finalization, and a connector-declined pruning fallback) require the real full
-            // view instead of treating that query-only pin as an empty table.
+            // view instead of treating that query-only pin as an empty table. An unavailable shared scan view
+            // is not an authoritative empty map either: checked MTMV consumers reject it in
+            // getAndCopyPartitionItems, while other explicit map consumers retain this fail-loud full-view path.
             return super.getNameToPartitionItems(snapshot);
         }
         return getOrMaterialize(snapshot).getNameToPartitionItem();
@@ -778,35 +780,44 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     }
 
     /**
-     * Returns the full latest-view materialized by the statement before internal table locks were acquired, or
-     * {@code null} when this request does not refer to that latest view.
+     * Returns the latest-view preload record materialized by the statement before internal table locks were
+     * acquired, or empty when this request does not refer to that latest view.
      *
-     * <p>Query-time async-MV validation and union compensation both ask for this map while the planner holds
-     * internal read locks. Reusing the pre-lock generation avoids a full HMS listing (and possibly several
-     * listings) under those locks. A supplied pin is accepted only when it is the statement's own latest pin;
-     * historical/time-travel pins and calls without a statement context keep their existing snapshot semantics.</p>
+     * <p>The record, rather than only its map, preserves all three preload states: no recorded view, an
+     * unavailable scan view, and a materialized map. Query-time async-MV validation and union compensation ask
+     * for partition metadata while the planner holds internal read locks. Reusing the materialized pre-lock
+     * generation avoids a full HMS listing under those locks; preserving UNAVAILABLE lets the checked MTMV path
+     * reject the candidate without converting "scan every partition" into an authoritative empty universe. A
+     * supplied pin is accepted only when it is the statement's own latest pin; historical/time-travel pins and
+     * calls without a statement context keep their existing snapshot semantics.</p>
      */
-    private Map<String, PartitionItem> sharedLatestPartitionView(Optional<MvccSnapshot> snapshot) {
+    private Optional<ExternalTablePreloadInfo> sharedLatestPartitionView(Optional<MvccSnapshot> snapshot) {
         ConnectContext connectContext = ConnectContext.get();
         StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
         if (statementContext == null) {
-            return null;
+            return Optional.empty();
         }
         Optional<ExternalTablePreloadInfo> preloadInfo = statementContext.getExternalTablePreloadInfo(getId());
         if (!preloadInfo.isPresent() || !preloadInfo.get().hasScanPartitionView()) {
-            return null;
+            return Optional.empty();
         }
         Optional<MvccSnapshot> latestSnapshot = statementContext.getSnapshot(this);
         boolean isLatestRequest = !snapshot.isPresent()
                 || (latestSnapshot.isPresent() && latestSnapshot.get() == snapshot.get());
-        if (!isLatestRequest) {
-            return null;
-        }
-        return preloadInfo.get().getScanPartitionView().orElse(Collections.emptyMap());
+        return isLatestRequest ? preloadInfo : Optional.empty();
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
+    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot)
+            throws AnalysisException {
+        Optional<ExternalTablePreloadInfo> sharedView = sharedLatestPartitionView(snapshot);
+        if (sharedView.isPresent()) {
+            Optional<Map<String, PartitionItem>> partitionItems = sharedView.get().getScanPartitionView();
+            if (!partitionItems.isPresent()) {
+                throw new AnalysisException("Partition view is unavailable for table " + getName());
+            }
+            return new HashMap<>(partitionItems.get());
+        }
         return new HashMap<>(getNameToPartitionItems(snapshot));
     }
 
