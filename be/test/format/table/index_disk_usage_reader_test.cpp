@@ -22,13 +22,16 @@
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cpp/sync_point.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -89,64 +92,72 @@ TEST(IndexDiskUsageReaderTest, TabletIoContextCarriesTtl) {
     EXPECT_EQ(0, root.expiration_time);
 }
 
+// Drives IndexDiskUsageReader::capture_tablet_rowsets through a cloud tablet manager whose
+// meta-service calls are replaced, so that the calls can be counted.
 class IndexDiskUsageCaptureTest : public testing::Test {
 protected:
-    IndexDiskUsageCaptureTest() : _engine(EngineOptions {}) {}
+    static constexpr int64_t kTabletId = 99001;
 
     void SetUp() override {
+        ExecEnv::GetInstance()->set_storage_engine(
+                std::make_unique<CloudStorageEngine>(EngineOptions {}));
         auto* sp = SyncPoint::get_instance();
         sp->clear_all_call_backs();
         sp->enable_processing();
+        sp->set_call_back("CloudMetaMgr::get_tablet_meta", [](auto&& args) {
+            *try_any_cast<TabletMetaSharedPtr*>(args[1]) = std::make_shared<TabletMeta>(
+                    1, 2, kTabletId, 15674, 4, 5, TTabletSchema(), 6,
+                    std::unordered_map<uint32_t, uint32_t> {{7, 8}}, UniqueId(9, 10),
+                    TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+            try_any_cast_ret<Status>(args)->second = true;
+        });
+        sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [this](auto&& args) {
+            ++_syncs;
+            _on_sync(try_any_cast<CloudTablet*>(args[0]));
+            try_any_cast_ret<Status>(args)->second = true;
+        });
     }
 
     void TearDown() override {
         auto* sp = SyncPoint::get_instance();
         sp->disable_processing();
         sp->clear_all_call_backs();
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
-    RowsetSharedPtr create_rowset(Version version) {
+    static RowsetSharedPtr create_rowset(Version version) {
         auto rs_meta = std::make_shared<RowsetMeta>();
         rs_meta->set_rowset_type(BETA_ROWSET);
         rs_meta->set_version(version);
-        rs_meta->set_rowset_id(_engine.next_rowset_id());
+        rs_meta->set_rowset_id(ExecEnv::GetInstance()->storage_engine().next_rowset_id());
         RowsetSharedPtr rowset;
         const Status st = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
         EXPECT_TRUE(st.ok()) << st;
         return rowset;
     }
 
-    // A cached cloud tablet with one rowset per version through `max_version`.
-    CloudTabletSPtr create_tablet(int64_t max_version) {
-        auto tablet_meta = std::make_shared<TabletMeta>(
-                1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6,
-                std::unordered_map<uint32_t, uint32_t> {{7, 8}}, UniqueId(9, 10),
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
-        auto tablet = std::make_shared<CloudTablet>(_engine, std::move(tablet_meta));
-        std::vector<RowsetSharedPtr> rowsets {create_rowset({0, 1})};
-        for (int64_t version = 2; version <= max_version; ++version) {
-            rowsets.push_back(create_rowset({version, version}));
-        }
+    static void add_rowsets(CloudTablet* tablet, std::vector<RowsetSharedPtr> rowsets,
+                            bool version_overlap) {
         std::unique_lock wlock(tablet->get_header_lock());
-        tablet->add_rowsets(std::move(rowsets), false, wlock, false);
-        return tablet;
+        tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, false);
     }
 
-    // Answers each rowset sync as meta-service does once `compacted` replaced the rowsets it
-    // covers.
-    static void sync_returns(const CloudTabletSPtr& tablet, const RowsetSharedPtr& compacted,
-                             int* syncs) {
-        SyncPoint::get_instance()->set_call_back(
-                "CloudMetaMgr::sync_tablet_rowsets", [tablet, compacted, syncs](auto&& outcome) {
-                    ++*syncs;
-                    {
-                        std::unique_lock wlock(tablet->get_header_lock());
-                        tablet->add_rowsets({compacted}, true, wlock, false);
-                    }
-                    auto* ret = try_any_cast_ret<Status>(outcome);
-                    ret->first = Status::OK();
-                    ret->second = true;
-                });
+    // Makes the next meta-service sync deliver one rowset per version through `max_version`.
+    void sync_delivers_versions(int64_t max_version) {
+        _on_sync = [max_version](CloudTablet* tablet) {
+            std::vector<RowsetSharedPtr> rowsets {create_rowset({0, 1})};
+            for (int64_t version = 2; version <= max_version; ++version) {
+                rowsets.push_back(create_rowset({version, version}));
+            }
+            add_rowsets(tablet, std::move(rowsets), false);
+        };
+    }
+
+    // Makes the next meta-service sync deliver a compaction output that replaces cached rowsets.
+    void sync_delivers_compaction(Version output) {
+        _on_sync = [output](CloudTablet* tablet) {
+            add_rowsets(tablet, {create_rowset(output)}, true);
+        };
     }
 
     static std::vector<Version> versions_of(const std::vector<RowsetSharedPtr>& rowsets) {
@@ -158,36 +169,67 @@ protected:
         return versions;
     }
 
-    CloudStorageEngine _engine;
+    int _syncs = 0;
+    std::function<void(CloudTablet*)> _on_sync = [](CloudTablet*) {};
 };
 
-// A compaction on another backend can replace the rowsets of a cached tablet without changing the
-// visible version, so the scan synchronizes with meta-service even when the cache is current.
-TEST_F(IndexDiskUsageCaptureTest, CaptureSyncsCompactionAtCachedVersion) {
-    auto tablet = create_tablet(3);
-    auto compacted = create_rowset({2, 3});
-    int syncs = 0;
-    sync_returns(tablet, compacted, &syncs);
+// The lookup of a tablet that is not cached loads and synchronizes it, so the scan adds no second
+// meta-service sync.
+TEST_F(IndexDiskUsageCaptureTest, ColdLookupSyncsOnce) {
+    sync_delivers_versions(3);
 
-    auto rowsets = IndexDiskUsageReader::capture_rowsets(tablet, 3);
-    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
-    EXPECT_EQ(1, syncs);
-    EXPECT_EQ((std::vector<Version> {{0, 1}, {2, 3}}), versions_of(rowsets.value()));
-    EXPECT_EQ(compacted->rowset_id(), rowsets.value().back()->rowset_id());
+    auto captured = IndexDiskUsageReader::capture_tablet_rowsets(kTabletId, 3);
+    ASSERT_TRUE(captured.has_value()) << captured.error();
+    EXPECT_EQ(1, _syncs);
+    EXPECT_EQ((std::vector<Version> {{0, 1}, {2, 2}, {3, 3}}), versions_of(captured->rowsets));
+}
+
+// A lookup can join a load that began before the scan version was committed, so a loaded tablet
+// that lacks the scan version synchronizes up to it.
+TEST_F(IndexDiskUsageCaptureTest, ColdLookupSyncsToTheScanVersionWhenTheLoadIsOlder) {
+    _on_sync = [this](CloudTablet* tablet) {
+        if (_syncs == 1) {
+            add_rowsets(tablet,
+                        {create_rowset({0, 1}), create_rowset({2, 2}), create_rowset({3, 3})},
+                        false);
+        } else {
+            add_rowsets(tablet, {create_rowset({4, 4})}, false);
+        }
+    };
+
+    auto captured = IndexDiskUsageReader::capture_tablet_rowsets(kTabletId, 4);
+    ASSERT_TRUE(captured.has_value()) << captured.error();
+    EXPECT_EQ(2, _syncs);
+    EXPECT_EQ((std::vector<Version> {{0, 1}, {2, 2}, {3, 3}, {4, 4}}),
+              versions_of(captured->rowsets));
+}
+
+// A compaction on another backend can replace the rowsets of a cached tablet without changing the
+// visible version, so a cached tablet synchronizes again even when its cache is current.
+TEST_F(IndexDiskUsageCaptureTest, CachedLookupSyncsCompactionAtCachedVersion) {
+    sync_delivers_versions(3);
+    ASSERT_TRUE(IndexDiskUsageReader::capture_tablet_rowsets(kTabletId, 3).has_value());
+    ASSERT_EQ(1, _syncs);
+
+    sync_delivers_compaction({2, 3});
+    auto captured = IndexDiskUsageReader::capture_tablet_rowsets(kTabletId, 3);
+    ASSERT_TRUE(captured.has_value()) << captured.error();
+    EXPECT_EQ(2, _syncs);
+    EXPECT_EQ((std::vector<Version> {{0, 1}, {2, 3}}), versions_of(captured->rowsets));
 }
 
 // A compaction that also covers a version newer than the scan version keeps the rowsets it
 // replaced as stale rowsets, so the scan version can still be captured.
-TEST_F(IndexDiskUsageCaptureTest, CaptureSurvivesCompactionPastScanVersion) {
-    auto tablet = create_tablet(3);
-    int syncs = 0;
-    sync_returns(tablet, create_rowset({2, 4}), &syncs);
+TEST_F(IndexDiskUsageCaptureTest, CompactionPastScanVersionKeepsScanVersionReadable) {
+    sync_delivers_versions(3);
+    ASSERT_TRUE(IndexDiskUsageReader::capture_tablet_rowsets(kTabletId, 3).has_value());
 
-    auto rowsets = IndexDiskUsageReader::capture_rowsets(tablet, 3);
-    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
-    EXPECT_EQ(1, syncs);
-    EXPECT_NE(nullptr, tablet->get_rowset_by_version(Version(2, 4)));
-    EXPECT_EQ((std::vector<Version> {{0, 1}, {2, 2}, {3, 3}}), versions_of(rowsets.value()));
+    sync_delivers_compaction({2, 4});
+    auto captured = IndexDiskUsageReader::capture_tablet_rowsets(kTabletId, 3);
+    ASSERT_TRUE(captured.has_value()) << captured.error();
+    EXPECT_EQ(2, _syncs);
+    EXPECT_NE(nullptr, captured->tablet->get_rowset_by_version(Version(2, 4)));
+    EXPECT_EQ((std::vector<Version> {{0, 1}, {2, 2}, {3, 3}}), versions_of(captured->rowsets));
 }
 
 } // namespace doris
