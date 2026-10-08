@@ -395,10 +395,7 @@ std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_pr
         for (size_t ordinal = 0; ordinal < _schema->num_block_columns(); ++ordinal) {
             const auto& col = _schema->columns()[ordinal];
             int32_t uid = col->unique_id();
-            // Fully filtered batches never materialize deferred VARIANT output or update the
-            // predictor. Use the bounded probe and actual Block feedback instead of a root hint
-            // that would keep these batches small until EOF.
-            if (uid >= 0 && !col->is_variant_type()) {
+            if (uid >= 0) {
                 total_raw_bytes += _segment->column_raw_data_bytes(uid);
             }
         }
