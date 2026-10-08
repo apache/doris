@@ -157,8 +157,7 @@ struct CloudCompactionScoresAccessor final : CompactionScoresAccessor {
             if (auto tablet = weak_tablet.lock();
                 tablet != nullptr and
                 (tablet->tablet_state() == TABLET_RUNNING ||
-                 (tablet->tablet_state() == TABLET_NOTREADY &&
-                  tablet->has_active_alter_job()))) {
+                 (tablet->tablet_state() == TABLET_NOTREADY && tablet->has_active_alter_job()))) {
                 tablets.push_back(std::move(tablet));
             }
         }
