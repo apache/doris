@@ -16,6 +16,7 @@
 1	old-1-partial	100	20	0
 2	old-2	200	20	0
 3	new-3-after-readd	300	20	0
+
 -- !partial_hidden_after_add_row_store --
 1	old-1	100	10	0
 2	old-2	200	10	0
@@ -33,3 +34,4 @@
 1	old-1-partial	100	20	0
 2	old-2	200	20	0
 3	new-3-after-readd	300	20	0
+
