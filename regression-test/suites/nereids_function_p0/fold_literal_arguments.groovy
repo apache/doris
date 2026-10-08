@@ -94,12 +94,20 @@ suite("fold_literal_arguments") {
         duplicate key(k) distributed by hash(k) buckets 1 properties('replication_num' = '1')
     """
     sql """insert into fold_literal_arguments_insert values
-            (1, sha2('abc', 200 + 56)), (2, regexp_replace('abc', 'a', 'b', concat('', '')))"""
+            (1, sha2('abc', 200 + 56)), (2, regexp_replace('abc', 'a', 'b', concat('', ''))),
+            (3, date_trunc(DATE '2024-03-15', cast(null as varchar))),
+            (4, date_trunc(cast(null as varchar), DATE '2024-03-15')),
+            (5, regexp_replace('abc', '[', 'x', cast(null as string))),
+            (6, regexp_replace_one('abc', '[', 'x', cast(null as string)))"""
     order_qt_insert_values "select * from fold_literal_arguments_insert"
 
     // the value FE can evaluate is validated like the literal
     test {
         sql "select sha2('abc', 200 + 100)"
+        exception "sha2 functions only support digest length of"
+    }
+    test {
+        sql "select sha2('abc', cast(null as int))"
         exception "sha2 functions only support digest length of"
     }
     test {
@@ -261,6 +269,13 @@ suite("fold_literal_arguments") {
     order_qt_full_column_constant_be """select number, sha2('abc', if(crc32('') = 0, 256, 224)),
             split_by_regexp('a,b,c', ',', if(crc32('') = 0, 2, 3)),
             split_by_regexp('a,b,c', ',', uniform(1, 10, crc32('x'))) is not null
+            from numbers('number' = '3')"""
+    order_qt_array_apply_const_source """select number,
+            array_apply(array_repeat(1, 16), '>', if(crc32('') = 0, 2, 3))
+            from numbers('number' = '3')"""
+    order_qt_regexp_replace_const_source """select number,
+            length(regexp_replace(repeat('x', 16), '^.*\$', '', if(crc32('') = 0, '', 'IGNORE_INVALID_ESCAPE'))),
+            length(regexp_replace_one(repeat('x', 16), '^.*\$', '', if(crc32('') = 0, '', 'IGNORE_INVALID_ESCAPE')))
             from numbers('number' = '3')"""
     order_qt_date_trunc_open_non_constant_be """select k, date_trunc(dt, if(1 + crc32('') > 0, 'month', 'x'))
             from fold_literal_arguments_t"""

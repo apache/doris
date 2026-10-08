@@ -25,6 +25,7 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
+#include "core/column/column_const.h"
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
@@ -226,10 +227,9 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        // The input is a constant too when the digest length is a constant BE evaluates to a full
-        // column, such as uniform(...).
-        ColumnPtr data_col =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        // The digest length may be evaluated by BE as a full column while the input remains const.
+        const auto& [data_col, data_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
 
         [[maybe_unused]] const auto& [right_column, right_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
@@ -241,13 +241,17 @@ public:
         res_offset.resize(input_rows_count);
 
         if (digest_length == 224) {
-            execute_base<SHA224Digest>(data_col, input_rows_count, res_data, res_offset);
+            execute_base<SHA224Digest>(data_col, data_const, input_rows_count, res_data,
+                                       res_offset);
         } else if (digest_length == 256) {
-            execute_base<SHA256Digest>(data_col, input_rows_count, res_data, res_offset);
+            execute_base<SHA256Digest>(data_col, data_const, input_rows_count, res_data,
+                                       res_offset);
         } else if (digest_length == 384) {
-            execute_base<SHA384Digest>(data_col, input_rows_count, res_data, res_offset);
+            execute_base<SHA384Digest>(data_col, data_const, input_rows_count, res_data,
+                                       res_offset);
         } else if (digest_length == 512) {
-            execute_base<SHA512Digest>(data_col, input_rows_count, res_data, res_offset);
+            execute_base<SHA512Digest>(data_col, data_const, input_rows_count, res_data,
+                                       res_offset);
         } else {
             return Status::InvalidArgument(
                     "sha2's digest length only support 224/256/384/512 but meet {}", digest_length);
@@ -259,12 +263,12 @@ public:
 
 private:
     template <typename T>
-    void execute_base(ColumnPtr data_col, int input_rows_count, ColumnString::Chars& res_data,
-                      ColumnString::Offsets& res_offset) const {
+    void execute_base(const ColumnPtr& data_col, bool data_const, int input_rows_count,
+                      ColumnString::Chars& res_data, ColumnString::Offsets& res_offset) const {
         if (const auto* str_col = check_and_get_column<ColumnString>(data_col.get())) {
-            vector_execute<T>(str_col, input_rows_count, res_data, res_offset);
+            vector_execute<T>(str_col, data_const, input_rows_count, res_data, res_offset);
         } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(data_col.get())) {
-            vector_execute<T>(vb_col, input_rows_count, res_data, res_offset);
+            vector_execute<T>(vb_col, data_const, input_rows_count, res_data, res_offset);
         } else {
             throw Exception(ErrorCode::RUNTIME_ERROR,
                             "Illegal column {} of argument of function {}", data_col->get_name(),
@@ -273,11 +277,11 @@ private:
     }
 
     template <typename DigestType, typename ColumnType>
-    void vector_execute(const ColumnType* col, size_t input_rows_count,
+    void vector_execute(const ColumnType* col, bool data_const, size_t input_rows_count,
                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offset) const {
         DigestType digest;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            StringRef data_ref = col->get_data_at(i);
+            StringRef data_ref = col->get_data_at(index_check_const(i, data_const));
             digest.reset(data_ref.data, data_ref.size);
             std::string_view ans = digest.digest();
 

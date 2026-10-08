@@ -499,6 +499,10 @@ public:
                         return Status::OK();
                     }
                     const auto options_col = context->get_constant_col(3)->column_ptr;
+                    // A NULL options argument makes the result NULL before regexp compilation.
+                    if (options_col->is_null_at(0)) {
+                        return Status::OK();
+                    }
                     options_value = options_col->get_data_at(0);
                 }
                 return compile_constant_pattern(context, pattern_col->get_data_at(0),
@@ -521,9 +525,17 @@ public:
                     auto result_null_map = regexp_result_null_map<check_null>(std::move(null_map),
                                                                               input_rows_count);
 
+                    bool col_const[3];
+                    for (int i = 0; i < 3; ++i) {
+                        col_const[i] = is_column_const(*args_block.get_by_position(args[i]).column);
+                    }
                     ColumnPtr argument_columns[3];
-                    const bool parameters_const = prepare_regexp_argument_columns(
-                            args_block, args, {1, 2}, argument_columns);
+                    const auto& [source_column, source_const] =
+                            unpack_if_const(args_block.get_by_position(args[0]).column);
+                    argument_columns[0] = source_column;
+                    default_preprocess_parameter_columns(argument_columns, col_const, {1, 2},
+                                                         args_block, args);
+                    const bool parameters_const = col_const[1] && col_const[2];
 
                     StringRef options_value;
                     if (args.size() == 4) {
@@ -548,13 +560,15 @@ public:
                             }
                         }
                         Impl::template execute_impl_const_args<check_null>(
-                                context, argument_columns, options_value, input_rows_count,
-                                result_data, result_offset, result_null_map->get_data());
+                                context, argument_columns, source_const, options_value,
+                                input_rows_count, result_data, result_offset,
+                                result_null_map->get_data());
                     } else {
                         // the options have check in FE, so is always const, and get idx of 0
                         Impl::template execute_impl<check_null>(
-                                context, argument_columns, options_value, input_rows_count,
-                                result_data, result_offset, result_null_map->get_data());
+                                context, argument_columns, source_const, options_value,
+                                input_rows_count, result_data, result_offset,
+                                result_null_map->get_data());
                     }
 
                     return ColumnNullable::create(std::move(result_data_column),
@@ -592,9 +606,9 @@ struct RegexpReplaceImpl {
     // `null_map` holds the NULL rows to skip when CheckNull.
     template <bool CheckNull>
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
-                             const StringRef& options_value, size_t input_rows_count,
-                             ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
-                             const NullMap& null_map) {
+                             bool source_const, const StringRef& options_value,
+                             size_t input_rows_count, ColumnString::Chars& result_data,
+                             ColumnString::Offsets& result_offset, const NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
@@ -606,15 +620,15 @@ struct RegexpReplaceImpl {
                     continue;
                 }
             }
-            _execute_inner_loop<false>(context, str_col, pattern_col, replace_col, options_value,
-                                       result_data, result_offset, i);
+            _execute_inner_loop<false>(context, str_col, pattern_col, replace_col, source_const,
+                                       options_value, result_data, result_offset, i);
         }
     }
 
     template <bool CheckNull>
     static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
-                                        const StringRef& options_value, size_t input_rows_count,
-                                        ColumnString::Chars& result_data,
+                                        bool source_const, const StringRef& options_value,
+                                        size_t input_rows_count, ColumnString::Chars& result_data,
                                         ColumnString::Offsets& result_offset,
                                         const NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
@@ -628,15 +642,16 @@ struct RegexpReplaceImpl {
                     continue;
                 }
             }
-            _execute_inner_loop<true>(context, str_col, pattern_col, replace_col, options_value,
-                                      result_data, result_offset, i);
+            _execute_inner_loop<true>(context, str_col, pattern_col, replace_col, source_const,
+                                      options_value, result_data, result_offset, i);
         }
     }
 
     template <bool Const>
     static void _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
                                     const ColumnString* pattern_col,
-                                    const ColumnString* replace_col, const StringRef& options_value,
+                                    const ColumnString* replace_col, bool source_const,
+                                    const StringRef& options_value,
                                     ColumnString::Chars& result_data,
                                     ColumnString::Offsets& result_offset, const size_t index_now) {
         auto* re = reinterpret_cast<re2::RE2*>(
@@ -657,7 +672,8 @@ struct RegexpReplaceImpl {
         re2::StringPiece replace_str = re2::StringPiece(
                 replace_col->get_data_at(index_check_const(index_now, Const)).to_string_view());
 
-        std::string result_str(str_col->get_data_at(index_now).to_string());
+        std::string result_str(
+                str_col->get_data_at(index_check_const(index_now, source_const)).to_string());
         if constexpr (ReplaceOne) {
             re2::RE2::Replace(&result_str, *re, replace_str);
         } else {

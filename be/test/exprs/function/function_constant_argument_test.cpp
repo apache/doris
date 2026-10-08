@@ -108,6 +108,11 @@ protected:
         }
         return column;
     }
+
+    static ColumnPtr null_string(size_t rows) {
+        return ColumnConst::create(ColumnNullable::create(strings({""}), ColumnUInt8::create(1, 1)),
+                                   rows);
+    }
 };
 
 TEST_F(FunctionConstantArgumentTest, regexp_replace_options) {
@@ -160,6 +165,45 @@ TEST_F(FunctionConstantArgumentTest, regexp_replace_options) {
                      {nullptr, nullptr, nullptr, nullptr});
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(empty_block.get_by_position(4).column->size(), 0);
+}
+
+TEST_F(FunctionConstantArgumentTest, regexp_replace_null_options) {
+    auto string_type = std::make_shared<DataTypeString>();
+    auto nullable_string_type = make_nullable(string_type);
+    for (std::string name : {"regexp_replace", "regexp_replace_one"}) {
+        Block block;
+        ColumnPtr pattern = ColumnConst::create(strings({"["}), 2);
+        ColumnPtr options = null_string(2);
+        block.insert({strings({"abc", "def"}), string_type, "s"});
+        block.insert({pattern, string_type, "pattern"});
+        block.insert({ColumnConst::create(strings({"x"}), 2), string_type, "replacement"});
+        block.insert({options, nullable_string_type, "options"});
+        Status status = execute(name, block, nullable_string_type,
+                                {nullptr, constant(pattern), nullptr, constant(options)});
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        const auto& result = *block.get_by_position(4).column;
+        ASSERT_EQ(result.size(), 2);
+        EXPECT_TRUE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+    }
+}
+
+TEST_F(FunctionConstantArgumentTest, regexp_replace_constant_source) {
+    auto string_type = std::make_shared<DataTypeString>();
+    auto return_type = make_nullable(string_type);
+    for (std::string name : {"regexp_replace", "regexp_replace_one"}) {
+        Block block;
+        block.insert({ColumnConst::create(strings({"abc"}), 2), string_type, "s"});
+        block.insert({ColumnConst::create(strings({"a"}), 2), string_type, "pattern"});
+        block.insert({strings({"x", "y"}), string_type, "replacement"});
+        block.insert({strings({"", ""}), string_type, "options"});
+        Status status = execute(name, block, return_type, {nullptr, nullptr, nullptr, nullptr});
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        const auto& result = *block.get_by_position(4).column;
+        ASSERT_EQ(result.size(), 2);
+        EXPECT_EQ(result.get_data_at(0).to_string(), "xbc");
+        EXPECT_EQ(result.get_data_at(1).to_string(), "ybc");
+    }
 }
 
 TEST_F(FunctionConstantArgumentTest, date_trunc_unit) {
@@ -221,6 +265,34 @@ TEST_F(FunctionConstantArgumentTest, date_trunc_unit) {
     status = execute("date_trunc", empty_block, date_type, {nullptr, nullptr});
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(empty_block.get_by_position(2).column->size(), 0);
+}
+
+TEST_F(FunctionConstantArgumentTest, date_trunc_null_unit) {
+    auto date_type = std::make_shared<DataTypeDateV2>();
+    auto string_type = make_nullable(std::make_shared<DataTypeString>());
+    auto return_type = make_nullable(date_type);
+    DateV2Value<DateV2ValueType> date;
+    date.unchecked_set_time(2024, 3, 15, 0, 0, 0, 0);
+    for (bool unit_first : {false, true}) {
+        Block block;
+        ColumnPtr unit = null_string(2);
+        ColumnPtr dates = ColumnHelper::create_column<DataTypeDateV2>({date, date});
+        if (unit_first) {
+            block.insert({unit, string_type, "unit"});
+            block.insert({dates, date_type, "date"});
+        } else {
+            block.insert({dates, date_type, "date"});
+            block.insert({unit, string_type, "unit"});
+        }
+        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols(2);
+        constant_cols[unit_first ? 0 : 1] = constant(unit);
+        Status status = execute("date_trunc", block, return_type, constant_cols);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        const auto& result = *block.get_by_position(2).column;
+        ASSERT_EQ(result.size(), 2);
+        EXPECT_TRUE(result.is_null_at(0));
+        EXPECT_TRUE(result.is_null_at(1));
+    }
 }
 
 TEST_F(FunctionConstantArgumentTest, random_seed) {
@@ -318,6 +390,24 @@ TEST_F(FunctionConstantArgumentTest, array_apply_op_and_value) {
     const auto& result = *block.get_by_position(3).column;
     EXPECT_EQ(array_type->to_string(result, 0), "[3]");
     EXPECT_EQ(array_type->to_string(result, 1), "[3, 4]");
+
+    // A constant source stays compact even when the value is evaluated as a full column.
+    auto const_nested = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 3}, {0, 0, 0});
+    auto const_offsets = ColumnArray::ColumnOffsets::create();
+    const_offsets->insert_value(3);
+    Block const_block;
+    const_block.insert(
+            {ColumnConst::create(ColumnArray::create(const_nested, std::move(const_offsets)), 2),
+             array_type, "arr"});
+    const_block.insert({strings({">", ">"}), string_type, "op"});
+    const_block.insert({ColumnHelper::create_column<DataTypeInt32>({2, 2}), int_type, "val"});
+    status = execute("array_apply", const_block, array_type, {nullptr, nullptr, nullptr});
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& const_result = *const_block.get_by_position(3).column;
+    ASSERT_EQ(const_result.size(), 2);
+    EXPECT_TRUE(is_column_const(const_result));
+    EXPECT_EQ(array_type->to_string(const_result, 0), "[3]");
+    EXPECT_EQ(array_type->to_string(const_result, 1), "[3]");
 }
 
 // A constant argument that BE evaluates to a full column may come with constant arguments that are
