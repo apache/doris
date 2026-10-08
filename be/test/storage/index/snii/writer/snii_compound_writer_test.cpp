@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "gen_cpp/snii.pb.h"
@@ -1491,16 +1492,24 @@ TEST(SniiCompoundWriter, PacksEachIndexSectionsContiguouslyWithoutInterleaving) 
 namespace {
 
 // Writes the standard two-index fixture at the given cache block size and returns the bytes.
-// The file cache is forced on by default: padding is gated on it and it defaults to OFF, so a
-// fixture that left it alone would exercise only the not-padded branch whatever block size it picks.
-std::vector<uint8_t> WriteFixtureAtBlockSize(int64_t block_size, bool file_cache_on = true) {
+// Cloud mode is forced on by default: padding is gated on it and a UT process is not in cloud
+// mode, so a fixture that left it alone would exercise only the not-padded branch whatever block
+// size it picks. The file cache is on either way, as it is by default in both deploy modes, so the
+// deploy mode is the only thing that decides.
+std::vector<uint8_t> WriteFixtureAtBlockSize(int64_t block_size, bool cloud_mode = true) {
     const int64_t saved_block = doris::config::file_cache_each_block_size;
     const bool saved_cache = doris::config::enable_file_cache;
+    const std::string saved_deploy_mode = doris::config::deploy_mode;
+    const std::string saved_cloud_unique_id = doris::config::cloud_unique_id;
     doris::config::file_cache_each_block_size = block_size;
-    doris::config::enable_file_cache = file_cache_on;
+    doris::config::enable_file_cache = true;
+    doris::config::deploy_mode = cloud_mode ? "cloud" : "";
+    doris::config::cloud_unique_id.clear();
     doris::Defer restore {[&] {
         doris::config::file_cache_each_block_size = saved_block;
         doris::config::enable_file_cache = saved_cache;
+        doris::config::deploy_mode = saved_deploy_mode;
+        doris::config::cloud_unique_id = saved_cloud_unique_id;
     }};
 
     const std::string path = TempPath();
@@ -1614,19 +1623,20 @@ TEST(SniiCompoundWriter, SkipsPaddingWhenItWouldBeLargeRelativeToContainer) {
     ExpectFixtureReadable(file);
 }
 
-// Padding is repaid only by CachedRemoteFileReader's block alignment. enable_file_cache defaults
-// to OFF, and with it off there is no block cache in the read path at all -- so a container that
-// qualifies on every other count must still come out unpadded.
-TEST(SniiCompoundWriter, SkipsPaddingWhenTheFileCacheIsOff) {
+// Padding is repaid only by CachedRemoteFileReader's block alignment, and only cloud mode reads
+// containers through it. A storage-compute-coupled BE reads them from local disk even with the
+// file cache on, which it is by default -- so outside cloud mode a container that qualifies on
+// every other count must still come out unpadded.
+TEST(SniiCompoundWriter, SkipsPaddingOutsideCloudMode) {
     const size_t unpadded = WriteFixtureAtBlockSize(0).size();
     const auto block = CheapPaddingBlockSize(unpadded);
     ASSERT_GE(block, 2) << "fixture too small to derive a usable block size";
-    // Same block size the acceptance test uses, so the cache flag is the only difference.
-    ASSERT_NE(WriteFixtureAtBlockSize(block, /*file_cache_on=*/true).size(), unpadded)
-            << "precondition: this block size must pad when the cache is on";
+    // Same block size the acceptance test uses, so the deploy mode is the only difference.
+    ASSERT_NE(WriteFixtureAtBlockSize(block, /*cloud_mode=*/true).size(), unpadded)
+            << "precondition: this block size must pad in cloud mode";
 
-    const std::vector<uint8_t> file = WriteFixtureAtBlockSize(block, /*file_cache_on=*/false);
-    EXPECT_EQ(file.size(), unpadded) << "padded despite there being no block cache to repay it";
+    const std::vector<uint8_t> file = WriteFixtureAtBlockSize(block, /*cloud_mode=*/false);
+    EXPECT_EQ(file.size(), unpadded) << "padded outside cloud mode, where no block cache repays it";
     ExpectFixtureReadable(file);
 }
 
@@ -1634,8 +1644,14 @@ TEST(SniiCompoundWriter, SkipsPaddingWhenTheFileCacheIsOff) {
 // consult it at all, rather than treating 0 as "align to everything".
 TEST(SniiCompoundWriter, AddsNoPaddingWhenBlockSizeIsDisabled) {
     const int64_t saved_block = doris::config::file_cache_each_block_size;
+    const std::string saved_deploy_mode = doris::config::deploy_mode;
     doris::config::file_cache_each_block_size = 0;
-    doris::Defer restore {[&] { doris::config::file_cache_each_block_size = saved_block; }};
+    // Cloud mode, so that the disabled block size is the only thing that can turn padding off.
+    doris::config::deploy_mode = "cloud";
+    doris::Defer restore {[&] {
+        doris::config::file_cache_each_block_size = saved_block;
+        doris::config::deploy_mode = saved_deploy_mode;
+    }};
 
     const std::string path = TempPath();
     {
