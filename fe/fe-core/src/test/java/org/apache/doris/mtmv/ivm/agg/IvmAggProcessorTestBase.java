@@ -89,8 +89,9 @@ abstract class IvmAggProcessorTestBase {
 
     protected IvmAggTarget target(int ordinal, IvmAggFunctionKind kind, String visibleName,
             DataType visibleType, Map<IvmAggStateKey, Slot> hiddenSlots, List<Expression> args) {
-        // No value-state carrier: these targets keep their value in the visible column.
-        return new IvmAggTarget(ordinal, kind, slot(visibleName, visibleType), hiddenSlots, null, args);
+        // No value-state carrier, and the visible column keeps its own name: these targets keep their
+        // value in the visible column.
+        return new IvmAggTarget(ordinal, kind, slot(visibleName, visibleType), hiddenSlots, null, false, args);
     }
 
     protected Slot slot(String name, DataType dataType) {

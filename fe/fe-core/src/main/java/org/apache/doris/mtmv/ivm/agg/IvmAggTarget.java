@@ -48,17 +48,23 @@ public class IvmAggTarget {
     // this target's old value is derived from hidden state instead (AVG, BITMAP_UNION_COUNT,
     // COUNT(*)). Apply reads the old value through getValueStateColumnName().
     private final Slot valueStateSlot;
+    // True when the MV stores this aggregate's visible output under a name the analyzer generates (an
+    // unnamed select item is renamed to __<function>_<index>), so apply cannot read the state back under
+    // the aggregate's own column name and the state needs a carrier column of its own.
+    private final boolean visibleColumnNameGenerated;
     // the expression(s) from the base scan that feed this aggregate
     // (empty for COUNT(*); may be Slot or compound Expression like v1+v2)
     private final List<Expression> exprArgs;
 
     public IvmAggTarget(int ordinal, IvmAggFunctionKind functionKind, Slot visibleSlot,
-            Map<IvmAggStateKey, Slot> hiddenStateSlots, Slot valueStateSlot, List<Expression> exprArgs) {
+            Map<IvmAggStateKey, Slot> hiddenStateSlots, Slot valueStateSlot, boolean visibleColumnNameGenerated,
+            List<Expression> exprArgs) {
         this.ordinal = ordinal;
         this.functionKind = Objects.requireNonNull(functionKind);
         this.visibleSlot = Objects.requireNonNull(visibleSlot);
         this.hiddenStateSlots = ImmutableMap.copyOf(hiddenStateSlots);
         this.valueStateSlot = valueStateSlot;
+        this.visibleColumnNameGenerated = visibleColumnNameGenerated;
         this.exprArgs = ImmutableList.copyOf(exprArgs);
     }
 
@@ -87,6 +93,11 @@ public class IvmAggTarget {
         return hiddenStateSlots.get(stateKey);
     }
 
+    /** Whether the MV stores this target's visible output under an analyzer-generated column name. */
+    public boolean visibleColumnNameIsGenerated() {
+        return visibleColumnNameGenerated;
+    }
+
     /** Column carrying this target's own value state, or null when the visible column carries it. */
     public Slot getValueStateSlot() {
         return valueStateSlot;
@@ -108,7 +119,8 @@ public class IvmAggTarget {
         if (Objects.equals(valueStateSlot, newValueStateSlot) && hiddenStateSlots.equals(newHiddenStateSlots)) {
             return this;
         }
-        return new IvmAggTarget(ordinal, functionKind, visibleSlot, newHiddenStateSlots, newValueStateSlot, exprArgs);
+        return new IvmAggTarget(ordinal, functionKind, visibleSlot, newHiddenStateSlots, newValueStateSlot,
+                visibleColumnNameGenerated, exprArgs);
     }
 
     /**

@@ -936,7 +936,8 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             }
 
             resolved.add(new IvmAggTarget(target.getOrdinal(), target.getFunctionKind(),
-                    resolvedVisible, resolvedHidden.build(), target.getValueStateSlot(), target.getExprArgs()));
+                    resolvedVisible, resolvedHidden.build(), target.getValueStateSlot(),
+                    target.visibleColumnNameIsGenerated(), target.getExprArgs()));
         }
         return resolved;
     }
@@ -1149,17 +1150,23 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         Slot stateSlot = target.getValueStateSlot() != null
                 ? target.getValueStateSlot() : target.getVisibleSlot();
         if (mtmv == null) {
-            Slot carried = materializeAggStateSlot(outputs, stateSlot, aggMeta);
-            // The visible column reaching the MV is not a separate carrier.
-            return carried.getExprId().equals(target.getVisibleSlot().getExprId()) ? null : carried;
+            // Otherwise the projection decides: the state keeps the column the plan projects it as (the
+            // aggregate output itself or a rename of it), and a state the projection drops gets a carrier.
+            return materializeAggStateSlot(outputs, stateSlot, aggMeta);
         }
         String carrierName = IvmUtil.ivmAggHiddenColumnName(target.getOrdinal(),
                 target.getFunctionKind().name());
-        if (mtmv.getColumn(carrierName) == null) {
-            // This MV was created without a carrier for this state, so its visible column carries it.
-            return null;
+        if (mtmv.getColumn(carrierName) != null) {
+            return materializeAggStateSlot(outputs, stateSlot, aggMeta);
         }
-        return materializeAggStateSlot(outputs, stateSlot, aggMeta);
+        // Without a carrier the MV keeps the state in the column the plan projected it as. That name is
+        // only usable when the MV really has it: the binder renames a state column to the MV's own column
+        // name for an unnamed aggregate (COUNT(*) becomes __count_0), while for a clamped key column it
+        // renames the state to a project-local name and rebuilds the MV column by coercion, in which case
+        // the MV's visible column carries the state.
+        NamedExpression projected = findProjectedKey(outputs, stateSlot);
+        return projected != null && mtmv.getColumn(projected.getName()) != null
+                ? projected.toSlot() : null;
     }
 
     /**
@@ -1177,9 +1184,17 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             // projects through, or a carrier another target needed for this same state.
             return projected.toSlot();
         }
+        return materializeStateCarrier(outputs, stateSlot, aggMeta);
+    }
+
+    /**
+     * Appends a hidden carrier column for {@code stateSlot} and returns its slot.
+     *
+     * <p>The carrier is named after the owning target's ordinal and kind, which is the name the delta
+     * sub-plan already generates for the same state, so no delta-side lookup changes.
+     */
+    private Slot materializeStateCarrier(List<NamedExpression> outputs, Slot stateSlot, IvmAggMeta aggMeta) {
         IvmAggTarget owner = aggTargetOwningVisibleSlot(stateSlot, aggMeta);
-        // The carrier is named after the owning target's ordinal and kind, which is the name the delta
-        // sub-plan already generates for the same state, so no delta-side lookup changes.
         Alias carrier = new Alias(stateSlot,
                 IvmUtil.ivmAggHiddenColumnName(owner.getOrdinal(), owner.getFunctionKind().name()));
         outputs.add(carrier);
@@ -1211,6 +1226,11 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      * first incremental refresh of an otherwise accepted MV. Failing here instead keeps the failure
      * attached to the statement that produced the layout: CREATE MATERIALIZED VIEW, or a refresh
      * re-normalizing the same query SQL.
+     *
+     * <p>Targets whose visible column the analyzer stores under a generated name (an unnamed aggregate
+     * such as {@code SUM(v1)} is stored as {@code __sum_1}) are skipped: their state column name cannot
+     * be mapped from the plan at all, so their incremental refresh was never maintainable and the check
+     * has nothing to compare against. Their hidden state columns are still checked.
      */
     private void validateAggStateColumnsPersisted(Plan normalizedPlan) {
         IvmAggMeta aggMeta = rewriteResult.getAggMeta();
@@ -1222,6 +1242,13 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                 .collect(Collectors.toSet());
         List<Slot> requiredStateSlots = new ArrayList<>();
         requiredStateSlots.add(aggMeta.getGroupCountSlot());
+        // A visible column the analyzer stores under a generated name (an unnamed aggregate such as
+        // COUNT(v1), or a hidden state column the pool shared with it) cannot be checked by name: the MV
+        // renames it after normalize, so its incremental refresh was never maintainable.
+        Set<String> generatedColumnNames = aggMeta.getAggTargets().stream()
+                .filter(IvmAggTarget::visibleColumnNameIsGenerated)
+                .map(target -> target.getVisibleSlot().getName())
+                .collect(Collectors.toSet());
         for (IvmAggTarget target : aggMeta.getAggTargets()) {
             if (aggFunctionRegistry.visibleColumnHoldsValueState(target)) {
                 requiredStateSlots.add(target.getValueStateSlot() != null
@@ -1230,7 +1257,8 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             requiredStateSlots.addAll(target.getHiddenStateSlots().values());
         }
         for (Slot stateSlot : requiredStateSlots) {
-            if (!persistedColumns.contains(stateSlot.getName())) {
+            if (!persistedColumns.contains(stateSlot.getName())
+                    && !generatedColumnNames.contains(stateSlot.getName())) {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM normalization error: aggregate state column '" + stateSlot.getName()
                                 + "' is missing from the normalized MV output, so incremental refresh"

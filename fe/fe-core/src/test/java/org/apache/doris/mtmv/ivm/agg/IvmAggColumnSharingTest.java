@@ -171,6 +171,7 @@ class IvmAggColumnSharingTest extends IvmAggProcessorTestBase {
         Map<IvmAggStateKey, Slot> hidden = new LinkedHashMap<>(target.getHiddenStateSlots());
         hidden.put(key, slot);
         return new IvmAggTarget(target.getOrdinal(), target.getFunctionKind(),
-                target.getVisibleSlot(), hidden, target.getValueStateSlot(), target.getExprArgs());
+                target.getVisibleSlot(), hidden, target.getValueStateSlot(),
+                target.visibleColumnNameIsGenerated(), target.getExprArgs());
     }
 }

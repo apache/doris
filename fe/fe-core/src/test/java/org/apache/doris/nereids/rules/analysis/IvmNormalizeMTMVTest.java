@@ -732,7 +732,7 @@ class IvmNormalizeMTMVTest {
 
         IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         IvmAggTarget target = aggMeta.getAggTargets().get(0);
-        Assertions.assertNull(target.getValueStateSlot());
+        // The projected column is the state column itself, so apply reads it under the same name.
         Assertions.assertEquals("s", target.getValueStateColumnName());
     }
 

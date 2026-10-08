@@ -67,6 +67,6 @@ public class IvmAggTargetSpec {
         // No value-state carrier yet: normalize materializes one only if an upper layer drops the
         // visible column, which is not known while the spec is still being built.
         return new IvmAggTarget(ordinal, functionKind, visibleAlias.toSlot(), hiddenSlots.build(), null,
-                targetArguments);
+                visibleAlias.isNameFromChild(), targetArguments);
     }
 }
