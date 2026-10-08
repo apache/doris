@@ -71,6 +71,8 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -777,6 +779,10 @@ public class StmtExecutorTest extends TestWithFeService {
                             QeProcessorImpl.INSTANCE.getCoordinator(successful.getQueryId()));
                     Assertions.assertEquals("FLIGHT_DEFERRED".equals(outcome), executor.isDeferredForArrowFlight());
                     if (executor.isDeferredForArrowFlight()) {
+                        JsonObject pending = JsonParser.parseString(profile.getSummaryProfile().getExecutionSummary()
+                                .getInfoString(SummaryProfile.QUERY_RETRY_DETAILS)).getAsJsonObject();
+                        Assertions.assertEquals(1, pending.size());
+                        Assertions.assertFalse(pending.has(DebugUtil.printId(successful.getQueryId())));
                         flightAdapter.closeDeferredExecutors();
                     } else {
                         executor.finalizeQuery();
@@ -821,6 +827,18 @@ public class StmtExecutorTest extends TestWithFeService {
                     Assertions.assertTrue(executions.get(0).getQueryFinishTime() > 0);
                 }
             }
+            int failedAttempts = "PLANNING_FAILURE".equals(outcome)
+                    || "FETCH_FAILURE_PLANNING".equals(outcome) ? 2 : 1;
+            Assertions.assertEquals(Integer.toString(failedAttempts), profile.getSummaryProfile().getExecutionSummary()
+                    .getInfoString(SummaryProfile.QUERY_RETRY_TIMES));
+            JsonObject attemptDetails = JsonParser.parseString(profile.getSummaryProfile().getExecutionSummary()
+                    .getInfoString(SummaryProfile.QUERY_RETRY_DETAILS)).getAsJsonObject();
+            Assertions.assertEquals(attempts.get(), attemptDetails.size());
+            Assertions.assertEquals("FAILED", attemptDetails.getAsJsonObject(DebugUtil.printId(firstQueryId))
+                    .get("state").getAsString());
+            JsonObject finalAttempt = attemptDetails.getAsJsonObject(DebugUtil.printId(context.queryId()));
+            Assertions.assertEquals(context.getState().getStateType() == QueryState.MysqlStateType.ERR ? "FAILED" : "SUCCEEDED",
+                    finalAttempt.get("state").getAsString());
             Assertions.assertEquals(fetchFailure ? 1 : 0, coordinators.constructed().size());
             Assertions.assertNotEquals(Long.MAX_VALUE, profile.getQueryFinishTimestamp());
             Assertions.assertEquals(context.getStartTime(), profile.getSummaryProfile().getQueryBeginTime());
@@ -839,9 +857,11 @@ public class StmtExecutorTest extends TestWithFeService {
         }
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @ResourceLock("global")
-    public void testInnerRetryClearsRenderedActualRows(@TempDir Path profileDirectory) throws Exception {
+    public void testInnerRetryClearsRenderedActualRows(boolean terminalFailure,
+            @TempDir Path profileDirectory) throws Exception {
         String oldCloudUniqueId = Config.cloud_unique_id;
         int oldRetryTime = Config.max_query_retry_time;
         SessionVariable originalSession = connectContext.getSessionVariable();
@@ -925,6 +945,9 @@ public class StmtExecutorTest extends TestWithFeService {
                             Assertions.assertEquals(500L, childStatistics.getActualRowCount());
                             throw new RpcException("test-be", "fetch failed before sending results");
                         }
+                        if (terminalFailure) {
+                            throw new RpcException("test-be", "terminal fetch failure");
+                        }
                         return new RowBatch();
                     });
                     return coordinator;
@@ -936,11 +959,27 @@ public class StmtExecutorTest extends TestWithFeService {
             context.setThreadLocalInfo();
             Method handle = StmtExecutor.class.getDeclaredMethod("handleQueryWithRetry", TUniqueId.class);
             handle.setAccessible(true);
-            handle.invoke(executor, firstQueryId);
+            if (terminalFailure) {
+                InvocationTargetException failure = Assertions.assertThrows(InvocationTargetException.class,
+                        () -> handle.invoke(executor, firstQueryId));
+                Assertions.assertInstanceOf(RpcException.class, failure.getCause());
+            } else {
+                handle.invoke(executor, firstQueryId);
+            }
             Assertions.assertEquals(2, executions.size());
             Assertions.assertEquals(Collections.singletonList(executions.get(1)), profile.getExecutionProfiles());
             Assertions.assertFalse(executions.get(1).isCompleted());
+            String details = profile.getSummaryProfile().getExecutionSummary()
+                    .getInfoString(SummaryProfile.QUERY_RETRY_DETAILS);
+            JsonObject attempts = JsonParser.parseString(details).getAsJsonObject();
+            Assertions.assertEquals(2, attempts.size());
+            Assertions.assertEquals("FAILED", attempts.getAsJsonObject(DebugUtil.printId(firstQueryId))
+                    .get("state").getAsString());
+            JsonObject last = attempts.getAsJsonObject(DebugUtil.printId(context.queryId()));
+            Assertions.assertEquals(terminalFailure ? "FAILED" : "SUCCEEDED", last.get("state").getAsString());
+            Assertions.assertTrue(last.get("durationMs").getAsLong() >= 0);
             String finalText = profile.getProfileByLevel();
+            Assertions.assertTrue(finalText.contains("QueryRetryTimes: " + (terminalFailure ? 2 : 1)));
             Assertions.assertTrue(finalText.contains("actualRows=42"));
             Assertions.assertFalse(finalText.contains("actualRows=1000"));
             Assertions.assertFalse(finalText.contains("actualRows=500"));
@@ -950,6 +989,9 @@ public class StmtExecutorTest extends TestWithFeService {
             profile.writeToStorage(profileDirectory.toString());
             Profile stored = Profile.read(profile.getProfileStoragePath());
             Assertions.assertNotNull(stored);
+            Assertions.assertTrue(stored.getProfileByLevel().contains("QueryRetryTimes: " + (terminalFailure ? 2 : 1)));
+            Assertions.assertEquals(details, stored.getSummaryProfile().getExecutionSummary()
+                    .getInfoString(SummaryProfile.QUERY_RETRY_DETAILS));
             Assertions.assertFalse(stored.getProfileByLevel().contains("actualRows=500"));
         } finally {
             Config.cloud_unique_id = oldCloudUniqueId;

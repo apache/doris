@@ -56,6 +56,8 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
@@ -294,6 +296,17 @@ public class CloudInsertProfileRetryTest extends TestWithFeService {
             }
             int expectedAttempts = outcome.startsWith("SUCCESS") || "PLANNING_FAILURE".equals(outcome) ? 2 : 1;
             Assertions.assertEquals(expectedAttempts, attempts.get());
+            String details = profile.getSummaryProfile().getExecutionSummary()
+                    .getInfoString(SummaryProfile.QUERY_RETRY_DETAILS);
+            JsonObject attemptDetails = JsonParser.parseString(details).getAsJsonObject();
+            Assertions.assertEquals(expectedAttempts, attemptDetails.size());
+            JsonObject finalAttempt = attemptDetails.getAsJsonObject(DebugUtil.printId(context.queryId()));
+            Assertions.assertEquals(outcome.startsWith("SUCCESS") || outcome.contains("EMPTY") ? "SUCCEEDED" : "FAILED",
+                    finalAttempt.get("state").getAsString());
+            int failedAttempts = "PLANNING_FAILURE".equals(outcome) ? 2
+                    : "EMPTY_WITH_SESSION_REVERT".equals(outcome) ? 0 : 1;
+            Assertions.assertEquals(Integer.toString(failedAttempts), profile.getSummaryProfile().getExecutionSummary()
+                    .getInfoString(SummaryProfile.QUERY_RETRY_TIMES));
             if (realExecution) {
                 Assertions.assertEquals(1, session.parallelPipelineTaskNum);
             }
@@ -357,6 +370,8 @@ public class CloudInsertProfileRetryTest extends TestWithFeService {
             Assertions.assertTrue(profile.profileHasBeenStored());
             Profile stored = Profile.read(profile.getProfileStoragePath());
             Assertions.assertNotNull(stored);
+            Assertions.assertEquals(details, stored.getSummaryProfile().getExecutionSummary()
+                    .getInfoString(SummaryProfile.QUERY_RETRY_DETAILS));
             if ("PLANNING_FAILURE".equals(outcome)) {
                 Assertions.assertEquals("ERR", stored.getSummaryProfile().getSummary()
                         .getInfoString(SummaryProfile.TASK_STATE));
