@@ -1,7 +1,7 @@
 # Foyer data-cache integration for lance-format/lance-c#73.
 # Base: 98468344bc9d56aa7ed4a4192e844afa62b34ba1 (lance-format/lance-c main, including #94)
-# Source: https://github.com/Gabriel39/lance-c/commit/24c7ca4bcb9422c113b0d3e07e4efe1173b0bc9f
-# The unchanged Foyer payload is reapplied to the newer upstream base with git apply --3way.
+# Initial source: https://github.com/Gabriel39/lance-c/commit/24c7ca4bcb9422c113b0d3e07e4efe1173b0bc9f
+# Downstream: restore stable store-prefix cache keys across dataset opens.
 diff --git a/Cargo.lock b/Cargo.lock
 index 78812f1330e146db295a14276f90f9e28654f399..daf9f85daf3e0ea59bb906e8e3c32470519b084b 100644
 --- a/Cargo.lock
@@ -198,7 +198,7 @@ index 18654b862440a90aa6bf0dd846e8f1ad6036fd7c..fd134a7151e1df61da201d867a642e9b
  prost = "0.14"
  snafu = "0.9"
 diff --git a/README.md b/README.md
-index f13ad015826a8ac5468cfea247707d987cc0864d..56422c22969882cd43edd5e83a4a5c4d0dadd3d6 100644
+index f13ad015826a8ac5468cfea247707d987cc0864d..d608e8678bb32820ea5ed3aede1318f4adf19509 100644
 --- a/README.md
 +++ b/README.md
 @@ -68,6 +68,7 @@ Based on the [liblance RFC](https://github.com/lance-format/lance/discussions/60
@@ -209,7 +209,7 @@ index f13ad015826a8ac5468cfea247707d987cc0864d..56422c22969882cd43edd5e83a4a5c4d
 
  ## Segment-scoped array label filters
 
-@@ -362,6 +363,35 @@ auto ds = lance::Dataset::open_with_session(session, "data.lance");
+@@ -362,6 +363,33 @@ auto ds = lance::Dataset::open_with_session(session, "data.lance");
  auto stats = session.cache_stats();
  ```
 
@@ -221,12 +221,10 @@ index f13ad015826a8ac5468cfea247707d987cc0864d..56422c22969882cd43edd5e83a4a5c4d
 +for datasets that share the cache directory. Immutable data-file response metadata
 +uses a separate in-memory cache budget of one eighth of the configured data
 +memory capacity, avoiding a remote HEAD request on repeated range reads.
-+Cache entries are isolated by the underlying object-store instance because the
-+wrapper interface does not expose a complete backend identity. Datasets sharing
-+the same live store can reuse entries; a new store instance or process restart
-+starts a new cache namespace. Reopening the disk tier while that same store is
-+still alive can recover its entries. Identical bucket/path names on different
-+endpoints never share metadata, sizes, or data blocks.
++Cache keys use Lance's store prefix and data-file path, so reopening a dataset
++can reuse cached blocks even when it creates a new object-store instance.
++Different endpoints with identical store prefixes and paths are not isolated;
++use separate cache owners/directories for those backends.
 +
 +```cpp
 +lance::DataCacheOptions data_cache{
@@ -508,10 +506,10 @@ index cc1f87ce3f7dfe8dd33aeb6ab7f54d02e31a220a..76fd39ef9e456d1fab6978b6b2cb3c27
      }
 diff --git a/src/foyer_data_cache.rs b/src/foyer_data_cache.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..cfc47f1528d11b6be068c09dd4703ff4308a9d16
+index 0000000000000000000000000000000000000000..853430fab4fd5f0f3c9635ca26d5772ef647ab57
 --- /dev/null
 +++ b/src/foyer_data_cache.rs
-@@ -0,0 +1,1620 @@
+@@ -0,0 +1,1482 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -523,7 +521,7 @@ index 0000000000000000000000000000000000000000..cfc47f1528d11b6be068c09dd4703ff4
 +use std::ops::Range;
 +use std::path::Path as FsPath;
 +use std::sync::atomic::{AtomicU64, Ordering};
-+use std::sync::{Arc, LazyLock, Mutex, Weak};
++use std::sync::{Arc, Mutex, Weak};
 +
 +use async_trait::async_trait;
 +use bytes::{Bytes, BytesMut};
@@ -547,31 +545,8 @@ index 0000000000000000000000000000000000000000..cfc47f1528d11b6be068c09dd4703ff4
 +use crate::runtime::block_on;
 +use crate::session::{LanceSession, session_new_with_data_cache_factory};
 +
-+const CACHE_KEY_VERSION: &str = "lance-data-v2";
++const CACHE_KEY_VERSION: &str = "lance-data-v1";
 +const FOYER_PAGE_SIZE: usize = 4096;
-+
-+struct OriginNamespace {
-+    origin: Weak<dyn ObjectStore>,
-+    namespace: uuid::Uuid,
-+}
-+
-+static ORIGIN_NAMESPACES: LazyLock<Mutex<HashMap<usize, OriginNamespace>>> =
-+    LazyLock::new(|| Mutex::new(HashMap::new()));
-+
-+fn origin_namespace(origin: &Arc<dyn ObjectStore>) -> uuid::Uuid {
-+    // store_prefix omits endpoint/credentials, and this interface exposes no stable
-+    // backend identity. Only the same live origin may reuse metadata or data.
-+    // Persist a random namespace, never an address that another process can reuse.
-+    let mut namespaces = ORIGIN_NAMESPACES.lock().unwrap();
-+    namespaces.retain(|_, entry| entry.origin.strong_count() != 0);
-+    namespaces
-+        .entry(Arc::as_ptr(origin) as *const () as usize)
-+        .or_insert_with(|| OriginNamespace {
-+            origin: Arc::downgrade(origin),
-+            namespace: uuid::Uuid::new_v4(),
-+        })
-+        .namespace
-+}
 +
 +/// Configuration for the optional Foyer data-file cache.
 +#[repr(C)]
@@ -921,7 +896,8 @@ index 0000000000000000000000000000000000000000..cfc47f1528d11b6be068c09dd4703ff4
 +        let original = self.cache.unwrap_store(original);
 +        let reader = DataCacheReader {
 +            cache: self.cache.clone(),
-+            store_prefix: format!("{}\0{store_prefix}", origin_namespace(&original)),
++            // Dataset opens can recreate stores; a stable prefix preserves warm blocks.
++            store_prefix: store_prefix.to_owned(),
 +            original: original.clone(),
 +            statistics: self.statistics.clone(),
 +        };
@@ -1568,79 +1544,6 @@ index 0000000000000000000000000000000000000000..cfc47f1528d11b6be068c09dd4703ff4
 +    }
 +
 +    #[tokio::test]
-+    async fn same_bucket_and_path_on_distinct_endpoints_remain_isolated() {
-+        let (first, _, _, first_server) = http_store(Bytes::from(vec![11; 8192])).await;
-+        let (second, second_heads, second_gets, second_server) =
-+            http_store(Bytes::from(vec![29; 4096])).await;
-+        let directory = tempfile::tempdir().unwrap();
-+        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 4096)
-+            .await
-+            .unwrap();
-+        let path = Path::from("table.lance/data/shared.lance");
-+        let first = cache.create_scope().wrap("s3$example-bucket", first);
-+        let second = cache.create_scope().wrap("s3$example-bucket", second);
-+        assert_eq!(
-+            first.get(&path).await.unwrap().bytes().await.unwrap(),
-+            Bytes::from(vec![11; 8192])
-+        );
-+        let result = second.get(&path).await.unwrap();
-+        assert_eq!(
-+            result.meta.size, 4096,
-+            "metadata must belong to the second endpoint"
-+        );
-+        assert_eq!(result.bytes().await.unwrap(), Bytes::from(vec![29; 4096]));
-+        assert_eq!(second_heads.load(Ordering::SeqCst), 1);
-+        assert_eq!(second_gets.load(Ordering::SeqCst), 1);
-+        first_server.abort();
-+        second_server.abort();
-+    }
-+
-+    #[tokio::test]
-+    async fn batched_ranges_do_not_reuse_another_store_or_mask_not_found() {
-+        let directory = tempfile::tempdir().unwrap();
-+        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 4096)
-+            .await
-+            .unwrap();
-+        let first = Arc::new(InMemory::new());
-+        let second = Arc::new(InMemory::new());
-+        let missing = Arc::new(InMemory::new());
-+        let path = Path::from("table.lance/data/shared.lance");
-+        first
-+            .put(&path, Bytes::from(vec![11; 8192]).into())
-+            .await
-+            .unwrap();
-+        second
-+            .put(&path, Bytes::from(vec![29; 8192]).into())
-+            .await
-+            .unwrap();
-+        let (first, _) = wrap_for_test(&cache, first);
-+        let (second, _) = wrap_for_test(&cache, second);
-+        let (missing, _) = wrap_for_test(&cache, missing);
-+        assert_eq!(
-+            first
-+                .get_ranges(&path, &[0..4096, 4096..8192])
-+                .await
-+                .unwrap()[0],
-+            Bytes::from(vec![11; 4096])
-+        );
-+        assert_eq!(
-+            second
-+                .get_ranges(&path, &[0..4096, 4096..8192])
-+                .await
-+                .unwrap()[0],
-+            Bytes::from(vec![29; 4096])
-+        );
-+        assert!(matches!(
-+            missing.get(&path).await,
-+            Err(object_store::Error::NotFound { .. })
-+        ));
-+        assert!(matches!(
-+            missing.get_ranges(&path, &[0..16, 16..32]).await,
-+            Err(object_store::Error::NotFound { .. })
-+        ));
-+    }
-+
-+    #[tokio::test]
 +    async fn warm_range_reads_do_not_rewrite_size_entries_to_disk() {
 +        let directory = tempfile::tempdir().unwrap();
 +        let original = Arc::new(InMemory::new());
@@ -1965,49 +1868,6 @@ index 0000000000000000000000000000000000000000..cfc47f1528d11b6be068c09dd4703ff4
 +    }
 +
 +    #[tokio::test]
-+    async fn recovered_disk_entries_do_not_outlive_their_origin_identity() {
-+        let directory = tempfile::tempdir().unwrap();
-+        let path = Path::from("table.lance/data/shared.lance");
-+        let original = Arc::new(InMemory::new());
-+        let weak = Arc::downgrade(&original);
-+        original
-+            .put(&path, Bytes::from(vec![11; 8192]).into())
-+            .await
-+            .unwrap();
-+        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 4096)
-+            .await
-+            .unwrap();
-+        let (wrapped, _) = wrap_for_test(&cache, original);
-+        assert_eq!(wrapped.get_range(&path, 0..8192).await.unwrap().len(), 8192);
-+        drop(wrapped);
-+        assert!(
-+            weak.upgrade().is_none(),
-+            "the namespace registry must not retain stores"
-+        );
-+        cache.cache.close().await.unwrap();
-+        drop(cache);
-+
-+        let recovered = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 4096)
-+            .await
-+            .unwrap();
-+        let replacement = Arc::new(InMemory::new());
-+        replacement
-+            .put(&path, Bytes::from(vec![29; 8192]).into())
-+            .await
-+            .unwrap();
-+        let (wrapped, statistics) = wrap_for_test(&recovered, replacement);
-+        assert_eq!(
-+            wrapped
-+                .get_ranges(&path, &[0..4096, 4096..8192])
-+                .await
-+                .unwrap(),
-+            vec![Bytes::from(vec![29; 4096]); 2]
-+        );
-+        assert_eq!(statistics.snapshot().bytes_read_from_cache, 0);
-+        assert_eq!(statistics.snapshot().bytes_read_from_remote, 8192);
-+    }
-+
-+    #[tokio::test]
 +    async fn dataset_scopes_share_cache_without_sharing_statistics() {
 +        let directory = tempfile::tempdir().unwrap();
 +        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 64 * 1024)
@@ -2243,7 +2103,7 @@ index 1971510de4a13ee6f04fc39c159b088e78e21d55..ba51c87a8cebb6897c48fb55509f71da
          // SAFETY: `out_dataset` is non-NULL (checked above) and the caller
          // guarantees it points to caller-owned, writable storage of size
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
-index b00072df3f966f58663359ccd370b399650c2023..e44871e92bc7ff9787bf5220b1ea8a4270da9710 100644
+index b00072df3f966f58663359ccd370b399650c2023..1799ec64c1de74a4a18f90105b76345a89cc7517 100644
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
 @@ -100,10 +100,83 @@ fn create_large_dataset(num_rows: i32) -> (tempfile::TempDir, String) {
@@ -2330,7 +2190,7 @@ index b00072df3f966f58663359ccd370b399650c2023..e44871e92bc7ff9787bf5220b1ea8a42
  #[derive(Default)]
  struct CapturedScanStatistics {
      calls: usize,
-@@ -445,6 +518,129 @@ fn test_shared_session_rejects_null_inputs() {
+@@ -445,6 +518,184 @@ fn test_shared_session_rejects_null_inputs() {
      }
  }
 
@@ -2355,12 +2215,12 @@ index b00072df3f966f58663359ccd370b399650c2023..e44871e92bc7ff9787bf5220b1ea8a42
 +        !cached_dataset.is_null(),
 +        "second dataset open should succeed"
 +    );
-+    // A fresh open may create a different underlying store. Warm its isolated
-+    // namespace before removing origin files; only the same live store can reuse
-+    // entries because bucket/path alone does not identify a storage backend.
++    // Reopening in the same session must preserve the storage namespace while
++    // keeping per-dataset counters independent.
 +    assert_eq!(scanned_row_count(cached_dataset), 20_000);
 +    let reopened_statistics = data_cache_statistics(cached_dataset);
-+    assert!(reopened_statistics.bytes_read_from_remote > 0);
++    assert_eq!(reopened_statistics.bytes_read_from_remote, 0);
++    assert!(reopened_statistics.bytes_read_from_cache > 0);
 +    unsafe { lance_session_close(session) };
 +
 +    for entry in std::fs::read_dir(tmp.path().join("large_ds/data")).unwrap() {
@@ -2378,6 +2238,61 @@ index b00072df3f966f58663359ccd370b399650c2023..e44871e92bc7ff9787bf5220b1ea8a42
 +
 +    unsafe { lance_dataset_close(cached_dataset) };
 +    unsafe { lance_dataset_close(dataset) };
++}
++
++#[test]
++fn test_session_data_cache_survives_close_and_reopen_for_take_rows() {
++    let (_tmp, uri) = create_large_multi_fragment_dataset(10_000);
++    let c_uri = file_object_store_uri(&uri);
++    let (_cache_directory, session) = create_data_cache_session();
++    let row_ids = [0, 123, 9_999, 1 << 32, (1 << 32) + 123, (1 << 32) + 9_999];
++    let expected_ids = [0, 123, 9_999, 10_000, 10_123, 19_999];
++    for attempt in 0..3 {
++        let dataset =
++            unsafe { lance_dataset_open_with_session(c_uri.as_ptr(), ptr::null(), 0, session) };
++        assert!(!dataset.is_null());
++        assert_eq!(data_cache_statistics(dataset), Default::default());
++        let mut stream = FFI_ArrowArrayStream::empty();
++        assert_eq!(
++            unsafe {
++                lance_dataset_take_rows(
++                    dataset,
++                    row_ids.as_ptr(),
++                    row_ids.len(),
++                    ptr::null(),
++                    &mut stream,
++                )
++            },
++            0
++        );
++        let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut stream) }.unwrap();
++        let ids: Vec<i32> = reader
++            .flat_map(|batch| {
++                let batch = batch.unwrap();
++                batch
++                    .column_by_name("id")
++                    .unwrap()
++                    .as_any()
++                    .downcast_ref::<Int32Array>()
++                    .unwrap()
++                    .values()
++                    .to_vec()
++            })
++            .collect();
++        assert_eq!(ids, expected_ids);
++        let statistics = data_cache_statistics(dataset);
++        unsafe { lance_dataset_close(dataset) };
++        if attempt == 0 {
++            assert!(statistics.bytes_read_from_remote > 0);
++        } else {
++            assert_eq!(
++                statistics.bytes_read_from_remote, 0,
++                "reopen attempt {attempt}"
++            );
++            assert!(statistics.bytes_read_from_cache > 0);
++        }
++    }
++    unsafe { lance_session_close(session) };
 +}
 +
 +#[test]
@@ -2460,7 +2375,7 @@ index b00072df3f966f58663359ccd370b399650c2023..e44871e92bc7ff9787bf5220b1ea8a42
  #[test]
  fn test_open_nonexistent() {
      let c_uri = c_str("memory://nonexistent_dataset_xyz");
-@@ -3318,6 +3514,40 @@ fn test_dataset_restore_to_prior_version() {
+@@ -3318,6 +3569,40 @@ fn test_dataset_restore_to_prior_version() {
      unsafe { lance_dataset_close(ds) };
  }
 
