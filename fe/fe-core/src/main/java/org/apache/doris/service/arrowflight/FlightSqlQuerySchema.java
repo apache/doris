@@ -27,6 +27,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -97,6 +99,19 @@ final class FlightSqlQuerySchema {
     }
 
     static Schema analyze(ConnectContext context, String query) throws Exception {
+        return analyze(context, query, null);
+    }
+
+    static Schema analyze(ConnectContext context, String query, List<Literal> parameters) throws Exception {
+        return analyze(context, query, parameters, false).first;
+    }
+
+    static Pair<Schema, Integer> prepare(ConnectContext context, String query) throws Exception {
+        return analyze(context, query, null, true);
+    }
+
+    private static Pair<Schema, Integer> analyze(ConnectContext context, String query,
+            List<Literal> parameters, boolean preparing) throws Exception {
         synchronized (context) {
             ConnectContext previousThreadContext = ConnectContext.get();
             StatementContext previousStatement = context.getStatementContext();
@@ -149,12 +164,26 @@ final class FlightSqlQuerySchema {
                 StatementContext statementContext = statement.getStatementContext();
                 context.setStatementContext(statementContext);
                 statementContext.setParsedStatement(statement);
-                if (!statementContext.getPlaceholders().isEmpty()) {
-                    throw CallStatus.UNIMPLEMENTED.withDescription(
-                            "Flight SQL parameter binding is not supported").toRuntimeException();
+                int parameterCount = statementContext.getPlaceholders().size();
+                if (parameterCount > FlightSqlParameters.MAX_PARAMETERS) {
+                    throw CallStatus.INVALID_ARGUMENT.withDescription("Too many query parameters (maximum 1024)")
+                            .toRuntimeException();
+                }
+                Plan plan = statement.getLogicalPlan();
+                if (parameterCount > 0) {
+                    if (statements.size() != 1 || plan instanceof Command) {
+                        throw CallStatus.INVALID_ARGUMENT.withDescription(
+                                "Parameters require a single query statement").toRuntimeException();
+                    }
+                    if (preparing) {
+                        // Output types may depend on the values (SELECT ?); advertise them only after binding.
+                        return Pair.of(null, parameterCount);
+                    }
+                }
+                if (parameters != null || parameterCount > 0) {
+                    FlightSqlParameters.bind(statementContext, parameters);
                 }
                 List<Field> fields = new ArrayList<>();
-                Plan plan = statement.getLogicalPlan();
                 if (plan instanceof Command) {
                     resolveNamespace(context, plan, scopedDatabases);
                     ResultSetMetaData metadata = commandMetadata(context, (Command) plan);
@@ -199,7 +228,7 @@ final class FlightSqlQuerySchema {
                                 true, context.getSessionVariable().getTimeZone()));
                     }
                 }
-                return new Schema(fields);
+                return Pair.of(new Schema(fields), parameterCount);
             } finally {
                 try {
                     List<AutoCloseable> resources = new ArrayList<>();
