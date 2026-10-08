@@ -3812,10 +3812,11 @@ struct NestedNavigationFile {
     std::vector<std::vector<uint8_t>> pages;
 
     NestedNavigationFile(const std::vector<bool>& v2, const std::vector<size_t>& page_rows,
-                         bool repeated = false, bool dictionary = false, bool nullable = false) {
+                         bool repeated = false, bool dictionary = false, bool nullable = false,
+                         bool nested = true) {
         field.physical_type = tparquet::Type::INT32;
         field.data_type = std::make_shared<DataTypeInt32>();
-        field.repetition_level = 1;
+        field.repetition_level = nested ? 1 : 0;
         field.definition_level = nullable ? 1 : 0;
         if (nullable) {
             field.data_type = make_nullable(field.data_type);
@@ -3864,22 +3865,24 @@ struct NestedNavigationFile {
                 }
             }
             faststring encoded_levels;
-            RleEncoder<uint32_t> level_encoder(&encoded_levels, 1);
-            for (const auto level : levels) {
-                level_encoder.Put(level);
-            }
-            for (size_t padding = levels.size(); padding % 8 != 0; ++padding) {
-                level_encoder.Put(0);
-            }
-            level_encoder.Flush();
             std::vector<uint8_t> payload;
-            if (!v2[i]) {
-                const uint32_t size = encoded_levels.size();
-                const auto* raw = reinterpret_cast<const uint8_t*>(&size);
-                payload.insert(payload.end(), raw, raw + sizeof(size));
+            if (nested) {
+                RleEncoder<uint32_t> level_encoder(&encoded_levels, 1);
+                for (const auto level : levels) {
+                    level_encoder.Put(level);
+                }
+                for (size_t padding = levels.size(); padding % 8 != 0; ++padding) {
+                    level_encoder.Put(0);
+                }
+                level_encoder.Flush();
+                if (!v2[i]) {
+                    const uint32_t size = encoded_levels.size();
+                    const auto* raw = reinterpret_cast<const uint8_t*>(&size);
+                    payload.insert(payload.end(), raw, raw + sizeof(size));
+                }
+                payload.insert(payload.end(), encoded_levels.data(),
+                               encoded_levels.data() + encoded_levels.size());
             }
-            payload.insert(payload.end(), encoded_levels.data(),
-                           encoded_levels.data() + encoded_levels.size());
             faststring encoded_definitions;
             if (nullable) {
                 RleEncoder<uint32_t> def_encoder(&encoded_definitions, 1);
@@ -3960,7 +3963,7 @@ struct NestedNavigationFile {
     }
 
     Status read(const RowRanges& ranges, size_t batch_size, bool indexed, bool cache,
-                std::vector<int32_t>* actual, bool levels_only = false) {
+                std::vector<int32_t>* actual, bool levels_only = false, int flat_mode = 0) {
         static size_t cache_id = 0;
         const std::string cache_key = cache ? fmt::format("nested-navigation-{}", ++cache_id) : "";
         if (cache) {
@@ -3976,44 +3979,83 @@ struct NestedNavigationFile {
             }
         }
         auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
-        ScalarColumnReader<true, true> reader(ranges, rows, chunk, indexed ? &index : nullptr,
-                                              nullptr, nullptr);
-        RETURN_IF_ERROR(reader.init(file, &field, bytes.size(), nullptr, cache_key,
-                                    ParquetReaderCompat {}, true));
-        reader.set_column_in_nested();
-        FilterMap filter;
-        RETURN_IF_ERROR(filter.init(nullptr, rows, false));
-        bool eof = false;
-        size_t calls = 0;
-        while (!eof) {
-            if (++calls > rows + pages.size() + 1) {
-                return Status::InternalError("Nested navigation did not reach EOF");
+        auto read_with = [&]<bool NESTED, bool INDEXED>() -> Status {
+            ScalarColumnReader<NESTED, INDEXED> reader(
+                    ranges, rows, chunk, indexed ? &index : nullptr, nullptr, nullptr);
+            RETURN_IF_ERROR(reader.init(file, &field, bytes.size(), nullptr, cache_key,
+                                        ParquetReaderCompat {}, true));
+            if constexpr (NESTED) {
+                reader.set_column_in_nested();
             }
-            ColumnPtr output = field.data_type->create_column();
-            size_t read_rows = 0;
-            if (levels_only) {
-                RETURN_IF_ERROR(reader.read_column_levels(filter, batch_size, &read_rows, &eof));
-                actual->insert(actual->end(), read_rows, 0);
-            } else {
-                RETURN_IF_ERROR(reader.read_column_data(output, field.data_type, nullptr, filter,
-                                                        batch_size, &read_rows, &eof, false));
-                if (field.data_type->is_nullable()) {
-                    const auto& nullable_output = assert_cast<const ColumnNullable&>(*output);
-                    const auto& values =
-                            assert_cast<const ColumnInt32&>(nullable_output.get_nested_column())
-                                    .get_data();
-                    for (size_t i = 0; i < values.size(); ++i) {
-                        actual->push_back(nullable_output.is_null_at(i)
-                                                  ? std::numeric_limits<int32_t>::min()
-                                                  : values[i]);
+            FilterMap filter;
+            RETURN_IF_ERROR(filter.init(nullptr, rows, false));
+            bool eof = false;
+            size_t calls = 0;
+            while (!eof) {
+                if (++calls > rows + pages.size() + 1) {
+                    return Status::InternalError("Nested navigation did not reach EOF");
+                }
+                ColumnPtr output = field.data_type->create_column();
+                size_t read_rows = 0;
+                if (levels_only) {
+                    RETURN_IF_ERROR(
+                            reader.read_column_levels(filter, batch_size, &read_rows, &eof));
+                    actual->insert(actual->end(), read_rows, 0);
+                } else if (flat_mode != 0) {
+                    auto projected = ColumnInt32::create();
+                    IColumn::Filter row_filter;
+                    bool used = false;
+                    if (flat_mode == 1) {
+                        DirectPredicateExecutionKind kind = DirectPredicateExecutionKind::NONE;
+                        RETURN_IF_ERROR(reader.read_fixed_width_filter(
+                                {create_int32_raw_comparison(0, "gt", TExprOpcode::GT, 0)}, 0,
+                                filter, batch_size, projected.get(), &row_filter, &read_rows, &eof,
+                                &used, &kind));
+                    } else {
+                        auto dictionary = ColumnInt32::create();
+                        for (int32_t i = 0; i < chunk.meta_data.num_values; ++i) {
+                            dictionary->insert_value(100 + i);
+                        }
+                        size_t survivors = 0;
+                        bool direct = false;
+                        RETURN_IF_ERROR(reader.read_dictionary_filter(
+                                IColumn::Filter(chunk.meta_data.num_values, 1), filter, batch_size,
+                                dictionary.get(), projected.get(), nullptr, &row_filter, &survivors,
+                                &read_rows, &eof, &direct, &used));
+                        EXPECT_EQ(survivors, read_rows);
                     }
+                    EXPECT_TRUE(used);
+                    EXPECT_EQ(row_filter, IColumn::Filter(read_rows, 1));
+                    actual->insert(actual->end(), projected->get_data().begin(),
+                                   projected->get_data().end());
                 } else {
-                    const auto& values = assert_cast<const ColumnInt32&>(*output).get_data();
-                    actual->insert(actual->end(), values.begin(), values.end());
+                    RETURN_IF_ERROR(reader.read_column_data(output, field.data_type, nullptr,
+                                                            filter, batch_size, &read_rows, &eof,
+                                                            false));
+                    if (field.data_type->is_nullable()) {
+                        const auto& nullable_output = assert_cast<const ColumnNullable&>(*output);
+                        const auto& values =
+                                assert_cast<const ColumnInt32&>(nullable_output.get_nested_column())
+                                        .get_data();
+                        for (size_t i = 0; i < values.size(); ++i) {
+                            actual->push_back(nullable_output.is_null_at(i)
+                                                      ? std::numeric_limits<int32_t>::min()
+                                                      : values[i]);
+                        }
+                    } else {
+                        const auto& values = assert_cast<const ColumnInt32&>(*output).get_data();
+                        actual->insert(actual->end(), values.begin(), values.end());
+                    }
                 }
             }
+            return Status::OK();
+        };
+        if (field.repetition_level != 0) {
+            return indexed ? read_with.template operator()<true, true>()
+                           : read_with.template operator()<true, false>();
         }
-        return Status::OK();
+        return indexed ? read_with.template operator()<false, true>()
+                       : read_with.template operator()<false, false>();
     }
 
     std::vector<int32_t> expected(const RowRanges& ranges) const {
@@ -4026,6 +4068,49 @@ struct NestedNavigationFile {
         return result;
     }
 };
+
+TEST(ParquetV2NativeDecoderTest, ActiveIndexRejectsUnverifiedSkippedSpans) {
+    for (int versions = 0; versions < 16; ++versions) {
+        for (const bool nested : {false, true}) {
+            for (const bool cache : {false, true}) {
+                for (int mode = 0; mode < 3; ++mode) {
+                    for (const int shift : {-1, 0, 1}) {
+                        for (const bool stale_size : {false, true}) {
+                            SCOPED_TRACE(testing::Message()
+                                         << "versions=" << versions << ", nested=" << nested
+                                         << ", cache=" << cache << ", mode=" << mode
+                                         << ", shift=" << shift << ", stale_size=" << stale_size);
+                            NestedNavigationFile file({bool(versions & 1), bool(versions & 2),
+                                                       bool(versions & 4), bool(versions & 8)},
+                                                      {1, 3, 1, 2}, nested, mode == 2, nested,
+                                                      nested);
+                            file.index.page_locations[2].first_row_index += shift;
+                            file.index.page_locations[3].first_row_index += shift;
+                            if (stale_size) {
+                                --file.index.page_locations[1].compressed_page_size;
+                            }
+                            // The selected page's own span is valid, but the skipped prefix can
+                            // shift its absolute row identity without ever discarding the index.
+                            const auto ranges = RowRanges::create_single(4 + shift, 5 + shift);
+                            std::vector<int32_t> actual;
+                            const bool levels_only = nested && mode == 1;
+                            const auto status = file.read(ranges, 1, true, cache, &actual,
+                                                          levels_only, nested ? 0 : mode);
+                            if (shift != 0 && !stale_size && (!nested || (versions & 1))) {
+                                EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+                                EXPECT_TRUE(actual.empty());
+                            } else {
+                                ASSERT_TRUE(status.ok()) << status;
+                                EXPECT_EQ(actual, levels_only ? std::vector<int32_t>(1, 0)
+                                                              : file.expected(ranges));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 TEST(ParquetV2NativeDecoderTest, PartialNestedPageCannotRelabelLaterIndexedRows) {
     for (const bool cache : {false, true}) {
@@ -4124,16 +4209,12 @@ TEST(ParquetV2NativeDecoderTest, NestedNavigationFallbackMatrix) {
                                 std::vector<int32_t> actual;
                                 const auto status =
                                         file.read(ranges, batch, true, cache, &actual, levels_only);
-                                // Only a final-page fallback after an unparsed middle page lacks a
-                                // complete prefix. All other transitions must preserve the exact rows.
-                                if ((versions & 1) && stale_page == 2 && selection == 2) {
-                                    EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
-                                } else {
-                                    ASSERT_TRUE(status.ok()) << status;
-                                    EXPECT_EQ(actual,
-                                              levels_only ? std::vector<int32_t>(ranges.count(), 0)
+                                // Every skipped prefix is now verified, so a stale byte size
+                                // alone must preserve exact rows at every fallback position.
+                                ASSERT_TRUE(status.ok()) << status;
+                                EXPECT_EQ(actual, levels_only
+                                                          ? std::vector<int32_t>(ranges.count(), 0)
                                                           : file.expected(ranges));
-                                }
                             }
                         }
                     }
@@ -4181,15 +4262,9 @@ TEST(ParquetV2NativeDecoderTest, NestedNavigationAllRowSelections) {
                         std::vector<int32_t> actual;
                         const auto status = file.read(ranges, batch, index_mode != -2, mask & 4,
                                                       &actual, levels_only);
-                        const bool skipped_middle = (mask & 0b0011100) == 0;
-                        const bool selected_last = (mask & 0b1100000) != 0;
-                        if ((versions & 1) && index_mode == 2 && skipped_middle && selected_last) {
-                            EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
-                        } else {
-                            ASSERT_TRUE(status.ok()) << status;
-                            EXPECT_EQ(actual, levels_only ? std::vector<int32_t>(ranges.count(), 0)
-                                                          : file.expected(ranges));
-                        }
+                        ASSERT_TRUE(status.ok()) << status;
+                        EXPECT_EQ(actual, levels_only ? std::vector<int32_t>(ranges.count(), 0)
+                                                      : file.expected(ranges));
                     }
                 }
             }
@@ -4234,16 +4309,21 @@ TEST(ParquetV2NativeDecoderTest, IndexedNestedNavigationValidatesParsedPagesBefo
     }
 }
 
-TEST(ParquetV2NativeDecoderTest, IndexedNestedNavigationRetainsUnparsedPageSkipping) {
-    NestedNavigationFile file({true, true, false}, {2, 3, 2}, true);
-    MemoryBufferedReader stream(file.bytes);
-    ColumnChunkReader<true, true> reader(&stream, &file.chunk, &file.field, &file.index, file.rows,
-                                         nullptr, ParquetPageReadContext());
-    ASSERT_TRUE(reader.init().ok());
-    ASSERT_TRUE(reader.seek_to_nested_row(6).ok());
-    const auto& statistics = reader.chunk_statistics();
-    EXPECT_EQ(statistics.parse_page_header_num, 2);
-    EXPECT_EQ(statistics.skip_page_header_num, 1);
+TEST(ParquetV2NativeDecoderTest, IndexedNestedNavigationSkipsValuesAfterSpanValidation) {
+    for (const bool middle_v2 : {false, true}) {
+        NestedNavigationFile file({true, middle_v2, false}, {2, 3, 2}, true);
+        MemoryBufferedReader stream(file.bytes);
+        ColumnChunkReader<true, true> reader(&stream, &file.chunk, &file.field, &file.index,
+                                             file.rows, nullptr, ParquetPageReadContext());
+        ASSERT_TRUE(reader.init().ok());
+        ASSERT_TRUE(reader.seek_to_nested_row(6).ok());
+        const auto& statistics = reader.chunk_statistics();
+        EXPECT_EQ(statistics.parse_page_header_num, 3);
+        EXPECT_EQ(statistics.skip_page_header_num, 0);
+        // V2 skipped pages need only their headers. A skipped V1 page also needs its levels,
+        // while neither skipped page materializes values.
+        EXPECT_EQ(stream.read_count(), statistics.parse_page_header_num + (middle_v2 ? 1 : 2));
+    }
 }
 
 TEST(ParquetV2NativeDecoderTest, IndexedNestedSeekReadsMixedPageVersions) {
@@ -4433,7 +4513,7 @@ TEST(ParquetV2NativeDecoderTest, LateOffsetIndexFallbackRequiresVerifiedRowCoord
                 ASSERT_TRUE(reader.seek_to_nested_row(1).ok());
             }
             status = reader.seek_to_nested_row(3);
-            EXPECT_EQ(reader.chunk_statistics().page_cache_hit_counter > 0, cache_hit);
+            EXPECT_EQ(reader.chunk_statistics().page_cache_hit_counter > 0, cache_hit && !reject);
         } else {
             auto ranges = ::doris::RowRanges::create_single(skip_middle ? 3 : 0, 4);
             auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
@@ -4457,7 +4537,7 @@ TEST(ParquetV2NativeDecoderTest, LateOffsetIndexFallbackRequiresVerifiedRowCoord
                 }
                 consumed += rows;
             }
-            EXPECT_EQ(reader.column_statistics().page_cache_hit_counter > 0, cache_hit);
+            EXPECT_EQ(reader.column_statistics().page_cache_hit_counter > 0, cache_hit && !reject);
             if (!reject) {
                 EXPECT_EQ(assert_cast<const ColumnInt32&>(*output).get_data(),
                           (skip_middle ? ColumnInt32::Container {31}
@@ -4468,7 +4548,6 @@ TEST(ParquetV2NativeDecoderTest, LateOffsetIndexFallbackRequiresVerifiedRowCoord
         }
         if (reject) {
             EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
-            EXPECT_NE(status.to_string().find("unverified page"), std::string::npos);
         } else {
             EXPECT_TRUE(status.ok()) << status;
         }

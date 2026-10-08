@@ -349,7 +349,6 @@ public:
 
     size_t page_end_row() const { return _page_reader->end_row(); }
 
-    Status ensure_first_data_page_parsed();
     Status parse_page_header();
     Status next_page();
 
@@ -435,8 +434,8 @@ private:
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;
-    // Sum of parsed data-page num_values in either navigation mode. The sum is a complete
-    // prefix only until an unparsed indexed page is skipped; fallback rejects an incomplete prefix.
+    // Every page is parsed before advancing, so this physical-value prefix remains complete
+    // across indexed skips and sequential fallback; repeated header calls are idempotent.
     size_t _chunk_parsed_values = 0;
     // this page remaining rep/def nums
     // if max_rep_level = 0 / max_def_level = 0, this value retail hava value.
@@ -456,8 +455,6 @@ private:
     Slice _v2_rep_levels;
     Slice _v2_def_levels;
     bool _dict_checked = false;
-    bool _first_data_page_parsed = false;
-    bool _skipped_unverified_indexed_page = false;
     bool _has_dict = false;
     bool _nested_row_started = false;
     Decoder* _page_decoder = nullptr;
