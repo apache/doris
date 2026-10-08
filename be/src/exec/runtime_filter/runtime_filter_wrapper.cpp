@@ -76,7 +76,7 @@ Status RuntimeFilterWrapper::init(const size_t real_size) {
     if (get_real_type() == RuntimeFilterType::IN_FILTER && real_size > _max_in_num) {
         set_state(RuntimeFilterWrapper::State::DISABLED, "reach max in num");
     }
-    if (_bloom_filter_func) {
+    if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
         RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length(real_size));
     }
     return Status::OK();
