@@ -19,6 +19,8 @@
 
 #include "common/status.h" // for Status
 #include "core/column/column.h"
+#include "storage/olap_define.h"
+#include "storage/segment/common.h"
 
 namespace doris {
 namespace segment_v2 {
