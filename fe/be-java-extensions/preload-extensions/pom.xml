@@ -139,18 +139,6 @@ under the License.
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
         </dependency>
-        <!-- For BE CosN Access -->
-        <dependency>
-            <groupId>com.qcloud.cos</groupId>
-            <artifactId>hadoop-cos</artifactId>
-            <version>${tencentcos.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.json</groupId>
-                    <artifactId>json</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
 
         <!-- these dependencies are for iceberg-aws -->
         <dependency>
