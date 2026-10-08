@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -363,6 +364,16 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         public final Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult;
 
         /**
+         * The connector predicate represented by {@link #connectorFilterResult}. The physical scan may reuse
+         * the result only while its predicate set still equals this expression; a later compensation predicate
+         * must remain available for backend evaluation.
+         *
+         * <p>Deliberately excluded from {@link #equals}/{@link #hashCode}: it is an execution detail of this
+         * scan, not part of the plan's semantic identity.</p>
+         */
+        public final Optional<ConnectorExpression> coveredConnectorFilter;
+
+        /**
          * Constructor for SelectedPartitions.
          */
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
@@ -399,6 +410,15 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 boolean isPruned, boolean hasPartitionPredicate,
                 Optional<SortedPartitionRanges<String>> sortedPartitionRanges, State state,
                 Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges,
+                    state, connectorFilterResult, Optional.empty());
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> sortedPartitionRanges, State state,
+                Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult,
+                Optional<ConnectorExpression> coveredConnectorFilter) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
@@ -407,6 +427,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             this.sortedPartitionRanges = sortedPartitionRanges;
             this.state = state;
             this.connectorFilterResult = connectorFilterResult;
+            this.coveredConnectorFilter = coveredConnectorFilter;
         }
 
         /**
@@ -419,14 +440,21 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public static SelectedPartitions connectorFiltered(long totalPartitionNum,
                 Map<String, PartitionItem> selectedPartitions, boolean hasPartitionPredicate,
-                FilterApplicationResult<ConnectorTableHandle> connectorFilterResult) {
+                FilterApplicationResult<ConnectorTableHandle> connectorFilterResult,
+                ConnectorExpression coveredConnectorFilter) {
             return new SelectedPartitions(totalPartitionNum, selectedPartitions, true, hasPartitionPredicate,
-                    Optional.empty(), State.MATERIALIZED, Optional.of(connectorFilterResult));
+                    Optional.empty(), State.MATERIALIZED, Optional.of(connectorFilterResult),
+                    Optional.of(coveredConnectorFilter));
         }
 
         /** The connector filter result this selection was materialized from, or empty. */
         public Optional<FilterApplicationResult<ConnectorTableHandle>> getConnectorFilterResult() {
             return connectorFilterResult;
+        }
+
+        /** The connector predicate covered by {@link #connectorFilterResult}, or empty. */
+        public Optional<ConnectorExpression> getCoveredConnectorFilter() {
+            return coveredConnectorFilter;
         }
 
         public boolean isNotPruned() {

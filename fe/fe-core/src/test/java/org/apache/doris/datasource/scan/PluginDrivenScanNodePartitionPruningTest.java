@@ -17,8 +17,16 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 
@@ -26,6 +34,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -192,9 +201,11 @@ public class PluginDrivenScanNodePartitionPruningTest {
         ConnectorTableHandle generationA = Mockito.mock(ConnectorTableHandle.class);
         FilterApplicationResult<ConnectorTableHandle> pruned =
                 new FilterApplicationResult<>(generationA, null, false);
+        ConnectorExpression coveredPredicate = in("p", 1, 2);
         SelectedPartitions selection = SelectedPartitions.connectorFiltered(
                 SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM,
-                Collections.singletonMap("p=1", Mockito.mock(PartitionItem.class)), true, pruned);
+                Collections.singletonMap("p=1", Mockito.mock(PartitionItem.class)), true, pruned,
+                coveredPredicate);
 
         Optional<FilterApplicationResult<ConnectorTableHandle>> reused =
                 PluginDrivenScanNode.reusedConnectorFilterResult(selection);
@@ -204,5 +215,69 @@ public class PluginDrivenScanNodePartitionPruningTest {
                 "the physical scan must reuse the handle the selection was materialized from");
         Assertions.assertFalse(PluginDrivenScanNode.reusedConnectorFilterResult(
                 SelectedPartitions.NOT_PRUNED).isPresent(), "a plain selection has nothing to reuse");
+    }
+
+    @Test
+    public void testPredicatesAddedAfterConnectorFilteringRemainForBackendEvaluation() {
+        // Async-MV union compensation can copy a scan that was pruned with p IN (1, 2) and later attach
+        // another conjunct, p = 2. The physical scan must reuse the connector handle from the earlier
+        // filter, but must not clear the larger current predicate set for backend evaluation.
+        ConnectorExpression firstOriginalPredicate = in("p", 1, 2);
+        ConnectorExpression secondOriginalPredicate = equal("q", 3);
+        ConnectorExpression originalPredicate = new ConnectorAnd(java.util.Arrays.asList(
+                firstOriginalPredicate, secondOriginalPredicate));
+        ConnectorExpression compensationPredicate = equal("p", 2);
+        ConnectorExpression currentPredicate = new ConnectorAnd(
+                java.util.Arrays.asList(originalPredicate, compensationPredicate));
+        FilterApplicationResult<ConnectorTableHandle> pruned =
+                new FilterApplicationResult<>(Mockito.mock(ConnectorTableHandle.class), null, false);
+        SelectedPartitions selection = SelectedPartitions.connectorFiltered(
+                SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM,
+                Collections.singletonMap("p=1", Mockito.mock(PartitionItem.class)), true, pruned,
+                originalPredicate);
+
+        Assertions.assertTrue(PluginDrivenScanNode.connectorFilterCoversCurrentPredicate(
+                selection, originalPredicate));
+        Assertions.assertTrue(PluginDrivenScanNode.connectorFilterCoversCurrentPredicate(
+                selection, new ConnectorAnd(java.util.Arrays.asList(
+                        secondOriginalPredicate, firstOriginalPredicate))));
+        Assertions.assertFalse(PluginDrivenScanNode.connectorFilterCoversCurrentPredicate(
+                selection, currentPredicate), "a later compensation predicate is not covered by the old result");
+
+        ConnectorTableHandle prunedHandle = Mockito.mock(ConnectorTableHandle.class);
+        FilterApplicationResult<ConnectorTableHandle> result =
+                new FilterApplicationResult<>(prunedHandle, null, false);
+        List<Expr> compensationConjuncts = new ArrayList<>(java.util.Arrays.asList(
+                Mockito.mock(Expr.class), Mockito.mock(Expr.class)));
+
+        ConnectorTableHandle reusedHandle = PluginDrivenScanNode.applyConnectorFilterResult(
+                result, false, compensationConjuncts);
+
+        Assertions.assertSame(prunedHandle, reusedHandle);
+        Assertions.assertEquals(2, compensationConjuncts.size(),
+                "predicates added after logical connector filtering must remain for backend evaluation");
+
+        List<Expr> originalConjuncts = new ArrayList<>(Collections.singletonList(Mockito.mock(Expr.class)));
+        Assertions.assertSame(prunedHandle, PluginDrivenScanNode.applyConnectorFilterResult(
+                result, true, originalConjuncts));
+        Assertions.assertTrue(originalConjuncts.isEmpty(),
+                "the exact predicate accepted by the connector may be consumed");
+    }
+
+    private static ConnectorIn in(String column, int... values) {
+        List<ConnectorExpression> literals = new ArrayList<>(values.length);
+        for (int value : values) {
+            literals.add(ConnectorLiteral.ofInt(value));
+        }
+        return new ConnectorIn(columnRef(column), literals, false);
+    }
+
+    private static ConnectorComparison equal(String column, int value) {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                columnRef(column), ConnectorLiteral.ofInt(value));
+    }
+
+    private static ConnectorColumnRef columnRef(String column) {
+        return new ConnectorColumnRef(column, ConnectorType.of("INT"));
     }
 }

@@ -2690,6 +2690,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return "'" + value + "'";
     }
 
+    private static boolean isHmsDecimalType(String typeName) {
+        return typeName != null && typeName.toUpperCase(Locale.ROOT).startsWith("DECIMAL");
+    }
+
     private static boolean isHmsIntegralType(String typeName) {
         if (typeName == null) {
             return false;
@@ -2778,20 +2782,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Whether a rendered partition value matches one of the predicate literals for its key. Integral keys are
-     * compared NUMERICALLY, because this local prefilter's result is reused as the logical selected view: the
-     * typed Nereids pruner treats {@code 01} and {@code 1} as the same INT value, so a raw text compare here
-     * would silently drop a partition the logical plan selected (and, in batch mode, omit it from the scan
-     * altogether). Every other key type - including STRING, where {@code 01} and {@code 1} are different
-     * partitions - keeps the exact text comparison.
+     * Whether a rendered partition value matches one of the predicate literals for its key. Integral and
+     * decimal keys are compared NUMERICALLY, because this local prefilter's result is reused as the logical
+     * selected view: the typed Nereids pruner treats {@code 01} and {@code 1} as the same numeric value, so a
+     * raw text compare here would silently drop a partition the logical plan selected (and, in batch mode,
+     * omit it from the scan altogether). Every other key type - including STRING, where {@code 01} and
+     * {@code 1} are different partitions - keeps the exact text comparison.
      */
     private static boolean matchesAnyValue(String actualValue, List<String> allowedValues, String typeName) {
-        if (isHmsIntegralType(typeName)) {
-            Long actual = parseIntegralValue(actualValue);
+        if (isHmsIntegralType(typeName) || isHmsDecimalType(typeName)) {
+            BigDecimal actual = parseNumericValue(actualValue);
             if (actual != null) {
                 for (String allowed : allowedValues) {
-                    Long candidate = parseIntegralValue(allowed);
-                    if (candidate != null ? candidate.equals(actual) : allowed.equals(actualValue)) {
+                    BigDecimal candidate = parseNumericValue(allowed);
+                    if (candidate != null ? candidate.compareTo(actual) == 0 : allowed.equals(actualValue)) {
                         return true;
                     }
                 }
@@ -2801,13 +2805,13 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return allowedValues.contains(actualValue);
     }
 
-    /** Parses a rendered integral partition value, or {@code null} when it is not an integral literal. */
-    private static Long parseIntegralValue(String value) {
+    /** Parses a rendered numeric partition value, or {@code null} when it is not a numeric literal. */
+    private static BigDecimal parseNumericValue(String value) {
         if (value == null || value.isEmpty()) {
             return null;
         }
         try {
-            return Long.parseLong(value.trim());
+            return new BigDecimal(value.trim());
         } catch (NumberFormatException e) {
             return null;
         }

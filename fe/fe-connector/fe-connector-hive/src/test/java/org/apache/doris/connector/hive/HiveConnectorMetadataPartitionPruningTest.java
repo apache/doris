@@ -88,6 +88,23 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
+    public void testLocalFallbackComparesDecimalValuesNumerically() {
+        List<String> parts = Arrays.asList("d=1", "d=1.00", "d=1.0000", "d=2");
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("d"))
+                .partitionKeyTypes(Collections.singletonMap("d", "DECIMAL(10,2)"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("d", "1")));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Arrays.asList("d=1", "d=1.00", "d=1.0000"), prunedLocations(result));
+    }
+
+    @Test
     public void testHmsFilterDeclinesReservedWordAndAllDigitPartitionKeys() {
         // `date` is a valid partition key, but the metastore filter lexer tokenizes it as KW_DATE and an
         // all-digit name as an IntegralLiteral, while a key operand must be an Identifier: the connector must
