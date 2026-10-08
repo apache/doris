@@ -531,11 +531,7 @@ FORWARD_CLOSURE_BUDGETS = {
     # inverted/gram/gram_scheme.h. gram_scheme.h itself is a leaf (cstdint,
     # map, string, common/status.h -- the last already on this hub), so this
     # is exactly +1 project header, not a chain.
-    # +1 (was 358): the merge of the query engine unification. Its shared read
-    # SPI (storage/index/query/spi/io_reader.h and io_metrics.h, which
-    # snii/reader/logical_index_reader.h includes) meets master's additions on
-    # the same path (gram_scheme.h above, core/value/uuid_value.h); each side
-    # fit its own budget, their union is one header more.
+    # The shared read SPI adds its metrics declarations to this include closure.
     "exec/pipeline/dependency.h": 359,
     "pch/pch.h": 8,
 }

@@ -39,8 +39,12 @@ using reader::LogicalIndexReader;
 namespace {
 
 Status decode_flat_docs(const DictEntry& entry, Slice dd_region, std::vector<uint32_t>* docids) {
-    return format::decode_dd_region(dd_region, entry.dd_meta,
-                                    /*win_base=*/0, docids);
+    RETURN_IF_ERROR(format::decode_dd_region(dd_region, entry.dd_meta, /*win_base=*/0, docids));
+    if (docids->size() != entry.df) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: posting doc count differs from df");
+    }
+    return Status::OK();
 }
 
 Status decode_inline_docs(const DictEntry& entry, std::vector<uint32_t>* docids) {
@@ -72,7 +76,6 @@ struct FlatPlan {
 };
 
 struct WindowPlan {
-    size_t out_index = 0;
     const ResolvedDocidPosting* posting = nullptr;
     size_t prefix_handle = 0;
 };
@@ -97,18 +100,14 @@ Status plan_window_prefix(const LogicalIndexReader& idx, WindowPlan* plan,
     return Status::OK();
 }
 
-// Records a non-inline (flat or windowed) posting into the per-encoding plan lists,
-// adding the windowed prefix range to the shared fetcher. Flat ranges are added in a
-// later pass (after all preludes are registered). Shared by the batched and streamed
-// docid readers so both fetch the whole OR in one round. `posting` must outlive the
-// plans (its address is captured); callers pass an element of a stable vector.
+// Queues window ranges before flat ranges. The caller keeps posting alive until
+// all plans have been read.
 Status plan_noninline_posting(const LogicalIndexReader& idx, const ResolvedDocidPosting& posting,
                               size_t out_index, io::BatchRangeFetcher* fetcher,
                               std::vector<FlatPlan>* flat_plans,
                               std::vector<WindowPlan>* window_plans) {
     if (posting.entry.enc == DictEntryEnc::kWindowed) {
         WindowPlan plan;
-        plan.out_index = out_index;
         plan.posting = &posting;
         RETURN_IF_ERROR(plan_window_prefix(idx, &plan, fetcher));
         window_plans->push_back(std::move(plan));
@@ -134,15 +133,6 @@ Status window_dd_slice(Slice dd_block, const WindowMeta& meta, Slice* out) {
 Status decode_flat_plan(const io::BatchRangeFetcher& fetcher, const FlatPlan& plan,
                         std::vector<uint32_t>* out) {
     return decode_flat_docs(*plan.entry, fetcher.get(plan.handle), out);
-}
-
-Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
-                                 index_query::DocIdSink* sink);
-
-Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
-                                 std::vector<uint32_t>* out) {
-    index_query::VectorDocIdSink sink(*out);
-    return decode_window_prefix_plan(fetcher, plan, &sink);
 }
 
 Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
@@ -218,7 +208,6 @@ Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry,
     io::BatchRangeFetcher docs_fetcher(idx.reader());
     if (posting.entry.enc == DictEntryEnc::kWindowed) {
         WindowPlan plan;
-        plan.out_index = 0;
         plan.posting = &posting;
         RETURN_IF_ERROR(plan_window_prefix(idx, &plan, &docs_fetcher));
         if (docs_fetcher.pending() > 0) RETURN_IF_ERROR(docs_fetcher.fetch());
@@ -233,45 +222,6 @@ Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry,
     std::vector<uint32_t> docs;
     RETURN_IF_ERROR(decode_flat_plan(docs_fetcher, plan, &docs));
     return sink->append_sorted(docs);
-}
-
-Status read_docid_postings_batched(const LogicalIndexReader& idx,
-                                   const std::vector<ResolvedDocidPosting>& postings,
-                                   std::vector<std::vector<uint32_t>>* docids) {
-    if (docids == nullptr) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "docid_posting_reader: null batched out");
-    }
-    docids->clear();
-    docids->resize(postings.size());
-
-    std::vector<FlatPlan> flat_plans;
-    std::vector<WindowPlan> window_plans;
-    io::BatchRangeFetcher docs_fetcher(idx.reader());
-
-    for (size_t i = 0; i < postings.size(); ++i) {
-        const ResolvedDocidPosting& posting = postings[i];
-        if (posting.entry.kind == DictEntryKind::kInline) {
-            RETURN_IF_ERROR(decode_inline_docs(posting.entry, &(*docids)[i]));
-            continue;
-        }
-        RETURN_IF_ERROR(
-                plan_noninline_posting(idx, posting, i, &docs_fetcher, &flat_plans, &window_plans));
-    }
-
-    for (FlatPlan& plan : flat_plans) {
-        const ResolvedDocidPosting& posting = postings[plan.out_index];
-        RETURN_IF_ERROR(plan_flat_docs(idx, posting, &docs_fetcher, &plan));
-    }
-    if (docs_fetcher.pending() > 0) RETURN_IF_ERROR(docs_fetcher.fetch());
-
-    for (const FlatPlan& plan : flat_plans) {
-        RETURN_IF_ERROR(decode_flat_plan(docs_fetcher, plan, &(*docids)[plan.out_index]));
-    }
-    for (const WindowPlan& plan : window_plans) {
-        RETURN_IF_ERROR(decode_window_prefix_plan(docs_fetcher, plan, &(*docids)[plan.out_index]));
-    }
-    return Status::OK();
 }
 
 Status emit_docid_postings_streamed(const LogicalIndexReader& idx,

@@ -32,6 +32,7 @@
 namespace doris::index_query {
 
 class TermPattern;
+class DocIdSink;
 class IndexSource;
 using IndexSourcePtr = std::shared_ptr<IndexSource>;
 
@@ -109,6 +110,11 @@ public:
         }
         return Status::OK();
     }
+
+    // Appends the terms' document IDs in independently sorted batches. A deduplicating sink
+    // forms their union; any_present reports whether at least one term exists.
+    virtual Status collect_terms(std::span<const std::string> terms, DocIdSink& sink,
+                                 bool* any_present = nullptr);
 
     // Whether the index may hold `term`, answered without reading its dictionary: false only
     // when it surely does not. A source with no such test answers true.

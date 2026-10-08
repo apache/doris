@@ -28,7 +28,6 @@
 
 #include "common/config.h"
 #include "storage/index/query/exec/cursor_chained_postings.h"
-#include "storage/index/query/exec/term_waves.h"
 #include "storage/index/query/roaring_docid_sink.h"
 #include "storage/index/query/spi/postings_cursor.h"
 #include "storage/index/snii/format/bsbf.h"
@@ -441,7 +440,7 @@ Status LogicalIndexPostingSource::and_postings(const std::vector<std::string>& g
 Status LogicalIndexPostingSource::or_postings(const std::vector<std::string>& grams,
                                               roaring::Roaring* out) {
     index_query::RoaringDocIdSink sink(*out);
-    return index_query::collect_term_rows(_postings, grams, sink);
+    return _postings.collect_terms(grams, sink);
 }
 
 Status gram_boolean_query(GramPostingSource& src, const segment_v2::gram::GramQuery& q,

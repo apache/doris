@@ -25,6 +25,10 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
+Status collect_expanded_rows(index_query::IndexSource& source, index_query::TermPattern& pattern,
+                             int32_t max_expansions, const roaring::Roaring* candidates,
+                             roaring::Roaring* rows);
+
 // Every document that holds a term the pattern expands to, with a constant score.
 class ExpandWeight : public Weight {
 public:

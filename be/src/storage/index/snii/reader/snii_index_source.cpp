@@ -20,8 +20,10 @@
 #include <algorithm>
 #include <utility>
 
+#include "storage/index/query/exec/term_waves.h"
 #include "storage/index/query/term_pattern.h"
 #include "storage/index/snii/format/phrase_bigram.h"
+#include "storage/index/snii/query/internal/docid_posting_reader.h"
 
 namespace doris::snii::reader {
 
@@ -31,6 +33,15 @@ Status check_user_term(std::string_view term) {
     if (format::term_overlaps_internal_namespace(term)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
                 "SNII raw term overlaps an internal term namespace");
+    }
+    return Status::OK();
+}
+
+Status check_posting(const format::DictEntry& entry) {
+    // Dropped stop-gram postings require row evaluation.
+    if (entry.posting_dropped) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                "snii: term '{}' has a dropped posting list (stop-gram)", entry.term);
     }
     return Status::OK();
 }
@@ -98,12 +109,7 @@ Status SniiIndexSource::lookup(std::string_view term,
 
 Status SniiIndexSource::_cursor(Term& term, bool positions, bool scoring, SniiReadWave* wave,
                                 std::unique_ptr<SniiPostingsCursor>* out) {
-    // A stop-gram's posting list was dropped at write time: it holds every document, and read as
-    // a posting it would hold none, so the query reads rows instead.
-    if (term.hit.entry.posting_dropped) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
-                "snii: term '{}' has a dropped posting list (stop-gram)", term.hit.entry.term);
-    }
+    RETURN_IF_ERROR(check_posting(term.hit.entry));
     const format::NormsPodReader* norms = nullptr;
     if (scoring && _idx.has_norms()) {
         RETURN_IF_ERROR(_open_norms(&norms));
@@ -160,6 +166,32 @@ Status SniiIndexSource::open_terms(std::span<const std::string> terms, bool posi
             }
         }
         out->push_back(std::move(cursor));
+    }
+    return Status::OK();
+}
+
+Status SniiIndexSource::collect_terms(std::span<const std::string> terms,
+                                      index_query::DocIdSink& sink, bool* any_present) {
+    RETURN_IF_ERROR(prepare_terms(terms));
+    bool present = false;
+    std::vector<query::internal::ResolvedDocidPosting> postings;
+    for (size_t begin = 0; begin < terms.size(); begin += index_query::kTermsPerWave) {
+        postings.clear();
+        const auto wave =
+                terms.subspan(begin, std::min(index_query::kTermsPerWave, terms.size() - begin));
+        for (const std::string& term : wave) {
+            const auto& hit = _terms.at(term).hit;
+            if (!hit.found) {
+                continue;
+            }
+            RETURN_IF_ERROR(check_posting(hit.entry));
+            present = true;
+            postings.push_back({hit.entry, hit.frq_base, hit.prx_base});
+        }
+        RETURN_IF_ERROR(query::internal::emit_docid_postings_streamed(_idx, postings, &sink));
+    }
+    if (any_present != nullptr) {
+        *any_present = present;
     }
     return Status::OK();
 }

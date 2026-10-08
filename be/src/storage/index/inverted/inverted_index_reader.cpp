@@ -72,7 +72,6 @@
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/query/docid_set_ops.h"
-#include "storage/index/query/exec/term_waves.h"
 #include "storage/index/query/logical/search_lowering.h"
 #include "storage/index/query/roaring_docid_sink.h"
 #include "storage/index/query/term_pattern.h"
@@ -442,6 +441,20 @@ Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
                 index_query::IndexSourcePtr source, uint32_t doc_count,
                 const std::shared_ptr<roaring::Roaring>& result) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
+    if (const auto* expand = leaf.as<logical::Expand>(); expand != nullptr && !scoring) {
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
+        if (doc_count == 0) {
+            return Status::OK();
+        }
+        const auto kind = pattern_kind(expand->kind);
+        index_query::TermPattern pattern;
+        THROW_IF_ERROR(index_query::TermPattern::create(kind, expand->pattern, &pattern));
+        THROW_IF_ERROR(query_v2::collect_expanded_rows(
+                *source, pattern,
+                index_query::expansion_limit(kind, index_query::max_expansions(*context)), nullptr,
+                result.get()));
+        return Status::OK();
+    }
     std::span<const std::string> terms;
     if (const auto* term = leaf.as<logical::Term>(); term != nullptr) {
         terms = std::span(&term->term, 1);
@@ -454,7 +467,7 @@ Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
         SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
         if (!scoring) {
             index_query::RoaringDocIdSink sink(*result);
-            return index_query::collect_term_rows(*source, terms, sink);
+            return source->collect_terms(terms, sink);
         }
         query_v2::ListedTerms listed(std::move(source), nullptr);
         for (size_t i = 0; i < terms.size(); ++i) {

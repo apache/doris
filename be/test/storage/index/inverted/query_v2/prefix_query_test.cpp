@@ -26,10 +26,13 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/query/fake_index_source.h"
+#include "storage/index/query/logical/node.h"
+#include "storage/olap_common.h"
 
 CL_NS_USE(store)
 CL_NS_USE(index)
@@ -470,6 +473,87 @@ TEST_F(PrefixQueryV2Test, end_to_end) {
     EXPECT_EQ(docs.size(), 1);
     EXPECT_EQ(docs[0], 6);
 
+    _CLDECDELETE(dir);
+}
+
+TEST(ExpansionLeafTest, KeepsPatternLimitsAndLeavesRootCandidatesToTheCaller) {
+    namespace logical = index_query::logical;
+    RuntimeState state;
+    TQueryOptions options;
+    options.inverted_index_max_expansions = 2;
+    state.set_query_options(options);
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    context->runtime_state = &state;
+    const roaring::Roaring candidates;
+    for (const bool batches : {false, true}) {
+        auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+        source->batches = batches;
+        source->set_doc_count(10);
+        source->add("apple", {0, 4});
+        source->add("application", {1});
+        source->add("apply", {2, 4});
+        source->add("banana", {3});
+        for (const auto& [kind, pattern] :
+             std::vector<std::pair<logical::ExpandKind, std::string>> {
+                     {logical::ExpandKind::kPrefix, "app"},
+                     {logical::ExpandKind::kWildcard, "app*"},
+                     {logical::ExpandKind::kRegexp, "^app"},
+                     {logical::ExpandKind::kContains, "app"}}) {
+            const logical::Node leaf {logical::Expand {
+                    .field = {.name = "content", .binding = ""}, .kind = kind, .pattern = pattern}};
+            auto expected = roaring::Roaring::bitmapOf(4, 0, 1, 4, 9);
+            if (kind == logical::ExpandKind::kContains) {
+                expected.add(2);
+            }
+            for (const bool scoring : {false, true}) {
+                auto result = std::make_shared<roaring::Roaring>();
+                result->add(9);
+                const auto status = run_leaf(context, L"content", leaf, &candidates, scoring,
+                                             source, source->doc_count(), result);
+                ASSERT_TRUE(status.ok()) << status;
+                EXPECT_EQ(*result, expected) << pattern << " scoring=" << scoring;
+            }
+        }
+    }
+}
+
+TEST(ExpansionLeafTest, EmptySegmentsDoNotReadTheDictionary) {
+    namespace logical = index_query::logical;
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+    source->expand_status =
+            Status::InternalError("Dictionary must not be read for an empty segment");
+    const logical::Node leaf {logical::Expand {.field = {.name = "content", .binding = ""},
+                                               .kind = logical::ExpandKind::kPrefix,
+                                               .pattern = "a"}};
+    auto result = std::make_shared<roaring::Roaring>();
+    const auto status = run_leaf(context, L"content", leaf, nullptr, false, source, 0, result);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(result->isEmpty());
+}
+
+TEST_F(PrefixQueryV2Test, ScoredAndUnscoredExpansionErrorsKeepTheReaderStatus) {
+    namespace logical = index_query::logical;
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    auto searcher = std::make_shared<lucene::search::IndexSearcher>(reader.get());
+    const logical::Node leaf {logical::Expand {.field = {.name = "content", .binding = ""},
+                                               .kind = logical::ExpandKind::kWildcard,
+                                               .pattern = std::string("\xff", 1)}};
+    for (const bool scoring : {false, true}) {
+        auto result = std::make_shared<roaring::Roaring>();
+        const auto status =
+                run_clucene_leaf(context, L"content", leaf, nullptr, scoring, searcher, result);
+        EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR) << status;
+        EXPECT_TRUE(result->isEmpty());
+    }
     _CLDECDELETE(dir);
 }
 

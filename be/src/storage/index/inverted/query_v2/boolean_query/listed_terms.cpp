@@ -100,7 +100,7 @@ index_query::TruthSet ListedTerms::disjunction() {
     index_query::TruthSet result;
     bool any_present = false;
     index_query::RoaringDocIdSink sink(result.true_rows);
-    THROW_IF_ERROR(index_query::collect_term_rows(*_source, _terms, sink, &any_present));
+    THROW_IF_ERROR(_source->collect_terms(_terms, sink, &any_present));
     if (any_present && _nulls != nullptr) {
         result.null_rows = *_nulls;
     }

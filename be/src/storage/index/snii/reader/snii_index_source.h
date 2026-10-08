@@ -49,6 +49,8 @@ public:
                      std::unique_ptr<index_query::PostingsCursor>* out) override;
     Status open_terms(std::span<const std::string> terms, bool positions, bool scoring,
                       std::vector<std::unique_ptr<index_query::PostingsCursor>>* out) override;
+    Status collect_terms(std::span<const std::string> terms, index_query::DocIdSink& sink,
+                         bool* any_present = nullptr) override;
     Status fetch_pending() override { return _wave.fetch(); }
     Status may_hold(std::string_view term, bool* held) override;
     Status doc_freq(std::string_view term, uint64_t* out) override;

@@ -26,6 +26,7 @@
 
 #include "storage/index/query/exec/block_doc_set.h"
 #include "storage/index/query/exec/term_waves.h"
+#include "storage/index/query/roaring_docid_sink.h"
 #include "storage/index/query/term_pattern.h"
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/io/metered_file_reader.h"
@@ -115,6 +116,61 @@ TEST_F(SniiIndexSourceTest, PreparedTermsOpenLikeUnpreparedOnes) {
     EXPECT_EQ(list("sparse_right"), oracle("sparse_right"));
 }
 
+TEST_F(SniiIndexSourceTest, BulkDecoderRejectsAnIncorrectInlineDocumentCount) {
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    bool found = false;
+    assert_ok(_index.lookup("123", &found, &entry, &frq_base, &prx_base));
+    ASSERT_TRUE(found);
+    ASSERT_EQ(entry.kind, format::DictEntryKind::kInline);
+    ++entry.df;
+    roaring::Roaring rows;
+    index_query::RoaringDocIdSink sink(rows);
+    EXPECT_TRUE(query::internal::emit_docid_postings_streamed(_index, {{entry, frq_base, prx_base}},
+                                                              &sink)
+                        .is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+    EXPECT_TRUE(rows.isEmpty());
+}
+
+TEST_F(SniiIndexSourceTest, CollectsDuplicateTermsAcrossWavesAndReportsMissingTerms) {
+    std::vector<std::string> terms(index_query::kTermsPerWave + 1, "needle");
+    terms.insert(terms.end(), {"123", "absent"});
+    roaring::Roaring rows;
+    index_query::RoaringDocIdSink sink(rows);
+    bool present = false;
+    assert_ok(_source->collect_terms(terms, sink, &present));
+    EXPECT_TRUE(present);
+    EXPECT_EQ((std::vector<uint32_t>(rows.begin(), rows.end())),
+              (std::vector<uint32_t> {42, 100, 101, 102, 6000}));
+
+    for (const auto& missing :
+         {std::vector<std::string> {}, std::vector<std::string> {"absent", "missing"}}) {
+        rows = roaring::Roaring();
+        present = true;
+        assert_ok(_source->collect_terms(missing, sink, &present));
+        EXPECT_FALSE(present);
+        EXPECT_TRUE(rows.isEmpty());
+    }
+}
+
+TEST_F(SniiIndexSourceTest, CollectionPropagatesSinkErrors) {
+    class RejectingSink final : public index_query::DocIdSink {
+    public:
+        Status append_sorted(std::span<const uint32_t>) override {
+            return Status::InternalError("test sink failure");
+        }
+        Status append_range(uint32_t, uint64_t) override {
+            return Status::InternalError("test sink failure");
+        }
+        bool dedups() const override { return true; }
+    } sink;
+    const std::vector<std::string> terms {"123", "failed"};
+    const Status status = _source->collect_terms(terms, sink);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("test sink failure"), std::string::npos);
+}
+
 TEST_F(SniiIndexSourceTest, ExpandsTermsInDictionaryOrder) {
     using index_query::TermPatternKind;
     EXPECT_EQ(expand(TermPatternKind::kPrefix, "ord", 0),
@@ -154,6 +210,9 @@ TEST_F(SniiIndexSourceTest, TermsReachingTheInternalNamespaceBypass) {
                         .is<ErrorCode::INVERTED_INDEX_BYPASS>());
     const std::vector<std::string> terms = {"needle", internal};
     EXPECT_TRUE(_source->prepare_terms(terms).is<ErrorCode::INVERTED_INDEX_BYPASS>());
+    roaring::Roaring rows;
+    index_query::RoaringDocIdSink sink(rows);
+    EXPECT_TRUE(_source->collect_terms(terms, sink).is<ErrorCode::INVERTED_INDEX_BYPASS>());
     std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
     EXPECT_TRUE(_source->open_terms(terms, false, false, &cursors)
                         .is<ErrorCode::INVERTED_INDEX_BYPASS>());
@@ -412,6 +471,32 @@ TEST_F(SniiIndexSourceRoundsTest, TermsOpenedTogetherReadInSharedRounds) {
     EXPECT_EQ(list(*cursors[3]), oracle("failed"));
     EXPECT_EQ(rounds(), opened + 1);
     EXPECT_EQ(_source->wave_rounds(), 1U);
+}
+
+TEST_F(SniiIndexSourceRoundsTest, BulkCollectionPreservesCursorReadBytesAndRounds) {
+    const std::vector<std::string> terms {"123", "sparse_left", "failed", "absent"};
+    assert_ok(_source->prepare_terms(terms));
+    _metered.reset_metrics();
+    roaring::Roaring rows;
+    index_query::RoaringDocIdSink sink(rows);
+    assert_ok(_source->collect_terms(terms, sink));
+    roaring::Roaring expected;
+    expected.addRange(0, 9000);
+    EXPECT_EQ(rows, expected);
+    EXPECT_EQ(rounds(), 1U);
+    const uint64_t bulk_bytes = _metered.metrics().total_request_bytes;
+
+    _metered.reset_metrics();
+    std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
+    assert_ok(_source->open_terms(terms, /*positions=*/false, /*scoring=*/false, &cursors));
+    for (const auto& cursor : cursors) {
+        if (cursor != nullptr) {
+            assert_ok(cursor->prefetch(nullptr, /*positions=*/false));
+        }
+    }
+    assert_ok(_source->fetch_pending());
+    EXPECT_EQ(rounds(), 1U);
+    EXPECT_EQ(_metered.metrics().total_request_bytes, bulk_bytes);
 }
 
 // A round belongs to the cursors whose windows it backs: it is held while one of them lives

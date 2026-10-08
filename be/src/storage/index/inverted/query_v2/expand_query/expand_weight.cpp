@@ -33,18 +33,18 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-namespace {
-
 // The rows holding any of the expanded terms, read a wave of terms at a time.
-Status collect_expanded_rows(index_query::IndexSource& source,
-                             const std::vector<std::string>& terms,
-                             const roaring::Roaring* candidates, roaring::Roaring* rows) {
+Status collect_expanded_rows(index_query::IndexSource& source, index_query::TermPattern& pattern,
+                             int32_t max_expansions, const roaring::Roaring* candidates,
+                             roaring::Roaring* rows) {
+    std::vector<std::string> terms;
+    RETURN_IF_ERROR(source.expand_terms(pattern, max_expansions, &terms));
     index_query::RoaringDocIdSink sink(*rows);
-    std::vector<uint32_t> selected;
-    if (candidates != nullptr) {
-        selected.resize(candidates->cardinality());
-        candidates->toUint32Array(selected.data());
+    if (candidates == nullptr) {
+        return source.collect_terms(terms, sink);
     }
+    std::vector<uint32_t> selected(candidates->cardinality());
+    candidates->toUint32Array(selected.data());
     return index_query::visit_term_postings(
             source, terms, /*scoring=*/false,
             [&sink, candidates](size_t, index_query::PostingsCursor* cursor) -> Status {
@@ -54,10 +54,8 @@ Status collect_expanded_rows(index_query::IndexSource& source,
                 return index_query::collect_postings<false>(postings, candidates, sink,
                                                             [](uint32_t, uint32_t, uint32_t) {});
             },
-            candidates == nullptr ? nullptr : &selected);
+            &selected);
 }
-
-} // namespace
 
 ExpandWeight::ExpandWeight(IndexQueryContextPtr context, std::wstring field,
                            index_query::TermPatternKind kind, std::string pattern)
@@ -77,12 +75,10 @@ std::shared_ptr<roaring::Roaring> ExpandWeight::_rows(const QueryExecutionContex
     THROW_IF_ERROR(index_query::TermPattern::create(_kind, _pattern, &pattern));
     auto source = lookup_source(_field, context, binding_key);
     if (source != nullptr) {
-        std::vector<std::string> terms;
-        THROW_IF_ERROR(source->expand_terms(
-                pattern,
+        THROW_IF_ERROR(collect_expanded_rows(
+                *source, pattern,
                 index_query::expansion_limit(_kind, index_query::max_expansions(*_context)),
-                &terms));
-        THROW_IF_ERROR(collect_expanded_rows(*source, terms, candidates, docs.get()));
+                candidates, docs.get()));
     }
     return docs;
 }

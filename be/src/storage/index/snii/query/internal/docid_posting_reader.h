@@ -28,7 +28,8 @@
 namespace doris::snii::query::internal {
 
 struct ResolvedDocidPosting {
-    format::DictEntry entry;
+    // The caller owns entry until the synchronous read completes.
+    const format::DictEntry& entry;
     uint64_t frq_base = 0;
     uint64_t prx_base = 0;
 };
@@ -42,19 +43,8 @@ Status read_docid_posting(const reader::LogicalIndexReader& idx, const format::D
 Status read_docid_posting(const reader::LogicalIndexReader& idx, const format::DictEntry& entry,
                           uint64_t frq_base, uint64_t prx_base, index_query::DocIdSink* sink);
 
-// Batch counterpart for multi-term docid-only operators. Windowed terms share one
-// prelude fetch round and one docid fetch round, so OR-style operators pay by
-// stage rather than by term.
-Status read_docid_postings_batched(const reader::LogicalIndexReader& idx,
-                                   const std::vector<ResolvedDocidPosting>& postings,
-                                   std::vector<std::vector<uint32_t>>* docids);
-
-// Streaming counterpart of read_docid_postings_batched for a dedup-capable sink
-// (DocIdSink::dedups()==true, e.g. a Roaring bitmap). Shares the exact same single
-// docid fetch round, but decodes each posting straight into the sink -- dense-full
-// windows via append_range (run-preserving), the rest via append_sorted from one
-// reused scratch buffer -- so no per-term vector or K-way merge accumulator is
-// materialized. The sink dedups/orders across postings. One I/O round is preserved.
+// Reads postings in one I/O round and emits them into a deduplicating sink.
+// Dense windows use ranges; other postings share one document buffer.
 Status emit_docid_postings_streamed(const reader::LogicalIndexReader& idx,
                                     const std::vector<ResolvedDocidPosting>& postings,
                                     index_query::DocIdSink* sink);
