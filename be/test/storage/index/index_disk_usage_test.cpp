@@ -36,6 +36,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/snii/format/dict_entry.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/options.h"
@@ -178,6 +179,70 @@ protected:
         TabletIndex index;
         index.init_from_pb(index_pb);
         return index;
+    }
+
+    static TabletIndex ann_index(int64_t index_id) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_type(IndexType::ANN);
+        index_pb.set_index_id(index_id);
+        index_pb.set_index_name("idx_ann");
+        index_pb.add_col_unique_id(1);
+        TabletIndex index;
+        index.init_from_pb(index_pb);
+        return index;
+    }
+
+    static TabletIndexPB path_index_pb(const std::string& suffix) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_type(IndexType::INVERTED);
+        index_pb.set_index_id(1);
+        index_pb.set_index_name("idx_text");
+        index_pb.add_col_unique_id(1);
+        (*index_pb.mutable_properties())["parser"] = "english";
+        (*index_pb.mutable_properties())["support_phrase"] = "true";
+        index_pb.set_index_suffix_name(suffix);
+        return index_pb;
+    }
+
+    static TabletIndex path_index(const std::string& suffix) {
+        TabletIndex index;
+        index.init_from_pb(path_index_pb(suffix));
+        return index;
+    }
+
+    // Writes raw sub-files as the V1 index file of `index`, standing in for an index writer such
+    // as the ANN one.
+    static void write_v1_raw_index(const std::string& prefix, const std::string& rowset_id,
+                                   const TabletIndex& index,
+                                   const std::vector<std::pair<std::string, std::string>>& files) {
+        IndexFileWriter writer(io::global_local_filesystem(), prefix, rowset_id, 0,
+                               InvertedIndexStorageFormatPB::V1);
+        auto directory = writer.open(&index);
+        ASSERT_TRUE(directory.has_value()) << directory.error();
+        for (const auto& [name, bytes] : files) {
+            std::unique_ptr<lucene::store::IndexOutput> output(
+                    directory.value()->createOutput(name.c_str()));
+            output->writeBytes(reinterpret_cast<const uint8_t*>(bytes.data()),
+                               static_cast<int32_t>(bytes.size()));
+            output->close();
+        }
+        ASSERT_TRUE(writer.begin_close().ok());
+        ASSERT_TRUE(writer.finish_close().ok());
+    }
+
+    static int64_t v1_file_size(const std::string& prefix, int64_t index_id,
+                                const std::string& suffix) {
+        int64_t size = 0;
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->file_size(InvertedIndexDescriptor::get_index_file_path_v1(
+                                                prefix, index_id, suffix),
+                                        &size)
+                            .ok());
+        return size;
+    }
+
+    static bool is_missing_file(const Status& status) {
+        return status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
     }
 
     static void feed_text(IndexColumnWriter* writer) {
@@ -426,6 +491,114 @@ TEST_F(IndexDiskUsageCollectorTest, CollectMissingV1IndexFileSkipsIndex) {
     const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_TRUE(records.empty());
+}
+
+// A file that the rowset meta records with its size was written, so losing it is reported instead
+// of being taken for an index the segment skipped.
+TEST_F(IndexDiskUsageCollectorTest, CollectMissingRecordedContainerFails) {
+    auto schema = create_schema();
+    InvertedIndexFileInfo file_info;
+    file_info.set_index_size(4096);
+    for (auto format : {InvertedIndexStorageFormatPB::V2, InvertedIndexStorageFormatPB::V3,
+                        InvertedIndexStorageFormatPB::SNII}) {
+        const std::string name = InvertedIndexStorageFormatPB_Name(format);
+        IndexDiskUsageCollector collector(io::global_local_filesystem(),
+                                          kTestDir + "/lost_" + name + "_0", schema, format, 1001,
+                                          file_info);
+        std::vector<IndexDiskUsageRecord> records;
+        const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+        EXPECT_TRUE(is_missing_file(st)) << name << ": " << st;
+        EXPECT_TRUE(records.empty()) << name;
+    }
+}
+
+TEST_F(IndexDiskUsageCollectorTest, CollectMissingRecordedV1IndexFileFails) {
+    auto schema = create_schema();
+    schema->append_index(text_index(1, true));
+    std::vector<IndexSpec> specs {
+            {.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::V1, "rs_v1_lost", schema, &specs);
+    InvertedIndexFileInfo file_info;
+    for (const char* suffix : {"", "v%2Ea"}) {
+        auto* index_info = file_info.add_index_info();
+        index_info->set_index_id(1);
+        index_info->set_index_suffix(suffix);
+        index_info->set_index_file_size(v1_file_size(prefix, 1, ""));
+    }
+
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::V1, 1001, file_info);
+    std::vector<IndexDiskUsageRecord> records;
+    const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+    EXPECT_TRUE(is_missing_file(st)) << st;
+}
+
+// A V1 rowset without index file info lists its ANN index files only in the schema.
+TEST_F(IndexDiskUsageCollectorTest, CollectV1AnnIndexWithoutFileInfo) {
+    for (bool with_text_index : {false, true}) {
+        SCOPED_TRACE(with_text_index ? "mixed" : "ann only");
+        const std::string rowset_id = with_text_index ? "rs_v1_ann_mixed" : "rs_v1_ann_only";
+        auto schema = create_schema();
+        std::string prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                fmt::format("{}/{}_0.dat", kTestDir, rowset_id))};
+        if (with_text_index) {
+            schema->append_index(text_index(1, true));
+            std::vector<IndexSpec> specs {
+                    {.index = text_index(1, true), .column_index = 1, .feed = feed_text}};
+            prefix = write_segment(InvertedIndexStorageFormatPB::V1, rowset_id, schema, &specs);
+        }
+        schema->append_index(ann_index(2));
+        write_v1_raw_index(prefix, rowset_id, ann_index(2),
+                           {{"ann.faiss", std::string(200, 'f')}, {"ann.ivfdata", "ivf"}});
+        ASSERT_FALSE(testing::Test::HasFatalFailure());
+
+        IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                          InvertedIndexStorageFormatPB::V1, 1001);
+        std::vector<IndexDiskUsageRecord> records;
+        const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+        ASSERT_TRUE(st.ok()) << st;
+        const IndexDiskUsageRecord* ann = find_record(records, 2, IndexDiskUsageStructure::kAnn);
+        ASSERT_NE(ann, nullptr);
+        EXPECT_EQ(v1_file_size(prefix, 2, ""), ann->total_bytes);
+        EXPECT_EQ(with_text_index ? 2U : 1U, records.size());
+        if (with_text_index) {
+            EXPECT_NE(find_record(records, 1, IndexDiskUsageStructure::kTerm), nullptr);
+        }
+    }
+}
+
+// A V1 rowset without index file info lists one schema index per extracted VARIANT path, so the
+// schema fallback finds the path files.
+TEST_F(IndexDiskUsageCollectorTest, CollectV1VariantPathFilesFromLegacyRowsetSchema) {
+    TabletSchemaPB schema_pb;
+    create_schema()->to_schema_pb(&schema_pb);
+    const std::vector<std::string> suffixes {"", "v%2Ea", "v%2Eb"};
+    for (const auto& suffix : suffixes) {
+        *schema_pb.add_index() = path_index_pb(suffix);
+    }
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(schema_pb);
+    std::vector<IndexSpec> specs;
+    for (const auto& suffix : suffixes) {
+        specs.push_back({.index = path_index(suffix), .column_index = 1, .feed = feed_text});
+    }
+    const std::string prefix =
+            write_segment(InvertedIndexStorageFormatPB::V1, "rs_v1_legacy_variant", schema, &specs);
+
+    IndexDiskUsageCollector collector(io::global_local_filesystem(), prefix, schema,
+                                      InvertedIndexStorageFormatPB::V1, 1001);
+    std::vector<IndexDiskUsageRecord> records;
+    const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(suffixes.size(), records.size());
+    int64_t files_size = 0;
+    for (size_t i = 0; i < suffixes.size(); ++i) {
+        EXPECT_EQ(suffixes[i], records[i].index_suffix);
+        EXPECT_EQ(IndexDiskUsageStructure::kTerm, records[i].structure);
+        files_size += v1_file_size(prefix, 1, suffixes[i]);
+    }
+    EXPECT_EQ(files_size, sum_total(records));
 }
 
 TEST_F(IndexDiskUsageCollectorTest, CollectCorruptContainerFails) {

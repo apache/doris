@@ -68,21 +68,29 @@ bool is_absent_index_file(const Status& status) {
            status.is<ErrorCode::INVERTED_INDEX_BYPASS>() || status.is<ErrorCode::NOT_FOUND>();
 }
 
+// Whether `status` says that the segment has no index container, which is only expected when the
+// rowset meta records no container size: the size is recorded after the container is written.
+bool is_skipped_container(const Status& status, const InvertedIndexFileInfo& file_info) {
+    const bool recorded = file_info.has_index_size() && file_info.index_size() > 0;
+    return !recorded && is_absent_index_file(status);
+}
+
 // A V1 index file and its size persisted in the rowset meta, or -1 when the size is not recorded.
 struct V1IndexFile {
     const TabletIndex* index;
     int64_t persisted_size;
 };
 
-// Lists the V1 index files of a segment. The rowset meta records every file, including the
-// extracted VARIANT paths that the schema does not list; rowsets written without that record fall
-// back to the schema indexes. `owned` keeps the indexes built from the rowset meta.
+// Lists the V1 index files of a segment from the rowset meta, which records every written file,
+// including the extracted VARIANT paths that the schema does not list. Rowsets without that record
+// fall back to the inverted and ANN indexes of their own schema, which list each extracted path.
+// `owned` keeps the indexes built from the rowset meta.
 std::vector<V1IndexFile> list_v1_index_files(const TabletSchema& schema,
                                              const InvertedIndexFileInfo& file_info,
                                              std::vector<TabletIndex>* owned) {
     std::vector<V1IndexFile> files;
     if (file_info.index_info_size() == 0) {
-        for (const TabletIndex* index : schema.inverted_indexes()) {
+        for (const TabletIndex* index : schema.inverted_and_ann_indexes()) {
             files.push_back({.index = index, .persisted_size = -1});
         }
         return files;
@@ -264,8 +272,11 @@ Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options
             continue;
         }
         RETURN_IF_ERROR(check_cancelled(options));
+        // The rowset meta records only files that were written, so only a file listed from the
+        // schema may be absent.
+        const bool recorded = file.persisted_size > 0;
         int64_t file_size = file.persisted_size;
-        if (file_size < 0) {
+        if (!recorded) {
             const std::string path = InvertedIndexDescriptor::get_index_file_path_v1(
                     _index_path_prefix, index.index_id(), index.get_index_suffix());
             const Status size_status = _fs->file_size(path, &file_size);
@@ -276,7 +287,7 @@ Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options
         }
         auto directory = reader.open(&index, options.io_ctx);
         if (!directory.has_value()) {
-            if (is_absent_index_file(directory.error())) {
+            if (!recorded && is_absent_index_file(directory.error())) {
                 continue;
             }
             return directory.error();
@@ -300,7 +311,7 @@ Status IndexDiskUsageCollector::_collect_compound(const IndexDiskUsageOptions& o
     IndexFileReader reader(_fs, _index_path_prefix, _format, _index_file_info, _tablet_id);
     if (const Status st = reader.init(config::inverted_index_read_buffer_size, options.io_ctx);
         !st.ok()) {
-        return is_absent_index_file(st) ? Status::OK() : st;
+        return is_skipped_container(st, _index_file_info) ? Status::OK() : st;
     }
     auto directories = DORIS_TRY(reader.get_all_directories());
 
@@ -331,7 +342,7 @@ Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& optio
     IndexFileReader reader(_fs, _index_path_prefix, _format, _index_file_info, _tablet_id);
     if (const Status st = reader.init(config::inverted_index_read_buffer_size, options.io_ctx);
         !st.ok()) {
-        return is_absent_index_file(st) ? Status::OK() : st;
+        return is_skipped_container(st, _index_file_info) ? Status::OK() : st;
     }
     const auto entries = DORIS_TRY(reader.snii_logical_indexes());
 
