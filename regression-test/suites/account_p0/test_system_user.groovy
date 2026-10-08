@@ -100,4 +100,36 @@ suite("test_system_user","p0,auth") {
     sql """
             drop user `admin`@'8.8.8.8';
         """
+
+    // only root@'%' is the system root: the password and lock of root@'<host>' are managed like those
+    // of any other account, and a GRANT user that may manage it still can not modify root@'%'
+    String grantUser = "test_system_user_grant"
+    String pwd = 'C123_567p'
+    try_sql("DROP USER 'root'@'8.8.20.39'")
+    try_sql("DROP USER '${grantUser}'")
+    sql """CREATE USER 'root'@'8.8.20.39' IDENTIFIED BY 'Pwd_a1'"""
+    sql """SET PASSWORD FOR 'root'@'8.8.20.39' = PASSWORD('Pwd_b2')"""
+    sql """ALTER USER 'root'@'8.8.20.39' ACCOUNT_LOCK"""
+    sql """ALTER USER 'root'@'8.8.20.39' ACCOUNT_UNLOCK"""
+    sql """CREATE USER '${grantUser}' IDENTIFIED BY '${pwd}'"""
+    sql """GRANT GRANT_PRIV ON *.*.* TO ${grantUser}"""
+    if (isCloudMode()) {
+        def clusters = sql "SHOW CLUSTERS"
+        assertTrue(!clusters.isEmpty())
+        sql """GRANT USAGE_PRIV ON CLUSTER `${clusters[0][0]}` TO ${grantUser}"""
+    }
+    def tokens = context.config.jdbcUrl.split('/')
+    def url = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
+    connect(grantUser, "${pwd}", url) {
+        sql """SET PASSWORD FOR 'root'@'8.8.20.39' = PASSWORD('Pwd_c3')"""
+        sql """ALTER USER 'root'@'8.8.20.39' IDENTIFIED BY 'Pwd_d4'"""
+        test {
+            sql """SET PASSWORD FOR 'root'@'%' = PASSWORD('Pwd_e5')"""
+            exception "Can not set password for root user"
+        }
+        test {
+            sql """ALTER USER 'root'@'%' IDENTIFIED BY 'Pwd_e5'"""
+            exception "Only root user can modify root user"
+        }
+    }
 }

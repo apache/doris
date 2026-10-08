@@ -306,6 +306,29 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertTrue(ddl.contains("\"iceberg.rest.oauth2.token\" = \""
                 + DatasourcePrintableMap.PASSWORD_MASK + "\""));
         Assertions.assertFalse(ddl.contains("super-secret-token"));
+
+        Map<String, String> flussProps = Maps.newHashMap();
+        flussProps.put("type", "fluss");
+        flussProps.put("fluss.bootstrap.servers", "localhost:9123");
+        flussProps.put("fluss.client.security.sasl.password", "client-secret");
+        flussProps.put("fluss.lake.paimon.s3.access-key", "lake-access-key");
+        flussProps.put("fluss.lake.paimon.s3.secret-key", "lake-secret-key");
+        flussProps.put("fluss.lake.paimon.s3.endpoint", "http://minio:9000");
+        registerCatalogViaReplay("mask_fluss_credentials", flussProps);
+
+        rows = mgr.showCreateCatalog("mask_fluss_credentials");
+        Assertions.assertEquals(1, rows.size());
+        ddl = rows.get(0).get(1);
+        Assertions.assertTrue(ddl.contains("\"fluss.client.security.sasl.password\" = \""
+                + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+        Assertions.assertTrue(ddl.contains("\"fluss.lake.paimon.s3.access-key\" = \""
+                + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+        Assertions.assertTrue(ddl.contains("\"fluss.lake.paimon.s3.secret-key\" = \""
+                + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+        Assertions.assertTrue(ddl.contains("http://minio:9000"), ddl);
+        Assertions.assertFalse(ddl.contains("client-secret"), ddl);
+        Assertions.assertFalse(ddl.contains("lake-access-key"), ddl);
+        Assertions.assertFalse(ddl.contains("lake-secret-key"), ddl);
     }
 
     private void registerCatalogViaReplay(String name, Map<String, String> props) throws Exception {

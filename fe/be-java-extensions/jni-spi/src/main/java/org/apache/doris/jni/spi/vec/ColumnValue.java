@@ -22,6 +22,7 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Column value in vector column
@@ -76,6 +77,10 @@ public interface ColumnValue {
     LocalDateTime getTimeStampTz();
 
     byte[] getBytes();
+
+    default UUID getUuid() {
+        return UUID.fromString(getString());
+    }
 
     void unpackArray(List<ColumnValue> values);
 

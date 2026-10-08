@@ -233,7 +233,6 @@ private:
     TabletColumnPtr _column;
     bool _is_nullable;
     ColumnMetaPB* _column_meta;
-    std::vector<uint8_t> _null_bitmap;
 };
 
 class FlushPageCallback {
@@ -401,7 +400,9 @@ public:
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
-    Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("struct writer can not append_nulls");
+    }
 
     Status finish_current_page() override;
 
@@ -543,7 +544,9 @@ public:
     Status write_data() override;
     Status write_ordinal_index() override;
     Status write_inverted_index() override;
-    Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("map writer can not append_nulls");
+    }
 
     Status finish_current_page() override;
 

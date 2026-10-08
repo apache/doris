@@ -159,7 +159,7 @@ One string per column, parsed by `ColumnType.parseType`. Case-insensitive.
 ```
 type      := scalar | sized | decimal | complex
 scalar    := boolean | tinyint | smallint | int | bigint | largeint | float | double
-           | ipv4 | ipv6 | string | binary | bytes | varbinary
+           | ipv4 | ipv6 | uuid | string | binary | bytes | varbinary
            | date | datev1 | datev2 | datetimev1
 sized     := char(N) | varchar(N) | varbinary(N)
            | timestamp[(P)] | datetime[(P)] | datetimev2[(P)] | timestamptz[(P)]     -- P defaults to 6
@@ -200,13 +200,18 @@ What a column contributes, and how many words (`ColumnType.metaSize()`):
 | Type class | Words | Contents |
 |---|---|---|
 | unsupported | 2 | `0` (the column is absent; the second word is the const flag slot) |
-| fixed width | 3 | nullMap address, data address |
+| fixed width (including UUID) | 3 | nullMap address, data address |
 | string / char / varchar | 4 | nullMap address, offsets address, data address |
 | array, map | 3 + children | nullMap address, offsets address, then each child recursively |
 | struct | 2 + children | nullMap address, then each child recursively |
 
 The word count in the table includes the const-flag slot that `metaSize()` accounts for, which is
 why it is one more than the number of addresses listed.
+
+UUID values occupy 16 bytes each, storing the unsigned 128-bit value in little-endian order,
+not canonical text or network-order bytes. Java exposes them as `java.util.UUID` through
+`TypeNativeBytes` and `VectorColumn`; NULL is represented by the null map, not by the all-zero UUID.
+The UUID type and accessors extend the shared API surface, so they require JNI plugin API 4.0.
 
 ### The two directions do not use the same layout
 
