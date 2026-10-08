@@ -550,9 +550,9 @@ TEST_F(DataTypeUUIDTest, ArrowNestedBinaryIpcRoundTrip) {
     ASSERT_TRUE(converter.init().ok());
     for (const size_t start : {0, 1, 3}) {
         std::shared_ptr<arrow::RecordBatch> batch;
-        ASSERT_TRUE(
-                converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, start, 3)
-                        .ok());
+        const auto status =
+                converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, start, 3);
+        ASSERT_TRUE(status.ok()) << status;
         ASSERT_TRUE(batch->ValidateFull().ok());
         auto sink_result = arrow::io::BufferOutputStream::Create();
         ASSERT_TRUE(sink_result.ok());
@@ -594,7 +594,8 @@ TEST_F(DataTypeUUIDTest, ArrowConstantNilAndAllNullRemainDistinct) {
     cctz::time_zone timezone;
     DorisArrowBlockConvertor converter(schema, timezone);
     ASSERT_TRUE(converter.init().ok());
-    ASSERT_TRUE(converter.convert_to_arrow(source, arrow::default_memory_pool(), &batch).ok());
+    const auto status = converter.convert_to_arrow(source, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
     ASSERT_TRUE(batch->ValidateFull().ok());
     EXPECT_EQ(batch->column(0)->null_count(), 0);
     EXPECT_EQ(batch->column(1)->null_count(), 4);
