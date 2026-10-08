@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -173,11 +174,11 @@ public class FlightSqlSchemaHelper {
 
     static Field withDorisTypeMetadata(Field field, Type type) {
         if (type.isVariantType()) {
-            FlightSqlNativeVariant.requireSupported();
+            requireVariantV2();
             if (field.getMetadata() == null
                     || !"arrow.parquet.variant".equals(field.getMetadata().get("ARROW:extension:name"))) {
                 throw CallStatus.UNIMPLEMENTED.withDescription(
-                        "Backend returned a non-native Variant schema; complete the BE upgrade "
+                        "Backend returned a non-native Variant schema; use Variant V2 "
                                 + "or cast the result to STRING").toRuntimeException();
             }
         }
@@ -363,8 +364,17 @@ public class FlightSqlSchemaHelper {
                 arrowChildren(dbName, tableName, desc, arrowType));
     }
 
+    private static void requireVariantV2() {
+        // Schema discovery must reject legacy Variant before publishing a native binary layout.
+        if (!Config.enable_variant_v2) {
+            throw CallStatus.UNIMPLEMENTED.withDescription(
+                    "Native Arrow Flight output only supports Variant V2, not legacy Variant; "
+                            + "cast the result to STRING for text output").toRuntimeException();
+        }
+    }
+
     static Field nativeVariantField(String name, boolean nullable, Map<String, String> columnMetadata) {
-        FlightSqlNativeVariant.requireSupported();
+        requireVariantV2();
         Map<String, String> metadata = new HashMap<>(columnMetadata);
         // Discovery and execution must share the extension metadata as well as its storage type.
         metadata.put("ARROW:extension:name", "arrow.parquet.variant");

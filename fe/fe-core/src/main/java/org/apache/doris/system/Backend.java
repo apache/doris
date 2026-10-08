@@ -73,8 +73,6 @@ public class Backend implements Writable {
     @SerializedName("host")
     private volatile String host;
     private String version;
-    @SerializedName("arrowFlightNativeVariantSupported")
-    private volatile boolean arrowFlightNativeVariantSupported;
 
     @SerializedName("heartbeatPort")
     private int heartbeatPort; // heartbeat
@@ -255,10 +253,6 @@ public class Backend implements Writable {
 
     public String getHost() {
         return host;
-    }
-
-    public boolean isArrowFlightNativeVariantSupported() {
-        return arrowFlightNativeVariantSupported;
     }
 
     public String getVersion() {
@@ -888,11 +882,6 @@ public class Backend implements Writable {
                 isChanged = true;
                 supportsPaimonRustReader = hbResponse.isPaimonRustReaderSupported();
             }
-            // An absent capability bit from an older BE must also clear previously advertised support.
-            if (arrowFlightNativeVariantSupported != hbResponse.isArrowFlightNativeVariantSupported()) {
-                arrowFlightNativeVariantSupported = hbResponse.isArrowFlightNativeVariantSupported();
-                isChanged = true;
-            }
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;
                 this.version = hbResponse.getVersion();
@@ -977,12 +966,6 @@ public class Backend implements Writable {
             // Only set backend to dead if the heartbeat failure counter exceed threshold.
             // And if it is a replay process, must set backend to dead.
             if (isReplay || ++this.heartbeatFailureCounter >= Config.max_backend_heartbeat_failure_tolerance_count) {
-                // Every journaled BAD means death on replay, including on older FEs. Retain the
-                // last successful capability during tolerated misses and clear it with the death event.
-                if (arrowFlightNativeVariantSupported) {
-                    arrowFlightNativeVariantSupported = false;
-                    isChanged = true;
-                }
                 if (isAlive.compareAndSet(true, false)) {
                     isChanged = true;
                     LOG.warn("{} is dead,", this.toString());

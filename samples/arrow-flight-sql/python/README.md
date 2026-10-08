@@ -84,12 +84,6 @@ query results. Use an explicit SQL cast to STRING for text output. `parse_to_var
 follows the configured Variant representation; it does not convert legacy storage to
 V2. Native encoding accepts up to 128 nested levels.
 
-Every registered BE must advertise native Variant support. During a rolling upgrade,
-Variant queries and Variant schema discovery fail explicitly until that requirement
-is met; there is no automatic UTF8 fallback. Non-Variant queries remain available.
-Heartbeat discovery cannot make an in-place downgrade atomic with query planning;
-drain active Variant queries before downgrading a BE.
-
 ADBC can transport this schema and its binary values. A client without a registered
 Variant extension exposes the struct with `ARROW:extension:name` field metadata.
 Receiving native VARIANT does not automatically decode it to Python dictionaries or
