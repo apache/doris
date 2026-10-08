@@ -55,8 +55,11 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.nereids.ExternalTablePreloadInfo;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -697,6 +700,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             if (pin.isPartitionViewUnavailable()) {
                 return Collections.emptyMap();
             }
+            Map<String, PartitionItem> preloadedView = sharedLatestPartitionView(snapshot);
+            if (preloadedView != null) {
+                return preloadedView;
+            }
             // The latest Hive query pin intentionally carries no partition map so selective scans can send a
             // predicate to HMS first. Consumers that explicitly ask for a partition map (MTMV alignment,
             // no-filter scan finalization, and a connector-declined pruning fallback) require the real full
@@ -768,6 +775,34 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         }
         return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), partitionItems, partitionLastModified,
                 null);
+    }
+
+    /**
+     * Returns the full latest-view materialized by the statement before internal table locks were acquired, or
+     * {@code null} when this request does not refer to that latest view.
+     *
+     * <p>Query-time async-MV validation and union compensation both ask for this map while the planner holds
+     * internal read locks. Reusing the pre-lock generation avoids a full HMS listing (and possibly several
+     * listings) under those locks. A supplied pin is accepted only when it is the statement's own latest pin;
+     * historical/time-travel pins and calls without a statement context keep their existing snapshot semantics.</p>
+     */
+    private Map<String, PartitionItem> sharedLatestPartitionView(Optional<MvccSnapshot> snapshot) {
+        ConnectContext connectContext = ConnectContext.get();
+        StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
+        if (statementContext == null) {
+            return null;
+        }
+        Optional<ExternalTablePreloadInfo> preloadInfo = statementContext.getExternalTablePreloadInfo(getId());
+        if (!preloadInfo.isPresent() || !preloadInfo.get().hasScanPartitionView()) {
+            return null;
+        }
+        Optional<MvccSnapshot> latestSnapshot = statementContext.getSnapshot(this);
+        boolean isLatestRequest = !snapshot.isPresent()
+                || (latestSnapshot.isPresent() && latestSnapshot.get() == snapshot.get());
+        if (!isLatestRequest) {
+            return null;
+        }
+        return preloadInfo.get().getScanPartitionView().orElse(Collections.emptyMap());
     }
 
     @Override

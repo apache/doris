@@ -56,6 +56,7 @@ import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.nereids.ExternalTablePreloadInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 
@@ -708,6 +709,49 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertTrue(pin.isPartitionViewDeferred());
         Assertions.assertTrue(pin.getNameToPartitionItem().isEmpty(),
                 "a connector-filtered table must not enumerate every partition while binding the latest snapshot");
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(
+                Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testQueryTimeMvConsumersReuseThePreLockPartitionView() {
+        Fixture f = Fixture.connectorPartitionPruning();
+        PluginDrivenMvccSnapshot lightweight = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+        Map<String, PartitionItem> preloadedView = Collections.singletonMap(
+                "dt=2024-01-01", Mockito.mock(PartitionItem.class));
+
+        ExternalTablePreloadInfo preloadInfo = new ExternalTablePreloadInfo(f.table);
+        preloadInfo.markLatestRelation();
+        preloadInfo.markUnfilteredLatestRelation();
+        preloadInfo.setScanPartitionView(Optional.of(preloadedView));
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(statementContext.getExternalTablePreloadInfo(1L)).thenReturn(Optional.of(preloadInfo));
+        Mockito.when(statementContext.getSnapshot(f.table)).thenReturn(Optional.of(lightweight));
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.doCallRealMethod().when(connectContext).setThreadLocalInfo();
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+
+        ConnectContext previousContext = ConnectContext.get();
+        connectContext.setThreadLocalInfo();
+        try {
+            // These are the two query-time async-MV consumers: candidate validation copies the full map, and
+            // union compensation later looks individual partitions up by name.
+            Map<String, PartitionItem> validationView =
+                    f.table.getAndCopyPartitionItems(Optional.of(lightweight));
+            Map<String, PartitionItem> compensationView =
+                    f.table.getNameToPartitionItems(Optional.of(lightweight));
+
+            Assertions.assertEquals(preloadedView, validationView);
+            Assertions.assertSame(preloadedView, compensationView);
+        } finally {
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+
         Mockito.verify(f.metadata, Mockito.never()).listPartitions(
                 Mockito.any(), Mockito.any(), Mockito.any());
     }

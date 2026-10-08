@@ -47,6 +47,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
@@ -1236,7 +1237,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         Optional<FilterApplicationResult<ConnectorTableHandle>> reused =
                 reusedConnectorFilterResult(selectedPartitions);
         if (reused.isPresent()) {
-            applyConnectorFilterResult(reused.get());
+            ConnectorExpression currentPredicate = buildFilterConstraint(conjuncts).getExpression();
+            boolean samePredicate = connectorFilterCoversCurrentPredicate(selectedPartitions, currentPredicate);
+            applyConnectorFilterResult(reused.get(), samePredicate);
+            invalidatePredicateCaches();
             return;
         }
         ConnectorMetadata metadata = metadata();
@@ -1256,12 +1260,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             throw failure;
         }
         if (result.isPresent()) {
-            applyConnectorFilterResult(result.get());
+            applyConnectorFilterResult(result.get(), true);
         }
-        // Invalidate cached properties so they are rebuilt with the updated conjuncts/handle.
-        scanNodeProperties = null;
-        cachedPropertiesResult = null;
-        filteredToOriginalIndex = null;
+        invalidatePredicateCaches();
     }
 
     /**
@@ -1273,23 +1274,86 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return selectedPartitions == null ? Optional.empty() : selectedPartitions.getConnectorFilterResult();
     }
 
-    /** Consumes one connector filter result onto {@link #currentHandle} and the pushed-down conjuncts. */
-    private void applyConnectorFilterResult(FilterApplicationResult<ConnectorTableHandle> filterResult) {
-        currentHandle = filterResult.getHandle();
+    /** Whether a selection's stored connector predicate covers exactly {@code currentPredicate}. */
+    static boolean connectorFilterCoversCurrentPredicate(SelectedPartitions selectedPartitions,
+            ConnectorExpression currentPredicate) {
+        return selectedPartitions.getCoveredConnectorFilter()
+                .map(covered -> connectorPredicatesAreEquivalent(covered, currentPredicate))
+                .orElse(false);
+    }
 
+    /**
+     * Compares the predicate the connector already accepted with the predicate currently attached to this
+     * physical scan. Nested AND trees are flattened and compared as an order-insensitive conjunct set because
+     * either converter may represent one predicate directly or wrap it in a singleton AND.
+     */
+    private static boolean connectorPredicatesAreEquivalent(ConnectorExpression covered,
+            ConnectorExpression current) {
+        List<ConnectorExpression> coveredChildren = flattenConnectorConjuncts(covered);
+        List<ConnectorExpression> currentChildren = flattenConnectorConjuncts(current);
+        return coveredChildren.size() == currentChildren.size()
+                && connectorConjunctSetsAreEqual(coveredChildren, currentChildren);
+    }
+
+    private static List<ConnectorExpression> flattenConnectorConjuncts(ConnectorExpression predicate) {
+        if (!(predicate instanceof ConnectorAnd)) {
+            return List.of(predicate);
+        }
+        List<ConnectorExpression> children = new ArrayList<>();
+        for (ConnectorExpression child : ((ConnectorAnd) predicate).getConjuncts()) {
+            children.addAll(flattenConnectorConjuncts(child));
+        }
+        return children;
+    }
+
+    private static boolean connectorConjunctSetsAreEqual(List<ConnectorExpression> coveredChildren,
+            List<ConnectorExpression> currentChildren) {
+        List<ConnectorExpression> remaining = new ArrayList<>(currentChildren);
+        for (ConnectorExpression coveredChild : coveredChildren) {
+            if (!remaining.remove(coveredChild)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Drops caches derived from the pre-filter handle and predicate. */
+    private void invalidatePredicateCaches() {
+        scanNodeProperties = null;
+        cachedPropertiesResult = null;
+        filteredToOriginalIndex = null;
+    }
+
+    /**
+     * Consumes one connector filter result onto {@link #currentHandle}.
+     *
+     * <p>{@code clearConjuncts} is false when the logical result covered an earlier, smaller predicate set (for
+     * example, an async-MV union compensation added another predicate after logical pruning). The connector handle
+     * still carries the earlier accepted filter, but all current conjuncts must remain for backend evaluation;
+     * clearing them would evaluate only the old predicate and duplicate rows in the compensation union.</p>
+     */
+    static ConnectorTableHandle applyConnectorFilterResult(
+            FilterApplicationResult<ConnectorTableHandle> filterResult, boolean clearConjuncts,
+            List<Expr> conjuncts) {
         // Consume remainingFilter to avoid duplicate predicate evaluation on BE:
         // - null means all predicates were fully pushed down → clear conjuncts
         // - non-null means some/all predicates remain → keep conjuncts (conservative)
         ConnectorExpression remaining = filterResult.getRemainingFilter();
-        if (remaining == null) {
+        if (remaining == null && clearConjuncts) {
             conjuncts.clear();
             LOG.debug("Filter fully pushed down for plugin-driven scan, cleared conjuncts");
         } else {
-            // Partial or full remaining: keep all conjuncts for BE-side evaluation.
-            // Fine-grained conjunct removal (matching individual remaining sub-expressions
-            // back to original Expr conjuncts) is deferred to a future enhancement.
+            // Partial or full remaining, or a predicate added after logical filtering: keep all conjuncts
+            // for BE-side evaluation. Fine-grained conjunct removal (matching individual remaining
+            // sub-expressions back to original Expr conjuncts) is deferred to a future enhancement.
             LOG.debug("Filter pushdown accepted with remaining filter, keeping conjuncts");
         }
+        return filterResult.getHandle();
+    }
+
+    private void applyConnectorFilterResult(FilterApplicationResult<ConnectorTableHandle> filterResult,
+            boolean clearConjuncts) {
+        currentHandle = applyConnectorFilterResult(filterResult, clearConjuncts, conjuncts);
     }
 
     /**

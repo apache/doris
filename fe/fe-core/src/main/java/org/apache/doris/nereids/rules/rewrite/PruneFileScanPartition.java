@@ -83,6 +83,18 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
     }
 
+    /**
+     * Builds binary-search ranges for a connector-declined fallback from the partition map already recorded for
+     * this statement. The deferred partition view must not be enumerated a second time here: a remote mutation
+     * between the two listings could make the range generation disagree with the partition map and either abort
+     * planning or silently omit a matching partition.
+     */
+    static Optional<SortedPartitionRanges<String>> fallbackSortedPartitionRanges(
+            SelectedPartitions selectedPartitions, Map<String, PartitionItem> partitionItems) {
+        return selectedPartitions.sortedPartitionRanges
+                .or(() -> Optional.ofNullable(SortedPartitionRanges.build(partitionItems)));
+    }
+
     private SelectedPartitions pruneExternalPartitions(ExternalTable externalTable,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
@@ -122,14 +134,14 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
         boolean connectorFilteredPartitions = false;
         Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult = Optional.empty();
+        ConnectorExpression connectorPredicate = null;
         Optional<MvccSnapshot> snapshot = ctx.getStatementContext().getSnapshot(externalTable,
                 scan.getTableSnapshot(), scan.getScanParams());
         if (nameToPartitionItem.isEmpty()
                 && scan.getSelectedPartitions().isDeferredPartitionPruning()
                 && externalTable instanceof PluginDrivenExternalTable
                 && ((PluginDrivenExternalTable) externalTable).supportsConnectorPartitionPruning()) {
-            ConnectorExpression connectorPredicate =
-                    NereidsToConnectorExpressionConverter.convert(filter.getPredicate());
+            connectorPredicate = NereidsToConnectorExpressionConverter.convert(filter.getPredicate());
             if (connectorPredicate != null) {
                 Optional<PluginDrivenExternalTable.ConnectorFilteredPartitionView> connectorPartitions =
                         ((PluginDrivenExternalTable) externalTable)
@@ -173,9 +185,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         if (enableBinarySearch && !partitionItems.isEmpty()) {
             sortedPartitionRanges = connectorFilteredPartitions
                     ? Optional.ofNullable(SortedPartitionRanges.build(partitionItems))
-                    : scan.getSelectedPartitions().sortedPartitionRanges
-                            .or(() -> (Optional) externalTable.getSortedPartitionRanges(scan))
-                            .or(() -> Optional.ofNullable(SortedPartitionRanges.build(partitionItems)));
+                    : fallbackSortedPartitionRanges(scan.getSelectedPartitions(), partitionItems);
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
                 partitionSlots, filter.getPredicate(), partitionItems, ctx,
@@ -199,7 +209,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         boolean hasPartitionPredicate = connectorFilteredPartitions || result.hasPartitionPredicate;
         if (connectorFilterResult.isPresent()) {
             return SelectedPartitions.connectorFiltered(totalPartitionNum, selectedPartitionItems,
-                    hasPartitionPredicate, connectorFilterResult.get());
+                    hasPartitionPredicate, connectorFilterResult.get(), connectorPredicate);
         }
         return new SelectedPartitions(totalPartitionNum, selectedPartitionItems, true, hasPartitionPredicate);
     }
