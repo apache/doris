@@ -108,10 +108,19 @@ final class LanceSubstraitSerializer {
                 || type instanceof ArrowType.LargeUtf8;
     }
 
+    static boolean supportsStringList(Field field) {
+        // Keep this separate from scalar comparability: list serialization must not enable
+        // array comparisons, IN, or null checks without their own semantic coverage.
+        return field.getType() instanceof ArrowType.List && field.getChildren().size() == 1
+                && field.getChildren().get(0).getType() instanceof ArrowType.Utf8;
+    }
+
     static Type fieldType(Field field) {
         TypeCreator creator = TypeCreator.of(field.isNullable());
         ArrowType type = field.getType();
-        if (type instanceof ArrowType.Bool) {
+        if (supportsStringList(field)) {
+            return creator.list(fieldType(field.getChildren().get(0)));
+        } else if (type instanceof ArrowType.Bool) {
             return creator.BOOLEAN;
         } else if (type instanceof ArrowType.Int) {
             switch (((ArrowType.Int) type).getBitWidth()) {
@@ -198,6 +207,13 @@ final class LanceSubstraitSerializer {
     }
 
     private static Optional<io.substrait.proto.Type> toSubstraitProtoType(Field field) {
+        if (supportsStringList(field)) {
+            return Optional.of(io.substrait.proto.Type.newBuilder()
+                    .setList(io.substrait.proto.Type.List.newBuilder()
+                            .setNullability(nullability(field))
+                            .setType(toSubstraitProtoType(field.getChildren().get(0)).get()))
+                    .build());
+        }
         if (!supportsType(field.getType())) {
             return Optional.empty();
         }

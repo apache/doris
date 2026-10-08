@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
@@ -29,8 +30,10 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LikePredicate;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -72,6 +75,118 @@ public class LancePredicateConverterTest {
             Field.nullable("timestamp_us", new ArrowType.Timestamp(TimeUnit.MICROSECOND, null)),
             Field.nullable("timestamp_ns", new ArrowType.Timestamp(TimeUnit.NANOSECOND, null)),
             Field.nullable("timestamp_us_utc", new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC")))));
+
+    @Test
+    public void testStringArrayMembershipSchemaAndFunction() throws Exception {
+        // An unsupported preceding field must not shift the array's field reference.
+        Schema schema = new Schema(Arrays.asList(
+                Field.nullable("nested", ArrowType.Struct.INSTANCE),
+                new Field("labels", FieldType.nullable(ArrowType.List.INSTANCE),
+                        Collections.singletonList(Field.nullable("item", ArrowType.Utf8.INSTANCE)))));
+        Expr predicate = arrayFunction("array_contains", new SlotRef(null, "labels"), new StringLiteral("red"));
+        LancePredicateConverter.ConversionResult result =
+                new LancePredicateConverter(schema).convert(Collections.singletonList(predicate));
+        Assertions.assertEquals(1, result.getPushedConjuncts().size());
+        Assertions.assertTrue(result.getResidualConjuncts().isEmpty());
+        ExtendedExpression envelope = ExtendedExpression.parseFrom(result.getSubstraitFilter());
+        Assertions.assertEquals(Arrays.asList("__unlikely_name_placeholder_doris_0", "labels"),
+                envelope.getBaseSchema().getNamesList());
+        io.substrait.proto.Type.List list = envelope.getBaseSchema().getStruct().getTypes(1).getList();
+        Assertions.assertEquals(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE, list.getNullability());
+        Assertions.assertTrue(list.getType().hasString());
+        Assertions.assertEquals(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE,
+                list.getType().getString().getNullability());
+        io.substrait.proto.Expression.ScalarFunction function =
+                envelope.getReferredExpr(0).getExpression().getScalarFunction();
+        Assertions.assertEquals(1, function.getArguments(0).getValue().getSelection()
+                .getDirectReference().getStructField().getField());
+        Assertions.assertEquals("red", function.getArguments(1).getValue().getLiteral().getString());
+        Assertions.assertEquals(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE,
+                function.getOutputType().getBool().getNullability());
+        Assertions.assertTrue(envelope.getExtensionsList().stream()
+                .anyMatch(extension -> extension.hasExtensionFunction()
+                        && extension.getExtensionFunction().getName().startsWith("array_has:")));
+    }
+
+    @Test
+    public void testArrayMembershipBooleanCombinations() {
+        LancePredicateConverter arrays = arrayConverter(ArrowType.List.INSTANCE, ArrowType.Utf8.INSTANCE);
+        Expr red = arrayFunction("array_contains", new SlotRef(null, "labels"), new StringLiteral("red"));
+        Expr blue = arrayFunction("array_contains", new SlotRef(null, "labels"), new StringLiteral("blue"));
+        for (Expr predicate : Arrays.asList(red,
+                new CompoundPredicate(CompoundPredicate.Operator.AND, red, blue),
+                new CompoundPredicate(CompoundPredicate.Operator.OR, red, blue),
+                new CompoundPredicate(CompoundPredicate.Operator.NOT, red, null))) {
+            Assertions.assertEquals(1, arrays.convert(Collections.singletonList(predicate))
+                    .getPushedConjuncts().size());
+        }
+    }
+
+    @Test
+    public void testRewrittenArrayOverlapPushdown() throws Exception {
+        LancePredicateConverter arrays = arrayConverter(ArrowType.List.INSTANCE, ArrowType.Utf8.INSTANCE);
+        Expr labels = new SlotRef(null, "labels");
+        Expr values = new ArrayLiteral(ArrayType.create(Type.STRING, true),
+                new StringLiteral("red"), new StringLiteral("blue"), new StringLiteral("green"));
+        for (Expr predicate : Arrays.asList(arrayFunction("arrays_overlap", labels, values),
+                arrayFunction("arrays_overlap", values, labels),
+                new CompoundPredicate(CompoundPredicate.Operator.NOT,
+                        arrayFunction("arrays_overlap", labels, values), null))) {
+            LancePredicateConverter.ConversionResult result = arrays.convert(Collections.singletonList(predicate));
+            Assertions.assertTrue(result.getResidualConjuncts().isEmpty());
+            String encoded = ExtendedExpression.parseFrom(result.getSubstraitFilter()).toString();
+            Assertions.assertTrue(encoded.contains("array_has:list_str"));
+            Assertions.assertTrue(encoded.contains("or:bool"));
+            Assertions.assertTrue(encoded.contains("green"));
+        }
+        // A NULL needle can match a NULL element in Doris and must not become array_has.
+        for (Expr valuesWithDifferentSemantics : Arrays.asList(
+                new ArrayLiteral(ArrayType.create(Type.STRING, true), new StringLiteral("red"), new NullLiteral()),
+                new ArrayLiteral(), new SlotRef(null, "labels"))) {
+            Expr predicate = arrayFunction("arrays_overlap", labels, valuesWithDifferentSemantics);
+            Assertions.assertEquals(Collections.singletonList(predicate),
+                    arrays.convert(Collections.singletonList(predicate)).getResidualConjuncts());
+        }
+    }
+
+    @Test
+    public void testUnsafeArrayMembershipRemainsResidual() {
+        LancePredicateConverter arrays = arrayConverter(ArrowType.List.INSTANCE, ArrowType.Utf8.INSTANCE);
+        Expr red = arrayFunction("array_contains", new SlotRef(null, "labels"), new StringLiteral("red"));
+        Expr nullNeedle = arrayFunction("array_contains", new SlotRef(null, "labels"), new NullLiteral());
+        FunctionCallExpr udf = arrayFunction("array_contains", new SlotRef(null, "labels"), new StringLiteral("red"));
+        udf.getFn().setBinaryType(TFunctionBinaryType.JAVA_UDF);
+        for (Expr predicate : Arrays.asList(nullNeedle, udf,
+                arrayFunction("array_contains_all", new SlotRef(null, "labels"), new StringLiteral("red")),
+                arrayFunction("array_contains", new SlotRef(null, "labels"), new SlotRef(null, "needle")),
+                new CompoundPredicate(CompoundPredicate.Operator.OR, red, nullNeedle),
+                new CompoundPredicate(CompoundPredicate.Operator.NOT, nullNeedle, null),
+                new IsNullPredicate(new SlotRef(null, "labels"), false))) {
+            Assertions.assertEquals(Collections.singletonList(predicate),
+                    arrays.convert(Collections.singletonList(predicate)).getResidualConjuncts());
+        }
+        Assertions.assertEquals(1, arrays.convert(Arrays.asList(red, nullNeedle)).getPushedConjuncts().size());
+        for (LancePredicateConverter unsupported : Arrays.asList(
+                arrayConverter(ArrowType.List.INSTANCE, new ArrowType.Int(64, true)),
+                arrayConverter(ArrowType.List.INSTANCE, ArrowType.LargeUtf8.INSTANCE),
+                arrayConverter(ArrowType.LargeList.INSTANCE, ArrowType.Utf8.INSTANCE),
+                arrayConverter(new ArrowType.FixedSizeList(2), ArrowType.Utf8.INSTANCE))) {
+            Assertions.assertEquals(1, unsupported.convert(Collections.singletonList(red)).getResidualConjuncts().size());
+        }
+    }
+
+    private static LancePredicateConverter arrayConverter(ArrowType container, ArrowType element) {
+        return new LancePredicateConverter(new Schema(Collections.singletonList(
+                new Field("labels", FieldType.nullable(container),
+                        Collections.singletonList(Field.nullable("item", element))))));
+    }
+
+    private static FunctionCallExpr arrayFunction(String name, Expr... arguments) {
+        FunctionCallExpr function = new FunctionCallExpr(name, Arrays.asList(arguments));
+        function.setFn(new ScalarFunction(new FunctionName(name),
+                Arrays.asList(ArrayType.create(Type.STRING, true), Type.STRING), Type.BOOLEAN, false, true));
+        return function;
+    }
 
     @Test
     public void testComparisonAndStringLiteralEncoding() throws Exception {
