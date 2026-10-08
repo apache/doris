@@ -232,6 +232,9 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_heavy_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_heavy"),
+          // The synchronous SDK cannot be interrupted. Keep abandoned prewarm IO off the
+          // shared RPC workers, with at most one running and one queued request per service.
+          _lance_index_prewarm_pool(1, 1, "lance_prewarm"),
           // peer fetch threadpool isolates fetch_peer_data from heavy load traffic to avoid peer reads starving imports.
           _peer_fetch_pool(resolved_brpc_peer_fetch_pool_threads(),
                            resolved_brpc_peer_fetch_pool_max_queue_size(), "brpc_peer_fetch"),
@@ -818,7 +821,7 @@ void PInternalService::prewarm_lance_index(google::protobuf::RpcController* cont
                                            PLanceIndexPrewarmResponse* response,
                                            google::protobuf::Closure* done) {
     const auto received = std::chrono::steady_clock::now();
-    bool offered = _heavy_work_pool.try_offer([request, response, done, received]() {
+    bool offered = _lance_index_prewarm_pool.try_offer([request, response, done, received]() {
         brpc::ClosureGuard closure_guard(done);
         Status status;
         try {
@@ -863,7 +866,7 @@ void PInternalService::prewarm_lance_index(google::protobuf::RpcController* cont
         status.to_protobuf(response->mutable_status());
     });
     if (!offered) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _lance_index_prewarm_pool);
     }
 }
 

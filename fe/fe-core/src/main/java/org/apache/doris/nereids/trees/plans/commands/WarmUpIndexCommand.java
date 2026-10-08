@@ -22,6 +22,7 @@ import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 /** Synchronously fills the query sessions on the selected backends. */
@@ -29,7 +30,6 @@ public class WarmUpIndexCommand extends Command {
     private final TableNameInfo table;
     private final String indexName;
     private final String computeGroup;
-    private volatile boolean cancelled;
 
     public WarmUpIndexCommand(TableNameInfo table, String indexName, String computeGroup) {
         super(PlanType.WARM_UP_INDEX_COMMAND);
@@ -40,11 +40,14 @@ public class WarmUpIndexCommand extends Command {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        LanceIndexPrewarm.run(ctx, executor, table, indexName, computeGroup, () -> cancelled || ctx.isKilled());
+        LanceIndexPrewarm.run(ctx, executor, table, indexName, computeGroup,
+                () -> executor.isCancelled() || ctx.isKilled());
     }
 
-    public void cancel() {
-        cancelled = true;
+    @Override
+    public ResultSetMetaData getResultSetMetaData() {
+        // Binary PREPARE must advertise exactly the columns later sent by EXECUTE.
+        return LanceIndexPrewarm.getResultSetMetaData();
     }
 
     @Override

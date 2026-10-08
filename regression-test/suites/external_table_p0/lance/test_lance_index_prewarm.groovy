@@ -63,6 +63,23 @@ suite("test_lance_index_prewarm", "p0,external") {
     assertEquals(before, sql(query), "Prewarm must preserve query results")
     assertEquals(warm[0][3], sql(statement)[0][3], "Retry must cover the same eligible backend set")
 
+    // Binary PREPARE and EXECUTE must agree on the result schema, including repeated executions.
+    def prepared = prepareStatement(statement)
+    try {
+        assertTrue(prepared instanceof com.mysql.cj.jdbc.ServerPreparedStatement)
+        assertEquals(5, prepared.getMetaData().getColumnCount())
+        assertEquals("DatasetVersion", prepared.getMetaData().getColumnName(3))
+        for (int execution = 0; execution < 2; execution++) {
+            def result = exec(prepared)
+            assertEquals(1, result.size())
+            assertEquals(indexName, result[0][1])
+            assertEquals(warm[0][2].toString(), result[0][2].toString())
+            assertEquals(warm[0][3].toString(), result[0][3].toString())
+        }
+    } finally {
+        prepared.close()
+    }
+
     test {
         sql "WARM UP INDEX missing_index ON ${tableName}"
         exception "does not exist in dataset version"

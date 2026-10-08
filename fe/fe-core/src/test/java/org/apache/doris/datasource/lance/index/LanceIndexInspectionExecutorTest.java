@@ -38,6 +38,83 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class LanceIndexInspectionExecutorTest {
     @Test
+    public void prewarmCancellationStopsWaitingWithoutInterruptingNativeOwner() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        AtomicBoolean cancelled = new AtomicBoolean();
+        AtomicBoolean interrupted = new AtomicBoolean();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread caller = new Thread(() -> {
+            try {
+                LanceIndexInspectionExecutor.execute(() -> {
+                    started.countDown();
+                    try {
+                        release.await();
+                    } catch (InterruptedException e) {
+                        interrupted.set(true);
+                    } finally {
+                        finished.countDown();
+                    }
+                    return null;
+                }, System.nanoTime() + TimeUnit.SECONDS.toNanos(10), cancelled::get);
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        try {
+            caller.start();
+            Assert.assertTrue(started.await(5, TimeUnit.SECONDS));
+            cancelled.set(true);
+            caller.join(2000);
+            Assert.assertFalse("KILL must release the caller while native IO is still running", caller.isAlive());
+            Assert.assertNotNull(failure.get());
+            Assert.assertTrue(failure.get().getMessage().contains("cancelled"));
+            Assert.assertEquals(1, finished.getCount());
+            Assert.assertFalse(interrupted.get());
+        } finally {
+            release.countDown();
+            caller.join(5000);
+            Assert.assertTrue(finished.await(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void prewarmDeadlineIncludesMetadataAndExpiredWorkNeverStarts() throws Exception {
+        AtomicBoolean entered = new AtomicBoolean();
+        Exception expired = Assert.assertThrows(Exception.class, () -> LanceIndexInspectionExecutor.execute(() -> {
+            entered.set(true);
+            return null;
+        }, System.nanoTime(), () -> false));
+        Assert.assertTrue(expired.getMessage().contains("timed out"));
+        Assert.assertFalse(entered.get());
+
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        AtomicBoolean started = new AtomicBoolean();
+        try {
+            Exception timeout = Assert.assertThrows(Exception.class, () -> LanceIndexInspectionExecutor.execute(() -> {
+                started.set(true);
+                try {
+                    release.await();
+                    return null;
+                } finally {
+                    finished.countDown();
+                }
+            }, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(200), () -> false));
+            Assert.assertTrue(timeout.getMessage().contains("timed out"));
+            if (started.get()) {
+                Assert.assertEquals("Timeout must not close native resources from another thread", 1, finished.getCount());
+            }
+        } finally {
+            release.countDown();
+            if (started.get()) {
+                Assert.assertTrue(finished.await(5, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @Test
     public void testIndexMetadataReadTimeoutKeepsWorkerOwnershipUntilReturn() throws Exception {
         CountDownLatch taskStarted = new CountDownLatch(1);
         CountDownLatch releaseTask = new CountDownLatch(1);

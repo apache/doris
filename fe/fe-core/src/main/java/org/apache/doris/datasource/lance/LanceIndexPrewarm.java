@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -65,6 +66,10 @@ public final class LanceIndexPrewarm {
     private LanceIndexPrewarm() {
     }
 
+    public static ShowResultSetMetaData getResultSetMetaData() {
+        return RESULT_META;
+    }
+
     public static void run(ConnectContext ctx, StmtExecutor executor, TableNameInfo tableName,
             String indexName, String computeGroup, BooleanSupplier cancelled) throws Exception {
         long started = System.nanoTime();
@@ -74,19 +79,24 @@ public final class LanceIndexPrewarm {
         tableName.analyze(ctx);
         checkPrivileges(ctx, tableName);
         List<Backend> targets = selectBackends(resolveComputeGroup(ctx, computeGroup));
-        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
-        if (!(catalog instanceof LanceExternalCatalog)) {
-            throw new AnalysisException("WARM UP INDEX requires a Lance catalog table");
-        }
-        TableIf table = catalog.getDbOrAnalysisException(tableName.getDb())
-                .getTableOrAnalysisException(tableName.getTbl());
-        if (!(table instanceof LanceExternalTable)) {
-            throw new AnalysisException("WARM UP INDEX requires a Lance catalog table");
-        }
-        checkActive(deadline, cancelled);
-        // This is the same snapshot/access path used by queries, including REST-vended credentials.
-        // Never independently resolve latest, index segments, or credentials on each backend.
-        LanceTableMetadata metadata = ((LanceExternalTable) table).loadMetadata();
+        // Resolve catalog/table initialization and snapshot IO in the bounded metadata pool.
+        // The worker owns native resources until it returns, even if this caller stops waiting.
+        String catalogName = tableName.getCtl();
+        String databaseName = tableName.getDb();
+        String name = tableName.getTbl();
+        LanceTableMetadata metadata = LanceIndexInspectionExecutor.execute(() -> {
+            CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+            if (!(catalog instanceof LanceExternalCatalog)) {
+                throw new AnalysisException("WARM UP INDEX requires a Lance catalog table");
+            }
+            TableIf table = catalog.getDbOrAnalysisException(databaseName).getTableOrAnalysisException(name);
+            if (!(table instanceof LanceExternalTable)) {
+                throw new AnalysisException("WARM UP INDEX requires a Lance catalog table");
+            }
+            checkActive(deadline, cancelled);
+            // Use the query access path, including REST-vended credentials, exactly once.
+            return ((LanceExternalTable) table).loadMetadata();
+        }, deadline, cancelled);
         PLanceIndexPrewarmRequest request = request(metadata, indexName);
         execute(targets, request, deadline, cancelled, (backend, rpcRequest, timeoutMs) ->
                 BackendServiceProxy.getInstance().prewarmLanceIndexAsync(
