@@ -67,7 +67,9 @@ suite("test_lance_index_prewarm", "p0,external") {
     assertEquals(warm[0][3], retry[0][3], "Retry must cover the same eligible backend set")
 
     // Binary PREPARE and EXECUTE must agree on the result schema, including repeated executions.
-    def prepared = prepareStatement(statement)
+    // Force server preparation even when the JDBC URL defaults to client-side emulation.
+    def prepared = context.getConnection().unwrap(com.mysql.cj.jdbc.JdbcConnection)
+            .serverPrepareStatement(statement)
     try {
         assertTrue(prepared instanceof com.mysql.cj.jdbc.ServerPreparedStatement)
         assertEquals(5, prepared.getMetaData().getColumnCount())
