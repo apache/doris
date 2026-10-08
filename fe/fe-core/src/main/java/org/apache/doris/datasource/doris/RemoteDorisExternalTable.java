@@ -46,7 +46,7 @@ public class RemoteDorisExternalTable extends ExternalTable {
     private volatile List<Partition> partitions = Lists.newArrayList();
     private volatile List<Partition> tempPartitions = Lists.newArrayList();
     private volatile long tableId = -1;
-    private transient FutureTask<RemoteOlapTable> currentRefreshTask;
+    private transient RefreshTask latestRefreshTask;
 
     public RemoteDorisExternalTable(long id, String name, String remoteName,
             RemoteDorisExternalCatalog catalog, ExternalDatabase db) {
@@ -62,22 +62,41 @@ public class RemoteDorisExternalTable extends ExternalTable {
     }
 
     private RemoteOlapTable getDorisOlapTable() {
-        FutureTask<RemoteOlapTable> refreshTask;
-        boolean shouldRun;
+        RefreshTask refreshTask;
         synchronized (this) {
-            if (currentRefreshTask == null || currentRefreshTask.isDone()) {
-                currentRefreshTask = new FutureTask<>(this::loadDorisOlapTable);
-                shouldRun = true;
-            } else {
-                shouldRun = false;
+            if (latestRefreshTask == null || latestRefreshTask.isStarted()) {
+                FutureTask<RemoteOlapTable> predecessor =
+                        latestRefreshTask == null ? null : latestRefreshTask.task;
+                latestRefreshTask = new RefreshTask(predecessor);
             }
-            refreshTask = currentRefreshTask;
+            refreshTask = latestRefreshTask;
         }
 
-        if (shouldRun) {
-            refreshTask.run();
+        refreshTask.run();
+        return getRefreshResult(refreshTask.task);
+    }
+
+    private class RefreshTask {
+        private final FutureTask<RemoteOlapTable> task;
+        private final FutureTask<RemoteOlapTable> predecessor;
+        private volatile boolean started;
+
+        private RefreshTask(FutureTask<RemoteOlapTable> predecessor) {
+            this.predecessor = predecessor;
+            this.task = new FutureTask<>(RemoteDorisExternalTable.this::loadDorisOlapTable);
         }
-        return getRefreshResult(refreshTask);
+
+        private boolean isStarted() {
+            return started;
+        }
+
+        private void run() {
+            if (predecessor != null) {
+                waitForRefreshCompletion(predecessor);
+            }
+            started = true;
+            task.run();
+        }
     }
 
     private RemoteOlapTable loadDorisOlapTable() {
@@ -114,6 +133,17 @@ public class RemoteDorisExternalTable extends ExternalTable {
             throw new AnalysisException(
                     "failed to get remote doris olap table: " + Util.getRootCauseMessage(cause),
                     cause);
+        }
+    }
+
+    private void waitForRefreshCompletion(FutureTask<RemoteOlapTable> refreshTask) {
+        try {
+            refreshTask.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AnalysisException("interrupted while getting doris olap table", e);
+        } catch (ExecutionException e) {
+            // A later generation can retry after an ordinary refresh failure.
         }
     }
 
