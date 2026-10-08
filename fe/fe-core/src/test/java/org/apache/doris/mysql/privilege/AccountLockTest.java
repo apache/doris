@@ -191,6 +191,20 @@ public class AccountLockTest extends TestWithFeService {
     }
 
     @Test
+    public void testRootAtSpecificHostCanBeLocked() throws Exception {
+        // only root@'%' is the system root; root@'<host>' is an ordinary account. Not HOST: that would
+        // put root@HOST ahead of root@'%' for the other tests' root logins from HOST
+        run("CREATE USER 'root'@'8.8.20.39' IDENTIFIED BY 'p8'");
+        run("ALTER USER 'root'@'8.8.20.39' ACCOUNT_LOCK");
+        UserIdentity rootAtHost = new UserIdentity("root", "8.8.20.39");
+        rootAtHost.setIsAnalyzed();
+        Exception e = Assertions.assertThrows(AuthenticationException.class,
+                () -> auth().checkPlainPasswordForUserIdentity(rootAtHost, "p8", null));
+        Assertions.assertTrue(e.getMessage().contains("Account is locked"), e.getMessage());
+        Assertions.assertTrue(canLogin("root", ""));
+    }
+
+    @Test
     public void testCheckAccountLockedIsTheSharedPredicateForEveryAuthenticator() throws Exception {
         // the check every authentication path runs after its authenticator accepted the credential
         run("CREATE USER 'lk7'@'%' IDENTIFIED BY 'p7'");

@@ -173,6 +173,24 @@ public class RefreshMTMVCommandTest {
     }
 
     @Test
+    public void testIncrementalDryRunParsesSetVarWithItsStatementContext() throws Exception {
+        RefreshMTMVInfo info = extractRefreshInfo("REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
+        TestRefreshMTMVCommand command = new TestRefreshMTMVCommand(info, true);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getQuerySql()).thenReturn("SELECT /*+ SET_VAR(query_timeout=10) */ 1 AS k1");
+        ConnectContext internalCtx = new ConnectContext();
+        internalCtx.setThreadLocalInfo();
+        try {
+            StatementContext stmtCtx = command.createDryRunStatementContext(mtmv, internalCtx);
+            new IvmIncrRefreshManager().buildQueryPlan(mtmv);
+            Assertions.assertSame(stmtCtx, internalCtx.getStatementContext());
+            Assertions.assertEquals(10, internalCtx.getSessionVariable().getQueryTimeoutS());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testIncrementalExplainCarriesExcludedTriggerTables() throws Exception {
         RefreshMTMVInfo info = extractRefreshInfo("REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL");
         IvmIncrRefreshManager manager = new IvmIncrRefreshManager() {

@@ -22,6 +22,11 @@ import org.apache.http.HttpResponse
 import org.apache.http.client.methods.HttpPut
 import org.apache.http.impl.client.CloseableHttpClient
 import org.apache.http.impl.client.HttpClients
+import org.apache.http.conn.ssl.NoopHostnameVerifier
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory
+import org.apache.http.ssl.SSLContexts
+import org.apache.http.ssl.TrustStrategy
+import java.security.KeyStore
 import org.apache.http.entity.ContentType
 import org.apache.http.entity.StringEntity
 import org.apache.http.client.config.RequestConfig
@@ -95,8 +100,37 @@ suite("test_partial_update_2pc_schema_change", "p0") {
             InetSocketAddress address = context.config.feHttpInetSocketAddress
 
             def do_streamload_2pc = { txn_id, txn_operation, name ->
-                HttpClients.createDefault().withCloseable { client ->
-                    RequestBuilder requestBuilder = RequestBuilder.put("http://${address.hostString}:${address.port}/api/${db}/${name}/_stream_load_2pc")
+                def enableTLS = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+                // Keep the FE redirect visible so the test can check the 307 response.
+                def clientBuilder = HttpClients.custom().disableRedirectHandling()
+                if (enableTLS) {
+                    def configs = context.config.otherConfigs
+                    def verifyMode = configs.get("tlsVerifyMode")?.toString()?.toLowerCase() ?: "strict"
+                    def sslContextBuilder = SSLContexts.custom()
+                    if (verifyMode == "none") {
+                        sslContextBuilder.loadTrustMaterial({ chain, authType -> true } as TrustStrategy)
+                    } else {
+                        def trustStore = KeyStore.getInstance(configs.get("trustStoreType") ?: "JKS")
+                        new File(configs.get("trustStorePath").toString()).withInputStream { input ->
+                            trustStore.load(input, configs.get("trustStorePassword")?.toString()?.toCharArray())
+                        }
+                        sslContextBuilder.loadTrustMaterial(trustStore, null)
+                        if (verifyMode == "strict") {
+                            def keyStore = KeyStore.getInstance(configs.get("keyStoreType") ?: "PKCS12")
+                            def keyPassword = configs.get("keyStorePassword")?.toString()?.toCharArray()
+                            new File(configs.get("keyStorePath").toString()).withInputStream { input ->
+                                keyStore.load(input, keyPassword)
+                            }
+                            sslContextBuilder.loadKeyMaterial(keyStore, keyPassword)
+                        }
+                    }
+                    def hostnameVerifier = verifyMode == "none" ? NoopHostnameVerifier.INSTANCE
+                            : SSLConnectionSocketFactory.getDefaultHostnameVerifier()
+                    clientBuilder.setSSLSocketFactory(new SSLConnectionSocketFactory(sslContextBuilder.build(), hostnameVerifier))
+                }
+                def scheme = enableTLS ? "https" : "http"
+                clientBuilder.build().withCloseable { client ->
+                    RequestBuilder requestBuilder = RequestBuilder.put("${scheme}://${address.hostString}:${address.port}/api/${db}/${name}/_stream_load_2pc")
                     String encoding = Base64.getEncoder()
                         .encodeToString((user + ":" + (password == null ? "" : password)).getBytes("UTF-8"))
                     requestBuilder.setHeader("Authorization", "Basic ${encoding}")

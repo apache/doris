@@ -4653,7 +4653,7 @@ int InstanceRecycler::delete_rowset_data(
                 continue;
             }
         }
-        if (rs.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
+        if (rs.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE && !is_formal_rowset) {
             // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
             // may be larger than num_segments field in RowsetMeta, so we need to delete the rowset's data by prefix
             rowsets_delete_by_prefix.emplace_back(rs.resource_id(), tablet_id, rs.rowset_id_v2());
@@ -5880,7 +5880,7 @@ int InstanceRecycler::recycle_rowsets() {
                 LOG(INFO) << "delete the recycle rowset kv that has empty resource_id, key="
                           << hex(k) << " value=" << proto_to_json(rowset);
                 rowset_keys.emplace_back(k);
-                return -1;
+                return 0;
             }
             // decode rowset_id
             auto k1 = k;

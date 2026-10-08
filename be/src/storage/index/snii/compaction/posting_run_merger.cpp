@@ -274,14 +274,13 @@ Status MergedPostingRuns::fill(uint32_t target_docs, writer::TermPostingBuffer* 
             *exhausted = true;
             return Status::OK();
         }
-        const size_t position_count = run.positions_flat.size();
         writer::MutableTermPostingSpan destination;
-        RETURN_IF_ERROR(out->grow_uninitialized(run.docids.size(), retain_positions_,
-                                                position_count, &destination));
+        RETURN_IF_ERROR(
+                out->grow_uninitialized(run.docids.size(), retain_positions_, 0, &destination));
         std::ranges::copy(run.docids, destination.docids.begin());
         if (retain_positions_) {
             std::ranges::copy(run.freqs, destination.freqs.begin());
-            std::ranges::copy(run.positions_flat, destination.positions_flat.begin());
+            RETURN_IF_ERROR(out->append_positions(run.positions_flat));
         }
 #ifdef BE_TEST
         posting_run_copied_document_counter.fetch_add(run.docids.size(), std::memory_order_relaxed);

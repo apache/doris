@@ -65,7 +65,9 @@ suite("test_excluded_trigger_table_mtmv","mtmv") {
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    // should refresh because excluded_trigger_tables changed and refresh baseline should be rebuilt
+    // Excluding the table stops maintaining it: the row inserted just before the ALTER is not applied, and
+    // neither is anything else this table changes on its own. What the view holds is what the last refresh
+    // left there; the property decides what is maintained, and a complete refresh is what reads it again.
     order_qt_true_table "SELECT * FROM ${mvName}"
 
     sql """
@@ -78,7 +80,7 @@ suite("test_excluded_trigger_table_mtmv","mtmv") {
          REFRESH MATERIALIZED VIEW ${mvName} AUTO
          """
     waitingMTMVTaskFinishedByMvName(mvName)
-     // should refresh because excluded_trigger_tables changed and refresh baseline should be rebuilt
+     // The same exclusion spelled with a database qualifier: still excluded, so still nothing to apply.
     order_qt_true_db_table "SELECT * FROM ${mvName}"
 
     sql """
@@ -91,7 +93,7 @@ suite("test_excluded_trigger_table_mtmv","mtmv") {
          REFRESH MATERIALIZED VIEW ${mvName} AUTO
          """
     waitingMTMVTaskFinishedByMvName(mvName)
-     // should refresh because excluded_trigger_tables changed and refresh baseline should be rebuilt
+     // And with a catalog qualifier: the table never stopped being excluded, so no row of it appears.
     order_qt_true_ctl_db_table "SELECT * FROM ${mvName}"
 
     sql """
@@ -104,7 +106,9 @@ suite("test_excluded_trigger_table_mtmv","mtmv") {
          REFRESH MATERIALIZED VIEW ${mvName} AUTO
          """
     waitingMTMVTaskFinishedByMvName(mvName)
-     // should refresh
+     // The name no longer matches this table, so it is not excluded any more. A table that participates
+     // again is the case that owes a rebuild -- its backlog was never applied -- so this refresh reads the
+     // base table again and every row it holds lands, including the ones the excluded refreshes skipped.
     order_qt_false_ctl_db_table "SELECT * FROM ${mvName}"
 
      sql """
@@ -117,7 +121,7 @@ suite("test_excluded_trigger_table_mtmv","mtmv") {
          REFRESH MATERIALIZED VIEW ${mvName} AUTO
          """
     waitingMTMVTaskFinishedByMvName(mvName)
-     // should refresh
+     // Still not excluded, for the same reason spelled differently.
     order_qt_false_db_table "SELECT * FROM ${mvName}"
 
     sql """
@@ -130,7 +134,7 @@ suite("test_excluded_trigger_table_mtmv","mtmv") {
          REFRESH MATERIALIZED VIEW ${mvName} AUTO
          """
     waitingMTMVTaskFinishedByMvName(mvName)
-     // should refresh
+     // Still not excluded.
     order_qt_false_table "SELECT * FROM ${mvName}"
 
     sql """drop materialized view if exists test_excluded_trigger_table_mtmv_partition_mv;"""
