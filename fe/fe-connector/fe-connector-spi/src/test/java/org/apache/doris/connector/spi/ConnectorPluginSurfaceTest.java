@@ -21,6 +21,8 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
+import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
@@ -85,9 +87,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // ConnectorSession's external-scan-reuse policy requires major 10: an API-9 FE does not
-        // provide the newly added interface method to an independently built connector plugin.
-        Assertions.assertEquals("10.0", version.getProperty("api.version"));
+        // Major 12 adds the SUPPORTS_FIELD_ID_ACCESS_PATH and SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE
+        // capabilities: a plugin naming either constant cannot link against an older FE.
+        Assertions.assertEquals("12.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -102,6 +104,9 @@ public class ConnectorPluginSurfaceTest {
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
             ConnectorWriteHandle.class,
+            ConnectorChangelogMode.class,
+            ConnectorRowLevelDmlRequest.class,
+            org.apache.doris.connector.spi.write.ConnectorWriteDistribution.class,
             ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
@@ -109,7 +114,10 @@ public class ConnectorPluginSurfaceTest {
 
     /** Public enum constants linked directly by connector plugin bytecode. */
     private static final List<Class<? extends Enum<?>>> FROZEN_ENUM_TYPES =
-            Arrays.asList(ConnectorCapability.class);
+            Arrays.asList(ConnectorCapability.class,
+                    org.apache.doris.connector.spi.write.ConnectorRowChangeStyle.class,
+                    org.apache.doris.connector.spi.write.ConnectorWriteDistribution.Mode.class,
+                    org.apache.doris.connector.spi.write.ConnectorWriteDistribution.WriterAssignment.class);
 
     @Test
     public void pluginApiSurfaceMatchesRecordedBaseline() throws IOException, IllegalAccessException {

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
@@ -47,8 +48,6 @@ import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -70,7 +69,6 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -78,7 +76,6 @@ import org.awaitility.Awaitility;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -94,6 +91,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class InsertOverwriteTableCommand extends Command
         implements NeedAuditEncryption, ForwardWithSync, Explainable, CancelableCommand {
+
+    /**
+     * Fails an overwrite in the one window a refresh cannot recover from by itself: after the rows have been
+     * committed into the temporary partitions and before the swap publishes them. Everything the write read
+     * is committed by then -- the base table streams it consumed, among them -- and the partitions it was
+     * going to replace still hold what they had, so a refresh that dies here leaves rows missing and nothing
+     * durable saying so unless it raised a rebuild requirement before it read. See
+     * test_ivm_overwrite_failure_between_the_halves, which pins the recovery.
+     *
+     * <p>Scoped by the MV name the point carries as its {@code mv_name} parameter: the read below answers
+     * with the default when the point is not enabled or carries no such parameter, and no MV is named by an
+     * empty string, so enabling it cannot disturb an overwrite that is not the one under test.
+     */
+    public static final String DEBUG_POINT_FAIL_BETWEEN_THE_HALVES_OF_AN_OVERWRITE =
+            "InsertOverwriteTableCommand.failBetweenTheTwoHalvesOfAnOverwrite";
 
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteTableCommand.class);
 
@@ -277,6 +289,7 @@ public class InsertOverwriteTableCommand extends Command
                     insertOverwriteManager.taskFail(taskId);
                     return;
                 }
+                failBetweenTheTwoHalvesOfAnOverwrite(targetTable);
                 InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames,
                         isForceDropPartition());
                 if (isCancelled.get()) {
@@ -357,6 +370,18 @@ public class InsertOverwriteTableCommand extends Command
         return ((PluginDrivenExternalTable) targetTable).connectorSupportsWriteBranch();
     }
 
+    /**
+     * Throws when the debug point names the MV this overwrite targets; see the constant above.
+     */
+    private static void failBetweenTheTwoHalvesOfAnOverwrite(TableIf targetTable) throws UserException {
+        if (!(targetTable instanceof MTMV)
+                || !targetTable.getName().equals(DebugPointUtil.getDebugParamOrDefault(
+                        DEBUG_POINT_FAIL_BETWEEN_THE_HALVES_OF_AN_OVERWRITE, "mv_name", ""))) {
+            return;
+        }
+        throw new UserException("debug point: " + DEBUG_POINT_FAIL_BETWEEN_THE_HALVES_OF_AN_OVERWRITE);
+    }
+
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
             ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
@@ -416,13 +441,7 @@ public class InsertOverwriteTableCommand extends Command
             // already rejected @branch for connectors without supportsWriteBranch().
             branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
             if (sink.hasStaticPartition()) {
-                Map<String, String> staticSpec = Maps.newHashMap();
-                for (Map.Entry<String, Expression> e : sink.getStaticPartitionKeyValues().entrySet()) {
-                    if (e.getValue() instanceof Literal) {
-                        staticSpec.put(e.getKey(), ((Literal) e.getValue()).getStringValue());
-                    }
-                }
-                pluginCtx.setStaticPartitionSpec(staticSpec);
+                pluginCtx.setStaticPartitionSpecFromExpressions(sink.getStaticPartitionKeyValues());
             }
             insertCtx = pluginCtx;
         } else {

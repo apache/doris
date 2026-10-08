@@ -426,11 +426,39 @@ inline bool is_child_projected(const LocalColumnIndex* projection, int32_t local
     return is_full_projection(projection) || find_child_projection(projection, local_id) != nullptr;
 }
 
+// True when this subtree still has to reach the reader after its projection becomes full: a node
+// that names a table-format timestamp semantic, or one on the path to such a node.
+inline bool carries_timestamp_semantics(const LocalColumnIndex& projection) {
+    if (projection.timestamp_is_adjusted_to_utc.has_value()) {
+        return true;
+    }
+    return std::ranges::any_of(projection.children, [](const LocalColumnIndex& child) {
+        return carries_timestamp_semantics(child);
+    });
+}
+
+// Drop the children that only selected a subtree, keeping the ones that name a timestamp semantic.
+//
+// A full projection selects every child, so its children list stops being a selection -- but it is
+// also the only way a per-child timestamp semantic travels: attach_timestamp_semantics() puts a
+// child on a full projection for exactly that purpose, and readers resolve those children by id
+// without looking at project_all_children, so they must survive the collapse.
+inline void keep_only_semantic_children(LocalColumnIndex* projection) {
+    DORIS_CHECK(projection != nullptr);
+    std::erase_if(projection->children, [](const LocalColumnIndex& child) {
+        return !carries_timestamp_semantics(child);
+    });
+    for (auto& child : projection->children) {
+        keep_only_semantic_children(&child);
+    }
+}
+
 // Merge two projection trees that point to the same file-local node.
 //
-// A full projection dominates a partial projection. Two partial projections are merged by child id
-// and recursively union their child paths. The caller must only merge projections for the same
-// root/child node.
+// A full projection dominates a partial projection for SELECTION, but not for the timestamp
+// semantics the children carry: those survive on both sides. Two partial projections are merged by
+// child id and recursively union their child paths. The caller must only merge projections for the
+// same root/child node.
 inline Status merge_local_column_index(LocalColumnIndex* target, const LocalColumnIndex& source) {
     DORIS_CHECK(target != nullptr);
     DORIS_CHECK(target->index == source.index);
@@ -441,23 +469,28 @@ inline Status merge_local_column_index(LocalColumnIndex* target, const LocalColu
         return Status::InvalidArgument("Conflicting timestamp semantics for file-local column {}",
                                        target->index);
     }
-    if (target->project_all_children) {
-        return Status::OK();
-    }
-    if (source.project_all_children) {
+    const bool full = target->project_all_children || source.project_all_children;
+    if (full) {
         target->project_all_children = true;
-        target->children.clear();
-        return Status::OK();
+        keep_only_semantic_children(target);
     }
     for (const auto& source_child : source.children) {
+        if (full && !carries_timestamp_semantics(source_child)) {
+            // Pure selection under a projection that now takes every child.
+            continue;
+        }
         auto target_child_it = std::find_if(
                 target->children.begin(), target->children.end(),
                 [&](const LocalColumnIndex& child) { return child.index == source_child.index; });
         if (target_child_it == target->children.end()) {
             target->children.push_back(source_child);
-            continue;
+            target_child_it = target->children.end() - 1;
+        } else {
+            RETURN_IF_ERROR(merge_local_column_index(&*target_child_it, source_child));
         }
-        RETURN_IF_ERROR(merge_local_column_index(&*target_child_it, source_child));
+        if (full) {
+            keep_only_semantic_children(&*target_child_it);
+        }
     }
     return Status::OK();
 }

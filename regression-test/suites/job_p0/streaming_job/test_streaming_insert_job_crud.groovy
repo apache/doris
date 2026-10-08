@@ -112,7 +112,7 @@ suite("test_streaming_insert_job_crud") {
                 "s3.secret_key" = "${getS3SK()}"
             );
         """
-    }, "s3.max_batch_files should >=1")
+    }, "s3.max_batch_files must be at least 1")
 
     jobCount = sql """ select count(1) from jobs("type"="insert") where Name = '${jobNameError}' and ExecuteType='STREAMING' """
     assert jobCount.get(0).get(0) == 0
@@ -136,7 +136,7 @@ suite("test_streaming_insert_job_crud") {
                 "s3.secret_key" = "${getS3SK()}"
             );
         """
-    }, "s3.max_batch_bytes should between 100MB and 10GB")
+    }, "s3.max_batch_bytes must be between 100 MB and 10 GB")
 
     jobCount = sql """ select count(1) from jobs("type"="insert") where Name = '${jobNameError}' and ExecuteType='STREAMING' """
     assert jobCount.get(0).get(0) == 0
@@ -160,7 +160,7 @@ suite("test_streaming_insert_job_crud") {
                 "s3.secret_key" = "${getS3SK()}"
             );
         """
-    }, "max_interval should > 1")
+    }, "max_interval must be at least 1 second")
 
     jobCount = sql """ select count(1) from jobs("type"="insert") where Name = '${jobNameError}' and ExecuteType='STREAMING' """
     assert jobCount.get(0).get(0) == 0
@@ -409,7 +409,7 @@ suite("test_streaming_insert_job_crud") {
                 "s3.secret_key" = "${getS3SK()}"
             );
         """
-        exception "s3.max_batch_files should >=1"
+        exception "s3.max_batch_files must be at least 1"
     }
 
     // alter session var

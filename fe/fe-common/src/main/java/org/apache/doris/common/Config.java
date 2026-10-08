@@ -1859,6 +1859,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = "Temporary compatibility switch that allows HLL, "
+            + "QUANTILE_STATE, and AGG_STATE columns in non-aggregate key tables. Disabled by default. This switch "
+            + "is intended only for migration and will be removed after the compatibility transition period.")
+    public static boolean enable_non_aggregate_table_state_types = false;
+
     /*---------------------- JOB CONFIG START------------------------*/
     /**
      * The number of threads used to dispatch timer job.
@@ -2012,9 +2017,11 @@ public class Config extends ConfigBase {
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
     // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
     public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
+    // Older backends do not recognize PAIMON_TABLE_SINK and cannot execute Paimon writes.
+    public static final int PAIMON_WRITE_MIN_BE_EXEC_VERSION = 16;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = PAIMON_WRITE_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

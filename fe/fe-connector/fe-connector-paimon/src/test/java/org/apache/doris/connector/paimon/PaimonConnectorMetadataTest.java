@@ -61,6 +61,21 @@ public class PaimonConnectorMetadataTest {
     }
 
     @Test
+    public void rejectsUnsupportedPartitionNameList() {
+        PaimonConnectorMetadata metadata = metadataWith(new RecordingPaimonCatalogOps());
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.singletonList("region"), Collections.emptyList());
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata.validateWritePartitionNames(
+                        null, handle, Collections.singletonList("region")));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Paimon tables do not support PARTITION name lists"));
+        Assertions.assertDoesNotThrow(
+                () -> metadata.validateWritePartitionNames(null, handle, Collections.emptyList()));
+    }
+
+    @Test
     public void listDatabaseNamesDelegatesToOps() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.databases = Arrays.asList("db_a", "db_b");

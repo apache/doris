@@ -64,9 +64,8 @@ public class ArrayExceptAll extends ScalarFunction implements ExplicitlyCastable
                 continue;
             }
             DataType itemType = ((ArrayType) argumentType).getItemType();
-            if (itemType.isComplexType() || itemType.isVariantType() || itemType.isJsonType()) {
-                throw new AnalysisException("array_except_all does not support types: "
-                        + argumentType.toSql());
+            if (!ArrayFunctionUtils.isSupportedByArrayEqualityFunctions(itemType)) {
+                throw new AnalysisException("array_except_all does not support element type " + itemType.toSql());
             }
         }
     }

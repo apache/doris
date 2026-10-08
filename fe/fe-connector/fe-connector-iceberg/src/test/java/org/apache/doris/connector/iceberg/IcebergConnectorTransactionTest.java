@@ -96,6 +96,10 @@ public class IcebergConnectorTransactionTest {
     private static final Schema PART_SCHEMA = new Schema(
             Types.NestedField.required(1, "id", Types.IntegerType.get()),
             Types.NestedField.required(2, "region", Types.StringType.get()));
+    // A floating identity partition column, the only shape that can carry a NaN partition value.
+    private static final Schema FLOAT_PART_SCHEMA = new Schema(
+            Types.NestedField.required(1, "id", Types.IntegerType.get()),
+            Types.NestedField.required(2, "d", Types.DoubleType.get()));
 
     private static InMemoryCatalog freshCatalog() {
         InMemoryCatalog catalog = new InMemoryCatalog();
@@ -1222,6 +1226,120 @@ public class IcebergConnectorTransactionTest {
 
         Assertions.assertThrows(DorisConnectorException.class, txn::commit,
                 "a non-identity (bucket) partition spec disables narrowing -> the concurrent append still conflicts");
+    }
+
+    @Test
+    public void deleteOnNaNIdentityPartitionCommits() {
+        // A NaN cannot be an iceberg literal (Literals.from throws "Cannot create expression literal from NaN"),
+        // yet parsePartitionValueFromString deliberately turns BE's "nan" into Double.NaN, so narrowing conflict
+        // detection to the touched partition used to abort the whole DELETE before validation even ran. iceberg
+        // expresses it as isNaN instead.
+        PartitionSpec spec = PartitionSpec.builderFor(FLOAT_PART_SCHEMA).identity("d").build();
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, FLOAT_PART_SCHEMA, spec, props("format-version", "2"));
+        String seedPath = "s3://b/db1/t1/d=NaN/seed.parquet";
+        table.newAppend().appendFile(partitionedDataFile(spec, seedPath, 5L, "d=NaN")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+        TIcebergCommitData del = positionDeleteItem("s3://b/db1/t1/d=NaN/del.parquet", 2L, seedPath);
+        del.setPartitionValues(Collections.singletonList("nan"));
+        del.setPartitionSpecId(spec.specId());
+        txn.addCommitData(commitBytes(del));
+        txn.commit();
+
+        Snapshot snap = reloadCurrentSnapshot(catalog, id);
+        Assertions.assertEquals("1", snap.summary().get("added-delete-files"),
+                "a delete touching a NaN identity partition must commit, not fail on the partition literal");
+    }
+
+    @Test
+    public void deleteOnNaNIdentityPartitionStillDetectsConcurrentConflict() {
+        // Not throwing is only half of it: isNaN has to work as a FILTER, so that narrowing to the NaN
+        // partition still catches a real conflict there. This also pins that the row-level write constraint
+        // survives the NaN partition predicate -- the whole filter is ANDed in applyConflictDetectionFilter,
+        // and a dropped NaN arm would silently stop guarding the NaN partition.
+        PartitionSpec spec = PartitionSpec.builderFor(FLOAT_PART_SCHEMA).identity("d").build();
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, FLOAT_PART_SCHEMA, spec, props("format-version", "2"));
+        String seedPath = "s3://b/db1/t1/d=NaN/seed.parquet";
+        table.newAppend().appendFile(partitionedDataFile(spec, seedPath, 5L, "d=NaN")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+        // DELETE ... WHERE d > 5 -- in Doris that is true for a NaN row, which is why the NaN partition is
+        // the one being deleted from.
+        txn.applyWriteConstraint(new ConnectorPredicate(new ConnectorComparison(
+                ConnectorComparison.Operator.GT,
+                new ConnectorColumnRef("d", ConnectorType.of("UNKNOWN")),
+                new ConnectorLiteral(ConnectorType.of("DOUBLE"), 5.0d))));
+        // A concurrent append into the very partition being deleted from must be a conflict.
+        catalog.loadTable(id).newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/d=NaN/concurrent.parquet", 7L, "d=NaN")).commit();
+
+        TIcebergCommitData del = positionDeleteItem("s3://b/db1/t1/d=NaN/del.parquet", 2L, seedPath);
+        del.setPartitionValues(Collections.singletonList("nan"));
+        del.setPartitionSpecId(spec.specId());
+        txn.addCommitData(commitBytes(del));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit,
+                "a concurrent append into the deleted NaN partition must be detected as a conflict");
+        Assertions.assertTrue(ex.getMessage().contains("is_nan"),
+                "the NaN partition predicate must reach conflict validation, not be dropped: "
+                        + ex.getMessage());
+    }
+
+    @Test
+    public void deleteOnNaNIdentityPartitionExcludesNonMatchingPartition() {
+        // The other side of the same narrowing: a concurrent append into d=1.0 does not match `d > 5` under
+        // Doris semantics either, so it must NOT be reported as a conflict. Together with the test above this
+        // proves the NaN predicate narrows rather than degrading to always-true or always-false.
+        PartitionSpec spec = PartitionSpec.builderFor(FLOAT_PART_SCHEMA).identity("d").build();
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, FLOAT_PART_SCHEMA, spec, props("format-version", "2"));
+        String seedPath = "s3://b/db1/t1/d=NaN/seed.parquet";
+        table.newAppend().appendFile(partitionedDataFile(spec, seedPath, 5L, "d=NaN")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+        txn.applyWriteConstraint(new ConnectorPredicate(new ConnectorComparison(
+                ConnectorComparison.Operator.GT,
+                new ConnectorColumnRef("d", ConnectorType.of("UNKNOWN")),
+                new ConnectorLiteral(ConnectorType.of("DOUBLE"), 5.0d))));
+        catalog.loadTable(id).newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/d=1.0/concurrent.parquet", 7L, "d=1.0")).commit();
+
+        TIcebergCommitData del = positionDeleteItem("s3://b/db1/t1/d=NaN/del.parquet", 2L, seedPath);
+        del.setPartitionValues(Collections.singletonList("nan"));
+        del.setPartitionSpecId(spec.specId());
+        txn.addCommitData(commitBytes(del));
+        txn.commit();
+
+        Snapshot snap = reloadCurrentSnapshot(catalog, id);
+        Assertions.assertEquals("1", snap.summary().get("added-delete-files"),
+                "an append into a partition the DELETE does not match must not block the commit");
+    }
+
+    @Test
+    public void staticOverwriteIntoNaNPartitionCommits() {
+        // The same literal, reached from INSERT OVERWRITE ... PARTITION(d='nan') -> buildPartitionFilter.
+        PartitionSpec spec = PartitionSpec.builderFor(FLOAT_PART_SCHEMA).identity("d").build();
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, FLOAT_PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+
+        txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(table, Collections.singletonMap("d", "nan")));
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/d=NaN/f1.parquet", 4L, 1024L,
+                Collections.singletonList("nan"))));
+        txn.commit();
+
+        Snapshot snap = reloadCurrentSnapshot(catalog, id);
+        Assertions.assertEquals("overwrite", snap.operation());
+        Assertions.assertEquals("1", snap.summary().get("added-data-files"));
     }
 
     @Test

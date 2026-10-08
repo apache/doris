@@ -293,8 +293,9 @@ int timestamp_tz_scale(const ParquetTypeDescriptor& type_descriptor) {
 
 bool should_map_to_timestamp_tz(const ParquetColumnSchema& column_schema) {
     const auto& type_descriptor = column_schema.type_descriptor;
-    return type_descriptor.physical_type == tparquet::Type::INT96 ||
-           (type_descriptor.is_timestamp && type_descriptor.timestamp_is_adjusted_to_utc);
+    // INT96 has no instant annotation. Reinterpreting it here disagrees with FE schema inference
+    // and makes the table-level cast apply the session timezone a second time.
+    return type_descriptor.is_timestamp && type_descriptor.timestamp_is_adjusted_to_utc;
 }
 
 DataTypePtr apply_timestamp_tz_mapping(ParquetColumnSchema* column_schema) {
@@ -401,6 +402,15 @@ DataTypePtr apply_projection_timestamp_semantics(ParquetColumnSchema* column_sch
         }
         column_schema->type = nullable_like_original(
                 column_schema->type, std::make_shared<DataTypeStruct>(child_types, child_names));
+    } else if (column_schema->kind == ParquetColumnSchemaKind::VARIANT) {
+        Strings child_names;
+        child_names.reserve(column_schema->children.size());
+        for (const auto& child : column_schema->children) {
+            child_names.push_back(child->name);
+        }
+        column_schema->variant_physical_type =
+                nullable_like_original(column_schema->variant_physical_type,
+                                       std::make_shared<DataTypeStruct>(child_types, child_names));
     }
     return column_schema->type;
 }
@@ -513,11 +523,13 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                              std::optional<format::GlobalRowIdContext> global_rowid_context,
                              bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
-                             std::string hive_parquet_time_zone)
+                             std::optional<std::string> hive_parquet_time_zone,
+                             bool preserve_binary_uuid)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
           _enable_mapping_varbinary(enable_mapping_varbinary),
+          _preserve_binary_uuid(preserve_binary_uuid),
           _hive_parquet_time_zone(std::move(hive_parquet_time_zone)) {}
 
 ParquetReader::~ParquetReader() = default;
@@ -539,14 +551,17 @@ Status ParquetReader::init(RuntimeState* state) {
             state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
     _state->enable_page_cache =
             state != nullptr && state->query_options().enable_parquet_file_page_cache;
-    if (!_hive_parquet_time_zone.empty()) {
+    if (_hive_parquet_time_zone.has_value() && !_hive_parquet_time_zone->empty()) {
         cctz::time_zone int96_timezone;
-        if (!TimezoneUtils::find_cctz_time_zone(_hive_parquet_time_zone, int96_timezone)) {
+        if (!TimezoneUtils::find_cctz_time_zone(*_hive_parquet_time_zone, int96_timezone)) {
             return Status::InvalidArgument("Invalid hive.parquet.time-zone: {}",
-                                           _hive_parquet_time_zone);
+                                           *_hive_parquet_time_zone);
         }
         _state->int96_timezone = int96_timezone;
-        _state->scheduler.set_int96_timezone(&*_state->int96_timezone);
+    }
+    if (_hive_parquet_time_zone.has_value()) {
+        _state->scheduler.set_int96_timezone(
+                _state->int96_timezone.has_value() ? &*_state->int96_timezone : nullptr);
     }
     if (state != nullptr) {
         _state->runtime_state = state;
@@ -568,7 +583,7 @@ Status ParquetReader::init(RuntimeState* state) {
         SCOPED_TIMER(_parquet_profile.parse_footer_time);
         RETURN_IF_ERROR(_state->file_context.open(
                 _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
-                _enable_mapping_timestamp_tz, _enable_mapping_varbinary));
+                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _preserve_binary_uuid));
     }
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,

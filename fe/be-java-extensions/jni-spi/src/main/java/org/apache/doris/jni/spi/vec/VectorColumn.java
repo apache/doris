@@ -34,6 +34,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Reference to Apache Spark
@@ -70,6 +71,7 @@ public class VectorColumn {
 
     // For nested column type: String / Array/ Map / Struct
     private VectorColumn[] childColumns;
+    private VectorColumnVariant variantColumn;
 
     // For struct, only support to read all fields in struct now
     // todo: support pruned struct fields
@@ -78,6 +80,7 @@ public class VectorColumn {
 
     public static final InetAddress DEFAULT_IPV4;
     public static final InetAddress DEFAULT_IPV6;
+    public static final UUID DEFAULT_UUID = new UUID(0, 0);
 
     static {
         try {
@@ -115,6 +118,8 @@ public class VectorColumn {
             childColumns = new VectorColumn[1];
             childColumns[0] = new VectorColumn(new ColumnType("#stringBytes", Type.BYTE),
                     capacity * DEFAULT_STRING_LENGTH);
+        } else if (columnType.isVariantType()) {
+            variantColumn = new VectorColumnVariant();
         }
 
         reserveCapacity(capacity);
@@ -268,6 +273,10 @@ public class VectorColumn {
             }
             childColumns = null;
         }
+        if (variantColumn != null) {
+            variantColumn.close();
+            variantColumn = null;
+        }
 
         if (nullMap != 0) {
             OffHeap.freeMemory(nullMap);
@@ -349,6 +358,8 @@ public class VectorColumn {
             this.offsets = OffHeap.reallocateMemory(offsets, oldOffsetSize, newOffsetSize);
         } else if (columnType.isVarbinaryType()) {
             this.data = OffHeap.reallocateMemory(data, oldCapacity * 16L, newCapacity * 16L);
+        } else if (columnType.isVariantType()) {
+            variantColumn.reserveRows(newCapacity);
         } else if (!columnType.isStruct()) {
             throw new RuntimeException("Unhandled type: " + columnType.getName());
         }
@@ -364,6 +375,9 @@ public class VectorColumn {
             for (VectorColumn c : childColumns) {
                 c.reset();
             }
+        }
+        if (variantColumn != null) {
+            variantColumn.reset();
         }
         appendIndex = 0;
         if (numNulls > 0) {
@@ -427,6 +441,8 @@ public class VectorColumn {
                 return appendInetAddress(DEFAULT_IPV4);
             case IPV6:
                 return appendInetAddress(DEFAULT_IPV6);
+            case UUID:
+                return appendUuid(DEFAULT_UUID);
             case FLOAT:
                 return appendFloat(0);
             case DOUBLE:
@@ -459,6 +475,8 @@ public class VectorColumn {
             case BINARY:
             case VARBINARY:
                 return appendVarbinary(new byte[0]);
+            case VARIANT:
+                return appendVariantNull();
             default:
                 throw new RuntimeException("Unknown type value: " + typeValue);
         }
@@ -975,6 +993,51 @@ public class VectorColumn {
         int typeSize = columnType.getTypeSize();
         byte[] bytes = TypeNativeBytes.getInetAddressBytes(v);
         OffHeap.copyMemory(bytes, OffHeap.BYTE_ARRAY_OFFSET, null, data + (long) rowId * typeSize, typeSize);
+    }
+
+    public UUID getUuid(int rowId) {
+        byte[] bytes = new byte[columnType.getTypeSize()];
+        OffHeap.copyMemory(null, data + (long) rowId * bytes.length, bytes,
+                OffHeap.BYTE_ARRAY_OFFSET, bytes.length);
+        return TypeNativeBytes.getUuid(bytes);
+    }
+
+    public UUID[] getUuidColumn(int start, int end) {
+        UUID[] result = new UUID[end - start];
+        for (int i = start; i < end; ++i) {
+            if (!isNullAt(i)) {
+                result[i - start] = getUuid(i);
+            }
+        }
+        return result;
+    }
+
+    public int appendUuid(UUID value) {
+        reserve(appendIndex + 1);
+        putUuid(appendIndex, value);
+        return appendIndex++;
+    }
+
+    public void appendUuid(UUID[] batch, boolean isNullable) {
+        if (!isNullable) {
+            checkNullable(batch, batch.length);
+        }
+        reserve(appendIndex + batch.length);
+        for (UUID value : batch) {
+            if (value == null) {
+                putNull(appendIndex);
+                putUuid(appendIndex, DEFAULT_UUID);
+            } else {
+                putUuid(appendIndex, value);
+            }
+            appendIndex++;
+        }
+    }
+
+    private void putUuid(int rowId, UUID value) {
+        byte[] bytes = TypeNativeBytes.getUuidBytes(value);
+        OffHeap.copyMemory(bytes, OffHeap.BYTE_ARRAY_OFFSET, null,
+                data + (long) rowId * bytes.length, bytes.length);
     }
 
     public int appendDecimal(BigDecimal v) {
@@ -1536,6 +1599,17 @@ public class VectorColumn {
         return appendIndex++;
     }
 
+    public int appendVariant(byte[] metadata, byte[] value) {
+        reserve(appendIndex + 1);
+        variantColumn.append(metadata, value);
+        return appendIndex++;
+    }
+
+    private int appendVariantNull() {
+        variantColumn.appendNull();
+        return appendIndex++;
+    }
+
     public void appendVarbinary(byte[][] batch, boolean isNullable) {
         if (!isNullable) {
             checkNullable(batch, batch.length);
@@ -1625,6 +1699,9 @@ public class VectorColumn {
             for (VectorColumn c : childColumns) {
                 c.updateMeta(meta);
             }
+        } else if (columnType.isVariantType()) {
+            meta.appendLong(nullMap);
+            variantColumn.updateMeta(meta);
         } else {
             meta.appendLong(nullMap);
             meta.appendLong(data);
@@ -1675,6 +1752,8 @@ public class VectorColumn {
             case IPV4:
             case IPV6:
                 return new InetAddress[size];
+            case UUID:
+                return new UUID[size];
             case FLOAT:
                 return new Float[size];
             case DOUBLE:
@@ -1734,6 +1813,9 @@ public class VectorColumn {
             case IPV4:
             case IPV6:
                 appendInetAddress((InetAddress[]) batch, isNullable);
+                break;
+            case UUID:
+                appendUuid((UUID[]) batch, isNullable);
                 break;
             case FLOAT:
                 appendFloat((Float[]) batch, isNullable);
@@ -1811,6 +1893,8 @@ public class VectorColumn {
             case IPV4:
             case IPV6:
                 return getInetAddressColumn(start, end);
+            case UUID:
+                return getUuidColumn(start, end);
             case FLOAT:
                 return getFloatColumn(start, end);
             case DOUBLE:
@@ -1874,6 +1958,9 @@ public class VectorColumn {
             case LARGEINT:
                 appendBigInteger(o.getBigInteger());
                 break;
+            case UUID:
+                appendUuid(o.getUuid());
+                break;
             case FLOAT:
                 appendFloat(o.getFloat());
                 break;
@@ -1918,6 +2005,9 @@ public class VectorColumn {
             case BINARY:
             case VARBINARY:
                 appendVarbinary(o.getBytes());
+                break;
+            case VARIANT:
+                appendVariant(o.getVariantMetadata(), o.getVariantValue());
                 break;
             case ARRAY: {
                 List<ColumnValue> values = new ArrayList<>();
@@ -1970,6 +2060,9 @@ public class VectorColumn {
                 break;
             case LARGEINT:
                 sb.append(getBigInteger(i));
+                break;
+            case UUID:
+                sb.append(getUuid(i));
                 break;
             case FLOAT:
                 sb.append(getFloat(i));
