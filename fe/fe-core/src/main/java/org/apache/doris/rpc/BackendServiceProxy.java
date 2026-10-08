@@ -346,6 +346,17 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PLanceIndexPrewarmResponse> prewarmLanceIndexAsync(
+            TNetworkAddress address, InternalService.PLanceIndexPrewarmRequest request, long timeoutMs)
+            throws RpcException {
+        try {
+            return getProxy(address).prewarmLanceIndexAsync(request, timeoutMs);
+        } catch (Exception e) {
+            // Requests contain vended storage credentials; never attach them or provider causes.
+            throw new RpcException(address.hostname, "Unable to submit Lance index prewarm RPC");
+        }
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             TNetworkAddress address, InternalService.PFetchTableSchemaRequest request) throws RpcException {
         try {

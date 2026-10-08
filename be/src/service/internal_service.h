@@ -75,6 +75,11 @@ public:
                                POutfileWriteSuccessResult* result,
                                google::protobuf::Closure* done) override;
 
+    void prewarm_lance_index(google::protobuf::RpcController* controller,
+                             const PLanceIndexPrewarmRequest* request,
+                             PLanceIndexPrewarmResponse* response,
+                             google::protobuf::Closure* done) override;
+
     void fetch_table_schema(google::protobuf::RpcController* controller,
                             const PFetchTableSchemaRequest* request,
                             PFetchTableSchemaResult* result,

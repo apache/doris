@@ -99,6 +99,7 @@ import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.WarmUpIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -1225,6 +1226,10 @@ public class StmtExecutor {
                 throw new RuntimeException(e);
             }
             return;
+        }
+        if (parsedStmt instanceof LogicalPlanAdapter
+                && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof WarmUpIndexCommand) {
+            ((WarmUpIndexCommand) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan()).cancel();
         }
         Optional<InsertOverwriteTableCommand> insertOverwriteTableCommand = getInsertOverwriteTableCommand();
         if (insertOverwriteTableCommand.isPresent()) {

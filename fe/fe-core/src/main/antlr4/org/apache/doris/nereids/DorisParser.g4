@@ -538,6 +538,8 @@ supportedOtherStatement
     | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #restore
+    | WARM UP INDEX indexName=identifier ON tableName=multipartIdentifier
+        (WITH COMPUTE GROUP computeGroup=identifier)?                               #warmUpIndex
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?

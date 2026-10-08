@@ -924,6 +924,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCom
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
+import org.apache.doris.nereids.trees.plans.commands.WarmUpIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterRepositoryCommand;
@@ -9511,6 +9512,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String password = stripQuotes(ctx.STRING_LITERAL().getText());
         boolean isPlain = ctx.PASSWORD() == null;
         return new UserDesc(userIdentity, new PassVar(password, isPlain));
+    }
+
+    @Override
+    public LogicalPlan visitWarmUpIndex(DorisParser.WarmUpIndexContext ctx) {
+        return new WarmUpIndexCommand(new TableNameInfo(visitMultipartIdentifier(ctx.tableName)),
+                ctx.indexName.getText(), ctx.computeGroup == null ? null : ctx.computeGroup.getText());
     }
 
     @Override

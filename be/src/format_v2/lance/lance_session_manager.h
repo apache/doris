@@ -58,11 +58,17 @@ public:
     Status open_dataset(const char* uri, const char* const* storage_options, uint64_t version,
                         LanceDataset** dataset);
 
+    Status prewarm_index(const char* uri, const char* const* storage_options, uint64_t version,
+                         const char* index_name);
+
 private:
     Status _initialize();
+    Status _open_dataset(const char* uri, const char* const* storage_options, uint64_t version,
+                         LanceDataset** dataset, bool redact_errors);
 
     Config _config;
     std::once_flag _initialize_once;
+    std::mutex _prewarm_mutex;
     LanceSession* _session = nullptr;
     std::unique_ptr<LanceSessionMetrics> _metrics;
     Status _initialize_status = Status::OK();
