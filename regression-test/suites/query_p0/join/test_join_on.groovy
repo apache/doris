@@ -16,40 +16,44 @@
 // under the License.
 
 suite("test_join_on", "query_p0") {
+    withGlobalLock("enable_non_aggregate_table_state_types") {
+        setFeConfigTemporary([enable_non_aggregate_table_state_types: true]) {
 
-    sql "DROP TABLE IF EXISTS join_on"
-    sql """
-     CREATE TABLE join_on (
-      `k1` int(11) NULL,
-       d_array ARRAY<int> ,
-       hll_col HLL ,
-      `k3` bitmap,
-    ) ENGINE=OLAP
-    DUPLICATE KEY(`k1`)
-    COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`k1`) BUCKETS 4
-    PROPERTIES (
-    "replication_allocation" = "tag.location.default: 1"
-    );
-    """
-    sql """insert into join_on values (1, [1, 2], hll_hash(1), bitmap_from_string('1, 3, 5, 7, 9, 11, 13, 99, 19910811, 20150402')); """
-    sql """insert into join_on values (2, [2, 3], hll_hash(2), bitmap_from_string('2, 4, 6, 8, 10, 12, 14, 100, 19910812, 20150403')); """
-    qt_sql """ select * from join_on order by k1; """
-    test {
-        sql """ select * from join_on as j1 inner join join_on as j2 on j1.hll_col = j2.hll_col; """
-        exception "errCode = 2"
+            sql "DROP TABLE IF EXISTS join_on"
+            sql """
+             CREATE TABLE join_on (
+              `k1` int(11) NULL,
+               d_array ARRAY<int> ,
+               hll_col HLL ,
+              `k3` bitmap,
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 4
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+            """
+            sql """insert into join_on values (1, [1, 2], hll_hash(1), bitmap_from_string('1, 3, 5, 7, 9, 11, 13, 99, 19910811, 20150402')); """
+            sql """insert into join_on values (2, [2, 3], hll_hash(2), bitmap_from_string('2, 4, 6, 8, 10, 12, 14, 100, 19910812, 20150403')); """
+            qt_sql """ select * from join_on order by k1; """
+            test {
+                sql """ select * from join_on as j1 inner join join_on as j2 on j1.hll_col = j2.hll_col; """
+                exception "errCode = 2"
+            }
+
+            test {
+                sql """ select * from join_on as j1 inner join join_on as j2 on j1.k3 = j2.k3; """
+                exception "errCode = 2"
+            }
+
+            // Variant keys use canonical equality in join conditions.
+            order_qt_variant_join """
+                select t1.id, t2.id
+                from (select 1 as id, cast('x' as variant) as a union all select 2, cast(1 as variant)) t1
+                join (select 3 as id, parse_to_variant('"x"') as a union all select 4, parse_to_variant('1.0')) t2
+                  on t1.a = t2.a
+            """
+        }
     }
-
-    test {
-        sql """ select * from join_on as j1 inner join join_on as j2 on j1.k3 = j2.k3; """
-        exception "errCode = 2"
-    }
-
-    // Variant keys use canonical equality in join conditions.
-    order_qt_variant_join """
-        select t1.id, t2.id
-        from (select 1 as id, cast('x' as variant) as a union all select 2, cast(1 as variant)) t1
-        join (select 3 as id, parse_to_variant('"x"') as a union all select 4, parse_to_variant('1.0')) t2
-          on t1.a = t2.a
-    """
 }

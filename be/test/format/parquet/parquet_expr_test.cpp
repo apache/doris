@@ -1087,6 +1087,25 @@ TEST_F(ParquetExprTest, test_is_null_2) { // int32_partial_null_col is null
     }
 }
 
+TEST_F(ParquetExprTest, uuid_statistics_preserve_binary_carrier) {
+    FieldSchema schema;
+    schema.parquet_schema.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    schema.parquet_schema.__set_type_length(16);
+    tparquet::LogicalType logical_type;
+    logical_type.__set_UUID(tparquet::UUIDType());
+    schema.parquet_schema.__set_logicalType(logical_type);
+    schema.data_type = std::make_shared<DataTypeString>();
+    const std::string minimum(16, '\0');
+    const std::string maximum(16, '\xff');
+    Field min_field;
+    Field max_field;
+    ASSERT_TRUE(ParquetPredicate::parse_min_max_value(&schema, minimum, maximum,
+                                                      cctz::utc_time_zone(), &min_field, &max_field)
+                        .ok());
+    EXPECT_EQ(min_field.get<TYPE_STRING>(), minimum);
+    EXPECT_EQ(max_field.get<TYPE_STRING>(), maximum);
+}
+
 TEST_F(ParquetExprTest, test_min_max_p) {
     auto f = [&](int column_id, int row_group, Field* min_field, Field* max_field) {
         auto col_schema = doris_file_metadata->schema().get_column(column_id);

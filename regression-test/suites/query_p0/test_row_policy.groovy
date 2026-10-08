@@ -37,7 +37,7 @@ suite("test_row_policy") {
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
-    connect(user, '123456', url) {
+    connectToDoris(user, '123456', url) {
         sql "SELECT * FROM ${tableName} a JOIN ${tableName} b ON a.id = b.id"
     }
 

@@ -127,6 +127,7 @@ public class ExprGsonSerializationTest {
         samples.put(EncryptKeyRef.class, new EncryptKeyRef(new EncryptKeyName(Arrays.asList("db1", "key1"))));
         samples.put(FunctionCallExpr.class, createFunctionCallExpr());
         samples.put(LambdaFunctionCallExpr.class, createLambdaFunctionCallExpr());
+        samples.put(ShortCircuitFunctionCallExpr.class, createShortCircuitFunctionCallExpr());
         samples.put(InformationFunction.class, createInformationFunction());
         samples.put(LambdaFunctionExpr.class, createLambdaFunctionExpr());
         samples.put(ArrayLiteral.class, new ArrayLiteral(new ArrayType(Type.INT), new IntLiteral(1L), new IntLiteral(2L)));
@@ -149,6 +150,7 @@ public class ExprGsonSerializationTest {
         samples.put(TimeStampNsLiteral.class,
                 new TimeStampNsLiteral(2024, 4, 27, 12, 34, 56, 123456789));
         samples.put(TimeV2Literal.class, new TimeV2Literal(12, 34, 56, 123456, 6, false));
+        samples.put(UuidLiteral.class, new UuidLiteral("550e8400-e29b-41d4-a716-446655440000"));
         samples.put(VarBinaryLiteral.class, new VarBinaryLiteral("bin".getBytes(StandardCharsets.UTF_8)));
         samples.put(BetweenPredicate.class, createBetweenPredicate());
         samples.put(BinaryPredicate.class, createBinaryPredicate());
@@ -178,6 +180,14 @@ public class ExprGsonSerializationTest {
                 createLambdaFunctionExpr(),
                 new ArrayLiteral(arrayType, new IntLiteral(1L), new IntLiteral(2L))));
         return new LambdaFunctionCallExpr(function, params, false);
+    }
+
+    private ShortCircuitFunctionCallExpr createShortCircuitFunctionCallExpr() {
+        ScalarFunction function = new ScalarFunction(new FunctionName("if"),
+                Arrays.asList(Type.BOOLEAN, Type.INT, Type.INT), Type.INT, false, true);
+        FunctionParams params = new FunctionParams(Arrays.asList(
+                new BoolLiteral(true), new IntLiteral(1L), new IntLiteral(0L)));
+        return new ShortCircuitFunctionCallExpr(function, params, false);
     }
 
     private ColumnRefExpr createColumnRefExpr() {

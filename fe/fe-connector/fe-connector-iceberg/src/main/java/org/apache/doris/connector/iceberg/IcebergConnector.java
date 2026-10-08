@@ -852,6 +852,10 @@ public class IcebergConnector implements Connector {
         // avoidance). Correct only because the connector also carries per-field ids down its column tree
         // (parseSchema withUniqueId + IcebergTypeMapping withChildrenFieldIds), which the BE field-id scan
         // path matches nested leaves by; without them a nested leaf reads NULL. Inert pre-cutover (P6.6).
+        // SUPPORTS_FIELD_ID_ACCESS_PATH: those same per-field ids are what the access-path rewrite addresses by,
+        // so iceberg declares BOTH bits. They are separate because a connector without field ids (paimon, fluss)
+        // honours a pruned nested type while being addressed by name, and rewriting its paths to ids would emit
+        // "-1" segments BE matches against nothing.
         // SUPPORTS_STORAGE_PREDICATE_PRUNING: native Iceberg data scans use the Parquet/ORC readers that can
         // consume inferred bare-column ranges for min/max pruning. PluginDrivenSysExternalTable opts metadata
         // tables out separately, so this catalog-wide declaration applies only to normal data-table scans.
@@ -870,6 +874,7 @@ public class IcebergConnector implements Connector {
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
                 ConnectorCapability.SUPPORTS_VIEW,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH,
                 ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                 ConnectorCapability.SUPPORTS_METADATA_PRELOAD,
                 ConnectorCapability.SUPPORTS_SORT_ORDER,

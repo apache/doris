@@ -51,6 +51,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.NumericLiteralExpr;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.SearchPredicate;
+import org.apache.doris.analysis.ShortCircuitFunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.StructLiteral;
@@ -58,6 +59,7 @@ import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.TimeV2Literal;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TryCastExpr;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
@@ -126,6 +128,7 @@ public class GsonUtilsCatalog {
             .registerSubtype(EncryptKeyRef.class, EncryptKeyRef.class.getSimpleName())
             .registerSubtype(FunctionCallExpr.class, FunctionCallExpr.class.getSimpleName())
             .registerSubtype(LambdaFunctionCallExpr.class, LambdaFunctionCallExpr.class.getSimpleName())
+            .registerSubtype(ShortCircuitFunctionCallExpr.class, ShortCircuitFunctionCallExpr.class.getSimpleName())
             .registerSubtype(InformationFunction.class, InformationFunction.class.getSimpleName())
             .registerSubtype(LambdaFunctionExpr.class, LambdaFunctionExpr.class.getSimpleName())
             .registerSubtype(LiteralExpr.class, LiteralExpr.class.getSimpleName())
@@ -135,6 +138,7 @@ public class GsonUtilsCatalog {
             .registerSubtype(TimeStampNsLiteral.class, TimeStampNsLiteral.class.getSimpleName())
             .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
             .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
+            .registerSubtype(UuidLiteral.class, UuidLiteral.class.getSimpleName())
             .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
             .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
             .registerSubtype(MaxLiteral.class, MaxLiteral.class.getSimpleName())

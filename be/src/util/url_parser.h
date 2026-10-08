@@ -72,6 +72,10 @@ private:
     // '#' comes before the first '?' because the '?' then belongs to the fragment.
     static bool find_query_component(const StringRef& url, StringRef* query);
 
+    // Returns the authority component of url, which has already had its protocol stripped.
+    // The authority ends at the first '/', '?' or '#'.
+    static StringRef find_authority(const StringRef& protocol_end);
+
     // Constants representing parts of a URL.
     static const StringRef _s_url_authority;
     static const StringRef _s_url_file;

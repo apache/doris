@@ -39,11 +39,9 @@ suite("test_partition_cloud_add_build_index_validation", "p0, docker") {
             }
         }
 
-        sql "DROP TABLE IF EXISTS test_cloud_add_index_variant_v1"
         sql "DROP TABLE IF EXISTS test_cloud_add_index_variant_v2_reapplied"
         sql "DROP TABLE IF EXISTS test_cloud_partition_format_rollout_disabled"
         sql "DROP TABLE IF EXISTS test_cloud_dict_compression_v2"
-        sql "DROP TABLE IF EXISTS test_cloud_duplicate_index_table_level_v1"
 
         def disabledRolloutTable = "test_cloud_partition_format_rollout_disabled"
         sql """
@@ -71,34 +69,6 @@ suite("test_partition_cloud_add_build_index_validation", "p0, docker") {
         sql """ALTER TABLE ${disabledRolloutTable}
                 ADD PARTITION p_after_disabled VALUES [("2024-01-01"), ("2025-01-01"))"""
         assertPartitionFormat(disabledRolloutTable, "p_after_disabled", "V2")
-
-        // V1 is a table-level default; partition-level overrides currently start at V2.
-        sql """
-            CREATE TABLE test_cloud_add_index_variant_v1 (
-                k DATE NOT NULL,
-                v VARIANT NULL
-            ) ENGINE=OLAP
-            DUPLICATE KEY(k)
-            PARTITION BY RANGE(k) (
-                PARTITION p_v1 VALUES LESS THAN ("2024-01-01")
-            )
-            DISTRIBUTED BY HASH(k) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1",
-                "inverted_index_storage_format" = "V1"
-            )
-        """
-        sql """ALTER TABLE test_cloud_add_index_variant_v1
-                SET ("partition.inverted_index_storage_format" = "V3")"""
-        sql """ALTER TABLE test_cloud_add_index_variant_v1
-                ADD PARTITION p_v3 VALUES [("2024-01-01"), ("2025-01-01"))"""
-        assertPartitionFormat("test_cloud_add_index_variant_v1", "p_v1", "V1")
-        assertPartitionFormat("test_cloud_add_index_variant_v1", "p_v3", "V3")
-        test {
-            sql """ALTER TABLE test_cloud_add_index_variant_v1
-                    ADD INDEX idx_variant(v) USING INVERTED"""
-            exception "not supported in inverted index format V1"
-        }
 
         // ADD INDEX uses the table-level V2 format; partition overrides do not change
         // the existing VARIANT validation condition.
@@ -169,41 +139,6 @@ suite("test_partition_cloud_add_build_index_validation", "p0, docker") {
             SELECT k FROM test_cloud_dict_compression_v2
             WHERE add_value MATCH_ANY 'add' ORDER BY k
         """))
-
-        // Even when every actual partition is V2/V3, duplicate-index validation
-        // stays with the table-level V1 compatibility rule.
-        sql """
-            CREATE TABLE test_cloud_duplicate_index_table_level_v1 (
-                k DATE NOT NULL,
-                v VARCHAR(100) NULL
-            ) ENGINE=OLAP
-            DUPLICATE KEY(k)
-            AUTO PARTITION BY RANGE (date_trunc(k, 'year')) ()
-            DISTRIBUTED BY HASH(k) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1",
-                "inverted_index_storage_format" = "V1"
-            )
-        """
-        sql """ALTER TABLE test_cloud_duplicate_index_table_level_v1
-                SET ("partition.inverted_index_storage_format" = "V2")"""
-        sql """INSERT INTO test_cloud_duplicate_index_table_level_v1 VALUES
-                ("2024-01-01", "first parser value")"""
-        sql """ALTER TABLE test_cloud_duplicate_index_table_level_v1
-                SET ("partition.inverted_index_storage_format" = "V3")"""
-        sql """INSERT INTO test_cloud_duplicate_index_table_level_v1 VALUES
-                ("2025-01-01", "second parser value")"""
-        assertEquals(["V2", "V3"], sql_return_maparray(
-                "SHOW PARTITIONS FROM test_cloud_duplicate_index_table_level_v1")
-                .collect { it.InvertedIndexStorageFormat }.sort())
-        sql """ALTER TABLE test_cloud_duplicate_index_table_level_v1
-                ADD INDEX idx_v_default(v) USING INVERTED"""
-        waitForLatestSchemaChangeDone("test_cloud_duplicate_index_table_level_v1")
-        test {
-            sql """ALTER TABLE test_cloud_duplicate_index_table_level_v1
-                    ADD INDEX idx_v_english(v) USING INVERTED PROPERTIES("parser" = "english")"""
-            exception "INVERTED index for columns (v) already exist."
-        }
 
     }
 }

@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -65,6 +66,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -2131,57 +2133,94 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void planScanHistoricalPredicateSurvivesColumnRename() {
-        assertHistoricalPredicatePlansAfterSchemaEvolution(false);
+    public void planScanHistoricalPredicateSurvivesColumnRename() throws IOException {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false, false);
     }
 
     @Test
-    public void planScanHistoricalPredicateSurvivesColumnDrop() {
-        assertHistoricalPredicatePlansAfterSchemaEvolution(true);
+    public void planScanHistoricalPredicateSurvivesColumnDrop() throws IOException {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true, false);
     }
 
-    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn) {
-        Schema historicalSchema = new Schema(
-                Types.NestedField.optional(1, "x", Types.IntegerType.get()),
-                Types.NestedField.optional(2, "y", Types.IntegerType.get()),
-                Types.NestedField.optional(3, "part", Types.IntegerType.get()));
-        Table table = createTable(
-                "historical_predicate_after_" + (dropColumn ? "drop" : "rename"),
-                historicalSchema, PartitionSpec.unpartitioned(),
-                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
-        table.newFastAppend()
-                .appendFile(dataFile(table.spec(), "s3://b/db/historical.parquet", 1024, null, null))
-                .commit();
-        long historicalSnapshotId = table.currentSnapshot().snapshotId();
-        int historicalSchemaId = table.currentSnapshot().schemaId();
+    @Test
+    public void historicalPlanningIgnoresUnusedConflictingPartitionSpecs() throws IOException {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false, true);
+    }
 
-        if (dropColumn) {
-            table.updateSchema().deleteColumn("x").commit();
-        } else {
-            table.updateSchema().renameColumn("x", "renamed_x").commit();
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn, boolean evolveSpec)
+            throws IOException {
+        for (boolean partitioned : new boolean[] {false, true}) {
+            Schema historicalSchema = new Schema(
+                    Types.NestedField.optional(1, "x", Types.IntegerType.get()),
+                    Types.NestedField.optional(2, "y", Types.IntegerType.get()),
+                    Types.NestedField.optional(3, "part", Types.IntegerType.get()));
+            PartitionSpec spec = partitioned ? PartitionSpec.builderFor(historicalSchema).identity("part").build()
+                    : PartitionSpec.unpartitioned();
+            Table table = createTable("historical_predicate_" + dropColumn + "_" + partitioned,
+                    historicalSchema, spec, Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+            table.newFastAppend().appendFile(dataFile(table.spec(), "s3://b/db/historical.parquet",
+                    1024, null, partitioned ? "part=2" : null)).commit();
+            if (partitioned) {
+                // Both manifests belong to the selected snapshot; snapshot selection alone cannot prune this one.
+                table.newFastAppend().appendFile(dataFile(table.spec(), "s3://b/db/nonmatching.parquet",
+                        1024, null, "part=3")).commit();
+            }
+            long snapshotId = table.currentSnapshot().snapshotId();
+            int schemaId = table.currentSnapshot().schemaId();
+            if (dropColumn) {
+                table.updateSchema().deleteColumn("x").commit();
+            } else {
+                table.updateSchema().renameColumn("x", "renamed_x").commit();
+            }
+            if (evolveSpec) {
+                // This newer spec is unused by the snapshot and conflicts with its old column name.
+                table.updateSpec().addField("x", Expressions.ref("y")).commit();
+            }
+            Assertions.assertEquals(snapshotId, table.currentSnapshot().snapshotId());
+            assertHistoricalPredicatePlans(table, snapshotId, schemaId, partitioned);
+            if (evolveSpec) {
+                continue;
+            }
+            table.newFastAppend().appendFile(dataFile(table.spec(), "s3://b/db/current.parquet",
+                    1024, null, partitioned ? "part=3" : null)).commit();
+            assertHistoricalPredicatePlans(table, snapshotId, schemaId, partitioned);
+            // A reused name has a different field ID and must not change historical predicate binding.
+            table.updateSchema().addColumn("x", Types.IntegerType.get()).commit();
+            assertHistoricalPredicatePlans(table, snapshotId, schemaId, partitioned);
         }
-
-        assertHistoricalPredicatePlans(table, historicalSnapshotId, historicalSchemaId);
-
-        table.newFastAppend()
-                .appendFile(dataFile(table.spec(), "s3://b/db/current.parquet", 1024, null, null))
-                .commit();
-
-        assertHistoricalPredicatePlans(table, historicalSnapshotId, historicalSchemaId);
     }
 
     private static void assertHistoricalPredicatePlans(
-            Table table, long historicalSnapshotId, int historicalSchemaId) {
-        IcebergTableHandle historicalHandle = new IcebergTableHandle("db1", "t1")
-                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
-        List<ConnectorScanRange> ranges = providerOver(table).planScan(
-                emptySession(), ConnectorScanRequest.builder(historicalHandle, Collections.emptyList())
-                        .filter(Optional.of(eqInt("x", 1)))
-                        .build());
-
-        // Historical predicates must remain bound to the snapshot schema after later schema evolution.
-        Assertions.assertEquals(1, ranges.size());
-        Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("historical.parquet"));
+            Table table, long snapshotId, int schemaId, boolean partitioned) throws IOException {
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1").withSnapshot(snapshotId, null, schemaId);
+        Optional<ConnectorExpression> filter = Optional.of(new ConnectorAnd(
+                Arrays.asList(eqInt("x", 1), eqInt("part", 2))));
+        for (boolean cacheEnabled : new boolean[] {false, true}) {
+            IcebergManifestCache cache = new IcebergManifestCache();
+            IcebergScanPlanProvider provider = cacheEnabled
+                    ? manifestProvider(manifestCacheProps(), table, cache) : providerOver(table);
+            ConnectorSession session = emptySession();
+            List<ConnectorScanRange> ranges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, Collections.emptyList()).filter(filter).build());
+            Assertions.assertEquals(1, ranges.size());
+            Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("historical.parquet"));
+            if (cacheEnabled) {
+                // Correct rows alone do not prove the cache path succeeded instead of falling back to the SDK.
+                long[] stats = cache.takeStats(session.getQueryId());
+                Assertions.assertTrue(stats[0] + stats[1] > 0);
+                Assertions.assertEquals(0L, stats[2]);
+            }
+            Assertions.assertEquals(1L, provider.streamingSplitEstimate(batchSession(1, true), handle, filter, false));
+            if (partitioned) {
+                Assertions.assertEquals(2, table.snapshot(snapshotId).dataManifests(table.io()).size());
+                Assertions.assertEquals(-1L,
+                        provider.streamingSplitEstimate(batchSession(2, true), handle, filter, false),
+                        "the nonmatching manifest must not enable streaming at a two-file threshold");
+            }
+            List<ConnectorScanRange> streamed = drain(provider.streamSplits(
+                    batchSession(1, true), handle, Collections.emptyList(), filter, -1L));
+            Assertions.assertEquals(sortedPaths(ranges), sortedPaths(streamed));
+        }
     }
 
     @Test
