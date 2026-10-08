@@ -172,7 +172,7 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
     }
     _key_columns_holder.clear();
     _probe_block.clear_column_data(
-            _parent->get_child()->operator_row_desc_after_projection().num_materialized_slots());
+            _parent->get_child()->operator_row_desc_after_projection().num_slots());
 }
 
 HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
@@ -233,7 +233,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, eos,
                                                                  &local_state._probe_block, false));
         local_state._probe_block.clear_column_data(
-                _child->operator_row_desc_after_projection().num_materialized_slots());
+                _child->operator_row_desc_after_projection().num_slots());
         return Status::OK();
     }
 
