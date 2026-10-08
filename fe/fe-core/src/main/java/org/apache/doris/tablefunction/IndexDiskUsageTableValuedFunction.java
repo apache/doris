@@ -50,6 +50,7 @@ import org.apache.doris.thrift.TIndexDiskUsageTablet;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -61,6 +62,8 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -81,6 +84,8 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
     private static final ImmutableSet<String> PROPERTIES_SET =
             ImmutableSet.of(DATABASE, TABLE, PARTITIONS, INDEXES, LEVEL, POSITION_DETAIL);
     private static final ImmutableSet<String> LEVELS = ImmutableSet.of("tablet", "rowset", "segment");
+    // How many times the cloud snapshot is attempted when a rollup or partition changes during the fetch.
+    private static final int MAX_SNAPSHOT_ATTEMPTS = 3;
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             varcharColumn("PARTITION_NAME"),
@@ -160,6 +165,13 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
     private final List<TabletTarget> tabletTargets;
 
     public IndexDiskUsageTableValuedFunction(Map<String, String> params) throws AnalysisException {
+        this(params, IndexDiskUsageTableValuedFunction::cloudVisibleVersions);
+    }
+
+    // `cloudVersions` reads the visible versions of partitions from meta-service in cloud mode.
+    @VisibleForTesting
+    IndexDiskUsageTableValuedFunction(Map<String, String> params,
+            Function<List<Partition>, List<Long>> cloudVersions) throws AnalysisException {
         Map<String, String> validParams = Maps.newHashMap();
         for (Map.Entry<String, String> entry : params.entrySet()) {
             String key = entry.getKey().toLowerCase();
@@ -178,53 +190,105 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         checkShowPrivilege(dbName, tableName);
 
         OlapTable table = getOlapTable(dbName, tableName);
-        String qualifiedName = dbName + "." + tableName;
-        List<Long> resolvedIndexIds;
-        List<Partition> partitions;
-        Map<Long, String> resolvedPartitionNames = Maps.newLinkedHashMap();
-        Map<Long, String> resolvedMaterializedIndexNames = Maps.newLinkedHashMap();
-        Map<Long, List<Pair<Long, List<Tablet>>>> tabletsByPartition = Maps.newHashMap();
-        List<Long> versions = null;
+        Snapshot snapshot = takeConsistentSnapshot(table, validParams, dbName + "." + tableName, cloudVersions);
+        List<TabletTarget> targets = Lists.newArrayList();
+        for (int i = 0; i < snapshot.partitions.size(); ++i) {
+            long partitionId = snapshot.partitions.get(i).getId();
+            for (Pair<Long, List<Tablet>> indexTablets : snapshot.tabletsByPartition.get(partitionId)) {
+                for (Tablet tablet : indexTablets.second) {
+                    targets.add(new TabletTarget(tablet, partitionId, indexTablets.first, snapshot.versions.get(i)));
+                }
+            }
+        }
+        this.indexIds = ImmutableList.copyOf(snapshot.indexIds);
+        this.partitionNames = snapshot.partitionNames;
+        this.materializedIndexNames = snapshot.materializedIndexNames;
+        this.tabletTargets = ImmutableList.copyOf(targets);
+    }
+
+    // The tablets of the selected partitions, copied under the table lock, with the visible version of
+    // each partition.
+    private static final class Snapshot {
+        private List<Long> indexIds;
+        private List<Partition> partitions;
+        private final Map<Long, String> partitionNames = Maps.newLinkedHashMap();
+        private final Map<Long, String> materializedIndexNames = Maps.newLinkedHashMap();
+        private final Map<Long, List<Pair<Long, List<Tablet>>>> tabletsByPartition = Maps.newHashMap();
+        private List<Long> versions;
+    }
+
+    private Snapshot takeSnapshot(OlapTable table, Map<String, String> params, String qualifiedName) {
+        Snapshot snapshot = new Snapshot();
         table.readLock();
         try {
-            resolvedIndexIds = resolveIndexIds(table, validParams.get(INDEXES), qualifiedName);
-            partitions = resolvePartitions(table, validParams.get(PARTITIONS), qualifiedName);
+            snapshot.indexIds = resolveIndexIds(table, params.get(INDEXES), qualifiedName);
+            snapshot.partitions = resolvePartitions(table, params.get(PARTITIONS), qualifiedName);
             // Counting is cheap, so an over-limit request fails before anything is copied or fetched.
-            checkTabletLimits(countTablets(partitions));
-            for (Partition partition : partitions) {
-                resolvedPartitionNames.put(partition.getId(), partition.getName());
+            checkTabletLimits(countTablets(snapshot.partitions));
+            for (Partition partition : snapshot.partitions) {
+                snapshot.partitionNames.put(partition.getId(), partition.getName());
                 // A light ADD INDEX also installs indexes on rollups, so their tablets can hold index files.
                 List<Pair<Long, List<Tablet>>> indexTablets = Lists.newArrayList();
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                    resolvedMaterializedIndexNames.putIfAbsent(index.getId(), table.getIndexNameById(index.getId()));
+                    snapshot.materializedIndexNames.putIfAbsent(index.getId(),
+                            table.getIndexNameById(index.getId()));
                     indexTablets.add(Pair.of(index.getId(), Lists.newArrayList(index.getTablets())));
                 }
-                tabletsByPartition.put(partition.getId(), indexTablets);
+                snapshot.tabletsByPartition.put(partition.getId(), indexTablets);
             }
             // Local replica choice filters replicas by version, so read it with the tablets it applies to.
             if (!Config.isCloudMode()) {
-                versions = partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
+                snapshot.versions = snapshot.partitions.stream().map(Partition::getVisibleVersion)
+                        .collect(Collectors.toList());
             }
         } finally {
             table.readUnlock();
         }
-        // Cloud versions come from meta-service, so they are fetched without holding the table lock.
-        if (versions == null) {
-            versions = cloudVisibleVersions(partitions);
-        }
-        List<TabletTarget> targets = Lists.newArrayList();
-        for (int i = 0; i < partitions.size(); ++i) {
-            long partitionId = partitions.get(i).getId();
-            for (Pair<Long, List<Tablet>> indexTablets : tabletsByPartition.get(partitionId)) {
-                for (Tablet tablet : indexTablets.second) {
-                    targets.add(new TabletTarget(tablet, partitionId, indexTablets.first, versions.get(i)));
-                }
+        return snapshot;
+    }
+
+    // Cloud versions come from meta-service, so they are fetched without holding the table lock. A
+    // rollup that is dropped meanwhile would pair its tablets with a version they never received, and
+    // one that becomes visible would be missing from the copy, so the partitions and their visible
+    // indexes are checked again after the fetch.
+    private Snapshot takeConsistentSnapshot(OlapTable table, Map<String, String> params,
+            String qualifiedName, Function<List<Partition>, List<Long>> cloudVersions) {
+        for (int attempt = 1;; ++attempt) {
+            Snapshot snapshot = takeSnapshot(table, params, qualifiedName);
+            if (!Config.isCloudMode()) {
+                return snapshot;
+            }
+            snapshot.versions = cloudVersions.apply(snapshot.partitions);
+            if (isUnchanged(table, snapshot)) {
+                return snapshot;
+            }
+            if (attempt == MAX_SNAPSHOT_ATTEMPTS) {
+                throw new AnalysisException("The partitions or rollups of table " + qualifiedName
+                        + " kept changing while index_disk_usage collected their tablets, please retry");
             }
         }
-        this.indexIds = ImmutableList.copyOf(resolvedIndexIds);
-        this.partitionNames = resolvedPartitionNames;
-        this.materializedIndexNames = resolvedMaterializedIndexNames;
-        this.tabletTargets = ImmutableList.copyOf(targets);
+    }
+
+    private static boolean isUnchanged(OlapTable table, Snapshot snapshot) {
+        table.readLock();
+        try {
+            for (Partition partition : snapshot.partitions) {
+                Partition current = table.getPartition(partition.getId());
+                if (current == null) {
+                    return false;
+                }
+                Set<Long> currentIndexIds = current.getMaterializedIndices(IndexExtState.VISIBLE).stream()
+                        .map(MaterializedIndex::getId).collect(Collectors.toSet());
+                Set<Long> copiedIndexIds = snapshot.tabletsByPartition.get(partition.getId()).stream()
+                        .map(indexTablets -> indexTablets.first).collect(Collectors.toSet());
+                if (!currentIndexIds.equals(copiedIndexIds)) {
+                    return false;
+                }
+            }
+            return true;
+        } finally {
+            table.readUnlock();
+        }
     }
 
     public List<TabletTarget> getTabletTargets() {

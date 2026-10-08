@@ -28,6 +28,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -53,6 +54,9 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class IndexDiskUsageTableValuedFunctionTest {
@@ -278,6 +282,134 @@ public class IndexDiskUsageTableValuedFunctionTest {
         Assertions.assertEquals(5L, targets.get(2).getVersion());
         Assertions.assertEquals(ImmutableMap.of(BASE_INDEX_ID, "logs", 2000L, "r_msg"),
                 tvf.getMetaScanRange(Lists.newArrayList()).getIndexDiskUsageParams().getMaterializedIndexNames());
+    }
+
+    @Test
+    public void testCloudSnapshotFetchesVersionsOnceWhenLayoutIsStable() throws Exception {
+        withCloudMode(() -> {
+            mockCloudTable();
+            AtomicInteger fetches = new AtomicInteger();
+            IndexDiskUsageTableValuedFunction tvf = new IndexDiskUsageTableValuedFunction(
+                    params("table", "cloud_logs", "partitions", "p1"), partitions -> {
+                        fetches.incrementAndGet();
+                        return partitions.stream().map(partition -> 9L).collect(Collectors.toList());
+                    });
+            Assertions.assertEquals(1, fetches.get());
+            Assertions.assertEquals(Arrays.asList(101L, 102L), tabletIds(tvf));
+            Assertions.assertEquals(9L, tvf.getTabletTargets().get(0).getVersion());
+        });
+    }
+
+    // A rollup dropped while the versions are read would be paired with a version its tablets never
+    // received, so the snapshot is taken again without it.
+    @Test
+    public void testCloudSnapshotIsTakenAgainWhenRollupIsDroppedDuringVersionFetch() throws Exception {
+        withCloudMode(() -> {
+            OlapTable table = mockCloudTable();
+            Partition p1 = table.getPartition("p1", false);
+            MaterializedIndex baseIndex = p1.getBaseIndex();
+            AtomicReference<List<MaterializedIndex>> visible =
+                    new AtomicReference<>(Arrays.asList(baseIndex, mockRollup(2000L, 201L)));
+            Mockito.when(p1.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
+                    .thenAnswer(invocation -> visible.get());
+            AtomicInteger fetches = new AtomicInteger();
+
+            IndexDiskUsageTableValuedFunction tvf = new IndexDiskUsageTableValuedFunction(
+                    params("table", "cloud_logs", "partitions", "p1"), partitions -> {
+                        if (fetches.getAndIncrement() == 0) {
+                            visible.set(Arrays.asList(baseIndex));
+                        }
+                        return partitions.stream().map(partition -> 9L).collect(Collectors.toList());
+                    });
+            Assertions.assertEquals(2, fetches.get());
+            Assertions.assertEquals(Arrays.asList(101L, 102L), tabletIds(tvf));
+        });
+    }
+
+    @Test
+    public void testCloudSnapshotFailsWhenRollupsKeepChanging() throws Exception {
+        withCloudMode(() -> {
+            OlapTable table = mockCloudTable();
+            Partition p1 = table.getPartition("p1", false);
+            AtomicReference<List<MaterializedIndex>> visible =
+                    new AtomicReference<>(Arrays.asList(p1.getBaseIndex()));
+            Mockito.when(p1.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
+                    .thenAnswer(invocation -> visible.get());
+            AtomicInteger fetches = new AtomicInteger();
+
+            AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                    () -> new IndexDiskUsageTableValuedFunction(
+                            params("table", "cloud_logs", "partitions", "p1"), partitions -> {
+                                // Another rollup becomes visible during every fetch.
+                                List<MaterializedIndex> next = Lists.newArrayList(visible.get());
+                                int attempt = fetches.incrementAndGet();
+                                next.add(mockRollup(3000L + attempt, 300L + attempt));
+                                visible.set(next);
+                                return partitions.stream().map(partition -> 9L).collect(Collectors.toList());
+                            }));
+            Assertions.assertTrue(e.getMessage().contains("kept changing"), e.getMessage());
+            Assertions.assertEquals(3, fetches.get());
+        });
+    }
+
+    @Test
+    public void testCloudSnapshotReportsPartitionDroppedDuringVersionFetch() throws Exception {
+        withCloudMode(() -> {
+            OlapTable table = mockCloudTable();
+            Partition p1 = table.getPartition("p1", false);
+            AtomicBoolean dropped = new AtomicBoolean();
+            Mockito.when(table.getPartition("p1", false)).thenAnswer(invocation -> dropped.get() ? null : p1);
+            Mockito.when(table.getPartition(10L)).thenAnswer(invocation -> dropped.get() ? null : p1);
+
+            AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                    () -> new IndexDiskUsageTableValuedFunction(
+                            params("table", "cloud_logs", "partitions", "p1"), partitions -> {
+                                dropped.set(true);
+                                return partitions.stream().map(partition -> 9L).collect(Collectors.toList());
+                            }));
+            Assertions.assertTrue(e.getMessage().contains("Unknown partition 'p1'"), e.getMessage());
+        });
+    }
+
+    @FunctionalInterface
+    private interface CloudScenario {
+        void run() throws Exception;
+    }
+
+    // Runs `scenario` with the FE in cloud mode, whose partition versions come from the injected source.
+    private static void withCloudMode(CloudScenario scenario) throws Exception {
+        String previous = Config.deploy_mode;
+        Config.deploy_mode = "cloud";
+        try {
+            scenario.run();
+        } finally {
+            Config.deploy_mode = previous;
+        }
+    }
+
+    // A table with the partitions of mockOlapTable() that the cloud tests can look up by id too.
+    private OlapTable mockCloudTable() throws Exception {
+        OlapTable table = mockOlapTable();
+        Partition p1 = table.getPartition("p1", false);
+        Partition p2 = table.getPartition("p2", false);
+        Mockito.when(table.getPartition(10L)).thenReturn(p1);
+        Mockito.when(table.getPartition(11L)).thenReturn(p2);
+        Mockito.when(db.getTableOrAnalysisException("cloud_logs")).thenReturn(table);
+        return table;
+    }
+
+    private static MaterializedIndex mockRollup(long id, long tabletId) {
+        Tablet tablet = Mockito.mock(Tablet.class);
+        Mockito.when(tablet.getId()).thenReturn(tabletId);
+        MaterializedIndex rollup = Mockito.mock(MaterializedIndex.class);
+        Mockito.when(rollup.getId()).thenReturn(id);
+        Mockito.when(rollup.getTablets()).thenReturn(Arrays.asList(tablet));
+        return rollup;
+    }
+
+    private static List<Long> tabletIds(IndexDiskUsageTableValuedFunction tvf) {
+        return tvf.getTabletTargets().stream()
+                .map(IndexDiskUsageTableValuedFunction.TabletTarget::getTabletId).collect(Collectors.toList());
     }
 
     private void allowShow(boolean allowed) {
