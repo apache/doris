@@ -56,7 +56,8 @@ void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& facto
 }
 
 void register_aggregate_function_covar_samp_old(AggregateFunctionSimpleFactory& factory) {
-    BeExecVersionManager::registe_restrict_function_compatibility("covar_samp");
+    BeExecVersionManager::registe_restrict_function_compatibility(
+            "covar_samp", SUPPORT_RESTRICTED_AGGREGATES_VERSION);
 }
 
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory) {

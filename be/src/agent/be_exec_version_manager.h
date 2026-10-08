@@ -29,6 +29,8 @@
 
 namespace doris {
 
+// Version 8 removed the old implementations of these restricted aggregate functions.
+constexpr inline int SUPPORT_RESTRICTED_AGGREGATES_VERSION = 8;
 constexpr inline int USE_NEW_FIXED_OBJECT_SERIALIZATION_VERSION = 10;
 constexpr inline int SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION = 11;
 constexpr inline int SUPPORT_ICEBERG_VARIANT_VERSION = 12;
@@ -70,8 +72,9 @@ public:
         _function_alternative_map[function_name].insert(breaking_old_version);
     }
 
-    static void registe_restrict_function_compatibility(std::string function_name) {
-        _function_restrict_map.insert(function_name);
+    static void registe_restrict_function_compatibility(std::string function_name,
+                                                        int first_supported_version) {
+        _function_restrict_map.emplace(function_name, first_supported_version);
     }
 
 private:
@@ -81,8 +84,8 @@ private:
     static std::map<std::string, std::set<int>> _function_change_map;
     // [function name] -> [alternative implementation start version]
     static std::map<std::string, std::set<int>> _function_alternative_map;
-    // those function must has input newest be exec version
-    static std::set<std::string> _function_restrict_map;
+    // [function name] -> [first BE exec version with the retained implementation]
+    static std::map<std::string, int> _function_restrict_map;
 };
 
 } // namespace doris

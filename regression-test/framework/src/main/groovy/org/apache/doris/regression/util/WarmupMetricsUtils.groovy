@@ -44,7 +44,7 @@ class WarmupMetricsUtils {
      */
     static long getBrpcMetric(String ip, String port, String metricName) {
         def url = "http://${ip}:${port}/brpc_metrics"
-        def text = new URL(url).text
+        def text = readText(url)
         def matcher = text =~ ~"${metricName}\\s+(\\d+)"
         if (matcher.find()) {
             return matcher[0][1] as long
@@ -53,7 +53,7 @@ class WarmupMetricsUtils {
     }
 
     static String getPrometheusMetrics(String ip, Object port) {
-        return new URL("http://${ip}:${port}/metrics").text
+        return readText("http://${ip}:${port}/metrics")
     }
 
     static BigDecimal findPrometheusMetricValue(String metricsText, String metricName, Map labels) {
@@ -101,7 +101,7 @@ class WarmupMetricsUtils {
     }
 
     static void clearFileCache(String ip, String httpPort) {
-        def response = new URL("http://${ip}:${httpPort}/api/file_cache?op=clear&sync=true").text
+        def response = readText("http://${ip}:${httpPort}/api/file_cache?op=clear&sync=true")
         def json = new JsonSlurper().parseText(response)
         if (json.status != "OK") {
             throw new RuntimeException("Clear cache on ${ip}:${httpPort} failed: ${json.status}")
@@ -113,6 +113,96 @@ class WarmupMetricsUtils {
             clearFileCache(be[1].toString(), be[4].toString())
         }
         Thread.sleep(waitMs)
+    }
+
+    private static String backendIp(Object backend) {
+        return backend instanceof Map ? backend.ip.toString() : backend[1].toString()
+    }
+
+    private static String backendHttpPort(Object backend) {
+        return backend instanceof Map ? backend.httpPort.toString() : backend[4].toString()
+    }
+
+    private static String backendBrpcPort(Object backend) {
+        return backend instanceof Map ? backend.brpcPort.toString() : backend[5].toString()
+    }
+
+    private static String readText(String url) {
+        def connection = Http.openConnection(url)
+        connection.connectTimeout = 5000
+        connection.readTimeout = 60000
+        try {
+            return connection.inputStream.withCloseable { it.getText("UTF-8") }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    static Map getBackendMetricValues(Collection backends, String metricName) {
+        Map values = [:]
+        for (be in backends) {
+            String key = "${backendIp(be)}:${backendBrpcPort(be)}"
+            values[key] = getBrpcMetric(backendIp(be), backendBrpcPort(be), metricName)
+        }
+        return values
+    }
+
+    static long getBackendMetricSum(Collection backends, String metricName) {
+        return getBackendMetricValues(backends, metricName).values().sum(0L) as long
+    }
+
+    static long waitForBackendMetricSum(Collection backends, String metricName,
+                                        Closure<Boolean> predicate, long timeoutMs = 60000,
+                                        String message = null) {
+        long deadline = System.currentTimeMillis() + timeoutMs
+        long value = 0L
+        while (System.currentTimeMillis() < deadline) {
+            value = getBackendMetricSum(backends, metricName)
+            if (predicate(value)) {
+                return value
+            }
+            logger.info("waiting ${metricName} sum, value=${value}")
+            Thread.sleep(1000)
+        }
+        throw new RuntimeException((message ?: "Metric ${metricName} sum did not satisfy predicate") +
+                " within ${timeoutMs}ms, last=${value}")
+    }
+
+    static long waitForBackendMetricSumStable(Collection backends, String metricName,
+                                              long stableMs = 10000, long timeoutMs = 60000) {
+        long deadline = System.currentTimeMillis() + timeoutMs
+        long lastValue = getBackendMetricSum(backends, metricName)
+        long stableSince = System.currentTimeMillis()
+        while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(1000)
+            long currentValue = getBackendMetricSum(backends, metricName)
+            if (currentValue != lastValue) {
+                lastValue = currentValue
+                stableSince = System.currentTimeMillis()
+            } else if (System.currentTimeMillis() - stableSince >= stableMs) {
+                return currentValue
+            }
+            logger.info("waiting ${metricName} sum stable, value=${currentValue}")
+        }
+        throw new RuntimeException("Metric ${metricName} sum did not stay stable for ${stableMs}ms " +
+                "within ${timeoutMs}ms, last=${lastValue}")
+    }
+
+    static long waitForBrpcMetric(String ip, String port, String metricName,
+                                  Closure<Boolean> predicate, long timeoutMs = 60000,
+                                  String message = null) {
+        long deadline = System.currentTimeMillis() + timeoutMs
+        long value = 0L
+        while (System.currentTimeMillis() < deadline) {
+            value = getBrpcMetric(ip, port, metricName)
+            if (predicate(value)) {
+                return value
+            }
+            logger.info("waiting ${metricName} for ${ip}:${port}, value=${value}")
+            Thread.sleep(1000)
+        }
+        throw new RuntimeException((message ?: "Metric ${metricName} did not satisfy predicate") +
+                " within ${timeoutMs}ms, last=${value}")
     }
 
     static long sumProfileCounter(String profileText, String counterName) {

@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.AggregateUtils;
@@ -272,6 +273,8 @@ public class StatisticsUtil {
                 return new org.apache.doris.analysis.IPv4Literal(columnValue);
             case IPV6:
                 return new org.apache.doris.analysis.IPv6Literal(columnValue);
+            case UUID:
+                return new org.apache.doris.analysis.UuidLiteral(columnValue);
             case HLL:
             case BITMAP:
             case ARRAY:
@@ -332,6 +335,9 @@ public class StatisticsUtil {
                 case IPV6:
                     IPv6Literal ipv6 = new IPv6Literal(columnValue);
                     return ipv6.getDouble();
+                case UUID:
+                    UuidLiteral uuid = new UuidLiteral(columnValue);
+                    return uuid.getDouble();
                 case HLL:
                 case BITMAP:
                 case ARRAY:

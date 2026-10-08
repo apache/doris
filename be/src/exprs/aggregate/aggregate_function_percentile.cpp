@@ -91,13 +91,17 @@ void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& fact
 }
 
 void register_percentile_approx_old_function(AggregateFunctionSimpleFactory& factory) {
-    BeExecVersionManager::registe_restrict_function_compatibility("percentile_approx");
-    BeExecVersionManager::registe_restrict_function_compatibility("percentile_approx_weighted");
+    BeExecVersionManager::registe_restrict_function_compatibility(
+            "percentile_approx", SUPPORT_RESTRICTED_AGGREGATES_VERSION);
+    BeExecVersionManager::registe_restrict_function_compatibility(
+            "percentile_approx_weighted", SUPPORT_RESTRICTED_AGGREGATES_VERSION);
 }
 
 void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& factory) {
-    BeExecVersionManager::registe_restrict_function_compatibility("percentile");
-    BeExecVersionManager::registe_restrict_function_compatibility("percentile_array");
+    BeExecVersionManager::registe_restrict_function_compatibility(
+            "percentile", SUPPORT_RESTRICTED_AGGREGATES_VERSION);
+    BeExecVersionManager::registe_restrict_function_compatibility(
+            "percentile_array", SUPPORT_RESTRICTED_AGGREGATES_VERSION);
 }
 
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory) {

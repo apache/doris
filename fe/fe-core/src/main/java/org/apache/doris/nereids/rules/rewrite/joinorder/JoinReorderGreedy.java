@@ -41,11 +41,14 @@ import java.util.stream.Collectors;
 /**JoinReorderGreedy*/
 public class JoinReorderGreedy extends JoinOrder {
     @Override
-    protected void enumerate() {
+    protected boolean enumerate() {
         for (int curJoinLevel = 2; curJoinLevel <= atomSize; curJoinLevel++) {
-            searchJoinOrders(curJoinLevel - 1, 1, false);
-            searchBushyJoinOrders(curJoinLevel);
+            if (!searchJoinOrders(curJoinLevel - 1, 1, false)
+                    || !searchBushyJoinOrders(curJoinLevel)) {
+                return false;
+            }
         }
+        return true;
     }
 
     @Override
@@ -59,14 +62,17 @@ public class JoinReorderGreedy extends JoinOrder {
         return ImmutableList.of(group.bestPlanInfo.plan);
     }
 
-    private void searchBushyJoinOrders(int curJoinLevel) {
+    private boolean searchBushyJoinOrders(int curJoinLevel) {
         // Search bushy joins tree fro level x and y, where
         // x + y = curJoinLevel and x > 1 and y > 1 and x >= y.
         // Note that join trees of level 3 and below are never bushy,
         // so this loop only executes at curJoinLevel >= 4
         for (int rightLevel = 2; rightLevel <= curJoinLevel / 2; rightLevel++) {
-            searchJoinOrders(curJoinLevel - rightLevel, rightLevel, true);
+            if (!searchJoinOrders(curJoinLevel - rightLevel, rightLevel, true)) {
+                return false;
+            }
         }
+        return true;
     }
 
     protected List<GroupInfo> getGroupForLevel(int level) {
@@ -109,7 +115,7 @@ public class JoinReorderGreedy extends JoinOrder {
         return bestPlan;
     }
 
-    private void searchJoinOrders(int leftLevel, int rightLevel, boolean isSearchBushyJoin) {
+    private boolean searchJoinOrders(int leftLevel, int rightLevel, boolean isSearchBushyJoin) {
         List<GroupInfo> leftGroupInfos = getGroupForLevel(leftLevel);
         List<GroupInfo> rightGroupInfos = getGroupForLevel(rightLevel);
         JoinLevel curLevel = joinLevels.get(leftLevel + rightLevel);
@@ -135,10 +141,13 @@ public class JoinReorderGreedy extends JoinOrder {
                 joinBitSet.or(leftBitset);
                 joinBitSet.or(rightBitset);
 
-                computeCost(join.get());
+                if (!computeCost(join.get())) {
+                    return false;
+                }
                 getOrCreateGroupInfo(curLevel, joinBitSet, join.get());
             }
         }
+        return true;
     }
 
     protected Optional<PlanInfo> buildJoin(GroupInfo leftGroup, GroupInfo rightGroup) {

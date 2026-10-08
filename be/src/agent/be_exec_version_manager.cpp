@@ -64,11 +64,11 @@ int BeExecVersionManager::get_function_alternative(int be_exec_version, std::str
 
 void BeExecVersionManager::check_function_restriction(int be_exec_version,
                                                       const std::string& function_name) {
-    if (_function_restrict_map.contains(function_name) && be_exec_version != get_newest_version()) {
+    auto it = _function_restrict_map.find(function_name);
+    if (it != _function_restrict_map.end() && be_exec_version < it->second) {
         throw Exception(Status::InternalError(
-                "function {} do not support old be exec version, maybe it's because doris are "
-                "doing a rolling upgrade. newest_version={}, input_be_exec_version={}",
-                function_name, get_newest_version(), be_exec_version));
+                "function {} does not support be exec versions before {}, input_be_exec_version={}",
+                function_name, it->second, be_exec_version));
     }
 }
 
@@ -159,5 +159,5 @@ const int BeExecVersionManager::max_be_exec_version = SUPPORT_MAP_AGG_V2_EXACT_F
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_alternative_map {};
-std::set<std::string> BeExecVersionManager::_function_restrict_map;
+std::map<std::string, int> BeExecVersionManager::_function_restrict_map;
 } // namespace doris

@@ -59,6 +59,7 @@ AggregateFunctionPtr create_aggregate_function_map_agg_v2(const std::string& nam
     case PrimitiveType::TYPE_TIMESTAMP_NS:
     case PrimitiveType::TYPE_TIMEV2:
     case PrimitiveType::TYPE_TIMESTAMPTZ:
+    case PrimitiveType::TYPE_UUID:
         return create_agg_function_map_agg_v2<use_exact_key_frame>(argument_types,
                                                                    result_is_nullable, attr);
     case PrimitiveType::TYPE_IPV4:

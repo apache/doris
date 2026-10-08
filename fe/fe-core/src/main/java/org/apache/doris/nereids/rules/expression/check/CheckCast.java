@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
@@ -199,6 +201,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToBasicType(allowedTypes);
         allowedTypes.add(IPv4Type.class);
         allowedTypes.add(IPv6Type.class);
+        allowedTypes.add(UuidType.class);
         allowedTypes.add(VarBinaryType.class);
         allowedTypes.add(TimeStampTzType.class);
         allowedTypes.add(TimeStampNsType.class);
@@ -224,6 +227,13 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(IPv6Type.class, allowedTypes);
+
+        // UUID
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(UuidType.class);
+        allowToStringLikeType(allowedTypes);
+        allowedTypes.add(VariantType.class);
+        strictCastWhiteList.put(UuidType.class, allowedTypes);
 
         // bitmap
         allowedTypes = Sets.newHashSet();
@@ -288,6 +298,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes = Sets.newHashSet();
         allowToBasicType(allowedTypes);
         allowToComplexType(allowedTypes);
+        allowedTypes.add(UuidType.class);
         allowedTypes.remove(JsonType.class);
         strictCastWhiteList.put(VariantType.class, allowedTypes);
 
@@ -384,6 +395,14 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
+        if (originalType instanceof ConnectorComputeVariantType && targetType.isVariantType()) {
+            // The connector marker and ordinary Variant share the V2 runtime carrier. Allow the
+            // marker to cross the sink boundary without relaxing casts between stored Variant layouts.
+            return true;
+        }
+        if (targetType instanceof ConnectorComputeVariantType) {
+            return VariantType.isSupportedComputeV2CastSource(originalType);
+        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;

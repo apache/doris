@@ -46,6 +46,15 @@
 namespace doris {
 namespace {
 
+void expect_restricted_aggregate_allowed(const char* name, int be_exec_version) {
+    EXPECT_NO_THROW(BeExecVersionManager::check_function_restriction(be_exec_version, name));
+}
+
+void expect_restricted_aggregate_rejected(const char* name, int be_exec_version) {
+    EXPECT_THROW(BeExecVersionManager::check_function_restriction(be_exec_version, name),
+                 Exception);
+}
+
 void check_state_union_and_merge_round_trip(const DataTypePtr& key_type,
                                             const std::vector<Field>& keys) {
     const auto be_exec_version = BeExecVersionManager::get_newest_version();
@@ -374,10 +383,33 @@ TEST(AggregateFunctionMapAggV2Test, NestedFunctionsPreserveLegacyWrapperAvailabi
         EXPECT_NE(function, nullptr);
     }
 
-    EXPECT_THROW(
-            AggregateFunctionSimpleFactory::instance().get("stddev_samp", DataTypes {double_type},
-                                                           double_type, false, legacy_version),
-            Exception);
+    EXPECT_NE(AggregateFunctionSimpleFactory::instance().get("stddev_samp", DataTypes {double_type},
+                                                             double_type, false, legacy_version),
+              nullptr);
+}
+
+TEST(AggregateFunctionMapAggV2Test, RestrictedAggregatesUseTheirOwnCompatibilityVersion) {
+    constexpr auto legacy_version = SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION - 1;
+    const auto double_type = std::make_shared<DataTypeFloat64>();
+    auto& factory = AggregateFunctionSimpleFactory::instance();
+
+    for (const auto* name :
+         {"variance_samp", "stddev_samp", "covar_samp", "percentile_approx",
+          "percentile_approx_weighted", "percentile", "percentile_array", "window_funnel"}) {
+        SCOPED_TRACE(name);
+        expect_restricted_aggregate_rejected(name, SUPPORT_RESTRICTED_AGGREGATES_VERSION - 1);
+        expect_restricted_aggregate_allowed(name, SUPPORT_RESTRICTED_AGGREGATES_VERSION);
+        expect_restricted_aggregate_allowed(name, legacy_version);
+        expect_restricted_aggregate_allowed(name, SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION);
+    }
+
+    auto direct =
+            factory.get("stddev_samp", DataTypes {double_type}, double_type, false, legacy_version);
+    ASSERT_NE(direct, nullptr);
+    auto stored_state = std::make_shared<DataTypeAggState>(DataTypes {double_type}, false,
+                                                           "stddev_samp", legacy_version);
+    EXPECT_NO_THROW(
+            stored_state->check_function_compatibility(SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION));
 }
 
 } // namespace doris
