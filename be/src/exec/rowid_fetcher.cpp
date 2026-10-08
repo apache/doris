@@ -755,6 +755,12 @@ const std::string RowIdStorageReader::LanceRowIdTakeReadTimeProfile = "LanceRowI
 const std::string RowIdStorageReader::LanceArrowToDorisBlockTimeProfile =
         "LanceArrowToDorisBlockTime";
 const std::string RowIdStorageReader::LanceRowIdFetchTotalTimeProfile = "LanceRowIdFetchTotalTime";
+const std::map<std::string, TUnit::type> RowIdStorageReader::LanceFetchCountersProfile = {
+        {"LanceRowIdFetchRows", TUnit::UNIT},
+        {"LanceRowIdFetchCalls", TUnit::UNIT},
+        {"LanceDataCacheBytesReadFromCache", TUnit::BYTES},
+        {"LanceDataCacheBytesReadFromRemote", TUnit::BYTES},
+};
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOCount =
         "TopNLazyMaterializationSecondPhaseLocalIOCount";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOBytes =
@@ -889,6 +895,13 @@ Status RowIdStorageReader::read_lance_rows_by_row_ids(
     collect_lance_fetch_time(LanceRowIdTakeReadTimeProfile);
     collect_lance_fetch_time(LanceArrowToDorisBlockTimeProfile);
     collect_lance_fetch_time(LanceRowIdFetchTotalTimeProfile);
+    // close() publishes dataset-handle cache statistics; collect after it and preserve the
+    // units across the RPC instead of formatting byte/count values as nanoseconds.
+    for (const auto& [name, unit] : LanceFetchCountersProfile) {
+        if (const auto* counter = runtime_profile->get_counter(name); counter != nullptr) {
+            fetch_statistics->lance_fetch_counters.emplace(name, counter->value());
+        }
+    }
     return Status::OK();
 }
 
@@ -1203,6 +1216,7 @@ Status RowIdStorageReader::read_batch_external_row(
         format_to(file_read_times_buffer, "[");
 
         std::map<std::string, int64_t> lance_fetch_times_ns;
+        std::map<std::string, int64_t> lance_fetch_counters;
         size_t idx = 0;
         for (const auto& [_, scan_info] : scan_rows) {
             format_to(file_read_lines_buffer, "{}, ", scan_info.first.size());
@@ -1212,6 +1226,9 @@ Status RowIdStorageReader::read_batch_external_row(
             format_to(file_read_times_buffer, "{}, ", fetch_statistics[idx].file_read_times);
             for (const auto& [time_name, time_value] : fetch_statistics[idx].lance_fetch_times_ns) {
                 lance_fetch_times_ns[time_name] += time_value;
+            }
+            for (const auto& [name, value] : fetch_statistics[idx].lance_fetch_counters) {
+                lance_fetch_counters[name] += value;
             }
             idx++;
         }
@@ -1232,6 +1249,10 @@ Status RowIdStorageReader::read_batch_external_row(
                                          fmt::to_string(file_read_bytes_buffer));
         runtime_profile->add_info_string(FileScannerV2::FileReadTimeProfile,
                                          fmt::to_string(file_read_times_buffer));
+        for (const auto& [name, value] : lance_fetch_counters) {
+            runtime_profile->add_info_string(
+                    name, PrettyPrinter::print(value, LanceFetchCountersProfile.at(name)));
+        }
         for (const auto& [time_name, time_value] : lance_fetch_times_ns) {
             runtime_profile->add_info_string(time_name,
                                              PrettyPrinter::print(time_value, TUnit::TIME_NS));

@@ -552,6 +552,8 @@ struct TVectorSearchOptions {
     2: optional i32 refine_factor
     3: optional i32 ef
     4: optional bool use_index
+    // Lance: -1 uses available CPU parallelism, 0 selects automatically, positive values cap it.
+    5: optional i32 query_parallelism
 }
 
 // The active union field identifies the logical search kind. A future hybrid field can contain both

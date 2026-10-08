@@ -1226,6 +1226,47 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorRejectsActualNullAndNonFiniteE
     }
 }
 
+TEST(LanceTableReaderVectorSearchTest, RejectsInvalidQueryParallelismBeforeOpeningDataset) {
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    RuntimeProfile profile("lance_invalid_query_parallelism");
+    auto params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0);
+    params.lance_scan_params.external_search_request.vector_search_options.__set_query_parallelism(
+            -2);
+    const Columns columns {projected_column("_distance", TYPE_FLOAT, true)};
+    LanceTableReader reader;
+    const auto status = init_reader(&reader, columns, &state, &profile, &params);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("query_parallelism"));
+}
+
+TEST(LanceTableReaderVectorSearchTest, QueryParallelismPreservesResults) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const int parallelism : {-1, 0, 1, 4}) {
+        SCOPED_TRACE(parallelism);
+        auto params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 1);
+        params.lance_scan_params.external_search_request.vector_search_options
+                .__set_query_parallelism(parallelism);
+        RuntimeProfile profile("lance_query_parallelism");
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+        ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+        Block block;
+        add_output_columns(&block, columns);
+        const auto rows = read_vector_search_rows(&reader, &block);
+        ASSERT_EQ(2U, rows.size());
+        EXPECT_EQ(2, rows[0].first);
+        EXPECT_EQ(4, rows[1].first);
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
 TEST(LanceTableReaderVectorSearchTest, SearchesWholeSnapshotWithOffsetAndDistance) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";
@@ -1431,6 +1472,25 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
     EXPECT_EQ("extra", label_values.get_data_at(0).to_string());
     EXPECT_EQ("unit-x", label_values.get_data_at(1).to_string());
     EXPECT_EQ("extra", label_values.get_data_at(2).to_string());
+    ASSERT_NE(nullptr, fetch_profile.get_counter("LanceRowIdFetchRows"));
+    EXPECT_EQ(3, fetch_profile.get_counter("LanceRowIdFetchRows")->value());
+    ASSERT_NE(nullptr, fetch_profile.get_counter("LanceRowIdFetchCalls"));
+    EXPECT_EQ(1, fetch_profile.get_counter("LanceRowIdFetchCalls")->value());
+    Block second_block;
+    add_output_columns(&second_block, payload_columns);
+    ASSERT_TRUE(payload_reader
+                        .read_by_row_ids(make_lance_range(dataset_uri, fixture.version,
+                                                          fixture.fragment_ids),
+                                         fetch_row_ids, &second_block)
+                        .ok());
+    EXPECT_EQ(6, fetch_profile.get_counter("LanceRowIdFetchRows")->value());
+    EXPECT_EQ(2, fetch_profile.get_counter("LanceRowIdFetchCalls")->value());
+    ASSERT_TRUE(payload_reader
+                        .read_by_row_ids(make_lance_range(dataset_uri, fixture.version,
+                                                          fixture.fragment_ids),
+                                         {}, &second_block)
+                        .ok());
+    EXPECT_EQ(2, fetch_profile.get_counter("LanceRowIdFetchCalls")->value());
     EXPECT_TRUE(payload_reader.close().ok());
 }
 
