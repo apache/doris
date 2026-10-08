@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <fmt/printf.h>
 #include <glog/logging.h>
 
 #include <cstdio>
@@ -237,9 +238,103 @@ public:
     }
 };
 
+class FunctionPrintf : public IFunction {
+public:
+    static constexpr auto name = "printf";
+
+    static FunctionPtr create() { return std::make_shared<FunctionPrintf>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        DCHECK_GE(arguments.size(), 1);
+        Columns columns(arguments.size());
+        std::vector<uint8_t> is_const(arguments.size());
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            std::tie(columns[i], is_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+
+        const auto& format_type = block.get_by_position(arguments[0]).type;
+        if (!is_string_type(format_type->get_primitive_type())) {
+            return Status::InvalidArgument(
+                    "The first argument of function {} must be string, but {} was found.", name,
+                    format_type->get_name());
+        }
+        const auto& format_column = assert_cast<const ColumnString&>(*columns[0]);
+        auto result_column = ColumnString::create();
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            auto format =
+                    format_column.get_data_at(index_check_const(row, is_const[0])).to_string_view();
+            fmt::dynamic_format_arg_store<fmt::printf_context> store;
+            for (size_t arg = 1; arg < arguments.size(); ++arg) {
+                RETURN_IF_ERROR(push_format_arg(*columns[arg],
+                                                *block.get_by_position(arguments[arg]).type,
+                                                index_check_const(row, is_const[arg]), store));
+            }
+            try {
+                auto formatted = fmt::vsprintf(format, store);
+                result_column->insert_data(formatted.data(), formatted.size());
+            } catch (const fmt::format_error& e) {
+                return Status::InvalidArgument("Function {} failed to format string: {}, error: {}",
+                                               name, format, e.what());
+            }
+        }
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
+
+private:
+    static Status push_format_arg(const IColumn& column, const IDataType& type, size_t row,
+                                  fmt::dynamic_format_arg_store<fmt::printf_context>& store) {
+        switch (type.get_primitive_type()) {
+        case TYPE_BOOLEAN:
+            store.push_back(assert_cast<const ColumnUInt8&>(column).get_data()[row]);
+            break;
+        case TYPE_TINYINT:
+            store.push_back(assert_cast<const ColumnInt8&>(column).get_data()[row]);
+            break;
+        case TYPE_SMALLINT:
+            store.push_back(assert_cast<const ColumnInt16&>(column).get_data()[row]);
+            break;
+        case TYPE_INT:
+            store.push_back(assert_cast<const ColumnInt32&>(column).get_data()[row]);
+            break;
+        case TYPE_BIGINT:
+            store.push_back(assert_cast<const ColumnInt64&>(column).get_data()[row]);
+            break;
+        case TYPE_FLOAT:
+            store.push_back(assert_cast<const ColumnFloat32&>(column).get_data()[row]);
+            break;
+        case TYPE_DOUBLE:
+            store.push_back(assert_cast<const ColumnFloat64&>(column).get_data()[row]);
+            break;
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_STRING:
+            store.push_back(column.get_data_at(row).to_string());
+            break;
+        default:
+            return Status::InvalidArgument("Function {} does not support printf type: {}", name,
+                                           type.get_name());
+        }
+        return Status::OK();
+    }
+};
+
 void register_function_format(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionFormatNumber>();
     factory.register_function<FunctionFormat>();
+    factory.register_function<FunctionPrintf>();
 }
 
 } // namespace doris
