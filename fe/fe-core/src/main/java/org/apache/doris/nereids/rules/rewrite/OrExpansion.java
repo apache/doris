@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion.OrExpandsionContext;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
@@ -167,21 +169,25 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
                     join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
             joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
-                    join, rightProducer, leftProducer, rightCloneToRight, leftCloneToLeft));
+                    join, rightProducer, leftProducer, rightCloneToRight, leftCloneToLeft,
+                    swappedDistributeHint(join.getDistributeHint())));
         } else if (join.getJoinType().isOuterJoin()) {
             // left outer join = inner join union left anti join
             joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
                     join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
             joins.add(expandLeftAntiJoin(ctx.cascadesContext,
-                    hashOtherConditions, join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
+                    hashOtherConditions, join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight,
+                    join.getDistributeHint()));
             if (join.getJoinType().equals(JoinType.FULL_OUTER_JOIN)) {
                 // full outer join = inner join union left anti join union right anti join
                 joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
-                        join, rightProducer, leftProducer, rightCloneToRight, leftCloneToLeft));
+                        join, rightProducer, leftProducer, rightCloneToRight, leftCloneToLeft,
+                        swappedDistributeHint(join.getDistributeHint())));
             }
         } else if (join.getJoinType().equals(JoinType.LEFT_ANTI_JOIN)) {
             joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
-                    join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
+                    join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight,
+                    join.getDistributeHint()));
         } else {
             throw new RuntimeException("or-expansion is not supported for " + join);
         }
@@ -199,6 +205,16 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         ctx.cteProducerList.add(leftProducer);
         ctx.cteProducerList.add(rightProducer);
         return union;
+    }
+
+    // Distribute hint for the anti join built with swapped producers. BROADCAST_RIGHT was written for the
+    // origin right child; after swapping it would broadcast the origin left child, which may be large, so
+    // drop it and let the optimizer choose. Shuffle treats both sides the same, so keep other hints.
+    private static DistributeHint swappedDistributeHint(DistributeHint originHint) {
+        if (originHint.distributeType == DistributeType.BROADCAST_RIGHT) {
+            return new DistributeHint(DistributeType.NONE);
+        }
+        return originHint;
     }
 
     // try to find a condition that can be split into hash conditions
@@ -247,12 +263,16 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
     //left                   right          ===>  Anti join cond2 and other    CTERight2
     //                                                  /      \
     //                                               CTELeft CTERight1
+    //
+    // distributeHint is applied to the generated anti joins. When producers are swapped (the right-unmatched
+    // branch of RIGHT / FULL OUTER JOIN), use swappedDistributeHint() instead of the origin hint.
     private Plan expandLeftAntiJoin(CascadesContext ctx,
             Pair<List<Expression>, List<Expression>> hashOtherConditions,
             LogicalJoin<? extends Plan, ? extends Plan> originJoin,
             LogicalCTEProducer<? extends Plan> leftProducer,
             LogicalCTEProducer<? extends org.apache.doris.nereids.trees.plans.Plan> rightProducer,
-            Map<Slot, Slot> leftCloneToLeft, Map<Slot, Slot> rightCloneToRight) {
+            Map<Slot, Slot> leftCloneToLeft, Map<Slot, Slot> rightCloneToRight,
+            DistributeHint distributeHint) {
         LogicalCTEConsumer left = new LogicalCTEConsumer(ctx.getStatementContext().getNextRelationId(),
                 leftProducer.getCteId(), "", leftProducer);
         LogicalCTEConsumer right = new LogicalCTEConsumer(ctx.getStatementContext().getNextRelationId(),
@@ -269,7 +289,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         Expression hashCond = disjunctions.get(0);
         hashCond = hashCond.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s);
         Plan newPlan = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(hashCond),
-                newOtherConditions, originJoin.getDistributeHint(),
+                newOtherConditions, distributeHint,
                 originJoin.getMarkJoinSlotReference(), left, right, JoinReorderContext.EMPTY);
         if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
             Plan normalizedPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
@@ -288,7 +308,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
                     .collect(Collectors.toList());
             hashCond = hashCond.rewriteUp(s -> newReplaced.containsKey(s) ? newReplaced.get(s) : s);
             newPlan = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(hashCond),
-                    newOtherConditions, originJoin.getDistributeHint(),
+                    newOtherConditions, distributeHint,
                     originJoin.getMarkJoinSlotReference(), newPlan, newRight, JoinReorderContext.EMPTY);
             if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
                 newPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
