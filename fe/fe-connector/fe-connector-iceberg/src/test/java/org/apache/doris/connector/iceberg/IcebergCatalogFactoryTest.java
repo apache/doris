@@ -30,6 +30,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -1062,7 +1063,8 @@ public class IcebergCatalogFactoryTest {
                 Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
                         IcebergCatalogProperties.of(properties), Optional.of(storage));
                 Assertions.assertEquals("org.apache.iceberg.aws.s3.S3FileIO", options.get("io-impl"));
-                Assertions.assertEquals(GcpS3FileIOAwsClientFactory.class.getName(), options.get("s3.client-factory"));
+                Assertions.assertEquals(GcpS3FileIOAwsClientFactory.class.getName(),
+                        options.get(S3FileIOProperties.CLIENT_FACTORY));
                 Assertions.assertEquals(source, options.get("gs.credential_provider_type"));
                 Assertions.assertEquals("https://storage.googleapis.com", options.get("s3.endpoint"));
                 Assertions.assertEquals("target@test.iam.gserviceaccount.com",

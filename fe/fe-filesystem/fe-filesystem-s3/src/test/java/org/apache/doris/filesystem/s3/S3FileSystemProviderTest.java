@@ -182,6 +182,38 @@ class S3FileSystemProviderTest {
     }
 
     @Test
+    void supportsGuess_yieldsToGcsWithoutAnExplicitEndpoint() {
+        for (Map.Entry<String, String> hint : Map.of(
+                "provider", "GCP",
+                "gs.credential_provider_type", "DEFAULT",
+                "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com",
+                "warehouse", "gs://bucket/warehouse").entrySet()) {
+            Map<String, String> props = new HashMap<>();
+            props.put("s3.region", "us-east1");
+            props.put("_STORAGE_TYPE_", "S3");
+            props.put(hint.getKey(), hint.getValue());
+
+            Assertions.assertFalse(provider.supportsGuess(props), "must yield for " + hint);
+        }
+    }
+
+    @Test
+    void supportsGuess_preservesS3RegionFallbackAndExplicitSelection() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.region", "us-east-1");
+        Assertions.assertTrue(provider.supportsGuess(props));
+
+        props.put("provider", "S3");
+        props.put("warehouse", "gs://bucket/warehouse");
+        Assertions.assertTrue(provider.supportsGuess(props));
+
+        props.remove("provider");
+        props.put("fs.s3.support", "true");
+        Assertions.assertTrue(provider.supportsExplicit(props));
+        Assertions.assertTrue(provider.supportsGuess(props));
+    }
+
+    @Test
     void bind_returnsValidatedS3FileSystemProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("s3.endpoint", "https://minio.local");
