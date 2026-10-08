@@ -90,46 +90,52 @@ public class DateTrunc extends ScalarFunction
         return expression.isConstant() && expression.getDataType().isStringLikeType();
     }
 
+    /**
+     * Tells the date value from the time unit. Returns the index of the date argument, or -1 when neither
+     * argument identifies its role on FE, e.g. two string constants only BE can evaluate.
+     */
+    private int dateArgumentIndex() {
+        for (int i = 0; i < 2; i++) {
+            if (getArgument(i).getDataType().isDateLikeType()) {
+                return i;
+            }
+        }
+        // A nonconstant argument, e.g. a VARCHAR column, can only be the date value.
+        for (int i = 0; i < 2; i++) {
+            if (!getArgument(i).isConstant()) {
+                return i;
+            }
+        }
+        // prepareBeforeTypeCoercion folded the constant that evaluates to a time unit, so a literal time unit
+        // tells that the other argument is the date value.
+        for (int i = 0; i < 2; i++) {
+            if (isTimeUnit(getArgument(i))) {
+                return 1 - i;
+            }
+        }
+        // A string FE evaluates to anything else is the date value, and the other argument is then the time unit,
+        // which BE validates when FE cannot evaluate it.
+        for (int i = 0; i < 2; i++) {
+            if (ExpressionUtils.foldConstantArgument(getArgument(i)) instanceof StringLikeLiteral) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        boolean firstArgIsStringLiteral =
-                getArgument(0).isConstant() && getArgument(0) instanceof StringLikeLiteral;
-        boolean secondArgIsStringLiteral =
-                getArgument(1).isConstant() && getArgument(1) instanceof StringLikeLiteral;
-        if (!firstArgIsStringLiteral && !secondArgIsStringLiteral) {
-            for (int i = 0; i < 2; i++) {
-                // The other argument is the time unit when this one is a date-typed value, or when this one
-                // is simply nonconstant (e.g. a VARCHAR date column) and the other side can only be the unit.
-                boolean thisArgIsDateRole = getArgument(i).getDataType().isDateLikeType()
-                        || !getArgument(i).isConstant();
-                if (thisArgIsDateRole && isConstantString(getArgument(1 - i))) {
-                    // The other argument is a constant time unit the rewrite will fold. Validate the value FE
-                    // can evaluate here, because constant folding may remove this function before any later
-                    // check. BE validates a time unit FE cannot fold.
-                    Expression timeUnit = ExpressionUtils.foldConstantArgument(getArgument(1 - i));
-                    if (timeUnit instanceof StringLikeLiteral && !isTimeUnit(timeUnit)) {
-                        throw new AnalysisException("date_trunc function time unit param only support argument is "
-                                + String.join("|", LEGAL_TIME_UNIT));
-                    }
-                    return;
-                }
-            }
+        int dateIndex = dateArgumentIndex();
+        if (dateIndex < 0 || !isConstantString(getArgument(1 - dateIndex))) {
             throw new AnalysisException("the time unit parameter of "
                     + getName() + " function must be a string constant: " + toSql());
-        } else if (firstArgIsStringLiteral && secondArgIsStringLiteral) {
-            if (!LEGAL_TIME_UNIT.contains(((StringLikeLiteral) getArgument(0)).getStringValue().toLowerCase())
-                    && !LEGAL_TIME_UNIT.contains(((StringLikeLiteral) getArgument(1))
-                    .getStringValue().toLowerCase())) {
-                throw new AnalysisException("date_trunc function time unit param only support argument is "
-                        + String.join("|", LEGAL_TIME_UNIT));
-            }
-        } else {
-            final String constParam = ((StringLikeLiteral) getArgument(firstArgIsStringLiteral ? 0 : 1))
-                    .getStringValue().toLowerCase();
-            if (!LEGAL_TIME_UNIT.contains(constParam)) {
-                throw new AnalysisException("date_trunc function time unit param only support argument is "
-                        + String.join("|", LEGAL_TIME_UNIT));
-            }
+        }
+        // Validate the time unit value FE can evaluate here, because constant folding may remove this function
+        // before any later check. BE validates a time unit FE cannot evaluate.
+        Expression timeUnit = ExpressionUtils.foldConstantArgument(getArgument(1 - dateIndex));
+        if (timeUnit instanceof StringLikeLiteral && !isTimeUnit(timeUnit)) {
+            throw new AnalysisException("date_trunc function time unit param only support argument is "
+                    + String.join("|", LEGAL_TIME_UNIT));
         }
     }
 
@@ -145,73 +151,28 @@ public class DateTrunc extends ScalarFunction
     @Override
     public FunctionSignature customSignature() {
         // should never return V1 Type
-        // Handle TimeStampTzType first, before isDateLikeType check
-        // Because getCurrentType() would convert TimeStampTzType to DateTimeV2Type
-        if (getArgument(0).getDataType() instanceof TimeStampTzType) {
-            TimeStampTzType type = (TimeStampTzType) getArgument(0).getDataType();
-            return FunctionSignature.ret(type).args(type, VarcharType.SYSTEM_DEFAULT);
-        } else if (getArgument(1).getDataType() instanceof TimeStampTzType) {
-            TimeStampTzType type = (TimeStampTzType) getArgument(1).getDataType();
-            return FunctionSignature.ret(type).args(VarcharType.SYSTEM_DEFAULT, type);
-        }
-
-        if (getArgument(0).getDataType().isDateLikeType()) {
-            DataType type = DataType.getCurrentType(getArgument(0).getDataType());
-            return FunctionSignature.ret(type).args(type, VarcharType.SYSTEM_DEFAULT);
-        } else if (getArgument(1).getDataType().isDateLikeType()) {
-            DataType type = DataType.getCurrentType(getArgument(1).getDataType());
-            return FunctionSignature.ret(type).args(VarcharType.SYSTEM_DEFAULT, type);
-        }
-
-        boolean firstArgIsStringLiteral =
-                getArgument(0).isConstant() && getArgument(0) instanceof StringLikeLiteral;
-        boolean secondArgIsStringLiteral =
-                getArgument(1).isConstant() && getArgument(1) instanceof StringLikeLiteral;
-        // When neither side folds to a literal time unit on FE (e.g. a BE-only constant such as
-        // lpad('nth', 5, 'mo')), the nonconstant side can still only be the date value, so pick it
-        // by constant-ness instead of requiring a literal; BE validates the evaluated unit.
-        boolean firstArgIsUnit = firstArgIsStringLiteral
-                || (isConstantString(getArgument(0)) && !getArgument(1).isConstant());
-        boolean secondArgIsUnit = secondArgIsStringLiteral
-                || (isConstantString(getArgument(1)) && !getArgument(0).isConstant());
-        if (firstArgIsUnit && !secondArgIsUnit) {
-            DataType argType = getArgument(1).getDataType();
-            if (argType instanceof TimeStampTzType) {
-                return FunctionSignature.ret((TimeStampTzType) argType)
-                        .args(VarcharType.SYSTEM_DEFAULT, (TimeStampTzType) argType);
-            }
+        int dateIndex = dateArgumentIndex();
+        if (dateIndex < 0) {
+            // checkLegalityBeforeTypeCoercion rejects the call, so just return a signature here
             return FunctionSignature.ret(DateTimeV2Type.WILDCARD)
                     .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD);
-        } else if (!firstArgIsUnit && secondArgIsUnit) {
-            DataType argType = getArgument(0).getDataType();
-            if (argType instanceof TimeStampTzType) {
-                return FunctionSignature.ret((TimeStampTzType) argType)
-                        .args((TimeStampTzType) argType, VarcharType.SYSTEM_DEFAULT);
-            }
-            return FunctionSignature.ret(DateTimeV2Type.WILDCARD)
-                    .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT);
-        } else if (firstArgIsStringLiteral && secondArgIsStringLiteral) {
-            boolean timeUnitIsFirst = LEGAL_TIME_UNIT.contains(((StringLikeLiteral) getArgument(0))
-                    .getStringValue().toLowerCase());
-            // Check if the datetime string contains timezone information
-            String datetimeStr = timeUnitIsFirst
-                    ? ((StringLikeLiteral) getArgument(1)).getStringValue()
-                    : ((StringLikeLiteral) getArgument(0)).getStringValue();
-            if (DateTimeChecker.hasTimeZone(datetimeStr)) {
-                return timeUnitIsFirst ? FunctionSignature.ret(TimeStampTzType.SYSTEM_DEFAULT)
-                        .args(VarcharType.SYSTEM_DEFAULT, TimeStampTzType.SYSTEM_DEFAULT)
-                        : FunctionSignature.ret(TimeStampTzType.SYSTEM_DEFAULT)
-                                .args(TimeStampTzType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT);
-            }
-            return timeUnitIsFirst ? FunctionSignature.ret(DateTimeV2Type.WILDCARD)
-                    .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD)
-                    : FunctionSignature.ret(DateTimeV2Type.WILDCARD)
-                            .args(DateTimeV2Type.WILDCARD, VarcharType.SYSTEM_DEFAULT);
         }
-        // if both of args are not constant, `checkLegalityBeforeTypeCoercion` will throw exception so just return
-        // a signature here.
-        return FunctionSignature.ret(DateTimeV2Type.WILDCARD)
-                .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD);
+        Expression date = getArgument(dateIndex);
+        DataType type;
+        if (date.getDataType() instanceof TimeStampTzType) {
+            // Handle TimeStampTzType first, because getCurrentType() would convert it to DateTimeV2Type
+            type = date.getDataType();
+        } else if (date.getDataType().isDateLikeType()) {
+            type = DataType.getCurrentType(date.getDataType());
+        } else if (date instanceof StringLikeLiteral
+                && DateTimeChecker.hasTimeZone(((StringLikeLiteral) date).getStringValue())) {
+            // a literal datetime string with timezone information
+            type = TimeStampTzType.SYSTEM_DEFAULT;
+        } else {
+            type = DateTimeV2Type.WILDCARD;
+        }
+        return dateIndex == 0 ? FunctionSignature.ret(type).args(type, VarcharType.SYSTEM_DEFAULT)
+                : FunctionSignature.ret(type).args(VarcharType.SYSTEM_DEFAULT, type);
     }
 
     @Override

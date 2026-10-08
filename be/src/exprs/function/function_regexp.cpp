@@ -404,6 +404,14 @@ public:
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
+        // FE checks that the options are a constant, so the first row holds their value even when
+        // BE evaluates the constant to a full column. Each row that compiles the pattern, e.g. of
+        // an empty constant pattern, needs the options in both branches below.
+        StringRef options_value;
+        if (argument_size == 4 && input_rows_count > 0) {
+            options_value = block.get_by_position(arguments[3]).column->get_data_at(0);
+        }
+
         if constexpr (std::is_same_v<FourParamTypes, ParamTypes>) {
             // The regex of a constant pattern was not compiled in open because the options were
             // not evaluated there. Compile it once with the options of the first row.
@@ -415,21 +423,15 @@ public:
                 input_rows_count > 0 &&
                 context->get_function_state(FunctionContext::THREAD_LOCAL) == nullptr) {
                 RETURN_IF_ERROR(compile_constant_pattern(
-                        context, argument_columns[1]->get_data_at(0),
-                        block.get_by_position(arguments[3]).column->get_data_at(0)));
+                        context, argument_columns[1]->get_data_at(0), options_value));
             }
         }
 
-        StringRef options_value;
         if (col_const[1] && col_const[2]) {
             Impl::execute_impl_const_args(context, argument_columns, source_const, options_value,
                                           input_rows_count, result_data, result_offset,
                                           result_null_map->get_data());
         } else {
-            // the options have check in FE, so is always const, and get idx of 0
-            if (argument_size == 4 && input_rows_count > 0) {
-                options_value = block.get_by_position(arguments[3]).column->get_data_at(0);
-            }
             Impl::execute_impl(context, argument_columns, source_const, options_value,
                                input_rows_count, result_data, result_offset,
                                result_null_map->get_data());

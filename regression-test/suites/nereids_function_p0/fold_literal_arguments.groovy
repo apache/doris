@@ -115,6 +115,11 @@ suite("fold_literal_arguments") {
         exception "must be a positive constant"
     }
     test {
+        // a typed NULL is an integral constant, but not a positive one
+        sql "select split_by_regexp('a,b,c', ',', cast(null as int))"
+        exception "must be a positive constant"
+    }
+    test {
         sql "select array_apply([1, 2, 3], concat('>', '>'), 2)"
         exception "op support =, >=, <=, >, <, !="
     }
@@ -180,6 +185,22 @@ suite("fold_literal_arguments") {
     order_qt_width_bucket_be "select k, width_bucket(v, 0, 10, 5 + crc32('')) from fold_literal_arguments_t"
     qt_array_apply_be "select array_apply([1, 2, 3], lpad('=', 2, '>'), 2)"
     order_qt_date_trunc_be "select k, date_trunc(dt, lpad('nth', 5, 'mo')), date_trunc(lpad('ar', 4, 'ye'), dt) from fold_literal_arguments_t"
+    // beside a constant string date value too, in both argument orders, and the string date value derives the
+    // same return type as beside a literal time unit
+    qt_date_trunc_string_date_be """select date_trunc('2024-03-15 10:00:00', lpad('nth', 5, 'mo')),
+            date_trunc(lpad('ar', 4, 'ye'), '2024-03-15 10:00:00'),
+            date_trunc(concat('2024-03-15', ' 10:00:00'), lpad('nth', 5, 'mo')),
+            date_trunc(lpad('ar', 4, 'ye'), concat('2024-03-15', ' 10:00:00'))"""
+    sql "drop table if exists fold_literal_arguments_ctas_be_unit"
+    sql """
+        create table fold_literal_arguments_ctas_be_unit properties('replication_num' = '1') as
+        select 1 k, date_trunc('2024-01-01 01:02:03+08:00', 'month') c1,
+            date_trunc('2024-01-01 01:02:03+08:00', lpad('nth', 5, 'mo')) c2,
+            date_trunc(lpad('nth', 5, 'mo'), '2024-01-01 01:02:03+08:00') c3,
+            date_trunc(concat('2024-03-15', ' 10:00:00'), lpad('nth', 5, 'mo')) c4
+    """
+    qt_date_trunc_string_date_be_type "desc fold_literal_arguments_ctas_be_unit"
+    order_qt_date_trunc_string_date_be_value "select * from fold_literal_arguments_ctas_be_unit"
     qt_sequence_match_be "select sequence_match(lpad('(?2)', 8, '(?1)'), dt, k = 1, k = 2) from fold_literal_arguments_t"
     qt_sequence_count_be "select sequence_count(lpad('(?2)', 8, '(?1)'), dt, k = 1, k = 2) from fold_literal_arguments_t"
     qt_orthogonal_bitmap_expr_calculate_be """select bitmap_to_string(orthogonal_bitmap_expr_calculate(
@@ -253,6 +274,10 @@ suite("fold_literal_arguments") {
         exception "Illegal second argument"
     }
     test {
+        sql "select date_trunc('2024-03-15 10:00:00', lpad('x', 3, 'mo'))"
+        exception "Illegal second argument"
+    }
+    test {
         // date_trunc is pushed into the IF branches, and FE does not fold the illegal time unit
         sql "select date_trunc(cast('2024-03-15 10:00:00' as datetime), if(crc32('') = 0, 'xx', 'month'))"
         exception "Illegal second argument"
@@ -279,6 +304,11 @@ suite("fold_literal_arguments") {
             from numbers('number' = '3')"""
     order_qt_date_trunc_open_non_constant_be """select k, date_trunc(dt, if(1 + crc32('') > 0, 'month', 'x'))
             from fold_literal_arguments_t"""
+    // the options BE evaluates to a full column reach the regex compiled for each row of an empty constant pattern
+    order_qt_regexp_replace_empty_pattern_be """select number,
+            regexp_replace('a', '', '\\\\x', if(uniform(1, 2, crc32('x')) > 0, 'ignore_invalid_escape', '')),
+            regexp_replace_one('a', '', '\\\\x', if(uniform(1, 2, crc32('x')) > 0, 'ignore_invalid_escape', ''))
+            from numbers('number' = '3')"""
 
     // FE needs the precision to derive the return type
     test {

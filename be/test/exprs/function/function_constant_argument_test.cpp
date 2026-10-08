@@ -231,6 +231,34 @@ TEST_F(FunctionConstantArgumentTest, regexp_replace_constant_source) {
     }
 }
 
+TEST_F(FunctionConstantArgumentTest, regexp_replace_empty_pattern_options) {
+    // A constant options argument BE evaluates to a full column, e.g. an IF on uniform(), is not
+    // compiled in open, and an empty constant pattern leaves no compiled regex either, so each row
+    // compiles the pattern. The options must reach that compilation when the pattern and the
+    // replacement are physical constants too.
+    auto string_type = std::make_shared<DataTypeString>();
+    auto return_type = make_nullable(string_type);
+    ColumnPtr pattern = ColumnConst::create(strings({""}), 2);
+    ColumnPtr replacement = ColumnConst::create(strings({"\\x"}), 2);
+    for (std::string name : {"regexp_replace", "regexp_replace_one"}) {
+        Block block;
+        block.insert({strings({"a", "b"}), string_type, "s"});
+        block.insert({pattern, string_type, "pattern"});
+        block.insert({replacement, string_type, "replacement"});
+        block.insert({strings({"ignore_invalid_escape", "ignore_invalid_escape"}), string_type,
+                      "options"});
+        Status status = execute(name, block, return_type,
+                                {nullptr, constant(pattern), constant(replacement), nullptr});
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        const auto& result = *block.get_by_position(4).column;
+        ASSERT_EQ(result.size(), 2);
+        // the empty pattern matches before and after each character, and ignore_invalid_escape
+        // replaces with x for the invalid escape \x; without it the replacement fails
+        EXPECT_EQ(result.get_data_at(0).to_string(), name == "regexp_replace" ? "xax" : "xa");
+        EXPECT_EQ(result.get_data_at(1).to_string(), name == "regexp_replace" ? "xbx" : "xb");
+    }
+}
+
 TEST_F(FunctionConstantArgumentTest, date_trunc_unit) {
     auto date_type = std::make_shared<DataTypeDateV2>();
     auto string_type = std::make_shared<DataTypeString>();
