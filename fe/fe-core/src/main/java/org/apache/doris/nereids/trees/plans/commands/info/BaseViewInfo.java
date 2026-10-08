@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -383,6 +384,14 @@ public class BaseViewInfo {
                 expr.accept(SlotDealer.INSTANCE, context);
             }
             return project.child().accept(this, context);
+        }
+
+        @Override
+        public Void visitLogicalQualify(LogicalQualify<? extends Plan> qualify, StatementContext context) {
+            for (Expression expr : qualify.getConjuncts()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            return qualify.child().accept(this, context);
         }
 
         @Override

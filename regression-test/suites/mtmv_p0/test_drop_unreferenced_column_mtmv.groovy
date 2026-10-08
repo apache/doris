@@ -542,4 +542,31 @@ suite("test_drop_unreferenced_column_mtmv") {
     sql """ALTER TABLE ${nestedInner} ADD COLUMN spare INT DEFAULT 0"""
     order_qt_nested_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${nestedMv}'"
     order_qt_nested_rows "SELECT id FROM ${nestedMv}"
+
+    // ---- a name written where the definition does not say which column it was ----
+    // The judgement re-analyses the view's own definition, so a name in it that the definition never bound
+    // to a column is one the re-analysis can bind elsewhere: `QUALIFY` below reads the base table's `flag`
+    // while it is there, and the alias once it is not, which changes the rows the query returns without
+    // changing the columns the view produces. A view's definition has to carry the column each of its names
+    // was bound to, wherever that name is written, or a change to that column is one this cannot see.
+    String qualifyTable = "${suiteName}_qualify_table"
+    String qualifyMv = "${suiteName}_qualify_mv"
+    sql """drop materialized view if exists ${qualifyMv}"""
+    sql """drop table if exists ${qualifyTable}"""
+    sql """
+        CREATE TABLE ${qualifyTable} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${qualifyTable} VALUES (1, 0)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${qualifyMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(flag) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT 1 AS flag, ROW_NUMBER() OVER (ORDER BY id) AS rn FROM ${qualifyTable}
+        QUALIFY flag = 1 AND rn = 1
+    """
+    waitingMTMVTaskFinishedByMvName(qualifyMv)
+    order_qt_qualify_baseline "SELECT COUNT(*) FROM ${qualifyMv}"
+    sql """ALTER TABLE ${qualifyTable} DROP COLUMN flag"""
+    order_qt_qualify_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${qualifyMv}'"
 }

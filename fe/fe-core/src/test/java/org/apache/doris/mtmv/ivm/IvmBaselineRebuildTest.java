@@ -454,6 +454,32 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     /**
+     * A name in a view's own definition has to say which column it was bound to, wherever it is written.
+     * `QUALIFY` reads a base table's column while that column is there and whatever else answers for the
+     * name once it is not -- here the view's own `v1`, whose output is a constant -- which changes the rows
+     * the query returns without changing the columns the view produces. The judgement re-analyses this
+     * definition, so a name it never bound to a column is one it cannot hold the change against, and the
+     * view is left holding rows the query no longer returns. Pinned as the reason it is invalidated with:
+     * the query is gone, because the column it named is.
+     */
+    @Test
+    public void testAQualifyNameIsBoundToItsColumnInTheStoredDefinition() throws Exception {
+        String db = "ivm_qualify_bound_name";
+        createPartitionedTableWithoutRowBinlog(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT 1 AS v1, ROW_NUMBER() OVER (ORDER BY dt) AS rn FROM ivm_base\n"
+                + "QUALIFY v1 = 1 AND rn = 1");
+        MTMV mtmv = getMtmv(db);
+
+        executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        assertUnanalyzableDetail(mtmv);
+    }
+
+    /**
      * Which MV partitions must be rebuilt is decided by the MV's partition mapping, not by what the
      * refresh snapshot happens to record. This test publishes no snapshot at all: an MV whose partitions
      * follow the base table's still narrows the rebuild down to the partitions that read the dropped one.
