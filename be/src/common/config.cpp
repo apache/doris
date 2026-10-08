@@ -24,7 +24,9 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <lz4/lz4hc.h>
 
+#include <atomic>
 #include <cerrno> // IWYU pragma: keep
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream> // IWYU pragma: keep
@@ -655,6 +657,15 @@ DEFINE_Int64(load_data_reserve_hours, "4");
 DEFINE_mInt64(load_error_log_reserve_hours, "48");
 // error log size limit, default 200MB
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
+
+// Dedicated load cancellation workers. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_threads, "32");
+DEFINE_Validator(brpc_load_light_work_pool_threads,
+                 [](const int config) -> bool { return config > 0; });
+// Queue capacity: -1 selects a CPU-scaled default. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_max_queue_size, "-1");
+DEFINE_Validator(brpc_load_light_work_pool_max_queue_size,
+                 [](const int config) -> bool { return config == -1 || config > 0; });
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_peer_fetch_pool_threads, "-1");
@@ -1320,9 +1331,72 @@ DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
+DEFINE_mDouble(inverted_index_candidate_pushdown_ratio, "0.3");
+DEFINE_Validator(inverted_index_candidate_pushdown_ratio,
+                 [](const double v) -> bool { return std::isfinite(v) && v <= 1.0; });
+static std::atomic<double> published_inverted_index_candidate_pushdown_ratio {0.0};
+DEFINE_ON_UPDATE(inverted_index_candidate_pushdown_ratio, [](double, double value) {
+    published_inverted_index_candidate_pushdown_ratio.store(value);
+});
+
+double get_inverted_index_candidate_pushdown_ratio() {
+    return published_inverted_index_candidate_pushdown_ratio.load();
+}
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
+
+namespace {
+
+bool valid_gram_index_candidate_ratio(int32_t value) {
+    return value >= 0;
+}
+
+bool valid_gram_index_candidate_min_rows(int32_t value) {
+    return value >= 0;
+}
+
+bool valid_gram_index_min_literal_bytes(int32_t value) {
+    return value >= 1;
+}
+
+// A share of windows: (0, 1000]. 0 would ask for nothing and a negative value used to reach
+// the writer's checked cast and fail every gram-index load until the config was repaired.
+bool valid_gram_index_density_coverage_permille(int32_t value) {
+    return value >= 1 && value <= 1000;
+}
+
+bool valid_gram_index_density_sample_bytes(int64_t value) {
+    return value >= 0;
+}
+
+} // namespace
+
+// Whether LIKE/REGEXP tries to compile a constant pattern into a gram boolean query pushed down
+// to a gram-family inverted index (master switch).
+DEFINE_mBool(enable_gram_index_regexp, "true");
+
+// Cost gate for the gram boolean query: give up pruning above this share (in basis points) of a
+// segment's rows, and only on segments of at least this many rows. Giving up returns the segment's
+// whole docid range, so it can never drop a candidate row.
+DEFINE_mInt32(gram_index_max_candidate_ratio_bp, "15");
+DEFINE_Validator(gram_index_max_candidate_ratio_bp, valid_gram_index_candidate_ratio);
+DEFINE_mInt32(gram_index_candidate_ratio_min_rows, "65536");
+
+// On by default: a configured density is wrong on every column but the one it was chosen for,
+// and the solve costs one pass over a bounded sample.
+DEFINE_mBool(enable_gram_index_adaptive_density, "true");
+// 12 bytes at 95% of windows. Both are the promise rather than a tuning pair -- what a user
+// may reasonably change is how short a literal they expect to find, not the boundary rate.
+// A literal shorter than the scheme's max_gram cannot hold a whole gram, so the writer
+// raises the promise to max_gram where a tokenizer sets a longer one.
+DEFINE_mInt32(gram_index_min_literal_bytes, "12");
+DEFINE_mInt32(gram_index_density_coverage_permille, "950");
+DEFINE_mInt64(gram_index_density_sample_bytes, "4194304");
+DEFINE_Validator(gram_index_candidate_ratio_min_rows, valid_gram_index_candidate_min_rows);
+DEFINE_Validator(gram_index_min_literal_bytes, valid_gram_index_min_literal_bytes);
+DEFINE_Validator(gram_index_density_coverage_permille, valid_gram_index_density_coverage_permille);
+DEFINE_Validator(gram_index_density_sample_bytes, valid_gram_index_density_sample_bytes);
 
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
@@ -1389,10 +1463,17 @@ DEFINE_mInt32(snii_index_build_max_memory_limit_percent, "10");
 // ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
 // Default 64 MiB.
 DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
-// Max spill-run files one SNII writer accumulates before its runs are
-// merge-compacted into one (bounds the k-way merge fan-in and its open fds;
-// every run is held open for the whole merge). 0 = uncapped. Default 64.
+// Historical run-file cap: spill ranges now share one append-only spool, so
+// ingestion does not accumulate one physical file per run. This knob additionally
+// limits active inputs per final/intermediate merge group (minimum two). Workspace
+// and fd limits also constrain fan-in; 0 uses those bounds without an extra cap.
 DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
+// Hard budget shared by a logical writer's posting spill, merge, and encoding
+// buffers. Captured when an ingestion writer or compaction reporter is created.
+// High ZSTD levels may require a larger budget for the compression context.
+DEFINE_mInt64(snii_postings_workspace_bytes, "33554432");
+DEFINE_Validator(snii_postings_workspace_bytes,
+                 [](const int64_t value) -> bool { return value > 0; });
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 // The kuromoji (Japanese) analyzer
@@ -2321,6 +2402,8 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
+    published_inverted_index_candidate_pushdown_ratio.store(
+            inverted_index_candidate_pushdown_ratio);
 
     // Emit a warning for every key present in the conf file that does not correspond to a
     // registered BE config field. Such keys (typos or configs removed in a newer version)
@@ -2369,13 +2452,17 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
+        if (PERSIST) {                                                                             \
+            Status persist_status = persist_config(std::string((FIELD).name), VALUE);              \
+            if (!persist_status.ok()) {                                                            \
+                ref_conf_value = old_value;                                                        \
+                return persist_status;                                                             \
+            }                                                                                      \
+        }                                                                                          \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \
             (*full_conf_map)[(FIELD).name] = oss.str();                                            \
-        }                                                                                          \
-        if (PERSIST) {                                                                             \
-            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
         }                                                                                          \
         if (RegisterConfUpdateCallback::_s_field_update_callback != nullptr) {                     \
             auto callback_it =                                                                     \
@@ -2394,7 +2481,7 @@ Status persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
-    static const std::string conffile = config::custom_config_dir + "/be_custom.conf";
+    const std::string conffile = config::custom_config_dir + "/be_custom.conf";
 
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {
@@ -2418,16 +2505,14 @@ Status set_config(const std::string& field, const std::string& value, bool need_
                 "'{}' is not support to modify", field);
     }
 
+    // Keep the value, config map, and callback in the same update order.
+    std::lock_guard<std::mutex> lock(mutable_string_config_lock);
     UPDATE_FIELD(it->second, value, bool, need_persist);
     UPDATE_FIELD(it->second, value, int16_t, need_persist);
     UPDATE_FIELD(it->second, value, int32_t, need_persist);
     UPDATE_FIELD(it->second, value, int64_t, need_persist);
     UPDATE_FIELD(it->second, value, double, need_persist);
-    {
-        // add lock to ensure thread safe
-        std::lock_guard<std::mutex> lock(mutable_string_config_lock);
-        UPDATE_FIELD(it->second, value, std::string, need_persist);
-    }
+    UPDATE_FIELD(it->second, value, std::string, need_persist);
 
     // The other types are not thread safe to change dynamically.
     return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(

@@ -159,6 +159,11 @@ public class AddColumnOp extends AlterTableOp {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }
+        // Light schema change synthesizes one stable value for all old rows. It cannot
+        // backfill volatile defaults with an independent, persistent UUID per row.
+        if (columnDef.hasUuidDefaultValue()) {
+            throw new AnalysisException("ADD COLUMN does not support UUID dynamic default values");
+        }
         boolean isOlap = false;
         OlapTable olapTable = null;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);

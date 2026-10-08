@@ -3314,6 +3314,12 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        // CreateIndexOp#validate materializes the IndexDefinition into alterIndex before
+        // checkColumn runs, so the property defaults that are only filled in during checkColumn
+        // (currently the gram family's support_phrase=false) have to be written back here, or the
+        // index that is persisted and shipped to BE would lose them.
+        indexDef.applyPropertiesTo(alterIndex);
+
         // the column name in CreateIndexClause is not check case sensitivity,
         // when send index description to BE, there maybe cannot find column by name,
         // so here update column name in CreateIndexClause after checkColumn for indexDef,

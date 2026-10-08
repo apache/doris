@@ -114,7 +114,10 @@ public class LoadProcessor extends AbstractJobProcessor {
             for (MultiFragmentsPipelineTask fragmentsTask : executionTask.get().getChildrenTasks().values()) {
                 fragmentsTask.cancelExecute(cancelReason);
             }
-            latch.get().countDownToZero(new Status());
+            // setPipelineExecutionTask publishes this task before afterSetPipelineExecutionTask builds the
+            // latch. A cancel that crosses that publication must not throw from an empty latch, which would
+            // escape the coordinator's cleanup scope and skip the queue/scan teardown.
+            latch.ifPresent(l -> l.countDownToZero(new Status()));
         }
     }
 
@@ -187,8 +190,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         }
 
         if (!fragmentTask.processReportExecStatus(params, () -> acceptFinalReport(params))) {
-            if ((params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                    || params.isSetMcCommitDatas()) && !fragmentTask.isDone()) {
+            if (CommitDataSerializer.hasCommitData(params) && !fragmentTask.isDone()) {
                 throw new IllegalStateException("External-file report was not a completed fragment report");
             }
             LOG.debug("Fragment {} is not done, ignore report status: {}",
@@ -246,17 +248,9 @@ public class LoadProcessor extends AbstractJobProcessor {
             loadContext.updateErrorTabletInfos(params.getErrorTabletInfos());
         }
         long txnId = loadContext.getTransactionId();
-        if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas()) {
+        if (CommitDataSerializer.hasCommitData(params)) {
             Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
-            if (params.isSetHivePartitionUpdates()) {
-                CommitDataSerializer.feed(txn, params.getHivePartitionUpdates());
-            }
-            if (params.isSetIcebergCommitDatas()) {
-                CommitDataSerializer.feed(txn, params.getIcebergCommitDatas());
-            }
-            if (params.isSetMcCommitDatas()) {
-                CommitDataSerializer.feed(txn, params.getMcCommitDatas());
-            }
+            CommitDataSerializer.feed(txn, params);
         }
     }
 

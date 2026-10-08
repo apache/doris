@@ -347,6 +347,10 @@ Status InvertedIndexReader::match_index_search(
         context->runtime_state->query_options().inverted_index_compatible_read) {
         reader->setCompatibleRead(true);
     }
+    // Fresh per-search reply: only the query about to run decides whether it
+    // consumes the candidate set (and thus produces an uncacheable partial
+    // result); a consumed flag left by an earlier search must not leak in.
+    context->candidate_rows_consumed = false;
     try {
         SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
         auto query = QueryFactory::create(query_type, index_searcher, context);
@@ -387,6 +391,12 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                   InvertedIndexQueryType query_type,
                                   std::shared_ptr<roaring::Roaring>& bit_map,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+    // CLucene indexes do not persist the gram tokenizer contract needed to compile a pattern.
+    if (is_gram_query(query_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} requires SNII storage format for column {}", query_type_to_string(query_type),
+                column_name);
+    }
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
@@ -477,7 +487,13 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
             RETURN_IF_ERROR(match_index_search(context, query_type, query_info, *searcher_ptr,
                                                term_match_bitmap));
             term_match_bitmap->runOptimize();
-            cache->insert(cache_key, term_match_bitmap, &cache_handler);
+            // Only a bitmap whose query actually joined the candidate set is
+            // partial and must stay out of the cache; a non-consuming query
+            // (MATCH_ANY/ALL, term, regexp, single-term phrase) computed the
+            // full-segment result even while candidate_rows was published.
+            if (!context->candidate_rows_consumed) {
+                insert_query_cache(context, cache, cache_key, term_match_bitmap, &cache_handler);
+            }
             bit_map = term_match_bitmap;
         }
         return Status::OK();
@@ -510,6 +526,11 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<roaring::Roaring>& bit_map,
                                             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
+    if (is_gram_query(query_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} requires SNII storage format for column {}", query_type_to_string(query_type),
+                column_name);
+    }
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
@@ -543,6 +564,10 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
         query_info.field_name = column_name_ws;
         query_info.term_infos.emplace_back(search_str, 0);
 
+        // Fresh per-search reply (the range-query cases below never pass
+        // through match_index_search, so a stale consumed flag from an
+        // earlier fulltext search must be cleared here too).
+        context->candidate_rows_consumed = false;
         auto result = std::make_shared<roaring::Roaring>();
         FulltextIndexSearcherPtr* searcher_ptr = nullptr;
         InvertedIndexCacheHandle inverted_index_cache_handle;
@@ -601,9 +626,11 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                         "invalid query type when query untokenized inverted index");
             }
         }
-        // add to cache
+        // add to cache (unless a candidate-consuming query made it partial)
         result->runOptimize();
-        cache->insert(cache_key, result, &cache_handler);
+        if (!context->candidate_rows_consumed) {
+            insert_query_cache(context, cache, cache_key, result, &cache_handler);
+        }
 
         bit_map = result;
         return Status::OK();

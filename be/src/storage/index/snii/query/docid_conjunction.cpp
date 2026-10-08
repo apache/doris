@@ -68,6 +68,21 @@ Status posting_abs_offset(const LogicalIndexReader& idx, uint64_t base, uint64_t
 
 Status configure_term_plan(const LogicalIndexReader& idx, bool need_positions,
                            io::BatchRangeFetcher* fetcher, TermPlan* p) {
+    // A stop-gram term has no posting list to plan: the writer dropped it because the
+    // query-side cost gate would have refused to read it anyway. Reaching here means the
+    // caller intends to consume the postings as ground truth, and this term cannot supply
+    // them -- so refuse the index rather than answer from a term that matches everything.
+    // Callers whose semantics survive a match-all term (the gram boolean query, whose
+    // candidates are always re-checked against the column) drop such terms before
+    // planning and never arrive here. This is the single choke point every posting read
+    // passes through, which makes the failure mode of forgetting that "skip the index",
+    // not "return rows that do not match".
+    if (p->entry.posting_dropped) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                "docid_conjunction: term '{}' has a dropped posting list (stop-gram); this "
+                "query needs exact postings",
+                p->entry.term);
+    }
     p->df = p->entry.df;
     p->pod_ref = (p->entry.kind == DictEntryKind::kPodRef);
     p->windowed = p->pod_ref && p->entry.enc == DictEntryEnc::kWindowed;

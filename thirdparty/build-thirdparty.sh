@@ -87,6 +87,28 @@ unset CMAKE_TOOLCHAIN_FILE \
     VCPKG_DEFAULT_TRIPLET \
     CONDA_PREFIX
 
+# The macOS third-party libraries stay on LLVM 20 while env.sh gives the BE LLVM 22 (the
+# first compiler-rt whose ASAN runtime survives macOS 26.4+). clang 22 turns
+# -Wincompatible-pointer-types into an error and stops at unixODBC 2.3.7
+# (SQLBrowseConnectW.c passes SQLSMALLINT* where int* is expected), and no package after it
+# has been built with clang 22. Every macOS third-party build comes through here - the
+# rebuild build.sh starts on its own, a manual run, the pull request check and the
+# apache/doris-thirdparty job that publishes doris-thirdparty-prebuilt-darwin-*.tar.xz - so
+# this is the one place that decides their compiler. Like the unset above, it has to come
+# after env.sh: custom_env.sh may point DORIS_CLANG_HOME at another LLVM for the BE. CC/CXX
+# carry the compiler and PATH the rest of the LLVM tools, as when env.sh named llvm@20.
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    DORIS_CLANG_HOME="$(brew --prefix llvm@20)"
+    if [[ ! -x "${DORIS_CLANG_HOME}/bin/clang" ]]; then
+        echo "The macOS third-party build needs LLVM 20 (${DORIS_CLANG_HOME}/bin/clang is missing): brew install llvm@20" >&2
+        exit 1
+    fi
+    export DORIS_CLANG_HOME
+    export CC="${DORIS_CLANG_HOME}/bin/clang"
+    export CXX="${DORIS_CLANG_HOME}/bin/clang++"
+    export PATH="${DORIS_CLANG_HOME}/bin:${PATH}"
+fi
+
 # Check args
 usage() {
     echo "
@@ -197,6 +219,8 @@ if [[ ! -f "${TP_DIR}/vars.sh" ]]; then
 fi
 
 . "${TP_DIR}/vars.sh"
+. "${TP_DIR}/lance-install.sh"
+LANCE_C_INSTALL_FINGERPRINT="$(lance_c_install_fingerprint "${TP_DIR}")"
 
 cd "${TP_DIR}"
 
@@ -2372,6 +2396,47 @@ build_pugixml() {
 }
 
 # lance-c
+# Publish a complete archive with one rename. Copy/strip must not damage an installed library
+# or expose a partial first installation if either command fails or the build is interrupted.
+install_rust_archive() {
+    (
+        set -e
+        local archive="$1"
+        local destination="${TP_INSTALL_DIR}/lib64/${archive##*/}"
+        local staged
+        staged="$(mktemp "${destination}.tmp.XXXXXX")"
+        trap 'rm -f "${staged}"' EXIT
+        cp -p "${archive}" "${staged}"
+        if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
+            strip --strip-debug --strip-unneeded "${staged}"
+        fi
+        mv -f "${staged}" "${destination}"
+    )
+}
+
+install_paimon_rust() {
+    (
+        set -e
+        local archive="$1"
+        local header="$2"
+        local destination="${TP_INSTALL_DIR}/include/paimon_rust/paimon.h"
+        local incomplete="${TP_INSTALL_DIR}/lib64/.paimon-installing"
+        mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust" "${TP_INSTALL_DIR}/lib64"
+        local staged
+        staged="$(mktemp "${destination}.tmp.XXXXXX")"
+        trap 'rm -f "${staged}"' EXIT
+        cp -p "${header}" "${staged}"
+        test -s "${staged}"
+        test -s "${archive}"
+        # The two renames cannot be atomic together. Keep this recovery marker until
+        # both succeed so build.sh never reuses a mixed pair after interruption.
+        touch "${incomplete}"
+        install_rust_archive "${archive}"
+        mv -f "${staged}" "${destination}"
+        rm -f "${incomplete}"
+    )
+}
+
 build_lance_c() {
     check_if_source_exist "${LANCE_C_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
@@ -2381,7 +2446,7 @@ build_lance_c() {
 
     local cargo_bin="${LANCE_C_CARGO:-${CARGO:-cargo}}"
     if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
-        echo "cargo is required to build lance-c. Install Rust 1.91.0 or set LANCE_C_CARGO."
+        echo "cargo is required to build lance-c. Install Rust 1.94.0 or set LANCE_C_CARGO."
         exit 1
     fi
     if [[ ! -x "${TP_INSTALL_DIR}/bin/protoc" ]]; then
@@ -2389,14 +2454,20 @@ build_lance_c() {
         exit 1
     fi
 
-    local required_rust_version="1.91.0"
+    local required_rust_version="1.94.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
         "PROTOC=${TP_INSTALL_DIR}/bin/protoc"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
-        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+        # The presence check must look for the toolchain the minimum actually
+        # requires, not a literal: with only an older toolchain installed the
+        # stale check would skip the install below and then force
+        # RUSTUP_TOOLCHAIN to a version rustup cannot dispatch, failing the
+        # build before any archive is produced.
+        local required_rust_regex="${required_rust_version//./\\.}"
+        if ! rustup toolchain list | grep -Eq "^${required_rust_regex}([[:space:]-]|$)"; then
             rustup toolchain install "${required_rust_version}" --profile minimal
         fi
         cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
@@ -2407,7 +2478,7 @@ build_lance_c() {
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    # Rust 1.91.0 is the minimum supported version. Allow newer toolchains when
+    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
             split(required, r, ".");
@@ -2438,13 +2509,135 @@ build_lance_c() {
     env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
 
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
+    # Invalidate before publishing either file so interrupted installs cannot reuse
+    # a matching marker with a partial header/archive pair.
+    rm -f "${TP_INSTALL_DIR}/lib64/.lance-c-fingerprint"
     rm -rf "${TP_INSTALL_DIR}/include/lance"
     cp -av include/lance "${TP_INSTALL_DIR}/include/"
-    cp -v "${BUILD_DIR}/release/liblance_c.a" "${TP_INSTALL_DIR}/lib64/"
+    install_rust_archive "${BUILD_DIR}/release/liblance_c.a"
+    printf '%s\n' "${LANCE_C_INSTALL_FINGERPRINT}" > "${TP_INSTALL_DIR}/lib64/.lance-c-fingerprint.tmp"
+    mv "${TP_INSTALL_DIR}/lib64/.lance-c-fingerprint.tmp" "${TP_INSTALL_DIR}/lib64/.lance-c-fingerprint"
+}
 
-    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
-        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/liblance_c.a"
+build_paimon_rust() {
+    check_if_source_exist "${PAIMON_RUST_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_RUST_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+
+    local cargo_bin="${PAIMON_RUST_CARGO:-${CARGO:-cargo}}"
+    if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
+        echo "cargo is required to build paimon-rust. Install Rust 1.94.0 or set PAIMON_RUST_CARGO."
+        exit 1
     fi
+
+    local required_rust_version="1.94.0"
+    local cargo_env=(
+        "CARGO_BUILD_JOBS=${PARALLEL}"
+        "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
+    )
+    if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
+        # The presence check must look for the toolchain the minimum actually
+        # requires, not a literal: with only an older toolchain installed the
+        # stale check would skip the install below and then force
+        # RUSTUP_TOOLCHAIN to a version rustup cannot dispatch, failing the
+        # build before any archive is produced.
+        local required_rust_regex="${required_rust_version//./\\.}"
+        if ! rustup toolchain list | grep -Eq "^${required_rust_regex}([[:space:]-]|$)"; then
+            rustup toolchain install "${required_rust_version}" --profile minimal
+        fi
+        cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
+    fi
+
+    local cargo_version
+    if ! cargo_version="$(env "${cargo_env[@]}" "${cargo_bin}" --version | awk '{print $2}')"; then
+        echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
+    # callers explicitly select one or rustup is unavailable on the system.
+    # NOTE: paimon_c and lance_c are both Rust staticlibs linked into the same
+    # BE binary; they must be built with the SAME rustc toolchain so the linker
+    # resolves both crates' std references against a single std copy. Mixing
+    # toolchains makes the precompiled std hashes differ and the linker pulls
+    # both std copies in, colliding on the unmangled `rust_eh_personality`
+    # (duplicate symbol). Rebuild both lance_c and paimon_rust whenever the
+    # toolchain changes, using the same RUSTUP_TOOLCHAIN for both builds.
+    if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
+            split(required, r, ".");
+            split(actual, a, ".");
+            for (i = 1; i <= 3; i++) {
+                if ((a[i] + 0) > (r[i] + 0)) {
+                    exit 0;
+                }
+                if ((a[i] + 0) < (r[i] + 0)) {
+                    exit 1;
+                }
+            }
+            exit 0;
+        }'; then
+        echo "paimon-rust requires Rust/Cargo ${required_rust_version} or newer, but found ${cargo_version}."
+        echo "Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
+    fi
+
+    local cargo_args=(build --release --locked -p paimon-c --features paimon/storage-hdfs)
+    # cbindgen invokes cargo metadata itself; command-line flags on the build
+    # and install calls do not propagate to that child process.
+    cargo_env+=("CARGO=${cargo_bin}")
+    if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+        cargo_args+=(--offline)
+        cargo_env+=("CARGO_NET_OFFLINE=true")
+    fi
+    env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
+
+    # Generate the C header from the Rust extern "C" surface via cbindgen.
+    # cbindgen is a pinned, Doris-controlled input: an unpinned "current"
+    # release would regenerate paimon.h differently between builds. The
+    # pinned version installs under a Doris-controlled --root and its
+    # resolved absolute path is invoked directly (a custom CARGO_HOME does
+    # not necessarily put cargo-installed binaries on PATH). Offline builds
+    # pass --offline to the install command, exactly like the fetch/build
+    # handling above — cargo fails on a missing local crate cache instead
+    # of reaching for the network.
+    local cbindgen_version="0.29.4"
+    local cbindgen_bin="${PAIMON_RUST_CBINDGEN:-}"
+    if [[ -z "${cbindgen_bin}" ]]; then
+        local cbindgen_root="${TP_SOURCE_DIR}/.doris-cbindgen-${cbindgen_version}"
+        cbindgen_bin="${cbindgen_root}/bin/cbindgen"
+        if [[ ! -x "${cbindgen_bin}" ]]; then
+            local cbindgen_install_args=(install cbindgen
+                --version "${cbindgen_version}" --locked --root "${cbindgen_root}")
+            if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+                cbindgen_install_args+=(--offline)
+            fi
+            echo "cbindgen not found; installing pinned ${cbindgen_version} via cargo install ..."
+            env "${cargo_env[@]}" "${cargo_bin}" "${cbindgen_install_args[@]}"
+        fi
+    elif [[ ! -x "${cbindgen_bin}" ]]; then
+        echo "PAIMON_RUST_CBINDGEN=${cbindgen_bin} is not an executable file."
+        exit 1
+    fi
+    # Write a temporary cbindgen.toml so the generated header carries our
+    # include-guard / cpp-compat settings without touching the upstream tree.
+    local cbindgen_toml="${BUILD_DIR}/cbindgen.toml"
+    mkdir -p "${BUILD_DIR}"
+    cat >"${cbindgen_toml}" <<'EOF'
+language = "C"
+include_guard = "PAIMON_C_H"
+pragma_once = true
+cpp_compat = true
+EOF
+    env "${cargo_env[@]}" "${cbindgen_bin}" bindings/c \
+        --config "${cbindgen_toml}" \
+        --output "${BUILD_DIR}/release/paimon.h"
+
+    install_paimon_rust "${BUILD_DIR}/release/libpaimon_c.a" "${BUILD_DIR}/release/paimon.h"
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -2526,6 +2719,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         icu
         mecab_ipadic
         pugixml
+        paimon_rust
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
@@ -2636,6 +2830,7 @@ cleanup_package_source() {
         juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
+        paimon_rust)     src_var="PAIMON_RUST_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;

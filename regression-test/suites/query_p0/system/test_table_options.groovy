@@ -199,17 +199,17 @@ suite("test_table_options") {
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
 
-    connect(user, '123abc!@#', url) {
+    connectToDoris(user, '123abc!@#', url) {
        qt_select_check_3 """select * from information_schema.table_options ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM,PARTITION_METHOD,PARTITION_EXPRESSION,PARTITION_KEY,`RANGE`; """
     }
 
     sql "GRANT SELECT_PRIV ON ${dbName}.duplicate_table  TO ${user}"
-    connect(user, '123abc!@#', url) {
+    connectToDoris(user, '123abc!@#', url) {
        qt_select_check_4 """select * from information_schema.table_options ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM,PARTITION_METHOD,PARTITION_EXPRESSION,PARTITION_KEY,`RANGE`; """
     }
     
     sql "REVOKE SELECT_PRIV ON ${dbName}.duplicate_table  FROM ${user}"
-    connect(user, '123abc!@#', url) {
+    connectToDoris(user, '123abc!@#', url) {
        qt_select_check_5 """select * from information_schema.table_options ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,TABLE_MODEL,TABLE_MODEL_KEY,DISTRIBUTE_KEY,DISTRIBUTE_TYPE,BUCKETS_NUM,PARTITION_NUM,PARTITION_METHOD,PARTITION_EXPRESSION,PARTITION_KEY,`RANGE`; """
     }
 

@@ -189,6 +189,22 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testFlussUnionReadModeRejectsInvalidValuesAtSetTime() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Field field = SessionVariable.class.getDeclaredField("flussUnionReadMode");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertEquals("checkFlussUnionReadMode", varAttr.checker());
+
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                SessionVariable.FLUSS_UNION_READ_MODE, new StringLiteral("ReQuIrEd")));
+        Assertions.assertEquals("ReQuIrEd", sessionVar.flussUnionReadMode);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "fluss_union_read_mode value is invalid",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        SessionVariable.FLUSS_UNION_READ_MODE, new StringLiteral("nonsense"))));
+    }
+
+    @Test
     public void testRuntimeFilterBroadcastJoinProducerNumDescription() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
         Assertions.assertEquals(3, sessionVar.getRuntimeFilterBroadcastJoinProducerNum());
