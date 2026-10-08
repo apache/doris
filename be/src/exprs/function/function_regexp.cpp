@@ -548,7 +548,13 @@ public:
                             // The regex of a constant pattern was not compiled in open because
                             // the options were not evaluated there. Compile it once with the
                             // options of the first row.
-                            if (!context->is_col_constant(3) && input_rows_count > 0 &&
+                            // Gate this on the query-level constant-ness of the pattern (as
+                            // open() does), not on parameters_const: a lazy join can broadcast a
+                            // non-constant probe pattern as a physical ColumnConst for one block,
+                            // which would otherwise cache that block's pattern and wrongly reuse
+                            // it for later blocks with a different pattern value.
+                            if (context->is_col_constant(1) && !context->is_col_constant(3) &&
+                                input_rows_count > 0 &&
                                 context->get_function_state(FunctionContext::THREAD_LOCAL) ==
                                         nullptr) {
                                 Status st = compile_constant_pattern(

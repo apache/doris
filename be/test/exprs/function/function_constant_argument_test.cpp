@@ -167,6 +167,31 @@ TEST_F(FunctionConstantArgumentTest, regexp_replace_options) {
     EXPECT_EQ(empty_block.get_by_position(4).column->size(), 0);
 }
 
+TEST_F(FunctionConstantArgumentTest, regexp_replace_pattern_changes_across_blocks) {
+    // A lazy join can pass a probe-side pattern as a physical ColumnConst for one block while the
+    // pattern is not a query-level constant, so FE's constant_cols entry for it is nullptr here
+    // even though each block's pattern column is still a ColumnConst. Caching the regex compiled
+    // from the first block's pattern must not leak into a later block whose physical constant
+    // differs.
+    auto string_type = std::make_shared<DataTypeString>();
+    auto return_type = make_nullable(string_type);
+    for (std::string name : {"regexp_replace", "regexp_replace_one"}) {
+        std::vector<Block> blocks(2);
+        blocks[0].insert({strings({"a"}), string_type, "s"});
+        blocks[0].insert({ColumnConst::create(strings({"a"}), 1), string_type, "pattern"});
+        blocks[0].insert({ColumnConst::create(strings({"x"}), 1), string_type, "replacement"});
+        blocks[0].insert({strings({"ignore_invalid_escape"}), string_type, "options"});
+        blocks[1].insert({strings({"b"}), string_type, "s"});
+        blocks[1].insert({ColumnConst::create(strings({"b"}), 1), string_type, "pattern"});
+        blocks[1].insert({ColumnConst::create(strings({"x"}), 1), string_type, "replacement"});
+        blocks[1].insert({strings({"ignore_invalid_escape"}), string_type, "options"});
+        Status status = execute(name, blocks, return_type, {nullptr, nullptr, nullptr, nullptr});
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        EXPECT_EQ(blocks[0].get_by_position(4).column->get_data_at(0).to_string(), "x");
+        EXPECT_EQ(blocks[1].get_by_position(4).column->get_data_at(0).to_string(), "x");
+    }
+}
+
 TEST_F(FunctionConstantArgumentTest, regexp_replace_null_options) {
     auto string_type = std::make_shared<DataTypeString>();
     auto nullable_string_type = make_nullable(string_type);
