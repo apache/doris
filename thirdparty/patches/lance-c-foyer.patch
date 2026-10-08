@@ -1,7 +1,7 @@
 # Foyer data-cache integration for lance-format/lance-c#73.
-# Base: 98468344bc9d56aa7ed4a4192e844afa62b34ba1 (lance-format/lance-c main, including #94)
+# Base: 8e9e09ecc795c91ce7f97513db94c2d91eec799d (lance-format/lance-c main, including #91 and #94)
 # Source: https://github.com/Gabriel39/lance-c/commit/24c7ca4bcb9422c113b0d3e07e4efe1173b0bc9f
-# The unchanged Foyer payload is reapplied to the newer upstream base with git apply --3way.
+# Foyer patch regenerated against this base; implementation payload is unchanged.
 diff --git a/Cargo.lock b/Cargo.lock
 index 78812f1330e146db295a14276f90f9e28654f399..daf9f85daf3e0ea59bb906e8e3c32470519b084b 100644
 --- a/Cargo.lock
@@ -246,7 +246,7 @@ index f13ad015826a8ac5468cfea247707d987cc0864d..56422c22969882cd43edd5e83a4a5c4d
 
  Prewarm a logical index before serving queries to move cold index reads out of
 diff --git a/include/lance/lance.h b/include/lance/lance.h
-index b91c290a40d37edbb49323d2d11efd3b4f980bb8..0997023974a5205a145a991d53da0ee1a2babc8c 100644
+index 6467a46a0dae57931fe248d80a37218b203c3455..2b3b755caa1aa687941539430ce62310f3608016 100644
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
 @@ -214,6 +214,36 @@ typedef struct LanceSessionCacheStats {
@@ -334,7 +334,7 @@ index b91c290a40d37edbb49323d2d11efd3b4f980bb8..0997023974a5205a145a991d53da0ee1
  void lance_dataset_close(LanceDataset* dataset);
 
 diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
-index 17e93486c079d3453547af160b875310328da9e1..b049cc519ee9784d4bcc1a087eac237e880b5e74 100644
+index 092929c2d1d2aab2424b095894a612921ea686e6..2f30c5fe03403857c61a7cd2671aa2093e600135 100644
 --- a/include/lance/lance.hpp
 +++ b/include/lance/lance.hpp
 @@ -176,6 +176,13 @@ struct SqlColumn {
@@ -2243,7 +2243,7 @@ index 1971510de4a13ee6f04fc39c159b088e78e21d55..ba51c87a8cebb6897c48fb55509f71da
          // SAFETY: `out_dataset` is non-NULL (checked above) and the caller
          // guarantees it points to caller-owned, writable storage of size
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
-index b00072df3f966f58663359ccd370b399650c2023..e44871e92bc7ff9787bf5220b1ea8a4270da9710 100644
+index 341e5532d805d0a7a26f4615fc1b64fe3c918a29..444971ee1793e5afc3af81490f2ec4af3991f7b6 100644
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
 @@ -100,10 +100,83 @@ fn create_large_dataset(num_rows: i32) -> (tempfile::TempDir, String) {
