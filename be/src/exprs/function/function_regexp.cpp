@@ -537,6 +537,10 @@ public:
                                                          args_block, args);
                     const bool parameters_const = col_const[1] && col_const[2];
 
+                    // FE checks that the options are a constant, so the first row holds their
+                    // value even when BE evaluates the constant to a full column. Each row that
+                    // compiles the pattern, e.g. of an empty constant pattern, needs the options
+                    // in both branches below.
                     StringRef options_value;
                     if (args.size() == 4) {
                         options_value =
@@ -570,7 +574,6 @@ public:
                                 input_rows_count, result_data, result_offset,
                                 result_null_map->get_data());
                     } else {
-                        // the options have check in FE, so is always const, and get idx of 0
                         Impl::template execute_impl<check_null>(
                                 context, argument_columns, source_const, options_value,
                                 input_rows_count, result_data, result_offset,

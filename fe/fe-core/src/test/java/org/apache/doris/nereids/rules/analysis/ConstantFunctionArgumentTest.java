@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -145,6 +146,8 @@ public class ConstantFunctionArgumentTest {
         assertAnalysisError("select sha2('abc', cast(null as int))",
                 "sha2 functions only support digest length of");
         assertAnalysisError("select split_by_regexp('a,b,c', ',', 0 - 1)", "must be a positive constant");
+        // a typed NULL is an integral constant, but not a positive one
+        assertAnalysisError("select split_by_regexp('a,b,c', ',', cast(null as int))", "must be a positive constant");
         assertAnalysisError("select array_apply([1, 2, 3], concat('>', '>'), 2)", "op support =, >=, <=, >, <, !=");
         assertAnalysisError("select tokenize('x', concat('par', 'ser'))",
                 "tokenize second argument must be properties format");
@@ -296,6 +299,36 @@ public class ConstantFunctionArgumentTest {
         assertNotLiteral(analyzeAndRewrite(
                 "select date_trunc(lpad('mo', 2, 'nth'), s) from (select '2024-03-15' s) t",
                 DateTrunc.class).child(0));
+        // beside a constant string date value too, in both argument orders, and the string date value selects
+        // the same signature as beside a literal time unit, including the timezone type
+        DateTrunc stringDate = analyze("select date_trunc('2024-03-15 10:00:00', lpad('nth', 5, 'mo'))",
+                DateTrunc.class);
+        assertNotLiteral(stringDate.child(1));
+        Assertions.assertEquals(analyze("select date_trunc('2024-03-15 10:00:00', 'month')", DateTrunc.class)
+                .getDataType(), stringDate.getDataType());
+        DateTrunc stringDateUnitFirst = analyze("select date_trunc(lpad('nth', 5, 'mo'), '2024-03-15 10:00:00')",
+                DateTrunc.class);
+        assertNotLiteral(stringDateUnitFirst.child(0));
+        Assertions.assertEquals(stringDate.getDataType(), stringDateUnitFirst.getDataType());
+        DateTrunc zonedStringDate = analyze("select date_trunc('2024-01-01 01:02:03+08:00', lpad('nth', 5, 'mo'))",
+                DateTrunc.class);
+        Assertions.assertInstanceOf(TimeStampTzType.class, zonedStringDate.getDataType());
+        Assertions.assertEquals(analyze("select date_trunc('2024-01-01 01:02:03+08:00', 'month')",
+                DateTrunc.class).getDataType(), zonedStringDate.getDataType());
+        Assertions.assertEquals(zonedStringDate.getDataType(), analyze(
+                "select date_trunc(lpad('nth', 5, 'mo'), '2024-01-01 01:02:03+08:00')", DateTrunc.class)
+                .getDataType());
+        // a string date value FE can fold is kept unfolded, like beside a literal time unit
+        DateTrunc foldableStringDate = analyze("select date_trunc(concat('2024-03-15', ' 10:00:00'),"
+                + " lpad('nth', 5, 'mo'))", DateTrunc.class);
+        assertNotLiteral(foldableStringDate.child(0));
+        assertNotLiteral(foldableStringDate.child(1));
+        Assertions.assertEquals(DateTimeV2Type.of(6), foldableStringDate.getDataType());
+        assertNotLiteral(analyze("select date_trunc(lpad('nth', 5, 'mo'), concat('2024-03-15', ' 10:00:00'))",
+                DateTrunc.class).child(1));
+        // the time unit value FE can evaluate beside a string date value is still validated
+        assertAnalysisError("select date_trunc('2024-03-15 10:00:00', concat('mon', 'x'))",
+                "date_trunc function time unit param only support argument is");
         assertNotLiteral(analyzeAndRewrite("select rand(1 + crc32(''))", Random.class).child(0));
         Uniform uniform = analyzeAndRewrite("select uniform(1 + crc32(''), 10 + crc32(''), crc32('x'))",
                 Uniform.class);

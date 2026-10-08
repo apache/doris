@@ -124,6 +124,19 @@ true	true
 3	2024-05-01T00:00	2024-01-01T00:00
 4	2024-06-01T00:00	2024-01-01T00:00
 
+-- !date_trunc_string_date_be --
+2024-03-01T00:00	2024-01-01T00:00	2024-03-01T00:00	2024-01-01T00:00
+
+-- !date_trunc_string_date_be_type --
+k	tinyint	Yes	true	\N	
+c1	timestamptz	Yes	true	\N	
+c2	timestamptz	Yes	true	\N	
+c3	timestamptz	Yes	false	\N	NONE
+c4	datetime(6)	Yes	false	\N	NONE
+
+-- !date_trunc_string_date_be_value --
+1	2024-01-01 00:00:00+08:00	2024-01-01 00:00:00+08:00	2024-01-01 00:00:00+08:00	2024-03-01T00:00
+
 -- !sequence_match_be --
 true
 
@@ -168,6 +181,11 @@ true	true	true	bbc	2024-03-01T00:00
 2	2024-04-01T00:00
 3	2024-05-01T00:00
 4	2024-06-01T00:00
+
+-- !regexp_replace_empty_pattern_be --
+0	xax	xa
+1	xax	xa
+2	xax	xa
 
 -- !topn_skip_fold --
 {"b":3,"a":2}
