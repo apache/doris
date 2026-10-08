@@ -522,6 +522,41 @@ TEST_F(RuntimeFilterProducerTest, publish_local_merge_targets_merger_owns_privat
     ASSERT_FALSE(wrapper->hybrid_set()->find(&six));
 }
 
+// A non-broadcast filter with only remote targets never hands its wrapper to a plain local
+// consumer: that only happens in the `!_has_remote_target` branch of `publish()`. Once such a
+// producer's wrapper reaches the local merger, no other reader remains, so the merger may take
+// it over directly instead of cloning it.
+TEST_F(RuntimeFilterProducerTest, publish_remote_target_merge_takes_ownership) {
+    auto desc = TRuntimeFilterDescBuilder().set_mode(false).set_is_broadcast_join(false).build();
+
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[0]->register_producer_runtime_filter(desc, &producer));
+    std::shared_ptr<RuntimeFilterProducer> producer2;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[1]->register_producer_runtime_filter(desc, &producer2));
+
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->init(1));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            producer->insert(ColumnHelper::create_column<DataTypeInt32>({5}), 0));
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+
+    auto wrapper = producer->wrapper();
+    // Only the first of the two expected producers has published, so the merger is not ready
+    // yet and publish() never reaches `_send_to_remote_targets()`.
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->publish(_runtime_states[0].get(), true));
+    ASSERT_EQ(producer->_wrapper, nullptr);
+
+    std::shared_ptr<LocalMergeContext> context;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _query_ctx->runtime_filter_mgr()->get_local_merge_context(desc.filter_id, 0, &context));
+    // The merger adopted the producer's wrapper directly instead of cloning it.
+    ASSERT_EQ(context->merger->_wrapper, wrapper);
+    ASSERT_EQ(wrapper->hybrid_set()->size(), 1);
+    int32_t five = 5;
+    ASSERT_TRUE(wrapper->hybrid_set()->find(&five));
+}
+
 // An IN_OR_BLOOM merger which is still an IN filter takes the bloom filter of a producer which
 // already changed to a bloom filter. It must take a copy, the producer's own local consumers are
 // probing the original.

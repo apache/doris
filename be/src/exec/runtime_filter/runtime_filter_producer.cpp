@@ -48,7 +48,7 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
     std::unique_lock<std::recursive_mutex> l(_rmtx);
     _check_state({State::READY_TO_PUBLISH});
 
-    auto do_merge = [&]() {
+    auto do_merge = [&](bool other_wrapper_exclusively_owned) {
         if (!_need_do_merge(state)) {
             // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
             return Status::OK();
@@ -61,7 +61,7 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
             return Status::OK();
         }
         bool ready = false;
-        RETURN_IF_ERROR(context->merger->merge_from(this, &ready));
+        RETURN_IF_ERROR(context->merger->merge_from(this, &ready, other_wrapper_exclusively_owned));
         if (ready) {
             if (_has_remote_target) {
                 RETURN_IF_ERROR(_send_to_remote_targets(state, context->merger.get()));
@@ -78,13 +78,18 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
         // The merger never writes this wrapper (see `RuntimeFilterMerger::merge_from`), so the
         // consumers in local RF mgr can use it right away while the merge of the other
         // producers goes on.
-        RETURN_IF_ERROR(do_merge());
+        RETURN_IF_ERROR(do_merge(/*other_wrapper_exclusively_owned=*/false));
         RETURN_IF_ERROR(_send_to_local_targets(state, this, false));
     } else if (build_hash_table) {
         if (_is_broadcast_join) {
             RETURN_IF_ERROR(_send_to_remote_targets(state, this));
         } else {
-            RETURN_IF_ERROR(do_merge());
+            // This path never hands `_wrapper` to a plain local consumer (that only happens in
+            // the `!_has_remote_target` branch above), and the shared-wrapper broadcast-join
+            // case is the other arm of this `if`, so no other producer aliases it either. The
+            // only remaining reference after this call is the one `_wrapper.reset()` below
+            // drops, so the merger may take `_wrapper` over directly instead of cloning it.
+            RETURN_IF_ERROR(do_merge(/*other_wrapper_exclusively_owned=*/true));
         }
     } else {
         if (!_is_broadcast_join) {
