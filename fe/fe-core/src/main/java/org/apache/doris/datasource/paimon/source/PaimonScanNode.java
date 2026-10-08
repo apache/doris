@@ -1189,15 +1189,45 @@ public class PaimonScanNode extends FileQueryScanNode {
             boolean splitDvNotMaterialized = puAggDeletionVectors && !dvMergeOnRead
                     && nativeSplit && !fallbackRead
                     && !isFullyMaterializedPkDvSplit((DataSplit) split);
-            boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
-                    && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
-                    && !isIncremental && providerModeTranslatable && !queryAuthTable
-                    && !restTokenTable
-                    && !dvMergeOnRead && !splitDvNotMaterialized
-                    && !orcLtzSchema && !projectedVariant && !externalFileSplit
-                    && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
-                    && schemeCapabilityVerified && hdfsBackendVerified
-                    && paimonFileStoreTable != null;
+            boolean vectorSearchSplit = paimonSplit.getVectorPayloadBytes() != null;
+            // A PK-vector search split is not read as a DataSplit at all: FE ships it
+            // serialized inside vector_payload (paimon_split is empty on the wire) and
+            // BE executes paimon-rust's eager Top-K chain, which applies deletion
+            // vectors and the merge inside the search itself. So its gate is computed
+            // separately from the batch reader's: every DataSplit-shape gate below
+            // (nativeSplit / splitDvNotMaterialized / externalFileSplit, the
+            // PaimonRustReaderCapabilities whitelist) judges a split the vector path
+            // never opens and must not apply -- this partial-update + unmaterialized-DV
+            // shape is the standard PK-vector table layout the batch reader rejects.
+            // The gates kept for vector constrain the search itself: both switches,
+            // !fallbackRead (BE opens via the FileStoreTable schema json),
+            // provider-mode translation and auth/query-auth shapes, the merge-option
+            // matrix and merge-on-read shape the search's row lookup must honor,
+            // orc-ltz / projected-variant bounds on the returned user columns,
+            // the table's storage scheme and credential shape, scan-mode default
+            // and the all-backend rust capability negotiation.
+            boolean canUseRust;
+            if (vectorSearchSplit) {
+                canUseRust = sessionVariable.isEnablePaimonRustReader()
+                        && sessionVariable.enableFileScannerV2 && !fallbackRead
+                        && !isIncremental && providerModeTranslatable && !queryAuthTable
+                        && !restTokenTable
+                        && !dvMergeOnRead
+                        && !orcLtzSchema && !projectedVariant
+                        && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
+                        && schemeCapabilityVerified && hdfsBackendVerified
+                        && paimonFileStoreTable != null;
+            } else {
+                canUseRust = sessionVariable.isEnablePaimonRustReader()
+                        && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
+                        && !isIncremental && providerModeTranslatable && !queryAuthTable
+                        && !restTokenTable
+                        && !dvMergeOnRead && !splitDvNotMaterialized
+                        && !orcLtzSchema && !projectedVariant && !externalFileSplit
+                        && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
+                        && schemeCapabilityVerified && hdfsBackendVerified
+                        && paimonFileStoreTable != null;
+            }
             if (canUseRust) {
                 // Branch tables can retain persisted modes without a selector. Validate the
                 // transported options too: the pinned Rust builder only accepts default here.
@@ -1216,7 +1246,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             // schema-evolution whitelist), and a vector bucket legitimately spans
             // multiple data files and applies deletion vectors inside the search itself,
             // so the per-split capability whitelist must not judge it.
-            boolean vectorSearchSplit = paimonSplit.getVectorPayloadBytes() != null;
             if (canUseRust && !vectorSearchSplit) {
                 if (rustReaderCapabilities == null) {
                     rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
@@ -1237,7 +1266,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                     // declare a checked UserException; the existing native branch throws
                     // RuntimeException for the same reason.
                     throw new RuntimeException("Paimon PK-vector search split requires the"
-                            + " paimon-rust reader with enable_file_scanner_v2 enabled");
+                            + " paimon-rust reader: enable_file_scanner_v2 must be enabled and"
+                            + " the table must be rust-eligible (storage scheme / credentials,"
+                            + " merge options, orc / variant shape)");
                 }
                 TPaimonVectorPayload vectorPayload = new TPaimonVectorPayload();
                 vectorPayload.setPayloadType(TPaimonVectorPayloadType.BUCKET_SPLIT_BYTES);
