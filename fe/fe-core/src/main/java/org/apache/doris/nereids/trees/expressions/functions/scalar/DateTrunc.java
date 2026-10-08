@@ -98,7 +98,11 @@ public class DateTrunc extends ScalarFunction
                 getArgument(1).isConstant() && getArgument(1) instanceof StringLikeLiteral;
         if (!firstArgIsStringLiteral && !secondArgIsStringLiteral) {
             for (int i = 0; i < 2; i++) {
-                if (getArgument(i).getDataType().isDateLikeType() && isConstantString(getArgument(1 - i))) {
+                // The other argument is the time unit when this one is a date-typed value, or when this one
+                // is simply nonconstant (e.g. a VARCHAR date column) and the other side can only be the unit.
+                boolean thisArgIsDateRole = getArgument(i).getDataType().isDateLikeType()
+                        || !getArgument(i).isConstant();
+                if (thisArgIsDateRole && isConstantString(getArgument(1 - i))) {
                     // The other argument is a constant time unit the rewrite will fold. Validate the value FE
                     // can evaluate here, because constant folding may remove this function before any later
                     // check. BE validates a time unit FE cannot fold.
@@ -163,7 +167,14 @@ public class DateTrunc extends ScalarFunction
                 getArgument(0).isConstant() && getArgument(0) instanceof StringLikeLiteral;
         boolean secondArgIsStringLiteral =
                 getArgument(1).isConstant() && getArgument(1) instanceof StringLikeLiteral;
-        if (firstArgIsStringLiteral && !secondArgIsStringLiteral) {
+        // When neither side folds to a literal time unit on FE (e.g. a BE-only constant such as
+        // lpad('nth', 5, 'mo')), the nonconstant side can still only be the date value, so pick it
+        // by constant-ness instead of requiring a literal; BE validates the evaluated unit.
+        boolean firstArgIsUnit = firstArgIsStringLiteral
+                || (isConstantString(getArgument(0)) && !getArgument(1).isConstant());
+        boolean secondArgIsUnit = secondArgIsStringLiteral
+                || (isConstantString(getArgument(1)) && !getArgument(0).isConstant());
+        if (firstArgIsUnit && !secondArgIsUnit) {
             DataType argType = getArgument(1).getDataType();
             if (argType instanceof TimeStampTzType) {
                 return FunctionSignature.ret((TimeStampTzType) argType)
@@ -171,7 +182,7 @@ public class DateTrunc extends ScalarFunction
             }
             return FunctionSignature.ret(DateTimeV2Type.WILDCARD)
                     .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD);
-        } else if (!firstArgIsStringLiteral && secondArgIsStringLiteral) {
+        } else if (!firstArgIsUnit && secondArgIsUnit) {
             DataType argType = getArgument(0).getDataType();
             if (argType instanceof TimeStampTzType) {
                 return FunctionSignature.ret((TimeStampTzType) argType)

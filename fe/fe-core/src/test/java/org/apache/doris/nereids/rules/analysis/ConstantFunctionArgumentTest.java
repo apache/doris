@@ -288,6 +288,14 @@ public class ConstantFunctionArgumentTest {
                 + " lpad('ay', 3, 'd'))", DateTrunc.class).child(1));
         assertNotLiteral(analyzeAndRewrite("select date_trunc(lpad('ay', 3, 'd'), DATE '2024-03-15')",
                 DateTrunc.class).child(0));
+        // beside a nonconstant VARCHAR date value, a constant unit FE cannot fold to a literal is still the
+        // time unit, in both argument orders; BE validates the evaluated unit
+        assertNotLiteral(analyzeAndRewrite(
+                "select date_trunc(s, lpad('mo', 2, 'nth')) from (select '2024-03-15' s) t",
+                DateTrunc.class).child(1));
+        assertNotLiteral(analyzeAndRewrite(
+                "select date_trunc(lpad('mo', 2, 'nth'), s) from (select '2024-03-15' s) t",
+                DateTrunc.class).child(0));
         assertNotLiteral(analyzeAndRewrite("select rand(1 + crc32(''))", Random.class).child(0));
         Uniform uniform = analyzeAndRewrite("select uniform(1 + crc32(''), 10 + crc32(''), crc32('x'))",
                 Uniform.class);
