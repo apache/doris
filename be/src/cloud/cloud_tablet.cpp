@@ -38,8 +38,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_cluster_info.h"
+#include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_warm_up_manager.h"

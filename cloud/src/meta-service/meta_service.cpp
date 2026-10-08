@@ -3362,8 +3362,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             // whose job has been cancelled or removed. The schema change job is
             // registered under the new tablet's own job key when the job starts and
             // cleared from it when the job is committed or aborted.
-            auto job_key = job_tablet_key({instance_id, idx.table_id(), idx.index_id(),
-                                           idx.partition_id(), tablet_id});
+            auto job_key = job_tablet_key(
+                    {instance_id, idx.table_id(), idx.index_id(), idx.partition_id(), tablet_id});
             std::string job_val;
             TxnErrorCode job_err = txn->get(job_key, &job_val);
             if (job_err != TxnErrorCode::TXN_OK && job_err != TxnErrorCode::TXN_KEY_NOT_FOUND) {

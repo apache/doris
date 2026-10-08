@@ -1430,10 +1430,9 @@ TEST_F(CloudCompactionTest, zombie_tablet_excluded_from_score_and_candidates) {
 
     auto make_tablet = [&](int64_t tablet_id, TabletState state, bool has_alter_job,
                            int64_t cumu_deltas) {
-        TabletMetaSharedPtr meta(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6,
-                                                {{7, 8}}, UniqueId(9, 10),
-                                                TTabletType::TABLET_TYPE_DISK,
-                                                TCompressionType::LZ4F));
+        TabletMetaSharedPtr meta(new TabletMeta(
+                1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
         meta->_tablet_id = tablet_id;
         meta->set_tablet_state(state);
         auto tablet = std::make_shared<CloudTablet>(_engine, meta);
