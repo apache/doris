@@ -241,6 +241,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         md.getTableStatistics(session, foreignHandle);
         md.getColumnStatistics(session, foreignHandle, "c");
         long size = md.estimateDataSizeByListingFiles(session, foreignHandle);
+        long selectedSize = md.estimateDataSizeByListingFiles(
+                session, foreignHandle, Collections.singletonList("p"));
         Optional<FilterApplicationResult<ConnectorTableHandle>> filter = md.applyFilter(session, foreignHandle, null);
         List<String> partNames = md.listPartitionNames(session, foreignHandle);
         md.listPartitions(session, foreignHandle, Optional.empty());
@@ -278,6 +280,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // A few return values prove the ANSWER is the sibling's, not hive's default.
         Assertions.assertEquals(RecordingSiblingMetadata.SENTINEL_SIZE, size,
                 "estimateDataSize must return the sibling's value, not hive's -1");
+        Assertions.assertEquals(RecordingSiblingMetadata.SENTINEL_SIZE, selectedSize,
+                "selected-partition estimateDataSize must return the sibling's value, not hive's -1");
+        Assertions.assertEquals(Collections.singletonList("p"), siblingMetadata.selectedPartitionNames);
         Assertions.assertEquals(RecordingSiblingMetadata.SENTINEL_SNAPSHOT_ID, pin.getSnapshotId(),
                 "beginQuerySnapshot must return the sibling's snapshot-id pin, not hive's -1 last-modified pin");
         Assertions.assertEquals(Collections.singletonMap("p", 55L), partitionFreshness,
@@ -726,7 +731,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // dropping a guard, or adding one that should not forward, changes this list and fails the test).
         static final List<String> EXPECTED_METHODS = Collections.unmodifiableList(Arrays.asList(
                 "getTableSchema", "getColumnHandles", "getTableStatistics", "getColumnStatistics",
-                "estimateDataSizeByListingFiles",
+                "estimateDataSizeByListingFiles", "estimateSelectedDataSizeByListingFiles",
                 "applyFilter", "listPartitionNames", "listPartitions",
                 "beginQuerySnapshot", "getTableFreshness", "getPartitionFreshnessMillis",
                 "getPartitionsFreshnessMillis", "dropTable",
@@ -747,6 +752,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "validateRowLevelDmlMode", "validateStaticPartitionColumns", "validateWritePartitionNames"));
 
         final List<String> calls = new ArrayList<>();
+        List<String> selectedPartitionNames = Collections.emptyList();
         final Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult =
                 Optional.of(new FilterApplicationResult<>(SIBLING_HANDLE, null, false));
 
@@ -789,6 +795,14 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         @Override
         public long estimateDataSizeByListingFiles(ConnectorSession session, ConnectorTableHandle handle) {
             calls.add("estimateDataSizeByListingFiles");
+            return SENTINEL_SIZE;
+        }
+
+        @Override
+        public long estimateDataSizeByListingFiles(ConnectorSession session, ConnectorTableHandle handle,
+                List<String> selectedPartitionNames) {
+            calls.add("estimateSelectedDataSizeByListingFiles");
+            this.selectedPartitionNames = new ArrayList<>(selectedPartitionNames);
             return SENTINEL_SIZE;
         }
 

@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -109,8 +110,17 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalCatalogRelation newRelation =
                 catalogRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
-        if (context.shouldInvalidatePartitionPruning() && newRelation instanceof LogicalOlapScan) {
-            newRelation = ((LogicalOlapScan) newRelation).withPartitionPruned(false);
+        if (newRelation instanceof LogicalOlapScan) {
+            if (context.shouldInvalidatePartitionPruning()) {
+                newRelation = ((LogicalOlapScan) newRelation).withPartitionPruned(false);
+            } else if (((LogicalOlapScan) catalogRelation).getPartitionPrunablePredicates().isPresent()) {
+                newRelation = ((LogicalOlapScan) newRelation)
+                        .withReboundPartitionPruningProofFrom((LogicalOlapScan) catalogRelation);
+            }
+        } else if (newRelation instanceof LogicalFileScan
+                && ((LogicalFileScan) catalogRelation).getSelectedPartitions().hasPruningProof()) {
+            newRelation = ((LogicalFileScan) newRelation)
+                    .withReboundPartitionPruningProofFrom((LogicalFileScan) catalogRelation);
         }
         updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
         List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()

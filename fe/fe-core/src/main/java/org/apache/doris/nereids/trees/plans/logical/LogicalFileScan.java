@@ -31,6 +31,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -40,18 +41,23 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical file scan for external catalog.
@@ -204,7 +210,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             return false;
         }
         LogicalFileScan that = (LogicalFileScan) other;
-        return Objects.equals(selectedPartitions, that.selectedPartitions)
+        return selectedPartitions.hasSameSelection(that.selectedPartitions)
                 && Objects.equals(tableSample, that.tableSample)
                 && hasSameSnapshot(tableSnapshot, that.tableSnapshot)
                 && hasSameScanParams(scanParams, that.scanParams);
@@ -331,6 +337,9 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public final Optional<SortedPartitionRanges<String>> sortedPartitionRanges;
 
+        private final List<Slot> partitionSlots;
+        private final Set<Expression> prunableConjuncts;
+
         /**
          * Constructor for SelectedPartitions.
          */
@@ -353,12 +362,92 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate,
                 Optional<SortedPartitionRanges<String>> sortedPartitionRanges) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges,
+                    ImmutableList.of(), ImmutableSet.of());
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> sortedPartitionRanges,
+                List<Slot> partitionSlots, Set<Expression> prunableConjuncts) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
-            this.sortedPartitionRanges = sortedPartitionRanges;
+            this.sortedPartitionRanges = Objects.requireNonNull(sortedPartitionRanges,
+                    "sortedPartitionRanges is null");
+            this.partitionSlots = ImmutableList.copyOf(Objects.requireNonNull(partitionSlots,
+                    "partitionSlots is null"));
+            this.prunableConjuncts = ImmutableSet.copyOf(Objects.requireNonNull(prunableConjuncts,
+                    "prunableConjuncts is null"));
+            Preconditions.checkArgument(isPruned || prunableConjuncts.isEmpty(),
+                    "prunable conjuncts require a pruned partition state");
+        }
+
+        /**
+         * Returns a fresh partition-pruning result derived from this selection. The sorted ranges are cleared
+         * because they describe the pre-pruning partition map, while the predicate proof is frozen with the
+         * surviving partition set.
+         */
+        public SelectedPartitions withPruneResult(Map<String, PartitionItem> selectedPartitions,
+                boolean hasPartitionPredicate, List<Slot> partitionSlots,
+                Set<Expression> prunableConjuncts) {
+            Preconditions.checkState(!isPruned, "partition pruning has already been applied");
+            Preconditions.checkArgument(this.selectedPartitions.keySet().containsAll(selectedPartitions.keySet()),
+                    "selected partitions must be a subset of the current partition snapshot");
+            return new SelectedPartitions(totalPartitionNum, selectedPartitions, true, hasPartitionPredicate,
+                    Optional.empty(), partitionSlots, prunableConjuncts);
+        }
+
+        public boolean hasPruningProof() {
+            return !prunableConjuncts.isEmpty();
+        }
+
+        /** Rebind the pruning proof to a new output namespace. */
+        public SelectedPartitions rebindPruningProof(List<Slot> output) {
+            if (!hasPruningProof()) {
+                return this;
+            }
+            Map<String, Slot> outputSlotsByName = new HashMap<>(output.size());
+            for (Slot slot : output) {
+                outputSlotsByName.put(slot.getName().toLowerCase(Locale.ROOT), slot);
+            }
+            Map<Expression, Expression> replacements = new HashMap<>(partitionSlots.size());
+            ImmutableList.Builder<Slot> reboundSlots =
+                    ImmutableList.builderWithExpectedSize(partitionSlots.size());
+            for (Slot partitionSlot : partitionSlots) {
+                Slot reboundSlot = outputSlotsByName.get(partitionSlot.getName().toLowerCase(Locale.ROOT));
+                Preconditions.checkState(reboundSlot != null,
+                        "Can not find output slot for prunable partition slot: %s", partitionSlot.getName());
+                reboundSlots.add(reboundSlot);
+                if (!partitionSlot.equals(reboundSlot)) {
+                    replacements.put(partitionSlot, reboundSlot);
+                }
+            }
+            if (replacements.isEmpty()) {
+                return this;
+            }
+            ImmutableSet.Builder<Expression> reboundConjuncts =
+                    ImmutableSet.builderWithExpectedSize(prunableConjuncts.size());
+            for (Expression conjunct : prunableConjuncts) {
+                reboundConjuncts.add(ExpressionUtils.replace(conjunct, replacements));
+            }
+            return new SelectedPartitions(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate,
+                    sortedPartitionRanges, reboundSlots.build(), reboundConjuncts.build());
+        }
+
+        public Set<Expression> getPrunableConjuncts() {
+            return prunableConjuncts;
+        }
+
+        /** Compare partition-selection state independently of the pruning proof's output-slot namespace. */
+        private boolean hasSameSelection(SelectedPartitions other) {
+            return totalPartitionNum == other.totalPartitionNum
+                    && isPruned == other.isPruned
+                    && hasPartitionPredicate == other.hasPartitionPredicate
+                    && selectedPartitions.keySet().equals(other.selectedPartitions.keySet())
+                    && sortedPartitionRanges.isPresent() == other.sortedPartitionRanges.isPresent();
         }
 
         @Override
@@ -370,17 +459,15 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 return false;
             }
             SelectedPartitions that = (SelectedPartitions) o;
-            return isPruned == that.isPruned
-                    && hasPartitionPredicate == that.hasPartitionPredicate
-                    && Objects.equals(
-                    selectedPartitions.keySet(), that.selectedPartitions.keySet())
-                    && Objects.equals(
-                    sortedPartitionRanges.isPresent(), that.sortedPartitionRanges.isPresent());
+            return hasSameSelection(that)
+                    && Objects.equals(partitionSlots, that.partitionSlots)
+                    && Objects.equals(prunableConjuncts, that.prunableConjuncts);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges.isPresent());
+            return Objects.hash(totalPartitionNum, selectedPartitions.keySet(), isPruned, hasPartitionPredicate,
+                    sortedPartitionRanges.isPresent(), partitionSlots, prunableConjuncts);
         }
     }
 
@@ -393,10 +480,18 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     }
 
     public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
+        SelectedPartitions reboundPartitions = selectedPartitions.rebindPruningProof(cachedOutputs);
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
-                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                reboundPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.empty(), tableAlias, Optional.of(cachedOutputs)));
+    }
+
+    /** Rebind a copied scan's partition-pruning proof to this scan's output slots. */
+    public LogicalFileScan withReboundPartitionPruningProofFrom(LogicalFileScan source) {
+        Preconditions.checkArgument(getTable().getId() == source.getTable().getId(),
+                "partition-pruning proof can only be rebound between scans of the same table");
+        return withSelectedPartitions(source.selectedPartitions.rebindPruningProof(getOutput()));
     }
 
     @Override

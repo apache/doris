@@ -21,6 +21,7 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.filesystem.FileSystem;
 
 import org.junit.jupiter.api.Assertions;
@@ -93,6 +94,68 @@ public class HiveConnectorMetadataFileListStatsTest {
         // scale-up returns 200 -> red.
         PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1", "p2", "p3"));
         Assertions.assertEquals(400L, metadata(client).estimateDataSize(partitioned(), 2, (loc, vals) -> 100));
+    }
+
+    @Test
+    public void selectedPartitionEstimateOnlyListsTheSelectedRange() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1", "p2"));
+        long size = metadata(client).estimateSelectedPartitionsDataSize(
+                partitioned(), Collections.singletonList("p1"), 30,
+                (loc, vals) -> loc.endsWith("p1") ? 200 : 10_000);
+
+        Assertions.assertEquals(200L, size);
+    }
+
+    @Test
+    public void selectedPartitionSamplingScalesWithinTheSelectedRange() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(
+                Arrays.asList("p0", "p1", "p2", "p3", "p4"));
+        long size = metadata(client).estimateSelectedPartitionsDataSize(
+                partitioned(), Arrays.asList("p1", "p2", "p3", "p4"), 2,
+                (loc, vals) -> 100);
+
+        Assertions.assertEquals(400L, size);
+        Assertions.assertEquals(2, client.lastRequestedPartitionNames.size());
+        Assertions.assertTrue(Arrays.asList("p1", "p2", "p3", "p4")
+                .containsAll(client.lastRequestedPartitionNames));
+    }
+
+    @Test
+    public void zeroSizedSampleDoesNotProveTheWholeSelectedRangeIsEmpty() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(
+                Arrays.asList("p0", "p1", "p2", "p3"));
+        long size = metadata(client).estimateSelectedPartitionsDataSize(
+                partitioned(), Arrays.asList("p0", "p1", "p2", "p3"), 2,
+                (loc, vals) -> 0);
+
+        Assertions.assertEquals(-1L, size);
+    }
+
+    @Test
+    public void fullyInspectedEmptySelectedPartitionsHaveZeroDataSize() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1"));
+        long size = metadata(client).estimateSelectedPartitionsDataSize(
+                partitioned(), Arrays.asList("p0", "p1"), 30,
+                (loc, vals) -> 0);
+
+        Assertions.assertEquals(0L, size);
+    }
+
+    @Test
+    public void emptySelectedPartitionRangeHasZeroDataSize() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Collections.emptyList());
+        Assertions.assertEquals(0L, metadata(client).estimateSelectedPartitionsDataSize(
+                partitioned(), Collections.emptyList(), 30, (loc, vals) -> 100));
+        Assertions.assertTrue(client.lastRequestedPartitionNames.isEmpty());
+    }
+
+    @Test
+    public void missingSelectedPartitionMakesTheEstimateUnknown() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1"));
+        client.removeExistingPartition("p1");
+
+        Assertions.assertEquals(-1L, metadata(client).estimateSelectedPartitionsDataSize(
+                partitioned(), Arrays.asList("p0", "p1"), 30, (loc, vals) -> 100));
     }
 
     @Test
@@ -193,6 +256,27 @@ public class HiveConnectorMetadataFileListStatsTest {
                         .estimateDataSizeByListingFiles(null, hudiHandle));
     }
 
+    @Test
+    public void transactionalHiveSelectedPartitionsAreNotEstimated() {
+        HiveTableHandle transactionalHandle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("dt"))
+                .tableParameters(Collections.singletonMap("transactional", "true"))
+                .build();
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Collections.singletonList("p0"));
+        FakeConnectorContext context = new FakeConnectorContext() {
+            @Override
+            public FileSystem getFileSystem(ConnectorSession session) {
+                return new FakeFileSystem();
+            }
+        };
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), context);
+
+        Assertions.assertEquals(-1L, metadata.estimateDataSizeByListingFiles(
+                null, transactionalHandle, Collections.singletonList("p0")));
+        Assertions.assertTrue(client.lastRequestedPartitionNames.isEmpty());
+    }
+
     /** A {@link HiveFileListingCache} whose listing always fails, to prove listFileSizes propagates (not swallows). */
     private static final class ThrowingFileListingCache extends HiveFileListingCache {
         ThrowingFileListingCache() {
@@ -214,6 +298,8 @@ public class HiveConnectorMetadataFileListStatsTest {
     private static final class PartitionFakeHmsClient implements HmsClient {
         private final List<String> partitionNames;
         private final java.util.Set<String> withoutLocation = new java.util.HashSet<>();
+        private final java.util.Set<String> missingPartitions = new java.util.HashSet<>();
+        private List<String> lastRequestedPartitionNames = Collections.emptyList();
 
         PartitionFakeHmsClient(List<String> partitionNames) {
             this.partitionNames = partitionNames;
@@ -221,6 +307,10 @@ public class HiveConnectorMetadataFileListStatsTest {
 
         void dropLocationFor(String name) {
             withoutLocation.add(name);
+        }
+
+        void removeExistingPartition(String name) {
+            missingPartitions.add(name);
         }
 
         @Override
@@ -237,6 +327,19 @@ public class HiveConnectorMetadataFileListStatsTest {
                         Collections.singletonList(name), location, null, null, null, Collections.emptyMap()));
             }
             return result;
+        }
+
+        @Override
+        public List<HmsPartitionInfo> getExistingPartitions(
+                String dbName, String tableName, List<String> partNames) {
+            lastRequestedPartitionNames = new ArrayList<>(partNames);
+            List<String> existingNames = new ArrayList<>();
+            for (String name : partNames) {
+                if (!missingPartitions.contains(name)) {
+                    existingNames.add(name);
+                }
+            }
+            return getPartitions(dbName, tableName, existingNames);
         }
 
         @Override

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -175,6 +176,16 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
         if (stats == null || deepDerive) {
             stats = context.calculator.computeOlapScan(olapScan);
             olapScan.setStatistics(stats);
+        }
+        return stats;
+    }
+
+    @Override
+    public Statistics visitLogicalFileScan(LogicalFileScan fileScan, DeriveContext context) {
+        Statistics stats = fileScan.getStats();
+        if (stats == null || deepDerive) {
+            stats = context.calculator.computeFileScan(fileScan);
+            fileScan.setStatistics(stats);
         }
         return stats;
     }
@@ -391,6 +402,5 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
         return stats;
     }
 }
-
 
 

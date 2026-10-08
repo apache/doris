@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -124,6 +125,13 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     @Override
     public Statistics visit(Expression expr, EstimationContext context) {
         return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+    }
+
+    @Override
+    public Statistics visitBooleanLiteral(BooleanLiteral booleanLiteral, EstimationContext context) {
+        return new StatisticsBuilder(context.statistics)
+                .setRowCount(booleanLiteral.getValue() ? context.statistics.getRowCount() : 0)
+                .build();
     }
 
     @Override
