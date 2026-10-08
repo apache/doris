@@ -122,10 +122,8 @@ template <typename ResultBlockBufferType>
 Status ResultBufferMgr::find_buffer(const TUniqueId& finst_id,
                                     std::shared_ptr<ResultBlockBufferType>& buffer) {
     buffer = _find_control_block<ResultBlockBufferType>(finst_id);
-    return buffer == nullptr ? Status::InternalError(
-                                       "no arrow schema for this query, maybe query has been "
-                                       "canceled, finst_id={}",
-                                       print_id(finst_id))
+    return buffer == nullptr ? Status::InternalError("Result buffer not found, finst_id={}",
+                                                     print_id(finst_id))
                              : Status::OK();
 }
 
