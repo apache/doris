@@ -241,7 +241,7 @@ void serialize_foreach_v2_key_frame(int be_exec_version, size_t& key_frame_size)
     key_frame_size = key_frame.size();
 
     // A newly upgraded BE must read a partial state produced using the negotiated
-    // legacy format, rather than constructing the nested function at version 16.
+    // legacy format, rather than constructing the nested function at version 17.
     auto receiving_function = AggregateFunctionSimpleFactory::instance().get(
             "map_agg_v2_foreachv2", argument_types, result_type, false, be_exec_version);
     ASSERT_NE(receiving_function, nullptr);
@@ -250,7 +250,7 @@ void serialize_foreach_v2_key_frame(int be_exec_version, size_t& key_frame_size)
 
     if (be_exec_version == SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION - 1) {
         // Build the outer foreach envelope around an old-format nested state to
-        // simulate a version-15 peer sending to a newly upgraded BE.
+        // simulate a version-16 peer sending to a newly upgraded BE.
         AggregateFunctionMapAggDataV2<false> legacy_nested({key_type, value_type}, be_exec_version);
         for (size_t i = 0; i < key_count; ++i) {
             legacy_nested.add_single(Field::create_field<TYPE_INT>(static_cast<Int32>(i + 1)),

@@ -22,7 +22,7 @@ suite("test_map_agg_v2_versioned_state", "nonConcurrent") {
 
     def originalVersion = sql("ADMIN SHOW FRONTEND CONFIG LIKE 'be_exec_version'")[0][1]
     try {
-        sql "ADMIN SET FRONTEND CONFIG ('be_exec_version' = '15')"
+        sql "ADMIN SET FRONTEND CONFIG ('be_exec_version' = '16')"
         sql "SET enable_agg_state = true"
         sql "DROP TABLE IF EXISTS test_map_agg_v2_versioned_state"
         sql """
@@ -40,8 +40,8 @@ suite("test_map_agg_v2_versioned_state", "nonConcurrent") {
             sql "INSERT INTO test_map_agg_v2_versioned_state VALUES (1, map_agg_v2_state(${key}, ${key * 10}))"
         }
 
-        // The column and its rowsets retain version 15 after the FE switches to version 16.
-        sql "ADMIN SET FRONTEND CONFIG ('be_exec_version' = '16')"
+        // The column and its rowsets retain version 16 after the FE switches to version 17.
+        sql "ADMIN SET FRONTEND CONFIG ('be_exec_version' = '17')"
         order_qt_before_compaction """
             SELECT k, map_size(map_agg_v2_merge(state))
             FROM test_map_agg_v2_versioned_state GROUP BY k ORDER BY k

@@ -51,6 +51,8 @@ public class FunctionCallExpr extends Expr {
     // check table function
     @SerializedName("itfc")
     private boolean isTableFnCall = false;
+    @SerializedName("sce")
+    private boolean shortCircuitEvaluation = false;
 
     // Indicates whether this is a merge aggregation function that should use the
     // merge
@@ -91,6 +93,14 @@ public class FunctionCallExpr extends Expr {
 
     public boolean isMergeAggFn() {
         return isMergeAggFn;
+    }
+
+    public boolean isShortCircuitEvaluation() {
+        return shortCircuitEvaluation;
+    }
+
+    public void setShortCircuitEvaluation(boolean shortCircuitEvaluation) {
+        this.shortCircuitEvaluation = shortCircuitEvaluation;
     }
 
     // only used restore from readFields.
@@ -145,6 +155,7 @@ public class FunctionCallExpr extends Expr {
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
         this.isTableFnCall = other.isTableFnCall;
+        this.shortCircuitEvaluation = other.shortCircuitEvaluation;
     }
 
     @Override
@@ -173,7 +184,8 @@ public class FunctionCallExpr extends Expr {
         }
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
                 && fnParams.isDistinct() == o.fnParams.isDistinct()
-                && fnParams.isStar() == o.fnParams.isStar();
+                && fnParams.isStar() == o.fnParams.isStar()
+                && shortCircuitEvaluation == o.shortCircuitEvaluation;
     }
 
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
@@ -302,6 +314,7 @@ public class FunctionCallExpr extends Expr {
     public int hashCode() {
         int result = super.hashCode();
         result = 31 * result + Objects.hashCode(fnName);
+        result = 31 * result + Boolean.hashCode(shortCircuitEvaluation);
         return result;
     }
 

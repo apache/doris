@@ -153,6 +153,8 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 // 15: start from master
 //   a. distinguish Hive OpenCSVSerde row semantics from generic CSV decoding during upgrades.
 // 16: start from master
+//   a. support Paimon table writes.
+// 17: start from master
 //   a. use exact logical frames for map_agg_v2 aggregate state serialization.
 
 const int BeExecVersionManager::max_be_exec_version = SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION;

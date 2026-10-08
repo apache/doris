@@ -15,25 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+suite("test_topn_embedded_nul") {
+    // A STRING value is binary, so a NUL byte inside a key must not truncate
+    // the JSON key that topn() emits, and two keys differing after the NUL
+    // must stay distinct in the result.
+    qt_topn_single_key """
+        SELECT topn(s, 1) FROM (SELECT concat('a', unhex('00'), 'b') AS s) t
+    """
 
-import org.apache.doris.catalog.Function;
+    qt_topn_distinct_keys """
+        SELECT topn(s, 2) FROM (
+            SELECT concat('a', unhex('00'), 'b') AS s
+            UNION ALL SELECT concat('a', unhex('00'), 'b')
+            UNION ALL SELECT concat('a', unhex('00'), 'c')
+        ) t
+    """
 
-/** Function call whose unselected arguments must not be evaluated. */
-public final class ShortCircuitFunctionCallExpr extends FunctionCallExpr {
-
-    /** Create a function call with mandatory lazy branch evaluation. */
-    public ShortCircuitFunctionCallExpr(
-            Function function, FunctionParams functionParams, boolean nullable) {
-        super(function, functionParams, nullable);
-    }
-
-    private ShortCircuitFunctionCallExpr(ShortCircuitFunctionCallExpr other) {
-        super(other);
-    }
-
-    @Override
-    public Expr clone() {
-        return new ShortCircuitFunctionCallExpr(this);
-    }
+    qt_topn_array_element_hex """
+        SELECT hex(element_at(topn_array(s, 1), 1)) FROM (
+            SELECT concat('a', unhex('00'), 'b') AS s
+        ) t
+    """
 }

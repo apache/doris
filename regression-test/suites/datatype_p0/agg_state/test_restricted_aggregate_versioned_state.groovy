@@ -53,10 +53,17 @@ suite("test_restricted_aggregate_versioned_state", "nonConcurrent") {
         """
 
         sql "ADMIN SET FRONTEND CONFIG ('be_exec_version' = '16')"
-        order_qt_stored_version_15 """
+        order_qt_stored_version_15_at_16 """
             SELECT stddev_samp_merge(state) FROM test_restricted_aggregate_versioned_state
         """
         order_qt_direct_version_16 """
+            SELECT stddev_samp(x) FROM test_restricted_aggregate_versioned_source
+        """
+        sql "ADMIN SET FRONTEND CONFIG ('be_exec_version' = '17')"
+        order_qt_stored_version_15_at_17 """
+            SELECT stddev_samp_merge(state) FROM test_restricted_aggregate_versioned_state
+        """
+        order_qt_direct_version_17 """
             SELECT stddev_samp(x) FROM test_restricted_aggregate_versioned_source
         """
     } finally {
