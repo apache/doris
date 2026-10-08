@@ -107,6 +107,21 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         return StmtType.CREATE;
     }
 
+    // Column resolution for the row-policy predicate must match the paths that actually resolve
+    // columns at runtime (DESCRIBE / query planning / policy enforcement): the full schema. A
+    // table keys its nameToColumn map by Column#getDefineName(), so after FE metadata replay a
+    // view over an external catalog can carry a column whose defineName diverges from its name,
+    // and the map-based getColumn(name) then misses a column that genuinely exists. Resolve
+    // against getFullSchema() instead (case-insensitive), consistent with those paths.
+    static boolean columnExistsInSchema(TableIf tableIf, String columnName) {
+        for (Column column : tableIf.getFullSchema()) {
+            if (column.getName().equalsIgnoreCase(columnName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void validate(ConnectContext ctx) throws AnalysisException {
         switch (policyType) {
             case STORAGE:
@@ -156,14 +171,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 wherePredicate.get().foreach(expr -> {
                     if (expr instanceof UnboundSlot) {
                         UnboundSlot slot = (UnboundSlot) expr;
-                        boolean contains = false;
-                        for (Column column : tableIf.getFullSchema()) {
-                            if (column.getName().equalsIgnoreCase(slot.getName())) {
-                                contains = true;
-                                break;
-                            }
-                        }
-                        if (!contains) {
+                        if (!columnExistsInSchema(tableIf, slot.getName())) {
                             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                                     "column not exist: " + slot.getName());
                         }
