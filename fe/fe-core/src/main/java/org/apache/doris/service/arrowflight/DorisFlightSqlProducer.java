@@ -22,6 +22,7 @@ package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
@@ -120,11 +121,17 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         this.location = location;
         this.flightSessionsManager = flightSessionsManager;
         sqlInfoBuilder = new SqlInfoBuilder();
-        sqlInfoBuilder.withFlightSqlServerName("DorisFE").withFlightSqlServerVersion("1.0")
-                .withFlightSqlServerArrowVersion("18.2.0").withFlightSqlServerReadOnly(false)
+        // Keep discovery metadata aligned with the running FE build and its loaded Arrow dependency.
+        sqlInfoBuilder.withFlightSqlServerName("DorisFE")
+                .withFlightSqlServerVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH)
+                .withFlightSqlServerReadOnly(false)
                 .withSqlIdentifierQuoteChar("`").withSqlDdlCatalog(true).withSqlDdlSchema(false).withSqlDdlTable(false)
                 .withSqlIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_CASE_INSENSITIVE)
                 .withSqlQuotedIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_CASE_INSENSITIVE);
+        String arrowVersion = SqlInfoBuilder.class.getPackage().getImplementationVersion();
+        // Keep the info code registered even without a manifest: SqlInfoBuilder rejects unknown codes.
+        sqlInfoBuilder.withFlightSqlServerArrowVersion(
+                arrowVersion == null || arrowVersion.isEmpty() ? "unknown" : arrowVersion);
     }
 
     private static ByteBuffer serializeMetadata(final Schema schema) {
