@@ -99,8 +99,7 @@ public:
             const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
             std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
             InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
-            const IndexExecContext* index_exec_ctx,
-            const std::unordered_map<std::string, int>& field_name_to_column_id,
+            const IndexExecContext* index_exec_ctx, const TabletColumn* nested_column,
             const std::shared_ptr<IndexQueryContext>& index_query_context) const;
 
     // Public methods for testing

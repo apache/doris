@@ -311,7 +311,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     try {
         return evaluate_inverted_index_with_search_param_unguarded(
                 search_param, data_type_with_names, std::move(iterators), num_rows, bitmap_result,
-                enable_cache, index_exec_ctx, field_name_to_column_id, index_query_context);
+                enable_cache, index_exec_ctx, nested_column, index_query_context);
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("search failed: {}",
                                                                        e.what());
@@ -325,8 +325,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param_unguarded(
         const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
-        const IndexExecContext* index_exec_ctx,
-        const std::unordered_map<std::string, int>& field_name_to_column_id,
+        const IndexExecContext* index_exec_ctx, const TabletColumn* nested_column,
         const std::shared_ptr<IndexQueryContext>& index_query_context) const {
     const bool is_nested_query = search_param.root.clause_type == "NESTED";
     if (is_nested_query && !is_nested_group_search_supported()) {
