@@ -426,7 +426,7 @@ under the License.
              Resolve its official 1.8.1 relocation POM, then manage the maintained coordinate at
              1.11.1 to fix CVE-2025-12183, CVE-2025-66566, and CVE-2026-59949. -->
         <lz4-java-relocation.version>1.8.1</lz4-java-relocation.version>
-        <lz4-java.version>1.11.1</lz4-java.version>
+        <lz4-java.version>1.11.4</lz4-java.version>
         <immutables.version>2.9.3</immutables.version> 
         <ivy.version>2.5.2</ivy.version>
         <icu4j.version>78.1</icu4j.version>
