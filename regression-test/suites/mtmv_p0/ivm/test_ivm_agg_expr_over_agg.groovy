@@ -57,6 +57,7 @@ suite("test_ivm_agg_expr_over_agg") {
     sql """drop materialized view if exists test_ivm_expr_over_agg_cast;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_scalar;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_sum_avg;"""
+    sql """drop materialized view if exists test_ivm_expr_over_agg_sum_avg_mul;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_plain;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_cnt_star;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_avg_round;"""
@@ -198,6 +199,20 @@ suite("test_ivm_agg_expr_over_agg") {
     qt_sum_avg_desc """DESC test_ivm_expr_over_agg_sum_avg"""
     sql """set show_hidden_columns=false"""
 
+    // SUM(v) * AVG(v): both aggregate values are consumed by one expression. SUM's state is
+    // materialized, and AVG's hidden SUM state (which the column pool shares with the visible SUM
+    // column) follows it onto that single carrier, so AVG adds no second state column.
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_expr_over_agg_sum_avg_mul
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k;
+    """
+    sql """set show_hidden_columns=true"""
+    qt_sum_avg_mul_desc """DESC test_ivm_expr_over_agg_sum_avg_mul"""
+    sql """set show_hidden_columns=false"""
+
     // =========================================================
     // Part 2: shapes that already worked must keep their exact
     // layout — no extra column is materialized when the visible
@@ -293,6 +308,7 @@ suite("test_ivm_agg_expr_over_agg") {
     refreshIncremental("test_ivm_expr_over_agg_cast")
     refreshIncremental("test_ivm_expr_over_agg_scalar")
     refreshIncremental("test_ivm_expr_over_agg_sum_avg")
+    refreshIncremental("test_ivm_expr_over_agg_sum_avg_mul")
     refreshIncremental("test_ivm_expr_over_agg_plain")
     refreshIncremental("test_ivm_expr_over_agg_cnt_star")
     refreshIncremental("test_ivm_expr_over_agg_avg_round")
@@ -317,6 +333,9 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_initial_sum_avg """SELECT k, s100, a200 FROM test_ivm_expr_over_agg_sum_avg"""
     order_qt_initial_sum_avg_source """
         SELECT k, SUM(v) * 100 AS s100, AVG(v) * 200 AS a200 FROM test_ivm_expr_over_agg_base GROUP BY k"""
+    order_qt_initial_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
+    order_qt_initial_sum_avg_mul_source """
+        SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
 
     // Insert a new non-extremal value per group so later MIN/MAX merges stay incremental.
     sql """INSERT INTO test_ivm_expr_over_agg_base VALUES (6, 1, 30), (7, 2, 35);"""
@@ -328,6 +347,7 @@ suite("test_ivm_agg_expr_over_agg") {
     refreshIncremental("test_ivm_expr_over_agg_div")
     refreshIncremental("test_ivm_expr_over_agg_scalar")
     refreshIncremental("test_ivm_expr_over_agg_sum_avg")
+    refreshIncremental("test_ivm_expr_over_agg_sum_avg_mul")
 
     order_qt_after_insert_sum """SELECT k, s100 FROM test_ivm_expr_over_agg_sum"""
     order_qt_after_insert_sum_source """SELECT k, SUM(v) * 100 AS s100 FROM test_ivm_expr_over_agg_base GROUP BY k"""
@@ -347,6 +367,9 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_after_insert_sum_avg """SELECT k, s100, a200 FROM test_ivm_expr_over_agg_sum_avg"""
     order_qt_after_insert_sum_avg_source """
         SELECT k, SUM(v) * 100 AS s100, AVG(v) * 200 AS a200 FROM test_ivm_expr_over_agg_base GROUP BY k"""
+    order_qt_after_insert_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
+    order_qt_after_insert_sum_avg_mul_source """
+        SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
 
     // The bitmap MV is refreshed in this insert-only window: deleting a non-NULL bitmap element is
     // not incrementally maintainable (the delete guard requires COMPLETE), which is a pre-existing
@@ -366,6 +389,7 @@ suite("test_ivm_agg_expr_over_agg") {
     refreshIncremental("test_ivm_expr_over_agg_div")
     refreshIncremental("test_ivm_expr_over_agg_scalar")
     refreshIncremental("test_ivm_expr_over_agg_sum_avg")
+    refreshIncremental("test_ivm_expr_over_agg_sum_avg_mul")
 
     order_qt_after_update_sum """SELECT k, s100 FROM test_ivm_expr_over_agg_sum"""
     order_qt_after_update_sum_source """SELECT k, SUM(v) * 100 AS s100 FROM test_ivm_expr_over_agg_base GROUP BY k"""
@@ -385,6 +409,9 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_after_update_sum_avg """SELECT k, s100, a200 FROM test_ivm_expr_over_agg_sum_avg"""
     order_qt_after_update_sum_avg_source """
         SELECT k, SUM(v) * 100 AS s100, AVG(v) * 200 AS a200 FROM test_ivm_expr_over_agg_base GROUP BY k"""
+    order_qt_after_update_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
+    order_qt_after_update_sum_avg_mul_source """
+        SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
 
     // Delete the middle value of k=2 (id=7, v=35) together with a dirty insert, so the
     // group keeps at least one live extreme and MIN/MAX stay incremental.
@@ -398,6 +425,7 @@ suite("test_ivm_agg_expr_over_agg") {
     refreshIncremental("test_ivm_expr_over_agg_div")
     refreshIncremental("test_ivm_expr_over_agg_scalar")
     refreshIncremental("test_ivm_expr_over_agg_sum_avg")
+    refreshIncremental("test_ivm_expr_over_agg_sum_avg_mul")
 
     order_qt_after_delete_sum """SELECT k, s100 FROM test_ivm_expr_over_agg_sum"""
     order_qt_after_delete_sum_source """SELECT k, SUM(v) * 100 AS s100 FROM test_ivm_expr_over_agg_base GROUP BY k"""
@@ -417,6 +445,9 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_after_delete_sum_avg """SELECT k, s100, a200 FROM test_ivm_expr_over_agg_sum_avg"""
     order_qt_after_delete_sum_avg_source """
         SELECT k, SUM(v) * 100 AS s100, AVG(v) * 200 AS a200 FROM test_ivm_expr_over_agg_base GROUP BY k"""
+    order_qt_after_delete_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
+    order_qt_after_delete_sum_avg_mul_source """
+        SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
 
     // Delete the only row of k=3 (a NULL row) so the group empties, and insert a new group
     // k=4 in the same window: an emptied group must be removed, a new one created.
@@ -430,6 +461,7 @@ suite("test_ivm_agg_expr_over_agg") {
     refreshIncremental("test_ivm_expr_over_agg_div")
     refreshIncremental("test_ivm_expr_over_agg_scalar")
     refreshIncremental("test_ivm_expr_over_agg_sum_avg")
+    refreshIncremental("test_ivm_expr_over_agg_sum_avg_mul")
 
     order_qt_after_group_empty_sum """SELECT k, s100 FROM test_ivm_expr_over_agg_sum"""
     order_qt_after_group_empty_sum_source """SELECT k, SUM(v) * 100 AS s100 FROM test_ivm_expr_over_agg_base GROUP BY k"""
@@ -450,6 +482,9 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_after_group_empty_sum_avg """SELECT k, s100, a200 FROM test_ivm_expr_over_agg_sum_avg"""
     order_qt_after_group_empty_sum_avg_source """
         SELECT k, SUM(v) * 100 AS s100, AVG(v) * 200 AS a200 FROM test_ivm_expr_over_agg_base GROUP BY k"""
+    order_qt_after_group_empty_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
+    order_qt_after_group_empty_sum_avg_mul_source """
+        SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
 
     // Resurrect the emptied group k=3.
     sql """INSERT INTO test_ivm_expr_over_agg_base VALUES (10, 3, 70);"""
@@ -461,6 +496,7 @@ suite("test_ivm_agg_expr_over_agg") {
     refreshIncremental("test_ivm_expr_over_agg_div")
     refreshIncremental("test_ivm_expr_over_agg_scalar")
     refreshIncremental("test_ivm_expr_over_agg_sum_avg")
+    refreshIncremental("test_ivm_expr_over_agg_sum_avg_mul")
     refreshIncremental("test_ivm_expr_over_agg_cast")
     refreshIncremental("test_ivm_expr_over_agg_plain")
     refreshIncremental("test_ivm_expr_over_agg_cnt_star")
@@ -487,6 +523,9 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_final_sum_avg """SELECT k, s100, a200 FROM test_ivm_expr_over_agg_sum_avg"""
     order_qt_final_sum_avg_source """
         SELECT k, SUM(v) * 100 AS s100, AVG(v) * 200 AS a200 FROM test_ivm_expr_over_agg_base GROUP BY k"""
+    order_qt_final_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
+    order_qt_final_sum_avg_mul_source """
+        SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
     order_qt_final_avg_round """SELECT k, a FROM test_ivm_expr_over_agg_avg_round"""
     order_qt_final_avg_round_source """SELECT k, ROUND(AVG(v), 2) AS a FROM test_ivm_expr_over_agg_base GROUP BY k"""
     order_qt_final_cnt_star """SELECT k, c2 FROM test_ivm_expr_over_agg_cnt_star"""
@@ -554,6 +593,12 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_complete_sum_avg """SELECT k, s100, a200 FROM test_ivm_expr_over_agg_sum_avg"""
     order_qt_complete_sum_avg_source """
         SELECT k, SUM(v) * 100 AS s100, AVG(v) * 200 AS a200 FROM test_ivm_expr_over_agg_base GROUP BY k"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_sum_avg_mul COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_sum_avg_mul")
+    order_qt_complete_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
+    order_qt_complete_sum_avg_mul_source """
+        SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_plain COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_plain")
@@ -623,4 +668,110 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_full_keys_complete """SELECT k, s100 FROM test_ivm_expr_over_agg_full_keys"""
     order_qt_full_keys_complete_source """
         SELECT k, SUM(v) * 100 AS s100 FROM test_ivm_expr_over_agg_base GROUP BY k"""
+
+    // =========================================================
+    // Part 6: two aggregate values consumed by one expression.
+    // SUM(x) * SUM(y) needs one carrier per SUM state, while
+    // AVG(x) * AVG(y) needs none: AVG derives its visible value
+    // from hidden SUM/COUNT states, which are always persisted.
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_expr_over_agg_sumx_sumy;"""
+    sql """drop materialized view if exists test_ivm_expr_over_agg_avgx_avgy;"""
+    sql """drop table if exists test_ivm_expr_over_agg_pair_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_expr_over_agg_pair_base (
+            id INT,
+            k INT,
+            x INT,
+            y INT
+        )
+        UNIQUE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+    sql """INSERT INTO test_ivm_expr_over_agg_pair_base VALUES
+        (1, 1, 10, 3), (2, 1, 20, 5), (3, 2, 30, 7), (4, 2, 40, NULL), (5, 3, NULL, 9);"""
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_expr_over_agg_sumx_sumy
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS SELECT k, SUM(x) * SUM(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k;
+    """
+    sql """set show_hidden_columns=true"""
+    qt_sumx_sumy_desc """DESC test_ivm_expr_over_agg_sumx_sumy"""
+    sql """set show_hidden_columns=false"""
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_expr_over_agg_avgx_avgy
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS SELECT k, AVG(x) * AVG(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k;
+    """
+    sql """set show_hidden_columns=true"""
+    qt_avgx_avgy_desc """DESC test_ivm_expr_over_agg_avgx_avgy"""
+    sql """set show_hidden_columns=false"""
+
+    refreshIncremental("test_ivm_expr_over_agg_sumx_sumy")
+    refreshIncremental("test_ivm_expr_over_agg_avgx_avgy")
+    order_qt_pair_initial_sumx_sumy """SELECT k, p FROM test_ivm_expr_over_agg_sumx_sumy"""
+    order_qt_pair_initial_sumx_sumy_source """
+        SELECT k, SUM(x) * SUM(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
+    order_qt_pair_initial_avgx_avgy """SELECT k, p FROM test_ivm_expr_over_agg_avgx_avgy"""
+    order_qt_pair_initial_avgx_avgy_source """
+        SELECT k, AVG(x) * AVG(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
+
+    // Update id=2 into (25, 6): both aggregate inputs of group k=1 change in one window.
+    sql """INSERT INTO test_ivm_expr_over_agg_pair_base VALUES (2, 1, 25, 6);"""
+    refreshIncremental("test_ivm_expr_over_agg_sumx_sumy")
+    refreshIncremental("test_ivm_expr_over_agg_avgx_avgy")
+    order_qt_pair_after_update_sumx_sumy """SELECT k, p FROM test_ivm_expr_over_agg_sumx_sumy"""
+    order_qt_pair_after_update_sumx_sumy_source """
+        SELECT k, SUM(x) * SUM(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
+    order_qt_pair_after_update_avgx_avgy """SELECT k, p FROM test_ivm_expr_over_agg_avgx_avgy"""
+    order_qt_pair_after_update_avgx_avgy_source """
+        SELECT k, AVG(x) * AVG(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
+
+    // Delete the row whose y is NULL (id=4) together with a dirty insert into k=2.
+    sql """DELETE FROM test_ivm_expr_over_agg_pair_base WHERE id = 4;"""
+    sql """INSERT INTO test_ivm_expr_over_agg_pair_base VALUES (6, 2, 50, 11);"""
+    refreshIncremental("test_ivm_expr_over_agg_sumx_sumy")
+    refreshIncremental("test_ivm_expr_over_agg_avgx_avgy")
+    order_qt_pair_after_delete_sumx_sumy """SELECT k, p FROM test_ivm_expr_over_agg_sumx_sumy"""
+    order_qt_pair_after_delete_sumx_sumy_source """
+        SELECT k, SUM(x) * SUM(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
+    order_qt_pair_after_delete_avgx_avgy """SELECT k, p FROM test_ivm_expr_over_agg_avgx_avgy"""
+    order_qt_pair_after_delete_avgx_avgy_source """
+        SELECT k, AVG(x) * AVG(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
+
+    // Group k=3 held a single row with x NULL; give it a second row with both inputs set.
+    sql """INSERT INTO test_ivm_expr_over_agg_pair_base VALUES (7, 3, 30, 4);"""
+    refreshIncremental("test_ivm_expr_over_agg_sumx_sumy")
+    refreshIncremental("test_ivm_expr_over_agg_avgx_avgy")
+    order_qt_pair_after_resurrect_sumx_sumy """SELECT k, p FROM test_ivm_expr_over_agg_sumx_sumy"""
+    order_qt_pair_after_resurrect_sumx_sumy_source """
+        SELECT k, SUM(x) * SUM(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
+    order_qt_pair_after_resurrect_avgx_avgy """SELECT k, p FROM test_ivm_expr_over_agg_avgx_avgy"""
+    order_qt_pair_after_resurrect_avgx_avgy_source """
+        SELECT k, AVG(x) * AVG(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_sumx_sumy COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_sumx_sumy")
+    order_qt_pair_complete_sumx_sumy """SELECT k, p FROM test_ivm_expr_over_agg_sumx_sumy"""
+    order_qt_pair_complete_sumx_sumy_source """
+        SELECT k, SUM(x) * SUM(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
+    sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_avgx_avgy COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_avgx_avgy")
+    order_qt_pair_complete_avgx_avgy """SELECT k, p FROM test_ivm_expr_over_agg_avgx_avgy"""
+    order_qt_pair_complete_avgx_avgy_source """
+        SELECT k, AVG(x) * AVG(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
 }
