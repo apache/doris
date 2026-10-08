@@ -79,9 +79,9 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
                     names.add(name);
                 }
             }
-            // i+1 is value, check if it is not jsonb/variant type
-            if (child(i + 1).getDataType().isJsonType() || child(i + 1).getDataType().isVariantType()) {
-                throw new AnalysisException("named_struct does not support jsonb/variant type");
+            DataType valueType = getArgument(i + 1).getDataType();
+            if (valueType.isJsonType()) {
+                throw new AnalysisException("named_struct does not support jsonb type");
             }
         }
     }

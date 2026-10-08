@@ -57,6 +57,9 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         mustInlineCTEs = jobContext.getCascadesContext().getStatementContext().getMustInlineCTEs();
+        if (!mustInlineCTEs.isEmpty()) {
+            collectRecursiveCteDependencies(plan);
+        }
 
         Plan root = plan.accept(this, null);
         // collect cte id to consumer
@@ -66,6 +69,26 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
             }
         });
         return root;
+    }
+
+    private void collectRecursiveCteDependencies(Plan plan) {
+        // Resolve the transitive dependencies before making any materialization decisions.
+        // Otherwise an outer producer can remain shared by independent recursive controllers
+        // even when its consumers are inside CTEs that must be inlined.
+        List<LogicalCTEProducer<?>> producers = plan.collectToList(p -> p instanceof LogicalCTEProducer);
+        boolean changed;
+        do {
+            changed = false;
+            for (LogicalCTEProducer<?> producer : producers) {
+                if (mustInlineCTEs.contains(producer.getCteId())) {
+                    List<LogicalCTEConsumer> consumers = producer.child()
+                            .collectToList(p -> p instanceof LogicalCTEConsumer);
+                    for (LogicalCTEConsumer consumer : consumers) {
+                        changed |= mustInlineCTEs.add(consumer.getCteId());
+                    }
+                }
+            }
+        } while (changed);
     }
 
     @Override

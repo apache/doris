@@ -175,6 +175,59 @@ PhysicalResultSink
 ----PhysicalProject
 ------PhysicalOlapScan[t4]
 
+-- !array_agg_no_eliminate --
+PhysicalResultSink
+--PhysicalProject
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------PhysicalOlapScan[t4]
+
+-- !collect_list_eliminate --
+PhysicalResultSink
+--PhysicalProject
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------filter((t4.c4 = 102))
+------------PhysicalOlapScan[t4]
+
+-- !collect_list_distinct_eliminate --
+PhysicalResultSink
+--PhysicalProject
+----hashAgg[DISTINCT_GLOBAL]
+------hashAgg[DISTINCT_LOCAL]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------filter((t4.c4 = 102))
+----------------PhysicalOlapScan[t4]
+
+-- !bool_or_eliminate --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalProject
+--------filter((t4.c4 = 102))
+----------PhysicalOlapScan[t4]
+
+-- !sum0_eliminate --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalProject
+--------filter((t4.c4 = 102))
+----------PhysicalOlapScan[t4]
+
+-- !bitmap_agg_eliminate --
+PhysicalResultSink
+--PhysicalProject
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------filter((t4.c4 = 102))
+------------PhysicalOlapScan[t4]
+
 -- !basic_1 --
 10
 
@@ -246,4 +299,25 @@ PhysicalResultSink
 -- !basic_4_6 --
 102	1
 103	1
+
+-- !array_agg_preserves_null --
+2
+
+-- !array_agg_distinct_preserves_null --
+2
+
+-- !collect_list_ignores_null --
+1
+
+-- !collect_list_distinct_ignores_null --
+1
+
+-- !bool_or_ignores_null --
+true
+
+-- !sum0_ignores_null --
+102
+
+-- !bitmap_agg_ignores_null --
+1
 

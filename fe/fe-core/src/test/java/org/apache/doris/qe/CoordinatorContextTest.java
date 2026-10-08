@@ -59,6 +59,19 @@ class CoordinatorContextTest {
         Assertions.assertEquals(statementStart.getNano(), queryGlobals.getNanoSeconds());
     }
 
+    // A job of a frontend daemon has no session: its query globals must still be what a backend
+    // can decode (now_string is a required field) and carry a time zone.
+    @Test
+    void testQueryGlobalsWithoutSessionAreComplete() {
+        TQueryGlobals queryGlobals = CoordinatorContext.createQueryGlobalsWithoutSession();
+
+        Assertions.assertTrue(queryGlobals.isSetNowString());
+        Assertions.assertTrue(queryGlobals.isSetTimestampMs());
+        Assertions.assertTrue(queryGlobals.isSetTimeZone());
+        Assertions.assertNotEquals("CST", queryGlobals.getTimeZone());
+        Assertions.assertFalse(queryGlobals.isLoadZeroTolerance());
+    }
+
     @Test
     void testLoadQueryGlobalsSetNanoseconds() {
         TQueryGlobals queryGlobals = new TQueryGlobals();

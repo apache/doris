@@ -46,6 +46,8 @@ public:
     BinlogConfig& operator=(BinlogConfig&&) = default;
     ~BinlogConfig() = default;
 
+    bool operator==(const BinlogConfig&) const = default;
+
     bool is_enable() const { return _enable; }
     void set_enable(bool enable) { _enable = enable; }
 

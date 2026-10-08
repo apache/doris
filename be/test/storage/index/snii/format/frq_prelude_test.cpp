@@ -41,14 +41,13 @@ namespace {
 
 // Builds N windows that tile a docid space in fixed strides, with deterministic
 // per-window metadata. doc_count is `stride`; absolute last docid of window w is
-// (w+1)*stride - 1 so windows are contiguous and strictly ascending. dd and freq
-// region offsets are CONTIGUOUS prefix sums (the prelude validates this).
+// (w+1)*stride - 1 so windows are contiguous and strictly ascending. dd region
+// offsets are contiguous prefix sums.
 FrqPreludeColumns MakeColumns(uint32_t n, uint32_t group_size, uint32_t stride, bool has_prx) {
     FrqPreludeColumns cols;
-    cols.has_freq = true;
     cols.has_prx = has_prx;
     cols.group_size = group_size;
-    uint64_t dd_running = 0, freq_running = 0, prx_running = 0;
+    uint64_t dd_running = 0, prx_running = 0;
     for (uint32_t w = 0; w < n; ++w) {
         WindowMeta m;
         m.last_docid = (w + 1) * stride - 1;
@@ -62,35 +61,23 @@ FrqPreludeColumns MakeColumns(uint32_t n, uint32_t group_size, uint32_t stride, 
         m.dd_uncomp_len = m.dd_zstd ? m.dd_disk_len + 2 : m.dd_disk_len;
         m.crc_dd = 0xDD000000U + w;
         dd_running += m.dd_disk_len;
-        m.freq_zstd = (w % 3) == 0;
-        m.freq_off = freq_running;
-        m.freq_disk_len = 5 + (w % 4);
-        m.freq_uncomp_len = m.freq_zstd ? m.freq_disk_len + 1 : m.freq_disk_len;
-        m.crc_freq = 0xEE000000U + w;
-        freq_running += m.freq_disk_len;
         if (has_prx) {
             m.prx_off = prx_running;
             m.prx_len = 7 + (w % 5);
             prx_running += m.prx_len;
         }
-        m.max_freq = w * 3 + 1;
-        m.max_norm = static_cast<uint8_t>((w * 13 + 3) & 0xFF);
         cols.windows.push_back(m);
     }
     return cols;
 }
 
-ByteSink MakeSingleWindowPrelude(uint64_t last_docid_delta, uint64_t doc_count, uint64_t max_freq) {
+ByteSink MakeSingleWindowPrelude(uint64_t last_docid_delta, uint64_t doc_count) {
     ByteSink block;
     block.put_varint64(last_docid_delta);
     block.put_varint64(doc_count);
-    block.put_u8(0);          // win_mode: raw dd/freq (no zstd bit => no uncomp_len fields)
+    block.put_u8(0);          // win_mode: raw dd (no zstd bit => no uncomp_len field)
     block.put_varint64(4);    // dd_disk_len (dd_uncomp_len omitted: raw region)
     block.put_fixed32(0xDDU); // crc_dd
-    block.put_varint64(0);    // freq_disk_len (freq_uncomp_len omitted: raw region)
-    block.put_fixed32(0xEEU); // crc_freq
-    block.put_varint64(max_freq);
-    block.put_u8(0); // max_norm
 
     ByteSink dir;
     dir.put_varint64(last_docid_delta);
@@ -98,7 +85,7 @@ ByteSink MakeSingleWindowPrelude(uint64_t last_docid_delta, uint64_t doc_count, 
     dir.put_varint64(block.size());
 
     ByteSink covered;
-    covered.put_u8(doris::snii::format::frq_prelude_flags::kHasFreq);
+    covered.put_u8(0);
     covered.put_varint64(1); // N
     covered.put_varint64(1); // G
     covered.put_varint64(1); // n_super
@@ -123,7 +110,6 @@ void ExpectRoundTrip(const FrqPreludeColumns& cols) {
     ASSERT_TRUE(FrqPreludeReader::open(sink.view(), &reader).ok());
 
     ASSERT_EQ(reader.n_windows(), cols.windows.size());
-    EXPECT_EQ(reader.has_freq(), cols.has_freq);
     EXPECT_EQ(reader.has_prx(), cols.has_prx);
 
     uint64_t expect_win_base = 0;
@@ -139,13 +125,6 @@ void ExpectRoundTrip(const FrqPreludeColumns& cols) {
         EXPECT_EQ(got.dd_disk_len, exp.dd_disk_len) << "dd_disk_len w=" << w;
         EXPECT_EQ(got.dd_uncomp_len, exp.dd_uncomp_len) << "dd_uncomp_len w=" << w;
         EXPECT_EQ(got.crc_dd, exp.crc_dd) << "crc_dd w=" << w;
-        EXPECT_EQ(got.freq_zstd, exp.freq_zstd) << "freq_zstd w=" << w;
-        EXPECT_EQ(got.freq_off, exp.freq_off) << "freq_off w=" << w;
-        EXPECT_EQ(got.freq_disk_len, exp.freq_disk_len) << "freq_disk_len w=" << w;
-        EXPECT_EQ(got.freq_uncomp_len, exp.freq_uncomp_len) << "freq_uncomp_len w=" << w;
-        EXPECT_EQ(got.crc_freq, exp.crc_freq) << "crc_freq w=" << w;
-        EXPECT_EQ(got.max_freq, exp.max_freq) << "max_freq w=" << w;
-        EXPECT_EQ(got.max_norm, exp.max_norm) << "max_norm w=" << w;
         if (cols.has_prx) {
             EXPECT_EQ(got.prx_off, exp.prx_off) << "prx_off w=" << w;
             EXPECT_EQ(got.prx_len, exp.prx_len) << "prx_len w=" << w;
@@ -240,7 +219,7 @@ TEST(SniiFrqPrelude, LocateWindowAgainstLinearScan) {
     cols.group_size = 4;
     // Non-contiguous absolute last docids with gaps: 50, 130, 131, 400, 900.
     const uint32_t lasts[] = {50, 130, 131, 400, 900};
-    uint64_t dd_running = 0, freq_running = 0, prx_running = 0;
+    uint64_t dd_running = 0, prx_running = 0;
     for (uint32_t v : lasts) {
         WindowMeta m;
         m.last_docid = v;
@@ -250,11 +229,6 @@ TEST(SniiFrqPrelude, LocateWindowAgainstLinearScan) {
         m.dd_uncomp_len = 12;
         m.crc_dd = v;
         dd_running += 12;
-        m.freq_off = freq_running;
-        m.freq_disk_len = 6;
-        m.freq_uncomp_len = 6;
-        m.crc_freq = v + 1;
-        freq_running += 6;
         m.prx_off = prx_running;
         m.prx_len = 6;
         prx_running += 6;
@@ -340,37 +314,25 @@ TEST(SniiFrqPrelude, RejectsDocCountBeyondWindowWidth) {
 
 TEST(SniiFrqPrelude, RejectsWindowDocCountThatDoesNotFitU32) {
     ByteSink sink = MakeSingleWindowPrelude(
-            /*last_docid_delta=*/0, static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1,
-            /*max_freq=*/1);
-    FrqPreludeReader reader;
-    Status s = FrqPreludeReader::open(sink.view(), &reader);
-    EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
-}
-
-TEST(SniiFrqPrelude, RejectsWindowMaxFreqThatDoesNotFitU32) {
-    ByteSink sink = MakeSingleWindowPrelude(
-            /*last_docid_delta=*/0, /*doc_count=*/1,
+            /*last_docid_delta=*/0,
             static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1);
     FrqPreludeReader reader;
     Status s = FrqPreludeReader::open(sink.view(), &reader);
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
 }
 
-// The reader reports dd_block_len / freq_block_len as the sums of per-window region
-// disk lengths (the contiguous block sizes a reader range-fetches).
+// The reader reports dd_block_len as the sum of per-window region disk lengths.
 TEST(SniiFrqPrelude, BlockLengthsAreRegionSums) {
     FrqPreludeColumns cols = MakeColumns(/*n=*/6, /*group_size=*/4, /*stride=*/256, true);
     ByteSink sink;
     ASSERT_TRUE(build_frq_prelude(cols, &sink).ok());
     FrqPreludeReader reader;
     ASSERT_TRUE(FrqPreludeReader::open(sink.view(), &reader).ok());
-    uint64_t dd_sum = 0, freq_sum = 0;
+    uint64_t dd_sum = 0;
     for (const auto& m : cols.windows) {
         dd_sum += m.dd_disk_len;
-        freq_sum += m.freq_disk_len;
     }
     EXPECT_EQ(reader.dd_block_len(), dd_sum);
-    EXPECT_EQ(reader.freq_block_len(), freq_sum);
 }
 
 // CRC corruption inside the header / super_block_dir is detected by open().
@@ -414,7 +376,7 @@ TEST(SniiFrqPrelude, WindowOutOfRangeRejected) {
 // hand with a matching crc, so verify_crc passes but the count is rejected.
 TEST(SniiFrqPrelude, RejectsOversizedWindowCount) {
     ByteSink covered;
-    covered.put_u8(doris::snii::format::frq_prelude_flags::kHasFreq);
+    covered.put_u8(1U << 1);             // unknown flag bit
     covered.put_varint64(0xFFFFFFFFULL); // N: absurd window count
     covered.put_varint64(64);            // G
     covered.put_varint64(1);             // n_super (bogus but small)

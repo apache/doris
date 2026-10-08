@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -27,6 +28,7 @@ import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.qe.ConnectContext;
@@ -59,6 +61,7 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
+import java.util.List;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import javax.net.ssl.HttpsURLConnection;
@@ -74,7 +77,41 @@ public class RestBaseController extends BaseController {
     protected static final String TXN_OPERATION_KEY = "txn_operation";
     protected static final String SINGLE_REPLICA_KEY = "single_replica";
     protected static final String FORWARD_MASTER_UT_TEST = "forward_master_ut_test";
+    private static final String PARAM_LIMIT = "limit";
+    private static final String PARAM_OFFSET = "offset";
     private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
+
+    /**
+     * Apply the limit and offset query parameters to a list.
+     */
+    protected <T> List<T> paginate(HttpServletRequest request, List<T> rows) {
+        String limitString = request.getParameter(PARAM_LIMIT);
+        String offsetString = request.getParameter(PARAM_OFFSET);
+
+        if (Strings.isNullOrEmpty(limitString)) {
+            if (!Strings.isNullOrEmpty(offsetString)) {
+                throw new BadRequestException("Param offset should be set with param limit");
+            }
+            return new LimitElement(0, -1).applyTo(rows);
+        }
+
+        long limit = parseNonNegativeLong(limitString, PARAM_LIMIT);
+        long offset = Strings.isNullOrEmpty(offsetString)
+                ? 0 : parseNonNegativeLong(offsetString, PARAM_OFFSET);
+        return new LimitElement(offset, limit).applyTo(rows);
+    }
+
+    private long parseNonNegativeLong(String value, String parameterName) {
+        try {
+            long parsedValue = Long.parseLong(value);
+            if (parsedValue >= 0) {
+                return parsedValue;
+            }
+        } catch (NumberFormatException ignored) {
+            // Converted to a stable bad-request response below.
+        }
+        throw new BadRequestException("Param " + parameterName + " should be a non-negative integer");
+    }
 
     public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,
                                                         HttpServletResponse response) throws UnauthorizedException {

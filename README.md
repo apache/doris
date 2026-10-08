@@ -145,7 +145,7 @@ Apache Doris graduated from the Apache Incubator and became an Apache Top-Level 
 - [GitHub Issues](https://github.com/apache/doris/issues)
 - [GitHub Discussions](https://github.com/apache/doris/discussions)
 - [Pull Requests](https://github.com/apache/doris/pulls)
-- [How to contribute](https://doris.apache.org/community/how-to-contribute/)
+- [How to contribute](https://doris.apache.org/community/how-to-contribute/contribute-to-doris)
 - [Code submission guide](https://doris.apache.org/community/how-to-contribute/pull-request/)
 
 ## 💬 Contact Us

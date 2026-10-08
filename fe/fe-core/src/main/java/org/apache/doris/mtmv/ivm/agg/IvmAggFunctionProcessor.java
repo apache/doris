@@ -86,6 +86,19 @@ public abstract class IvmAggFunctionProcessor {
     abstract void appendDeltaAggregateOutputs(IvmAggTarget target, Slot dmlFactorSlot, List<NamedExpression> outputs,
             IvmAggExpressionBuilder ctx);
 
+    /**
+     * Appends processor-owned derived (non-aggregate) delta columns on top of the delta aggregate.
+     *
+     * <p>Some processors pack every change row into one aggregate column and then derive the polarity
+     * columns (for example ARRAY_AGG's insert/delete views) with scalar functions over that packed
+     * aggregate output. Such derived columns cannot be aggregate outputs of the same node, so this
+     * hook appends them to the delta top project's output list, where {@code deltaAggOutputByName}
+     * exposes the delta aggregate's own output slots.
+     */
+    void appendDeltaTopProjectOutputs(IvmAggTarget target, Map<String, Slot> deltaAggOutputByName,
+            List<NamedExpression> topOutputs, IvmAggExpressionBuilder ctx) {
+    }
+
     /** Resolves delta output slots and registers the slots that apply expressions will read later. */
     void mapApplyDeltaSlots(IvmAggTarget target, Map<String, Slot> outputByName,
             Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots, Slot deltaGroupCountSlot, IvmAggExpressionBuilder ctx) {

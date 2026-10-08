@@ -211,9 +211,9 @@ under the License.
             </exclusions>
         </dependency>
 
-        <!-- iceberg-hive-metastore 1.10.1 supplies org.apache.iceberg.hive.HiveCatalog (the hms flavor);
+        <!-- iceberg-hive-metastore supplies org.apache.iceberg.hive.HiveCatalog (the hms flavor);
              only fe-connector-iceberg loads it. iceberg-core/api/common/bundled-guava + caffeine + slf4j
-             are excluded — the iceberg plugin already ships iceberg-core 1.10.1 (which brings api/common/
+             are excluded — the iceberg plugin already ships the matching iceberg-core version (which brings api/common/
              guava/caffeine) as its own child-first jar, so re-bundling them here would create duplicate
              classes. Only the org.apache.iceberg.hive.* classes are kept, and the relocation below rewrites
              their org.apache.thrift refs to the shared private prefix so they link against the same
@@ -221,7 +221,8 @@ under the License.
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-hive-metastore</artifactId>
-            <version>1.10.1</version>
+            <!-- Keep HiveCatalog bytecode aligned with the Iceberg core loaded by the connector. -->
+            <version>${iceberg.version}</version>
             <optional>true</optional>
             <exclusions>
                 <exclusion><groupId>org.apache.iceberg</groupId><artifactId>iceberg-core</artifactId></exclusion>

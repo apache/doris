@@ -26,6 +26,14 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>trino-connector-scanner</artifactId>
+    <name>Doris BE trino-connector Plugin</name>
+    <description>
+        Reads any table a Trino connector can read. FE plans the scan with the same Trino connector
+        and JSON-serializes the split, the table handle and the column handles to this plugin, which
+        deserializes them against the connector and materializes rows - so the plugin carries the
+        Trino engine, and the connectors themselves are loaded from plugins/trino_plugins at runtime
+        by a second, nested classloader.
+    </description>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
@@ -35,20 +43,249 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>preload-extensions</artifactId>
+            <artifactId>jni-spi</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>
+
+        <!--
+          The Trino engine. Not just the SPI: deserializing a handle needs the connector's own
+          jackson modules and the block encodings, and building the session Trino hands a connector
+          needs the session property machinery, so what runs here is Trino's own bootstrap path with
+          a single catalog on it.
+        -->
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-main</artifactId>
+            <!--
+              ATTN: this replaces the exclusion list fe/pom.xml manages for trino-main rather than
+              adding to it - maven does not merge the two - so the first block below is that list,
+              copied. Dropping one of those silently puts a second logging backend or the Servlet
+              5.0 repackage back into the closure.
+
+              The second block is what BE does not need. trino-main is the whole Trino engine, and
+              BE runs one narrow path through it: load the installed connectors, deserialize one
+              split against one of them, pull pages. It never starts a Trino server, so nothing
+              constructs an endpoint, authenticates a client, announces itself to a discovery
+              service or exports a trace. Each group is excluded at its subtree's head, and what
+              survives is asserted by loading the deployed directory and reading rows through it -
+              see TrinoConnectorPluginTest and the acceptance recipe in the migration notes.
+            -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-jdk14</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>log4j-over-slf4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.logging.log4j</groupId>
+                    <artifactId>log4j-to-slf4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>jcl-over-slf4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.airlift</groupId>
+                    <artifactId>bootstrap</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.trino</groupId>
+                    <artifactId>re2j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>okhttp</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.squareup.okio</groupId>
+                    <artifactId>okio</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.eclipse.jetty.toolchain</groupId>
+                    <artifactId>jetty-jakarta-servlet-api</artifactId>
+                </exclusion>
+
+                <!-- Trino's HTTP server and the REST stack it serves: jetty's server side, jersey,
+                     hk2, jaxb, the JMX and openmetrics endpoints, and the discovery service it
+                     announces itself to (with the embedded leveldb that stores announcements).
+                     BE serves nothing. The http *client* stays: it is reachable from the parts of
+                     the engine BE does construct. -->
+                <exclusion>
+                    <groupId>io.airlift</groupId>
+                    <artifactId>http-server</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.airlift</groupId>
+                    <artifactId>jaxrs</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.airlift</groupId>
+                    <artifactId>jmx-http</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.airlift</groupId>
+                    <artifactId>openmetrics</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.airlift</groupId>
+                    <artifactId>event</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.airlift.discovery</groupId>
+                    <artifactId>discovery-server</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.eclipse.jetty</groupId>
+                    <artifactId>jetty-alpn-java-client</artifactId>
+                </exclusion>
+
+                <!-- Client authentication: JWT, OAuth2/OIDC. A Trino server authenticates the
+                     clients that connect to it; nothing connects to BE's copy of the engine. -->
+                <exclusion>
+                    <groupId>com.nimbusds</groupId>
+                    <artifactId>nimbus-jose-jwt</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.nimbusds</groupId>
+                    <artifactId>oauth2-oidc-sdk</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.jsonwebtoken</groupId>
+                    <artifactId>jjwt-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.jsonwebtoken</groupId>
+                    <artifactId>jjwt-impl</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.jsonwebtoken</groupId>
+                    <artifactId>jjwt-jackson</artifactId>
+                </exclusion>
+
+                <!-- Trace export: the connector cache hands Trino OpenTelemetry.noop(), so the
+                     OTLP exporter this drags in has nothing to export to. Two things stay on
+                     purpose. The API and context packages, because Trino delegates those to a
+                     plugin's classloader and an installed connector has to resolve them there;
+                     and the two SDK modules trino-main declares itself, which this exclusion does
+                     not reach - they are 0.4MB and trino-main naming them directly is a better
+                     signal about its own paths than an analysis of BE's. -->
+                <exclusion>
+                    <groupId>io.airlift</groupId>
+                    <artifactId>tracing</artifactId>
+                </exclusion>
+
+                <!-- Reconfigures java.util.logging for a Trino server. BE's plugin runtime owns
+                     that configuration - this being present is an invitation to a second one. -->
+                <exclusion>
+                    <groupId>io.airlift</groupId>
+                    <artifactId>log-manager</artifactId>
+                </exclusion>
+
+                <!-- Retry policy and latency histograms for the server's remote tasks. -->
+                <exclusion>
+                    <groupId>dev.failsafe</groupId>
+                    <artifactId>failsafe</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.hdrhistogram</groupId>
+                    <artifactId>HdrHistogram</artifactId>
+                </exclusion>
+
+                <!-- 8.6MB, and unreferenced: io.airlift:configuration declares it, but no class in
+                     this closure names net.bytebuddy - not as a type and not as a string, which is
+                     how hibernate-validator would have reached it had it still used it. -->
+                <exclusion>
+                    <groupId>net.bytebuddy</groupId>
+                    <artifactId>byte-buddy</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
-        <!-- Shared Trino plugin bootstrap classes (org.apache.doris.trinoconnector.*), moved out of
-             fe-common; bundled into this scanner jar via package.xml (runtime scope). -->
+        <!--
+          The plugin/connector bootstrap classes FE and BE share, kept out of fe-common precisely so
+          that depending on them does not put trino-main on FE's own classpath.
+        -->
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-trino-connector-common</artifactId>
             <version>${project.version}</version>
+        </dependency>
+
+        <!--
+          Reached transitively through the shared preload jar until this module became a plugin:
+          guava for the connector cache, commons-lang3 for the root-cause message the cache reports,
+          commons-io for reading /proc/<pid>/cmdline. Compiling was never the problem - all three
+          were on the compile classpath as transitive `provided` dependencies - which is why a
+          missing declaration here only ever shows up as a NoClassDefFoundError in a deployed
+          plugin directory.
+        -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+        </dependency>
+
+        <!--
+          Logging: this plugin and the libraries inside it must reach the one file BE's plugin
+          runtime configures - log/jni.log, written through java.util.logging. So the plugin speaks
+          slf4j and deploys slf4j-jdk14. Trino's own io.airlift.log.Logger already writes to
+          java.util.logging, so it needs no bridge at all.
+
+          log4j-to-slf4j is the bridge for the log4j2 callers in this closure:
+          fe-trino-connector-common, which is shared with FE and logs the plugin scan there.
+          Without it log4j-api finds no provider and falls back to writing on stderr.
+
+          The three log4j artifacts below are narrowed to test because the fe parent pom declares
+          them compile on EVERY module: log4j-core is a second logging implementation writing
+          wherever its own configuration says (nowhere, since BE's log4j2 config is not on a
+          plugin's classpath), log4j-slf4j2-impl would route slf4j into it, and log4j-1.2-api is not
+          the pure facade its name suggests - its org.apache.log4j.Logger resolves log4j-core
+          classes. Maven cannot drop an inherited dependency, only narrow its scope.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-to-slf4j</artifactId>
+            <version>${log4j2.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j2-impl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-1.2-api</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -56,26 +293,46 @@ under the License.
         <finalName>trino-connector-scanner</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--
+              Give the tests the same logging the deployed plugin has: slf4j-jdk14 as slf4j's only
+              provider, log4j-to-slf4j as log4j2's. Both artifacts excluded here are declared test
+              only because maven cannot drop what the fe parent pom declares compile on every
+              module - narrowing the scope keeps them out of the plugin directory, and this keeps
+              them out of the test JVM, where each would be a second provider competing for the
+              same slot.
+            -->
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <classpathDependencyExcludes>
+                        <classpathDependencyExclude>
+                            org.apache.logging.log4j:log4j-core
+                        </classpathDependencyExclude>
+                        <classpathDependencyExclude>
+                            org.apache.logging.log4j:log4j-slf4j2-impl
+                        </classpathDependencyExclude>
+                    </classpathDependencyExcludes>
+                </configuration>
+            </plugin>
+            <!--
+              A plugin is a directory of jars, not one jar with everything shaded into it. Its own
+              jar is built by the parent's jar plugin; its runtime closure lands beside it here.
+              `provided` dependencies are excluded by scope, which is what keeps the SPI out.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/main/resources/package.xml</descriptor>
-                    </descriptors>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
+                        <id>copy-plugin-dependencies</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -24,7 +25,12 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
+import java.util.List;
+
 public class RestBaseControllerTest {
+
+    private static final List<Integer> ROWS = Arrays.asList(0, 1, 2);
 
     @Test
     public void testBuildRedirectUrlPreservesEncodedPath() {
@@ -68,6 +74,55 @@ public class RestBaseControllerTest {
         Assertions.assertEquals("http://be-host:8040/api/db/tbl/_stream_load?k=v", redirectUrl);
     }
 
+    @Test
+    public void testPaginateDefaultAndNormalRanges() {
+        assertPage(null, null, Arrays.asList(0, 1, 2));
+        assertPage("1", null, Arrays.asList(0));
+        assertPage("1", "1", Arrays.asList(1));
+        assertPage("0", "1", Arrays.asList());
+        assertPage("10", "1", Arrays.asList(1, 2));
+    }
+
+    @Test
+    public void testPaginateLargeValues() {
+        assertPage("1", Long.toString(Long.MAX_VALUE), Arrays.asList());
+        assertPage(Long.toString(Long.MAX_VALUE), "1", Arrays.asList(1, 2));
+    }
+
+    @Test
+    public void testPaginateOffsetRequiresLimit() {
+        BadRequestException exception = Assertions.assertThrows(BadRequestException.class,
+                () -> paginate(null, "1"));
+        Assertions.assertEquals("Param offset should be set with param limit", exception.getMessage());
+    }
+
+    @Test
+    public void testPaginateInvalidParameters() {
+        assertInvalid("-1", null, "Param limit should be a non-negative integer");
+        assertInvalid("not-a-number", null, "Param limit should be a non-negative integer");
+        assertInvalid("9223372036854775808", null, "Param limit should be a non-negative integer");
+        assertInvalid("1", "-1", "Param offset should be a non-negative integer");
+        assertInvalid("1", "not-a-number", "Param offset should be a non-negative integer");
+        assertInvalid("1", "9223372036854775808", "Param offset should be a non-negative integer");
+    }
+
+    private void assertPage(String limit, String offset, List<Integer> expected) {
+        Assertions.assertEquals(expected, paginate(limit, offset));
+    }
+
+    private void assertInvalid(String limit, String offset, String expectedMessage) {
+        BadRequestException exception = Assertions.assertThrows(BadRequestException.class,
+                () -> paginate(limit, offset));
+        Assertions.assertEquals(expectedMessage, exception.getMessage());
+    }
+
+    private List<Integer> paginate(String limit, String offset) {
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getParameter("limit")).thenReturn(limit);
+        Mockito.when(request.getParameter("offset")).thenReturn(offset);
+        return new TestRestController().paginateForTest(request, ROWS);
+    }
+
     // Expose the protected helper so the redirect URL can be verified directly.
     private static class TestRestController extends RestBaseController {
         private String buildRedirectUrlForTest(HttpServletRequest request, TNetworkAddress addr,
@@ -78,6 +133,10 @@ public class RestBaseControllerTest {
         private String buildRedirectUrlToBackendForTest(HttpServletRequest request, TNetworkAddress addr,
                 String requestPath, String queryString) {
             return buildRedirectUrlToBackend(request, addr, requestPath, queryString);
+        }
+
+        private <T> List<T> paginateForTest(HttpServletRequest request, List<T> rows) {
+            return paginate(request, rows);
         }
     }
 }

@@ -99,10 +99,10 @@ GTEST_SOURCE=googletest-release-1.12.1
 GTEST_MD5SUM="e82199374acdfda3f425331028eb4e2a"
 
 # snappy
-SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.10.tar.gz"
-SNAPPY_NAME=snappy-1.1.10.tar.gz
-SNAPPY_SOURCE=snappy-1.1.10
-SNAPPY_MD5SUM="70153395ebe6d72febe2cf2e40026a44"
+SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.2.1.tar.gz"
+SNAPPY_NAME=snappy-1.2.1.tar.gz
+SNAPPY_SOURCE=snappy-1.2.1
+SNAPPY_MD5SUM="dd6f9b667e69491e1dbf7419bdf68823"
 
 # gperftools
 GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.10/gperftools-2.10.tar.gz"
@@ -353,10 +353,10 @@ JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
 # libunwind
-LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz"
-LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
-LIBUNWIND_SOURCE="libunwind-1.6.2"
-LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
+LIBUNWIND_DOWNLOAD="https://github.com/libunwind/libunwind/releases/download/v1.8.3/libunwind-1.8.3.tar.gz"
+LIBUNWIND_NAME="libunwind-1.8.3.tar.gz"
+LIBUNWIND_SOURCE="libunwind-1.8.3"
+LIBUNWIND_MD5SUM="13bc7b41462ac6ea157d350eaf6c1503"
 
 # cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/refs/tags/v2.5.tar.gz"
@@ -475,11 +475,25 @@ SIMDJSON_NAME=simdjson-3.11.6.tar.gz
 SIMDJSON_SOURCE=simdjson-3.11.6
 SIMDJSON_MD5SUM="e7d9c814a4fdd6e47119ce5cf4240f4e"
 
+# simdutf
+SIMDUTF_DOWNLOAD="https://github.com/simdutf/simdutf/archive/refs/tags/v9.2.0.tar.gz"
+SIMDUTF_NAME=simdutf-9.2.0.tar.gz
+SIMDUTF_SOURCE=simdutf-9.2.0
+SIMDUTF_MD5SUM="abeae9267c1c1caf183b8d24a39c0147"
+
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
 NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
 NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+
+# Google Cloud C++ OAuth2 authentication library. Only the auth/common REST
+# components are built; the Google Cloud Storage SDK is intentionally excluded.
+GOOGLE_CLOUD_CPP_DOWNLOAD="https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_FALLBACK_DOWNLOAD="https://codeload.github.com/googleapis/google-cloud-cpp/tar.gz/refs/tags/v2.45.0"
+GOOGLE_CLOUD_CPP_NAME="google-cloud-cpp-2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_SOURCE="google-cloud-cpp-2.45.0"
+GOOGLE_CLOUD_CPP_MD5SUM="3cc131764cd9009c20407d7b67afcf6e"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -603,10 +617,17 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.9.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.9.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.9"
-LANCE_C_MD5SUM="7138ed44e92d4bc91d5b522a6b92ed64"
+# Includes lance-c #94: synchronous index prewarm through the upstream C/C++ APIs.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/98468344bc9d56aa7ed4a4192e844afa62b34ba1"
+LANCE_C_NAME="lance-c-98468344bc9d56aa7ed4a4192e844afa62b34ba1.tar.gz"
+LANCE_C_SOURCE="lance-c-98468344bc9d56aa7ed4a4192e844afa62b34ba1"
+LANCE_C_MD5SUM="b452bab5d05f5bce5f0bfebe8b1fb831"
+
+# paimon-rust
+PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-v0.4.0-rc1.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-0.4.0-rc1"
+PAIMON_RUST_MD5SUM="23cd0634692108debf77a26ef4dc20a7"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -673,7 +694,9 @@ export TP_ARCHIVES=(
     'BENCHMARK'
     'XSIMD'
     'SIMDJSON'
+    'SIMDUTF'
     'NLOHMANN_JSON'
+    'GOOGLE_CLOUD_CPP'
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'
@@ -694,10 +717,11 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'LANCE_C'
+    'PAIMON_RUST'
 )
 
-# Only defined on the platforms upstream ships a prebuilt driver for (see above).
-if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+# This variable is unset on macOS; callers may source this file with nounset.
+if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
     read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} ARROW_ADBC_FLIGHTSQL"
     export TP_ARCHIVES
 fi

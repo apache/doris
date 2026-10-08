@@ -27,7 +27,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/packed_file_writer.h"
-#include "io/fs/s3_file_writer.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "storage/index/ann/ann_index_files.h"
 #include "storage/index/index_file_reader.h"
@@ -38,6 +37,7 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/snii/query/gram_boolean_query.h"
 #include "storage/index/snii/snii_blob_staging_directory.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/tablet/tablet_schema.h"
@@ -45,15 +45,83 @@
 
 namespace doris::segment_v2 {
 
-// Resolves whether one segment index lays out freq regions (G16-c). Freq
-// serves ONLY BM25 scoring: a scoring config always keeps it; a plain
-// positions config keeps it only when the escape-hatch config asks for the
-// full T2 layout. NOT in the anonymous namespace on purpose -- the UT covers
-// this production policy line directly (a flipped operator or inverted flag
-// here would otherwise stay green: no BE test drives add_snii_index).
-bool snii_effective_write_freq(doris::snii::format::IndexConfig index_config) {
-    return doris::snii::format::has_scoring(index_config) ||
-           config::snii_positions_index_write_freq;
+// Resolves the stop-gram df threshold for one index, in documents. Three conditions must
+// all hold, and every one of them is a correctness or safety condition rather than a
+// tuning choice:
+//
+//   - gram family only. Dropping a posting turns its term into one matching every
+//     document. LIKE/REGEXP survives that because its candidates are re-checked against
+//     the column; an ordinary full-text index has no such re-check and would return rows
+//     that do not match.
+//   - docs-only. Dropping the posting drops its positions with it, so any index that
+//     stores positions would lose phrase capability for that term. Gram indexes are
+//     written docs-only, so this is an assertion of that rather than a restriction.
+//     It carries a second guarantee worth stating: the compaction merge fast path
+//     requires positions (snii/compaction/eligibility.cpp validate_source_shape), so a
+//     segment that can hold dropped postings can never be a merge source. The merge
+//     therefore never has to reconstruct a posting list that was never written -- it
+//     rebuilds such an index from the raw column instead, which recomputes stop-gram
+//     against the merged segment's own size. Keep these two conditions opposed: making
+//     either side accept both shapes would let the merge silently emit a term with a
+//     real df and an empty posting list, which reads as "matches nothing".
+//   - above the row floor. A small segment's whole gram index is a few KB; there is
+//     nothing to save and the pruning it does deliver is worth keeping.
+//
+// There is no switch. Dropping is what lets a gram index meet its size budget of index
+// bytes <= 0.30 of the compressed column data: at density 0.25 the terms above the line are
+// under 1% of the vocabulary but hold ~85% of the posting entries, and dropping them takes
+// textbench from 1.097 to 0.218 index/data, httplogs from 0.865 to 0.071 and agentlogs from
+// 0.853 to 0.094, with recall unchanged and the rare-literal speedups intact. What it costs
+// is filtering for literals made entirely of grams above the line (0.15% of the segment);
+// the cost gate would have refused most of those anyway. A dropped posting comes back only
+// when the index is rebuilt (compaction, schema change), so a per-column opt-out, if one is
+// ever needed, belongs in the index properties where it is recorded with the schema -- not
+// in a BE-wide runtime flag that reaches only the segments written after it flips.
+//
+// NOT in the anonymous namespace: the UT pins this policy directly.
+uint32_t snii_effective_stop_gram_df_threshold(const doris::snii::writer::SniiIndexInput& input) {
+    if (!input.gram_scheme.has_value() || doris::snii::format::has_positions(input.config)) {
+        return 0;
+    }
+    // A segment with fewer rows than the digest's divisor has no meaningful notion of a
+    // "common" term: its floor would have to be clamped up to 1, at which point dropping
+    // postings for df of 4 in a 500-row segment is pure loss. The reader agrees by the same
+    // arithmetic -- its digest ceiling lands at 0 there and its gate falls back rather than
+    // deriving a budget -- so both sides stand down together.
+    if (input.doc_count < doris::snii::format::kHighDfDigestDivisor) {
+        return 0;
+    }
+    // The threshold is derived, not configured: it is the same line the query side's cost gate
+    // draws from the high-df digest -- the digest's floor times the budget multiple, which
+    // lands at 0.15% of the segment. Writing and reading agree by construction, and what the
+    // writer drops is what a reader would have refused to read.
+    //
+    // This line is chosen for size, and the cost is known and accepted. Measured across the
+    // four corpora, it drops 88.6% of all posting entries and takes index/data from 1.097 to
+    // 0.218 on log text; a tenth-of-the-documents line (tau = 0.10, the value the FREE line of
+    // work uses) drops 14.7% and lands at 0.924, which does not meet the size target the index
+    // is held to.
+    //
+    // What it costs is every query whose RAREST gram sits above the line. Two groups do:
+    //
+    //   - all of CJK, back when it was indexed one term per code point: the terms a query is
+    //     made of are ordinary characters sitting in a few percent of the rows. Measured on
+    //     weibo, every pattern tried lost its filtering entirely: a four-character literal
+    //     proposed 500,000 candidates for its 18 matching rows and eliminated none, against
+    //     148 candidates and 499,852 rows eliminated on the same corpus indexed without
+    //     stop-gram. It is one of the reasons non-ASCII text is no longer indexed at all
+    //     (see gram_extractor.cpp).
+    //   - ASCII patterns in the middle of the selectivity range. `/history/images/` matches
+    //     0.73% of httplogs and goes the same way: 70,976 candidates become 3,000,000, with
+    //     nothing eliminated.
+    //
+    // What survives is the needle: a pattern whose grams sit orders of magnitude below the
+    // line keeps every bit of its pruning, and those are the queries with the large wins --
+    // 13 rows out of 3,000,000 still runs 121x faster than a scan on a cold segment. The line
+    // therefore keeps the extremes and gives up the middle, which measured 1.2x-2.4x.
+    const uint64_t floor =
+            static_cast<uint64_t>(input.doc_count) / doris::snii::format::kHighDfDigestDivisor;
+    return static_cast<uint32_t>(floor * doris::snii::query::kCandidateBudgetCeilingMultiple);
 }
 
 // Shared write-parameter resolution for one SNII index flush; `input->config`
@@ -62,11 +130,8 @@ bool snii_effective_write_freq(doris::snii::format::IndexConfig index_config) {
 // merge fast path can never drift from the rebuild contract (the T2 semantic
 // golden invariant depends on parameter parity). NOT in the anonymous
 // namespace on purpose -- the UT pins the resolved values directly.
-void snii_resolve_index_write_params(bool is_direct_load,
+void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
                                      doris::snii::writer::SniiIndexInput* input) {
-    // G16-c: freq regions serve only BM25 scoring; a plain positions index
-    // drops them unless the escape hatch asks for the full T2 layout.
-    input->write_freq = snii_effective_write_freq(input->config);
     // G16-h: zstd levels. dict blocks accept zstd's full sane range; the prx
     // level floor is 3 because the writer passes -level into the prx builders
     // and -1 is the historic "auto at default level 3" sentinel -- a
@@ -85,6 +150,7 @@ void snii_resolve_index_write_params(bool is_direct_load,
         input->target_dict_block_bytes =
                 static_cast<uint32_t>(config::snii_target_dict_block_bytes);
     }
+    input->stop_gram_df_threshold = snii_effective_stop_gram_df_threshold(*input);
 }
 
 IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
@@ -283,11 +349,10 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.doc_count = doc_count;
     input.null_docids = std::move(null_docids);
     input.encoded_norms = std::move(options.encoded_norms);
-    input.common_grams_metadata = std::move(options.common_grams_metadata);
-    input.common_grams_posting_policy = options.common_grams_posting_policy;
+    input.gram_scheme = options.gram_scheme;
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
-    snii_resolve_index_write_params(options.is_direct_load, &input);
+    snii_resolve_index_write_params(options.is_direct_load, !input.encoded_norms.empty(), &input);
     RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input));
     ++_snii_index_count;
     return Status::OK();
@@ -322,18 +387,13 @@ Status IndexFileWriter::add_snii_index_streamed(
         std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
         doris::snii::writer::SniiStreamedIndexSession** session) {
     return add_snii_index_streamed(index_meta, doc_count, std::move(null_docids),
-                                   doris::snii::writer::TrackedEncodedNorms(std::vector<uint8_t>()),
-                                   std::nullopt,
-                                   doris::snii::format::CommonGramsPostingPolicy::kNone,
-                                   index_config, std::move(mem_reporter), session);
+                                   /*write_norms=*/false, index_config, std::move(mem_reporter),
+                                   session);
 }
 
 Status IndexFileWriter::add_snii_index_streamed(
         const TabletIndex* index_meta, uint32_t doc_count,
-        doris::snii::writer::TrackedNullDocids null_docids,
-        doris::snii::writer::TrackedEncodedNorms encoded_norms,
-        std::optional<inverted_index::CommonGramsSegmentMetadata> common_grams_metadata,
-        doris::snii::format::CommonGramsPostingPolicy common_grams_posting_policy,
+        doris::snii::writer::TrackedNullDocids null_docids, bool write_norms,
         doris::snii::format::IndexConfig index_config,
         std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
         doris::snii::writer::SniiStreamedIndexSession** session) {
@@ -348,13 +408,9 @@ Status IndexFileWriter::add_snii_index_streamed(
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                 "SNII index file writer is null for {}", _index_path_prefix);
     }
-    const bool has_scoring = doris::snii::format::has_scoring(index_config);
-    const bool valid_scoring_shape =
-            has_scoring ? common_grams_metadata.has_value() && encoded_norms.size() == doc_count
-                        : !common_grams_metadata.has_value() && encoded_norms.empty();
-    if (!valid_scoring_shape) {
+    if (write_norms && !doris::snii::format::has_positions(index_config)) {
         return Status::InternalError(
-                "SNII streamed merge scoring shape disagrees with eligibility for {}",
+                "SNII streamed merge cannot write norms without positions for {}",
                 _index_path_prefix);
     }
     if (_snii_file_writer == nullptr) {
@@ -369,18 +425,17 @@ Status IndexFileWriter::add_snii_index_streamed(
     input.config = index_config;
     input.doc_count = doc_count;
     input.mem_reporter = mem_reporter.get();
-    input.common_grams_metadata = std::move(common_grams_metadata);
-    input.common_grams_posting_policy = common_grams_posting_policy;
+    input.write_norms = write_norms;
     // Merge output is always the settled-segment shape: COMPACTION prx level.
-    snii_resolve_index_write_params(/*is_direct_load=*/false, &input);
+    snii_resolve_index_write_params(/*is_direct_load=*/false, write_norms, &input);
     if (mem_reporter != nullptr) {
         constexpr uint64_t kMaxStreamedDictResidentBytes = 64ULL << 20;
         DORIS_CHECK_GE(mem_reporter->cap_bytes(), 8);
         input.dict_resident_cap_bytes =
                 std::min(kMaxStreamedDictResidentBytes, mem_reporter->cap_bytes() / 8);
     }
-    RETURN_IF_ERROR(_snii_compound_writer->begin_streamed_index(
-            std::move(input), std::move(null_docids), std::move(encoded_norms), session));
+    RETURN_IF_ERROR(_snii_compound_writer->begin_streamed_index(std::move(input),
+                                                                std::move(null_docids), session));
     if (mem_reporter != nullptr) {
         _snii_memory_reporters.push_back(std::move(mem_reporter));
     }
@@ -534,10 +589,16 @@ Status IndexFileWriter::begin_close() {
         return _idx_v2_writer->close(true);
     }
     if (_indices_dirs.empty()) {
-        // An empty file must still be created even if there are no indexes to write
-        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::PackedFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+        // A schema that owns an index file always gets one, even when no logical
+        // index had anything to write (an all-NULL VARIANT column extracts no
+        // subcolumn, so no directory is ever opened). The file is committed by
+        // close(), not by create_file(): S3 turns a zero-byte writer into an empty
+        // object, StreamSink sends segment_eos, and LocalFileWriter's destructor
+        // ABORTS -- and deletes -- a writer it was never asked to close. Dispatch
+        // through FileWriter rather than naming implementations: the old whitelist
+        // silently dropped LocalFileWriter and HdfsFileWriter, and every new
+        // implementation would have had to remember to add itself here.
+        if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
             return _idx_v2_writer->close(true);
         }
         return Status::OK();
@@ -582,10 +643,11 @@ Status IndexFileWriter::finish_close() {
         return Status::OK();
     }
     if (_indices_dirs.empty()) {
-        // An empty file must still be created even if there are no indexes to write
-        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr ||
-            dynamic_cast<io::PackedFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+        // Second phase of the empty-file close begun in begin_close(). Skipping an
+        // already CLOSED writer keeps this idempotent: begin_close() may have
+        // closed synchronously, and a retried finish_close() must not send a
+        // second EOS or PUT a second empty object.
+        if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
             return _idx_v2_writer->close(false);
         }
         return Status::OK();

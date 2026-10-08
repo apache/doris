@@ -37,7 +37,7 @@
 namespace doris {
 namespace {
 
-TRow create_tso_status_row(const std::array<int64_t, 4>& values) {
+TRow create_tso_status_row(const std::array<int64_t, 6>& values) {
     std::vector<TCell> cells;
     cells.reserve(values.size());
     for (int64_t value : values) {
@@ -65,7 +65,7 @@ std::unique_ptr<Block> create_output_block(SchemaTsoStatusScanner* scanner) {
 }
 
 void expect_tso_status_row(const Block& block, size_t row_idx,
-                           const std::array<int64_t, 4>& expected) {
+                           const std::array<int64_t, 6>& expected) {
     ASSERT_EQ(expected.size(), block.columns());
     for (size_t column_idx = 0; column_idx < expected.size(); ++column_idx) {
         const auto& column = block.get_by_position(column_idx).column;
@@ -80,11 +80,13 @@ TEST(SchemaTsoStatusScannerTest, test_create_tso_status_scanner) {
     auto scanner = SchemaScanner::create(TSchemaTableType::SCH_TSO_STATUS);
     ASSERT_NE(nullptr, scanner);
     EXPECT_EQ(TSchemaTableType::SCH_TSO_STATUS, scanner->type());
-    ASSERT_EQ(4, scanner->get_column_desc().size());
+    ASSERT_EQ(6, scanner->get_column_desc().size());
     EXPECT_STREQ("WINDOW_END_PHYSICAL_TIME", scanner->get_column_desc()[0].name);
     EXPECT_STREQ("CURRENT_TSO", scanner->get_column_desc()[1].name);
     EXPECT_STREQ("CURRENT_TSO_PHYSICAL_TIME", scanner->get_column_desc()[2].name);
     EXPECT_STREQ("CURRENT_TSO_LOGICAL_COUNTER", scanner->get_column_desc()[3].name);
+    EXPECT_STREQ("COMMITTED_TSO", scanner->get_column_desc()[4].name);
+    EXPECT_STREQ("COMMITTED_TSO_PHYSICAL_TIME", scanner->get_column_desc()[5].name);
     for (const auto& column : scanner->get_column_desc()) {
         EXPECT_EQ(TYPE_BIGINT, column.type);
         EXPECT_TRUE(column.is_null);
@@ -140,8 +142,8 @@ TEST(SchemaTsoStatusScannerTest, test_process_tso_status_result_error) {
 }
 
 TEST(SchemaTsoStatusScannerTest, test_process_tso_status_result) {
-    const std::array<int64_t, 4> first_row = {1000, 2000, 3000, 4000};
-    const std::array<int64_t, 4> second_row = {1001, 2001, 3001, 4001};
+    const std::array<int64_t, 6> first_row = {1000, 2000, 3000, 4000};
+    const std::array<int64_t, 6> second_row = {1001, 2001, 3001, 4001};
     auto result = create_tso_status_result(
             {create_tso_status_row(first_row), create_tso_status_row(second_row)});
 
@@ -149,7 +151,7 @@ TEST(SchemaTsoStatusScannerTest, test_process_tso_status_result) {
     ASSERT_TRUE(scanner._process_tso_status_result(result).ok());
 
     ASSERT_NE(nullptr, scanner._tso_status_block);
-    EXPECT_EQ(4, scanner._tso_status_block->columns());
+    EXPECT_EQ(6, scanner._tso_status_block->columns());
     EXPECT_EQ(2, scanner._tso_status_block->rows());
     EXPECT_EQ(2, scanner._total_rows);
     expect_tso_status_row(*scanner._tso_status_block, 0, first_row);
@@ -158,7 +160,8 @@ TEST(SchemaTsoStatusScannerTest, test_process_tso_status_result) {
 
 TEST(SchemaTsoStatusScannerTest, test_process_tso_status_result_schema_mismatch) {
     TRow invalid_row = create_tso_status_row({1000, 2000, 3000, 4000});
-    invalid_row.column_value.pop_back();
+    invalid_row.column_value.resize(
+            4); // Response from an older FE cannot provide a committed prefix.
     auto result = create_tso_status_result({invalid_row});
 
     SchemaTsoStatusScanner scanner;
@@ -168,6 +171,17 @@ TEST(SchemaTsoStatusScannerTest, test_process_tso_status_result_schema_mismatch)
     EXPECT_NE(std::string::npos,
               status.to_string().find("TSO status schema does not match between FE and BE"));
     EXPECT_EQ(0, scanner._total_rows);
+}
+
+TEST(SchemaTsoStatusScannerTest, test_unknown_committed_tso_is_null) {
+    TRow row = create_tso_status_row({1000, 2000, 3000, 4000, 0, 0});
+    row.column_value[4].__set_isNull(true);
+    row.column_value[5].__set_isNull(true);
+    SchemaTsoStatusScanner scanner;
+    ASSERT_TRUE(scanner._process_tso_status_result(create_tso_status_result({row})).ok());
+    EXPECT_FALSE(scanner._tso_status_block->get_by_position(3).column->is_null_at(0));
+    EXPECT_TRUE(scanner._tso_status_block->get_by_position(4).column->is_null_at(0));
+    EXPECT_TRUE(scanner._tso_status_block->get_by_position(5).column->is_null_at(0));
 }
 
 TEST(SchemaTsoStatusScannerTest, test_get_next_block_empty_result) {
@@ -188,9 +202,9 @@ TEST(SchemaTsoStatusScannerTest, test_get_next_block_empty_result) {
 }
 
 TEST(SchemaTsoStatusScannerTest, test_get_next_block_in_batches) {
-    const std::array<int64_t, 4> first_row = {1000, 2000, 3000, 4000};
-    const std::array<int64_t, 4> second_row = {1001, 2001, 3001, 4001};
-    const std::array<int64_t, 4> third_row = {1002, 2002, 3002, 4002};
+    const std::array<int64_t, 6> first_row = {1000, 2000, 3000, 4000};
+    const std::array<int64_t, 6> second_row = {1001, 2001, 3001, 4001};
+    const std::array<int64_t, 6> third_row = {1002, 2002, 3002, 4002};
 
     MockRuntimeState state;
     state._batch_size = 2;

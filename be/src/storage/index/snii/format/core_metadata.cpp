@@ -27,14 +27,62 @@
 #include "storage/index/snii/encoding/section_framer.h"
 
 namespace doris::snii::format {
+
+// Storage is a unity build (several .cpp files merged into one unity_N_cxx.cxx TU): other .cpp
+// files in this directory may define file-level helpers with the same names, so the gram_scheme
+// codec helpers go into this file-private namespace (with an inner anonymous namespace to keep
+// internal linkage) instead of sharing the anonymous namespace further below, which keeps
+// same-named symbols from different files from colliding in the unity TU (Ruling R8).
+namespace core_metadata_detail {
 namespace {
 
-using segment_v2::inverted_index::CommonGramsCoverage;
-using segment_v2::inverted_index::CommonGramsSegmentMetadata;
-using segment_v2::inverted_index::PlainTermKeyVersion;
-using segment_v2::inverted_index::ScoringCoverage;
-using segment_v2::inverted_index::validate_common_grams_segment_metadata;
-using segment_v2::inverted_index::validate_snii_scoring_metadata;
+void encode_gram_scheme(const segment_v2::gram::GramScheme& scheme,
+                        doris::snii::SniiGramSchemePB* out) {
+    out->set_mode(static_cast<uint32_t>(scheme.mode));
+    out->set_min_len(scheme.min_len);
+    out->set_max_len(scheme.max_len);
+    out->set_density_permille(scheme.density_permille);
+    out->set_lower_case(scheme.lower_case);
+    out->set_hash_version(scheme.hash_version);
+}
+
+Status decode_gram_scheme(const doris::snii::SniiGramSchemePB& input,
+                          segment_v2::gram::GramScheme* out) {
+    if (input.mode() != 1 && input.mode() != 2) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "core metadata: unsupported gram scheme mode {}", input.mode());
+    }
+    const segment_v2::gram::GramScheme scheme {
+            .mode = static_cast<segment_v2::gram::GramMode>(input.mode()),
+            .min_len = input.min_len(),
+            .max_len = input.max_len(),
+            .density_permille = input.density_permille(),
+            .lower_case = input.lower_case(),
+            .hash_version = input.hash_version()};
+    // The valid range of each field is written down in exactly one place,
+    // GramScheme::from_properties (the single source of truth), so it is reused here through a
+    // "property round trip": a persisted scheme must round-trip back to the very same scheme, or
+    // the file counts as corrupted. Without this step a truncated (or tampered) PB would carry
+    // values such as min_len=0 all the way into GramExtractor -- every unset field of a partial
+    // message is 0, and 0 is not part of any valid scheme.
+    segment_v2::gram::GramScheme round_tripped;
+    const Status validated =
+            segment_v2::gram::GramScheme::from_properties(scheme.to_properties(), &round_tripped);
+    if (!validated.ok() || !(round_tripped == scheme)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "core metadata: invalid gram scheme (mode={}, min_len={}, max_len={}, "
+                "density_permille={}, hash_version={}): {}",
+                input.mode(), scheme.min_len, scheme.max_len, scheme.density_permille,
+                scheme.hash_version, validated.to_string());
+    }
+    *out = scheme;
+    return Status::OK();
+}
+
+} // namespace
+} // namespace core_metadata_detail
+
+namespace {
 
 Status corrupted(std::string_view message) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
@@ -48,7 +96,6 @@ Status validate_index_config(uint32_t value, IndexConfig* out) {
     switch (value) {
     case static_cast<uint32_t>(IndexConfig::kDocsOnly):
     case static_cast<uint32_t>(IndexConfig::kDocsPositions):
-    case static_cast<uint32_t>(IndexConfig::kDocsPositionsScoring):
         *out = static_cast<IndexConfig>(value);
         return Status::OK();
     default:
@@ -56,70 +103,9 @@ Status validate_index_config(uint32_t value, IndexConfig* out) {
     }
 }
 
-Status validate_posting_policy(uint32_t value, CommonGramsPostingPolicy* out) {
-    switch (value) {
-    case 0:
-        *out = CommonGramsPostingPolicy::kNone;
-        return Status::OK();
-    case 1:
-        *out = CommonGramsPostingPolicy::kHybridV1;
-        return Status::OK();
-    default:
-        return unsupported("core metadata: unsupported CommonGrams posting policy");
-    }
-}
-
-Status validate_plain_term_key_version(uint32_t value) {
-    switch (value) {
-    case static_cast<uint32_t>(PlainTermKeyVersion::kLegacyRaw):
-    case static_cast<uint32_t>(PlainTermKeyVersion::kEscapedV1):
-    case static_cast<uint32_t>(PlainTermKeyVersion::kRawNoInternal):
-        return Status::OK();
-    default:
-        return unsupported("core metadata: unsupported plain-term key version");
-    }
-}
-
-Status validate_common_grams_coverage(uint32_t value) {
-    switch (value) {
-    case static_cast<uint32_t>(CommonGramsCoverage::kNone):
-    case static_cast<uint32_t>(CommonGramsCoverage::kComplete):
-    case static_cast<uint32_t>(CommonGramsCoverage::kMixed):
-        return Status::OK();
-    default:
-        return unsupported("core metadata: unsupported CommonGrams coverage");
-    }
-}
-
-Status validate_scoring_coverage(uint32_t value) {
-    switch (value) {
-    case static_cast<uint32_t>(ScoringCoverage::kNone):
-    case static_cast<uint32_t>(ScoringCoverage::kComplete):
-        return Status::OK();
-    default:
-        return unsupported("core metadata: unsupported scoring coverage");
-    }
-}
-
 void encode_region_ref(const RegionRef& ref, doris::snii::SniiRegionRefPB* out) {
     out->set_offset(ref.offset);
     out->set_length(ref.length);
-}
-
-void encode_common_grams(const CommonGramsSegmentMetadata& metadata,
-                         doris::snii::SniiCommonGramsMetadataPB* out) {
-    out->set_plain_term_key_version(static_cast<uint32_t>(metadata.plain_term_key_version));
-    out->set_common_grams_coverage(static_cast<uint32_t>(metadata.common_grams_coverage));
-    out->set_common_grams_semantics_version(metadata.common_grams_semantics_version);
-    out->set_common_grams_key_version(metadata.common_grams_key_version);
-    out->set_common_grams_dictionary_identity(metadata.common_grams_dictionary_identity);
-    out->set_base_analyzer_fingerprint(metadata.base_analyzer_fingerprint);
-    out->set_common_grams_fingerprint(metadata.common_grams_fingerprint);
-    out->set_scoring_coverage(static_cast<uint32_t>(metadata.scoring_coverage));
-    out->set_scoring_stats_version(metadata.scoring_stats_version);
-    out->set_norm_semantics_version(metadata.norm_semantics_version);
-    out->set_scoring_doc_count(metadata.scoring_doc_count);
-    out->set_scoring_token_count(metadata.scoring_token_count);
 }
 
 Status decode_region_ref(const doris::snii::SniiRegionRefPB& input, RegionRef* out) {
@@ -130,36 +116,6 @@ Status decode_region_ref(const doris::snii::SniiRegionRefPB& input, RegionRef* o
     return Status::OK();
 }
 
-Status decode_common_grams(const doris::snii::SniiCommonGramsMetadataPB& input,
-                           CommonGramsSegmentMetadata* out) {
-    if (!input.has_plain_term_key_version() || !input.has_common_grams_coverage() ||
-        !input.has_common_grams_semantics_version() || !input.has_common_grams_key_version() ||
-        !input.has_common_grams_dictionary_identity() || !input.has_base_analyzer_fingerprint() ||
-        !input.has_common_grams_fingerprint() || !input.has_scoring_coverage() ||
-        !input.has_scoring_stats_version() || !input.has_norm_semantics_version() ||
-        !input.has_scoring_doc_count() || !input.has_scoring_token_count()) {
-        return corrupted("core metadata: missing CommonGrams metadata field");
-    }
-    RETURN_IF_ERROR(validate_plain_term_key_version(input.plain_term_key_version()));
-    RETURN_IF_ERROR(validate_common_grams_coverage(input.common_grams_coverage()));
-    RETURN_IF_ERROR(validate_scoring_coverage(input.scoring_coverage()));
-    *out = {.plain_term_key_version =
-                    static_cast<PlainTermKeyVersion>(input.plain_term_key_version()),
-            .common_grams_coverage =
-                    static_cast<CommonGramsCoverage>(input.common_grams_coverage()),
-            .common_grams_semantics_version = input.common_grams_semantics_version(),
-            .common_grams_key_version = input.common_grams_key_version(),
-            .common_grams_dictionary_identity = input.common_grams_dictionary_identity(),
-            .base_analyzer_fingerprint = input.base_analyzer_fingerprint(),
-            .common_grams_fingerprint = input.common_grams_fingerprint(),
-            .scoring_coverage = static_cast<ScoringCoverage>(input.scoring_coverage()),
-            .scoring_stats_version = input.scoring_stats_version(),
-            .norm_semantics_version = input.norm_semantics_version(),
-            .scoring_doc_count = input.scoring_doc_count(),
-            .scoring_token_count = input.scoring_token_count()};
-    return validate_common_grams_segment_metadata(*out);
-}
-
 Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata* out) {
     if (!input.has_index_config() || !input.has_stats() || !input.has_section_refs()) {
         return corrupted("core metadata: missing required field");
@@ -168,52 +124,73 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
 
     const auto& stats = input.stats();
     if (!stats.has_doc_count() || !stats.has_indexed_doc_count() || !stats.has_term_count() ||
-        !stats.has_sum_total_term_freq() || !stats.has_null_count()) {
+        !stats.has_null_count()) {
         return corrupted("core metadata: missing statistics field");
     }
+    // sum_total_term_freq (stats field 5) and norms (section_refs field 5) are optional additions
+    // absent from the deployed 3.1-series writer. Missing fields mean no scoring statistics or
+    // norms, affecting BM25 availability but not filtering queries.
     out->stats = {.doc_count = stats.doc_count(),
                   .indexed_doc_count = stats.indexed_doc_count(),
                   .term_count = stats.term_count(),
-                  .sum_total_term_freq = stats.sum_total_term_freq(),
+                  .sum_total_term_freq =
+                          stats.has_sum_total_term_freq() ? stats.sum_total_term_freq() : 0,
                   .null_count = stats.null_count()};
 
     const auto& refs = input.section_refs();
-    if (!refs.has_dict_region() || !refs.has_posting_region() || !refs.has_norms() ||
-        !refs.has_null_bitmap() || !refs.has_bsbf()) {
+    if (!refs.has_dict_region() || !refs.has_posting_region() || !refs.has_null_bitmap() ||
+        !refs.has_bsbf()) {
         return corrupted("core metadata: missing section reference");
     }
     RETURN_IF_ERROR(decode_region_ref(refs.dict_region(), &out->section_refs.dict_region));
     RETURN_IF_ERROR(decode_region_ref(refs.posting_region(), &out->section_refs.posting_region));
-    RETURN_IF_ERROR(decode_region_ref(refs.norms(), &out->section_refs.norms));
+    if (refs.has_norms()) {
+        RETURN_IF_ERROR(decode_region_ref(refs.norms(), &out->section_refs.norms));
+    } else {
+        out->section_refs.norms = {};
+    }
     RETURN_IF_ERROR(decode_region_ref(refs.null_bitmap(), &out->section_refs.null_bitmap));
     RETURN_IF_ERROR(decode_region_ref(refs.bsbf(), &out->section_refs.bsbf));
 
-    if (input.has_common_grams()) {
-        CommonGramsSegmentMetadata common_grams;
-        RETURN_IF_ERROR(decode_common_grams(input.common_grams(), &common_grams));
-        out->common_grams_metadata = std::move(common_grams);
+    // Tombstones for the removed CommonGrams feature. Fields 4/5 identify segments written with
+    // a CommonGrams analyzer (gram terms, escaped keys, or mixed posting policies). Their term
+    // keys and query semantics are no longer supported, so these indexes must be rebuilt.
+    // Production writers never emitted these fields, so upgrades are unaffected.
+    if (input.has_legacy_common_grams() || input.has_legacy_common_grams_posting_policy()) {
+        return unsupported(
+                "core metadata: segment was written with CommonGrams, which is no longer "
+                "supported; rebuild the index");
     }
 
-    RETURN_IF_ERROR(validate_posting_policy(input.common_grams_posting_policy(),
-                                            &out->common_grams_posting_policy));
-    if (out->common_grams_posting_policy == CommonGramsPostingPolicy::kHybridV1 &&
-        (!out->common_grams_metadata.has_value() ||
-         out->common_grams_metadata->common_grams_coverage != CommonGramsCoverage::kMixed)) {
-        return corrupted("core metadata: hybrid policy requires mixed CommonGrams metadata");
+    if (input.has_gram_scheme()) {
+        segment_v2::gram::GramScheme gram_scheme;
+        RETURN_IF_ERROR(
+                core_metadata_detail::decode_gram_scheme(input.gram_scheme(), &gram_scheme));
+        out->gram_scheme = gram_scheme;
     }
-    const bool has_scoring_tier = out->index_config == IndexConfig::kDocsPositionsScoring;
-    if (has_scoring_tier) {
-        if (out->section_refs.norms.length == 0) {
-            return corrupted("core metadata: scoring index requires a norms region");
+
+    if (input.has_high_df_terms()) {
+        const auto& digest = input.high_df_terms();
+        if (digest.term_hash_size() != digest.df_size()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "core metadata: high-df digest has {} hashes and {} frequencies",
+                    digest.term_hash_size(), digest.df_size());
+        }
+        out->high_df_terms.term_hash.assign(digest.term_hash().begin(), digest.term_hash().end());
+        out->high_df_terms.df.assign(digest.df().begin(), digest.df().end());
+        out->high_df_terms.df_ceiling = digest.df_ceiling();
+        // The lookup is a binary search, so a digest that is not ascending would silently
+        // return wrong bounds rather than fail. Reject it instead: a wrong upper bound can
+        // make the gate give up on a query the index would have answered quickly.
+        if (!std::ranges::is_sorted(out->high_df_terms.term_hash)) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "core metadata: high-df digest hashes are not ascending");
         }
     }
-    if (has_scoring_tier ||
-        (out->common_grams_metadata.has_value() &&
-         out->common_grams_metadata->scoring_coverage == ScoringCoverage::kComplete)) {
-        RETURN_IF_ERROR(validate_snii_scoring_metadata(
-                out->common_grams_metadata ? &*out->common_grams_metadata : nullptr,
-                out->stats.doc_count, out->stats.sum_total_term_freq, has_scoring_tier,
-                has_positions(out->index_config), out->section_refs.norms.length != 0));
+
+    // Norms encode BM25 document lengths in one byte and require positions for term frequencies.
+    if (out->section_refs.norms.length != 0 && !has_positions(out->index_config)) {
+        return corrupted("core metadata: norms require positions");
     }
     return Status::OK();
 }
@@ -236,15 +213,26 @@ Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out) {
     auto* refs = core.mutable_section_refs();
     encode_region_ref(metadata.section_refs.dict_region, refs->mutable_dict_region());
     encode_region_ref(metadata.section_refs.posting_region, refs->mutable_posting_region());
-    encode_region_ref(metadata.section_refs.norms, refs->mutable_norms());
+    // Omit field 5 when norms are absent, matching production bytes without affecting old readers.
+    if (metadata.section_refs.norms.length != 0) {
+        encode_region_ref(metadata.section_refs.norms, refs->mutable_norms());
+    }
     encode_region_ref(metadata.section_refs.null_bitmap, refs->mutable_null_bitmap());
     encode_region_ref(metadata.section_refs.bsbf, refs->mutable_bsbf());
-    if (metadata.common_grams_metadata.has_value()) {
-        encode_common_grams(*metadata.common_grams_metadata, core.mutable_common_grams());
+    if (metadata.gram_scheme.has_value()) {
+        core_metadata_detail::encode_gram_scheme(*metadata.gram_scheme, core.mutable_gram_scheme());
     }
-    if (metadata.common_grams_posting_policy != CommonGramsPostingPolicy::kNone) {
-        core.set_common_grams_posting_policy(
-                static_cast<uint32_t>(metadata.common_grams_posting_policy));
+    // A ceiling with no entries is still worth writing: it says every term in this index is
+    // below it, which is the strongest bound the digest can offer. Absent BOTH means no
+    // digest was built at all (not a gram index, or a segment too small to have one), and
+    // the field stays off the wire so those segments are byte-identical to before.
+    if (!metadata.high_df_terms.empty() || metadata.high_df_terms.df_ceiling > 0) {
+        auto* digest = core.mutable_high_df_terms();
+        digest->mutable_term_hash()->Assign(metadata.high_df_terms.term_hash.begin(),
+                                            metadata.high_df_terms.term_hash.end());
+        digest->mutable_df()->Assign(metadata.high_df_terms.df.begin(),
+                                     metadata.high_df_terms.df.end());
+        digest->set_df_ceiling(metadata.high_df_terms.df_ceiling);
     }
 
     CoreMetadata validated;

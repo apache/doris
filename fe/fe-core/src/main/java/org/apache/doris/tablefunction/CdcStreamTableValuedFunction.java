@@ -45,6 +45,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunction {
+    public static final String NAME = "cdc_stream";
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final String URI = "http://127.0.0.1:CDC_CLIENT_PORT/api/fetchRecordStream";
     private static final String ENABLE_CDC_CLIENT_KEY = "enable_cdc_client";
@@ -153,11 +154,13 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         }
         String offset = properties.get(DataSourceConfigKeys.OFFSET);
         if (!DataSourceConfigValidator.isValidOffset(offset, sourceType.name())) {
-            throw new AnalysisException("Invalid value for key 'offset': " + offset);
+            throw new AnalysisException(DataSourceConfigValidator.invalidValueMessage(
+                    DataSourceConfigKeys.OFFSET, offset));
         }
         String sslMode = properties.get(DataSourceConfigKeys.SSL_MODE);
         if (sslMode != null && !DataSourceConfigValidator.isValidSslMode(sslMode)) {
-            throw new AnalysisException("Invalid value for key 'ssl_mode': " + sslMode);
+            throw new AnalysisException(DataSourceConfigValidator.invalidValueMessage(
+                    DataSourceConfigKeys.SSL_MODE, sslMode));
         }
         try {
             DataSourceConfigValidator.validateSslVerifyCaPair(properties);
@@ -183,7 +186,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
             return;
         }
         if (!DataSourceConfigValidator.isPositiveInt(value)) {
-            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+            throw new AnalysisException(DataSourceConfigValidator.invalidValueMessage(key, value));
         }
     }
 
@@ -194,7 +197,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
             return;
         }
         if (!DataSourceConfigValidator.isValidPgIdentifier(value)) {
-            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+            throw new AnalysisException(DataSourceConfigValidator.invalidValueMessage(key, value));
         }
     }
 
@@ -205,7 +208,8 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
             return;
         }
         if (!DataSourceConfigValidator.isValidBoolean(value)) {
-            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+            throw new AnalysisException("Invalid value for key '" + key + "': " + value
+                    + ". Expected true or false.");
         }
     }
 

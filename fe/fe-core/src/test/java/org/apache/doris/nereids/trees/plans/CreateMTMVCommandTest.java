@@ -32,6 +32,7 @@ import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmUtil;
@@ -75,10 +76,16 @@ public class CreateMTMVCommandTest extends TestWithFeService {
 
     @Override
     public void createTable(String sql) throws Exception {
-        resetStatementContext(sql);
-        LogicalPlan plan = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(plan instanceof CreateTableCommand);
-        ((CreateTableCommand) plan).run(connectContext, null);
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            resetStatementContext(sql);
+            LogicalPlan plan = new NereidsParser().parseSingle(sql);
+            Assertions.assertTrue(plan instanceof CreateTableCommand);
+            ((CreateTableCommand) plan).run(connectContext, null);
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
     }
 
     private void resetStatementContext(String sql) {
@@ -370,6 +377,29 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateIvmMvRejectsArrayAggOverUnsupportedElementTypes() throws Exception {
+        // ARRAY_AGG incremental maintenance packs struct(dml_factor, elem) per change row, and
+        // struct fields cannot carry JSONB/VARIANT (CreateStruct rejects both, as does CreateMap,
+        // and the array constructor rejects them too). CREATE MATERIALIZED VIEW analyzes the
+        // query with the IVM normalize rewrite, so the unsupported element type must surface here
+        // with the precise reason (not a generic "unsupported aggregate" that blames ARRAY_AGG
+        // itself).
+        // JSONB (not VARIANT) is used as the element type because variant columns cannot be
+        // created on tables with ROW binlog, which IVM base tables require.
+        createTable("create table test.mtmv_arr_agg_jsonb_base (k1 int, v1 jsonb)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true',"
+                + " 'binlog.format' = 'ROW');");
+        String mv = "CREATE MATERIALIZED VIEW mtmv_arr_agg_jsonb\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, array_agg(v1) AS arr FROM mtmv_arr_agg_jsonb_base GROUP BY k1;";
+        assertCreateMtmvFails(mv, "ARRAY_AGG over JSONB/VARIANT element type JSON"
+                + " is not incrementally maintainable");
+    }
+
+    @Test
     public void testCreateMTMVWithIncrementalFallback() throws Exception {
         String mv = "CREATE MATERIALIZED VIEW mtmv_increment_fallback\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL\n"
@@ -433,10 +463,16 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     @Test
     public void testCreateIncrementalMTMVRejectsNonIvmMtmvBase() throws Exception {
         createIvmMowTable("mtmv_non_ivm_base_source");
-        createMtmv("CREATE MATERIALIZED VIEW mtmv_non_ivm_base\n"
-                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
-                + " PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')\n"
-                + " AS SELECT k1, v1 FROM mtmv_non_ivm_base_source;");
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            createMtmv("CREATE MATERIALIZED VIEW mtmv_non_ivm_base\n"
+                    + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                    + " PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')\n"
+                    + " AS SELECT k1, v1 FROM mtmv_non_ivm_base_source;");
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
 
         assertCreateMtmvFails("CREATE MATERIALIZED VIEW mtmv_ivm_on_non_ivm_base\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
@@ -2263,8 +2299,8 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         alterMtmv("ALTER MATERIALIZED VIEW ivm_alter_excl_stream_mv "
                 + "SET ('excluded_trigger_tables' = 'ivm_alter_excl_stream_base2')");
 
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired(),
-                "Excluding a base table should not require rebuilding the IVM baseline");
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState(),
+                "Excluding a base table does not invalidate the MV");
         Assertions.assertNotNull(db.getTableNullable(stream1),
                 "Stream should remain for non-excluded table");
         Assertions.assertNull(db.getTableNullable(stream2),
@@ -2290,8 +2326,8 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 "Stream should be dropped for newly excluded table");
         Assertions.assertNotNull(db.getTableNullable(stream2),
                 "Stream should be created for a table removed from excluded_trigger_tables");
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired(),
-                "Including a base table should require rebuilding the IVM baseline");
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState(),
+                "Including a base table invalidates the whole MV");
     }
 
     @Test
@@ -2320,8 +2356,10 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayAlter, true);
 
         Assertions.assertTrue(mtmv.getExcludedTriggerTables().isEmpty());
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired(),
-                "ALTER replay should restore the IVM baseline invalidation state");
+        // The property record does not carry the invalidation: the live change journals an ALTER_STATUS
+        // record ahead of it, so a replay of this one alone leaves the state where it was.
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState(),
+                "replaying the property record does not invalidate the MV by itself");
         Assertions.assertNull(db.getTableNullable(streamName),
                 "ALTER replay should rely on OP_CREATE_TABLE replay instead of creating a new stream");
     }

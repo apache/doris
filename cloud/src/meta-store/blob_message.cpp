@@ -21,11 +21,13 @@
 #include <butil/iobuf_inl.h>
 #include <google/protobuf/message.h>
 
+#include <algorithm>
 #include <cstdint>
 
 #include "common/logging.h"
 #include "common/util.h"
 #include "meta-store/codec.h"
+#include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 
 namespace doris::cloud {
@@ -38,6 +40,15 @@ static std::vector<std::string_view> split_string(const std::string_view& str, i
     }
 
     return substrings;
+}
+
+std::string encode_blob_key(std::string_view origin_key, uint8_t version, size_t sequence) {
+    std::string split_key(origin_key);
+    int64_t suffix = version;
+    suffix <<= 56;
+    suffix += sequence;
+    encode_int64(suffix, &split_key);
+    return split_key;
 }
 
 bool ValueBuf::to_pb(google::protobuf::Message* pb) const {
@@ -150,13 +161,10 @@ void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Me
 
 void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
               size_t split_size) {
+    split_size = std::max(split_size, MIN_BLOB_SPLIT_SIZE);
     auto split_vec = split_string(value, split_size);
-    int64_t suffix_base = ver;
-    suffix_base <<= 56;
     for (size_t i = 0; i < split_vec.size(); ++i) {
-        std::string k(key);
-        encode_int64(suffix_base + i, &k);
-        txn->put(k, split_vec[i]);
+        txn->put(encode_blob_key(key, ver, i), split_vec[i]);
     }
 }
 
@@ -240,31 +248,47 @@ void BlobIterator::load_current_blob() {
     }
 }
 
-bool BlobIterator::extract_origin_key(std::string_view raw_key, std::string* output,
-                                      uint8_t* version, uint16_t* sequence) {
-    // The suffix is 8 bytes: |version(1)|dummy(5)|sequence(2)|
+bool decode_blob_key(
+        std::string_view raw_key, std::string* origin_key, uint8_t* version, uint16_t* sequence,
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>>* fields) {
     if (raw_key.size() < 9) {
-        LOG_WARNING("failed to extract origin key").tag("key", hex(raw_key));
-        error_code_ = TxnErrorCode::TXN_INVALID_DATA;
         return false;
     }
 
     const size_t origin_key_size = raw_key.size() - 9;
-    std::string_view origin_key = raw_key.substr(0, origin_key_size);
+    std::string_view decoded_origin_key = raw_key.substr(0, origin_key_size);
     raw_key.remove_prefix(origin_key_size);
     int64_t suffix = 0;
     if (decode_int64(&raw_key, &suffix) != 0) {
-        LOG_WARNING("failed to decode int64")
-                .tag("key", hex(raw_key))
-                .tag("origin_key", hex(origin_key));
-        error_code_ = TxnErrorCode::TXN_INVALID_DATA;
         return false;
+    }
+
+    if (fields != nullptr) {
+        if (decoded_origin_key.size() <= 1) {
+            return false;
+        }
+        auto encoded_origin_key = decoded_origin_key;
+        encoded_origin_key.remove_prefix(1);
+        if (decode_key(&encoded_origin_key, fields) != 0) {
+            return false;
+        }
     }
 
     *version = (suffix >> 56) & 0xff;
     *sequence = suffix & 0xffff;
-    *output = std::string(origin_key);
+    if (origin_key != nullptr) {
+        *origin_key = std::string(decoded_origin_key);
+    }
+    return true;
+}
 
+bool BlobIterator::extract_origin_key(std::string_view raw_key, std::string* output,
+                                      uint8_t* version, uint16_t* sequence) {
+    if (!decode_blob_key(raw_key, output, version, sequence)) {
+        LOG_WARNING("failed to extract origin key").tag("key", hex(raw_key));
+        error_code_ = TxnErrorCode::TXN_INVALID_DATA;
+        return false;
+    }
     return true;
 }
 
@@ -296,17 +320,14 @@ namespace versioned {
 
 void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
               size_t split_size) {
+    split_size = std::max(split_size, MIN_BLOB_SPLIT_SIZE);
     std::string encoded_key(key);
     uint32_t offset = encode_versionstamp(Versionstamp::min(), &encoded_key);
     encode_versionstamp_end(&encoded_key);
 
     auto split_vec = split_string(value, split_size);
-    int64_t suffix_base = ver;
-    suffix_base <<= 56;
     for (size_t i = 0; i < split_vec.size(); ++i) {
-        std::string k(encoded_key);
-        encode_int64(suffix_base + i, &k);
-        txn->atomic_set_ver_key(k, offset, split_vec[i]);
+        txn->atomic_set_ver_key(encode_blob_key(encoded_key, ver, i), offset, split_vec[i]);
     }
 }
 

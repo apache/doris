@@ -35,6 +35,10 @@ import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.suite.client.BackendClientImpl
+import org.apache.doris.regression.util.RowsetMetaUtils
+import org.apache.doris.thrift.TNetworkAddress
+import org.apache.doris.thrift.TSyncLoadForTabletsRequest
 import org.apache.doris.regression.RegressionTest
 import org.apache.doris.regression.action.FlightRecordAction
 import org.apache.doris.regression.action.BenchmarkAction
@@ -113,6 +117,10 @@ class Suite implements GroovyInterceptable {
     private AmazonS3 s3Client = null
     private FileSystem fs = null
 
+    // MTMV task ids that a wait in this suite already returned as terminal. A task that just
+    // finished is briefly absent from tasks(), so a later wait can fall back to one of these.
+    private final Set<String> finishedMTMVTaskIds = Collections.synchronizedSet(new HashSet<>())
+
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
         this.group = group
@@ -128,6 +136,30 @@ class Suite implements GroovyInterceptable {
 
     String getSuiteConf(String key, String defaultValue = null) {
         return getConf("suites." + name + "." + key, defaultValue)
+    }
+
+    boolean isDorisTlsEnabled() {
+        return Boolean.parseBoolean(getConf("enableTLS", "false"))
+    }
+
+    String getDorisHttpScheme() {
+        return isDorisTlsEnabled() ? "https" : "http"
+    }
+
+    String getDorisCurlTlsOptions() {
+        if (!isDorisTlsEnabled()) {
+            return ""
+        }
+        return " --cert ${quoteShellArgument(getConf('trustCert'))}" +
+                " --key ${quoteShellArgument(getConf('trustCAKey'))}" +
+                " --cacert ${quoteShellArgument(getConf('trustCACert'))}"
+    }
+
+    private static String quoteShellArgument(String value) {
+        if (!value) {
+            throw new IllegalArgumentException("Missing TLS certificate path for curl")
+        }
+        return "'" + value.replace("'", "'\"'\"'") + "'"
     }
 
     List<String> getDorisConnectorTlsArgs() {
@@ -295,6 +327,11 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
+    public <T> T connectToDoris(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
+                                String url = context.getJdbcUrl(), Closure<T> actionSupplier) {
+        return context.connectToDoris(user, password, url, actionSupplier)
+    }
+
     public <T> T connectWithDockerCluster(
             SuiteCluster cluster,
             Boolean connectToFollower = false,
@@ -320,6 +357,119 @@ class Suite implements GroovyInterceptable {
     //         }
     //     )
     // }
+    /** Wait for continuous version coverage on each tablet's serving BE, with lazy commit enabled. */
+    void syncAndWaitTabletVersion(Collection<Map> tablets, long version, int timeoutSeconds = 60) {
+        Assertions.assertFalse(tablets.isEmpty(), "no tablets to synchronize")
+        List<Map> tabletList = tablets.toList()
+        Map<String, List<Map>> tabletGroups = tabletList.groupBy { it.BackendId.toString() }
+        Map<String, BackendClientImpl> backendClients = [:]
+        Set<Integer> ready = [] as Set
+        Map<String, Object> lastStates = [:]
+        int pollCount = 0
+        try {
+            if (isCloudMode()) {
+                def backendById = sql_return_maparray("SHOW BACKENDS").collectEntries {
+                    [(it.BackendId.toString()): it]
+                }
+                tabletGroups.keySet().each { backendId ->
+                    def backend = backendById[backendId]
+                    Assertions.assertNotNull(backend,
+                            "backend ${backendId} for tablets ${tabletGroups[backendId]*.TabletId} was not found")
+                    backendClients[backendId] = new BackendClientImpl(
+                            new TNetworkAddress(backend.Host.toString(), backend.BePort as int),
+                            backend.HttpPort as int)
+                }
+            }
+
+            awaitUntil(timeoutSeconds, 0.5) {
+                // The BE RPC is asynchronous. Retry it periodically in case an earlier queued
+                // task observed no advancement while Meta Service was finalizing lazy commit.
+                if (!backendClients.isEmpty() && pollCount++ % 10 == 0) {
+                    tabletGroups.each { backendId, backendTablets ->
+                        backendClients[backendId].client.syncLoadForTablets(
+                                new TSyncLoadForTabletsRequest(
+                                        backendTablets.collect { it.TabletId as long }))
+                    }
+                }
+                tabletList.eachWithIndex { tablet, index ->
+                    if (!ready.contains(index)) {
+                        def status = Http.GET(tablet.CompactionStatus.toString(), true, false,
+                                context.config.feHttpUser, context.config.feHttpPassword)
+                        lastStates["${tablet.TabletId}@${tablet.BackendId}"] = status
+                        if (RowsetMetaUtils.coversVersion(status, version)) {
+                            ready.add(index)
+                        }
+                    }
+                }
+                return ready.size() == tabletList.size()
+            }
+        } catch (org.awaitility.core.ConditionTimeoutException e) {
+            throw new IllegalStateException(
+                    "Waiting for tablet version ${version} timed out; last BE states: ${lastStates}", e)
+        } finally {
+            backendClients.values().each { it.close() }
+        }
+    }
+
+    /** Fetch an exact physical rowset after the serving BE has caught up. */
+    Map syncAndWaitCloudRowsetMeta(Map tablet, long version, int timeoutSeconds = 60) {
+        syncAndWaitTabletVersion([tablet], version, timeoutSeconds)
+        return getRowsetMetaAtVersion(tablet, version)
+    }
+
+    /**
+     * Call after syncAndWaitTabletVersion. Cloud headers omit rs_metas, so read the committed
+     * MS rowset key instead. The caller must prevent compaction from removing the exact version.
+     */
+    Map getRowsetMetaAtVersion(Map tablet, long version) {
+        if (!isCloudMode()) {
+            String metaUrl = tablet.MetaUrl.toString()
+            metaUrl += (metaUrl.contains('?') ? '&' : '?') + 'byte_to_base64=true'
+            def header = Http.GET(metaUrl, true, false,
+                    context.config.feHttpUser, context.config.feHttpPassword)
+            Assertions.assertTrue(header.rs_metas instanceof List, "tablet header is missing rs_metas")
+            def meta = header.rs_metas.find { (it.end_version as long) == version }
+            Assertions.assertNotNull(meta, "rowset not found: tablet=${tablet.TabletId}, version=${version}")
+            return RowsetMetaUtils.decodeKeyBounds(meta)
+        }
+        def endpoint = context.config.metaServiceHttpAddress
+        def token = context.config.metaServiceToken
+        // CI deployment writes multiClusterInstanceId as a custom property; the legacy
+        // multiClusterInstance can still contain the template's default_instance_id.
+        def instanceId = context.config.otherConfigs.get("multiClusterInstanceId")?.toString()?.trim() ?:
+                context.config.multiClusterInstance?.trim()
+        Assertions.assertTrue(endpoint?.trim() && token?.trim() && instanceId?.trim(),
+                "metaServiceHttpAddress, metaServiceToken and multiClusterInstanceId (or multiClusterInstance) must be configured")
+        def params = [token: token, key_type: "MetaRowsetKey", instance_id: instanceId,
+                      tablet_id: tablet.TabletId, version: version]
+        def query = params.collect { key, value ->
+            "${key}=${java.net.URLEncoder.encode(value.toString(), 'UTF-8')}"
+        }.join('&')
+        // Do not use Http.GET here: it logs the URL, including the MS token.
+        def baseUrl = endpoint.contains('://') ? endpoint : "http://${endpoint}"
+        HttpURLConnection conn = new URL("${baseUrl}/MetaService/http/get_value?${query}").openConnection()
+        conn.connectTimeout = 5000
+        conn.readTimeout = 10000
+        conn.instanceFollowRedirects = false
+        try {
+            int code = conn.responseCode
+            Assertions.assertEquals(200, code,
+                    "MS rowset read failed: instance=${instanceId}, tablet=${tablet.TabletId}, version=${version}")
+            def meta = new JsonSlurper().parseText(conn.inputStream.getText('UTF-8'))
+            Assertions.assertNotNull(meta.end_version,
+                    "MS response is not rowset metadata: tablet=${tablet.TabletId}, version=${version}, code=${meta.code}")
+            Assertions.assertEquals(version, meta.end_version as long)
+            Assertions.assertEquals(tablet.TabletId as long, meta.tablet_id as long)
+            return RowsetMetaUtils.decodeKeyBounds(meta)
+        } catch (IOException e) {
+            // Network exception messages may contain the credential-bearing URL.
+            throw new IOException("MS rowset read failed: tablet=${tablet.TabletId}, version=${version}, " +
+                    "error=${e.class.simpleName}")
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     public void awaitUntil(int atMostSeconds, double intervalSecond = 1, Closure actionSupplier) {
         Awaitility
             .with().pollInSameThread()
@@ -399,6 +549,13 @@ class Suite implements GroovyInterceptable {
             context.threadLocalConn.remove()
             actionSupplier.call()
         } finally {
+            // The connection the action opened to the docker cluster is unreachable once the original
+            // one is put back, so close it rather than leave it to the suite's end. (Still the
+            // original one when the cluster failed to start before the action ran.)
+            ConnectionInfo dockerConnection = context.threadLocalConn.get()
+            if (dockerConnection != null && !dockerConnection.is(originConnection)) {
+                context.closeDorisConnection(dockerConnection.conn, "docker cluster connection")
+            }
             if (originConnection == null) {
                 context.threadLocalConn.remove()
             } else {
@@ -532,13 +689,18 @@ class Suite implements GroovyInterceptable {
             // Wait for BE to report
             Thread.sleep(5000)
 
-            Connection originConnection = context.threadLocalConn.get()
+            ConnectionInfo originConnection = context.threadLocalConn.get()
             context.threadLocalConn.remove()
             context.isMultiDockerClusterRunning = true
             try {
                 actionSupplier.call(clusters)
             } finally {
                 context.isMultiDockerClusterRunning = false
+                // As in dockerImpl: the action's connection to a docker cluster is closed here.
+                ConnectionInfo dockerConnection = context.threadLocalConn.get()
+                if (dockerConnection != null && !dockerConnection.is(originConnection)) {
+                    context.closeDorisConnection(dockerConnection.conn, "docker cluster connection")
+                }
                 if (originConnection == null) {
                     context.threadLocalConn.remove()
                 } else {
@@ -1458,8 +1620,12 @@ class Suite implements GroovyInterceptable {
         return outBuf.toString()
     }
 
+    static String buildSshCommand(String username, String host, String cmd) {
+        return "ssh -o StrictHostKeyChecking=no ${username}@${host} '${cmd}'"
+    }
+
     void sshExec(String username, String host, String cmd, boolean alert=true) {
-        String command = "ssh ${username}@${host} '${cmd}'"
+        String command = buildSshCommand(username, host, cmd)
         def cmds = ["/bin/bash", "-c", command]
         logger.info("Execute: ${cmds}".toString())
         Process p = cmds.execute()
@@ -1723,8 +1889,10 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    // rowConverter: { row -> convertedRow }
+    // rowConverter: { row -> convertedRow }, or { row, meta -> convertedRow } to inspect the result
+    // metadata, for example to mask a column whose value depends on the deployment mode.
     void quickRunTest(String tag, Object arg, boolean isOrder = false, Closure rowConverter = null) {
+        boolean converterNeedsMeta = rowConverter != null && rowConverter.maximumNumberOfParameters > 1
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
@@ -1759,7 +1927,9 @@ class Suite implements GroovyInterceptable {
             }
             def (result, meta) = tupleResult
             if (rowConverter != null) {
-                result = result.collect { rowConverter.call(it) }
+                result = result.collect {
+                    converterNeedsMeta ? rowConverter.call(it, meta) : rowConverter.call(it)
+                }
             }
             if (isOrder) {
                 result = sortByToString(result)
@@ -1811,7 +1981,9 @@ class Suite implements GroovyInterceptable {
             }
             def (realResults, meta) = tupleResult
             if (rowConverter != null) {
-                realResults = realResults.collect { rowConverter.call(it) }
+                realResults = realResults.collect {
+                    converterNeedsMeta ? rowConverter.call(it, meta) : rowConverter.call(it)
+                }
             }
             if (isOrder) {
                 realResults = sortByToString(realResults)
@@ -1985,27 +2157,34 @@ class Suite implements GroovyInterceptable {
     }
 
     String getServerPrepareJdbcUrl(String jdbcUrl, String database, boolean useMasterIp) {
-        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = useMasterIp ? getMasterIp() : urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
-        def sql_port
-        if (urlWithoutSchema.indexOf("/") >= 0) {
-            // e.g: jdbc:mysql://locahost:8080/?a=b
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
-        } else {
-            // e.g: jdbc:mysql://locahost:8080
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
+        String scheme = "jdbc:mysql://"
+        if (!jdbcUrl.startsWith(scheme)) {
+            throw new IllegalArgumentException("Expected a MySQL JDBC URL")
         }
-        String tlsUrl = ""
-        // set server side prepared statement url
+        String endpointAndPath = jdbcUrl.substring(scheme.length())
+        int pathStart = endpointAndPath.indexOf("/")
+        int queryStart = endpointAndPath.indexOf("?")
+        int endpointEnd = pathStart >= 0 && (queryStart < 0 || pathStart < queryStart)
+                ? pathStart : (queryStart >= 0 ? queryStart : endpointAndPath.length())
+        String endpoint = endpointAndPath.substring(0, endpointEnd)
+        int portStart = endpoint.lastIndexOf(":")
+        if (portStart < 0) {
+            throw new IllegalArgumentException("MySQL JDBC URL has no port")
+        }
+        String host = useMasterIp ? getMasterIp() : endpoint.substring(0, portStart)
+        String suffix = endpointAndPath.substring(endpointEnd)
+        if (!suffix.startsWith("/")) {
+            suffix = "/" + suffix
+        }
+        String url = Config.buildUrlWithDbImpl(scheme + host + endpoint.substring(portStart) + suffix, database)
         if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-            String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
-            String clientCAKey = "clientCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("keyStorePath")
-            String clientCAPwd = "clientCertificateKeyStorePassword=" + context.config.otherConfigs.get("keyStorePassword")
-            String trustCAKey = "trustCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("trustStorePath")
-            String trustCAPwd = "trustCertificateKeyStorePassword=" + context.config.otherConfigs.get("trustStorePassword")
-            tlsUrl = "&" + useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
+            url = Config.buildTlsJdbcUrl(url,
+                    context.config.otherConfigs.get("keyStorePath")?.toString(),
+                    context.config.otherConfigs.get("keyStorePassword")?.toString(),
+                    context.config.otherConfigs.get("trustStorePath")?.toString(),
+                    context.config.otherConfigs.get("trustStorePassword")?.toString())
         }
-        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true" + tlsUrl
+        return url + (url.contains("?") ? "&" : "?") + "useServerPrepStmts=true"
     }
 
     DebugPoint GetDebugPoint() {
@@ -2019,6 +2198,89 @@ class Suite implements GroovyInterceptable {
         return debugPoint
     }
 
+    /**
+     * Poll a tasks('type'='mv') query until the newest row is terminal and return that row.
+     * A task that just finished is briefly missing from tasks(): the job removes it from its
+     * running list before the MV history gets it, so while that window is open the newest row
+     * is the previous task of the same MV. A terminal row is therefore trusted only when the
+     * same task was already seen running by this wait, or is seen terminal twice in a row and
+     * no earlier wait returned it; the window lasts tens of milliseconds, far less than the
+     * poll interval, so one extra poll is enough to tell the new task from the previous one
+     * even when the previous task was not waited for before.
+     * poll() runs the query once, log() receives the progress messages, and the two intervals
+     * exist so tests can shorten them. The last row seen is returned when the timeout expires,
+     * so callers can report a status.
+     */
+    static List<Object> pollMTMVTaskTerminal(String showTasks, String caller, Set<String> finishedTaskIds,
+            Closure<List<List<Object>>> poll, Closure<String> log, long pollIntervalMs, long skipFinishedMs) {
+        String status = "NULL"
+        String runningTaskId = null
+        String confirmedTaskId = null
+        String lastLoggedStatus = null
+        List<Object> taskRow = null
+        long skipFinishedDeadline = 0
+        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
+        while (timeoutTimestamp > System.currentTimeMillis()) {
+            List<List<Object>> result = poll()
+            if (result.isEmpty()) {
+                if (lastLoggedStatus != "NULL") {
+                    log("${caller} task row is empty")
+                    lastLoggedStatus = "NULL"
+                }
+                confirmedTaskId = null
+                Thread.sleep(pollIntervalMs);
+                continue;
+            }
+            taskRow = result[0]
+            String taskId = taskRow.get(0).toString()
+            status = taskRow.get(1).toString()
+            if (lastLoggedStatus != status) {
+                log("The state of ${showTasks} is ${status}, taskId is ${taskId}")
+                lastLoggedStatus = status
+            }
+            if (status == 'PENDING' || status == 'RUNNING') {
+                runningTaskId = taskId
+                confirmedTaskId = null
+                Thread.sleep(pollIntervalMs);
+                continue;
+            }
+            if (finishedTaskIds.contains(taskId)) {
+                // A wait already returned this task, so it is the previous task and the one
+                // being waited for is still in the gap. Skip it for as long as any real gap
+                // could last; a caller that waits twice for the same task (nothing new was
+                // submitted) then falls back to it instead of hitting the 5 minute timeout.
+                if (skipFinishedDeadline == 0) {
+                    skipFinishedDeadline = System.currentTimeMillis() + skipFinishedMs
+                }
+                if (System.currentTimeMillis() < skipFinishedDeadline) {
+                    confirmedTaskId = null
+                    Thread.sleep(pollIntervalMs);
+                    continue;
+                }
+            }
+            if (taskId == runningTaskId || taskId == confirmedTaskId) {
+                finishedTaskIds.add(taskId)
+                return taskRow
+            }
+            // The first sighting of a terminal task may be the previous task seen through the
+            // gap described above; confirm the same task once more before trusting it.
+            confirmedTaskId = taskId
+            Thread.sleep(pollIntervalMs);
+        }
+        return taskRow
+    }
+
+    /**
+     * Wait for the newest MTMV task matching showTasks to reach a terminal state and return
+     * its row. See pollMTMVTaskTerminal for why a terminal row needs to be confirmed.
+     */
+    List<Object> waitMTMVTaskTerminal(String showTasks, String caller,
+            long pollIntervalMs = 500, long skipFinishedMs = 30 * 1000) {
+        return pollMTMVTaskTerminal(showTasks, caller, finishedMTMVTaskIds,
+                { -> sql(showTasks) }, { String message -> logger.info(message) },
+                pollIntervalMs, skipFinishedMs)
+    }
+
     def waitingMTMVTaskFinishedByMvName = { mvName, dbName = context.dbName ->
         // Wait for the newly submitted MTMV task to become visible in tasks().
         Thread.sleep(2000);
@@ -2027,31 +2289,8 @@ class Suite implements GroovyInterceptable {
                 where MvDatabaseName = '${dbName}' and MvName = '${mvName}'
                 order by CreateTime DESC limit 1
                 """
-        String status = "NULL"
-        List<List<Object>> result
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
-        String lastLoggedStatus = null
-        List<Object> toCheckTaskRow = null
-        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL')) {
-            result = sql(showTasks)
-            if (result.isEmpty()) {
-                if (lastLoggedStatus != "NULL") {
-                    logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
-                    lastLoggedStatus = "NULL"
-                }
-                Thread.sleep(500);
-                continue;
-            }
-            toCheckTaskRow = result[0]
-            status = toCheckTaskRow.get(1).toString()
-            if (lastLoggedStatus != status) {
-                logger.info("The state of ${showTasks} is ${status}, taskId is ${toCheckTaskRow.get(0)}")
-                lastLoggedStatus = status
-            }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
-                Thread.sleep(500);
-            }
-        }
+        List<Object> toCheckTaskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinishedByMvName")
+        String status = toCheckTaskRow == null ? "NULL" : toCheckTaskRow.get(1).toString()
         if (status != "SUCCESS") {
             logger.info("status is ${status}")
         }
@@ -2071,31 +2310,8 @@ class Suite implements GroovyInterceptable {
                 order by CreateTime DESC limit 1
                 """
 
-        String status = "NULL"
-        List<List<Object>> result
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
-        String lastLoggedStatus = null
-        List<Object> toCheckTaskRow = null
-        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'  || status == 'NULL')) {
-            result = sql(showTasks)
-            if (result.isEmpty()) {
-                if (lastLoggedStatus != "NULL") {
-                    logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
-                    lastLoggedStatus = "NULL"
-                }
-                Thread.sleep(500);
-                continue;
-            }
-            toCheckTaskRow = result[0]
-            status = toCheckTaskRow.get(1).toString()
-            if (lastLoggedStatus != status) {
-                logger.info("The state of ${showTasks} is ${status}, taskId is ${toCheckTaskRow.get(0)}")
-                lastLoggedStatus = status
-            }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL' || status == 'CANCELED') {
-                Thread.sleep(500);
-            }
-        }
+        List<Object> toCheckTaskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinishedByMvNameAllowCancel")
+        String status = toCheckTaskRow == null ? "NULL" : toCheckTaskRow.get(1).toString()
         if (status != "SUCCESS") {
             logger.info("status is not success")
             Assert.assertNotNull(toCheckTaskRow)
@@ -2183,31 +2399,8 @@ class Suite implements GroovyInterceptable {
                 select TaskId, Status, MvName, MvDatabaseName from tasks('type'='mv')
                 where JobName = '${jobName}' order by CreateTime DESC limit 1
                 """
-        String status = "NULL"
-        List<List<Object>> result
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
-        String lastLoggedStatus = null
-        List<Object> taskRow = null
-        do {
-            result = sql(showTasks)
-            if (result.isEmpty()) {
-                if (lastLoggedStatus != "NULL") {
-                    logger.info("waitingMTMVTaskFinished task row is empty")
-                    lastLoggedStatus = "NULL"
-                }
-                status = "NULL"
-            } else {
-                taskRow = result[0]
-                status = taskRow.get(1).toString()
-                if (lastLoggedStatus != status) {
-                    logger.info("The state of ${showTasks} is ${status}, taskId is ${taskRow.get(0)}")
-                    lastLoggedStatus = status
-                }
-            }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
-                Thread.sleep(500);
-            }
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        List<Object> taskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinished")
+        String status = taskRow == null ? "NULL" : taskRow.get(1).toString()
         if (status != "SUCCESS") {
             logger.info("status is ${status}")
         }
@@ -2226,31 +2419,8 @@ class Suite implements GroovyInterceptable {
                 select TaskId, Status from tasks('type'='mv')
                 where JobName = '${jobName}' order by CreateTime DESC limit 1
                 """
-        String status = "NULL"
-        List<List<Object>> result
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
-        String lastLoggedStatus = null
-        List<Object> taskRow = null
-        do {
-            result = sql(showTasks)
-            if (result.isEmpty()) {
-                if (lastLoggedStatus != "NULL") {
-                    logger.info("waitingMTMVTaskFinishedWithoutAnalyze task row is empty")
-                    lastLoggedStatus = "NULL"
-                }
-                status = "NULL"
-            } else {
-                taskRow = result[0]
-                status = taskRow.get(1).toString()
-                if (lastLoggedStatus != status) {
-                    logger.info("The state of ${showTasks} is ${status}, taskId is ${taskRow.get(0)}")
-                    lastLoggedStatus = status
-                }
-            }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
-                Thread.sleep(500);
-            }
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        List<Object> taskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinishedWithoutAnalyze")
+        String status = taskRow == null ? "NULL" : taskRow.get(1).toString()
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
@@ -2264,31 +2434,8 @@ class Suite implements GroovyInterceptable {
                 select TaskId, Status from tasks('type'='mv')
                 where JobName = '${jobName}' order by CreateTime DESC limit 1
                 """
-        String status = "NULL"
-        List<List<Object>> result
-        long timeoutTimestamp = System.currentTimeMillis() + 5 * 60 * 1000 // 5 min
-        String lastLoggedStatus = null
-        List<Object> taskRow = null
-        do {
-            result = sql(showTasks)
-            if (result.isEmpty()) {
-                if (lastLoggedStatus != "NULL") {
-                    logger.info("waitingMTMVTaskFinishedNotNeedSuccess task row is empty")
-                    lastLoggedStatus = "NULL"
-                }
-                status = "NULL"
-            } else {
-                taskRow = result[0]
-                status = taskRow.get(1).toString()
-                if (lastLoggedStatus != status) {
-                    logger.info("The state of ${showTasks} is ${status}, taskId is ${taskRow.get(0)}")
-                    lastLoggedStatus = status
-                }
-            }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
-                Thread.sleep(500);
-            }
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        List<Object> taskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinishedNotNeedSuccess")
+        String status = taskRow == null ? "NULL" : taskRow.get(1).toString()
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
@@ -3424,7 +3571,7 @@ class Suite implements GroovyInterceptable {
                 endpoint feEndPoint
                 uri "/rest/v1/query_profile"
                 check check_func
-                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+                basicAuthorization "${context.config.feHttpUser}","${context.config.feHttpPassword}"
             }
         }
 
@@ -3447,7 +3594,7 @@ class Suite implements GroovyInterceptable {
                 endpoint feEndPoint
                 uri "/api/profile?query_id=${query_id}"
                 check check_func
-                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+                basicAuthorization "${context.config.feHttpUser}","${context.config.feHttpPassword}"
             }
         }
 
@@ -3653,6 +3800,26 @@ class Suite implements GroovyInterceptable {
             sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"", false)
             sshExec("root", be_ip, "mkdir -p ${udf_file_dir}", false)
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
+        }
+    }
+
+    def scp_udf_file_to_all_fe = { udf_file_path ->
+        def udf_file = new File(udf_file_path).absoluteFile
+        assertTrue(udf_file.isFile(), "UDF file does not exist: ${udf_file}")
+        def fe_hosts = sql_return_maparray("SHOW FRONTENDS").collect { it.Host }.unique()
+        assertTrue(!fe_hosts.isEmpty(), "No frontend found to copy UDF file to")
+        if (fe_hosts.size() == 1) {
+            def feAddress = java.net.InetAddress.getByName(fe_hosts[0].toString())
+            if (feAddress.isAnyLocalAddress() || feAddress.isLoopbackAddress() ||
+                    java.net.NetworkInterface.getByInetAddress(feAddress) != null) {
+                logger.info("Only one local frontend, skip scp udf file")
+                return
+            }
+        }
+
+        fe_hosts.each { fe_host ->
+            sshExec("root", fe_host, "mkdir -p ${udf_file.parent}")
+            scpFiles("root", fe_host, udf_file.path, udf_file.path, false)
         }
     }
 

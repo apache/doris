@@ -10,15 +10,15 @@
 2026-01-03	3	30
 
 -- !pwr_strict_after_remove --
-FAILED	true
+SUCCESS	false
 
--- !pwr_stale_after_strict --
-2026-01-01	1	10
+-- !pwr_caught_up_after_strict --
+2026-01-01	1	11
 2026-01-02	2	20
 2026-01-03	3	30
 
 -- !pwr_removed_refresh_mode --
-COMPLETE
+NONE
 
 -- !pwr_window_removed_catchup --
 2026-01-01	1	11

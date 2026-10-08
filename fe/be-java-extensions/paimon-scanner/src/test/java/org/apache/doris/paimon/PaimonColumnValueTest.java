@@ -17,10 +17,12 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValue;
 
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.DataGetters;
+import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericMap;
 import org.apache.paimon.data.GenericRow;
@@ -30,16 +32,19 @@ import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -63,8 +68,8 @@ public class PaimonColumnValueTest {
 
         structValue.unpackStruct(Collections.singletonList(2), values);
 
-        Assert.assertEquals(1, values.size());
-        Assert.assertEquals(100L, values.get(0).getLong());
+        Assertions.assertEquals(1, values.size());
+        Assertions.assertEquals(100L, values.get(0).getLong());
     }
 
     @Test
@@ -74,9 +79,9 @@ public class PaimonColumnValueTest {
 
         structValue.unpackStruct(Arrays.asList(0, 2), values);
 
-        Assert.assertEquals(2, values.size());
-        Assert.assertEquals(10, values.get(0).getInt());
-        Assert.assertEquals(100L, values.get(1).getLong());
+        Assertions.assertEquals(2, values.size());
+        Assertions.assertEquals(10, values.get(0).getInt());
+        Assertions.assertEquals(100L, values.get(1).getLong());
     }
 
     @Test
@@ -86,10 +91,10 @@ public class PaimonColumnValueTest {
 
         structValue.unpackStruct(Arrays.asList(0, 1, 2), values);
 
-        Assert.assertEquals(3, values.size());
-        Assert.assertEquals(10, values.get(0).getInt());
-        Assert.assertEquals("x", values.get(1).getString());
-        Assert.assertEquals(100L, values.get(2).getLong());
+        Assertions.assertEquals(3, values.size());
+        Assertions.assertEquals(10, values.get(0).getInt());
+        Assertions.assertEquals("x", values.get(1).getString());
+        Assertions.assertEquals(100L, values.get(2).getLong());
     }
 
     @Test
@@ -106,15 +111,15 @@ public class PaimonColumnValueTest {
         List<ColumnValue> secondValues = new ArrayList<>();
         arrayValue.unpackArray(secondValues);
 
-        Assert.assertSame(firstValues.get(0), secondValues.get(0));
-        Assert.assertSame(firstValues.get(1), secondValues.get(1));
-        Assert.assertEquals(Arrays.asList(3, 4, 5), getInts(secondValues));
+        Assertions.assertSame(firstValues.get(0), secondValues.get(0));
+        Assertions.assertSame(firstValues.get(1), secondValues.get(1));
+        Assertions.assertEquals(Arrays.asList(3, 4, 5), getInts(secondValues));
 
         arrayValue.setOffsetRow(GenericRow.of(new GenericArray(new int[] {6})));
         List<ColumnValue> thirdValues = new ArrayList<>();
         arrayValue.unpackArray(thirdValues);
-        Assert.assertSame(firstValues.get(0), thirdValues.get(0));
-        Assert.assertEquals(Collections.singletonList(6), getInts(thirdValues));
+        Assertions.assertSame(firstValues.get(0), thirdValues.get(0));
+        Assertions.assertEquals(Collections.singletonList(6), getInts(thirdValues));
     }
 
     @Test
@@ -133,12 +138,12 @@ public class PaimonColumnValueTest {
         List<ColumnValue> secondValues = new ArrayList<>();
         mapValue.unpackMap(secondKeys, secondValues);
 
-        Assert.assertSame(firstKeys.get(0), secondKeys.get(0));
-        Assert.assertSame(firstKeys.get(1), secondKeys.get(1));
-        Assert.assertSame(firstValues.get(0), secondValues.get(0));
-        Assert.assertSame(firstValues.get(1), secondValues.get(1));
-        Assert.assertEquals(Arrays.asList(3, 4), getInts(secondKeys));
-        Assert.assertEquals(Arrays.asList(30L, 40L), getLongs(secondValues));
+        Assertions.assertSame(firstKeys.get(0), secondKeys.get(0));
+        Assertions.assertSame(firstKeys.get(1), secondKeys.get(1));
+        Assertions.assertSame(firstValues.get(0), secondValues.get(0));
+        Assertions.assertSame(firstValues.get(1), secondValues.get(1));
+        Assertions.assertEquals(Arrays.asList(3, 4), getInts(secondKeys));
+        Assertions.assertEquals(Arrays.asList(30L, 40L), getLongs(secondValues));
     }
 
     @Test
@@ -152,10 +157,10 @@ public class PaimonColumnValueTest {
         List<ColumnValue> secondValues = new ArrayList<>();
         structValue.unpackStruct(projectedFields, secondValues);
 
-        Assert.assertSame(firstValues.get(0), secondValues.get(0));
-        Assert.assertSame(firstValues.get(1), secondValues.get(1));
-        Assert.assertEquals(20, secondValues.get(0).getInt());
-        Assert.assertEquals(200L, secondValues.get(1).getLong());
+        Assertions.assertSame(firstValues.get(0), secondValues.get(0));
+        Assertions.assertSame(firstValues.get(1), secondValues.get(1));
+        Assertions.assertEquals(20, secondValues.get(0).getInt());
+        Assertions.assertEquals(200L, secondValues.get(1).getLong());
     }
 
     @Test
@@ -178,10 +183,10 @@ public class PaimonColumnValueTest {
         List<ColumnValue> secondInnerValues = new ArrayList<>();
         secondOuterValues.get(0).unpackArray(secondInnerValues);
 
-        Assert.assertSame(firstOuterValues.get(0), secondOuterValues.get(0));
-        Assert.assertSame(firstInnerValues.get(0), secondInnerValues.get(0));
-        Assert.assertSame(firstInnerValues.get(1), secondInnerValues.get(1));
-        Assert.assertEquals(Arrays.asList(3, 4), getInts(secondInnerValues));
+        Assertions.assertSame(firstOuterValues.get(0), secondOuterValues.get(0));
+        Assertions.assertSame(firstInnerValues.get(0), secondInnerValues.get(0));
+        Assertions.assertSame(firstInnerValues.get(1), secondInnerValues.get(1));
+        Assertions.assertEquals(Arrays.asList(3, 4), getInts(secondInnerValues));
     }
 
     @Test
@@ -195,17 +200,17 @@ public class PaimonColumnValueTest {
                 dorisNestedArrayType, paimonNestedArrayType, "UTC");
 
         consumeNestedArray(arrayValue);
-        Assert.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
+        Assertions.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
 
         // Moving the large child to position 1 makes position 0 a smaller, non-null array.
         arrayValue.setOffsetRow(nestedArrayRow(outerSize, innerSize, 1, -1));
         consumeNestedArray(arrayValue);
-        Assert.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
+        Assertions.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
 
         // Moving it again makes position 1 null, which must release that position's descendants.
         arrayValue.setOffsetRow(nestedArrayRow(outerSize, innerSize, 2, 1));
         consumeNestedArray(arrayValue);
-        Assert.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
+        Assertions.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
     }
 
     @Test
@@ -215,29 +220,60 @@ public class PaimonColumnValueTest {
 
         PaimonColumnValue timestampValue = new PaimonColumnValue(
                 GenericRow.of(timestamp), 0, dorisTimestampType, new TimestampType(9), "UTC");
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999_999_999),
                 timestampValue.getDateTime());
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999_999_999),
                 timestampValue.getTimeStampTz());
 
         PaimonColumnValue localZonedValue = new PaimonColumnValue(
                 GenericRow.of(Timestamp.fromInstant(Instant.parse("2024-03-10T10:30:00.123456789Z"))), 0,
                 dorisTimestampType, new LocalZonedTimestampType(9), "America/Los_Angeles");
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 3, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
 
         localZonedValue.setTimeZone("Asia/Shanghai");
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 18, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
 
         localZonedValue.setTimeZone("CST");
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 18, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
+    }
+
+    @Test
+    public void testDecimalUsesPaimonScaleWhenSchemaEvolves() {
+        DataGetters record = (DataGetters) Proxy.newProxyInstance(
+                DataGetters.class.getClassLoader(), new Class<?>[] {DataGetters.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("getDecimal")) {
+                        long unscaled = (int) args[2] == 2 ? 120 : 1234;
+                        return Decimal.fromUnscaledLong(unscaled, (int) args[1], (int) args[2]);
+                    }
+                    if (method.getReturnType() == boolean.class) {
+                        return false;
+                    }
+                    if (method.getReturnType() == byte.class || method.getReturnType() == short.class
+                            || method.getReturnType() == int.class || method.getReturnType() == long.class) {
+                        return 0;
+                    }
+                    if (method.getReturnType() == float.class || method.getReturnType() == double.class) {
+                        return 0.0;
+                    }
+                    return null;
+                });
+        PaimonColumnValue value = new PaimonColumnValue(
+                record, 0, ColumnType.parseType("d", "decimal(6,3)"), new DecimalType(5, 2), "UTC");
+
+        Assertions.assertEquals(new BigDecimal("1.20"), value.getDecimal());
+
+        PaimonColumnValue currentSchemaValue = new PaimonColumnValue(
+                record, 0, ColumnType.parseType("d", "decimal(6,3)"), new DecimalType(6, 3), "UTC");
+        Assertions.assertEquals(new BigDecimal("1.234"), currentSchemaValue.getDecimal());
     }
 
     private InternalRow nestedArrayRow(int outerSize, int innerSize, int populatedIndex, int nullIndex) {

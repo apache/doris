@@ -110,15 +110,26 @@ class IvmAggDeltaHandler {
         private final Slot deltaGroupCountSlot;
         /** Per-target delta slots consumed by aggregate function processors during apply. */
         private final Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots;
-        /** Group key slots resolved from topDeltaProject output, keyed by column name. */
+        /**
+         * Group key slots resolved from the topDeltaProject output, ordered like
+         * {@link IvmAggMeta#getGroupKeySlots()}. Same-named keys (e.g. l.id and r.id after
+         * a join) must be addressed by position/identity through this list, never by name.
+         */
+        private final List<Slot> deltaGroupKeySlots;
+        /**
+         * Name-keyed view of {@link #deltaGroupKeySlots}; with same-named group keys the map
+         * keeps only the last slot, so it is only usable when all key names are distinct.
+         */
         private final Map<String, Slot> groupKeySlotsByName;
 
         private DeltaPlanParts(LogicalProject<?> topDeltaProject, Slot rowIdSlot, Slot deltaGroupCountSlot,
-                Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots, Map<String, Slot> groupKeySlotsByName) {
+                Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots, List<Slot> deltaGroupKeySlots,
+                Map<String, Slot> groupKeySlotsByName) {
             this.topDeltaProject = topDeltaProject;
             this.rowIdSlot = rowIdSlot;
             this.deltaGroupCountSlot = deltaGroupCountSlot;
             this.applyDeltaSlots = applyDeltaSlots;
+            this.deltaGroupKeySlots = deltaGroupKeySlots;
             this.groupKeySlotsByName = groupKeySlotsByName;
         }
     }
@@ -217,6 +228,17 @@ class IvmAggDeltaHandler {
                 IvmUtil.buildRowIdHash(deltaAgg.getOutput().subList(0, groupKeySize)), Column.IVM_ROW_ID_COL);
         topOutputs.add(rowIdAlias);
 
+        // Processors that pack every change row into one aggregate column (ARRAY_AGG packs
+        // (dml_factor, elem) into a struct array) derive their polarity columns here, above the
+        // aggregate: an aggregate output cannot reference a sibling aggregate output, but a column
+        // of the top delta project can. Derived outputs keep the same transient names the apply
+        // stage resolves below.
+        Map<String, Slot> deltaAggOutputByName = indexSlotsByName(deltaAgg.getOutput());
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            aggFunctionRegistry.appendDeltaTopProjectOutputs(
+                    target, deltaAggOutputByName, topOutputs, aggExpressionBuilder);
+        }
+
         Set<String> zeroDefaultDeltaOutputNames = collectZeroDefaultDeltaOutputNames(aggMeta);
         for (Slot slot : deltaAgg.getOutput()) {
             if (zeroDefaultDeltaOutputNames.contains(slot.getName())) {
@@ -237,19 +259,27 @@ class IvmAggDeltaHandler {
             aggFunctionRegistry.mapApplyDeltaSlots(
                     target, outputByName, applyDeltaSlots, deltaGroupCountSlot, aggExpressionBuilder);
         }
-        Map<String, Slot> groupKeySlotsByName = new LinkedHashMap<>();
+        // Group keys are resolved by slot identity, not by name: same-named keys (e.g.
+        // l.id / r.id after a join) collapse to the last matching slot under a name index.
+        List<Slot> deltaOutputSlots = topDeltaProject.getOutput();
+        List<Slot> deltaGroupKeySlots = new ArrayList<>(groupKeySize);
         for (Slot groupKey : aggMeta.getGroupKeySlots()) {
-            Slot resolved = outputByName.get(groupKey.getName());
+            Slot resolved = helper.findSlotByExprId(deltaOutputSlots, groupKey);
             if (resolved == null) {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM agg delta rewrite failed to resolve delta group key slot: "
-                        + groupKey.getName());
+                        + groupKey);
             }
-            groupKeySlotsByName.put(groupKey.getName(), resolved);
+            deltaGroupKeySlots.add(resolved);
+        }
+        // Name-keyed view, kept only for lookups on distinct key names (see field comment).
+        Map<String, Slot> groupKeySlotsByName = new LinkedHashMap<>();
+        for (Slot resolved : deltaGroupKeySlots) {
+            groupKeySlotsByName.put(resolved.getName(), resolved);
         }
 
         return new DeltaPlanParts(topDeltaProject, outputByName.get(Column.IVM_ROW_ID_COL),
-                deltaGroupCountSlot, applyDeltaSlots, groupKeySlotsByName);
+                deltaGroupCountSlot, applyDeltaSlots, deltaGroupKeySlots, groupKeySlotsByName);
     }
 
     /**
@@ -304,9 +334,8 @@ class IvmAggDeltaHandler {
                 "negative group count");
         finalByColumnName.put(Column.IVM_ROW_ID_COL, delta.rowIdSlot);
         finalByColumnName.put(aggMeta.getGroupCountSlot().getName(), newGroupCount);
-        for (Slot groupKey : aggMeta.getGroupKeySlots()) {
-            finalByColumnName.put(groupKey.getName(), deltaGroupKey(delta, groupKey.getName()));
-        }
+        // Group keys are emitted from the delta side below, resolved by slot identity, and
+        // must not enter the name-keyed map: same-named keys would overwrite each other.
 
         Set<String> visibleColumnNames = new HashSet<>();
         for (IvmAggTarget target : aggMeta.getAggTargets()) {
@@ -330,7 +359,13 @@ class IvmAggDeltaHandler {
         // Keep the normalized aggregate schema here. The normalize-added top project computes row-id above this
         // project, and the final sink project reorders columns by MV schema.
         for (Slot target : normalizedAgg.getOutput()) {
-            Expression expr = finalByColumnName.get(target.getName());
+            // A group key output takes the delta-side key slot: a group that is new in the
+            // delta has no MV row to copy from. Same-named keys are disambiguated by slot
+            // identity against aggMeta's ordered group keys.
+            int groupKeyIndex = groupKeyIndexIn(target, aggMeta);
+            Expression expr = groupKeyIndex >= 0
+                    ? delta.deltaGroupKeySlots.get(groupKeyIndex)
+                    : finalByColumnName.get(target.getName());
             if (expr == null) {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM agg delta rewrite missing output expression for column: "
@@ -350,11 +385,18 @@ class IvmAggDeltaHandler {
         List<Slot> identityKeys = rewriteResult == null ? null : rewriteResult.getIdentityKeySlots();
         if (identityKeys != null) {
             for (Slot identityKey : identityKeys) {
+                // The MV side is matched by column name (the MV key columns are the
+                // normalized outputs). When an MV selects same-named group keys under
+                // output aliases, the alias differs from the key slot name and this lookup
+                // misses: the identity conjunct is skipped and the row-id conjunct still
+                // guards the join, so no wrong value is produced. The delta side below is
+                // always resolved by slot identity (findDeltaKeyByIdentity), so a matched
+                // identity key can never be paired with the wrong delta slot.
                 Slot mvKey = helper.findSlotByNameOrNull(rawMvScan.getOutput(), identityKey.getName());
                 if (mvKey == null) {
                     continue;
                 }
-                Slot deltaKey = findDeltaKeyByName(delta, identityKey.getName());
+                Slot deltaKey = findDeltaKeyByIdentity(delta, identityKey);
                 if (deltaKey == null) {
                     continue;
                 }
@@ -365,6 +407,21 @@ class IvmAggDeltaHandler {
         // equality: a NULL row-id matches the MV row of the NULL-key group.
         conjuncts.add(new NullSafeEqual(mvRowId, delta.rowIdSlot));
         return conjuncts.build();
+    }
+
+    /**
+     * Resolves the delta-side key slot for an identity key by slot identity first (both
+     * live in the same normalized plan, so same-named keys such as l.id / r.id match their
+     * own delta slot), falling back to the name-keyed lookup for legacy callers whose keys
+     * have distinct names.
+     */
+    private Slot findDeltaKeyByIdentity(DeltaPlanParts delta, Slot identityKey) {
+        for (Slot keySlot : delta.deltaGroupKeySlots) {
+            if (keySlot.getExprId().equals(identityKey.getExprId())) {
+                return keySlot;
+            }
+        }
+        return findDeltaKeyByName(delta, identityKey.getName());
     }
 
     private Slot findDeltaKeyByName(DeltaPlanParts delta, String name) {
@@ -449,15 +506,6 @@ class IvmAggDeltaHandler {
         return delta.deltaGroupCountSlot;
     }
 
-    private Expression deltaGroupKey(DeltaPlanParts delta, String name) {
-        Slot slot = delta.groupKeySlotsByName.get(name);
-        if (slot == null) {
-            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                    "IVM agg delta rewrite failed to resolve delta group key: " + name);
-        }
-        return slot;
-    }
-
     /**
      * Collects delta output names where NULL should be normalized to zero before apply.
      *
@@ -485,6 +533,17 @@ class IvmAggDeltaHandler {
             slotByName.put(slot.getName(), slot);
         }
         return slotByName;
+    }
+
+    /** Index of {@code slot} among the aggregate group keys, or -1 when it is not a group key. */
+    private int groupKeyIndexIn(Slot slot, IvmAggMeta aggMeta) {
+        List<Slot> groupKeys = aggMeta.getGroupKeySlots();
+        for (int i = 0; i < groupKeys.size(); i++) {
+            if (groupKeys.get(i).getExprId().equals(slot.getExprId())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
 }

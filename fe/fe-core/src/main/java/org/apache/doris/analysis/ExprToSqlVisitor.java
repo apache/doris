@@ -122,6 +122,11 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
     }
 
     @Override
+    public String visitUuidLiteral(UuidLiteral expr, ToSqlParams context) {
+        return "\"" + expr.getStringValue() + "\"";
+    }
+
+    @Override
     public String visitVarBinaryLiteral(VarBinaryLiteral expr, ToSqlParams context) {
         return expr.toHexLiteral();
     }

@@ -45,7 +45,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
     protected void runBeforeAll() throws Exception {
         super.runBeforeAll();
         Config.enable_table_stream = true;
-        createTable("CREATE TABLE IF NOT EXISTS show_create_ivm_base (\n"
+        createTableWithRowBinlog("CREATE TABLE IF NOT EXISTS show_create_ivm_base (\n"
                 + "    id bigint,\n"
                 + "    score bigint\n"
                 + ")\n"
