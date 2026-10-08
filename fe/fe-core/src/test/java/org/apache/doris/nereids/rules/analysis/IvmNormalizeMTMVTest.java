@@ -851,6 +851,42 @@ class IvmNormalizeMTMVTest {
     }
 
     @Test
+    void testRefreshLayoutComesFromTheMvSchema() {
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+        // SELECT id, SUM(name) * 100 AS s100 FROM t GROUP BY id, refreshed as an existing MV.
+        Alias sumAlias = new Alias(new Sum(nameSlot), "sum(name)");
+        Alias s100 = new Alias(new org.apache.doris.nereids.trees.expressions.Multiply(
+                sumAlias.toSlot(), new IntegerLiteral(100)), "s100");
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                ImmutableList.of(idSlot), ImmutableList.of(idSlot, sumAlias), true,
+                java.util.Optional.empty(), scan);
+        LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(idSlot, s100), agg);
+        String carrierName = IvmUtil.ivmAggHiddenColumnName(0, "SUM");
+
+        // An MV that has the carrier keeps it: the observable output and state column do not change.
+        MTMV layoutWithCarrier = Mockito.mock(MTMV.class);
+        Mockito.when(layoutWithCarrier.getColumn(carrierName)).thenReturn(new Column());
+        Plan withCarrier = new IvmNormalizeMTMV().rewriteRoot(project,
+                newJobContextForRoot(project, true, Collections.emptySet(),
+                        java.util.Optional.of(IvmRewriteContext.normalize(layoutWithCarrier))));
+        Assertions.assertTrue(withCarrier.getOutput().stream()
+                .anyMatch(slot -> carrierName.equals(slot.getName())));
+
+        // An MV without it (created before that column existed) cannot refresh incrementally: the layout
+        // owns which columns exist, so normalize reports the missing state column instead of adding one
+        // the MV does not have.
+        MTMV layoutWithoutCarrier = Mockito.mock(MTMV.class);
+        Mockito.when(layoutWithoutCarrier.getColumn(carrierName)).thenReturn(null);
+        JobContext withoutCarrierContext = newJobContextForRoot(project, true, Collections.emptySet(),
+                java.util.Optional.of(IvmRewriteContext.normalize(layoutWithoutCarrier)));
+        IvmException missingState = Assertions.assertThrows(IvmException.class,
+                () -> new IvmNormalizeMTMV().rewriteRoot(project, withoutCarrierContext));
+        Assertions.assertTrue(missingState.getMessage().contains(sumAlias.toSlot().getName()),
+                missingState.getMessage());
+    }
+
+    @Test
     void testRepeatUnderAggregateDoesNotOwnRowId() {
         Slot idSlot = scan.getOutput().get(0);
         Slot nameSlot = scan.getOutput().get(1);

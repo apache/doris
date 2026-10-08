@@ -42,6 +42,8 @@ suite("test_ivm_agg_expr_over_agg_2") {
     sql """drop materialized view if exists test_ivm_expr_over_agg_full_keys;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_alias_collision;"""
     sql """drop table if exists test_ivm_expr_over_agg_alias_base;"""
+    sql """drop materialized view if exists test_ivm_expr_over_agg_cast_collision;"""
+    sql """drop table if exists test_ivm_expr_over_agg_cast_base;"""
     sql """drop table if exists test_ivm_expr_over_agg_2_base;"""
 
     sql """
@@ -307,4 +309,60 @@ suite("test_ivm_agg_expr_over_agg_2") {
     order_qt_alias_collision_complete """SELECT k, `sum(v)` FROM test_ivm_expr_over_agg_alias_collision"""
     order_qt_alias_collision_complete_source """
         SELECT k, SUM(v) * 100 AS `sum(v)` FROM test_ivm_expr_over_agg_alias_base GROUP BY k"""
+
+    // =========================================================
+    // Part 10: a lossy CAST whose output takes the aggregate's
+    // generated column name. The cast is value-preserving for the
+    // type checker but not for the value, so the column can never
+    // stand in for the raw state.
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_expr_over_agg_cast_collision;"""
+    sql """drop table if exists test_ivm_expr_over_agg_cast_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_expr_over_agg_cast_base (
+            id INT,
+            k INT,
+            d DECIMAL(10, 2)
+        )
+        UNIQUE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+    sql """INSERT INTO test_ivm_expr_over_agg_cast_base VALUES (1, 1, 1.55);"""
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_expr_over_agg_cast_collision
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS SELECT k, CAST(SUM(d) AS DECIMAL(20, 0)) AS `sum(d)` FROM test_ivm_expr_over_agg_cast_base GROUP BY k;
+    """
+    sql """set show_hidden_columns=true"""
+    qt_cast_collision_desc """DESC test_ivm_expr_over_agg_cast_collision"""
+    sql """set show_hidden_columns=false"""
+
+    refreshIncremental("test_ivm_expr_over_agg_cast_collision")
+    order_qt_cast_collision_initial """SELECT k, `sum(d)` FROM test_ivm_expr_over_agg_cast_collision"""
+    order_qt_cast_collision_initial_source """
+        SELECT k, CAST(SUM(d) AS DECIMAL(20, 0)) AS `sum(d)` FROM test_ivm_expr_over_agg_cast_base GROUP BY k"""
+
+    // Merging from the rounded alias (2) instead of the raw state (1.55) persisted 157 here.
+    sql """INSERT INTO test_ivm_expr_over_agg_cast_base VALUES (2, 1, 1.55);"""
+    refreshIncremental("test_ivm_expr_over_agg_cast_collision")
+    order_qt_cast_collision_after_insert """SELECT k, `sum(d)` FROM test_ivm_expr_over_agg_cast_collision"""
+    order_qt_cast_collision_after_insert_source """
+        SELECT k, CAST(SUM(d) AS DECIMAL(20, 0)) AS `sum(d)` FROM test_ivm_expr_over_agg_cast_base GROUP BY k"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_cast_collision COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_cast_collision")
+    order_qt_cast_collision_complete """SELECT k, `sum(d)` FROM test_ivm_expr_over_agg_cast_collision"""
+    order_qt_cast_collision_complete_source """
+        SELECT k, CAST(SUM(d) AS DECIMAL(20, 0)) AS `sum(d)` FROM test_ivm_expr_over_agg_cast_base GROUP BY k"""
 }

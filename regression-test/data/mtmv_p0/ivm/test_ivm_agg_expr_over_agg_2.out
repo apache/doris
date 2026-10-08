@@ -216,3 +216,32 @@ __DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
 -- !alias_collision_complete_source --
 1	1000
 
+-- !cast_collision_desc --
+__DORIS_IVM_ROW_ID_COL__	int	Yes	true	\N	
+k	int	Yes	false	\N	NONE
+sum(d)	decimal(20,0)	Yes	false	\N	NONE
+__DORIS_IVM_AGG_COUNT_COL__	bigint	No	false	\N	NONE
+__DORIS_IVM_AGG_0_COUNT_COL__	bigint	No	false	\N	NONE
+__DORIS_IVM_AGG_0_SUM_COL__	decimal(38,2)	Yes	false	\N	NONE
+__DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
+__DORIS_VERSION_COL__	bigint	No	false	0	NONE
+__DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
+
+-- !cast_collision_initial --
+1	2
+
+-- !cast_collision_initial_source --
+1	2
+
+-- !cast_collision_after_insert --
+1	3
+
+-- !cast_collision_after_insert_source --
+1	3
+
+-- !cast_collision_complete --
+1	3
+
+-- !cast_collision_complete_source --
+1	3
+
