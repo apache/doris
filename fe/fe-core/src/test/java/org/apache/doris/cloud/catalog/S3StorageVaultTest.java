@@ -23,18 +23,16 @@ import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.catalog.StorageVaultMgr;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.system.SystemInfoService;
 
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -44,26 +42,23 @@ public class S3StorageVaultTest {
     private static final String ROLE = "arn:aws:iam::123456789012:role/test-role";
     private static final String ACCOUNT = "target@my-project.iam.gserviceaccount.com";
 
-    @Mocked
-    private Env env;
-
     // Capture the actual CREATE/ALTER RPC, then stop before cache updates and backend synchronization.
     private Cloud.ObjectStoreInfoPB captureRequest(Map<String, String> auth, boolean isAlter) throws Exception {
         AtomicReference<Cloud.AlterObjStoreInfoRequest> captured = new AtomicReference<>();
-        new MockUp<MetaServiceProxy>() {
-            @Mock
-            public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request) {
-                captured.set(request);
-                return Cloud.AlterObjStoreInfoResponse.newBuilder().setStatus(
-                        Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.INVALID_ARGUMENT)
-                                .setMsg("captured vault request")).build();
-            }
-        };
-        String oldEndpoint = Config.meta_service_endpoint;
-        String oldCloudId = Config.cloud_unique_id;
-        Config.meta_service_endpoint = "127.0.0.1:20121";
-        Config.cloud_unique_id = "vault-default-test";
-        try {
+        Env env = Mockito.mock(Env.class);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(proxy.alterStorageVault(Mockito.any(Cloud.AlterObjStoreInfoRequest.class)))
+                    .thenAnswer(invocation -> {
+                        captured.set(invocation.getArgument(0));
+                        return Cloud.AlterObjStoreInfoResponse.newBuilder().setStatus(
+                                Cloud.MetaServiceResponseStatus.newBuilder()
+                                        .setCode(Cloud.MetaServiceCode.INVALID_ARGUMENT)
+                                        .setMsg("captured vault request")).build();
+                    });
             StorageVaultMgr mgr = new StorageVaultMgr(new SystemInfoService());
             if (isAlter) {
                 Assertions.assertThrows(DdlException.class,
@@ -92,9 +87,6 @@ public class S3StorageVaultTest {
                         "ALTER must not send an inferred immutable provider");
             }
             return captured.get().getVault().getObjInfo();
-        } finally {
-            Config.meta_service_endpoint = oldEndpoint;
-            Config.cloud_unique_id = oldCloudId;
         }
     }
 
@@ -209,30 +201,32 @@ public class S3StorageVaultTest {
 
     @Test
     public void testGcpAnonymousAliasesAreRejectedBeforeCreateRpc() throws Exception {
-        new MockUp<MetaServiceProxy>() {
-            @Mock
-            public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request) {
-                throw new AssertionError("Anonymous GCS vaults must be rejected before the MS RPC");
+        Env env = Mockito.mock(Env.class);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            StorageVaultMgr mgr = new StorageVaultMgr(new SystemInfoService());
+            for (String key : new String[] {GcpCredential.CREDENTIAL_PROVIDER_TYPE,
+                    S3ResourceCompat.CREDENTIALS_PROVIDER_TYPE, S3ResourceCompat.Env.CREDENTIALS_PROVIDER_TYPE}) {
+                Map<String, String> properties = new HashMap<>();
+                properties.put("type", "S3");
+                properties.put("provider", "GCP");
+                properties.put(S3ResourceCompat.ENDPOINT, "storage.googleapis.com");
+                properties.put(S3ResourceCompat.REGION, "us-east1");
+                properties.put(S3ResourceCompat.BUCKET, "test-bucket");
+                properties.put(S3ResourceCompat.ROOT_PATH, "test-root");
+                properties.put(S3ResourceCompat.VALIDITY_CHECK, "false");
+                properties.put(key, " anonymous ");
+                CreateStorageVaultCommand command = new CreateStorageVaultCommand(false, "anonymous_gcp", properties);
+                command.setStorageVaultType(StorageVaultType.S3);
+                StorageVault vault = StorageVault.fromCommand(command);
+                IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> mgr.createS3Vault(vault), key);
+                Assertions.assertTrue(error.getMessage().contains("storage vaults"), key);
             }
-        };
-        StorageVaultMgr mgr = new StorageVaultMgr(new SystemInfoService());
-        for (String key : new String[] {GcpCredential.CREDENTIAL_PROVIDER_TYPE,
-                S3ResourceCompat.CREDENTIALS_PROVIDER_TYPE, S3ResourceCompat.Env.CREDENTIALS_PROVIDER_TYPE}) {
-            Map<String, String> properties = new HashMap<>();
-            properties.put("type", "S3");
-            properties.put("provider", "GCP");
-            properties.put(S3ResourceCompat.ENDPOINT, "storage.googleapis.com");
-            properties.put(S3ResourceCompat.REGION, "us-east1");
-            properties.put(S3ResourceCompat.BUCKET, "test-bucket");
-            properties.put(S3ResourceCompat.ROOT_PATH, "test-root");
-            properties.put(S3ResourceCompat.VALIDITY_CHECK, "false");
-            properties.put(key, " anonymous ");
-            CreateStorageVaultCommand command = new CreateStorageVaultCommand(false, "anonymous_gcp", properties);
-            command.setStorageVaultType(StorageVaultType.S3);
-            StorageVault vault = StorageVault.fromCommand(command);
-            IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
-                    () -> mgr.createS3Vault(vault), key);
-            Assertions.assertTrue(error.getMessage().contains("storage vaults"), key);
+            Mockito.verifyNoInteractions(proxy);
         }
     }
 

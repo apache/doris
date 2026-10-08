@@ -85,21 +85,23 @@ std::optional<Aws::S3::S3Error> GcpS3Client::authorize_request(
         return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
     });
     if (!_trusted_endpoint || !valid_bucket) {
-        Aws::S3::S3Error error(Aws::S3::S3Errors::ACCESS_DENIED, "GcpEndpointError",
-                               "Native GCP OAuth requires a trusted Google Cloud Storage HTTPS "
-                               "endpoint on port 443 and a GCS bucket name",
-                               false);
+        Aws::Client::AWSError<Aws::S3::S3Errors> error(
+                Aws::S3::S3Errors::ACCESS_DENIED, "GcpEndpointError",
+                "Native GCP OAuth requires a trusted Google Cloud Storage HTTPS "
+                "endpoint on port 443 and a GCS bucket name",
+                false);
         error.SetResponseCode(Aws::Http::HttpResponseCode::FORBIDDEN);
-        return error;
+        return Aws::S3::S3Error(std::move(error));
     }
     auto token = fetch_token();
     if (!token.has_value() || token->empty()) {
         // Return through the SDK outcome path before any object-storage HTTP request.
         // The token provider has already logged the underlying credential error.
-        Aws::S3::S3Error error(Aws::S3::S3Errors::ACCESS_DENIED, "GcpAuthenticationError",
-                               "Failed to obtain GCP access token", false);
+        Aws::Client::AWSError<Aws::S3::S3Errors> error(Aws::S3::S3Errors::ACCESS_DENIED,
+                                                       "GcpAuthenticationError",
+                                                       "Failed to obtain GCP access token", false);
         error.SetResponseCode(Aws::Http::HttpResponseCode::UNAUTHORIZED);
-        return error;
+        return Aws::S3::S3Error(std::move(error));
     }
     request.SetAdditionalCustomHeaderValue("Authorization",
                                            Aws::String("Bearer ") + token->c_str());

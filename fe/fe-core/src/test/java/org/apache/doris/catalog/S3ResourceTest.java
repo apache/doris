@@ -430,31 +430,35 @@ public class S3ResourceTest {
     }
 
     @Test
-    public void testGsEndpointForStorageVault(@Mocked Env env) throws Exception {
-        for (String provider : new String[] {"GCP", "gcp", "S3", "OSS"}) {
-            Map<String, String> properties = new HashMap<>(s3Properties);
-            properties.put("provider", provider);
-            properties.put("gs.endpoint", "https://storage.googleapis.com");
-            properties.put("gs.access_key", "gcp-access");
-            properties.put("gs.secret_key", "gcp-secret");
-            properties.put("gs.use_path_style", "true");
-            properties.put("s3.root.path", "prefix");
-            CreateResourceCommand command = new CreateResourceCommand(
-                    new CreateResourceInfo(false, false, "gcp_vault", ImmutableMap.copyOf(properties)));
-            command.getInfo().analyzeResourceType();
-            S3StorageVault vault = new S3StorageVault("gcp_vault", false, false, command);
-            vault.checkCreationProperties(ImmutableMap.copyOf(properties));
-            Assertions.assertEquals("prefix", vault.getCopiedProperties().get(S3ResourceCompat.ROOT_PATH));
-            String expectedEndpoint = "GCP".equalsIgnoreCase(provider)
-                    ? "https://storage.googleapis.com" : s3Endpoint;
-            Assertions.assertEquals(expectedEndpoint,
-                    CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties()).getEndpoint());
-            Assertions.assertEquals("GCP".equalsIgnoreCase(provider) ? "gcp-access" : s3AccessKey,
-                    CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties()).getAk());
-            Assertions.assertEquals("GCP".equalsIgnoreCase(provider) ? "gcp-secret" : s3SecretKey,
-                    CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties()).getSk());
-            Assertions.assertEquals("GCP".equalsIgnoreCase(provider),
-                    CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties()).getUsePathStyle());
+    public void testGsEndpointForStorageVault() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            for (String provider : new String[] {"GCP", "gcp", "S3", "OSS"}) {
+                Map<String, String> properties = new HashMap<>(s3Properties);
+                properties.put("provider", provider);
+                properties.put("gs.endpoint", "https://storage.googleapis.com");
+                properties.put("gs.access_key", "gcp-access");
+                properties.put("gs.secret_key", "gcp-secret");
+                properties.put("gs.use_path_style", "true");
+                properties.put("s3.root.path", "prefix");
+                CreateResourceCommand command = new CreateResourceCommand(
+                        new CreateResourceInfo(false, false, "gcp_vault", ImmutableMap.copyOf(properties)));
+                command.getInfo().analyzeResourceType();
+                S3StorageVault vault = new S3StorageVault("gcp_vault", false, false, command);
+                vault.checkCreationProperties(ImmutableMap.copyOf(properties));
+                Assertions.assertEquals("prefix", vault.getCopiedProperties().get(S3ResourceCompat.ROOT_PATH));
+                String expectedEndpoint = "GCP".equalsIgnoreCase(provider)
+                        ? "https://storage.googleapis.com" : s3Endpoint;
+                Assertions.assertEquals(expectedEndpoint,
+                        CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties()).getEndpoint());
+                Assertions.assertEquals("GCP".equalsIgnoreCase(provider) ? "gcp-access" : s3AccessKey,
+                        CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties()).getAk());
+                Assertions.assertEquals("GCP".equalsIgnoreCase(provider) ? "gcp-secret" : s3SecretKey,
+                        CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties()).getSk());
+                Assertions.assertEquals("GCP".equalsIgnoreCase(provider),
+                        CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties()).getUsePathStyle());
+            }
         }
     }
 
