@@ -454,6 +454,7 @@ private:
     Slice _v2_def_levels;
     bool _dict_checked = false;
     bool _first_data_page_parsed = false;
+    bool _skipped_unverified_indexed_page = false;
     bool _has_dict = false;
     bool _nested_row_started = false;
     Decoder* _page_decoder = nullptr;

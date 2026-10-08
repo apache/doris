@@ -1105,6 +1105,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
         }
     }
     const bool active_offset_index = _page_reader->has_active_offset_index();
+    if (_skipped_unverified_indexed_page && !active_offset_index) {
+        // Skipped headers leave their indexed row spans unverified. If that index is discarded,
+        // a sequential fallback cannot safely retain its current row coordinate.
+        return Status::Corruption("Parquet OffsetIndex fallback after skipping an unverified page");
+    }
     if (page_num_values < 0 || page_num_values > _metadata.num_values ||
         (!active_offset_index &&
          static_cast<uint64_t>(page_num_values) >
@@ -1155,6 +1160,9 @@ template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::next_page() {
     if constexpr (OFFSET_INDEX) {
         RETURN_IF_ERROR(ensure_first_data_page_parsed());
+        if (_state == INITIALIZED && _page_reader->has_active_offset_index()) {
+            _skipped_unverified_indexed_page = true;
+        }
     } else {
         // Load dictionary state before advancing can jump past the physical dictionary page.
         RETURN_IF_ERROR(_ensure_dictionary_page_loaded());

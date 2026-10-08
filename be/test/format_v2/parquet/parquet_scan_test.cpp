@@ -4677,53 +4677,58 @@ TEST_F(ParquetScanTest, OffsetIndexFallbackPreservesFilteredRowsAcrossPages) {
                                        arrow::field("payload", arrow::int32(), false)});
     auto table = arrow::Table::Make(arrow_schema,
                                     {build_int32_array(values), build_int32_array(payloads)});
-    write_table(_file_path, table, 24, false, true);
-    shorten_first_offset_index_page(_file_path);
     const bool original_page_index = config::enable_parquet_page_index;
     DEFER({ config::enable_parquet_page_index = original_page_index; });
-    for (const bool enable_index : {false, true}) {
-        for (const int batch_size : {5, 64}) {
-            SCOPED_TRACE(testing::Message()
-                         << "index=" << enable_index << ", batch=" << batch_size);
-            config::enable_parquet_page_index = enable_index;
-            RuntimeProfile profile("index_fallback");
-            auto reader = create_reader(0, -1, &profile);
-            reader->set_batch_size(batch_size);
-            RuntimeState state {TQueryOptions(), TQueryGlobals()};
-            ASSERT_TRUE(reader->init(&state).ok());
-            std::vector<format::ColumnDefinition> schema;
-            ASSERT_TRUE(reader->get_schema(&schema).ok());
-            auto request = std::make_shared<format::FileScanRequest>();
-            format::FileScanRequestBuilder builder(request.get());
-            ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
-            ASSERT_TRUE(builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
-            auto conjunct = create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 0, false);
-            ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
-            ASSERT_TRUE(conjunct->open(&state).ok());
-            DEFER({ conjunct->close(); });
-            ASSERT_TRUE(conjunct->root()->can_evaluate_zonemap_filter());
-            request->conjuncts.push_back(conjunct);
-            ASSERT_TRUE(reader->open(request).ok());
-            std::vector<int32_t> actual_values;
-            std::vector<int32_t> actual_payloads;
-            bool eof = false;
-            while (!eof) {
-                Block block = build_file_block(schema);
-                size_t rows = 0;
-                const auto status = reader->get_block(&block, &rows, &eof);
-                ASSERT_TRUE(status.ok()) << status;
-                for (size_t row = 0; row < rows; ++row) {
-                    actual_values.push_back(
-                            int32_data_column(*block.get_by_position(0).column).get_element(row));
-                    actual_payloads.push_back(
-                            int32_data_column(*block.get_by_position(1).column).get_element(row));
+    for (const bool dictionary : {false, true}) {
+        write_table(_file_path, table, 24, dictionary, true);
+        shorten_first_offset_index_page(_file_path);
+        for (const bool enable_index : {false, true}) {
+            for (const int batch_size : {5, 64}) {
+                SCOPED_TRACE(testing::Message() << "dictionary=" << dictionary << ", index="
+                                                << enable_index << ", batch=" << batch_size);
+                config::enable_parquet_page_index = enable_index;
+                RuntimeProfile profile("index_fallback");
+                auto reader = create_reader(0, -1, &profile);
+                reader->set_batch_size(batch_size);
+                RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                ASSERT_TRUE(reader->init(&state).ok());
+                std::vector<format::ColumnDefinition> schema;
+                ASSERT_TRUE(reader->get_schema(&schema).ok());
+                auto request = std::make_shared<format::FileScanRequest>();
+                format::FileScanRequestBuilder builder(request.get());
+                ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
+                ASSERT_TRUE(builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+                auto conjunct = create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 0, false);
+                ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+                ASSERT_TRUE(conjunct->open(&state).ok());
+                DEFER({ conjunct->close(); });
+                ASSERT_TRUE(conjunct->root()->can_evaluate_zonemap_filter());
+                request->conjuncts.push_back(conjunct);
+                ASSERT_TRUE(reader->open(request).ok());
+                std::vector<int32_t> actual_values;
+                std::vector<int32_t> actual_payloads;
+                bool eof = false;
+                while (!eof) {
+                    Block block = build_file_block(schema);
+                    size_t rows = 0;
+                    const auto status = reader->get_block(&block, &rows, &eof);
+                    ASSERT_TRUE(status.ok()) << status;
+                    for (size_t row = 0; row < rows; ++row) {
+                        actual_values.push_back(int32_data_column(*block.get_by_position(0).column)
+                                                        .get_element(row));
+                        actual_payloads.push_back(
+                                int32_data_column(*block.get_by_position(1).column)
+                                        .get_element(row));
+                    }
                 }
+                EXPECT_EQ(actual_values, (std::vector<int32_t>(values.begin() + 1, values.end())));
+                EXPECT_EQ(actual_payloads,
+                          (std::vector<int32_t>(payloads.begin() + 1, payloads.end())));
+                EXPECT_GT(counter_value(profile, dictionary ? "DictionaryPredicateDirectBatches"
+                                                            : "FixedWidthPredicateDirectBatches"),
+                          0);
+                EXPECT_EQ(counter_value(profile, "PageIndexReadCalls") > 0, enable_index);
             }
-            EXPECT_EQ(actual_values, (std::vector<int32_t>(values.begin() + 1, values.end())));
-            EXPECT_EQ(actual_payloads,
-                      (std::vector<int32_t>(payloads.begin() + 1, payloads.end())));
-            EXPECT_GT(counter_value(profile, "FixedWidthPredicateDirectBatches"), 0);
-            EXPECT_EQ(counter_value(profile, "PageIndexReadCalls") > 0, enable_index);
         }
     }
 }

@@ -3643,6 +3643,134 @@ TEST(ParquetV2NativeDecoderTest, LazyNestedV2SeekValidatesFirstPageRowRange) {
     EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
 }
 
+TEST(ParquetV2NativeDecoderTest, LateOffsetIndexFallbackRequiresVerifiedRowCoordinates) {
+    auto check = []<bool NESTED>(bool skip_middle, bool stale_size, bool cache_hit) {
+        SCOPED_TRACE(testing::Message() << "nested=" << NESTED << ", skip=" << skip_middle
+                                        << ", stale=" << stale_size << ", cache=" << cache_hit);
+        const bool reject = skip_middle && stale_size;
+        const std::vector<std::vector<int32_t>> values {{10}, {20}, {30, 31}};
+        std::vector<uint8_t> bytes;
+        std::vector<std::vector<uint8_t>> pages;
+        tparquet::OffsetIndex index;
+        for (size_t page = 0; page < values.size(); ++page) {
+            std::vector<uint8_t> payload;
+            if constexpr (NESTED) {
+                payload = {cast_set<uint8_t>(values[page].size() * 2), 0};
+            }
+            const size_t level_bytes = payload.size();
+            const auto* raw = reinterpret_cast<const uint8_t*>(values[page].data());
+            payload.insert(payload.end(), raw, raw + values[page].size() * sizeof(int32_t));
+            tparquet::PageHeader header;
+            header.__set_type(tparquet::PageType::DATA_PAGE_V2);
+            header.__set_compressed_page_size(payload.size());
+            header.__set_uncompressed_page_size(payload.size());
+            header.__isset.data_page_header_v2 = true;
+            auto& data = header.data_page_header_v2;
+            data.__set_num_values(values[page].size());
+            data.__set_num_rows(values[page].size());
+            data.__set_num_nulls(0);
+            data.__set_encoding(tparquet::Encoding::PLAIN);
+            data.__set_repetition_levels_byte_length(level_bytes);
+            data.__set_definition_levels_byte_length(0);
+            data.__set_is_compressed(false);
+            pages.push_back(serialize_page(header, payload));
+            tparquet::PageLocation location;
+            location.__set_offset(bytes.size());
+            location.__set_compressed_page_size(pages.back().size() -
+                                                (stale_size && page == 2 ? 1 : 0));
+            // A skipped middle page hides the extra indexed row; fallback must not label physical
+            // row 2 as row 3 merely because the last page's own header is internally consistent.
+            location.__set_first_row_index(page == 2 && reject ? 3 : page);
+            index.page_locations.push_back(location);
+            bytes.insert(bytes.end(), pages.back().begin(), pages.back().end());
+        }
+        ASSERT_TRUE(validate_offset_index(index, {.offset = 0, .length = bytes.size()}, 0, 4));
+        const std::string cache_key =
+                fmt::format("late-index-{}-{}-{}", NESTED, skip_middle, stale_size);
+        if (cache_hit) {
+            auto* cached = new DataPage(pages.back().size(), true, segment_v2::DATA_PAGE);
+            memcpy(cached->data(), pages.back().data(), pages.back().size());
+            cached->reset_size(pages.back().size());
+            PageCacheHandle handle;
+            StoragePageCache::instance()->insert(
+                    StoragePageCache::CacheKey(cache_key, bytes.size(),
+                                               index.page_locations.back().offset),
+                    cached, &handle, segment_v2::DATA_PAGE);
+        }
+        tparquet::ColumnChunk chunk;
+        chunk.meta_data.__set_type(tparquet::Type::INT32);
+        chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+        chunk.meta_data.__set_num_values(4);
+        chunk.meta_data.__set_total_compressed_size(bytes.size());
+        chunk.meta_data.__set_data_page_offset(0);
+        chunk.meta_data.__set_encodings({tparquet::Encoding::PLAIN});
+        NativeFieldSchema field;
+        field.physical_type = tparquet::Type::INT32;
+        field.data_type = std::make_shared<DataTypeInt32>();
+        field.repetition_level = NESTED ? 1 : 0;
+        field.parquet_schema.__set_type(tparquet::Type::INT32);
+        field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+        const ParquetPageReadContext context(cache_hit, cache_key);
+        Status status;
+        if constexpr (NESTED) {
+            MemoryBufferedReader stream(bytes);
+            ColumnChunkReader<true, true> reader(&stream, &chunk, &field, &index, 4, nullptr,
+                                                 context);
+            ASSERT_TRUE(reader.init().ok());
+            if (!skip_middle) {
+                ASSERT_TRUE(reader.seek_to_nested_row(1).ok());
+            }
+            status = reader.seek_to_nested_row(3);
+            EXPECT_EQ(reader.chunk_statistics().page_cache_hit_counter > 0, cache_hit);
+        } else {
+            auto ranges = ::doris::RowRanges::create_single(skip_middle ? 3 : 0, 4);
+            auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
+            ScalarColumnReader<false, true> reader(ranges, 4, chunk, &index, nullptr, nullptr);
+            ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, cache_hit ? cache_key : "",
+                                    ParquetReaderCompat {}, true)
+                                .ok());
+            FilterMap filter;
+            ASSERT_TRUE(filter.init(nullptr, ranges.count(), false).ok());
+            ColumnPtr output = ColumnInt32::create();
+            size_t consumed = 0;
+            size_t calls = 0;
+            bool eof = false;
+            while (consumed < ranges.count() && !eof) {
+                ASSERT_LE(++calls, pages.size());
+                size_t rows = 0;
+                status = reader.read_column_data(output, field.data_type, nullptr, filter,
+                                                 ranges.count() - consumed, &rows, &eof, false);
+                if (!status.ok()) {
+                    break;
+                }
+                consumed += rows;
+            }
+            EXPECT_EQ(reader.column_statistics().page_cache_hit_counter > 0, cache_hit);
+            if (!reject) {
+                EXPECT_EQ(assert_cast<const ColumnInt32&>(*output).get_data(),
+                          (skip_middle ? ColumnInt32::Container {31}
+                                       : ColumnInt32::Container {10, 20, 30, 31}));
+            } else {
+                EXPECT_EQ(output->size(), 0);
+            }
+        }
+        if (reject) {
+            EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
+            EXPECT_NE(status.to_string().find("unverified page"), std::string::npos);
+        } else {
+            EXPECT_TRUE(status.ok()) << status;
+        }
+    };
+    for (const bool skip_middle : {false, true}) {
+        for (const bool stale_size : {false, true}) {
+            for (const bool cache_hit : {false, true}) {
+                check.template operator()<false>(skip_middle, stale_size, cache_hit);
+                check.template operator()<true>(skip_middle, stale_size, cache_hit);
+            }
+        }
+    }
+}
+
 TEST(ParquetV2NativeDecoderTest, FlatPagesRejectLogicalAndPhysicalCardinalityMismatch) {
     auto init_chunk = [](tparquet::PageHeader header, bool with_offset_index) {
         std::vector<uint8_t> payload(static_cast<size_t>(header.compressed_page_size), 0);
