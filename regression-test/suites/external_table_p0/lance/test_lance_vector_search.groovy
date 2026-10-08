@@ -148,6 +148,26 @@ suite("test_lance_vector_search", "p0,external") {
             ORDER BY _distance, row_id
         """
 
+        def baselineRows = sql "SELECT row_id, label, _distance FROM ${indexedTopFive} ORDER BY _distance, row_id"
+        [-1, 0, 1, 2, 4].each { parallelism ->
+            String parallelSearch = indexedTopFive.substring(0, indexedTopFive.length() - 1) +
+                    ", \"query_parallelism\"=\"${parallelism}\")"
+            explain {
+                sql("SELECT row_id, label, _distance FROM ${parallelSearch}")
+                contains "lanceQueryParallelism=${parallelism}"
+            }
+            assertEquals(baselineRows,
+                    sql("SELECT row_id, label, _distance FROM ${parallelSearch} ORDER BY _distance, row_id"))
+        }
+        ["-2", "2147483648", "1.5", "invalid"].each { invalid ->
+            String invalidSearch = indexedTopFive.substring(0, indexedTopFive.length() - 1) +
+                    ", \"query_parallelism\"=\"${invalid}\")"
+            test {
+                sql "SELECT row_id FROM ${invalidSearch}"
+                exception "query_parallelism"
+            }
+        }
+
         // Disable the index explicitly for the exact flat baseline.
         qt_flat_l2_topk """
             SELECT row_id, label, _distance

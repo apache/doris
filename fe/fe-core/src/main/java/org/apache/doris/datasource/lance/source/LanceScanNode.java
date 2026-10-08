@@ -354,6 +354,11 @@ public class LanceScanNode extends FileQueryScanNode {
                         .append(scanPlan.vectorIndexStatus).append("\n");
                 result.append(prefix).append("lanceVectorColumn=")
                         .append(vector.getColumn()).append("\n");
+                if (externalSearchRequest.isSetVectorSearchOptions()
+                        && externalSearchRequest.getVectorSearchOptions().isSetQueryParallelism()) {
+                    result.append(prefix).append("lanceQueryParallelism=")
+                            .append(externalSearchRequest.getVectorSearchOptions().getQueryParallelism()).append("\n");
+                }
                 result.append(prefix).append("lanceMetric=")
                         .append(vector.isSetMetric()
                                 ? VectorSearchTableValuedFunction.metricName(vector.getMetric()) : "default")

@@ -563,10 +563,14 @@ public class LanceScanNodeTest {
                         new LanceIndexSegmentInfo(secondSegment, "vector_idx",
                                 Collections.singletonList(9), Arrays.asList(3L, 4L),
                                 IndexType.VECTOR, "L2")));
-        LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
+        TExternalSearchRequest request = vectorSearchRequest(5, 0);
+        request.setVectorSearchOptions(new TVectorSearchOptions().setQueryParallelism(4));
+        LanceScanNode node = newSearchNode(metadata, request);
 
         List<Split> splits = node.getSplits(3);
 
+        Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
+                .contains("lanceQueryParallelism=4"));
         Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
                 .contains("lanceVectorIndexStatus=USED"));
 
