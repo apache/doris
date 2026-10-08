@@ -325,7 +325,8 @@ protected:
         _tablet_schema = make_tablet_schema();
         _segment = make_stub_segment(100, _tablet_schema);
         _read_schema = std::make_shared<ReadSchema>(_tablet_schema->columns());
-        _iter = std::make_unique<SegmentIterator>(_segment, _read_schema);
+        StorageReadOptions opts(_stats);
+        _iter = std::make_unique<SegmentIterator>(_segment, _read_schema, opts);
 
         TQueryOptions query_options;
         query_options.__set_enable_inverted_index_query(true);
@@ -333,7 +334,6 @@ protected:
         _runtime_state.set_query_options(query_options);
 
         _iter->_opts.runtime_state = &_runtime_state;
-        _iter->_opts.stats = &_stats;
         _iter->_index_query_context = std::make_shared<IndexQueryContext>();
         _iter->_index_query_context->stats = &_stats;
         _iter->_column_states.resize(_read_schema->num_read_columns());
@@ -445,9 +445,9 @@ TEST_F(SegmentIteratorCandidatePushdownTest, delete_bitmap_engages_candidate_bef
 TEST_F(SegmentIteratorCandidatePushdownTest, versioned_deletes_do_not_publish_condition_cache) {
     ScopedConditionCache cache;
     constexpr uint64_t digest = 12345;
-    auto older_reader = std::make_unique<SegmentIterator>(_segment, _read_schema);
     OlapReaderStatistics older_stats;
-    older_reader->_opts.stats = &older_stats;
+    StorageReadOptions older_opts(older_stats);
+    auto older_reader = std::make_unique<SegmentIterator>(_segment, _read_schema, older_opts);
     older_reader->_opts.condition_cache_digest = digest;
     older_reader->_common_expr_ctxs_push_down = {
             make_capturing_ctx(std::make_shared<CapturingExpr>(older_reader.get()))};
