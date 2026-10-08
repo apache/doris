@@ -22,6 +22,8 @@ import java.util.regex.Pattern
 // Compare one large segment that drops common postings with smaller segments that keep them.
 // Both layouts must return the same LIKE and REGEXP results as a scan.
 suite("test_gram_stop_gram", "p0") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     def waitAnalyzerInstalled = { String name ->
         def deadline = System.currentTimeMillis() + 180_000
         Exception lastNotFound = null

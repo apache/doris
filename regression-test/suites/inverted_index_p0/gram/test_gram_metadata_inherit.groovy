@@ -20,6 +20,8 @@ import java.util.regex.Pattern
 import org.apache.doris.regression.action.ProfileAction
 
 suite("test_gram_metadata_inherit", "p0") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     // Cloud does not support the named-index BUILD syntax used here. Keep this case scoped
     // to adding one requested index while IndexBuilder inherits the unchanged gram indexes.
     if (isCloudMode()) {

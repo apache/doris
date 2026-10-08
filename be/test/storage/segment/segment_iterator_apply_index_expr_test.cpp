@@ -127,6 +127,7 @@ protected:
         }
         _read_schema = std::make_shared<Schema>(_tablet_schema->columns(), read_column_ids);
         _iter = std::make_unique<SegmentIterator>(_segment, _read_schema);
+        _iter->_row_bitmap.addRange(0, _segment->num_rows());
 
         // Set up RuntimeState with fallback enabled so _downgrade_without_index works
         TQueryOptions query_options;

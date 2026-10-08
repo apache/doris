@@ -17,6 +17,8 @@
 
 // Verify SNII indexes written through the VARIANT V2 writer.
 suite("test_variant_v2_snii_index", "p0,nonConcurrent") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     setFeConfigTemporary([enable_variant_v2: true]) {
         def tblName = "variant_v2_snii_index"
         def typedInventors = "cast(inventors['inventors'] as array<text>)"

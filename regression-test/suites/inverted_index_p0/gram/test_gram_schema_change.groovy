@@ -22,6 +22,8 @@ import java.util.regex.Pattern
 // Check that gram indexes remain readable and useful after schema changes and new loads.
 // LIKE and REGEXP results must match a scan at every step.
 suite("test_gram_schema_change", "p0") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     def waitAnalyzerInstalled = { String name ->
         def deadline = System.currentTimeMillis() + 180_000
         Exception lastNotFound = null
