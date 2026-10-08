@@ -17,10 +17,16 @@
 
 package org.apache.doris.service;
 
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.Config;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TStatusCode;
@@ -33,6 +39,35 @@ import org.mockito.Mockito;
 import java.util.Collections;
 
 public class FrontendServiceImplCloudTest {
+
+    @Test
+    public void testSecondaryOnlyRouteIsDiscovered() {
+        String saved = Config.cloud_unique_id;
+        Config.cloud_unique_id = "secondary-peer-test";
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(Mockito.mock(CloudEnv.class));
+            envMock.when(Env::getCurrentColocateIndex).thenReturn(Mockito.mock(ColocateTableIndex.class));
+            SystemInfoService systemInfo = Mockito.mock(SystemInfoService.class);
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfo);
+            Backend backend = new Backend(12L, "127.0.0.1", 9050);
+            Mockito.when(systemInfo.getBackend(12L)).thenReturn(backend);
+            Mockito.when(systemInfo.getBackendByIdWithBoxedId(12L)).thenReturn(backend);
+            CloudReplica replica = new CloudReplica(1L, -1L, Replica.ReplicaState.NORMAL, 1L, 0,
+                    2L, 3L, 4L, 5L, 0L);
+            // Cleanup and secondary publication can leave this valid secondary without a primary key.
+            replica.updateClusterToSecondaryBe("cg", 12L);
+            TabletInvertedIndex index = Mockito.mock(TabletInvertedIndex.class);
+            envMock.when(Env::getCurrentInvertedIndex).thenReturn(index);
+            Mockito.when(index.getReplicasByTabletId(789L)).thenReturn(Collections.singletonList(replica));
+            TGetTabletReplicaInfosRequest request = new TGetTabletReplicaInfosRequest();
+            request.setTabletIds(Collections.singletonList(789L));
+            TGetTabletReplicaInfosResult result = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class))
+                    .getTabletReplicaInfos(request);
+            Assertions.assertEquals(1, result.getTabletReplicaInfos().get(789L).size());
+        } finally {
+            Config.cloud_unique_id = saved;
+        }
+    }
 
     // Regression test for FrontendServiceImpl.getTabletReplicaInfos NPE:
     // When a warm-up job has been removed from
