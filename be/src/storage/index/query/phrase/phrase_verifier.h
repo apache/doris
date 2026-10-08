@@ -118,6 +118,9 @@ public:
         if (clause_terms_.size() == 2 && lead.whole(&lead_span) &&
             cursors[clause_terms_[1]].whole(&other_span)) {
             *matched = contains_two_term_phrase(lead_span, other_span, offsets_[1]);
+            if (!lead.needs_finish() && !cursors[clause_terms_[1]].needs_finish()) {
+                return Status::OK();
+            }
             return finish_stream_document(cursors);
         }
         size_t clause = 1;

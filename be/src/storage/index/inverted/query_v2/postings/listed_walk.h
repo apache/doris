@@ -210,6 +210,7 @@ public:
     }
 
     bool available() const { return _read < _buffered; }
+    bool needs_finish() const { return _positions != nullptr; }
     uint32_t position() const { return _buffer[_read]; }
 
     // Advances to the first position at or after target.

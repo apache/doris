@@ -44,6 +44,7 @@ public:
     }
 
     bool available() const { return _available; }
+    bool needs_finish() const { return _positions != nullptr; }
     uint32_t position() const { return _position; }
 
     Status advance_to(uint32_t target) {

@@ -48,8 +48,11 @@ public:
     enum class FailurePoint { kNone, kSeek, kAdvance, kFinishDocIo, kFinishDocInvalidArgument };
 
     explicit FakeCursor(DocumentPositions positions, FailurePoint failure = FailurePoint::kNone,
-                        bool held_whole = false)
-            : positions_(std::move(positions)), failure_(failure), held_whole_(held_whole) {}
+                        bool held_whole = false, bool finished_on_seek = false)
+            : positions_(std::move(positions)),
+              failure_(failure),
+              held_whole_(held_whole),
+              finished_on_seek_(finished_on_seek) {}
 
     Status seek(uint32_t docid) {
         if (failure_ == FailurePoint::kSeek) {
@@ -59,8 +62,8 @@ public:
         active_positions_ = document == positions_.end() ? &empty_positions_ : &document->second;
         next_position_ = 0;
         examined_ = 0;
-        active_ = true;
-        doc_finished_ = false;
+        active_ = !finished_on_seek_;
+        doc_finished_ = finished_on_seek_;
         return Status::OK();
     }
 
@@ -78,6 +81,8 @@ public:
     }
 
     bool available() const { return next_position_ < active_positions_->size(); }
+
+    bool needs_finish() const { return !doc_finished_; }
 
     uint32_t position() {
         record_examined();
@@ -133,6 +138,7 @@ private:
     DocumentPositions positions_;
     FailurePoint failure_ = FailurePoint::kNone;
     bool held_whole_ = false;
+    bool finished_on_seek_ = false;
     const std::vector<uint32_t>* active_positions_ = nullptr;
     std::vector<uint32_t> empty_positions_;
     size_t next_position_ = 0;
@@ -364,6 +370,49 @@ TEST(ExactPhraseStreamMatcherTest, ChecksTwoWholeClausesWithTheBlockKernel) {
         EXPECT_EQ(cursors[0].returned_positions(), 0U);
         EXPECT_TRUE(std::ranges::all_of(cursors, &FakeCursor::doc_finished));
     }
+}
+
+TEST(ExactPhraseStreamMatcherTest, CompletedBuffersNeedNoFurtherFinishing) {
+    const std::array<size_t, 2> plan = {0, 1};
+    const std::array<uint32_t, 2> offsets = {0, 1};
+    for (const auto& [right, expected] :
+         std::vector<std::pair<std::vector<uint32_t>, bool>> {{{1, 11}, true}, {{2, 12}, false}}) {
+        std::vector<FakeCursor> cursors;
+        cursors.emplace_back(doc_positions({{7, {0, 10}}}), FakeCursor::FailurePoint::kNone, true,
+                             true);
+        cursors.emplace_back(doc_positions({{7, right}}), FakeCursor::FailurePoint::kNone, true,
+                             true);
+        bool matched = !expected;
+
+        ASSERT_TRUE(
+                match_document(std::span(cursors), std::span(plan), std::span(offsets), 7, &matched)
+                        .ok());
+
+        EXPECT_EQ(matched, expected);
+        for (const FakeCursor& cursor : cursors) {
+            EXPECT_TRUE(cursor.doc_finished());
+            EXPECT_FALSE(cursor.needs_finish());
+            EXPECT_EQ(cursor.finish_doc_calls(), 0U);
+        }
+    }
+}
+
+TEST(ExactPhraseStreamMatcherTest, WholeBuffersStillPropagatePendingFinishErrors) {
+    std::vector<FakeCursor> cursors;
+    cursors.emplace_back(doc_positions({{7, {0}}}), FakeCursor::FailurePoint::kFinishDocIo, true);
+    cursors.emplace_back(doc_positions({{7, {1}}}),
+                         FakeCursor::FailurePoint::kFinishDocInvalidArgument, true);
+    const std::array<size_t, 2> plan = {0, 1};
+    const std::array<uint32_t, 2> offsets = {0, 1};
+    bool matched = false;
+
+    const Status status =
+            match_document(std::span(cursors), std::span(plan), std::span(offsets), 7, &matched);
+
+    EXPECT_TRUE(status.is<ErrorCode::IO_ERROR>()) << status.to_string();
+    EXPECT_TRUE(matched);
+    EXPECT_EQ(cursors[0].finish_doc_calls(), 1U);
+    EXPECT_EQ(cursors[1].finish_doc_calls(), 1U);
 }
 
 TEST(ExactPhraseStreamMatcherTest, PropagatesSeekError) {
