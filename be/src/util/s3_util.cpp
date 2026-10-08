@@ -442,7 +442,7 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
                     .payload_signing_policy =
                             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
                     .use_virtual_addressing = s3_conf.use_virtual_addressing,
-                    .ca_cert_path = _ca_cert_file_path,
+                    .ca_cert_path = ca_cert_file_path,
             });
 
     std::shared_ptr<GcpTokenProvider> gcs_signing_token_provider;
@@ -453,7 +453,7 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
         auto signing_caller_credential = *gcp_credential;
         signing_caller_credential.impersonation_service_account.clear();
         gcs_signing_token_provider = std::make_shared<GcpTokenProvider>(
-                signing_caller_credential, _ca_cert_file_path, GcpTokenScope::CloudPlatform);
+                signing_caller_credential, ca_cert_file_path, GcpTokenScope::CloudPlatform);
     }
 
     S3ObjStorageClient::SignedUrlGenerator signed_url_generator;

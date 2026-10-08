@@ -116,13 +116,27 @@ class GcsFileSystemPropertiesTest {
 
     @Test
     void nativeHadoopUsesConfiguredEndpoint() {
-        for (String endpoint : new String[] {"private-gcs.example.test", "https://private-gcs.example.test",
-                "https://private-gcs.example.test/", "http://localhost:4443"}) {
+        for (String endpoint : new String[] {"storage.googleapis.com", "https://storage.googleapis.com/",
+                "https://storage.us-central1.rep.googleapis.com", "https://us-central1-storage.googleapis.com"}) {
             GcsFileSystemProperties props = GcsFileSystemProperties.of(Map.of(
                     "gs.endpoint", endpoint, "gs.credential_provider_type", "COMPUTE_ENGINE"));
             String expected = endpoint.contains("://") ? endpoint : "https://" + endpoint;
             Assertions.assertEquals(expected.endsWith("/") ? expected : expected + "/",
                     props.toHadoopConfigurationMap().get("fs.gs.storage.root.url"));
+        }
+    }
+
+    @Test
+    void nativeOauthRejectsUntrustedEndpointsButPreservesHmacAndAnonymous() {
+        for (String endpoint : new String[] {"https://attacker.example", "http://storage.googleapis.com",
+                "https://storage.googleapis.com.attacker.example", "https://storage.googleapis.com@attacker.example",
+                "https://storage.googleapis.com:8443"}) {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> GcsFileSystemProperties.of(Map.of("gs.endpoint", endpoint)));
+            Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of(
+                    "gs.endpoint", endpoint, "gs.access_key", "ak", "gs.secret_key", "sk")));
+            Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of(
+                    "gs.endpoint", endpoint, "gs.credential_provider_type", "ANONYMOUS")));
         }
     }
 

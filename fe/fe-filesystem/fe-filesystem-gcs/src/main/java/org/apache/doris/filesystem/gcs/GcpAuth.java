@@ -45,6 +45,7 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /** Creates GCP OAuth2 credentials and adapts them to the S3-compatible client. */
 public final class GcpAuth {
@@ -52,6 +53,11 @@ public final class GcpAuth {
             "https://www.googleapis.com/auth/devstorage.read_write";
     private static final String CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
     private static final int IMPERSONATION_LIFETIME_SECONDS = 3600;
+    // Global, locational and regional XML API endpoints, including virtual-hosted buckets.
+    private static final Pattern STORAGE_HOST = Pattern.compile(
+            "(?:[a-z0-9-]+\\.)*(?:storage\\.googleapis\\.com|"
+                    + "[a-z0-9-]+-storage\\.googleapis\\.com|storage\\.[a-z0-9-]+\\.rep\\.googleapis\\.com)",
+            Pattern.CASE_INSENSITIVE);
 
     private GcpAuth() {
     }
@@ -79,8 +85,26 @@ public final class GcpAuth {
     }
 
     private static URI endpoint(GcsFileSystemProperties properties) {
-        String endpoint = properties.getEndpoint();
-        return URI.create(endpoint.contains("://") ? endpoint : "https://" + endpoint);
+        return validateEndpoint(properties.getEndpoint());
+    }
+
+    static URI validateEndpoint(String endpoint) {
+        URI uri = URI.create(endpoint.contains("://") ? endpoint : "https://" + endpoint);
+        validateRequestUri(uri);
+        if (uri.getRawQuery() != null || (!uri.getRawPath().isEmpty() && !"/".equals(uri.getRawPath()))) {
+            throw new IllegalArgumentException("Native GCP OAuth endpoint must not contain a path or query");
+        }
+        return uri;
+    }
+
+    private static void validateRequestUri(URI uri) {
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
+                || !STORAGE_HOST.matcher(uri.getHost()).matches()
+                || (uri.getPort() != -1 && uri.getPort() != 443)
+                || uri.getRawUserInfo() != null || uri.getRawFragment() != null) {
+            throw new IllegalArgumentException(
+                    "Native GCP OAuth requires a trusted Google Cloud Storage HTTPS endpoint on port 443");
+        }
     }
 
     private static S3Configuration serviceConfiguration(GcsFileSystemProperties properties) {
@@ -130,6 +154,8 @@ public final class GcpAuth {
             public SdkHttpRequest modifyHttpRequest(Context.ModifyHttpRequest context,
                     ExecutionAttributes executionAttributes) {
                 try {
+                    // Validate the resolved request host before obtaining or attaching process credentials.
+                    validateRequestUri(context.httpRequest().getUri());
                     Map<String, List<String>> metadata = credentials.getRequestMetadata();
                     List<String> authorization = metadata.get("Authorization");
                     if (authorization == null || authorization.isEmpty()

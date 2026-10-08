@@ -51,6 +51,7 @@ struct GcpCredentialParseResult {
 };
 
 bool is_valid_gcp_service_account_email(std::string_view email);
+bool is_valid_gcp_storage_endpoint(std::string_view endpoint);
 std::optional<GcpCredentialProviderType> parse_gcp_credential_provider_type(
         std::string_view provider_type);
 std::optional<std::string> validate_gcp_credential(const GcpCredentialConfig& credential);

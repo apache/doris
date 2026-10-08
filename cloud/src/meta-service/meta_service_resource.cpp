@@ -1341,9 +1341,20 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style, role_arn,
            external_id] = obj_desc;
 
-    bool use_credential_provider_for_add_vault =
-            request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT && use_credential_provider(obj);
-    if (!obj.has_role_arn() && !use_credential_provider_for_add_vault) {
+    bool native_obj_add =
+            request->op() == AlterObjStoreInfoRequest::ADD_OBJ_INFO && has_obj_credential(obj);
+    if (native_obj_add) {
+        if (auto error = validate_obj_credential(obj); error.has_value()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = *error;
+            return -1;
+        }
+    }
+    bool use_credential_provider_for_add =
+            (request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT &&
+             use_credential_provider(obj)) ||
+            native_obj_add;
+    if (!obj.has_role_arn() && !use_credential_provider_for_add) {
         if (!obj.has_ak() || !obj.has_sk()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 obj info err " + proto_to_json(*request);
@@ -1582,8 +1593,9 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         }
 
         if (use_credential_provider(obj)) {
-            bool valid_aws = obj.has_cred_provider_type() && !has_obj_credential(obj) &&
-                             obj.has_provider() && obj.provider() == ObjectStoreInfoPB::S3;
+            bool valid_aws = (obj.has_cred_provider_type() || has_non_empty_role_arn(obj)) &&
+                             !has_obj_credential(obj) && obj.has_provider() &&
+                             obj.provider() == ObjectStoreInfoPB::S3;
             bool valid_credential =
                     has_obj_credential(obj) && !validate_obj_credential(obj).has_value();
             if (!valid_aws && !valid_credential) {
@@ -1989,8 +2001,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
         // ATTN: prefix may be empty
-        if (((ak.empty() || sk.empty()) && role_arn.empty()) || bucket.empty() ||
-            endpoint.empty() || region.empty() || prefix.empty()) {
+        if (((ak.empty() || sk.empty()) && role_arn.empty() && !has_obj_credential(obj)) ||
+            bucket.empty() || endpoint.empty() || region.empty() || prefix.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;

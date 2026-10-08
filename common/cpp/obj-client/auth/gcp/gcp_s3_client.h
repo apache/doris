@@ -24,6 +24,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "cpp/obj-client/auth/gcp/gcp_auth.h"
 #include "cpp/obj-client/auth/gcp/gcp_token_provider.h"
@@ -78,12 +79,14 @@ public:
             const Aws::S3::Model::UploadPartRequest& request) const override;
 
 protected:
-    std::optional<Aws::S3::S3Error> authorize_request(Aws::AmazonWebServiceRequest& request) const;
+    std::optional<Aws::S3::S3Error> authorize_request(Aws::AmazonWebServiceRequest& request,
+                                                      std::string_view bucket) const;
 
     // Test seam for asserting the outgoing header without relying on ADC or metadata.
     virtual std::optional<std::string> fetch_token() const;
 
 private:
+    const bool _trusted_endpoint;
     GcpTokenProvider _token_provider;
 };
 

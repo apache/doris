@@ -5029,6 +5029,95 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
     }
 }
 
+TEST(MetaServiceTest, NativeGcpLegacyAddReadback) {
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    std::string key;
+    instance_key({"test_instance"}, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("test_instance");
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    AlterObjStoreInfoRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_op(AlterObjStoreInfoRequest::ADD_OBJ_INFO);
+    auto* obj = req.mutable_obj();
+    obj->set_provider(ObjectStoreInfoPB::GCP);
+    obj->set_bucket("native-bucket");
+    obj->set_prefix("instance-prefix");
+    obj->set_endpoint("storage.googleapis.com");
+    obj->set_region("us-east1");
+    auto* credential = obj->mutable_credential()->mutable_gcp_credential();
+    credential->set_credential_provider_type(GcpCredentialPB::COMPUTE_ENGINE);
+    credential->set_impersonation_service_account("target@test.iam.gserviceaccount.com");
+
+    // Reject mixed authentication before persisting anything.
+    obj->set_ak("unexpected-key");
+    AlterObjStoreInfoResponse rejected;
+    meta_service->alter_obj_store_info(&cntl, &req, &rejected, nullptr);
+    ASSERT_EQ(rejected.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    obj->clear_ak();
+    AlterObjStoreInfoResponse res;
+    meta_service->alter_obj_store_info(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    txn.reset();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string val;
+    ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(instance.ParseFromString(val));
+    ASSERT_EQ(instance.obj_info_size(), 1);
+    ASSERT_EQ(instance.obj_info(0).credential().SerializeAsString(),
+              obj->credential().SerializeAsString());
+    ASSERT_FALSE(instance.obj_info(0).has_ak());
+    ASSERT_FALSE(instance.obj_info(0).has_encryption_info());
+}
+
+TEST(MetaServiceTest, AddRoleOnlyVaultDefaultsToInstanceProfile) {
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    std::string key;
+    instance_key({"test_instance"}, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("test_instance");
+    instance.set_enable_storage_vault(true);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    AlterObjStoreInfoRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
+    req.mutable_vault()->set_name("role_only_vault");
+    auto* obj = req.mutable_obj();
+    obj->set_provider(ObjectStoreInfoPB::S3);
+    obj->set_bucket("bucket");
+    obj->set_endpoint("s3.us-east-1.amazonaws.com");
+    obj->set_region("us-east-1");
+    obj->set_role_arn("arn:aws:iam::123456789012:role/test");
+    ASSERT_FALSE(obj->has_cred_provider_type());
+    AlterObjStoreInfoResponse res;
+    meta_service->alter_storage_vault(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    txn.reset();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string val;
+    ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(instance.ParseFromString(val));
+    ASSERT_EQ(instance.resource_ids_size(), 1);
+    ASSERT_EQ(txn->get(storage_vault_key({"test_instance", instance.resource_ids(0)}), &val),
+              TxnErrorCode::TXN_OK);
+    StorageVaultPB vault;
+    ASSERT_TRUE(vault.ParseFromString(val));
+    EXPECT_EQ(vault.obj_info().role_arn(), obj->role_arn());
+    EXPECT_EQ(vault.obj_info().cred_provider_type(), CredProviderTypePB::INSTANCE_PROFILE);
+}
+
 TEST(MetaServiceTest, StageTest) {
     auto meta_service = get_meta_service();
     brpc::Controller cntl;

@@ -101,7 +101,7 @@ Status call_iam_sign_blob(std::string_view access_token, std::string_view servic
     HttpClient client;
     // Keep the response body for non-2xx replies so IAM permission and
     // service-account errors are actionable to operators.
-    RETURN_IF_ERROR(client.init(endpoint, false));
+    RETURN_IF_ERROR(client.init(endpoint, false, HttpClient::AuthTokenMode::NONE));
     client.set_authorization("Bearer " + std::string(access_token));
     client.set_content_type("application/json");
     client.set_timeout_ms(request_timeout_ms > 0 ? request_timeout_ms : 10000);
@@ -133,7 +133,8 @@ Status fetch_metadata_service_account_email(int64_t request_timeout_ms, std::str
                                              : DEFAULT_METADATA_HOST;
     HttpClient client;
     RETURN_IF_ERROR(client.init(
-            fmt::format("http://{}{}", metadata_host, METADATA_SERVICE_ACCOUNT_EMAIL_PATH)));
+            fmt::format("http://{}{}", metadata_host, METADATA_SERVICE_ACCOUNT_EMAIL_PATH), true,
+            HttpClient::AuthTokenMode::NONE));
     client.set_header("Metadata-Flavor", "Google");
     client.set_timeout_ms(request_timeout_ms > 0
                                   ? std::min(request_timeout_ms, METADATA_REQUEST_TIMEOUT_MS)

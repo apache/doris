@@ -35,6 +35,8 @@ namespace doris {
 // Helper class to access HTTP resource
 class HttpClient {
 public:
+    enum class AuthTokenMode { CLUSTER, NONE };
+
     HttpClient();
     ~HttpClient();
 
@@ -47,7 +49,8 @@ public:
 
     // this function must call before other function,
     // you can call this multiple times to reuse this object
-    Status init(const std::string& url, bool set_fail_on_error = true);
+    Status init(const std::string& url, bool set_fail_on_error = true,
+                AuthTokenMode auth_token_mode = AuthTokenMode::CLUSTER);
 
     void set_method(HttpMethod method);
 

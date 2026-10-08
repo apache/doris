@@ -19,9 +19,18 @@
 
 #include <algorithm>
 #include <cctype>
+#include <regex>
 #include <utility>
 
 namespace doris {
+
+bool is_valid_gcp_storage_endpoint(std::string_view endpoint) {
+    // Match the FE GcpAuth policy: Google-owned XML API hosts, HTTPS and port 443 only.
+    static const std::regex pattern(
+            R"(https://([a-z0-9-]+\.)*(storage\.googleapis\.com|[a-z0-9-]+-storage\.googleapis\.com|storage\.[a-z0-9-]+\.rep\.googleapis\.com)(:443)?/?)",
+            std::regex::icase);
+    return std::regex_match(endpoint.begin(), endpoint.end(), pattern);
+}
 
 bool is_valid_gcp_service_account_email(std::string_view email) {
     constexpr std::string_view user_managed_suffix = ".iam.gserviceaccount.com";

@@ -172,17 +172,28 @@ S3ClientConf make_gcp_native_conf(std::string impersonation_service_account = {}
 
 class FixedTokenGcpS3Client final : public GcpS3Client {
 public:
-    FixedTokenGcpS3Client()
-            : GcpS3Client(GcpCredentialConfig {}, "", Aws::Client::ClientConfiguration {},
+    explicit FixedTokenGcpS3Client(std::string endpoint = "https://storage.googleapis.com")
+            : GcpS3Client(GcpCredentialConfig {}, "", make_config(endpoint),
                           Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, true) {}
 
     using GcpS3Client::BuildHttpRequest;
     using GcpS3Client::authorize_request;
 
     std::optional<std::string> token = "test-gcp-token";
+    mutable int token_requests = 0;
 
 protected:
-    std::optional<std::string> fetch_token() const override { return token; }
+    std::optional<std::string> fetch_token() const override {
+        ++token_requests;
+        return token;
+    }
+
+private:
+    static Aws::Client::ClientConfiguration make_config(const std::string& endpoint) {
+        Aws::Client::ClientConfiguration config;
+        config.endpointOverride = endpoint;
+        return config;
+    }
 };
 
 class SyncPointProcessingGuard {
@@ -407,7 +418,7 @@ TEST_F(S3ClientFactoryTest, GcpBearerHeaderSurvivesAnonymousAwsSigning) {
             Aws::Http::HttpMethod::HTTP_GET,
             Aws::Utils::Stream::DefaultResponseStreamFactoryMethod);
 
-    ASSERT_FALSE(client.authorize_request(request).has_value());
+    ASSERT_FALSE(client.authorize_request(request, request.GetBucket()).has_value());
     client.BuildHttpRequest(request, http_request);
     EXPECT_EQ(http_request->GetHeaderValue("Authorization"), "Bearer test-gcp-token");
 
@@ -418,6 +429,36 @@ TEST_F(S3ClientFactoryTest, GcpBearerHeaderSurvivesAnonymousAwsSigning) {
             std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>(), "s3", "us-east-1");
     EXPECT_TRUE(signer.SignRequest(*http_request));
     EXPECT_EQ(http_request->GetHeaderValue("Authorization"), "Bearer test-gcp-token");
+}
+
+TEST_F(S3ClientFactoryTest, GcpRejectsUntrustedEndpointsBeforeFetchingToken) {
+    for (const auto* endpoint : {"https://attacker.example", "http://storage.googleapis.com",
+                                 "https://storage.googleapis.com.attacker.example",
+                                 "https://storage.googleapis.com@attacker.example",
+                                 "https://storage.googleapis.com:8443", ""}) {
+        FixedTokenGcpS3Client client(endpoint);
+        Aws::S3::Model::GetObjectRequest request;
+        request.SetBucket("bucket");
+        request.SetKey("key");
+        auto outcome = client.GetObject(request);
+        ASSERT_FALSE(outcome.IsSuccess()) << endpoint;
+        EXPECT_EQ(outcome.GetError().GetExceptionName(), "GcpEndpointError");
+        EXPECT_EQ(client.token_requests, 0);
+    }
+    FixedTokenGcpS3Client client;
+    Aws::S3::Model::GetObjectRequest request;
+    request.SetBucket("arn:aws:s3:us-east-1:123456789012:accesspoint/example");
+    EXPECT_FALSE(client.GetObject(request).IsSuccess());
+    EXPECT_EQ(client.token_requests, 0);
+}
+
+TEST_F(S3ClientFactoryTest, GcpAcceptsGoogleStorageEndpoints) {
+    for (const auto* endpoint :
+         {"https://storage.googleapis.com", "https://bucket.storage.googleapis.com:443/",
+          "https://us-central1-storage.googleapis.com",
+          "https://storage.us-central1.rep.googleapis.com"}) {
+        EXPECT_TRUE(is_valid_gcp_storage_endpoint(endpoint)) << endpoint;
+    }
 }
 
 TEST_F(S3ClientFactoryTest, GcpTokenFailureRejectsEveryObjectStorageOperation) {

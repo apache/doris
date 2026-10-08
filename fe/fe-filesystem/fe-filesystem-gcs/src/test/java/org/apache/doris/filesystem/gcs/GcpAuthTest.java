@@ -89,4 +89,20 @@ public class GcpAuthTest {
                 () -> interceptor.modifyHttpRequest(context, new ExecutionAttributes()));
         Assertions.assertTrue(exception.getMessage().contains("Failed to obtain a GCP access token"));
     }
+
+    @Test
+    public void testUntrustedResolvedRequestIsRejectedBeforeFetchingToken() {
+        GoogleCredentials credentials = Mockito.mock(GoogleCredentials.class);
+        ExecutionInterceptor interceptor = GcpAuth.bearerTokenInterceptor(credentials);
+        Context.ModifyHttpRequest context = Mockito.mock(Context.ModifyHttpRequest.class);
+        for (String endpoint : new String[] {"https://attacker.example/bucket/key",
+                "http://storage.googleapis.com/bucket/key", "https://storage.googleapis.com.attacker.example/key",
+                "https://storage.googleapis.com:8443/key"}) {
+            Mockito.when(context.httpRequest()).thenReturn(SdkHttpRequest.builder()
+                    .uri(URI.create(endpoint)).method(SdkHttpMethod.GET).build());
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> interceptor.modifyHttpRequest(context, new ExecutionAttributes()));
+        }
+        Mockito.verifyNoInteractions(credentials);
+    }
 }

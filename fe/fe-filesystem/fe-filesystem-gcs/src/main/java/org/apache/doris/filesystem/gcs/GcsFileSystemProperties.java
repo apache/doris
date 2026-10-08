@@ -135,6 +135,9 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
     @Override
     public void validate() {
         validateHmacDialect("gs", "GCS");
+        if (auth.getNativeCredential().isPresent()) {
+            GcpAuth.validateEndpoint(getEndpoint());
+        }
     }
 
     @Override

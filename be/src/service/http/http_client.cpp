@@ -281,7 +281,8 @@ HttpClient::~HttpClient() {
     }
 }
 
-Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
+Status HttpClient::init(const std::string& url, bool set_fail_on_error,
+                        AuthTokenMode auth_token_mode) {
     if (_curl == nullptr) {
         _curl = curl_easy_init();
         if (_curl == nullptr) {
@@ -358,9 +359,11 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         return Status::InternalError("fail to set CURLOPT_URL");
     }
 
+    if (auth_token_mode == AuthTokenMode::CLUSTER) {
 #ifndef BE_TEST
-    set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
+        set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
 #endif
+    }
     return Status::OK();
 }
 
