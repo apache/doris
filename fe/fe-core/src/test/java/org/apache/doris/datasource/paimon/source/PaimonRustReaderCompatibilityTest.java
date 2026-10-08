@@ -30,9 +30,9 @@ import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -461,7 +461,7 @@ public class PaimonRustReaderCompatibilityTest {
                 .option("file.format", "parquet").option("deletion-vectors.enabled", "false")
                 .option("read.batch-size", "16").option("scan.manifest.parallelism", "1");
         options.forEach(schema::option);
-        new SchemaManager(fileIO, path).createTable(schema.build());
+        new FileSystemSchemaManager(fileIO, path).createTable(schema.build());
         return FileStoreTableFactory.create(fileIO, path);
     }
 
