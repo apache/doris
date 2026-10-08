@@ -48,6 +48,7 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/condition_cache.h"
 #include "storage/tablet/tablet_schema.h"
@@ -269,8 +270,9 @@ VExprContextSPtr make_capturing_ctx(const VExprSPtr& expr) {
     std::vector<IndexFieldNameAndTypePair> storage_types;
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     ColumnIteratorOptions column_iter_opts;
-    auto index_ctx = std::make_shared<IndexExecContext>(index_iters, storage_types, status_map,
-                                                        nullptr, nullptr, column_iter_opts);
+    auto index_ctx = std::make_shared<IndexExecContext>(
+            index_iters, storage_types, status_map, nullptr, nullptr, column_iter_opts,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
     ctx->set_index_context(index_ctx);
     return ctx;
 }
@@ -309,7 +311,8 @@ VExprContextSPtr make_virtual_slot_ctx(const VExprSPtr& virtual_expr) {
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     ColumnIteratorOptions column_iter_opts;
     ctx->set_index_context(std::make_shared<IndexExecContext>(
-            index_iters, storage_types, status_map, nullptr, nullptr, column_iter_opts));
+            index_iters, storage_types, status_map, nullptr, nullptr, column_iter_opts,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {})));
     return ctx;
 }
 
