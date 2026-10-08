@@ -366,9 +366,6 @@ public:
     // Only single scalar root column
     bool is_scalar_variant() const;
 
-    // Output adapters must use the same root/document precedence as legacy JSON serialization.
-    bool is_visible_root_value(size_t nrow) const;
-
     ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
 
     bool has_subcolumn(const PathInData& key) const;
@@ -683,6 +680,8 @@ private:
             size_t start, size_t length);
 
     bool try_add_new_subcolumn(const PathInData& path);
+
+    bool is_visible_root_value(size_t nrow) const;
 };
 
 } // namespace doris

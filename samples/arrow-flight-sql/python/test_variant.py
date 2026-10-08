@@ -19,7 +19,7 @@ specific language governing permissions and limitations
 under the License.
 """
 
-"""Run with DORIS_FLIGHT_URI, DORIS_USER and DORIS_PASSWORD in the environment."""
+"""Run against a Variant V2 cluster with DORIS_FLIGHT_URI, DORIS_USER and DORIS_PASSWORD."""
 
 import os
 import unittest
@@ -36,8 +36,8 @@ class NativeVariantTest(unittest.TestCase):
             adbc_driver_manager.DatabaseOptions.USERNAME.value: os.environ.get("DORIS_USER", "root"),
             adbc_driver_manager.DatabaseOptions.PASSWORD.value: os.environ.get("DORIS_PASSWORD", ""),
         }
-        query = """SELECT 1 AS id, CAST(42 AS VARIANT) AS v
-                   UNION ALL SELECT 2, CAST(NULL AS VARIANT)"""
+        query = """SELECT 1 AS id, parse_to_variant('42') AS v
+                   UNION ALL SELECT 2, parse_to_variant(CAST(NULL AS STRING))"""
         with adbc_driver_flightsql.connect(uri, db_kwargs=options) as database:
             with adbc_driver_manager.AdbcConnection(database) as connection:
                 def execute(sql):

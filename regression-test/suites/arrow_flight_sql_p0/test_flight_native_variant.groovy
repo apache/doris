@@ -32,9 +32,8 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
     assertNotNull(frontend)
     assertTrue(frontend.ArrowFlightSqlPort.toString().toInteger() > 0)
     def database = jdbc_sql("SELECT DATABASE()")[0][0]
-    // Match ingestion to the configured Variant representation; legacy expression roots
-    // cannot be cast to a table Variant with a different subcolumn limit.
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = variantV2 ? "parse_to_variant" : ""
     def table = "${database}.flight_native_variant_input"
     def allocator = new RootAllocator(Long.MAX_VALUE)
     def feClient = FlightClient.builder(allocator,
@@ -71,6 +70,16 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
         count
     }
     def executeSetting = { String query -> read(query, { root -> }) }
+    def expectUnsupported = { Closure operation ->
+        Exception failure = null
+        try {
+            operation()
+        } catch (Exception e) {
+            failure = e
+        }
+        assertNotNull(failure, "Native legacy Variant output must fail")
+        assertTrue(failure.toString().contains("only supports Variant V2"), failure.toString())
+    }
     try {
         auth = feClient.authenticateBasicToken(context.config.otherConfigs.get("extArrowFlightSqlUser"),
                 context.config.otherConfigs.get("extArrowFlightSqlPassword")).get()
@@ -92,6 +101,25 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
             executeSetting("SET enable_parallel_result_sink=${parallel}")
             [false, true, false].each { nativeVariant ->
                 executeSetting("SET enable_arrow_flight_sql_native_variant=${nativeVariant}")
+                if (nativeVariant && !variantV2) {
+                    // Reject by type even for constants, SQL NULL, and empty result sets.
+                    ["SELECT id, v FROM ${table}",
+                     "SELECT CAST(42 AS VARIANT) AS v",
+                     "SELECT CAST(NULL AS VARIANT) AS v",
+                     "SELECT v FROM ${table} WHERE id < 0"].each { query ->
+                        expectUnsupported { read(query.toString(), { root -> }) }
+                        expectUnsupported { client.getExecuteSchema(query.toString(), auth) }
+                        expectUnsupported {
+                            def prepared = client.prepare(query.toString(), auth)
+                            try {
+                                prepared.resultSetSchema
+                            } finally {
+                                prepared.close(auth)
+                            }
+                        }
+                    }
+                    return
+                }
                 def seen = []
                 assertEquals(60, read("SELECT id, v FROM ${table}", { root ->
                     def vector = root.getVector(1)
@@ -123,7 +151,7 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
                     }
                 }, parallel, resultBackendCount))
                 assertEquals((1..60).toList(), seen.sort())
-                // Legacy Variant is not a legal ARRAY() argument; nested SQL coverage requires V2.
+                // Exercise nested native output only for V2; legacy uses the existing UTF8 path.
                 def scannedColumns = variantV2Function
                         ? "v, ARRAY(v) AS a, MAP('key', v) AS m, STRUCT(v) AS s" : "v"
                 // Prepare and GetSchema must advertise the same Variant leaves as execution.
@@ -154,12 +182,13 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
                 }
             }
         }
+        if (!variantV2) {
+            return
+        }
         executeSetting("SET enable_arrow_flight_sql_native_variant=true")
         // Each row owns its wire dictionary; unrelated keys must not multiply Arrow metadata.
         def keyExpression = "CONCAT(REPEAT('k', 244), LPAD(CAST(number AS STRING), 6, '0'))"
-        def variantExpression = variantV2Function
-                ? """parse_to_variant(CONCAT('{"', ${keyExpression}, '":', CAST(number AS STRING), '}'))"""
-                : "CAST(MAP(${keyExpression}, number) AS VARIANT)"
+        def variantExpression = """parse_to_variant(CONCAT('{"', ${keyExpression}, '":', CAST(number AS STRING), '}'))"""
         def metadataRows = []
         assertEquals(128, read("SELECT number AS id, ${variantExpression} AS v FROM numbers(\"number\"=\"128\")", { root ->
             def variant = root.getVector(1)
@@ -172,10 +201,10 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
         }))
         assertEquals((0..<128).toList(), metadataRows.sort())
         // A folded constant must use the same wire representation as a scanned Variant column.
-        assertEquals(1, read("SELECT CAST(42 AS VARIANT) AS v", { root ->
+        assertEquals(1, read("SELECT parse_to_variant('42') AS v", { root ->
             assertEquals("arrow.parquet.variant", root.getVector(0).field.metadata.get("ARROW:extension:name"))
         }))
-        assertEquals(0, read("SELECT v FROM ${table} WHERE id < 0", { root -> }))
+        assertEquals(0, read("SELECT parse_to_variant(CAST(id AS STRING)) AS v FROM ${table} WHERE id < 0", { root -> }))
     } finally {
         try {
             if (auth != null) {

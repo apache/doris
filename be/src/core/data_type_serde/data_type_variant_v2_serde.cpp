@@ -43,7 +43,6 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type_serde/data_type_string_serde.h"
-#include "core/data_type_serde/variant_arrow_utils.h"
 #include "core/types.h"
 #include "core/value/jsonb_value.h"
 #include "core/value/variant/variant_batch_builder.h"
@@ -53,12 +52,13 @@
 #include "util/mysql_row_buffer.h"
 
 namespace doris {
+namespace {
 
 // ColumnVariantV2 already validates its encoded dictionaries and value structure. Only walk
 // the selected row here: validating every unused dictionary key per row is quadratic for
 // shared dictionaries, including when a nested ARRAY invokes this writer on one-row slices.
 Status append_flight_variant_value(VariantRef value, VariantBatchBuilder::Row& output,
-                                   size_t depth) {
+                                   size_t depth = 0) {
     const auto basic_type = value.basic_type();
     if (depth > VARIANT_MAX_NESTING_DEPTH) {
         return Status::NotSupported(
@@ -95,8 +95,6 @@ Status append_flight_variant_value(VariantRef value, VariantBatchBuilder::Row& o
     }
     return Status::OK();
 }
-
-namespace {
 
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
