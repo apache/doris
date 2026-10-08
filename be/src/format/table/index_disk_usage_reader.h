@@ -28,6 +28,7 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "storage/index/index_disk_usage.h"
+#include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
 class Block;
@@ -82,6 +83,10 @@ public:
     // The IO context of one tablet: the query context plus the tablet TTL that classifies its
     // reads in the file cache.
     static io::IOContext tablet_io_context(const io::IOContext& query_io_ctx, int64_t ttl_seconds);
+    // The rowsets of a tablet through `version`. A cloud tablet first syncs with meta-service, so
+    // rowsets that a compaction on another backend replaced are not reported.
+    static Result<std::vector<RowsetSharedPtr>> capture_rowsets(const BaseTabletSPtr& tablet,
+                                                                int64_t version);
 
 protected:
     Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }

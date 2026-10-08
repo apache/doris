@@ -201,18 +201,7 @@ Status IndexDiskUsageReader::_collect_tablet(const TIndexDiskUsageTablet& target
                                              std::vector<IndexDiskUsageRow>* rows,
                                              TabletSchemaSPtr* current_schema) const {
     BaseTabletSPtr tablet = DORIS_TRY(ExecEnv::get_tablet(target.tablet_id));
-    if (auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(tablet)) {
-        SyncOptions options;
-        options.query_version = target.version;
-        RETURN_IF_ERROR(cloud_tablet->sync_rowsets(options));
-    }
-    std::vector<RowsetSharedPtr> rowsets;
-    {
-        std::shared_lock rdlock(tablet->get_header_lock());
-        auto captured = DORIS_TRY(tablet->capture_consistent_rowsets_unlocked(
-                Version(0, target.version), CaptureRowsetOps {}));
-        rowsets = std::move(captured.rowsets);
-    }
+    const std::vector<RowsetSharedPtr> rowsets = DORIS_TRY(capture_rowsets(tablet, target.version));
     *current_schema = label_schema(tablet->tablet_schema(), rowsets);
 
     const io::IOContext io_ctx = tablet_io_context(_io_ctx, tablet->ttl_seconds());
@@ -223,6 +212,22 @@ Status IndexDiskUsageReader::_collect_tablet(const TIndexDiskUsageTablet& target
                                                                     target.tablet_id, rows));
     }
     return Status::OK();
+}
+
+Result<std::vector<RowsetSharedPtr>> IndexDiskUsageReader::capture_rowsets(
+        const BaseTabletSPtr& tablet, int64_t version) {
+    if (auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(tablet)) {
+        // A compaction elsewhere may replace cached rowsets without changing the visible version,
+        // so this does not stop at a cached `version` the way a query sync does.
+        RETURN_IF_ERROR_RESULT(cloud_tablet->sync_rowsets());
+    }
+    std::shared_lock rdlock(tablet->get_header_lock());
+    auto captured =
+            tablet->capture_consistent_rowsets_unlocked(Version(0, version), CaptureRowsetOps {});
+    if (!captured.has_value()) {
+        return ResultError(std::move(captured.error()));
+    }
+    return std::move(captured.value().rowsets);
 }
 
 TabletSchemaSPtr IndexDiskUsageReader::label_schema(const TabletSchemaSPtr& tablet_schema,
