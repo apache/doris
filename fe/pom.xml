@@ -627,6 +627,7 @@ under the License.
                 <artifactId>quartz</artifactId>
                 <version>${quartz.version}</version>
             </dependency>
+            <!-- Maven 3.10+ rejects duplicate coordinates in dependencyManagement. -->
             <dependency>
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
@@ -1927,11 +1928,6 @@ under the License.
                         <artifactId>jetty-jakarta-servlet-api</artifactId>
                     </exclusion>
                 </exclusions>
-            </dependency>
-            <dependency>
-                <groupId>com.nimbusds</groupId>
-                <artifactId>nimbus-jose-jwt</artifactId>
-                <version>${nimbusds.version}</version>
             </dependency>
             <dependency>
                 <groupId>jakarta.annotation</groupId>
