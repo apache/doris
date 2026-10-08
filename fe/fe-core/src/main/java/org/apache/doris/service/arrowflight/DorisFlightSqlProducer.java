@@ -238,6 +238,21 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 if (connectContext.getState().getStateType() == MysqlStateType.ERR) {
                     throw new RuntimeException("after executeQueryStatement handleQuery");
                 }
+                // A statement forwarded to the master that was rejected there keeps the local
+                // state OK: the MySQL protocol path returns the master's ERR packet verbatim in
+                // ConnectProcessor#finalizeCommand and the audit log reads the proxy status (see
+                // the multi-statement loop in ConnectProcessor#handleQuery). Arrow Flight has no
+                // channel for that packet, so the forwarded rejection must be surfaced here;
+                // otherwise the OK result synthesized below would report success for a statement
+                // the master refused to execute.
+                StmtExecutor stmtExecutor = connectContext.getExecutor();
+                if (stmtExecutor != null && stmtExecutor.hasForwardedToMaster()
+                        && stmtExecutor.getProxyStatusCode() != 0) {
+                    connectContext.getState().setError("forwarded statement failed on master FE, error code: "
+                            + stmtExecutor.getProxyStatusCode() + ", error msg: "
+                            + stmtExecutor.getProxyErrMsg());
+                    throw new RuntimeException("after executeQueryStatement forwardToMaster");
+                }
 
                 if (connectContext.isReturnResultFromLocal()) {
                     // set/use etc. stmt returns an OK result by default.

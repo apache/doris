@@ -4237,32 +4237,13 @@ public class Config extends ConfigBase {
     public static long lance_catalog_arrow_memory_limit_bytes = 256L * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "是否启用 Lance 外表索引变更(CREATE/CREATE OR REPLACE/DROP INDEX)的 admission。默认关闭;"
-                    + "启用前需确认未决 job 配额均为正值。注意:在 dispatch(后续版本)与 FORCE_RELEASE(后续版本)就绪前"
-                    + "开启本开关会产生不可回收的 PENDING job 并冻结对应 catalog 的身份属性变更与 DROP CATALOG。",
-            "Enable admission of Lance index mutations (CREATE/CREATE OR REPLACE/DROP INDEX). "
-                    + "Disabled by default; unresolved-job quotas must be positive before enabling. "
-                    + "WARNING: enabling before dispatch and FORCE_RELEASE land in a later release creates "
-                    + "PENDING jobs that cannot be resolved and freezes catalog identity changes and DROP CATALOG."})
+            "是否启用 Lance 外表索引变更(CREATE/CREATE OR REPLACE/DROP INDEX)的权威校验路径。默认关闭;"
+                    + "在同步执行路径就绪前,开启本开关只会让通过校验的语句收到暂不支持的错误。",
+            "Enable the authoritative validation path of Lance index mutations "
+                    + "(CREATE/CREATE OR REPLACE/DROP INDEX). Disabled by default; until the synchronous "
+                    + "execution path lands, enabling it only makes validated statements fail with the "
+                    + "not-supported error."})
     public static boolean enable_lance_index_mutation = false;
-
-    @ConfField(mutable = true, masterOnly = true,
-            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
-            description = {"单个 Lance 数据表(locator 身份)允许的最大未决索引 job 数。",
-                    "Max unresolved Lance index jobs per table (locator identity)."})
-    public static long lance_index_job_max_unresolved_per_table = 8;
-
-    @ConfField(mutable = true, masterOnly = true,
-            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
-            description = {"单个 Lance catalog 允许的最大未决索引 job 数。",
-                    "Max unresolved Lance index jobs per catalog."})
-    public static long lance_index_job_max_unresolved_per_catalog = 64;
-
-    @ConfField(mutable = true, masterOnly = true,
-            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
-            description = {"全部 catalog 合计允许的最大未决 Lance 索引 job 数。",
-                    "Max unresolved Lance index jobs across all catalogs (global)."})
-    public static long lance_index_job_max_unresolved_global = 256;
 
     @ConfField(mutable = true, masterOnly = true,
             callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,

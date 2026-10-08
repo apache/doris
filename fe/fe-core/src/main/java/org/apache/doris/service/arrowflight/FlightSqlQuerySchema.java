@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.es.EsExternalCatalog;
-import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -46,7 +45,6 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
-import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
@@ -64,8 +62,6 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
-import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTVFCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -361,17 +357,6 @@ final class FlightSqlQuerySchema {
             return stringMetadata("Explain String(Nereids Planner)");
         } else if (command instanceof ReplayCommand) {
             return stringMetadata("Plan Replayer dump url");
-        } else if (command instanceof AlterTableCommand) {
-            AlterTableCommand alter = (AlterTableCommand) command;
-            String catalog = alter.getTbl().getCtl();
-            // Lance index admission returns a JobId header even for an IF no-op. Do not run
-            // validation/admission here: those paths can resolve remote tables or allocate IDs.
-            if (context.getCatalog(catalog == null ? context.getDefaultCatalog() : catalog)
-                    instanceof LanceExternalCatalog && alter.getNereidsOps().stream().anyMatch(op ->
-                        (op instanceof CreateIndexOp && !((CreateIndexOp) op).isAlter())
-                                || (op instanceof DropIndexOp && !((DropIndexOp) op).isAlter()))) {
-                return stringMetadata("JobId");
-            }
         }
         ResultSetMetaData metadata = command.getResultSetMetaData();
         // Concrete DML commands return OK, but subclasses such as WARM UP SELECT supply rows.
