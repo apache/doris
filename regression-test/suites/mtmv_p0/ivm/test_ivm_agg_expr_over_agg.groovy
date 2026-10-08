@@ -62,6 +62,7 @@ suite("test_ivm_agg_expr_over_agg") {
     sql """drop materialized view if exists test_ivm_expr_over_agg_cnt_star;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_avg_round;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_bitmap;"""
+    sql """drop materialized view if exists test_ivm_expr_over_agg_bitmap_union;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_agg_arg;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_key_expr;"""
     sql """drop materialized view if exists test_ivm_expr_over_agg_full_keys;"""
@@ -266,6 +267,20 @@ suite("test_ivm_agg_expr_over_agg") {
     qt_bitmap_desc """DESC test_ivm_expr_over_agg_bitmap"""
     sql """set show_hidden_columns=false"""
 
+    // BITMAP_UNION wrapped in BITMAP_COUNT: the bitmap is the aggregate state and the visible
+    // column is consumed by the outer function, so the state is materialized as a hidden carrier
+    // and apply merges through it.
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_expr_over_agg_bitmap_union
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS SELECT k, BITMAP_COUNT(BITMAP_UNION(TO_BITMAP(v))) AS b FROM test_ivm_expr_over_agg_base GROUP BY k;
+    """
+    sql """set show_hidden_columns=true"""
+    qt_bitmap_union_desc """DESC test_ivm_expr_over_agg_bitmap_union"""
+    sql """set show_hidden_columns=false"""
+
     // The expression sits inside the aggregate, so the visible column is the state.
     sql """
         CREATE MATERIALIZED VIEW test_ivm_expr_over_agg_agg_arg
@@ -313,6 +328,7 @@ suite("test_ivm_agg_expr_over_agg") {
     refreshIncremental("test_ivm_expr_over_agg_cnt_star")
     refreshIncremental("test_ivm_expr_over_agg_avg_round")
     refreshIncremental("test_ivm_expr_over_agg_bitmap")
+    refreshIncremental("test_ivm_expr_over_agg_bitmap_union")
     refreshIncremental("test_ivm_expr_over_agg_agg_arg")
     refreshIncremental("test_ivm_expr_over_agg_key_expr")
 
@@ -336,6 +352,10 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_initial_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
     order_qt_initial_sum_avg_mul_source """
         SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
+
+    order_qt_initial_bitmap_union """SELECT k, b FROM test_ivm_expr_over_agg_bitmap_union"""
+    order_qt_initial_bitmap_union_source """
+        SELECT k, BITMAP_COUNT(BITMAP_UNION(TO_BITMAP(v))) AS b FROM test_ivm_expr_over_agg_base GROUP BY k"""
 
     // Insert a new non-extremal value per group so later MIN/MAX merges stay incremental.
     sql """INSERT INTO test_ivm_expr_over_agg_base VALUES (6, 1, 30), (7, 2, 35);"""
@@ -375,9 +395,14 @@ suite("test_ivm_agg_expr_over_agg") {
     // not incrementally maintainable (the delete guard requires COMPLETE), which is a pre-existing
     // bitmap limitation covered by test_ivm_bitmap_runtime_fallback, not a wrapped-expression one.
     refreshIncremental("test_ivm_expr_over_agg_bitmap")
+    refreshIncremental("test_ivm_expr_over_agg_bitmap_union")
     order_qt_after_insert_bitmap """SELECT k, b FROM test_ivm_expr_over_agg_bitmap"""
     order_qt_after_insert_bitmap_source """
         SELECT k, BITMAP_UNION_COUNT(TO_BITMAP(v)) + 0 AS b FROM test_ivm_expr_over_agg_base GROUP BY k"""
+
+    order_qt_after_insert_bitmap_union """SELECT k, b FROM test_ivm_expr_over_agg_bitmap_union"""
+    order_qt_after_insert_bitmap_union_source """
+        SELECT k, BITMAP_COUNT(BITMAP_UNION(TO_BITMAP(v))) AS b FROM test_ivm_expr_over_agg_base GROUP BY k"""
 
     // Update id=2 (k=1: 20 -> 25), a non-extremal value of k=1.
     sql """INSERT INTO test_ivm_expr_over_agg_base VALUES (2, 1, 25);"""
@@ -624,6 +649,12 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_complete_bitmap_source """
         SELECT k, BITMAP_UNION_COUNT(TO_BITMAP(v)) + 0 AS b FROM test_ivm_expr_over_agg_base GROUP BY k"""
 
+    sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_bitmap_union COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_bitmap_union")
+    order_qt_complete_bitmap_union """SELECT k, b FROM test_ivm_expr_over_agg_bitmap_union"""
+    order_qt_complete_bitmap_union_source """
+        SELECT k, BITMAP_COUNT(BITMAP_UNION(TO_BITMAP(v))) AS b FROM test_ivm_expr_over_agg_base GROUP BY k"""
+
     sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_agg_arg COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_agg_arg")
     order_qt_complete_agg_arg """SELECT k, s FROM test_ivm_expr_over_agg_agg_arg"""
@@ -774,4 +805,56 @@ suite("test_ivm_agg_expr_over_agg") {
     order_qt_pair_complete_avgx_avgy """SELECT k, p FROM test_ivm_expr_over_agg_avgx_avgy"""
     order_qt_pair_complete_avgx_avgy_source """
         SELECT k, AVG(x) * AVG(y) AS p FROM test_ivm_expr_over_agg_pair_base GROUP BY k"""
+
+    // =========================================================
+    // Part 8: an aggregate whose result is the MV's key column
+    // and is therefore clamped to VARCHAR(65533). The refresh
+    // plan wraps the aggregate output in binder projects that
+    // rename it and coerce it back into the MV column, so the
+    // state column must keep its own name instead of acquiring a
+    // new carrier that the MV does not have.
+    // =========================================================
+
+    sql """drop materialized view if exists test_ivm_expr_over_agg_clamped_key;"""
+    sql """drop table if exists test_ivm_expr_over_agg_str_base;"""
+
+    sql """
+        CREATE TABLE test_ivm_expr_over_agg_str_base (
+            id INT,
+            s STRING
+        )
+        UNIQUE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "enable_unique_key_merge_on_write" = "true"
+        );
+    """
+    sql """INSERT INTO test_ivm_expr_over_agg_str_base VALUES (1, 'aaa'), (2, 'bbb'), (3, 'ccc');"""
+
+    sql """
+        CREATE MATERIALIZED VIEW test_ivm_expr_over_agg_clamped_key
+        BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS SELECT MIN(s) AS m FROM test_ivm_expr_over_agg_str_base;
+    """
+    sql """set show_hidden_columns=true"""
+    qt_clamped_key_desc """DESC test_ivm_expr_over_agg_clamped_key"""
+    sql """set show_hidden_columns=false"""
+
+    sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_clamped_key COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_clamped_key")
+    order_qt_clamped_key """SELECT m FROM test_ivm_expr_over_agg_clamped_key"""
+    order_qt_clamped_key_source """SELECT MIN(s) AS m FROM test_ivm_expr_over_agg_str_base"""
+
+    // Delete the current minimum so the complete refresh has to rebuild the state.
+    sql """DELETE FROM test_ivm_expr_over_agg_str_base WHERE id = 1;"""
+    sql """INSERT INTO test_ivm_expr_over_agg_str_base VALUES (4, 'aaaa');"""
+    sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_clamped_key COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_clamped_key")
+    order_qt_clamped_key_after_delete """SELECT m FROM test_ivm_expr_over_agg_clamped_key"""
+    order_qt_clamped_key_after_delete_source """SELECT MIN(s) AS m FROM test_ivm_expr_over_agg_str_base"""
 }
