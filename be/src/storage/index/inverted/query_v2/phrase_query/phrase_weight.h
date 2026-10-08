@@ -75,6 +75,8 @@ private:
     index_query::IndexSourcePtr _source(const QueryExecutionContext& ctx,
                                         const std::string& binding_key) const;
     static bool _lists(const index_query::IndexSource& source) { return source.batches_reads(); }
+    void _list_matches(index_query::IndexSource& source, const roaring::Roaring* candidates,
+                       std::vector<uint32_t>* matched, std::vector<float>* frequencies);
     ScorerPtr _listed_scorer(index_query::IndexSource& source, const roaring::Roaring* candidates);
 };
 

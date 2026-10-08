@@ -159,6 +159,56 @@ private:
     mutable SegmentDomainNullIterator _iterator;
 };
 
+class ListedRowsWeight final : public Weight {
+public:
+    bool lists_rows(const QueryExecutionContext& /*context*/,
+                    const std::string& binding_key) const override {
+        EXPECT_EQ(binding_key, "bound-title");
+        return true;
+    }
+
+    index_query::TruthSet listed_rows(const QueryExecutionContext& /*context*/,
+                                      const std::string& binding_key,
+                                      const roaring::Roaring* candidates) override {
+        EXPECT_EQ(binding_key, "bound-title");
+        EXPECT_EQ(candidates, nullptr);
+        ++listed_calls;
+        return {.true_rows = roaring::Roaring::bitmapOf(1, 1U),
+                .null_rows = roaring::Roaring::bitmapOf(1, 2U)};
+    }
+
+    ScorerPtr scorer(const QueryExecutionContext& context,
+                     const std::string& binding_key) override {
+        EXPECT_EQ(binding_key, "bound-title");
+        ++scorer_calls;
+        BitSetWeight weight(std::make_shared<roaring::Roaring>(roaring::Roaring::bitmapOf(1, 1U)),
+                            std::make_shared<roaring::Roaring>(roaring::Roaring::bitmapOf(1, 2U)));
+        return weight.scorer(context);
+    }
+
+    int listed_calls = 0;
+    int scorer_calls = 0;
+};
+
+TEST(DocSetCollectorTest, ListedRowsAvoidScorersUnlessScoringIsEnabled) {
+    QueryExecutionContext context;
+    context.segment_num_rows = 8;
+    for (bool enable_scoring : {false, true}) {
+        SCOPED_TRACE(enable_scoring);
+        auto weight = std::make_shared<ListedRowsWeight>();
+        auto rows = std::make_shared<roaring::Roaring>(roaring::Roaring::bitmapOf(1, 3U));
+        auto nulls = roaring::Roaring::bitmapOf(1, 5U);
+        auto similarity = std::make_shared<CollectionSimilarity>();
+        collect_multi_segment_doc_set(weight, context, "bound-title", rows, similarity,
+                                      enable_scoring, &nulls);
+        EXPECT_EQ(*rows, roaring::Roaring::bitmapOf(2, 1U, 3U));
+        EXPECT_EQ(nulls, roaring::Roaring::bitmapOf(2, 2U, 5U));
+        EXPECT_EQ(weight->listed_calls, enable_scoring ? 0 : 1);
+        EXPECT_EQ(weight->scorer_calls, enable_scoring ? 1 : 0);
+        EXPECT_EQ(similarity->_bm25_scores.size(), enable_scoring ? 1 : 0);
+    }
+}
+
 TEST_F(MultiSegmentCollectorTest, CollectDocSetWithMultiReader) {
     auto* dir0 = FSDirectory::getDirectory((kTestDir + "/segment0").c_str());
     auto* dir1 = FSDirectory::getDirectory((kTestDir + "/segment1").c_str());

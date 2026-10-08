@@ -29,6 +29,14 @@ void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecution
     if (context.segment_num_rows == 0) {
         return;
     }
+    if (!enable_scoring && weight->lists_rows(context, binding_key)) {
+        auto rows = weight->listed_rows(context, binding_key, nullptr);
+        *roaring |= rows.true_rows;
+        if (null_rows != nullptr) {
+            *null_rows |= rows.null_rows;
+        }
+        return;
+    }
     auto scorer = weight->scorer(context, binding_key);
     if (!scorer) {
         return;

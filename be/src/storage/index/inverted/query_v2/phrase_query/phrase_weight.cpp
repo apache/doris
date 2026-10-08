@@ -29,7 +29,6 @@
 #include "common/check.h"
 #include "common/exception.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
-#include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 #include "storage/index/inverted/query_v2/const_score_query/const_score_scorer.h"
 #include "storage/index/inverted/query_v2/nullable_scorer.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
@@ -78,7 +77,7 @@ ScorerPtr SlotPhraseWeight::scorer(const QueryExecutionContext& ctx,
     return scorer;
 }
 
-// Only an unscored phrase lists its rows for a conjunction: a scored one scores them itself.
+// A scored phrase needs a scorer to retain its phrase frequencies.
 bool SlotPhraseWeight::lists_rows(const QueryExecutionContext& ctx,
                                   const std::string& binding_key) const {
     auto source = lookup_source(_field, ctx, binding_key);
@@ -103,7 +102,9 @@ index_query::TruthSet SlotPhraseWeight::listed_rows(const QueryExecutionContext&
         }
     }
     index_query::TruthSet result;
-    collect_true_rows(_listed_scorer(*source, listed), &result.true_rows);
+    std::vector<uint32_t> matched;
+    _list_matches(*source, listed, &matched, nullptr);
+    result.true_rows.addMany(matched.size(), matched.data());
     if (_nullable) {
         auto nulls = FieldNullBitmapFetcher::fetch(
                 ctx.null_resolver, logical_field_or_fallback(ctx, binding_key, _field));
@@ -1004,14 +1005,16 @@ Status verify_slots(std::span<const SlotCursors> slots, std::span<const Gathered
 
 } // namespace
 
-ScorerPtr SlotPhraseWeight::_listed_scorer(index_query::IndexSource& source,
-                                           const roaring::Roaring* candidates) {
+void SlotPhraseWeight::_list_matches(index_query::IndexSource& source,
+                                     const roaring::Roaring* candidates,
+                                     std::vector<uint32_t>* matched,
+                                     std::vector<float>* frequencies) {
     PhraseClauses clauses;
     std::vector<SlotCursors> slots;
     std::vector<std::vector<std::string>> waved;
     THROW_IF_ERROR(open_slots(source, _slots(), &clauses, &slots, &waved));
     if (slots.empty()) {
-        return std::make_shared<EmptyScorer>();
+        return;
     }
     if (_options.candidate_rows_consumed != nullptr) {
         *_options.candidate_rows_consumed = true;
@@ -1023,16 +1026,24 @@ ScorerPtr SlotPhraseWeight::_listed_scorer(index_query::IndexSource& source,
     THROW_IF_ERROR(list_rows(source, slots, waved, clauses.slot_docs, candidates, &rows, &held,
                              &gathered, selected));
     if (rows.empty()) {
-        return std::make_shared<EmptyScorer>();
+        return;
     }
     // The opened slots' positions at the rows, read in one round, then every row verified as the
     // slots are walked.
     THROW_IF_ERROR(prefetch_positions(slots, rows, held));
     THROW_IF_ERROR(source.fetch_pending());
+    THROW_IF_ERROR(verify_slots(slots, gathered, rows, held, clauses, _options, matched,
+                                frequencies, selected));
+}
+
+ScorerPtr SlotPhraseWeight::_listed_scorer(index_query::IndexSource& source,
+                                           const roaring::Roaring* candidates) {
     std::vector<uint32_t> matched;
     std::vector<float> frequencies;
-    THROW_IF_ERROR(verify_slots(slots, gathered, rows, held, clauses, _options, &matched,
-                                _enable_scoring ? &frequencies : nullptr, selected));
+    _list_matches(source, candidates, &matched, _enable_scoring ? &frequencies : nullptr);
+    if (matched.empty()) {
+        return std::make_shared<EmptyScorer>();
+    }
     if (!_enable_scoring) {
         auto matched_rows = std::make_shared<roaring::Roaring>();
         matched_rows->addMany(matched.size(), matched.data());
