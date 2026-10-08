@@ -104,6 +104,20 @@ public class PartitionTableInfo {
     }
 
     /**
+     * Paimon persists only partition column names. Reject expressions and explicit bounds
+     * that would otherwise be silently discarded when building its schema.
+     */
+    public void validatePaimonPartition() {
+        if (partitionList != null && partitionList.stream().anyMatch(expr -> !(expr instanceof UnboundSlot))) {
+            throw new AnalysisException("Paimon only supports partitioning by columns; "
+                    + "partition expressions are not supported");
+        }
+        if (partitionDefs != null && !partitionDefs.isEmpty()) {
+            throw new AnalysisException("Paimon does not support explicit partition definitions");
+        }
+    }
+
+    /**
      * check partitions types.
      */
     private boolean checkPartitionsTypes() {

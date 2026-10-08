@@ -1130,6 +1130,9 @@ public class CreateTableInfo {
      * analyzeEngine
      */
     public void analyzeEngine() {
+        if (engineName.equals(ENGINE_PAIMON)) {
+            partitionTableInfo.validatePaimonPartition();
+        }
         this.partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
         this.distributionDesc =
             distribution != null ? distribution.translateToCatalogStyle() : null;
