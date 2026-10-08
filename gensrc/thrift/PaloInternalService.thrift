@@ -540,6 +540,7 @@ struct TQueryOptions {
   // reads the data instead.
   // Defaults to false because an old FE never sends this field, and BE checked both cases before.
   1006: optional bool force_pushdown_zonemap_minmax = false
+  1007: optional bool enable_cloud_memtable_sink_upload = true;
 }
 
 

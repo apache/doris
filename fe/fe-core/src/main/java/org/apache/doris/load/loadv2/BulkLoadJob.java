@@ -110,6 +110,8 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+            sessionVariables.put(SessionVariable.ENABLE_CLOUD_MEMTABLE_SINK_UPLOAD,
+                    Boolean.toString(var.enableCloudMemtableSinkUpload));
             sessionVariables.put(SessionVariable.AUTO_PROFILE_THRESHOLD_MS,
                                     Long.toString(var.getAutoProfileThresholdMs()));
             sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(var.getProfileLevel()));

@@ -30,9 +30,14 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
+#include "common/config.h"
 #include "cpp/sync_point.h"
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
+#include "service/backend_options.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_meta.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -83,7 +88,13 @@ protected:
     int32_t _origin_thread_pool_size = 0;
 };
 
-TEST_F(CloudWarmUpManagerTest, NonPositiveTimeoutQueuesBackgroundCopyAndReturns) {
+TEST_F(CloudWarmUpManagerTest, LocalWarmupQueuesBackgroundCopyWithoutEventJobs) {
+    ClusterInfo cluster_info;
+    cluster_info.backend_id = 123;
+    auto* original_cluster_info = ExecEnv::GetInstance()->cluster_info();
+    ExecEnv::GetInstance()->set_cluster_info(&cluster_info);
+    Defer restore_cluster_info {
+            [&] { ExecEnv::GetInstance()->set_cluster_info(original_cluster_info); }};
     config::warm_up_manager_thread_pool_size = 1;
     CloudWarmUpManager manager(_engine);
 
@@ -118,10 +129,20 @@ TEST_F(CloudWarmUpManagerTest, NonPositiveTimeoutQueuesBackgroundCopyAndReturns)
 
     SyncPoint::CallbackGuard warmup_enter_guard;
     SyncPoint::get_instance()->set_call_back(
-            "CloudWarmUpManager::_warm_up_rowset.enter",
+            "CloudWarmUpManager::_do_warm_up_rowset",
             [&](std::vector<std::any>&& args) {
                 auto* rs_meta = try_any_cast<RowsetMeta*>(args[0]);
-                auto* timeout_ms = try_any_cast<int64_t*>(args[1]);
+                auto* replicas = try_any_cast<std::vector<JobReplicaInfo>*>(args[1]);
+                auto* timeout_ms = try_any_cast<int64_t*>(args[2]);
+                auto* skip_existence_check = try_any_cast<bool*>(args[3]);
+                auto* result = try_any_cast<std::pair<Status, bool>*>(args.back());
+                result->second = true;
+                ASSERT_EQ(1, replicas->size());
+                EXPECT_EQ(0, replicas->at(0).job_id);
+                EXPECT_EQ(123, replicas->at(0).replica.backend_id);
+                EXPECT_EQ(BackendOptions::get_localhost(), replicas->at(0).replica.host);
+                EXPECT_EQ(config::brpc_port, replicas->at(0).replica.brpc_port);
+                EXPECT_FALSE(*skip_existence_check);
                 {
                     std::lock_guard lock(observed_mtx);
                     observed_tablet_id = rs_meta->tablet_id();
@@ -138,7 +159,8 @@ TEST_F(CloudWarmUpManagerTest, NonPositiveTimeoutQueuesBackgroundCopyAndReturns)
 
     std::atomic<bool> returned = false;
     std::thread caller([&] {
-        manager.warm_up_rowset(*rs_meta, /*table_id=*/0, /*sync_wait_timeout_ms=*/-1);
+        manager.warm_up_rowset(*rs_meta, /*table_id=*/0, /*sync_wait_timeout_ms=*/-1,
+                               /*warm_up_local=*/true);
         returned = true;
     });
 

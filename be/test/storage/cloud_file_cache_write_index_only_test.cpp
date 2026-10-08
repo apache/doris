@@ -603,6 +603,35 @@ TEST_F(CloudFileCacheWriteIndexOnlyConfigTest,
     EXPECT_EQ(open_file_count, 0);
 }
 
+TEST_F(CloudFileCacheWriteIndexOnlyTest, RemoteSinkSkipsIndexPreload) {
+    auto context = create_context(create_schema(true));
+    context.disable_file_cache = true;
+    int load_count = 0;
+    SyncPoint::CallbackGuard guard;
+    SyncPoint::get_instance()->set_call_back(
+            "SegmentIndexFileCacheLoader::load_segment_index_to_file_cache",
+            [&](auto&& args) {
+                ++load_count;
+                auto* ret = try_any_cast_ret<Status>(args);
+                ret->first = Status::OK();
+                ret->second = true;
+            },
+            &guard);
+    SyncPoint::get_instance()->enable_processing();
+    segment_v2::SegmentIndexFileCacheInfo info;
+    info.segment_file_size = 2;
+    info.index_ranges.push_back({.offset = 1, .size = 1});
+    ASSERT_TRUE(segment_v2::SegmentIndexFileCacheLoader::preload_segment_index_to_file_cache(
+                        context, 0, "remote_sink.dat", info)
+                        .ok());
+    EXPECT_EQ(0, load_count);
+    context.disable_file_cache = false;
+    ASSERT_TRUE(segment_v2::SegmentIndexFileCacheLoader::preload_segment_index_to_file_cache(
+                        context, 0, "remote_sink.dat", info)
+                        .ok());
+    EXPECT_EQ(1, load_count);
+}
+
 TEST_F(CloudFileCacheWriteIndexOnlyTest,
        LoadUsesTheWholeBlockWritePathAndPreloadsAfterAllSegmentFilesClosed) {
     auto tablet_schema = create_schema(true);
