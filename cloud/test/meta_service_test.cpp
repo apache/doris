@@ -4759,6 +4759,10 @@ TEST(MetaServiceTest, FilterCopyFilesTest) {
     auto stage_id = "test_stage_id";
     int64_t table_id = 100;
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
