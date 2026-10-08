@@ -240,7 +240,10 @@ bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunk
     // to the owning metadata so page-to-row mapping cannot silently move by one physical page.
     const uint64_t chunk_begin = chunk_range.offset;
     const uint64_t chunk_end = chunk_begin + chunk_range.length;
-    uint64_t previous_end = chunk_begin;
+    // A gap can hide an omitted data page even when ColumnIndex has the same entry count.
+    // Decline such indexes before pruning can lose rows; auxiliary pages and writer padding
+    // conservatively use sequential traversal. A dictionary prefix ends at data_page_offset.
+    uint64_t previous_end = static_cast<uint64_t>(data_page_offset);
     int64_t previous_row = -1;
     for (const auto& location : index.page_locations) {
         if (location.first_row_index <= previous_row || location.first_row_index >= row_count ||
@@ -249,14 +252,14 @@ bool validate_offset_index(const tparquet::OffsetIndex& index, const ColumnChunk
         }
         const uint64_t begin = static_cast<uint64_t>(location.offset);
         const uint64_t size = static_cast<uint64_t>(location.compressed_page_size);
-        if (begin < chunk_begin || begin < previous_end || begin > chunk_end ||
+        if (begin < chunk_begin || begin != previous_end || begin > chunk_end ||
             size > chunk_end - begin) {
             return false;
         }
         previous_row = location.first_row_index;
         previous_end = begin + size;
     }
-    return true;
+    return previous_end == chunk_end;
 }
 
 namespace {

@@ -4069,6 +4069,80 @@ struct NestedNavigationFile {
     }
 };
 
+TEST(ParquetV2NativeDecoderTest, IncompleteOffsetIndexCannotRelabelMixedPageRows) {
+    for (const bool dictionary : {false, true}) {
+        NestedNavigationFile file({true, true, false}, {1, 1, 2}, true, dictionary);
+        file.index.page_locations.erase(file.index.page_locations.begin() + 1);
+        file.index.page_locations.back().first_row_index = 1;
+        const ColumnChunkRange range {.offset = 1, .length = file.bytes.size() - 1};
+        const bool usable = validate_offset_index(file.index, range,
+                                                  file.chunk.meta_data.data_page_offset, file.rows);
+        EXPECT_FALSE(usable);
+        const auto selection = RowRanges::create_single(1, 2);
+        std::vector<int32_t> actual;
+        ASSERT_TRUE(file.read(selection, 1, usable, false, &actual).ok());
+        EXPECT_EQ(actual, file.expected(selection));
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, IndexGapsWithAuxiliaryPagesOrPaddingRemainReadable) {
+    for (const bool auxiliary : {false, true}) {
+        for (const bool dictionary : {false, true}) {
+            NestedNavigationFile file({true, false, true}, {1, 1, 1}, true, dictionary);
+            std::vector<uint8_t> extra(16, 0);
+            if (auxiliary) {
+                tparquet::PageHeader header;
+                header.__set_type(tparquet::PageType::INDEX_PAGE);
+                header.__set_compressed_page_size(extra.size());
+                header.__set_uncompressed_page_size(extra.size());
+                header.__set_index_page_header(tparquet::IndexPageHeader {});
+                extra = serialize_page(header, extra);
+                const size_t offset = file.index.page_locations[1].offset;
+                file.bytes.insert(file.bytes.begin() + offset, extra.begin(), extra.end());
+                for (size_t i = 1; i < file.index.page_locations.size(); ++i) {
+                    file.index.page_locations[i].offset += extra.size();
+                }
+            } else {
+                file.bytes.insert(file.bytes.end(), extra.begin(), extra.end());
+            }
+            file.chunk.meta_data.total_compressed_size += extra.size();
+            const bool usable = validate_offset_index(
+                    file.index, {.offset = 1, .length = file.bytes.size() - 1},
+                    file.chunk.meta_data.data_page_offset, file.rows);
+            EXPECT_FALSE(usable);
+            const auto ranges = RowRanges::create_single(0, 3);
+            std::vector<int32_t> actual;
+            ASSERT_TRUE(file.read(ranges, 1, usable, false, &actual).ok());
+            EXPECT_EQ(actual, file.expected(ranges));
+        }
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, OffsetIndexRequiresCompleteDataByteCoverage) {
+    const ColumnChunkRange range {.offset = 100, .length = 100};
+    tparquet::OffsetIndex index;
+    for (int i = 0; i < 3; ++i) {
+        tparquet::PageLocation location;
+        location.__set_offset(110 + i * 30);
+        location.__set_compressed_page_size(30);
+        location.__set_first_row_index(i);
+        index.page_locations.push_back(location);
+    }
+    // The prefix belongs to a dictionary; the complete data-page suffix is still indexed.
+    ASSERT_TRUE(validate_offset_index(index, range, 110, 3));
+    for (size_t omitted = 0; omitted < 3; ++omitted) {
+        auto incomplete = index;
+        incomplete.page_locations.erase(incomplete.page_locations.begin() + omitted);
+        EXPECT_FALSE(validate_offset_index(incomplete, range, 110, 3)) << omitted;
+    }
+    auto gap = index;
+    --gap.page_locations[0].compressed_page_size;
+    EXPECT_FALSE(validate_offset_index(gap, range, 110, 3));
+    // Unclassified trailing bytes could be padding, an auxiliary page, or an omitted data page.
+    // Decline the optional index instead of interpreting those bytes as harmless padding.
+    EXPECT_FALSE(validate_offset_index(index, {.offset = 100, .length = 101}, 110, 3));
+}
+
 TEST(ParquetV2NativeDecoderTest, ActiveIndexRejectsUnverifiedSkippedSpans) {
     for (int versions = 0; versions < 16; ++versions) {
         for (const bool nested : {false, true}) {
@@ -4476,7 +4550,10 @@ TEST(ParquetV2NativeDecoderTest, LateOffsetIndexFallbackRequiresVerifiedRowCoord
             index.page_locations.push_back(location);
             bytes.insert(bytes.end(), pages.back().begin(), pages.back().end());
         }
-        ASSERT_TRUE(validate_offset_index(index, {.offset = 0, .length = bytes.size()}, 0, 4));
+        // Production loaders discard the short-size index early. Inject it directly here to
+        // retain coverage of the reader's defensive header reconciliation as well.
+        EXPECT_EQ(validate_offset_index(index, {.offset = 0, .length = bytes.size()}, 0, 4),
+                  !stale_size);
         const std::string cache_key =
                 fmt::format("late-index-{}-{}-{}", NESTED, skip_middle, stale_size);
         if (cache_hit) {
@@ -5495,6 +5572,8 @@ TEST(ParquetV2NativeDecoderTest, OffsetIndexValidationRejectsBackwardAndOverlapp
     EXPECT_FALSE(validate_offset_index(index, range, 110, 20));
 
     second.__set_first_row_index(10);
+    second.__set_offset(130);
+    second.__set_compressed_page_size(70);
     index.page_locations = {first, second};
     EXPECT_TRUE(validate_offset_index(index, range, 110, 20));
 
