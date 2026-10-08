@@ -23,6 +23,7 @@
 #include <thread>
 
 #include "common/config.h"
+#include "exprs/aggregate/aggregate_function_min_max.h"
 #include "load/delta_writer/delta_writer_context.h"
 #include "load/memtable/memtable.h"
 #include "load/memtable/memtable_flush_executor.h"
@@ -30,6 +31,7 @@
 #include "runtime/workload_management/resource_context.h"
 #include "testutil/creators.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -289,7 +291,45 @@ TEST(MemTableMemoryTrackingAuxTest, TieMemoryTracking) {
     EXPECT_EQ(tracker->consumption(), 0);
 }
 
-class MemTableWriterAllocationFailureTest : public testing::TestWithParam<int> {
+namespace {
+
+template <bool fail_create, bool fail_add>
+struct TestStringMinData : AggregateFunctionMinData<SingleValueDataString> {
+    using Base = AggregateFunctionMinData<SingleValueDataString>;
+    using Base::change_if_better;
+
+    static inline int created = 0;
+    static inline int destroyed = 0;
+    static inline int added = 0;
+
+    TestStringMinData() {
+        if constexpr (fail_create) {
+            throw Exception(ErrorCode::MEM_ALLOC_FAILED, "injected aggregate constructor failure");
+        }
+        ++created;
+    }
+
+    ~TestStringMinData() { ++destroyed; }
+
+    void change_if_better(const IColumn& column, size_t row_num, Arena& arena) {
+        ++added;
+        if constexpr (fail_add) {
+            const auto old_probability = config::mem_alloc_fault_probability;
+            Defer restore {[&]() { config::mem_alloc_fault_probability = old_probability; }};
+            config::mem_alloc_fault_probability = 1.0;
+            // Exercise the native MIN state's allocation of its owning string buffer.
+            Base::change_if_better(column, row_num, arena);
+        } else {
+            Base::change_if_better(column, row_num, arena);
+        }
+    }
+
+    static void reset_counts() { created = destroyed = added = 0; }
+};
+
+} // namespace
+
+class MemTableWriterFailureTest : public testing::Test {
 protected:
     void SetUp() override {
         _old_debug_points = config::enable_debug_points;
@@ -323,11 +363,22 @@ protected:
         if (keys_type == AGG_KEYS) {
             value->set_aggregation("SUM");
         }
-        auto schema = std::make_shared<TabletSchema>();
-        schema->init_from_pb(schema_pb);
         auto tdesc = testutil::create_descriptor_table(
                 {{.type = TYPE_INT, .column_name = "k", .nullable = false},
                  {.type = TYPE_INT, .column_name = "v", .nullable = false}});
+        init_writer(schema_pb, tdesc);
+        auto columns = _input.mutate_columns_scoped();
+        for (int32_t key : {2, 1, 1}) {
+            int32_t value = 10;
+            columns.mutable_columns()[0]->insert_data(reinterpret_cast<const char*>(&key), 0);
+            columns.mutable_columns()[1]->insert_data(reinterpret_cast<const char*>(&value), 0);
+        }
+        _rows.row_idxs = {0, 1, 2};
+    }
+
+    void init_writer(const TabletSchemaPB& schema_pb, const TDescriptorTable& tdesc) {
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(schema_pb);
         DescriptorTbl* desc_tbl = nullptr;
         ASSERT_TRUE(DescriptorTbl::create(&_pool, tdesc, &desc_tbl).ok());
         auto* tuple_desc = desc_tbl->get_tuple_descriptor(0);
@@ -339,7 +390,7 @@ protected:
         _writer->_tablet_schema = schema;
         _writer->_resource_ctx = ResourceContext::create_shared();
         _writer->_resource_ctx->memory_context()->set_mem_tracker(MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::LOAD, "MemTableWriterAllocationFailureTest"));
+                MemTrackerLimiter::Type::LOAD, "MemTableWriterFailureTest"));
         _writer->_reset_mem_table();
         // Only empty replacement memtables reach this token, so no pool or rowset is needed.
         _writer->_flush_token = FlushToken::create_shared(nullptr, nullptr);
@@ -348,13 +399,6 @@ protected:
             _input.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(), slot->type(),
                                                 slot->col_name()));
         }
-        auto columns = _input.mutate_columns_scoped();
-        for (int32_t key : {2, 1, 1}) {
-            int32_t value = 10;
-            columns.mutable_columns()[0]->insert_data(reinterpret_cast<const char*>(&key), 0);
-            columns.mutable_columns()[1]->insert_data(reinterpret_cast<const char*>(&value), 0);
-        }
-        _rows.row_idxs = {0, 1, 2};
     }
 
     void check_insert_failure_state(MemTable* memtable, size_t column_bytes, size_t row_capacity) {
@@ -380,7 +424,56 @@ protected:
         EXPECT_EQ(_writer->_flush_token->get_stats().flush_finish_count.load(), 0);
     }
 
-    void check_failed_write(const std::string& point, bool during_insert) {
+    void init_string_writer() {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(AGG_KEYS);
+        testutil::add_column_pb(&schema_pb, 0, "k", "INT", true, false);
+        testutil::add_column_pb(&schema_pb, 1, "v1", "STRING", false, false)
+                ->set_aggregation("MIN");
+        testutil::add_column_pb(&schema_pb, 2, "v2", "STRING", false, false)
+                ->set_aggregation("MIN");
+        auto tdesc = testutil::create_descriptor_table(
+                {{.type = TYPE_INT, .column_name = "k", .nullable = false},
+                 {.type = TYPE_STRING, .column_name = "v1", .nullable = false},
+                 {.type = TYPE_STRING, .column_name = "v2", .nullable = false}});
+        init_writer(schema_pb, tdesc);
+        auto columns = _input.mutate_columns_scoped();
+        int32_t key = 1;
+        columns.mutable_columns()[0]->insert_data(reinterpret_cast<const char*>(&key), 0);
+        const std::string value(1024, 'v');
+        columns.mutable_columns()[1]->insert_data(value.data(), value.size());
+        columns.mutable_columns()[2]->insert_data(value.data(), value.size());
+        _rows.row_idxs = {0};
+    }
+
+    template <typename Data>
+    void replace_string_min(int cid) {
+        Data::reset_counts();
+        auto function = std::make_shared<AggregateFunctionsSingleValue<Data>>(
+                DataTypes {_input.get_by_position(cid).type});
+        const auto& original = _writer->_mem_table->_agg_functions[cid];
+        ASSERT_EQ(function->size_of_data(), original->size_of_data());
+        ASSERT_EQ(function->align_of_data(), original->align_of_data());
+        _writer->_mem_table->_agg_functions[cid] = std::move(function);
+    }
+
+    void check_aggregate_failure() {
+        std::weak_ptr<MemTable> failed_memtable = _writer->_mem_table;
+        auto tracker = _writer->_mem_table->mem_tracker();
+        // An ordinary add-block worker enters write() without allocation exception handling.
+        ASSERT_EQ(enable_thread_catch_bad_alloc, 0);
+        config::enable_shrink_memory = true;
+        config::write_buffer_size_for_agg = 0;
+        Status status;
+        ASSERT_NO_THROW(status = _writer->write(&_input, _rows));
+        EXPECT_EQ(status.code(), ErrorCode::MEM_LIMIT_EXCEEDED);
+        EXPECT_EQ(enable_thread_catch_bad_alloc, 0);
+        ASSERT_TRUE(failed_memtable.expired());
+        EXPECT_EQ(tracker->consumption(), 0);
+        check_pressure_flush();
+    }
+
+    void check_failed_write(const std::string& point, bool during_insert, int error_code) {
         std::weak_ptr<MemTable> failed_memtable = _writer->_mem_table;
         auto tracker = _writer->_mem_table->mem_tracker();
         const auto column_bytes = _writer->_mem_table->_input_mutable_block.allocated_bytes();
@@ -393,16 +486,16 @@ protected:
             } else {
                 check_repack_failure_state(memtable);
             }
-            throw Exception(GetParam(), "injected row allocation failure");
+            throw Exception(error_code, "injected row allocation failure");
         };
         DebugPoints::instance()->add_with_callback(point, fail_allocation);
         _rows.row_idxs.resize(1);
         Status status;
         ASSERT_NO_THROW(status = _writer->write(&_input, _rows));
         EXPECT_TRUE(reached_allocation);
-        EXPECT_EQ(status.code(), GetParam() == ErrorCode::MEM_ALLOC_FAILED
+        EXPECT_EQ(status.code(), error_code == ErrorCode::MEM_ALLOC_FAILED
                                          ? ErrorCode::MEM_LIMIT_EXCEEDED
-                                         : GetParam());
+                                         : error_code);
         ASSERT_TRUE(failed_memtable.expired());
         EXPECT_EQ(tracker->consumption(), 0);
         check_pressure_flush();
@@ -420,10 +513,13 @@ protected:
     std::unique_ptr<MemTableWriter> _writer;
 };
 
+class MemTableWriterAllocationFailureTest : public MemTableWriterFailureTest,
+                                            public testing::WithParamInterface<int> {};
+
 TEST_P(MemTableWriterAllocationFailureTest, InsertFailureDiscardsMemTableBeforePressureFlush) {
     init_writer(DUP_KEYS);
     ASSERT_TRUE(_writer->write(&_input, _rows).ok());
-    check_failed_write("MemTable.insert.row_batch_allocation", true);
+    check_failed_write("MemTable.insert.row_batch_allocation", true, GetParam());
 }
 
 TEST_P(MemTableWriterAllocationFailureTest, RepackFailureDiscardsMemTableBeforePressureFlush) {
@@ -431,10 +527,42 @@ TEST_P(MemTableWriterAllocationFailureTest, RepackFailureDiscardsMemTableBeforeP
     ASSERT_TRUE(_writer->write(&_input, _rows).ok());
     config::enable_shrink_memory = true;
     config::write_buffer_size_for_agg = 0;
-    check_failed_write("MemTable.aggregate.row_batch_allocation", false);
+    check_failed_write("MemTable.aggregate.row_batch_allocation", false, GetParam());
 }
 
 INSTANTIATE_TEST_SUITE_P(MemoryAndOtherErrors, MemTableWriterAllocationFailureTest,
                          testing::Values(ErrorCode::MEM_ALLOC_FAILED, ErrorCode::INTERNAL_ERROR));
+
+TEST_F(MemTableWriterFailureTest, FirstStringAddFailureDestroysAllConstructedStates) {
+    using First = TestStringMinData<false, true>;
+    using Second = TestStringMinData<false, false>;
+    init_string_writer();
+    ASSERT_TRUE(_writer->write(&_input, _rows).ok());
+    replace_string_min<First>(1);
+    replace_string_min<Second>(2);
+    check_aggregate_failure();
+    EXPECT_EQ(First::created, 1);
+    EXPECT_EQ(First::destroyed, 1);
+    EXPECT_EQ(First::added, 1);
+    EXPECT_EQ(Second::created, 1);
+    EXPECT_EQ(Second::destroyed, 1);
+    EXPECT_EQ(Second::added, 0);
+}
+
+TEST_F(MemTableWriterFailureTest, SecondStateCreateFailureDestroysOnlyCompletedPrefix) {
+    using First = TestStringMinData<false, false>;
+    using Second = TestStringMinData<true, false>;
+    init_string_writer();
+    ASSERT_TRUE(_writer->write(&_input, _rows).ok());
+    replace_string_min<First>(1);
+    replace_string_min<Second>(2);
+    check_aggregate_failure();
+    EXPECT_EQ(First::created, 1);
+    EXPECT_EQ(First::destroyed, 1);
+    EXPECT_EQ(First::added, 0);
+    EXPECT_EQ(Second::created, 0);
+    EXPECT_EQ(Second::destroyed, 0);
+    EXPECT_EQ(Second::added, 0);
+}
 
 } // namespace doris

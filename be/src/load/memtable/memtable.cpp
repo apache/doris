@@ -587,12 +587,26 @@ void MemTable::_finalize_one_row(RowInBlock* row, MutableBlock& mutable_block, i
 }
 
 void MemTable::_init_row_for_agg(RowInBlock* row, MutableBlock& mutable_block) {
-    row->init_agg_places(_arena.aligned_alloc(_total_size_of_aggregate_states, 16),
-                         _offsets_of_aggregate_states.data());
-    for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; cid++) {
+    auto* agg_mem = _arena.aligned_alloc(_total_size_of_aggregate_states, 16);
+    auto first_value_column = _tablet_schema->num_key_columns();
+    auto cid = first_value_column;
+    try {
+        for (; cid < _num_columns; ++cid) {
+            _agg_functions[cid]->create(agg_mem + _offsets_of_aggregate_states[cid]);
+        }
+    } catch (...) {
+        // A failed constructor leaves only the completed prefix available for destruction.
+        while (cid > first_value_column) {
+            --cid;
+            _agg_functions[cid]->destroy(agg_mem + _offsets_of_aggregate_states[cid]);
+        }
+        throw;
+    }
+    // add() can allocate. Publish the row only after all states can be safely destroyed.
+    row->init_agg_places(agg_mem, _offsets_of_aggregate_states.data());
+    for (cid = first_value_column; cid < _num_columns; ++cid) {
         auto* col_ptr = mutable_block.mutable_columns()[cid].get();
         auto* data = row->agg_places(cid);
-        _agg_functions[cid]->create(data);
         _agg_functions[cid]->add(data, const_cast<const doris::IColumn**>(&col_ptr), row->_row_pos,
                                  _arena);
     }
