@@ -541,6 +541,9 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     }
 
     // A missing slot cannot safely resume from the committed position; do not recreate it.
+    // Do not compare restart_lsn with the saved offset: replication feedback can advance slot
+    // positions beyond it during low traffic. This cannot reliably distinguish normal advancement
+    // from a slot dropped and recreated with the same name.
     @Override
     protected void validateStreamSource(Offset startingOffset, JobBaseRecordRequest baseReq)
             throws Exception {
