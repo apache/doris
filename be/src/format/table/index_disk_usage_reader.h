@@ -83,10 +83,15 @@ public:
     // The IO context of one tablet: the query context plus the tablet TTL that classifies its
     // reads in the file cache.
     static io::IOContext tablet_io_context(const io::IOContext& query_io_ctx, int64_t ttl_seconds);
-    // The rowsets of a tablet through `version`. A cloud tablet first syncs with meta-service, so
-    // rowsets that a compaction on another backend replaced are not reported.
-    static Result<std::vector<RowsetSharedPtr>> capture_rowsets(const BaseTabletSPtr& tablet,
-                                                                int64_t version);
+    // A tablet and its rowsets through the scan version.
+    struct TabletRowsets {
+        BaseTabletSPtr tablet;
+        std::vector<RowsetSharedPtr> rowsets;
+    };
+    // Looks up a tablet and captures its rowsets through `version`. A cloud tablet is brought up
+    // to date with meta-service, so rowsets that a compaction on another backend replaced are not
+    // reported, and a tablet that was just loaded is only synchronized if it lacks `version`.
+    static Result<TabletRowsets> capture_tablet_rowsets(int64_t tablet_id, int64_t version);
 
 protected:
     Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }

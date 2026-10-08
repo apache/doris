@@ -200,36 +200,53 @@ Status IndexDiskUsageReader::_do_get_next_block(Block* block, size_t* read_rows,
 Status IndexDiskUsageReader::_collect_tablet(const TIndexDiskUsageTablet& target,
                                              std::vector<IndexDiskUsageRow>* rows,
                                              TabletSchemaSPtr* current_schema) const {
-    BaseTabletSPtr tablet = DORIS_TRY(ExecEnv::get_tablet(target.tablet_id));
-    const std::vector<RowsetSharedPtr> rowsets = DORIS_TRY(capture_rowsets(tablet, target.version));
-    *current_schema = label_schema(tablet->tablet_schema(), rowsets);
+    const TabletRowsets captured =
+            DORIS_TRY(capture_tablet_rowsets(target.tablet_id, target.version));
+    *current_schema = label_schema(captured.tablet->tablet_schema(), captured.rowsets);
 
-    const io::IOContext io_ctx = tablet_io_context(_io_ctx, tablet->ttl_seconds());
+    const io::IOContext io_ctx = tablet_io_context(_io_ctx, captured.tablet->ttl_seconds());
     segment_v2::DirectoryFileNames directory_files;
     segment_v2::IndexDiskUsageOptions options = _options;
     options.io_ctx = &io_ctx;
     options.directory_files = &directory_files;
-    for (const RowsetSharedPtr& rowset : rowsets) {
+    for (const RowsetSharedPtr& rowset : captured.rowsets) {
         RETURN_IF_ERROR(segment_v2::collect_rowset_index_disk_usage(rowset, options,
                                                                     target.tablet_id, rows));
     }
     return Status::OK();
 }
 
-Result<std::vector<RowsetSharedPtr>> IndexDiskUsageReader::capture_rowsets(
-        const BaseTabletSPtr& tablet, int64_t version) {
-    if (auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(tablet)) {
-        // A compaction elsewhere may replace cached rowsets without changing the visible version,
-        // so this does not stop at a cached `version` the way a query sync does.
-        RETURN_IF_ERROR_RESULT(cloud_tablet->sync_rowsets());
+Result<IndexDiskUsageReader::TabletRowsets> IndexDiskUsageReader::capture_tablet_rowsets(
+        int64_t tablet_id, int64_t version) {
+    SyncRowsetStats sync_stats;
+    auto looked_up = ExecEnv::get_tablet(tablet_id, &sync_stats);
+    if (!looked_up.has_value()) {
+        return ResultError(std::move(looked_up.error()));
     }
-    std::shared_lock rdlock(tablet->get_header_lock());
-    auto captured =
-            tablet->capture_consistent_rowsets_unlocked(Version(0, version), CaptureRowsetOps {});
-    if (!captured.has_value()) {
-        return ResultError(std::move(captured.error()));
+    TabletRowsets result;
+    result.tablet = std::move(looked_up.value());
+    if (auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(result.tablet);
+        cloud_tablet != nullptr) {
+        SyncOptions options;
+        // A tablet that the lookup loaded is current, except that the load may have begun before
+        // the scan version was committed. Syncing to that version sends no RPC when the load
+        // already saw it. A cached tablet may have missed a compaction done elsewhere at its
+        // cached version, which only a sync without a query version picks up.
+        if (sync_stats.tablet_meta_cache_miss != 0) {
+            options.query_version = version;
+        }
+        RETURN_IF_ERROR_RESULT(cloud_tablet->sync_rowsets(options));
     }
-    return std::move(captured.value().rowsets);
+    {
+        std::shared_lock rdlock(result.tablet->get_header_lock());
+        auto captured = result.tablet->capture_consistent_rowsets_unlocked(Version(0, version),
+                                                                           CaptureRowsetOps {});
+        if (!captured.has_value()) {
+            return ResultError(std::move(captured.error()));
+        }
+        result.rowsets = std::move(captured.value().rowsets);
+    }
+    return result;
 }
 
 TabletSchemaSPtr IndexDiskUsageReader::label_schema(const TabletSchemaSPtr& tablet_schema,
