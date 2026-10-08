@@ -793,6 +793,46 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
     }
 }
 
+TEST_F(RuntimeFilterWrapperTest, TestInOrBloomLazyInitialization) {
+    for (bool build_by_runtime_size : {false, true}) {
+        RuntimeFilterParams params {.filter_id = 0,
+                                    .filter_type = RuntimeFilterType::IN_OR_BLOOM_FILTER,
+                                    .column_return_type = TYPE_INT,
+                                    .null_aware = false,
+                                    .max_in_num = 16,
+                                    .runtime_bloom_filter_min_size = 64,
+                                    .runtime_bloom_filter_max_size = 128,
+                                    .bloom_filter_size = 64,
+                                    .build_bf_by_runtime_size = build_by_runtime_size,
+                                    .bloom_filter_size_calculated_by_ndv = false};
+        for (size_t runtime_size : {0, 1, 16, 17}) {
+            SCOPED_TRACE(runtime_size);
+            SCOPED_TRACE(build_by_runtime_size);
+            RuntimeFilterWrapper wrapper(&params);
+            ASSERT_NE(wrapper.bloom_filter_func(), nullptr);
+            ASSERT_EQ(wrapper.bloom_filter_func()->get_size(), 0);
+            ASSERT_TRUE(wrapper.init(runtime_size).ok());
+            if (runtime_size <= static_cast<size_t>(params.max_in_num)) {
+                EXPECT_EQ(wrapper.get_real_type(), RuntimeFilterType::IN_FILTER);
+                EXPECT_EQ(wrapper.bloom_filter_func()->get_size(), 0);
+                EXPECT_EQ(wrapper.bloom_filter_func()->_bloom_filter_alloced, 0);
+                EXPECT_EQ(wrapper.bloom_filter_func()->_bloom_filter, nullptr);
+                PMergeFilterRequest request;
+                ASSERT_TRUE(wrapper.to_protobuf(request.mutable_in_filter()).ok());
+            } else {
+                EXPECT_EQ(wrapper.get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+                EXPECT_GT(wrapper.bloom_filter_func()->get_size(), 0);
+                auto col = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3});
+                ASSERT_TRUE(wrapper.insert(col, 0).ok());
+                std::vector<uint8_t> matches(3);
+                wrapper.bloom_filter_func()->find_fixed_len(col, matches.data());
+                EXPECT_TRUE(std::all_of(matches.begin(), matches.end(),
+                                        [](uint8_t match) { return match != 0; }));
+            }
+        }
+    }
+}
+
 TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
     std::vector<int> data_vector(10);
     std::iota(data_vector.begin(), data_vector.end(), 0);
@@ -861,6 +901,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         // Init (keep in filter)
         EXPECT_TRUE(wrapper->init(runtime_size).ok());
         EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
+        EXPECT_EQ(wrapper->bloom_filter_func()->get_size(), 0);
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         // Insert
         auto col = ColumnHelper::create_column<DataType>(data_vector);
@@ -919,6 +960,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         EXPECT_TRUE(wrapper->merge(new_wrapper.get()).ok());
         EXPECT_EQ(wrapper->hybrid_set()->size(), col->size() * 2);
         EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
+        EXPECT_EQ(wrapper->bloom_filter_func()->get_size(), 0);
     }
     {
         // In + In -> Bloom

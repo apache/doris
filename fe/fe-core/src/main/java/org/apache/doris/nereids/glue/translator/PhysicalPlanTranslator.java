@@ -56,6 +56,7 @@ import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
+import org.apache.doris.datasource.plugin.ConnectorWritePlanContext;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
@@ -677,11 +678,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 (PluginDrivenExternalTable) connectorTableSink.getTargetTable();
         PluginDrivenExternalCatalog catalog =
                 (PluginDrivenExternalCatalog) targetTable.getCatalog();
-
-        // Get write config from the connector
-        Connector connector = catalog.getConnector();
-        ConnectorSession connSession = catalog.buildConnectorSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(connSession, connector);
+        ConnectorWritePlanContext writePlanContext = connectorTableSink.getWritePlanContext();
+        ConnectorSession connSession = writePlanContext.getSession();
+        ConnectorMetadata metadata = writePlanContext.getMetadata();
 
         // Convert sink columns to connector columns for INSERT SQL generation. The whole type is
         // converted (see the row-level DML arm): a bare primitive tag drops an ARRAY/MAP/STRUCT
@@ -695,7 +694,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Sort ordinals are consumed against the sink output. BindSink puts positional writes in physical
         // bound-schema order, while name-mapped writes keep user order. Preserve that coordinate space so
         // partial/static INSERTs cannot sort another slot.
-        List<ConnectorColumn> boundOutputColumns = targetTable.requiresFullSchemaWriteOrder()
+        List<ConnectorColumn> boundOutputColumns = writePlanContext.requiresFullSchemaWriteOrder()
                 ? connectorTableSink.getBoundTargetSchema().stream()
                         .map(PhysicalPlanTranslator::toWriteConnectorColumn)
                         .collect(java.util.stream.Collectors.toList())
@@ -707,14 +706,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Resolve the table handle first so BOTH the INSERT-admission gate and the write provider are chosen
         // per-table (a heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type);
         // byte-identical for every single-format connector (the per-handle overloads default to connector-level).
-        ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
-                targetTable.getRemoteDbName(), targetTable.getRemoteName())
-                .orElseThrow(() -> new AnalysisException(
-                        "Table not found: " + targetTable.getRemoteDbName()
-                                + "." + targetTable.getRemoteName()
-                                + " in catalog " + catalog.getName()));
-        // Resolve the provider once: it both admits this write operation and plans the sink.
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
+        ConnectorTableHandle providerTableHandle = writePlanContext.getTableHandle();
+        ConnectorWritePlanProvider writePlanProvider = writePlanContext.getProvider();
         WriteOperation writeOperation = connectorWriteOperation(connectorTableSink);
         if (writePlanProvider == null
                 || !writePlanProvider.supportedOperations().contains(writeOperation)) {
