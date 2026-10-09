@@ -28,11 +28,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -627,61 +622,17 @@ public class ColumnDefinition {
 
     /**
      * Validate non-null defaults for complex types before connector-specific validation.
+     * ARRAY, MAP and STRUCT defaults are rewritten into the canonical literal text that BE parses.
      */
     public void validateComplexTypeDefaultValue() throws AnalysisException {
-        if (type.isArrayType()) {
-            validateArrayDefaultValue();
-        } else if (type.isMapType()) {
-            validateMapDefaultValue();
-        } else if (type.isStructType()) {
-            validateStructDefaultValue();
+        if (!hasNonNullDefaultValue()) {
+            return;
+        }
+        if (type.isArrayType() || type.isMapType() || type.isStructType()) {
+            defaultValue = Optional.of(new DefaultValue(
+                    ComplexTypeDefaultValue.canonicalize(type, defaultValue.get().getValue())));
         } else if (type.isJsonType() || type.isVariantType()) {
-            if (hasNonNullDefaultValue()) {
-                throw new AnalysisException("Json or Variant type column default value only supports DEFAULT NULL");
-            }
-        }
-    }
-
-    private void validateArrayDefaultValue() {
-        if (!hasNonNullDefaultValue()) {
-            return;
-        }
-        if (!isLiteralDefaultValue(ArrayLiteral.class)) {
-            throw new AnalysisException("Array type column default value only supports array literals or DEFAULT NULL");
-        }
-    }
-
-    private void validateMapDefaultValue() {
-        if (!hasNonNullDefaultValue()) {
-            return;
-        }
-        if (!isLiteralDefaultValue(MapLiteral.class)) {
-            throw new AnalysisException("Map type column default value only supports map literals or DEFAULT NULL");
-        }
-    }
-
-    private void validateStructDefaultValue() {
-        if (!hasNonNullDefaultValue()) {
-            return;
-        }
-        String value = defaultValue.get().getValue().trim();
-        if (!isEmptyStructLiteral(value) && !isLiteralDefaultValue(StructLiteral.class)) {
-            throw new AnalysisException(
-                    "Struct type column default value only supports struct literals or DEFAULT NULL");
-        }
-    }
-
-    private boolean isEmptyStructLiteral(String value) {
-        return value.startsWith("{") && value.endsWith("}")
-                && value.substring(1, value.length() - 1).trim().isEmpty();
-    }
-
-    private boolean isLiteralDefaultValue(Class<? extends Expression> literalClass) {
-        try {
-            Expression expression = new NereidsParser().parseExpression(defaultValue.get().getValue());
-            return literalClass.isInstance(expression);
-        } catch (Exception e) {
-            return false;
+            throw new AnalysisException("Json or Variant type column default value only supports DEFAULT NULL");
         }
     }
 

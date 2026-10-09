@@ -225,6 +225,17 @@ public class ColumnTest {
     }
 
     @Test
+    public void testToSqlQuotesDefaultValueForReplay() {
+        Column plain = new Column("c1", Type.STRING, false, null, true, "abc", "");
+        Assertions.assertTrue(plain.toSql().contains(" DEFAULT \"abc\""), plain.toSql());
+        Column complex = new Column("c2", new MapType(Type.STRING, Type.INT), false, null, true,
+                "{\"a\":1}", "");
+        Assertions.assertTrue(complex.toSql().contains(" DEFAULT '{\"a\":1}'"), complex.toSql());
+        Column quoted = new Column("c3", Type.STRING, false, null, true, "it's", "");
+        Assertions.assertTrue(quoted.toSql().contains(" DEFAULT \"it's\""), quoted.toSql());
+    }
+
+    @Test
     public void testIcebergNestedDecimalPromotionRules() {
         Assertions.assertTrue(ColumnType.isSupportedIcebergNestedDecimalPromotion(
                 ScalarType.createDecimalV3Type(5, 2), ScalarType.createDecimalV3Type(10, 2)));
