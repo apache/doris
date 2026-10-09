@@ -23,13 +23,11 @@ import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStorePrope
 import org.apache.doris.connector.metastore.paimon.rest.PaimonRestMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
-import org.apache.doris.paimon.NativeGcsFileIO;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.FileSystemCatalogFactory;
 import org.apache.paimon.jdbc.JdbcCatalogFactory;
 import org.apache.paimon.options.CatalogOptions;
@@ -111,18 +109,6 @@ public final class PaimonCatalogFactory {
         // Preserve the user's flag separately, but always disable the SDK wrapper itself.
         options.set(CatalogOptions.CACHE_ENABLED, false);
         return options;
-    }
-
-    static CatalogContext createCatalogContext(Options options, Configuration conf) {
-        if (!"com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem".equals(conf.get("fs.gs.impl"))) {
-            return CatalogContext.create(options, conf);
-        }
-        String warehouse = options.get(CatalogOptions.WAREHOUSE);
-        if (warehouse != null) {
-            options.set(CatalogOptions.WAREHOUSE,
-                    NativeGcsFileIO.normalize(new org.apache.paimon.fs.Path(warehouse)).toString());
-        }
-        return CatalogContext.create(options, conf, new NativeGcsFileIO.Loader(), null);
     }
 
     static boolean isCatalogCacheEnabled(PaimonCatalogProperties catalogProperties) {

@@ -21,27 +21,17 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
-import org.apache.doris.paimon.NativeGcsFileIO;
 
-import com.sun.net.httpserver.HttpServer;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.CatalogContext;
-import org.apache.paimon.catalog.Identifier;
-import org.apache.paimon.fs.ResolvingFileIO;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
-import org.apache.paimon.rest.RESTCatalog;
-import org.apache.paimon.rest.RESTTokenFileIO;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
-import java.net.InetSocketAddress;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -89,86 +79,6 @@ public class PaimonCatalogFactoryTest {
     // ---------------------------------------------------------------------
     // buildCatalogOptions — per-flavor metastore identifier + warehouse
     // ---------------------------------------------------------------------
-
-    @Test
-    public void nativeGcsNormalizesWarehouseAndInstallsAliasFileIO() {
-        for (String scheme : new String[] {"s3", "s3a", "gs"}) {
-            Options options = new Options();
-            options.set(CatalogOptions.WAREHOUSE, scheme + "://bucket/private-warehouse");
-            Configuration conf = new Configuration(false);
-            conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
-            conf.set("fs.gs.auth.type", "APPLICATION_DEFAULT");
-            CatalogContext context = PaimonCatalogFactory.createCatalogContext(options, conf);
-            Assertions.assertEquals("gs://bucket/private-warehouse", context.options().get(CatalogOptions.WAREHOUSE));
-            Assertions.assertInstanceOf(NativeGcsFileIO.class,
-                    context.preferIO().load(new org.apache.paimon.fs.Path(scheme + "://bucket/persisted-file")));
-            Assertions.assertEquals("APPLICATION_DEFAULT", context.hadoopConf().get("fs.gs.auth.type"));
-        }
-        Options legacy = new Options();
-        legacy.set(CatalogOptions.WAREHOUSE, "s3a://bucket/warehouse");
-        Configuration conf = new Configuration(false);
-        conf.set("fs.gs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        CatalogContext context = PaimonCatalogFactory.createCatalogContext(legacy, conf);
-        Assertions.assertNull(context.preferIO());
-        Assertions.assertEquals("s3a://bucket/warehouse", context.options().get(CatalogOptions.WAREHOUSE));
-    }
-
-    @Test
-    public void restCatalogRetainsNativeGcsContextAndTokenSelection() throws Exception {
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v1/config", exchange -> {
-            byte[] response = "{\"defaults\":{},\"overrides\":{}}".getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, response.length);
-            try (java.io.OutputStream output = exchange.getResponseBody()) {
-                output.write(response);
-            }
-        });
-        server.start();
-        try {
-            for (boolean dataTokenEnabled : new boolean[] {false, true}) {
-                Map<String, String> properties = props(
-                        "paimon.catalog.type", "rest",
-                        "paimon.rest.uri", "http://127.0.0.1:" + server.getAddress().getPort(),
-                        "paimon.rest.prefix", "test-prefix",
-                        "paimon.rest.token.provider", "bear",
-                        "paimon.rest.token", "test-token",
-                        "paimon.rest.data-token.enabled", Boolean.toString(dataTokenEnabled));
-                Map<String, String> gcsConfig = storage(
-                        "fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
-                        "fs.gs.auth.type", "APPLICATION_DEFAULT",
-                        "fs.gs.auth.impersonation.service.account", "reader@project.iam.gserviceaccount.com");
-                RecordingConnectorContext engineContext = new RecordingConnectorContext();
-                engineContext.storageProperties = Collections.singletonList(
-                        new StubHadoopStorageProperties(gcsConfig, "GCP"));
-                try (PaimonConnector connector = new PaimonConnector(properties, engineContext)) {
-                    Method ensureCatalog = PaimonConnector.class.getDeclaredMethod("ensureCatalog");
-                    ensureCatalog.setAccessible(true);
-                    Catalog catalog = (Catalog) ensureCatalog.invoke(connector);
-                    RESTCatalog rest = PaimonCatalogOps.CatalogBackedPaimonCatalogOps.restCatalog(catalog);
-                    Assertions.assertNotNull(rest);
-                    CatalogContext context = rest.catalogLoader().context();
-                    gcsConfig.forEach((key, value) -> Assertions.assertEquals(value, context.hadoopConf().get(key)));
-                    Assertions.assertInstanceOf(NativeGcsFileIO.Loader.class, context.preferIO());
-
-                    org.apache.paimon.fs.Path path = new org.apache.paimon.fs.Path("s3a://bucket/private-table");
-                    Method dataFileIO = RESTCatalog.class.getDeclaredMethod("fileIOForData",
-                            org.apache.paimon.fs.Path.class, Identifier.class);
-                    dataFileIO.setAccessible(true);
-                    Object fileIO = dataFileIO.invoke(rest, path, Identifier.create("db", "table"));
-                    if (dataTokenEnabled) {
-                        Assertions.assertInstanceOf(RESTTokenFileIO.class, fileIO);
-                    } else {
-                        Assertions.assertInstanceOf(ResolvingFileIO.class, fileIO);
-                    }
-                    // External table paths use this context even when REST data tokens are enabled.
-                    Assertions.assertInstanceOf(NativeGcsFileIO.class, context.preferIO().load(path));
-                }
-            }
-        } finally {
-            server.stop(0);
-        }
-    }
 
     @Test
     public void filesystemSetsMetastoreFilesystemAndWarehouse() {

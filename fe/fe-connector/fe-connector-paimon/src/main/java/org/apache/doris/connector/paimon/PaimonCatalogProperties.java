@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
+import org.apache.doris.filesystem.auth.GcsAuthResolver;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
@@ -120,6 +121,12 @@ public final class PaimonCatalogProperties {
      * overwrite a key, never remove one, so a rejected unknown key could not be repaired.
      */
     public static PaimonCatalogProperties of(Map<String, String> properties) {
+        // Reject unsupported native auth before creating clients, including catalog rebuilds.
+        // Resolve the mode centrally so GCS HMAC and existing S3 configurations remain supported.
+        if (GcsAuthResolver.resolve(properties).flatMap(auth -> auth.getNativeCredential()).isPresent()) {
+            throw new IllegalArgumentException("Native GCP authentication is not supported for Paimon yet; "
+                    + "use GCS HMAC credentials instead.");
+        }
         PaimonCatalogProperties p = new PaimonCatalogProperties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(p, properties);
         p.flavor = p.catalogType.toLowerCase(Locale.ROOT);

@@ -137,4 +137,62 @@ class HudiCatalogPropertiesTest {
         Assertions.assertFalse(p.getRaw().containsKey("added_afterwards"));
         Assertions.assertThrows(UnsupportedOperationException.class, () -> p.getRaw().put("k", "v"));
     }
+
+    @Test
+    public void rejectsNativeGcpAuthenticationBeforeClientCreation() {
+        for (String mode : new String[] {"DEFAULT", "COMPUTE_ENGINE"}) {
+            for (boolean impersonate : new boolean[] {false, true}) {
+                Map<String, String> properties = HudiTestProperties.minimalMap();
+                properties.put("provider", "GCP");
+                properties.put("gs.credential_provider_type", mode);
+                if (impersonate) {
+                    properties.put("gs.impersonation_service_account", "reader@example.iam.gserviceaccount.com");
+                }
+                IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> HudiCatalogProperties.of(properties));
+                Assertions.assertTrue(error.getMessage().contains(
+                        "Native GCP authentication is not supported for Hudi"));
+            }
+        }
+    }
+
+    @Test
+    public void rejectsImplicitGcpAdcAndImpersonationOnly() {
+        for (Map<String, String> selection : java.util.List.of(
+                Map.of("provider", "GCP"),
+                Map.of("warehouse", "gs://bucket/warehouse"),
+                Map.of("gs.endpoint", "https://storage.googleapis.com"),
+                Map.of("gs.impersonation_service_account", "reader@example.iam.gserviceaccount.com"))) {
+            Map<String, String> properties = HudiTestProperties.minimalMap();
+            properties.putAll(selection);
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> HudiCatalogProperties.of(properties));
+        }
+    }
+
+    @Test
+    public void preservesGcsHmacAndS3Authentication() {
+        for (String provider : new String[] {"GCP", "S3"}) {
+            for (String prefix : new String[] {"gs.", "s3."}) {
+                Map<String, String> properties = HudiTestProperties.minimalMap();
+                properties.put("provider", provider);
+                properties.put("s3.endpoint", "https://storage.googleapis.com");
+                properties.put(prefix + "access_key", "test-access-key");
+                properties.put(prefix + "secret_key", "test-secret-key");
+                Assertions.assertDoesNotThrow(() -> HudiCatalogProperties.of(properties));
+            }
+        }
+        Map<String, String> s3 = HudiTestProperties.minimalMap();
+        s3.put("provider", "S3");
+        s3.put("s3.role_arn", "arn:aws:iam::123456789012:role/test-role");
+        Assertions.assertDoesNotThrow(() -> HudiCatalogProperties.of(s3));
+    }
+
+    @Test
+    public void preservesExplicitAnonymousGcsAccess() {
+        Map<String, String> properties = HudiTestProperties.minimalMap();
+        properties.put("provider", "GCP");
+        properties.put("gs.credential_provider_type", "ANONYMOUS");
+        Assertions.assertDoesNotThrow(() -> HudiCatalogProperties.of(properties));
+    }
 }

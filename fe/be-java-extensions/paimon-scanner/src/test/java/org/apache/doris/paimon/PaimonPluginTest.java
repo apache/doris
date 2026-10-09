@@ -95,30 +95,6 @@ public class PaimonPluginTest {
 
     /** The path the plugin registry takes: services file, plugin class, factory list. */
     @Test
-    public void reconstructsNativeGcsFileIO() throws Exception {
-        NativeGcsFileIO fileIO = new NativeGcsFileIO(new org.apache.paimon.fs.Path("s3a://bucket/warehouse"));
-        Configuration conf = new Configuration(false);
-        conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
-        conf.set("fs.gs.auth.type", "APPLICATION_DEFAULT");
-        fileIO.configure(CatalogContext.create(new Options(), conf));
-        NativeGcsFileIO restored = InstantiationUtil.deserializeObject(
-                InstantiationUtil.serializeObject(fileIO), getClass().getClassLoader());
-        Assertions.assertEquals("APPLICATION_DEFAULT", restored.hadoopConf().get("fs.gs.auth.type"));
-        Assertions.assertEquals("gs://bucket/file", NativeGcsFileIO.normalize(
-                new org.apache.paimon.fs.Path("s3a://bucket/file")).toString());
-    }
-
-    @Test
-    public void instantiatesNativeGcsFilesystem() throws Exception {
-        Configuration conf = new Configuration();
-        conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
-        try (FileSystem fs = FileSystem.getFileSystemClass("gs", conf).getDeclaredConstructor().newInstance()) {
-            Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
-                    fs.getClass().getName());
-        }
-    }
-
-    @Test
     public void isDiscoverableThroughServiceLoader() {
         Assertions.assertTrue(loadPlugin() instanceof PaimonPlugin);
     }
@@ -181,7 +157,6 @@ public class PaimonPluginTest {
         expected.put("hdfs", "org.apache.hadoop.hdfs.DistributedFileSystem");
         expected.put("webhdfs", "org.apache.hadoop.hdfs.web.WebHdfsFileSystem");
         expected.put("s3a", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        expected.put("gs", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
         expected.put("obs", "org.apache.hadoop.fs.obs.OBSFileSystem");
         expected.put("abfs", "org.apache.hadoop.fs.azurebfs.AzureBlobFileSystem");
         expected.put("wasb", "org.apache.hadoop.fs.azure.NativeAzureFileSystem");
