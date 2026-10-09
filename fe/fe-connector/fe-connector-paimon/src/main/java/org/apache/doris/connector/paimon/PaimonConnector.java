@@ -428,9 +428,8 @@ public class PaimonConnector implements Connector {
         // Canonical storage config from the FE-bound fe-filesystem StorageProperties (P1-T03), replacing
         // the legacy buildObjectStorageHadoopConfig path: object stores contribute their fs.s3a.*/fs.oss.*
         // /fs.cosn.*/fs.obs.* translation, and an HDFS-backed catalog contributes its hadoop.config.resources
-        // XML + HA + auth keys (C2; the defaults-free fe-filesystem Hadoop map). Empty for REST (the server
-        // owns storage) and for a catalog with no typed storage at all (it reaches the conf via the raw
-        // fs./dfs./hadoop. passthrough).
+        // XML + HA + auth keys (C2; the defaults-free fe-filesystem Hadoop map). Empty for a catalog
+        // with no typed storage at all (it reaches the conf via the raw fs./dfs./hadoop. passthrough).
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
 
         switch (flavor) {
@@ -442,8 +441,10 @@ public class PaimonConnector implements Connector {
                         "Failed to create Paimon catalog with filesystem metastore");
             }
             case PaimonCatalogProperties.REST: {
-                // rest is Options-only (no storage Configuration; the REST server owns storage).
-                return createCatalogFromContext(CatalogContext.create(options), flavor,
+                // External table paths and reads without REST data tokens use local FileIO.
+                Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(
+                        catalogProps.getRaw(), storageHadoopConfig);
+                return createCatalogFromContext(PaimonCatalogFactory.createCatalogContext(options, conf), flavor,
                         "Failed to create Paimon catalog with REST metastore");
             }
             case PaimonCatalogProperties.JDBC: {
@@ -524,8 +525,8 @@ public class PaimonConnector implements Connector {
      * defaults-free so it never clobbers a co-bound object-store provider's tuned fs.s3a.* here). This
      * replaces the legacy {@code StorageProperties.buildObjectStorageHadoopConfig(properties)} call that
      * {@link PaimonCatalogFactory#buildHadoopConfiguration}/{@code buildHmsHiveConf}
-     * used to make. Empty for REST (the server owns storage) and for a catalog with no typed storage (it
-     * reaches the conf via the raw fs./dfs./hadoop. passthrough).
+     * used to make. Empty for a catalog with no typed storage (it reaches the conf via the raw
+     * fs./dfs./hadoop. passthrough).
      */
     // Package-private (not private) so PaimonCatalogFactoryTest can drive the storage().getStorageProperties()
     // -> toHadoopProperties() -> Configuration wiring end-to-end (visible for testing).

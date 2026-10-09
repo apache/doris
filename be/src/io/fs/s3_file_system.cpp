@@ -85,6 +85,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
     {
         std::shared_lock lock(_mtx);
         reset_conf = _conf;
+        reset_conf.provider = conf.provider;
         reset_conf.ak = conf.ak;
         reset_conf.sk = conf.sk;
         reset_conf.token = conf.token;

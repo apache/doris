@@ -374,6 +374,32 @@ TEST_F(S3ClientFactoryTest, ObjClientHolderResetRefreshesNativeCredential) {
     EXPECT_EQ(holder.s3_client_conf(), rotated_conf);
 }
 
+TEST_F(S3ClientFactoryTest, ObjClientHolderResetSwitchesS3AndGcpProviders) {
+    auto native_conf = make_gcp_native_conf();
+    auto s3_conf = native_conf;
+    s3_conf.provider = io::ObjStorageProvider::AWS;
+    s3_conf.credential = std::monostate {};
+
+    std::vector<S3ClientConf> created_confs;
+    auto client = std::make_shared<io::S3ObjStorageClient>(std::shared_ptr<Aws::S3::S3Client> {});
+    S3ClientFactory::instance().set_client_creator_for_test(
+            [&](const S3ClientConf& conf) -> std::shared_ptr<io::ObjStorageClient> {
+                created_confs.push_back(conf);
+                return client;
+            });
+
+    io::ObjClientHolder holder(s3_conf);
+    ASSERT_TRUE(holder.init().ok());
+    // Existing policy resources take this reset path after receiving the new FE version.
+    ASSERT_TRUE(holder.reset(native_conf).ok());
+    EXPECT_EQ(holder.s3_client_conf(), native_conf);
+    ASSERT_TRUE(holder.reset(s3_conf).ok());
+    EXPECT_EQ(holder.s3_client_conf(), s3_conf);
+    ASSERT_EQ(created_confs.size(), 3);
+    EXPECT_EQ(created_confs[1], native_conf);
+    EXPECT_EQ(created_confs[2], s3_conf);
+}
+
 TEST_F(S3ClientFactoryTest, ObjClientHolderResetSwitchesNativeAndStaticCredentials) {
     auto native_conf = make_gcp_native_conf();
     auto static_conf = native_conf;
