@@ -72,6 +72,12 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
             throw new AnalysisException("The third argument of " + getName()
                     + " must be a string constant: " + toSql());
         }
+        checkExprCalculationFormulaNotNull();
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkExprCalculationFormulaNotNull();
     }
 
     @Override

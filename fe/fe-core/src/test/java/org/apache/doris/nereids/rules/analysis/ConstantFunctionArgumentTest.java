@@ -208,6 +208,12 @@ public class ConstantFunctionArgumentTest {
                 "must be string constant, but it is null");
         assertRewriteError("select sequence_count(cast(null as string), dt, k = 1, k = 2)" + table,
                 "must be string constant, but it is null");
+        assertRewriteError("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),"
+                + " cast(null as varchar))" + table, "must not be null");
+        assertRewriteError("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
+                + " cast(null as varchar))" + table, "must not be null");
+        assertRewriteError("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
+                + " concat('1', cast(null as varchar)))" + table, "must not be null");
         assertRewriteError("select ai_agg(concat('no_such_', 'resource'), s, concat('ta', 'sk'))" + table,
                 "AI resource 'no_such_resource' does not exist");
         // the state combinator checks its nested function at the same points
@@ -269,6 +275,10 @@ public class ConstantFunctionArgumentTest {
                 "array_apply(arr, op, val): op support const value only.");
         assertAnalysisError("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar), s)"
                 + " from (select 1 k, '1' s) t", "must be a string constant");
+        assertAnalysisError("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar), null)"
+                + " from (select 1 k) t", "must not be null");
+        assertAnalysisError("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar), null)"
+                + " from (select 1 k) t", "must not be null");
         assertAnalysisError("select embed(s, 'x') from (select 'resource' s) t",
                 "AI Function must accept literal for the resource name");
         assertAnalysisError("select ai_agg(s, s, 'task') from (select 'resource' s) t",

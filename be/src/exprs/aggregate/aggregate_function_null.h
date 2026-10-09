@@ -711,6 +711,11 @@ public:
 
     void check_input_columns_type(const IColumn** columns) const override {
         IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (requires(NestFuction& function, const IColumn** input_columns) {
+                          function.check_nullable_input_columns(input_columns);
+                      }) {
+            this->nested_function->check_nullable_input_columns(columns);
+        }
         std::vector<const IColumn*> nested_columns(number_of_arguments);
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
