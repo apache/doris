@@ -24,8 +24,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.lance.index.LanceIndexInspection;
+import org.apache.doris.datasource.lance.index.LanceIndexMutationExecutor.PreflightResult;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.thrift.TLanceIndexMutationType;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -51,11 +53,12 @@ import javax.annotation.Nullable;
  * rejected at admission depth costs no remote read), then case-only collision analysis, IF
  * preflight (including the two-stage {@code matches}: requested-algorithm equality plus
  * physical-family corroboration), column-lookup collision analysis, schema contract from
- * the stored column name, and deterministic properties JSON. The validation collected here is
- * the request-validation stage the synchronous execution path builds on; until that path
- * lands, an admitted mutation terminates with the shared not-supported rejection, while the
- * IF no-op cases complete as genuine no-ops (nothing is created or dropped). Every rejection
- * leaves no durable state behind.
+ * the stored column name, and deterministic properties JSON. A mutation that passes the whole
+ * preflight completes the capture phase by returning the {@link LanceIndexMutationPlan} the
+ * statement executes outside the admission critical section; the plan's entry-internal final
+ * preflight re-decides the authoritative verdict with these exact semantics right before the
+ * single dispatch. The IF no-op cases complete as genuine no-ops (nothing is created or
+ * dropped) and return no plan. Every rejection leaves no durable state behind.
  */
 public final class LanceIndexAdmission {
 
@@ -83,13 +86,20 @@ public final class LanceIndexAdmission {
      * Admits a top-level CREATE [OR REPLACE] INDEX. Static validation
      * ({@link LanceIndexMutationValidator#validateCreateIndex}) must already have passed for
      * {@code def}.
+     *
+     * @return the execution plan for a mutation that would be admitted, or {@code null} when
+     *         the IF preflight resolved the statement to a genuine no-op (nothing is created;
+     *         the statement completes with the default OK packet)
      */
-    public static void admitCreate(LanceExternalCatalog catalog, LanceExternalDatabase db,
-            LanceExternalTable table, IndexDefinition def, boolean ifNotExists) throws Exception {
-        admitCreate(DEFAULT_LOADER, catalog, db, table, def, ifNotExists);
+    @Nullable
+    public static LanceIndexMutationPlan admitCreate(LanceExternalCatalog catalog,
+            LanceExternalDatabase db, LanceExternalTable table, IndexDefinition def,
+            boolean ifNotExists) throws Exception {
+        return admitCreate(DEFAULT_LOADER, catalog, db, table, def, ifNotExists);
     }
 
-    static void admitCreate(SnapshotLoader loader, LanceExternalCatalog catalog,
+    @Nullable
+    static LanceIndexMutationPlan admitCreate(SnapshotLoader loader, LanceExternalCatalog catalog,
             LanceExternalDatabase db, LanceExternalTable table, IndexDefinition def, boolean ifNotExists)
             throws Exception {
         // 1. Display/normalized names and the reserved system prefix, checked before any metadata
@@ -103,24 +113,13 @@ public final class LanceIndexAdmission {
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
         CatalogMgr.LanceIndexTarget target = catalogMgr.captureLanceIndexTarget(catalog);
         LanceIndexAdmissionSnapshot snapshot = loader.load(catalog, db.getRemoteName(), table.getRemoteName());
-        // 3. Case-only analysis (design section 4.1): ambiguous external collisions fail closed;
-        // a unique match resolves to the stored display name.
-        List<String> storedNames = logicalIndexNames(snapshot);
-        if (LanceIndexFamilies.isAmbiguousCaseCollision(storedNames, normalizedName)) {
-            rejectInvalid("index name '" + displayName
-                    + "' is ambiguous: multiple Lance indexes differ only by case");
-        }
-        String storedName = LanceIndexFamilies.uniqueMatch(storedNames, normalizedName);
-        // 4. IF preflight (design section 2.2).
-        if (!def.isOrReplace() && storedName != null) {
-            if (!ifNotExists) {
-                rejectInvalid("index '" + displayName + "' already exists");
-            }
-            if (!matchesExistingDefinition(snapshot, storedName, def)) {
-                rejectInvalid("index '" + displayName + "' already exists with a different definition");
-            }
+        // 3.+4. Case-only analysis (design section 4.1) and IF preflight (design section 2.2),
+        // decided by the same authoritative determination the entry-internal final preflight
+        // re-runs before the dispatch.
+        if (decideCreateAgainstSnapshot(snapshot, def, ifNotExists, displayName, normalizedName)
+                == PreflightResult.NO_OP) {
             catalogMgr.withLanceIndexAdmission(catalog, target, () -> null);
-            return;
+            return null;
         }
         // 5. Fail closed when the table lookup relation cannot resolve the request column
         // uniquely: a dataset can hold top-level fields that differ only by case (V versus v),
@@ -129,26 +128,41 @@ public final class LanceIndexAdmission {
         rejectIfAmbiguousLookupColumn(snapshot, def.getCols().get(0));
         // 6. Schema contract v1 from the stored column name (never the raw user spelling). The
         // build itself is the admission-depth type validation against the pinned snapshot.
-        LanceSchemaContractBuilder.build(snapshot.getTopLevelFields(), storedColumnName(table, def.getCols().get(0)));
-        // Every validation above is preserved for the synchronous execution path; until that
-        // path lands, a mutation that would be admitted terminates with the shared rejection.
-        catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
-            LanceIndexMutationValidator.rejectUnsupportedOperation(
-                    def.isOrReplace() ? "CREATE OR REPLACE INDEX" : "CREATE INDEX", "catalog tables");
-            return null;
-        });
+        String storedColumn = storedColumnName(table, def.getCols().get(0));
+        LanceIndexSchemaContract schemaContract = LanceSchemaContractBuilder.build(
+                snapshot.getTopLevelFields(), storedColumn);
+        // 7. The capture-fenced handoff: produce the execution plan by local work only. The
+        // statement executes it outside this critical section; the plan pins the admitted
+        // dataset version and carries the entry-internal final preflight that re-decides the
+        // authoritative verdict against current metadata before the single dispatch.
+        return catalogMgr.withLanceIndexAdmission(catalog, target, () -> new LanceIndexMutationPlan(
+                catalog,
+                def.isOrReplace() ? TLanceIndexMutationType.REPLACE : TLanceIndexMutationType.CREATE,
+                snapshot.getDatasetUri(), snapshot.getDatasetVersion(), normalizedName,
+                storedColumn, requestedAlgorithm(def), def.getProperties(), ifNotExists, false,
+                schemaContract,
+                () -> decideCreateAgainstSnapshot(
+                        loader.load(catalog, db.getRemoteName(), table.getRemoteName()),
+                        def, ifNotExists, displayName, normalizedName)));
     }
 
     /**
      * Admits a top-level DROP INDEX. The static name bounds
      * ({@link LanceIndexMutationValidator#validateDropIndex}) must already have passed.
+     *
+     * @return the execution plan for a drop that would be admitted, or {@code null} when
+     *         {@code IF EXISTS} resolved the statement to a genuine no-op (nothing is dropped;
+     *         the statement completes with the default OK packet)
      */
-    public static void admitDrop(LanceExternalCatalog catalog, LanceExternalDatabase db,
-            LanceExternalTable table, String indexName, boolean ifExists) throws Exception {
-        admitDrop(DEFAULT_LOADER, catalog, db, table, indexName, ifExists);
+    @Nullable
+    public static LanceIndexMutationPlan admitDrop(LanceExternalCatalog catalog,
+            LanceExternalDatabase db, LanceExternalTable table, String indexName, boolean ifExists)
+            throws Exception {
+        return admitDrop(DEFAULT_LOADER, catalog, db, table, indexName, ifExists);
     }
 
-    static void admitDrop(SnapshotLoader loader, LanceExternalCatalog catalog,
+    @Nullable
+    static LanceIndexMutationPlan admitDrop(SnapshotLoader loader, LanceExternalCatalog catalog,
             LanceExternalDatabase db, LanceExternalTable table, String indexName, boolean ifExists)
             throws Exception {
         // Fail cheap-first: the reserved prefix is rejected before target capture and the
@@ -158,6 +172,57 @@ public final class LanceIndexAdmission {
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
         CatalogMgr.LanceIndexTarget target = catalogMgr.captureLanceIndexTarget(catalog);
         LanceIndexAdmissionSnapshot snapshot = loader.load(catalog, db.getRemoteName(), table.getRemoteName());
+        if (decideDropAgainstSnapshot(snapshot, indexName, normalizedName, ifExists)
+                == PreflightResult.NO_OP) {
+            catalogMgr.withLanceIndexAdmission(catalog, target, () -> null);
+            return null;
+        }
+        // The capture-fenced handoff, exactly as on the CREATE side; a DROP carries no column,
+        // no algorithm and no schema contract.
+        return catalogMgr.withLanceIndexAdmission(catalog, target, () -> new LanceIndexMutationPlan(
+                catalog, TLanceIndexMutationType.DROP, snapshot.getDatasetUri(),
+                snapshot.getDatasetVersion(), normalizedName, "", "", null, false, ifExists,
+                null, () -> decideDropAgainstSnapshot(
+                        loader.load(catalog, db.getRemoteName(), table.getRemoteName()),
+                        indexName, normalizedName, ifExists)));
+    }
+
+    /**
+     * The authoritative CREATE determination against one snapshot (design sections 2.2 and 4.1),
+     * shared by admission and the entry-internal final preflight so the two decisions have
+     * exactly the same semantics: case-only ambiguous collisions fail closed first; a unique
+     * stored match on a non-REPLACE request is the IF preflight — no IF flag rejects as
+     * "already exists", an IF flag with a matching definition is a no-op, a mismatching
+     * definition rejects as such; CREATE OR REPLACE and an absent name both proceed.
+     */
+    private static PreflightResult decideCreateAgainstSnapshot(LanceIndexAdmissionSnapshot snapshot,
+            IndexDefinition def, boolean ifNotExists, String displayName, String normalizedName)
+            throws AnalysisException {
+        List<String> storedNames = logicalIndexNames(snapshot);
+        if (LanceIndexFamilies.isAmbiguousCaseCollision(storedNames, normalizedName)) {
+            rejectInvalid("index name '" + displayName
+                    + "' is ambiguous: multiple Lance indexes differ only by case");
+        }
+        String storedName = LanceIndexFamilies.uniqueMatch(storedNames, normalizedName);
+        if (!def.isOrReplace() && storedName != null) {
+            if (!ifNotExists) {
+                rejectInvalid("index '" + displayName + "' already exists");
+            }
+            if (!matchesExistingDefinition(snapshot, storedName, def)) {
+                rejectInvalid("index '" + displayName + "' already exists with a different definition");
+            }
+            return PreflightResult.NO_OP;
+        }
+        return PreflightResult.PROCEED;
+    }
+
+    /**
+     * The authoritative DROP determination against one snapshot, shared by admission and the
+     * entry-internal final preflight: case-only ambiguous collisions fail closed, an absent
+     * name is an {@code IF EXISTS} no-op or a "not found" rejection, a unique match proceeds.
+     */
+    private static PreflightResult decideDropAgainstSnapshot(LanceIndexAdmissionSnapshot snapshot,
+            String indexName, String normalizedName, boolean ifExists) throws AnalysisException {
         List<String> storedNames = logicalIndexNames(snapshot);
         if (LanceIndexFamilies.isAmbiguousCaseCollision(storedNames, normalizedName)) {
             rejectInvalid("index name '" + indexName
@@ -166,17 +231,11 @@ public final class LanceIndexAdmission {
         String storedName = LanceIndexFamilies.uniqueMatch(storedNames, normalizedName);
         if (storedName == null) {
             if (ifExists) {
-                catalogMgr.withLanceIndexAdmission(catalog, target, () -> null);
-                return;
+                return PreflightResult.NO_OP;
             }
             rejectInvalid("index '" + indexName + "' not found");
         }
-        // The preflight above is preserved for the synchronous execution path; until that path
-        // lands, a mutation that would be admitted terminates with the shared rejection.
-        catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
-            LanceIndexMutationValidator.rejectUnsupportedOperation("DROP INDEX", "catalog tables");
-            return null;
-        });
+        return PreflightResult.PROCEED;
     }
 
     /**

@@ -44,7 +44,10 @@ import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalDatabase;
 import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceIndexAdmission;
+import org.apache.doris.datasource.lance.LanceIndexMutationOutcome;
+import org.apache.doris.datasource.lance.LanceIndexMutationPlan;
 import org.apache.doris.datasource.lance.LanceIndexMutationValidator;
+import org.apache.doris.datasource.lance.index.LanceIndexMutationExecutor;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -84,6 +87,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * AlterTableCommand
@@ -104,6 +108,13 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     private CatalogIf catalog;
     private DatabaseIf dbIf;
     private TableIf tableIf;
+    /**
+     * The Lance mutation cancel flag, set by {@link #cancel()} (the StmtExecutor cancel hook,
+     * same contract as InsertOverwriteTableCommand) and observed by the synchronous executor
+     * at its phase boundaries before the dispatch. Cancelling never rolls back a possible
+     * commit; the executor owns that semantics.
+     */
+    private final AtomicBoolean lanceMutationCancelled = new AtomicBoolean(false);
 
     public AlterTableCommand(TableNameInfo tbl, List<AlterTableOp> ops) {
         super(PlanType.ALTER_TABLE_COMMAND);
@@ -543,27 +554,61 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // The Lance mutation budget starts at statement entry and is shared by admission
+        // (the snapshot read below), the executor's admission queue, the dispatch and the wait.
+        long statementStartMs = System.currentTimeMillis();
         validate(ctx);
         if (!lanceIndexOps.isEmpty()) {
             // A top-level CREATE/DROP INDEX statement carries exactly one operation.
             Preconditions.checkState(lanceIndexOps.size() == 1,
                     "a top-level Lance index statement must carry exactly one operation");
             AlterTableOp op = lanceIndexOps.get(0);
+            LanceIndexMutationPlan plan;
             if (op instanceof CreateIndexOp) {
                 IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
-                LanceIndexAdmission.admitCreate((LanceExternalCatalog) catalog,
+                plan = LanceIndexAdmission.admitCreate((LanceExternalCatalog) catalog,
                         (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf, indexDef,
                         indexDef.isIfNotExists());
             } else {
                 DropIndexOp dropIndexOp = (DropIndexOp) op;
-                LanceIndexAdmission.admitDrop((LanceExternalCatalog) catalog,
+                plan = LanceIndexAdmission.admitDrop((LanceExternalCatalog) catalog,
                         (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf,
                         dropIndexOp.getIndexName(), dropIndexOp.isSetIfExists());
             }
-            // An IF preflight no-op returns normally and completes with the default OK packet;
-            // any mutation that would be admitted rejects inside admission.
+            // An IF preflight no-op completes with the default OK packet, exactly as before the
+            // synchronous execution path existed.
+            if (plan == null) {
+                return;
+            }
+            // Execute outside the admission critical section (capture -> bounded execution ->
+            // classified outcome): the executor re-validates the authoritative verdict inside
+            // its entry, dispatches once, and derives the refresh obligation from the table.
+            // Its typed busy/preflight rejections propagate unchanged; any non-success
+            // outcome surfaces as its own client-facing class.
+            LanceIndexMutationOutcome outcome = LanceIndexMutationExecutor.execute(
+                    plan.populate(LanceIndexMutationExecutor.MutationRequest.newBuilder(
+                            plan.getCatalog(), plan.getMutationType(), plan.getDatasetUri(),
+                            plan.getAdmittedDatasetVersion(), plan.getNormalizedIndexName(),
+                            LanceIndexMutationExecutor.budgetDeadlineMs(statementStartMs)))
+                            .setCancelSignal(lanceMutationCancelled::get)
+                            .setTable((LanceExternalTable) tableIf)
+                            .build());
+            if (outcome.getKind() != LanceIndexMutationOutcome.Kind.SUCCESS) {
+                throw outcome.toUserException();
+            }
+            // A success (a committed mutation or an authoritative entry no-op) also completes
+            // with the default OK packet.
             return;
         }
         ctx.getEnv().alterTable(this);
+    }
+
+    /**
+     * cancel lance index mutation, called by the StmtExecutor cancel hook. Best effort: the
+     * flag stops the synchronous executor at its phase boundaries before the dispatch; after
+     * the dispatch started the executor's budget-bounded wait is the only way back.
+     */
+    public void cancel() {
+        this.lanceMutationCancelled.set(true);
     }
 }

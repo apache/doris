@@ -4253,12 +4253,14 @@ public class Config extends ConfigBase {
     public static long lance_catalog_arrow_memory_limit_bytes = 256L * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "是否启用 Lance 外表索引变更(CREATE/CREATE OR REPLACE/DROP INDEX)的权威校验路径。默认关闭;"
-                    + "在同步执行路径就绪前,开启本开关只会让通过校验的语句收到暂不支持的错误。",
-            "Enable the authoritative validation path of Lance index mutations "
-                    + "(CREATE/CREATE OR REPLACE/DROP INDEX). Disabled by default; until the synchronous "
-                    + "execution path lands, enabling it only makes validated statements fail with the "
-                    + "not-supported error."})
+            "是否启用 Lance 外表索引变更(CREATE/CREATE OR REPLACE/DROP INDEX)的同步执行路径。默认关闭;"
+                    + "关闭时通过校验的语句直接收到 mutation 关闭错误;开启后语句在 master 上同步完成"
+                    + "权威校验、单次派发与结果分类。",
+            "Enable the synchronous execution path of Lance index mutations "
+                    + "(CREATE/CREATE OR REPLACE/DROP INDEX). Disabled by default; while disabled a "
+                    + "validated statement fails fast with the mutation-disabled error, and when enabled "
+                    + "the statement completes authoritative validation, the single dispatch, and the "
+                    + "outcome classification synchronously on the master."})
     public static boolean enable_lance_index_mutation = false;
 
     @ConfField(mutable = true, masterOnly = true,

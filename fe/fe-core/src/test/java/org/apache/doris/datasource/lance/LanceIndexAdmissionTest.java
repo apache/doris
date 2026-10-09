@@ -28,9 +28,11 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot.PhysicalIndexInfo;
+import org.apache.doris.datasource.lance.index.LanceIndexMutationExecutor.PreflightResult;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TLanceIndexMutationType;
 
 import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.pojo.ArrowType;
@@ -50,14 +52,15 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Section 2.2/4.1 admission coverage for {@link LanceIndexAdmission}: snapshots are injected
  * through the {@code SnapshotLoader} seam (no FE, no JNI) and {@code Env} is mocked only for
  * the catalog manager. Every rejection path must leave no durable state and no id allocation
- * behind. A mutation that passes the whole preflight terminates with the shared
- * not-supported rejection (the synchronous execution path has not landed), while an IF
- * preflight no-op returns normally.
+ * behind. A mutation that passes the whole preflight leaves admission as the
+ * {@link LanceIndexMutationPlan} (the pinned inputs plus the entry-internal final preflight),
+ * while an IF preflight no-op returns normally with no plan.
  */
 public class LanceIndexAdmissionTest {
     private static final long CATALOG_ID = 10L;
@@ -231,15 +234,19 @@ public class LanceIndexAdmissionTest {
                 new HashMap<>(), "", orReplace);
     }
 
-    private void admitCreate(LanceIndexAdmissionSnapshot snapshot,
+    private LanceIndexMutationPlan admitCreate(LanceIndexAdmissionSnapshot snapshot,
             IndexDefinition def, boolean ifNotExists) throws Exception {
-        LanceIndexAdmission.admitCreate((cat, dbName, tblName) -> snapshot, catalog, database,
-                table, def, ifNotExists);
+        return admitCreate((cat, dbName, tblName) -> snapshot, def, ifNotExists);
     }
 
-    private void admitDrop(LanceIndexAdmissionSnapshot snapshot,
+    private LanceIndexMutationPlan admitCreate(LanceIndexAdmission.SnapshotLoader loader,
+            IndexDefinition def, boolean ifNotExists) throws Exception {
+        return LanceIndexAdmission.admitCreate(loader, catalog, database, table, def, ifNotExists);
+    }
+
+    private LanceIndexMutationPlan admitDrop(LanceIndexAdmissionSnapshot snapshot,
             String indexName, boolean ifExists) throws Exception {
-        LanceIndexAdmission.admitDrop((cat, dbName, tblName) -> snapshot, catalog, database,
+        return LanceIndexAdmission.admitDrop((cat, dbName, tblName) -> snapshot, catalog, database,
                 table, indexName, ifExists);
     }
 
@@ -253,13 +260,18 @@ public class LanceIndexAdmissionTest {
         Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_INVALID, exception.getMysqlErrorCode());
     }
 
-    /** A mutation whose whole preflight passed terminates with the shared not-supported error. */
-    private static void assertUnsupported(Executable call, String operation) {
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, call);
-        Assertions.assertEquals(operation + " is not supported for Lance catalog tables",
-                exception.getDetailMessage());
-        Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_OPERATION_NOT_SUPPORTED,
-                exception.getMysqlErrorCode());
+    /**
+     * A mutation whose whole preflight passed leaves admission as the execution plan: the
+     * pinned inputs (the snapshot's dataset version and uri), the normalized name, and the
+     * mutation type the statement asked for.
+     */
+    private static void assertPlan(LanceIndexMutationPlan plan, TLanceIndexMutationType type,
+            String normalizedIndexName) {
+        Assertions.assertNotNull(plan, "an admitted mutation must produce an execution plan");
+        Assertions.assertEquals(type, plan.getMutationType());
+        Assertions.assertEquals(normalizedIndexName, plan.getNormalizedIndexName());
+        Assertions.assertEquals(DATASET_VERSION, plan.getAdmittedDatasetVersion());
+        Assertions.assertEquals(DATASET_URI, plan.getDatasetUri());
     }
 
     // ------------------------------------------------------------------
@@ -267,9 +279,15 @@ public class LanceIndexAdmissionTest {
     // ------------------------------------------------------------------
 
     @Test
-    public void plainCreateOnEmptySnapshotValidatesThenRejectsAsUnsupported() {
-        assertUnsupported(() -> admitCreate(emptySnapshot(), annDef("MyIdx", false, false), false),
-                "CREATE INDEX");
+    public void plainCreateOnEmptySnapshotProducesTheExecutionPlan() throws Exception {
+        LanceIndexMutationPlan plan = admitCreate(emptySnapshot(), annDef("MyIdx", false, false), false);
+        assertPlan(plan, TLanceIndexMutationType.CREATE, "myidx");
+        Assertions.assertEquals("v", plan.getColumnName());
+        Assertions.assertEquals("IVF_PQ", plan.getIndexType());
+        Assertions.assertFalse(plan.isIfNotExists());
+        Assertions.assertFalse(plan.isIfExists());
+        Assertions.assertNotNull(plan.getSchemaContract());
+        Assertions.assertEquals("IVF_PQ", plan.getProperties().get("index_type"));
         assertNothingPersisted();
     }
 
@@ -281,8 +299,9 @@ public class LanceIndexAdmissionTest {
         Mockito.when(catalog.loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL))
                 .thenReturn(prepared);
 
-        assertUnsupported(() -> LanceIndexAdmission.admitCreate(catalog, database, table,
-                scalarDef("Idx", "BTREE", "c", false, false), false), "CREATE INDEX");
+        assertPlan(LanceIndexAdmission.admitCreate(catalog, database, table,
+                scalarDef("Idx", "BTREE", "c", false, false), false),
+                TLanceIndexMutationType.CREATE, "idx");
         Mockito.verify(catalog, Mockito.times(1))
                 .loadTableIndexAdmissionSnapshot(REMOTE_DB, REMOTE_TBL);
     }
@@ -575,33 +594,36 @@ public class LanceIndexAdmissionTest {
     }
 
     @Test
-    public void replaceOnAbsentNameValidatesThenRejectsAsUnsupported() {
-        assertUnsupported(() -> admitCreate(emptySnapshot(), annDef("Fresh", false, true), false),
-                "CREATE OR REPLACE INDEX");
+    public void replaceOnAbsentNameProducesTheReplaceExecutionPlan() throws Exception {
+        LanceIndexMutationPlan plan = admitCreate(emptySnapshot(), annDef("Fresh", false, true), false);
+        assertPlan(plan, TLanceIndexMutationType.REPLACE, "fresh");
+        Assertions.assertNotNull(plan.getSchemaContract());
         assertNothingPersisted();
     }
 
     @Test
-    public void replaceWithCaseVariantResolvesThenRejectsAsUnsupported() {
-        // M2: a unique case-insensitive match resolves to the stored display name before the
-        // terminal rejection.
+    public void replaceWithCaseVariantResolvesThenProducesThePlan() throws Exception {
+        // M2: a unique case-insensitive match resolves to the stored display name; REPLACE
+        // proceeds on the resolved name, so the plan carries the normalized identity.
         LanceIndexAdmissionSnapshot snapshot = snapshot(
                 Collections.singletonList(logicalIndex("IdxA", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
                 Collections.singletonList(physicalIndex("IdxA", "VECTOR")));
 
-        assertUnsupported(() -> admitCreate(snapshot, annDef("IDXA", false, true), false),
-                "CREATE OR REPLACE INDEX");
+        assertPlan(admitCreate(snapshot, annDef("IDXA", false, true), false),
+                TLanceIndexMutationType.REPLACE, "idxa");
         assertNothingPersisted();
     }
 
     @Test
-    public void mixedCaseColumnResolvesUniquelyThroughThePreflight() {
+    public void mixedCaseColumnResolvesUniquelyThroughThePreflight() throws Exception {
         // N5: static validation is case-insensitive; the schema-contract build keys on the
         // stored Lance field name, so a mixed-case request resolves, passes the preflight,
-        // and ends in the shared not-supported rejection.
-        assertUnsupported(() -> admitCreate(emptySnapshot(),
+        // and the plan carries the stored spelling.
+        LanceIndexMutationPlan plan = admitCreate(emptySnapshot(),
                 new IndexDefinition("idx", false, Collections.singletonList("embedding"), "ANN",
-                        annProperties(), "", false), false), "CREATE INDEX");
+                        annProperties(), "", false), false);
+        assertPlan(plan, TLanceIndexMutationType.CREATE, "idx");
+        Assertions.assertEquals("Embedding", plan.getColumnName());
     }
 
     @Test
@@ -645,17 +667,24 @@ public class LanceIndexAdmissionTest {
         assertNothingPersisted();
 
         // Unique resolution: exactly one lookup hit, so the request passes the preflight and
-        // ends in the shared not-supported rejection instead of the ambiguity error.
+        // produces the execution plan instead of the ambiguity error; the plan keys on the
+        // stored field spelling.
         tableColumns.put(KELVIN_SIGN, notNullColumn(KELVIN_SIGN, new ArrayType(Type.FLOAT)));
-        assertUnsupported(() -> admitCreate(snapshotWithFields(
-                vectorField(KELVIN_SIGN, 1)), annDef("idx", "k", false, false), false),
-                "CREATE INDEX");
+        LanceIndexMutationPlan plan = admitCreate(snapshotWithFields(
+                vectorField(KELVIN_SIGN, 1)), annDef("idx", "k", false, false), false);
+        assertPlan(plan, TLanceIndexMutationType.CREATE, "idx");
+        Assertions.assertEquals(KELVIN_SIGN, plan.getColumnName());
     }
 
     @Test
-    public void btreeCreateValidatesTheScalarContractThenRejectsAsUnsupported() {
-        assertUnsupported(() -> admitCreate(emptySnapshot(),
-                scalarDef("Idx", "BTREE", "c", false, false), false), "CREATE INDEX");
+    public void btreeCreateValidatesTheScalarContractThenProducesThePlan() throws Exception {
+        LanceIndexMutationPlan plan = admitCreate(emptySnapshot(),
+                scalarDef("Idx", "BTREE", "c", false, false), false);
+        assertPlan(plan, TLanceIndexMutationType.CREATE, "idx");
+        Assertions.assertEquals("c", plan.getColumnName());
+        Assertions.assertEquals("BTREE", plan.getIndexType());
+        Assertions.assertTrue(plan.getProperties().isEmpty());
+        Assertions.assertNotNull(plan.getSchemaContract());
         assertNothingPersisted();
     }
 
@@ -726,22 +755,105 @@ public class LanceIndexAdmissionTest {
     }
 
     @Test
-    public void dropExistingNameValidatesThenRejectsAsUnsupported() {
+    public void dropExistingNameProducesTheDropExecutionPlan() throws Exception {
         LanceIndexAdmissionSnapshot snapshot = snapshot(
                 Collections.singletonList(logicalIndex("IdxA", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
                 Collections.singletonList(physicalIndex("IdxA", "VECTOR")));
 
-        assertUnsupported(() -> admitDrop(snapshot, "IdxA", true), "DROP INDEX");
+        LanceIndexMutationPlan plan = admitDrop(snapshot, "IdxA", true);
+        assertPlan(plan, TLanceIndexMutationType.DROP, "idxa");
+        // A DROP carries no column, algorithm, or schema contract; the IF flag travels.
+        Assertions.assertEquals("", plan.getColumnName());
+        Assertions.assertEquals("", plan.getIndexType());
+        Assertions.assertNull(plan.getProperties());
+        Assertions.assertNull(plan.getSchemaContract());
+        Assertions.assertTrue(plan.isIfExists());
+        Assertions.assertFalse(plan.isIfNotExists());
         assertNothingPersisted();
     }
 
     @Test
-    public void dropWithCaseVariantResolvesThenRejectsAsUnsupported() {
+    public void dropWithCaseVariantResolvesThenProducesThePlan() throws Exception {
         LanceIndexAdmissionSnapshot snapshot = snapshot(
                 Collections.singletonList(logicalIndex("IdxA", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
                 Collections.singletonList(physicalIndex("IdxA", "VECTOR")));
 
-        assertUnsupported(() -> admitDrop(snapshot, "idxa", false), "DROP INDEX");
+        assertPlan(admitDrop(snapshot, "idxa", false), TLanceIndexMutationType.DROP, "idxa");
+        assertNothingPersisted();
+    }
+
+    // ------------------------------------------------------------------
+    // Entry-internal final preflight (the plan's re-decision supplier)
+    // ------------------------------------------------------------------
+
+    /**
+     * Answers the snapshots in order, repeating the last one: the first read is admission's
+     * pinned snapshot, every later one is the fresh read of the entry-internal final preflight.
+     */
+    private static LanceIndexAdmission.SnapshotLoader sequencedLoader(
+            LanceIndexAdmissionSnapshot... snapshots) {
+        AtomicInteger calls = new AtomicInteger();
+        return (cat, dbName, tblName) ->
+                snapshots[Math.min(calls.getAndIncrement(), snapshots.length - 1)];
+    }
+
+    @Test
+    public void createFinalPreflightReDecidesNoOpMismatchAndProceed() throws Exception {
+        // Admission saw an empty snapshot, so a plan exists; current metadata then shows the
+        // name taken by another writer between capture and the entry.
+        LanceIndexAdmissionSnapshot taken = snapshot(
+                Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
+                Collections.singletonList(physicalIndex("idx", "VECTOR")));
+        LanceIndexAdmissionSnapshot differentDefinition = snapshot(
+                Collections.singletonList(logicalIndex("idx", "c", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
+                Collections.singletonList(physicalIndex("idx", "VECTOR")));
+
+        // IF NOT EXISTS + same definition: the authoritative no-op, which dispatches nothing.
+        LanceIndexMutationPlan ifNotExistsPlan = admitCreate(
+                sequencedLoader(emptySnapshot(), taken), annDef("idx", true, false), true);
+        Assertions.assertEquals(PreflightResult.NO_OP, ifNotExistsPlan.getFinalPreflight().run());
+
+        // IF NOT EXISTS + different definition: the admission mismatch semantics, 5100.
+        LanceIndexMutationPlan mismatchPlan = admitCreate(
+                sequencedLoader(emptySnapshot(), differentDefinition), annDef("idx", true, false), true);
+        assertInvalid(() -> mismatchPlan.getFinalPreflight().run(),
+                "index 'idx' already exists with a different definition");
+
+        // No IF flag: the plain "already exists" rejection, 5100.
+        LanceIndexMutationPlan plainPlan = admitCreate(
+                sequencedLoader(emptySnapshot(), taken), annDef("idx", false, false), false);
+        assertInvalid(() -> plainPlan.getFinalPreflight().run(), "index 'idx' already exists");
+
+        // The name still absent, and CREATE OR REPLACE over a taken name: both proceed.
+        Assertions.assertEquals(PreflightResult.PROCEED,
+                admitCreate(sequencedLoader(emptySnapshot(), emptySnapshot()),
+                        annDef("idx", false, false), false).getFinalPreflight().run());
+        Assertions.assertEquals(PreflightResult.PROCEED,
+                admitCreate(sequencedLoader(emptySnapshot(), taken),
+                        annDef("idx", false, true), false).getFinalPreflight().run());
+        assertNothingPersisted();
+    }
+
+    @Test
+    public void dropFinalPreflightReDecidesNoOpNotFoundAndProceed() throws Exception {
+        LanceIndexAdmissionSnapshot present = snapshot(
+                Collections.singletonList(logicalIndex("idx", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
+                Collections.singletonList(physicalIndex("idx", "VECTOR")));
+
+        // Admission saw the index, so a drop plan exists; current metadata shows it gone.
+        LanceIndexMutationPlan ifExistsPlan = LanceIndexAdmission.admitDrop(
+                sequencedLoader(present, emptySnapshot()), catalog, database, table, "idx", true);
+        Assertions.assertEquals(PreflightResult.NO_OP, ifExistsPlan.getFinalPreflight().run());
+
+        // Without IF EXISTS the same re-decision keeps the admission "not found" semantics, 5100.
+        LanceIndexMutationPlan plainPlan = LanceIndexAdmission.admitDrop(
+                sequencedLoader(present, emptySnapshot()), catalog, database, table, "idx", false);
+        assertInvalid(() -> plainPlan.getFinalPreflight().run(), "index 'idx' not found");
+
+        // Still present: proceed.
+        Assertions.assertEquals(PreflightResult.PROCEED, LanceIndexAdmission.admitDrop(
+                sequencedLoader(present, present), catalog, database, table, "idx", false)
+                        .getFinalPreflight().run());
         assertNothingPersisted();
     }
 
