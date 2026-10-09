@@ -45,6 +45,11 @@ ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletSchema& sc
     return get_read_time_hidden_column_type(schema.column(column_idx));
 }
 
+bool has_load_placeholder_hidden_column(const TabletSchema& schema) {
+    // by name, like the readers: TabletMeta does not fill version_col_idx for FE-created tablets
+    return schema.field_index(VERSION_COL) != -1 || schema.field_index(COMMIT_TSO_COL) != -1;
+}
+
 std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumnType column_type,
                                                        const Version& version,
                                                        const TsoRange& commit_tso,

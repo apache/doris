@@ -45,6 +45,13 @@ inline bool row_store_value_may_be_stale(ReadTimeHiddenColumnType column_type) {
            column_type == ReadTimeHiddenColumnType::COMMIT_TSO;
 }
 
+// Whether `schema` has a column that loads store as a placeholder (VERSION or COMMIT_TSO, see
+// row_store_value_may_be_stale). A single-version rowset of such a schema may still hold the
+// placeholders in column storage, so a compaction has to rewrite it rather than hard-link its
+// segments under a multi-version output, where get_read_time_hidden_column_value stops
+// substituting. BINLOG_TSO lives only on row-binlog tablets, whose link path never reaches this.
+bool has_load_placeholder_hidden_column(const TabletSchema& schema);
+
 // The logical value every row of a single-version rowset carries for `column_type`, or nullopt
 // when the stored value is the one to read: a multi-version rowset, an unassigned commit TSO, or
 // BINLOG_TSO outside a row-binlog read. Point-query and row-ID direct reads are not row-binlog

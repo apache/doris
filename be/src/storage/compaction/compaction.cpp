@@ -77,6 +77,7 @@
 #include "storage/index/snii/writer/snii_build_memory_tracker.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
+#include "storage/read_time_hidden_column.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_reader.h"
 #include "storage/rowset/beta_rowset_writer.h"
@@ -134,16 +135,17 @@ namespace {
 constexpr size_t kSniiCompactionReadAheadBudgetBytes = 64ULL << 20;
 
 bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
-                    const RowsetSharedPtr& rhs, bool has_version_col) {
+                    const RowsetSharedPtr& rhs, bool has_load_placeholder_col) {
     size_t min_tidy_size = config::ordered_data_compaction_min_segment_size;
     if (rhs->num_segments() == 0) {
         return true;
     }
-    // A load stores the hidden VERSION column as a zero placeholder, and readers substitute the
-    // rowset version only while the rowset is single-version (get_read_time_hidden_column_value).
-    // Linking its segments under a multi-version output would expose the placeholder, so such a
-    // rowset goes through the rewriting compaction, which materializes the value.
-    if (has_version_col && rhs->start_version() == rhs->end_version()) {
+    // A load stores the hidden VERSION / COMMIT_TSO column as a zero placeholder, and readers
+    // substitute the rowset version / commit TSO only while the rowset is single-version
+    // (get_read_time_hidden_column_value). Linking its segments under a multi-version output would
+    // expose the placeholder, so such a rowset goes through the rewriting compaction, which
+    // materializes the value.
+    if (has_load_placeholder_col && rhs->start_version() == rhs->end_version()) {
         return false;
     }
     if (rhs->is_segments_overlapping()) {
@@ -685,11 +687,13 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         auto input_size = _input_rowsets.size();
         std::string pre_max_key;
         bool pre_rs_key_bounds_truncated {false};
-        // by name, like readers classify hidden columns: TabletMeta does not fill version_col_idx
-        const bool has_version_col = _tablet->tablet_schema()->field_index(VERSION_COL) != -1;
+        // MOR UNIQUE tables carry VERSION; the DUP base tablet of a row-binlog table carries
+        // COMMIT_TSO and takes this path, as its role is TABLET_ROLE_DATA.
+        const bool has_load_placeholder_col =
+                has_load_placeholder_hidden_column(*_tablet->tablet_schema());
         for (auto i = 0; i < input_size; ++i) {
             if (!is_rowset_tidy(pre_max_key, pre_rs_key_bounds_truncated, _input_rowsets[i],
-                                has_version_col)) {
+                                has_load_placeholder_col)) {
                 if (i <= input_size / 2) {
                     return false;
                 } else {
