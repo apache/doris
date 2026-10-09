@@ -229,30 +229,29 @@ TEST_F(AsyncCachedRemoteFileReaderTest, external_reader_normalizes_tablet_id_for
     }
 }
 
-TEST_F(AsyncCachedRemoteFileReaderTest, external_cache_key_tells_storages_apart) {
-    create_cache("cached_external_reader_storage_key");
+TEST_F(AsyncCachedRemoteFileReaderTest, external_cache_key_comes_from_the_key_function) {
+    create_cache("cached_external_reader_key_function");
     constexpr int64_t mtime = 1700000000000;
-    auto external_reader = [this](const std::string& fs_identity) {
-        FileReaderOptions options;
-        options.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
-        options.mtime = mtime;
-        options.fs_identity = fs_identity;
-        return std::make_shared<CachedRemoteFileReader>(open_remote_file(), options);
-    };
+    auto external_reader =
+            [this](std::function<std::string(const std::string&, int64_t)> cache_key_function) {
+                FileReaderOptions options;
+                options.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+                options.mtime = mtime;
+                options.cache_key_function = std::move(cache_key_function);
+                return std::make_shared<CachedRemoteFileReader>(open_remote_file(), options);
+            };
 
-    // The same path and modification time on two storages are two different files.
-    auto storage_a = external_reader("http://storage-a:9000");
-    auto storage_b = external_reader("http://storage-b:9000");
-    EXPECT_NE(storage_a->_cache_hash, storage_b->_cache_hash);
-    EXPECT_EQ(storage_a->_cache_hash, external_reader("http://storage-a:9000")->_cache_hash);
-    EXPECT_EQ(storage_a->_cache_hash,
-              BlockFileCache::hash(fmt::format("http://storage-a:9000:{}:{}",
-                                               storage_a->path().native(), mtime)));
+    // The reader keys the file by what the key function makes of its path and modification time.
+    auto keyed = external_reader([](const std::string& path, int64_t file_mtime) {
+        return fmt::format("http://storage-a:9000:{}:{}", path, file_mtime);
+    });
+    EXPECT_EQ(keyed->_cache_hash, BlockFileCache::hash(fmt::format("http://storage-a:9000:{}:{}",
+                                                                   keyed->path().native(), mtime)));
 
-    // A reader that does not know its storage keeps the path:mtime key.
-    auto unknown = external_reader("");
-    EXPECT_EQ(unknown->_cache_hash,
-              BlockFileCache::hash(fmt::format("{}:{}", unknown->path().native(), mtime)));
+    // Without a key function the key is path:mtime.
+    auto unkeyed = external_reader(nullptr);
+    EXPECT_EQ(unkeyed->_cache_hash,
+              BlockFileCache::hash(fmt::format("{}:{}", unkeyed->path().native(), mtime)));
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest, file_factory_keys_s3_files_by_endpoint) {

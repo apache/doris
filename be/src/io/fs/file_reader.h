@@ -20,6 +20,7 @@
 #include <butil/macros.h>
 #include <stddef.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -81,10 +82,10 @@ struct FileReaderOptions {
     // Storage resource id of the remote file system. Used by peer fill to reconstruct
     // the source file system without scanning tablet rowsets on the peer.
     std::string storage_resource_id;
-    // The storage an external file is read from, such as the object storage endpoint or the HDFS
-    // name node, set by FileFactory. The file cache key of an external file includes it because the
-    // path alone does not tell two storages apart; when it is empty the key is path:mtime.
-    std::string fs_identity {};
+    // Builds the file cache key of an external file from its path and modification time. The
+    // creator of the reader sets it when the path alone does not name the file, e.g. FileFactory
+    // adds the object storage endpoint or the HDFS name node. When it is empty the key is path:mtime.
+    std::function<std::string(const std::string& path, int64_t mtime)> cache_key_function {};
 
     static const FileReaderOptions DEFAULT;
 };
