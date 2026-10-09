@@ -35,7 +35,7 @@ import java.util.Map;
 
 class StreamingMultiTblTaskParallelismTest {
     @Test
-    void taskUsesHalfSelectedBackendCpuWithoutChangingJobProperties() throws Exception {
+    void taskCapsAutomaticAndExplicitParallelismWithoutChangingJobProperties() throws Exception {
         int oldMax = Config.streaming_cdc_max_snapshot_parallelism;
         try {
             Config.streaming_cdc_max_snapshot_parallelism = 16;
@@ -47,7 +47,8 @@ class StreamingMultiTblTaskParallelismTest {
             assertParallelism(32, null, 16);
             assertParallelism(8, "1", 1);
             assertParallelism(8, "4", 4);
-            assertParallelism(8, "10000", 4);
+            assertParallelism(8, "8", 8);
+            assertParallelism(8, "10000", 16);
             assertParallelism(32, "10000", 16);
             assertParallelism(8, null, 4, DataSourceType.MYSQL, null);
             assertParallelism(8, null, 1, DataSourceType.MYSQL, "5400");
@@ -55,11 +56,17 @@ class StreamingMultiTblTaskParallelismTest {
             assertParallelism(8, null, 1, DataSourceType.OCEANBASE, "5400");
             Config.streaming_cdc_max_snapshot_parallelism = 4;
             assertParallelism(8, null, 4);
+            assertParallelism(32, null, 4);
+            assertParallelism(8, "8", 4);
+            Config.streaming_cdc_max_snapshot_parallelism = 32;
+            assertParallelism(8, null, 4);
+            assertParallelism(8, "32", 32, DataSourceType.MYSQL, null);
             Config.streaming_cdc_max_snapshot_parallelism = 1;
             assertParallelism(8, null, 1);
             assertParallelism(8, "10000", 1);
             Config.streaming_cdc_max_snapshot_parallelism = 0;
             assertParallelism(8, null, 1);
+            assertParallelism(8, "8", 1);
         } finally {
             Config.streaming_cdc_max_snapshot_parallelism = oldMax;
         }
