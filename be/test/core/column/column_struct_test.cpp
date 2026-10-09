@@ -21,17 +21,23 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <string>
+#include <typeinfo>
+#include <utility>
 #include <vector>
 
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
+#include "core/column/column_dummy.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/cow.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date.h"
@@ -55,6 +61,59 @@ protected:
 };
 
 namespace {
+
+// An ARRAY element column that records how many hidden elements the ARRAY hash visits.
+class HashCountingColumn final : public COWHelper<IColumnDummy, HashCountingColumn> {
+private:
+    friend class COWHelper<IColumnDummy, HashCountingColumn>;
+
+    explicit HashCountingColumn(size_t rows) { s = rows; }
+
+public:
+    std::string get_name() const override { return "HashCounting"; }
+    MutableColumnPtr clone_dummy(size_t rows) const override {
+        return HashCountingColumn::create(rows);
+    }
+    bool structure_equals(const IColumn& rhs) const override {
+        return typeid(rhs) == typeid(HashCountingColumn);
+    }
+
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t&,
+                                  const uint8_t*) const override {
+        xx_hashed_elements += end - start;
+    }
+    void update_crc32c_single(size_t start, size_t end, uint32_t&, const uint8_t*) const override {
+        crc_hashed_elements += end - start;
+    }
+
+    mutable size_t xx_hashed_elements = 0;
+    mutable size_t crc_hashed_elements = 0;
+};
+
+struct AllNullArrayFixture {
+    static constexpr size_t rows = 33; // Cover both the SIMD chunk and scalar tail.
+    static constexpr size_t elements_per_row = 3;
+
+    HashCountingColumn* counter;
+    ColumnPtr plain_struct;
+    ColumnPtr nullable;
+    std::vector<uint8_t> null_map = std::vector<uint8_t>(rows, 1);
+
+    AllNullArrayFixture() {
+        auto elements = HashCountingColumn::create(rows * elements_per_row);
+        counter = elements.get();
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        auto nullable_null_map = ColumnUInt8::create();
+        for (size_t i = 1; i <= rows; ++i) {
+            offsets->insert_value(i * elements_per_row);
+            nullable_null_map->insert_value(1);
+        }
+        Columns fields;
+        fields.push_back(ColumnArray::create(std::move(elements), std::move(offsets)));
+        plain_struct = ColumnStruct::create(std::move(fields));
+        nullable = ColumnNullable::create(plain_struct, std::move(nullable_null_map));
+    }
+};
 
 // Nullable(Struct<x: Nullable(Int32)>) with 4 rows. Rows 1 and 3 are NULL at the outer level
 // but keep different hidden payloads in the field column, which is what IF/CASE produce when
@@ -193,6 +252,46 @@ TEST_F(ColumnStructTest, BatchHashKeepsChildBatchContractWithUnrelatedOuterNull)
     with_outer_null->update_hashes_with_value(xx_a.data(), nullptr);
     without_outer_null->update_hashes_with_value(xx_b.data(), nullptr);
     EXPECT_EQ(xx_a[0], xx_b[0]);
+}
+
+TEST_F(ColumnStructTest, AllNullBatchSkipsVariableLengthChildXxHash) {
+    AllNullArrayFixture fixture;
+    std::vector<uint64_t> hashes(fixture.rows, 11);
+    fixture.plain_struct->update_hashes_with_value(hashes.data(), fixture.null_map.data());
+    EXPECT_EQ(fixture.counter->xx_hashed_elements, 0);
+    for (auto hash : hashes) {
+        EXPECT_EQ(hash, 11);
+    }
+
+    fixture.nullable->update_hashes_with_value(hashes.data(), nullptr);
+    EXPECT_EQ(fixture.counter->xx_hashed_elements, 0);
+    for (auto hash : hashes) {
+        EXPECT_EQ(hash, hashes[0]);
+    }
+
+    fixture.null_map.back() = 0;
+    fixture.plain_struct->update_hashes_with_value(hashes.data(), fixture.null_map.data());
+    EXPECT_GT(fixture.counter->xx_hashed_elements, 0);
+}
+
+TEST_F(ColumnStructTest, AllNullBatchSkipsVariableLengthChildCrc32c) {
+    AllNullArrayFixture fixture;
+    std::vector<uint32_t> hashes(fixture.rows, 13);
+    fixture.plain_struct->update_crc32c_batch(hashes.data(), fixture.null_map.data());
+    EXPECT_EQ(fixture.counter->crc_hashed_elements, 0);
+    for (auto hash : hashes) {
+        EXPECT_EQ(hash, 13);
+    }
+
+    fixture.nullable->update_crc32c_batch(hashes.data(), nullptr);
+    EXPECT_EQ(fixture.counter->crc_hashed_elements, 0);
+    for (auto hash : hashes) {
+        EXPECT_EQ(hash, hashes[0]);
+    }
+
+    fixture.null_map.back() = 0;
+    fixture.plain_struct->update_crc32c_batch(hashes.data(), fixture.null_map.data());
+    EXPECT_GT(fixture.counter->crc_hashed_elements, 0);
 }
 
 TEST_F(ColumnStructTest, RangeHashWithAllZeroMaskMatchesUnmasked) {

@@ -29,6 +29,7 @@
 #include "core/typeid_cast.h"
 #include "exec/sort/sort_block.h"
 #include "pdqsort.h"
+#include "util/simd/bits.h"
 
 class SipHash;
 namespace doris {
@@ -250,6 +251,10 @@ void for_each_non_null_run(const uint8_t* __restrict null_data, size_t start, si
 template <typename HashType, typename Func>
 void batch_hash_skipping_null_rows(HashType* __restrict hashes, size_t rows,
                                    const uint8_t* __restrict null_data, Func&& hash_all_rows) {
+    // No field hash can survive when every row is NULL; retain the incoming seeds.
+    if (!simd::contain_zero(null_data, rows)) {
+        return;
+    }
     DorisVector<HashType> saved(hashes, hashes + rows);
     hash_all_rows();
     for (size_t i = 0; i < rows; ++i) {
