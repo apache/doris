@@ -121,6 +121,7 @@ void register_function_dict_get_many(SimpleFunctionFactory& factory);
 void register_function_ai(SimpleFunctionFactory& factory);
 void register_function_score(SimpleFunctionFactory& factory);
 void register_function_variant_type(SimpleFunctionFactory& factory);
+void register_function_type_of(SimpleFunctionFactory& factory);
 void register_function_binary(SimpleFunctionFactory& factory);
 void register_function_levenshtein(SimpleFunctionFactory& factory);
 void register_function_hamming_distance(SimpleFunctionFactory& factory);
@@ -378,6 +379,7 @@ public:
             register_function_throw_exception(instance);
 #endif
             register_function_variant_type(instance);
+            register_function_type_of(instance);
         });
         return instance;
     }
