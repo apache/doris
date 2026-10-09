@@ -792,6 +792,41 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testQueryTimeMvValidationRejectsIntentionallyUnwarmedFilteredPartitionView() {
+        Fixture f = Fixture.connectorPartitionPruning();
+        PluginDrivenMvccSnapshot lightweight = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+
+        ExternalTablePreloadInfo preloadInfo = new ExternalTablePreloadInfo(f.table);
+        preloadInfo.markLatestRelation();
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(statementContext.getExternalTablePreloadInfo(1L)).thenReturn(Optional.of(preloadInfo));
+        Mockito.when(statementContext.getSnapshot(f.table)).thenReturn(Optional.of(lightweight));
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.doCallRealMethod().when(connectContext).setThreadLocalInfo();
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+
+        ConnectContext previousContext = ConnectContext.get();
+        connectContext.setThreadLocalInfo();
+        try {
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> f.table.getAndCopyPartitionItems(Optional.of(lightweight)));
+
+            Assertions.assertEquals(
+                    "Partition view was not preloaded for filtered latest relation of table tbl",
+                    error.getDetailMessage());
+            Mockito.verify(f.metadata, Mockito.never()).listPartitions(
+                    Mockito.any(), Mockito.any(), Mockito.any());
+        } finally {
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void testConnectorPartitionPruningMaterializesFullViewForExplicitConsumer() {
         Fixture f = Fixture.connectorPartitionPruning();
         f.table.loadSnapshot(Optional.empty(), Optional.empty());
