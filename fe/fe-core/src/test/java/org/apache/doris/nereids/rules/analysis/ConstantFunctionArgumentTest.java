@@ -202,6 +202,12 @@ public class ConstantFunctionArgumentTest {
                 "Event number 9 is out of range");
         assertRewriteError("select sequence_count(concat('(?1)', '(?9)'), dt, k = 1, k = 2)" + table,
                 "Event number 9 is out of range");
+        // a typed NULL pattern folds to a NULL literal, which must be rejected here: BE's nullable aggregate
+        // wrapper would otherwise skip every row for a NULL pattern instead of raising an error
+        assertRewriteError("select sequence_match(cast(null as string), dt, k = 1, k = 2)" + table,
+                "must be string constant, but it is null");
+        assertRewriteError("select sequence_count(cast(null as string), dt, k = 1, k = 2)" + table,
+                "must be string constant, but it is null");
         assertRewriteError("select ai_agg(concat('no_such_', 'resource'), s, concat('ta', 'sk'))" + table,
                 "AI resource 'no_such_resource' does not exist");
         // the state combinator checks its nested function at the same points

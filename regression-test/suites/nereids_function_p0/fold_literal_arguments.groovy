@@ -149,6 +149,16 @@ suite("fold_literal_arguments") {
         sql "select sequence_match(concat('(?1)', '(?9)'), dt, k = 1, k = 2) from fold_literal_arguments_t"
         exception "Event number 9 is out of range"
     }
+    // a typed NULL pattern folds to a NULL literal, which must be rejected explicitly: BE's nullable aggregate
+    // wrapper would otherwise skip every row for a NULL pattern instead of raising an error
+    test {
+        sql "select sequence_match(cast(null as string), dt, k = 1, k = 2) from fold_literal_arguments_t"
+        exception "must be string constant, but it is null"
+    }
+    test {
+        sql "select sequence_count(cast(null as string), dt, k = 1, k = 2) from fold_literal_arguments_t"
+        exception "must be string constant, but it is null"
+    }
 
     // a non-constant argument is still rejected
     test {

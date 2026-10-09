@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 
 import java.util.regex.Matcher;
@@ -68,10 +69,17 @@ public interface SequenceFunction extends FunctionTrait {
      * a pattern FE cannot fold is parsed by BE when it is evaluated
      */
     default void checkLiteralPattern() {
-        if (!(getArgument(0) instanceof StringLikeLiteral)) {
+        Expression patternArgument = getArgument(0);
+        if (patternArgument instanceof NullLiteral) {
+            // a folded NULL pattern must be rejected here: BE's nullable aggregate wrapper skips every row for a
+            // NULL pattern argument instead of raising an error, so the function would silently return 0.
+            throw new AnalysisException("The pattern param of " + getName()
+                    + " function must be string constant, but it is null");
+        }
+        if (!(patternArgument instanceof StringLikeLiteral)) {
             return;
         }
-        String pattern = ((StringLikeLiteral) getArgument(0)).getStringValue();
+        String pattern = ((StringLikeLiteral) patternArgument).getStringValue();
         if (!FunctionCallExpr.parsePattern(pattern)) {
             throw new AnalysisException("The format of pattern params is wrong: " + this.toSql());
         }
