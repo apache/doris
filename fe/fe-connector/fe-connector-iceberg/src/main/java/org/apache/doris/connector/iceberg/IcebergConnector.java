@@ -161,6 +161,8 @@ public class IcebergConnector implements Connector {
     static final String MANIFEST_CACHE_CAPACITY = "meta.cache.iceberg.manifest.capacity";
     static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;
     static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
+    // Entries whose meta.cache.iceberg.<entry>.max-weight this connector reads.
+    static final String[] WEIGHTED_CACHE_ENTRIES = {"table", "partition", "manifest", "partition_view"};
 
     // Doris storage property keys (mirror StorageProperties without a fe-core dependency).
     // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
@@ -360,6 +362,24 @@ public class IcebergConnector implements Connector {
         Map<String, String> cacheProperties = new HashMap<>(this.properties);
         cacheProperties.put(TABLE_CACHE_TTL_SECOND, Long.toString(defaults.getTtlSecond()));
         return CacheSpec.fromProperties(cacheProperties, "iceberg", entryName, defaults);
+    }
+
+    /**
+     * Whether a metadata cache weight limit applies to this catalog: the FE-global limit, the catalog's
+     * {@code meta.cache.max-weight}, or the {@code max-weight} of one of {@link #WEIGHTED_CACHE_ENTRIES}. The
+     * catalog options then leave the Iceberg SDK manifest content cache off unless the user enables it, because
+     * that cache keeps manifests per FileIO outside every Doris limit.
+     */
+    boolean hasMetaCacheWeightLimit() {
+        if (metaCache.hasEnclosingWeightLimit()) {
+            return true;
+        }
+        for (String entry : WEIGHTED_CACHE_ENTRIES) {
+            if (cacheSpec(entry).isWeightBounded()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -1019,7 +1039,7 @@ public class IcebergConnector implements Connector {
         }
 
         Map<String, String> catalogOptions =
-                IcebergCatalogFactory.buildCatalogProperties(catalogProps, chosenS3);
+                IcebergCatalogFactory.buildCatalogProperties(catalogProps, chosenS3, hasMetaCacheWeightLimit());
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
 
         Configuration conf;
@@ -1094,7 +1114,8 @@ public class IcebergConnector implements Connector {
         DlfMetaStoreProperties dlf = (DlfMetaStoreProperties) MetaStoreProviders.bindForType(
                 IcebergCatalogProperties.TYPE_DLF, properties, buildStorageHadoopConfig());
         Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlf.toDlfCatalogConf());
-        Map<String, String> catalogOptions = IcebergCatalogFactory.buildBaseCatalogProperties(properties);
+        Map<String, String> catalogOptions =
+                IcebergCatalogFactory.buildBaseCatalogProperties(properties, hasMetaCacheWeightLimit());
         return buildCatalogAuthenticated(IcebergCatalogProperties.TYPE_DLF, () -> {
             DLFCatalog catalog = new DLFCatalog(chosenS3.get());
             catalog.setConf(conf);
@@ -1219,8 +1240,8 @@ public class IcebergConnector implements Connector {
      */
     private Catalog createS3TablesCatalog(String catalogName, Optional<S3CompatibleFileSystemProperties> chosenS3) {
         String region = resolveS3TablesRegion(chosenS3, properties);
-        Map<String, String> catalogOptions =
-                IcebergCatalogFactory.buildS3TablesCatalogProperties(catalogProps, chosenS3);
+        Map<String, String> catalogOptions = IcebergCatalogFactory.buildS3TablesCatalogProperties(
+                catalogProps, chosenS3, hasMetaCacheWeightLimit());
         LOG.info("Creating Iceberg s3tables catalog '{}' region='{}' boundStorage={}",
                 catalogName, region, chosenS3.isPresent());
         return buildCatalogAuthenticated(IcebergCatalogProperties.TYPE_S3_TABLES, () -> {

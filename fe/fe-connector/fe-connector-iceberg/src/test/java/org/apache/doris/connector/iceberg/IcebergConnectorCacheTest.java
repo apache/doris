@@ -127,6 +127,27 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
+    public void metaCacheWeightLimitSeesCatalogAndEveryConsumedEntryLimit() throws Exception {
+        // The SDK manifest content cache is derived on only when no Doris weight limit applies to the catalog. Keys
+        // that create no budget (an entry this connector does not read, an unparsable persisted value) do not count.
+        // MUTATION: checking only the catalog limit, or dropping an entry from the list -> red.
+        assertMetaCacheWeightLimit(false, Collections.emptyMap());
+        assertMetaCacheWeightLimit(true, props("meta.cache.max-weight", "128MB"));
+        for (String entry : IcebergConnector.WEIGHTED_CACHE_ENTRIES) {
+            assertMetaCacheWeightLimit(true, props("meta.cache.iceberg." + entry + ".max-weight", "16MB"));
+        }
+        assertMetaCacheWeightLimit(false, props("meta.cache.iceberg.snapshot.max-weight", "16MB"));
+        assertMetaCacheWeightLimit(false, props("meta.cache.max-weight", "not-a-size"));
+    }
+
+    private static void assertMetaCacheWeightLimit(boolean expected, Map<String, String> properties)
+            throws Exception {
+        try (IcebergConnector connector = new IcebergConnector(properties, new RecordingConnectorContext())) {
+            Assertions.assertEquals(expected, connector.hasMetaCacheWeightLimit(), properties.toString());
+        }
+    }
+
+    @Test
     public void invalidateHooksAreNoThrowOnFreshConnector() {
         // Smoke: the REFRESH TABLE / REFRESH CATALOG hooks must be safe to call (they only touch the
         // connector-internal latest-snapshot cache; the actual invalidate semantics are in
