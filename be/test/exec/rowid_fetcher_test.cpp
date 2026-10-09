@@ -22,13 +22,22 @@
 #include <string>
 #include <vector>
 
+#include "agent/cgroup_cpu_ctl.h"
+#include "common/exception.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner_v2.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/table/hive_reader.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "storage/id_manager.h"
+#include "storage/rowset_id.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -427,6 +436,66 @@ TEST_F(SubmitExternalScanTasksTest, ThrownExceptionReachesTheCaller) {
     });
     EXPECT_FALSE(result.ok());
     EXPECT_NE(result.to_string().find("scanner threw"), std::string::npos);
+}
+
+// multiget_data_v2 runs read_by_rowids() on the remote scan scheduler, which by default is a
+// ThreadPool whose worker has no exception boundary. A request whose file mapping exists but
+// whose slot carries a PTypeNode this BE cannot decode makes SlotDescriptor's constructor throw;
+// the RPC helper must turn that into an error status on the response instead of letting the
+// exception leave the worker and terminate the process.
+TEST_F(RowIdStorageReaderTest, RpcHelperReportsThrownExceptionOnThreadPoolPath) {
+    IdManager id_manager;
+    ExecEnv* env = ExecEnv::GetInstance();
+    IdManager* saved_id_manager = env->get_id_manager();
+    env->set_id_manager(&id_manager);
+    Defer restore_id_manager {[&] { env->set_id_manager(saved_id_manager); }};
+
+    PMultiGetRequestV2 request;
+    request.mutable_query_id()->set_hi(68610);
+    request.mutable_query_id()->set_lo(1);
+    request.set_wg_id(1);
+    auto id_file_map = id_manager.add_id_file_map(request.query_id(), 1024);
+    const uint32_t file_id = id_file_map->get_file_mapping_id(
+            std::make_shared<FileMapping>(/*tablet_id=*/1, RowsetId(), /*segment_id=*/0));
+
+    PRequestBlockDesc* block_desc = request.add_request_block_descs();
+    block_desc->add_file_id(file_id);
+    block_desc->add_row_id(0);
+    PSlotDescriptor* slot = block_desc->add_slots();
+    slot->set_id(0);
+    slot->set_parent(0);
+    slot->set_column_pos(0);
+    slot->set_byte_offset(0);
+    slot->set_null_indicator_byte(0);
+    slot->set_null_indicator_bit(-1);
+    slot->set_col_name("c");
+    slot->set_slot_idx(0);
+    // A type node kind unknown to this BE, as a newer FE could send.
+    slot->mutable_slot_type()->add_types()->set_type(99);
+
+    std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_shared<CgroupV2CpuCtl>(1);
+    ThreadPoolSimplifiedScanScheduler scheduler("rowid_rpc_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(1, 1, 4, 1).ok());
+    Defer stop_scheduler {[&] { scheduler.stop(); }};
+
+    PMultiGetResponseV2 response;
+    CountDownLatch finished(1);
+    ASSERT_TRUE(scheduler
+                        .submit_scan_task(SimplifiedScanTask(
+                                                  [&]() {
+                                                      RowIdStorageReader::read_by_rowids_for_rpc(
+                                                              request, &response);
+                                                      finished.count_down();
+                                                      return true;
+                                                  },
+                                                  nullptr, nullptr),
+                                          "rowid_rpc_test_task")
+                        .ok());
+    ASSERT_TRUE(finished.wait_for(std::chrono::seconds(30)));
+
+    EXPECT_NE(response.status().status_code(), 0);
+    ASSERT_EQ(response.status().error_msgs_size(), 1);
+    EXPECT_NE(response.status().error_msgs(0).find("invalid TTypeNodeType"), std::string::npos);
 }
 
 } // namespace doris
