@@ -447,7 +447,7 @@ public class S3ResourceTest {
                         Map<String, String> pingProperties = invocation.getArgument(2);
                         StorageAdapter adapter = StorageAdapter.of(pingProperties);
                         Assertions.assertEquals("S3", adapter.getSpiProperties().providerName());
-                        Assertions.assertEquals("DEFAULT", adapter.getSpiProperties().toMap()
+                        Assertions.assertEquals("DEFAULT", adapter.getBackendConfigProperties()
                                 .get("AWS_CREDENTIALS_PROVIDER_TYPE"));
                         pinged.set(true);
                         return null;
