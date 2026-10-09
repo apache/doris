@@ -21,7 +21,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 
@@ -34,6 +36,8 @@ constexpr int64_t MB = 1024 * 1024;
 // A 500 MB budget unless a test changes it.
 class JniScanHeapGateTest : public testing::Test {
 protected:
+    using Admission = JniScanHeapGate::Admission;
+
     void SetUp() override {
         _saved_max_wait_ms = config::jni_scanner_heap_max_wait_ms;
         config::jni_scanner_heap_max_wait_ms = 60000;
@@ -41,34 +45,20 @@ protected:
 
     void TearDown() override { config::jni_scanner_heap_max_wait_ms = _saved_max_wait_ms; }
 
-    // For a reader whose scan never stops, so it always ends up admitted.
-    void acquire(int64_t mb, JniScanHeapGate::Permit* permit, int64_t* wait_ns = nullptr) {
-        int64_t ignored = 0;
-        EXPECT_TRUE(_gate.acquire(
-                mb * MB, []() { return false; }, permit, wait_ns ? wait_ns : &ignored));
+    // For a reader whose scan never stops.
+    std::unique_ptr<Admission> request(int64_t mb) {
+        return _gate.request(mb * MB, []() { return false; });
     }
 
-    // Acquires `permit` on a thread of its own and reports when it got it.
-    std::thread acquire_async(int64_t mb, JniScanHeapGate::Permit* permit,
-                              std::atomic<bool>* admitted) {
-        return std::thread([this, mb, permit, admitted]() {
-            acquire(mb, permit);
-            admitted->store(true);
-        });
+    std::unique_ptr<Admission> request(int64_t mb, const std::shared_ptr<std::atomic<bool>>& stop) {
+        return _gate.request(mb * MB, [stop]() { return stop->load(); });
     }
 
-    static bool becomes_true(const std::atomic<bool>& flag) {
-        for (int i = 0; i < 500 && !flag.load(); ++i) {
+    static bool done_soon(const Admission& admission) {
+        for (int i = 0; i < 500 && !admission.future().is_done(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        return flag.load();
-    }
-
-    bool waiters_become(int64_t n) {
-        for (int i = 0; i < 500 && _gate.waiters() != n; ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        return _gate.waiters() == n;
+        return admission.future().is_done();
     }
 
     std::atomic<int64_t> _budget_mb {500};
@@ -79,202 +69,223 @@ private:
 };
 
 TEST_F(JniScanHeapGateTest, AdmitsWhileWhatTheReadersDeclaredFitsTheBudget) {
-    JniScanHeapGate::Permit first;
-    JniScanHeapGate::Permit second;
-    int64_t wait_ns = -1;
-    acquire(200, &first, &wait_ns);
-    acquire(200, &second);
-    EXPECT_LT(wait_ns, 100LL * 1000 * 1000);
+    auto first = request(200);
+    auto second = request(200);
+    EXPECT_TRUE(first->admitted());
+    EXPECT_TRUE(second->admitted());
+    EXPECT_EQ(first->wait_ns(), 0);
     EXPECT_EQ(_gate.holders(), 2);
     EXPECT_EQ(_gate.admitted_bytes(), 400 * MB);
 
-    // 400 + 200 > 500.
-    JniScanHeapGate::Permit third;
-    std::atomic<bool> admitted {false};
-    auto waiter = acquire_async(200, &third, &admitted);
+    // 400 + 200 > 500: the reader waits, and nothing blocks while it does.
+    auto third = request(200);
+    EXPECT_TRUE(third->waiting());
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    EXPECT_FALSE(admitted.load());
+    EXPECT_TRUE(third->waiting());
+    EXPECT_FALSE(third->future().is_ready());
 
     // A reader closes and its share comes back: 200 + 200 fits.
-    first.release();
-    EXPECT_TRUE(becomes_true(admitted));
-    waiter.join();
+    first.reset();
+    EXPECT_TRUE(done_soon(*third));
+    EXPECT_TRUE(third->admitted());
+    EXPECT_GE(third->wait_ns(), 300LL * 1000 * 1000);
     EXPECT_EQ(_gate.holders(), 2);
     EXPECT_EQ(_gate.admitted_bytes(), 400 * MB);
+    EXPECT_EQ(_gate.waiters(), 0);
 }
 
 TEST_F(JniScanHeapGateTest, ReadersAreAdmittedInTheOrderTheyCame) {
-    JniScanHeapGate::Permit holder;
-    acquire(400, &holder);
+    auto holder = request(400);
 
     // A large reader that does not fit waits, and a small one that would fit waits behind it rather
     // than passing it: otherwise a stream of small readers could keep the large one out for ever.
-    JniScanHeapGate::Permit large;
-    std::atomic<bool> large_admitted {false};
-    auto large_waiter = acquire_async(300, &large, &large_admitted);
-    ASSERT_TRUE(waiters_become(1));
-    JniScanHeapGate::Permit small;
-    std::atomic<bool> small_admitted {false};
-    auto small_waiter = acquire_async(50, &small, &small_admitted);
-    ASSERT_TRUE(waiters_become(2));
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    EXPECT_FALSE(large_admitted.load());
-    EXPECT_FALSE(small_admitted.load());
+    auto large = request(300);
+    auto small = request(50);
+    EXPECT_TRUE(large->waiting());
+    EXPECT_TRUE(small->waiting());
+    EXPECT_EQ(_gate.waiters(), 2);
 
     // 300 + 50 fits once the holder is gone, in that order.
-    holder.release();
-    EXPECT_TRUE(becomes_true(large_admitted));
-    EXPECT_TRUE(becomes_true(small_admitted));
-    large_waiter.join();
-    small_waiter.join();
+    holder.reset();
+    EXPECT_TRUE(done_soon(*large));
+    EXPECT_TRUE(done_soon(*small));
+    EXPECT_TRUE(large->admitted());
+    EXPECT_TRUE(small->admitted());
     EXPECT_EQ(_gate.admitted_bytes(), 350 * MB);
     EXPECT_EQ(_gate.waiters(), 0);
 }
 
 TEST_F(JniScanHeapGateTest, AReaderLargerThanTheBudgetRunsAlone) {
     // Nobody holds a share, so nobody would give one back for it: waiting cannot help.
-    JniScanHeapGate::Permit large;
-    int64_t wait_ns = -1;
-    acquire(800, &large, &wait_ns);
-    EXPECT_LT(wait_ns, 100LL * 1000 * 1000);
+    auto large = request(800);
+    EXPECT_TRUE(large->admitted());
     EXPECT_EQ(_gate.admitted_bytes(), 800 * MB);
 
     // While it runs, even the smallest reader waits.
-    JniScanHeapGate::Permit small;
-    std::atomic<bool> admitted {false};
-    auto waiter = acquire_async(1, &small, &admitted);
+    auto small = request(1);
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    EXPECT_FALSE(admitted.load());
+    EXPECT_TRUE(small->waiting());
 
-    large.release();
-    EXPECT_TRUE(becomes_true(admitted));
-    waiter.join();
+    large.reset();
+    EXPECT_TRUE(done_soon(*small));
+    EXPECT_TRUE(small->admitted());
     EXPECT_EQ(_gate.holders(), 1);
 }
 
 TEST_F(JniScanHeapGateTest, ABiggerBudgetAppliesToTheReadersAlreadyWaiting) {
-    JniScanHeapGate::Permit holder;
-    acquire(400, &holder);
-
-    JniScanHeapGate::Permit waiting;
-    std::atomic<bool> admitted {false};
-    auto waiter = acquire_async(200, &waiting, &admitted);
+    auto holder = request(400);
+    auto waiting = request(200);
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    EXPECT_FALSE(admitted.load());
+    EXPECT_TRUE(waiting->waiting());
 
-    // Nobody released anything; the waiter sees the new budget the next time it looks.
+    // Nobody gives a share back; the gate sees the new budget the next time it looks.
     _budget_mb = 600;
-    EXPECT_TRUE(becomes_true(admitted));
-    waiter.join();
+    EXPECT_TRUE(done_soon(*waiting));
+    EXPECT_TRUE(waiting->admitted());
     EXPECT_EQ(_gate.admitted_bytes(), 600 * MB);
 }
 
 TEST_F(JniScanHeapGateTest, AReaderWhoseScanStopsLeavesWithoutAShare) {
-    JniScanHeapGate::Permit holder;
-    acquire(500, &holder);
+    auto holder = request(500);
 
-    std::atomic<bool> cancelled {false};
-    std::thread canceller([&cancelled]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        cancelled.store(true);
-    });
-    JniScanHeapGate::Permit stopped;
-    int64_t wait_ns = 0;
     // Its query is cancelled while it waits. Admitting it would open a Java scanner above the budget
     // for a query with nothing left to read - all of that query's waiting readers at once.
-    EXPECT_FALSE(_gate.acquire(
-            100 * MB, [&cancelled]() { return cancelled.load(); }, &stopped, &wait_ns));
-    canceller.join();
-    EXPECT_FALSE(stopped.held());
+    auto cancelled = std::make_shared<std::atomic<bool>>(false);
+    auto stopped = request(100, cancelled);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    EXPECT_TRUE(stopped->waiting());
+    cancelled->store(true);
+    EXPECT_TRUE(done_soon(*stopped));
+    EXPECT_FALSE(stopped->waiting());
+    EXPECT_FALSE(stopped->admitted());
+    EXPECT_GE(stopped->wait_ns(), 200LL * 1000 * 1000);
     EXPECT_EQ(_gate.holders(), 1);
     EXPECT_EQ(_gate.admitted_bytes(), 500 * MB);
     EXPECT_EQ(_gate.waiters(), 0);
-    EXPECT_GE(wait_ns, 200LL * 1000 * 1000);
 }
 
 TEST_F(JniScanHeapGateTest, AReaderWhoseScanHasStoppedTakesNothingEvenWhenItFits) {
-    JniScanHeapGate::Permit permit;
-    int64_t wait_ns = -1;
-    EXPECT_FALSE(_gate.acquire(
-            100 * MB, []() { return true; }, &permit, &wait_ns));
-    EXPECT_FALSE(permit.held());
+    auto stopped = std::make_shared<std::atomic<bool>>(true);
+    auto admission = request(100, stopped);
+    EXPECT_FALSE(admission->waiting());
+    EXPECT_FALSE(admission->admitted());
+    EXPECT_TRUE(admission->future().is_done());
     EXPECT_EQ(_gate.holders(), 0);
     EXPECT_EQ(_gate.admitted_bytes(), 0);
     EXPECT_EQ(_gate.waiters(), 0);
-    EXPECT_LT(wait_ns, 100LL * 1000 * 1000);
 }
 
 TEST_F(JniScanHeapGateTest, AStoppedReaderFirstInLineLetsTheNextOneIn) {
-    JniScanHeapGate::Permit holder;
-    acquire(300, &holder);
+    auto holder = request(300);
 
     // 300 + 400 > 500: the large reader waits first in line, and a small one behind it although
     // 300 + 100 would fit.
-    std::atomic<bool> large_stopped {false};
-    std::atomic<bool> large_returned {false};
-    JniScanHeapGate::Permit large;
-    std::thread large_waiter([this, &large_stopped, &large_returned, &large]() {
-        int64_t ignored = 0;
-        EXPECT_FALSE(_gate.acquire(
-                400 * MB, [&large_stopped]() { return large_stopped.load(); }, &large, &ignored));
-        large_returned.store(true);
-    });
-    ASSERT_TRUE(waiters_become(1));
-    JniScanHeapGate::Permit small;
-    std::atomic<bool> small_admitted {false};
-    auto small_waiter = acquire_async(100, &small, &small_admitted);
-    ASSERT_TRUE(waiters_become(2));
+    auto large_stopped = std::make_shared<std::atomic<bool>>(false);
+    auto large = request(400, large_stopped);
+    auto small = request(100);
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    EXPECT_FALSE(small_admitted.load());
+    EXPECT_TRUE(small->waiting());
 
     // The large reader's scan stops: it leaves the line, and the small one, first now, fits while
     // the holder still holds its share.
-    large_stopped.store(true);
-    EXPECT_TRUE(becomes_true(large_returned));
-    EXPECT_TRUE(becomes_true(small_admitted));
-    large_waiter.join();
-    small_waiter.join();
-    EXPECT_FALSE(large.held());
+    large_stopped->store(true);
+    EXPECT_TRUE(done_soon(*large));
+    EXPECT_TRUE(done_soon(*small));
+    EXPECT_FALSE(large->admitted());
+    EXPECT_TRUE(small->admitted());
     EXPECT_EQ(_gate.holders(), 2);
     EXPECT_EQ(_gate.admitted_bytes(), 400 * MB);
     EXPECT_EQ(_gate.waiters(), 0);
 }
 
-TEST_F(JniScanHeapGateTest, GivesUpWaitingAfterTheLongestWait) {
+TEST_F(JniScanHeapGateTest, AdmitsAReaderThatWaitedLongerThanTheLongestWait) {
     config::jni_scanner_heap_max_wait_ms = 200;
-    JniScanHeapGate::Permit holder;
-    acquire(500, &holder);
+    auto holder = request(500);
 
-    JniScanHeapGate::Permit late;
-    int64_t wait_ns = 0;
-    acquire(100, &late, &wait_ns);
-    EXPECT_TRUE(late.held());
-    EXPECT_GE(wait_ns, 200LL * 1000 * 1000);
+    auto late = request(100);
+    EXPECT_TRUE(late->waiting());
+    EXPECT_TRUE(done_soon(*late));
+    EXPECT_TRUE(late->admitted());
+    EXPECT_GE(late->wait_ns(), 200LL * 1000 * 1000);
     EXPECT_EQ(_gate.admitted_bytes(), 600 * MB);
     EXPECT_EQ(_gate.waiters(), 0);
+    EXPECT_EQ(_gate.admitted_after_wait_limit(), 1);
 }
 
-TEST_F(JniScanHeapGateTest, PermitsReleaseOnceAndOnDestruction) {
-    {
-        JniScanHeapGate::Permit permit;
-        acquire(100, &permit);
-        permit.release();
-        permit.release();
-        EXPECT_FALSE(permit.held());
-        EXPECT_EQ(_gate.holders(), 0);
-        EXPECT_EQ(_gate.admitted_bytes(), 0);
+TEST_F(JniScanHeapGateTest, ReadersThatWaitedTooLongTogetherAreAllAdmittedAboveTheBudget) {
+    // What the longest wait costs: readers that came together run out of it together, and each is
+    // admitted whatever the account says. It is there for a holder that cannot finish until a
+    // waiter does (a join whose build side waits for shares the probe side keeps until the build is
+    // done); with a holder that merely runs long, the readers behind it open above the budget at once.
+    config::jni_scanner_heap_max_wait_ms = 300;
+    auto holder = request(500);
+    std::vector<std::unique_ptr<Admission>> waiters;
+    for (int i = 0; i < 4; ++i) {
+        waiters.push_back(request(200));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    EXPECT_EQ(_gate.waiters(), 4);
+    EXPECT_EQ(_gate.admitted_after_wait_limit(), 0);
 
-        acquire(300, &permit);
+    for (const auto& waiter : waiters) {
+        EXPECT_TRUE(done_soon(*waiter));
+        EXPECT_TRUE(waiter->admitted());
+    }
+    EXPECT_EQ(_gate.admitted_after_wait_limit(), 4);
+    EXPECT_EQ(_gate.holders(), 5);
+    EXPECT_EQ(_gate.admitted_bytes(), 1300 * MB);
+}
+
+TEST_F(JniScanHeapGateTest, FuturesAreCompletedOnTheGatesOwnThread) {
+    auto holder = request(500);
+    auto waiter = request(100);
+    ASSERT_TRUE(waiter->waiting());
+
+    // The scheduler resumes a parked scan from this callback, taking its context's locks. A thread
+    // that gives a share back can be holding locks of its own - one closing scanners holds its
+    // context's - so the callback must not run on it.
+    std::atomic<bool> called {false};
+    std::atomic<bool> admitted_when_called {false};
+    std::thread::id callback_thread;
+    waiter->future().add_callback([&](const Void&, const Status&) {
+        callback_thread = std::this_thread::get_id();
+        admitted_when_called.store(waiter->admitted());
+        called.store(true);
+    });
+    holder.reset();
+    EXPECT_TRUE(done_soon(*waiter));
+    for (int i = 0; i < 500 && !called.load(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(called.load());
+    EXPECT_TRUE(admitted_when_called.load());
+    EXPECT_NE(callback_thread, std::this_thread::get_id());
+}
+
+TEST_F(JniScanHeapGateTest, DestroyingAnAdmissionGivesItsShareBackOrLeavesTheLine) {
+    {
+        auto admitted = request(300);
         EXPECT_EQ(_gate.admitted_bytes(), 300 * MB);
     }
-    // Destroyed while held: its share comes back.
+    // Its Java scanner closed: the share comes back.
     EXPECT_EQ(_gate.holders(), 0);
     EXPECT_EQ(_gate.admitted_bytes(), 0);
 
-    // A permit that was never held releases nothing.
-    JniScanHeapGate::Permit never_held;
-    never_held.release();
-    EXPECT_EQ(_gate.holders(), 0);
+    auto holder = request(300);
+    auto first = request(400);
+    auto second = request(200);
+    ASSERT_TRUE(first->waiting());
+    ASSERT_TRUE(second->waiting());
+    // A reader closed before its turn leaves the line, and the next one in line now fits; nobody
+    // will run the closed reader again, so its future stays undone.
+    auto first_future = first->future();
+    first.reset();
+    EXPECT_TRUE(done_soon(*second));
+    EXPECT_TRUE(second->admitted());
+    EXPECT_FALSE(first_future.is_ready());
+    EXPECT_EQ(_gate.holders(), 2);
+    EXPECT_EQ(_gate.admitted_bytes(), 500 * MB);
+    EXPECT_EQ(_gate.waiters(), 0);
 }
 
 } // namespace doris
