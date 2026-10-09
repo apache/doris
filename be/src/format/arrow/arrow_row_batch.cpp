@@ -18,6 +18,7 @@
 #include "format/arrow/arrow_row_batch.h"
 
 #include <arrow/buffer.h>
+#include <arrow/extension/parquet_variant.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/writer.h>
 #include <arrow/record_batch.h>
@@ -40,13 +41,29 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_utils.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
+
+Status register_arrow_variant_extension() {
+    // Remote Flight readers must restore the extension before decoding the result schema.
+    static const auto status = [] {
+        if (arrow::GetExtensionType("arrow.parquet.variant") != nullptr) {
+            return arrow::Status::OK();
+        }
+        return arrow::RegisterExtensionType(
+                std::static_pointer_cast<arrow::ExtensionType>(arrow::extension::variant(
+                        arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                        arrow::field("value", arrow::binary(), false)}))));
+    }();
+    return status.ok() ? Status::OK() : Status::InternalError(status.ToString());
+}
 
 Status DorisArrowSchemaConvertor::convert_to_arrow_type(
         const DataTypePtr& origin_type, std::shared_ptr<arrow::DataType>* result) const {
@@ -157,10 +174,9 @@ Status DorisArrowSchemaConvertor::convert_to_arrow_type(
         *result = std::make_shared<arrow::StructType>(fields);
         break;
     }
-    case TYPE_VARIANT: {
+    case TYPE_VARIANT:
         *result = arrow::utf8();
         break;
-    }
     case TYPE_QUANTILE_STATE:
     case TYPE_BITMAP:
     case TYPE_HLL: {
@@ -227,6 +243,25 @@ Status DorisArrowSchemaConvertor::get_arrow_schema(std::shared_ptr<arrow::Schema
 std::string DorisArrowSchemaConvertor::timestamp_timezone(PrimitiveType) const {
     // Arrow clients expect a timezone name rather than the ISO-8601 UTC alias.
     return _timezone == "Z" ? "UTC" : _timezone;
+}
+
+Status ArrowFlightSchemaConvertor::convert_to_arrow_type(
+        const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result) const {
+    // Flight always uses native Variant, including recursively converted children.
+    if (type->get_primitive_type() == TYPE_VARIANT) {
+        // Reject by type before reading rows, including empty results and nested legacy leaves.
+        if (dynamic_cast<const DataTypeVariantV2*>(remove_nullable(type).get()) == nullptr) {
+            return Status::NotSupported(
+                    "Native Arrow Flight output only supports Variant V2, not legacy Variant; "
+                    "cast the result to STRING for text output");
+        }
+        RETURN_IF_ERROR(register_arrow_variant_extension());
+        *result = arrow::extension::variant(
+                arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                arrow::field("value", arrow::binary(), false)}));
+        return Status::OK();
+    }
+    return DorisArrowSchemaConvertor::convert_to_arrow_type(type, result);
 }
 
 std::string ArrowFlightSchemaConvertor::timestamp_timezone(PrimitiveType type) const {
@@ -323,13 +358,17 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
 }
 
 Status serialize_arrow_schema(std::shared_ptr<arrow::Schema>* schema, std::string* result) {
-    auto make_empty_result = arrow::RecordBatch::MakeEmpty(*schema);
-    if (!make_empty_result.ok()) {
-        return Status::InternalError("serialize_arrow_schema failed, reason: {}",
-                                     make_empty_result.status().ToString());
-    }
-    auto batch = make_empty_result.ValueOrDie();
-    return serialize_record_batch(*batch, result);
+    // Schema RPC readers only consume the IPC schema. Building an empty batch would require
+    // nested extension builders, which Arrow does not provide for ARRAY/MAP/STRUCT<VARIANT>.
+    std::shared_ptr<arrow::io::BufferOutputStream> sink;
+    RETURN_DORIS_STATUS_IF_RESULT_ERROR(sink, arrow::io::BufferOutputStream::Create());
+    std::shared_ptr<arrow::ipc::RecordBatchWriter> writer;
+    RETURN_DORIS_STATUS_IF_RESULT_ERROR(writer, arrow::ipc::MakeStreamWriter(sink.get(), *schema));
+    RETURN_DORIS_STATUS_IF_ERROR(writer->Close());
+    std::shared_ptr<arrow::Buffer> buffer;
+    RETURN_DORIS_STATUS_IF_RESULT_ERROR(buffer, sink->Finish());
+    *result = buffer->ToString();
+    return Status::OK();
 }
 
 } // namespace doris

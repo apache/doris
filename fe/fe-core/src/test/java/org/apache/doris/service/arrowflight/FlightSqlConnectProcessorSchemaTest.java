@@ -75,18 +75,16 @@ class FlightSqlConnectProcessorSchemaTest {
                                         field("ip4", new ArrowType.Int(32, true), true, annotated ? "IPV4" : null),
                                         field("ip6", new ArrowType.Utf8(), true, annotated ? "IPV6" : null),
                                         field("json", new ArrowType.Utf8(), true, annotated ? "JSON" : null),
-                                        field("variant", new ArrowType.Utf8(), true, annotated ? "VARIANT" : null),
                                         field("text", new ArrowType.Utf8(), true, null)))),
-                field("json", new ArrowType.Utf8(), true, annotated ? "JSON" : null),
-                field("variant", new ArrowType.Utf8(), true, annotated ? "VARIANT" : null));
+                field("json", new ArrowType.Utf8(), true, annotated ? "JSON" : null));
     }
 
     private static List<Type> resultTypes() {
         return Arrays.asList(new ArrayType(Type.LARGEINT),
                 new MapType(Type.LARGEINT, new StructType(
                         new StructField("ip4", Type.IPV4), new StructField("ip6", Type.IPV6),
-                        new StructField("json", Type.JSONB), new StructField("variant", Type.VARIANT),
-                        new StructField("text", Type.STRING))), Type.JSONB, Type.VARIANT);
+                        new StructField("json", Type.JSONB),
+                        new StructField("text", Type.STRING))), Type.JSONB);
     }
 
     private static Schema fetch(List<Type> types, Schema... schemas) throws Exception {

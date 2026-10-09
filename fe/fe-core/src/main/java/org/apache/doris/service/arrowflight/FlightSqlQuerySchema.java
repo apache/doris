@@ -378,6 +378,10 @@ final class FlightSqlQuerySchema {
             type = Type.STRING;
         }
         PrimitiveType primitive = type.getPrimitiveType();
+        if (primitive == PrimitiveType.VARIANT) {
+            return FlightSqlSchemaHelper.nativeVariantField(name, nullable,
+                    Collections.singletonMap("doris_type", primitive.toString()));
+        }
         int precision = type instanceof ScalarType ? ((ScalarType) type).getScalarPrecision() : 0;
         int scale = type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : 0;
         ArrowType arrowType = FlightSqlSchemaHelper.getArrowType(primitive, precision, scale);
@@ -400,13 +404,17 @@ final class FlightSqlQuerySchema {
                     field("value", map.getValueType(), true, false, timezone))));
         } else if (type instanceof StructType) {
             for (StructField child : ((StructType) type).getFields()) {
-                children.add(field(child.getName(), child.getType(), child.getContainsNull(), false, timezone));
+                children.add(field(child.getName(), child.getType(), child.getContainsNull(),
+                        false, timezone));
             }
         }
         Map<String, String> metadata = null;
-        if (topLevel && (primitive == PrimitiveType.LARGEINT || primitive == PrimitiveType.IPV4
-                || primitive == PrimitiveType.IPV6)) {
-            metadata = Collections.singletonMap("doris_type", primitive.toString());
+        // Execution preserves logical type markers at every depth; Prepare must match them exactly.
+        if (primitive == PrimitiveType.LARGEINT || primitive == PrimitiveType.IPV4
+                || primitive == PrimitiveType.IPV6 || primitive == PrimitiveType.VARIANT
+                || primitive == PrimitiveType.JSONB) {
+            metadata = Collections.singletonMap("doris_type",
+                    primitive == PrimitiveType.JSONB ? "JSON" : primitive.toString());
         }
         return new Field(name, new FieldType(nullable, arrowType, null, metadata), children);
     }
