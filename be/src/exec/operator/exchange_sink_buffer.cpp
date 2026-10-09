@@ -55,6 +55,12 @@ void copy_block_metadata_without_column_values(const PBlock& src, PBlock* dst) {
     for (int i = 0; i < src.column_metas_size(); ++i) {
         dst->add_column_metas()->CopyFrom(src.column_metas(i));
     }
+    // The payload travels in the brpc attachment, but the receiver writes it back through
+    // mutable_column_values() after ParseFromString(), which only sets the proto2 presence bit
+    // when the serialized request carries the field. Mark column_values present with an empty
+    // value, exactly as request_embed_attachment_contain_blockv2() leaves it after moving the
+    // owned payload out, so PBlock::CopyFrom() on the receiver keeps the extracted bytes.
+    dst->set_column_values("");
     dst->set_be_exec_version(src.be_exec_version());
     dst->set_compressed(src.compressed());
     dst->set_compression_type(src.compression_type());
