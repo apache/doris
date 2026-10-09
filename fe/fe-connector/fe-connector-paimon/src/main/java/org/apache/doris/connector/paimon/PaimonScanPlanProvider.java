@@ -964,11 +964,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
-            if (shouldUseNativeReader(paimonHandle.isForceJni(),
-                    isForceJniScannerEnabled(session), hasVariantProjection,
-                    physicalVariantSchemaIds, optRawFiles)
-                    && !requiresLegacyOrcTimestampReader(
-                            legacyOrcSchemaTable.get(), optRawFiles, readFieldIds, legacyOrcTimestampSchemas)) {
+            boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni(),
+                    isForceJniScannerEnabled(session), hasVariantProjection, physicalVariantSchemaIds, optRawFiles);
+            boolean legacyOrcTimestamp = nativeEligible && requiresLegacyOrcTimestampReader(
+                    legacyOrcSchemaTable.get(), optRawFiles, readFieldIds, legacyOrcTimestampSchemas);
+            if (nativeEligible && !legacyOrcTimestamp) {
                 if (ignoreNative) {
                     if (requiresMetadataColumns) {
                         throw new DorisConnectorException(
@@ -1004,7 +1004,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
                 }
-                if (requiresMetadataColumns) {
+                // A raw-file LTZ fallback retains physical file/row positions through Paimon's SDK iterator.
+                // Merge-only splits still cannot promise those metadata values.
+                if (requiresMetadataColumns && !legacyOrcTimestamp) {
                     validateMetadataColumnReader(true, false);
                 }
                 ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,

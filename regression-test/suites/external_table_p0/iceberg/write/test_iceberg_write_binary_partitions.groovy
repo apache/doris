@@ -54,11 +54,14 @@ suite("test_iceberg_write_binary_partitions", "p0,external,iceberg,external_dock
                 for (String operation : ["INSERT INTO", "INSERT OVERWRITE TABLE"]) {
                     sql "${operation} ${table} VALUES ${rows}"
                     String tag = "${table}_${operation.replace(' ', '_')}"
-                    if (transform == "identity") {
-                        // Reads alone can pass if malformed binary metadata silently drops every partition.
+                    // Transformed values have their own types; dropped bucket items also break COUNT limits.
+                    spark_iceberg "REFRESH TABLE demo.${dbName}.${table}"
+                    def partitionCount = spark_iceberg(
+                            "SELECT count(*) FROM demo.${dbName}.${table}.partitions")[0][0]
+                    for (String projection : ["id", "count(*)"]) {
                         explain {
-                            sql "SELECT id FROM ${table}"
-                            contains "partition=7/7"
+                            sql "SELECT ${projection} FROM ${table}"
+                            contains "partition=${partitionCount}/${partitionCount}"
                         }
                     }
                     "order_qt_${tag}_bytes" "SELECT id, HEX(binary_key) FROM ${table} ORDER BY id"

@@ -100,10 +100,12 @@ public class JdbcTrinoConnectorClient extends JdbcConnectorClient {
     }
 
     private ConnectorType parseTimestamp(String type) {
-        int scale = type.startsWith("timestamp(")
-                ? Integer.parseInt(type.substring(10, type.indexOf(')')).trim()) : JDBC_DATETIME_SCALE;
+        // Query metadata puts precision after the zone suffix, unlike DatabaseMetaData.getColumns().
+        int precisionStart = type.indexOf('(');
+        int scale = precisionStart >= 0
+                ? Integer.parseInt(type.substring(precisionStart + 1, type.indexOf(')')).trim()) : JDBC_DATETIME_SCALE;
         scale = Math.min(scale, JDBC_DATETIME_SCALE);
-        return ConnectorType.of(type.endsWith("with time zone") ? "TIMESTAMPTZ" : "DATETIMEV2", scale, -1);
+        return ConnectorType.of(type.contains("with time zone") ? "TIMESTAMPTZ" : "DATETIMEV2", scale, -1);
     }
 
     private ConnectorType parseArray(String type, JdbcFieldInfo fieldInfo) {

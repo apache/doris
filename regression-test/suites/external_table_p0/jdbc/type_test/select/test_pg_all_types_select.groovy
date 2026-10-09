@@ -74,6 +74,15 @@ suite("test_pg_all_types_select", "p0,external") {
                                     where event_time is null order by id limit 1"""
         order_qt_range_count "select count(event_time) from catalog_pg_test.timestamp_range_nullability"
 
+        // PostgreSQL 1 BC is Java/Doris year zero, which remains valid in scalar and array JNI values.
+        executeRangeDdl("DROP TABLE IF EXISTS catalog_pg_test.timestamp_year_zero")
+        executeRangeDdl("CREATE TABLE catalog_pg_test.timestamp_year_zero " +
+                "(id INT, event_time TIMESTAMPTZ, events TIMESTAMPTZ[])")
+        executeRangeDdl("INSERT INTO catalog_pg_test.timestamp_year_zero VALUES " +
+                "(1, '0001-01-01 00:00:00+00 BC', ARRAY['0001-01-01 00:00:00+00 BC'::timestamptz, " +
+                "NULL, '0001-01-01 00:00:00.000001+00 BC'::timestamptz]), (2, NULL, NULL)")
+        order_qt_year_zero "SELECT * FROM catalog_pg_test.timestamp_year_zero"
+
         qt_select_all_types_null """SELECT 
                                     id,
                                     smallint_val,

@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -864,6 +865,14 @@ public class BindSink implements AnalysisRuleFactory {
         Set<String> canonical = Sets.newLinkedHashSet();
         for (String name : staticPartitions.keySet()) {
             Column column = findColumn(schema, name);
+            // Text casts preserve raw bytes in the row, while partition metadata decodes hex.
+            // Require typed bytes so these two representations cannot silently disagree.
+            Expression value = staticPartitions.get(name);
+            if (column != null && column.getType().isVarbinaryType()
+                    && !(value instanceof VarBinaryLiteral) && !(value instanceof NullLiteral)) {
+                throw new AnalysisException("Static VARBINARY partition values must use a binary literal or NULL: "
+                        + name);
+            }
             if (!canonical.add(column != null ? column.getName() : name)) {
                 throw new AnalysisException("Duplicate partition column: " + name);
             }

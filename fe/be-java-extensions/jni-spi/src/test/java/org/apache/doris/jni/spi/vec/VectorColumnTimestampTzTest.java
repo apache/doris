@@ -31,18 +31,34 @@ class VectorColumnTimestampTzTest {
         OffHeap.setTesting();
         VectorColumn column = VectorColumn.createWritableColumn(ColumnType.parseType("ts", "timestamptz(6)"), 1);
         try {
-            LocalDateTime min = LocalDateTime.of(1, 1, 1, 0, 0);
+            LocalDateTime min = LocalDateTime.of(0, 1, 1, 0, 0);
             LocalDateTime max = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
             column.appendTimeStampTz(min);
             column.appendNull(ColumnType.Type.TIMESTAMPTZ);
-            column.appendTimeStampTz(new LocalDateTime[] {null, max}, true);
-            Assertions.assertArrayEquals(new LocalDateTime[] {min, null, null, max},
-                    column.getTimeStampTzColumn(0, 4));
+            column.appendTimeStampTz(new LocalDateTime[] {null, min, max}, true);
+            Assertions.assertArrayEquals(new LocalDateTime[] {min, null, null, min, max},
+                    column.getTimeStampTzColumn(0, 5));
             for (LocalDateTime invalid : Arrays.asList(min.minusNanos(1000), max.plusNanos(1000))) {
                 Assertions.assertThrows(IllegalArgumentException.class, () -> column.appendTimeStampTz(invalid));
                 Assertions.assertThrows(IllegalArgumentException.class,
                         () -> column.appendTimeStampTz(new LocalDateTime[] {invalid}, false));
             }
+        } finally {
+            column.close();
+        }
+    }
+
+    @Test
+    void preservesYearZeroArrayElements() {
+        OffHeap.setTesting();
+        VectorColumn column = VectorColumn.createWritableColumn(
+                ColumnType.parseType("events", "array<timestamptz(6)>"), 1);
+        try {
+            LocalDateTime min = LocalDateTime.of(0, 1, 1, 0, 0);
+            Object[] values = column.newObjectContainerArray(1);
+            values[0] = new java.util.ArrayList<>(Arrays.asList(min, null, min.plusNanos(1000)));
+            column.appendObjectColumn(values, true);
+            Assertions.assertEquals(values[0], column.getObjectColumn(0, 1)[0]);
         } finally {
             column.close();
         }

@@ -529,8 +529,7 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
             sql """switch ${legacyCatalog}"""
             sql """use ${namespace}"""
             // Disabling the retired toggle must preserve the zoned type and its UTC instant.
-            assertEquals("timestamptz(6)",
-                    sql("DESC ${tableName}").find { it[0] == "default_timestamptz" }[1])
+            "qt_${prefix}_legacy_schema" "DESC ${tableName}"
             "order_qt_${prefix}_legacy_mapping" """
                 SELECT ${legacyProjection}
                 FROM ${tableName}

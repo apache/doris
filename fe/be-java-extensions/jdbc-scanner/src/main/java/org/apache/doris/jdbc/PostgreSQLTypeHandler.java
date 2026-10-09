@@ -84,7 +84,20 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
             }
             case ARRAY: {
                 Array array = rs.getArray(columnIndex);
-                return array == null ? null : convertArrayToList(array.getArray());
+                if (array == null) {
+                    return null;
+                }
+                try {
+                    ColumnType leaf = type;
+                    while (leaf.getType() == ColumnType.Type.ARRAY) {
+                        leaf = leaf.getChildTypes().get(0);
+                    }
+                    return leaf.getType() == ColumnType.Type.TIMESTAMPTZ
+                            ? readTimestampArray(array, type.getChildTypes().get(0))
+                            : convertArrayToList(array.getArray());
+                } finally {
+                    array.free();
+                }
             }
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
@@ -140,6 +153,30 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
             default:
                 return null;
         }
+    }
+
+    private static List<?> readTimestampArray(Array array, ColumnType childType) throws SQLException {
+        List<Object> values = new ArrayList<>();
+        // getArray() materializes java.sql.Timestamp through a hybrid Julian calendar, shifting
+        // ancient instants. Typed element reads use the same proleptic calendar as scalar reads.
+        try (ResultSet elements = array.getResultSet()) {
+            while (elements.next()) {
+                if (childType.getType() == ColumnType.Type.ARRAY) {
+                    Array nested = elements.getArray(2);
+                    try {
+                        values.add(nested == null ? null
+                                : readTimestampArray(nested, childType.getChildTypes().get(0)));
+                    } finally {
+                        if (nested != null) {
+                            nested.free();
+                        }
+                    }
+                } else {
+                    values.add(elements.getObject(2, OffsetDateTime.class));
+                }
+            }
+        }
+        return values;
     }
 
     /**
@@ -218,7 +255,8 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
             case TIMESTAMPTZ: {
                 List<LocalDateTime> result = new ArrayList<>(input.size());
                 for (Object element : input) {
-                    result.add(element == null ? null : toDorisTimestamp(((Timestamp) element).toInstant()));
+                    result.add(element == null ? null : toDorisTimestamp(element instanceof OffsetDateTime
+                            ? ((OffsetDateTime) element).toInstant() : ((Timestamp) element).toInstant()));
                 }
                 return result;
             }
@@ -228,7 +266,7 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
                     if (element == null) {
                         result.add(null);
                     } else {
-                        List<?> nestedList = convertArrayToList(element);
+                        List<?> nestedList = element instanceof List ? (List<?>) element : convertArrayToList(element);
                         result.add(convertArray(nestedList, childType.getChildTypes().get(0)));
                     }
                 }

@@ -97,6 +97,20 @@ public class PluginDrivenMvccExternalTableTest {
     private static final long TS_2024_01_01 = 1_700_000_000_000L;
     private static final long TS_2024_02_02 = 1_800_000_000_000L;
 
+    @Test
+    public void transformedBinaryPartitionTypesPreserveCounts() {
+        ConnectorPartitionInfo bucket = new ConnectorPartitionInfo("dt_bucket=3",
+                Collections.singletonMap("dt", "3"), Collections.emptyMap(), -1, -1, -1, -1,
+                Collections.singletonList("3"), Collections.singletonList(false),
+                Collections.singletonList(ConnectorType.of("INT")));
+        Fixture f = Fixture.with(Collections.singletonList(bucket), Type.VARBINARY);
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+        Assertions.assertEquals(1, pin.getNameToPartitionItem().size());
+        ListPartitionItem item = (ListPartitionItem) pin.getNameToPartitionItem().get("dt_bucket=3");
+        Assertions.assertEquals(PrimitiveType.INT, item.getItems().get(0).getKeys().get(0).getType().getPrimitiveType());
+    }
+
     @AfterEach
     public void cleanup() {
         ConnectContext.remove();

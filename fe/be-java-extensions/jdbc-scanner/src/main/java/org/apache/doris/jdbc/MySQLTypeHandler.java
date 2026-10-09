@@ -129,7 +129,10 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
             }
             case TIMESTAMPTZ: {
                 if (usesMySqlTimestampProtocol()) {
-                    return rs.getObject(columnIndex, LocalDateTime.class);
+                    // The SQL session is UTC, but older drivers retain a cached server zone and
+                    // can shift or truncate getTimestamp()/getObject(LocalDateTime.class) results.
+                    String value = rs.getString(columnIndex);
+                    return value == null ? null : LocalDateTime.parse(value.replace(' ', 'T'));
                 }
                 Timestamp value = rs.getTimestamp(columnIndex);
                 return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);

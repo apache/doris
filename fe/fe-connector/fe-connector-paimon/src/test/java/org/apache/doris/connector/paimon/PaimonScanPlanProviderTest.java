@@ -2647,6 +2647,14 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertFalse(filterRanges.isEmpty());
             Assertions.assertTrue(filterRanges.stream().noneMatch(range -> range.getPath().isPresent()));
 
+            List<ConnectorScanRange> mixedRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, Arrays.asList(
+                            new PaimonColumnHandle("event_time", 1),
+                            new PaimonColumnHandle(PAIMON_FILE_PATH_COL, -1),
+                            new PaimonColumnHandle("__paimon_row_index", -1))).build());
+            Assertions.assertFalse(mixedRanges.isEmpty());
+            Assertions.assertTrue(mixedRanges.stream().noneMatch(range -> range.getPath().isPresent()));
+
             // Historical files can retain a dropped LTZ column that the current scan never decodes.
             catalog.alterTable(id, Collections.singletonList(SchemaChange.dropColumn("event_time")), false);
             ops.table = catalog.getTable(id);

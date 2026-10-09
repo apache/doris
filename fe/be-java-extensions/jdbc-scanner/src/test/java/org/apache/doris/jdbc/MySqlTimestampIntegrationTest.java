@@ -59,6 +59,43 @@ class MySqlTimestampIntegrationTest {
         runMatrix(true);
     }
 
+    @Test
+    void testReadIgnoresCachedServerTimezoneAfterUtcReset() throws Exception {
+        TimeZone original = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        URL driverUrl = new File(System.getProperty("mysql.integration.driverJar")).toURI().toURL();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {driverUrl}, getClass().getClassLoader())) {
+            Driver driver = (Driver) loader.loadClass(System.getProperty("mysql.integration.driverClass",
+                    "com.mysql.cj.jdbc.Driver")).getDeclaredConstructor().newInstance();
+            for (boolean serverPrepared : new boolean[] {false, true}) {
+                String baseUrl = System.getProperty("mysql.integration.url");
+                String url = baseUrl + (baseUrl.contains("?") ? "&" : "?")
+                        + "useTimezone=true&serverTimezone=Asia/Shanghai&useServerPrepStmts=" + serverPrepared;
+                Properties properties = new Properties();
+                properties.setProperty("user", System.getProperty("mysql.integration.user", "root"));
+                properties.setProperty("password", System.getProperty("mysql.integration.password", ""));
+                try (Connection connection = driver.connect(url, properties)) {
+                    seed(connection, "+08:00");
+                    MySQLTypeHandler handler = handler();
+                    try (PreparedStatement statement = handler.initializeStatement(connection,
+                            "SELECT CAST(event_time AS CHAR) FROM timestamp_roundtrip ORDER BY id", 100);
+                            ResultSet rows = statement.executeQuery()) {
+                        for (String value : VALUES) {
+                            Assertions.assertTrue(rows.next());
+                            Assertions.assertEquals(LocalDateTime.ofInstant(Instant.parse(value), ZoneOffset.UTC),
+                                    handler.getColumnValue(rows, 1, INSTANT_TYPE, null));
+                        }
+                        Assertions.assertTrue(rows.next());
+                        Assertions.assertNull(handler.getColumnValue(rows, 1, INSTANT_TYPE, null));
+                        Assertions.assertFalse(rows.next());
+                    }
+                }
+            }
+        } finally {
+            TimeZone.setDefault(original);
+        }
+    }
+
     private void runMatrix(boolean write) throws Exception {
         TimeZone original = TimeZone.getDefault();
         URL driverUrl = new File(System.getProperty("mysql.integration.driverJar")).toURI().toURL();
@@ -120,7 +157,7 @@ class MySqlTimestampIntegrationTest {
     private void verifyRead(Connection connection) throws Exception {
         MySQLTypeHandler executor = handler();
         try (PreparedStatement statement = executor.initializeStatement(connection,
-                "SELECT event_time, local_time FROM timestamp_roundtrip ORDER BY id", 100);
+                "SELECT CAST(event_time AS CHAR), local_time FROM timestamp_roundtrip ORDER BY id", 100);
                 ResultSet rows = statement.executeQuery()) {
             for (String value : VALUES) {
                 Assertions.assertTrue(rows.next());

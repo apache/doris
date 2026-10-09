@@ -183,12 +183,16 @@ suite("paimon_timestamp_types", "p0,external") {
                         from test_timestamp_ntz_ltz_simple_orc"""
                 def expectedScalar = sql(scalarSql)
                 def expectedNested = sql(nestedSql)
-                assertEquals("2024-01-02 10:04:05.123456", expectedScalar[0][0])
-                assertEquals(new BigDecimal("1704161045.123456"),
-                        new BigDecimal(expectedScalar[0][2].toString()))
+                "qt_scalar_${zone.replace('/', '_')}_${scannerV2}" scalarSql
                 sql "set force_jni_scanner = false"
                 assertEquals(expectedScalar, sql(scalarSql))
                 assertEquals(expectedNested, sql(nestedSql))
+                if (scannerV2) {
+                    // LTZ fallback must retain file metadata in the same projection as the decoded instant.
+                    "qt_ltz_metadata_${zone.replace('/', '_')}" """select cast(ts16 as string),
+                        __paimon_file_path like '%.orc', __paimon_row_index from ts_scale_orc
+                        order by __paimon_row_index"""
+                }
             }
         }
     } finally {

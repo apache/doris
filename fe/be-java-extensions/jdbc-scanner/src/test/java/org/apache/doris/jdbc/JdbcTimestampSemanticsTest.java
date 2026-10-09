@@ -159,6 +159,25 @@ class JdbcTimestampSemanticsTest {
     }
 
     @Test
+    void postgresArrayUsesTypedElementsForYearZero() throws Exception {
+        PostgreSQLTypeHandler handler = new PostgreSQLTypeHandler();
+        ColumnType type = ColumnType.parseType("events", "array<timestamptz(6)>");
+        ResultSet result = Mockito.mock(ResultSet.class);
+        java.sql.Array array = Mockito.mock(java.sql.Array.class);
+        ResultSet elements = Mockito.mock(ResultSet.class);
+        Mockito.when(result.getArray(1)).thenReturn(array);
+        Mockito.when(array.getResultSet()).thenReturn(elements);
+        Mockito.when(elements.next()).thenReturn(true, true, false);
+        LocalDateTime minimum = LocalDateTime.of(0, 1, 1, 0, 0);
+        Mockito.when(elements.getObject(2, OffsetDateTime.class)).thenReturn(minimum.atOffset(ZoneOffset.UTC), null);
+        Object values = handler.getColumnValue(result, 1, type, null);
+        Assertions.assertEquals(java.util.Arrays.asList(minimum, null),
+                handler.getOutputConverter(type, "").convert(new Object[] {values})[0]);
+        Mockito.verify(elements).close();
+        Mockito.verify(array).free();
+    }
+
+    @Test
     void testPostgreSqlTimestampArraysRetainInstants() throws Exception {
         PostgreSQLTypeHandler executor = new PostgreSQLTypeHandler();
         ColumnType type = ColumnType.parseType("events", "array<array<timestamptz(6)>>");
@@ -183,7 +202,7 @@ class JdbcTimestampSemanticsTest {
     void testOceanBaseTimestampUsesMySqlUtcContract() throws Exception {
         MySQLTypeHandler executor = new MySQLTypeHandler("OCEANBASE");
         ResultSet resultSet = Mockito.mock(ResultSet.class);
-        Mockito.when(resultSet.getObject(1, LocalDateTime.class)).thenReturn(UTC_VALUE);
+        Mockito.when(resultSet.getString(1)).thenReturn(UTC_VALUE.toString().replace('T', ' '));
         Assertions.assertEquals(UTC_VALUE, executor.getColumnValue(resultSet, 1,
                 ColumnType.parseType("event_time", "timestamptz(6)"), null));
         java.sql.PreparedStatement preparedStatement = Mockito.mock(java.sql.PreparedStatement.class);
@@ -282,7 +301,7 @@ class JdbcTimestampSemanticsTest {
     void testMySqlTimestampRetainsInstantAndNull() throws Exception {
         MySQLTypeHandler executor = new MySQLTypeHandler("MYSQL");
         ResultSet resultSet = Mockito.mock(ResultSet.class);
-        Mockito.when(resultSet.getObject(1, LocalDateTime.class)).thenReturn(UTC_VALUE).thenReturn(null);
+        Mockito.when(resultSet.getString(1)).thenReturn(UTC_VALUE.toString().replace('T', ' ')).thenReturn(null);
         ColumnType type = ColumnType.parseType("event_time", "timestamptz(6)");
         Assertions.assertEquals(UTC_VALUE, executor.getColumnValue(resultSet, 1, type, null));
         Assertions.assertNull(executor.getColumnValue(resultSet, 1, type, null));

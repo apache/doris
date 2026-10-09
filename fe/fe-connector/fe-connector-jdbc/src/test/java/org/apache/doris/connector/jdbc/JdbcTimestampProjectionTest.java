@@ -24,6 +24,38 @@ import org.junit.jupiter.api.Test;
 
 class JdbcTimestampProjectionTest {
     @Test
+    void trinoSessionClauseRemainsOutsideTimestampProjection() {
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.TRINO);
+        java.util.List<org.apache.doris.connector.spi.handle.ConnectorColumnHandle> columns =
+                java.util.Collections.singletonList(new JdbcColumnHandle(
+                        "ts", "ts", ConnectorType.of("TIMESTAMPTZ", 6, 0)));
+        for (String prefix : new String[] {"WITH SESSION query_max_execution_time='2h' ",
+                "/* SELECT */ with -- comment\n session query_max_execution_time=concat('1', 'h'), "
+                        + "query_max_run_time='2h' "}) {
+            for (String body : new String[] {"SELECT ts FROM t", "WITH q AS (SELECT ts FROM t) SELECT ts FROM q"}) {
+                String query = builder.wrapPassthroughQuery(prefix + body, columns);
+                Assertions.assertTrue(query.startsWith(prefix + "SELECT "), query);
+                Assertions.assertTrue(query.contains("FROM (" + body + "\n) doris_jdbc_query"), query);
+            }
+        }
+    }
+
+    @Test
+    void mysqlInstantsUseTextProjectionForBothScanAndPassthrough() {
+        for (JdbcDbType dialect : new JdbcDbType[] {JdbcDbType.MYSQL, JdbcDbType.OCEANBASE}) {
+            JdbcQueryBuilder builder = new JdbcQueryBuilder(dialect);
+            java.util.List<org.apache.doris.connector.spi.handle.ConnectorColumnHandle> columns =
+                    java.util.Collections.singletonList(new JdbcColumnHandle(
+                            "ts", "ts", ConnectorType.of("TIMESTAMPTZ", 6, 0)));
+            for (String query : new String[] {
+                    builder.buildQuery("db", "tbl", columns, java.util.Optional.empty(), -1),
+                    builder.wrapPassthroughQuery("SELECT ts FROM tbl", columns)}) {
+                Assertions.assertTrue(query.contains("CAST(`ts` AS CHAR)"), query);
+            }
+        }
+    }
+
+    @Test
     void wallClockLiteralsKeepInstantPredicatesAndLimitLocal() {
         ConnectorType instant = ConnectorType.of("TIMESTAMPTZ", 6, 0);
         for (String name : new String[] {"DATE", "DATEV2", "DATETIME", "DATETIMEV2"}) {

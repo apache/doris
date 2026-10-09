@@ -68,6 +68,28 @@
 3
 4
 
+-- !v1_parquet_legacy_schema --
+id	int	Yes	true	\N	
+struct_col	struct<existing:text,struct_default_boolean:boolean,struct_default_int:int,struct_default_long:bigint,struct_default_float:float,struct_default_double:double,struct_default_decimal:decimal(20,4),struct_default_date:date,struct_default_timestamp:datetime(6),struct_default_timestamptz:timestamptz(6),struct_default_string:text not null,struct_default_uuid:varbinary(16),struct_default_fixed:varbinary(4),struct_default_binary:varbinary(2147483647)>	Yes	true	\N	
+list_col	array<struct<existing:text,list_default_int:int>>	Yes	true	\N	
+map_col	map<text,struct<existing:text,map_default_int:int>>	Yes	true	\N	
+default_boolean	boolean	Yes	true	\N	
+default_int	int	Yes	true	\N	
+default_long	bigint	Yes	true	\N	
+default_float	float	Yes	true	\N	
+default_double	double	Yes	true	\N	
+default_decimal	decimal(20,4)	Yes	true	\N	
+default_date	date	Yes	true	\N	
+default_timestamp	datetime(6)	Yes	true	\N	
+default_timestamptz	timestamptz(6)	Yes	true	\N	WITH_TIMEZONE
+default_string	text	Yes	true	\N	
+default_uuid	varbinary(16)	Yes	true	\N	
+default_fixed	varbinary(4)	Yes	true	\N	
+default_binary	varbinary(2147483647)	Yes	true	\N	
+missing_struct_col	struct<missing_struct_default_int:int>	Yes	true	\N	
+missing_list_col	array<struct<missing_list_default_int:int>>	Yes	true	\N	
+missing_map_col	map<text,struct<missing_map_default_int:int>>	Yes	true	\N	
+
 -- !v1_parquet_legacy_mapping --
 1	123E4567E89B12D3A456426614174000	0A0B0C0D	2A2B2C	2024-12-17 23:59:59.123456+00:00
 2	123E4567E89B12D3A456426614174000	0A0B0C0D	2A2B2C	2024-12-17 23:59:59.123456+00:00
@@ -142,6 +164,28 @@
 2
 3
 4
+
+-- !v1_orc_legacy_schema --
+id	int	Yes	true	\N	
+struct_col	struct<existing:text,struct_default_boolean:boolean,struct_default_int:int,struct_default_long:bigint,struct_default_float:float,struct_default_double:double,struct_default_decimal:decimal(20,4),struct_default_date:date,struct_default_timestamp:datetime(6),struct_default_timestamptz:timestamptz(6),struct_default_string:text not null,struct_default_uuid:varbinary(16),struct_default_fixed:varbinary(4),struct_default_binary:varbinary(2147483647)>	Yes	true	\N	
+list_col	array<struct<existing:text,list_default_int:int>>	Yes	true	\N	
+map_col	map<text,struct<existing:text,map_default_int:int>>	Yes	true	\N	
+default_boolean	boolean	Yes	true	\N	
+default_int	int	Yes	true	\N	
+default_long	bigint	Yes	true	\N	
+default_float	float	Yes	true	\N	
+default_double	double	Yes	true	\N	
+default_decimal	decimal(20,4)	Yes	true	\N	
+default_date	date	Yes	true	\N	
+default_timestamp	datetime(6)	Yes	true	\N	
+default_timestamptz	timestamptz(6)	Yes	true	\N	WITH_TIMEZONE
+default_string	text	Yes	true	\N	
+default_uuid	varbinary(16)	Yes	true	\N	
+default_fixed	varbinary(4)	Yes	true	\N	
+default_binary	varbinary(2147483647)	Yes	true	\N	
+missing_struct_col	struct<missing_struct_default_int:int>	Yes	true	\N	
+missing_list_col	array<struct<missing_list_default_int:int>>	Yes	true	\N	
+missing_map_col	map<text,struct<missing_map_default_int:int>>	Yes	true	\N	
 
 -- !v1_orc_legacy_mapping --
 1	123E4567E89B12D3A456426614174000	0A0B0C0D	2A2B2C	2024-12-17 23:59:59.123456+00:00
@@ -218,6 +262,28 @@
 3
 4
 
+-- !v2_parquet_legacy_schema --
+id	int	Yes	true	\N	
+struct_col	struct<existing:text,struct_default_boolean:boolean,struct_default_int:int,struct_default_long:bigint,struct_default_float:float,struct_default_double:double,struct_default_decimal:decimal(20,4),struct_default_date:date,struct_default_timestamp:datetime(6),struct_default_timestamptz:timestamptz(6),struct_default_string:text not null,struct_default_uuid:varbinary(16),struct_default_fixed:varbinary(4),struct_default_binary:varbinary(2147483647)>	Yes	true	\N	
+list_col	array<struct<existing:text,list_default_int:int>>	Yes	true	\N	
+map_col	map<text,struct<existing:text,map_default_int:int>>	Yes	true	\N	
+default_boolean	boolean	Yes	true	\N	
+default_int	int	Yes	true	\N	
+default_long	bigint	Yes	true	\N	
+default_float	float	Yes	true	\N	
+default_double	double	Yes	true	\N	
+default_decimal	decimal(20,4)	Yes	true	\N	
+default_date	date	Yes	true	\N	
+default_timestamp	datetime(6)	Yes	true	\N	
+default_timestamptz	timestamptz(6)	Yes	true	\N	WITH_TIMEZONE
+default_string	text	Yes	true	\N	
+default_uuid	varbinary(16)	Yes	true	\N	
+default_fixed	varbinary(4)	Yes	true	\N	
+default_binary	varbinary(2147483647)	Yes	true	\N	
+missing_struct_col	struct<missing_struct_default_int:int>	Yes	true	\N	
+missing_list_col	array<struct<missing_list_default_int:int>>	Yes	true	\N	
+missing_map_col	map<text,struct<missing_map_default_int:int>>	Yes	true	\N	
+
 -- !v2_parquet_legacy_mapping --
 1	123E4567E89B12D3A456426614174000	0A0B0C0D	2A2B2C	2024-12-17 23:59:59.123456+00:00
 2	123E4567E89B12D3A456426614174000	0A0B0C0D	2A2B2C	2024-12-17 23:59:59.123456+00:00
@@ -293,6 +359,28 @@
 3
 4
 
+-- !v2_orc_legacy_schema --
+id	int	Yes	true	\N	
+struct_col	struct<existing:text,struct_default_boolean:boolean,struct_default_int:int,struct_default_long:bigint,struct_default_float:float,struct_default_double:double,struct_default_decimal:decimal(20,4),struct_default_date:date,struct_default_timestamp:datetime(6),struct_default_timestamptz:timestamptz(6),struct_default_string:text not null,struct_default_uuid:varbinary(16),struct_default_fixed:varbinary(4),struct_default_binary:varbinary(2147483647)>	Yes	true	\N	
+list_col	array<struct<existing:text,list_default_int:int>>	Yes	true	\N	
+map_col	map<text,struct<existing:text,map_default_int:int>>	Yes	true	\N	
+default_boolean	boolean	Yes	true	\N	
+default_int	int	Yes	true	\N	
+default_long	bigint	Yes	true	\N	
+default_float	float	Yes	true	\N	
+default_double	double	Yes	true	\N	
+default_decimal	decimal(20,4)	Yes	true	\N	
+default_date	date	Yes	true	\N	
+default_timestamp	datetime(6)	Yes	true	\N	
+default_timestamptz	timestamptz(6)	Yes	true	\N	WITH_TIMEZONE
+default_string	text	Yes	true	\N	
+default_uuid	varbinary(16)	Yes	true	\N	
+default_fixed	varbinary(4)	Yes	true	\N	
+default_binary	varbinary(2147483647)	Yes	true	\N	
+missing_struct_col	struct<missing_struct_default_int:int>	Yes	true	\N	
+missing_list_col	array<struct<missing_list_default_int:int>>	Yes	true	\N	
+missing_map_col	map<text,struct<missing_map_default_int:int>>	Yes	true	\N	
+
 -- !v2_orc_legacy_mapping --
 1	123E4567E89B12D3A456426614174000	0A0B0C0D	2A2B2C	2024-12-17 23:59:59.123456+00:00
 2	123E4567E89B12D3A456426614174000	0A0B0C0D	2A2B2C	2024-12-17 23:59:59.123456+00:00
@@ -316,3 +404,4 @@
 
 -- !orc_branch_after_main_overwrite --
 14	35
+

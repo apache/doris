@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
@@ -522,7 +523,11 @@ final class IcebergPartitionUtils {
         // Dynamic commits carry an offset; only unqualified static literals use the session zone.
         ZoneId zone = timestampType.shouldAdjustToUTC()
                 ? (explicitZone != null ? explicitZone : sessionZone) : ZoneOffset.UTC;
-        Instant instant = ldt.atZone(zone).toInstant();
+        java.time.zone.ZoneOffsetTransition transition = zone.getRules().getTransition(ldt);
+        // BE's cctz maps skipped civil seconds to the transition, retaining the subsecond fraction.
+        // Java's default instead shifts by the gap duration, which selects a different overwrite partition.
+        Instant instant = transition != null && transition.isGap()
+                ? transition.getInstant().plusNanos(ldt.getNano()) : ldt.atZone(zone).toInstant();
         return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
     }
 
@@ -755,8 +760,10 @@ final class IcebergPartitionUtils {
             // behaved this way, and the FE partition-column CSV is deduped the same way
             // (IcebergConnectorMetadata.buildTableSchema).
             Map<String, String> values = new LinkedHashMap<>();
+            Map<String, ConnectorType> valueTypes = new LinkedHashMap<>();
             for (int i = 0; i < raw.columnNames.size(); ++i) {
                 values.put(raw.columnNames.get(i), raw.values.get(i));
+                valueTypes.put(raw.columnNames.get(i), raw.types.get(i));
             }
             // Ordered values, one per DISTINCT source column in first-occurrence order; supplied so fe-core
             // skips the name parse. Derived from the deduped map rather than from raw.columnNames so the
@@ -772,7 +779,9 @@ final class IcebergPartitionUtils {
                 nullFlags.add(value == null);
             }
             partitions.add(new ConnectorPartitionInfo(raw.name, values, Collections.emptyMap(),
-                    orderedValues, nullFlags));
+                    ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
+                    ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
+                    orderedValues, nullFlags, new ArrayList<>(valueTypes.values())));
         }
         return partitions;
     }
@@ -873,6 +882,7 @@ final class IcebergPartitionUtils {
         List<String> partitionColumnNames = new ArrayList<>();
         List<String> partitionValues = new ArrayList<>();
         List<String> transforms = new ArrayList<>();
+        List<ConnectorType> valueTypes = new ArrayList<>();
         for (int i = 0; i < partitionSpec.fields().size(); ++i) {
             PartitionField partitionField = partitionSpec.fields().get(i);
             Class<?> fieldClass = partitionSpec.javaClasses()[i];
@@ -882,6 +892,7 @@ final class IcebergPartitionUtils {
             Object o = partitionData.get(ordinal, fieldClass);
             String fieldValue = o == null ? null : o.toString();
             Type fieldType = partitionSpec.partitionType().fields().get(i).type();
+            valueTypes.add(IcebergTypeMapping.fromIcebergType(fieldType, true, true));
             // ByteBuffer.toString() describes its bounds, not the partition bytes. Use the
             // transformed type so bucket(binary) remains an integer while identity/truncate keep bytes.
             if (fieldType.typeId() == Type.TypeID.BINARY || fieldType.typeId() == Type.TypeID.FIXED) {
@@ -917,7 +928,7 @@ final class IcebergPartitionUtils {
             lastSnapshotId = UNKNOWN_SNAPSHOT_ID;
         }
         return new IcebergRawPartition(sb.toString(), partitionColumnNames, partitionValues, transforms,
-                lastUpdateTime, lastSnapshotId);
+                valueTypes, lastUpdateTime, lastSnapshotId);
     }
 
     /**
@@ -1061,11 +1072,18 @@ final class IcebergPartitionUtils {
         private final List<String> columnNames;
         private final List<String> values;
         private final List<String> transforms;
+        private final List<ConnectorType> types;
         private final long lastUpdateTime;
         private final long lastSnapshotId;
 
         IcebergRawPartition(String name, List<String> columnNames, List<String> values, List<String> transforms,
                 long lastUpdateTime, long lastSnapshotId) {
+            this(name, columnNames, values, transforms, Collections.emptyList(), lastUpdateTime, lastSnapshotId);
+        }
+
+        IcebergRawPartition(String name, List<String> columnNames, List<String> values, List<String> transforms,
+                List<ConnectorType> types, long lastUpdateTime, long lastSnapshotId) {
+            this.types = types;
             this.name = name;
             this.columnNames = columnNames;
             this.values = values;

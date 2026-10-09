@@ -1247,8 +1247,9 @@ public class VectorColumn {
             OffHeap.putLong(null, data + rowId * 8L, 0L);
             return;
         }
-        if (v.getYear() < 1 || v.getYear() > 9999) {
-            throw new IllegalArgumentException("TIMESTAMPTZ is outside the Doris 0001-9999 range: " + v);
+        // Year zero is valid in Doris (PostgreSQL 1 BC); negative years cannot be packed.
+        if (v.getYear() < 0 || v.getYear() > 9999) {
+            throw new IllegalArgumentException("TIMESTAMPTZ is outside the Doris 0000-9999 range: " + v);
         }
         long time = TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
                     v.getMinute(), v.getSecond(), v.getNano() / 1000);

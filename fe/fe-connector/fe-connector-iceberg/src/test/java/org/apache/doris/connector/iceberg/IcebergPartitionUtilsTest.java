@@ -75,6 +75,26 @@ public class IcebergPartitionUtilsTest {
     // ---- serializePartitionValue: legacy type matrix (direct, package-private) ----
 
     @Test
+    public void binaryBucketPartitionsCarryTheTransformedType() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "b", Types.BinaryType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("b", 16).build();
+        Table table = tableWith(schema, spec);
+        for (Integer bucket : Arrays.asList(3, 7, null)) {
+            PartitionData data = new PartitionData(spec.partitionType());
+            data.set(0, bucket);
+            table.newAppend().appendFile(DataFiles.builder(spec).withPath("bucket-" + bucket + ".parquet")
+                    .withFormat(FileFormat.PARQUET).withPartition(data).withFileSizeInBytes(100)
+                    .withRecordCount(1).build()).commit();
+        }
+        List<ConnectorPartitionInfo> partitions = IcebergPartitionUtils.listPartitions(table);
+        Assertions.assertEquals(3, partitions.size());
+        for (ConnectorPartitionInfo partition : partitions) {
+            Assertions.assertEquals(Collections.singletonList(org.apache.doris.connector.spi.ConnectorType.of("INT")),
+                    partition.getPartitionValueTypes());
+        }
+    }
+
+    @Test
     public void listBinaryIdentityPartitionsPreservesBytesAndNulls() {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("binary_partitions", Collections.emptyMap());
@@ -524,6 +544,17 @@ public class IcebergPartitionUtilsTest {
         // serializeTimestamptzRetainsExplicitUtcOffset. MUTATION: ignoring the zone -> 8h off -> red.
         Assertions.assertEquals(1609459200_000_000L, IcebergPartitionUtils.parsePartitionValueFromString(
                 "2021-01-01 08:00:00", Types.TimestampType.withZone(), SHANGHAI));
+    }
+
+    @Test
+    public void parseSkippedLocalTimeMatchesWriterTransitionInstant() {
+        ZoneId zone = ZoneId.of("America/New_York");
+        Assertions.assertEquals(1615705200_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
+                "2021-03-14 02:30:00.123456", Types.TimestampType.withZone(), zone));
+        Assertions.assertEquals(1615707000_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
+                "2021-03-14 02:30:00.123456-05:00", Types.TimestampType.withZone(), zone));
+        Assertions.assertEquals(1615689000_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
+                "2021-03-14 02:30:00.123456", Types.TimestampType.withoutZone(), zone));
     }
 
     @Test

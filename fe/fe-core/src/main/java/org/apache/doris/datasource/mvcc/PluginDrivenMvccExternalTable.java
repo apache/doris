@@ -44,6 +44,7 @@ import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
@@ -317,8 +318,12 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 //     rows, it only loses partition pruning. Do NOT hoist this check out of the catch to
                 //     "fail loud" — that was tried (cfb0958e607) and every real-world hit was a legitimate
                 //     spec evolution, not a mis-wired connector, taking down 6 suites (CI 996541).
+                // Partition transforms can produce a different type from the source column.
+                List<Type> valueTypes = part.getPartitionValueTypes().isEmpty() ? types
+                        : part.getPartitionValueTypes().stream().map(ConnectorColumnConverter::convertType)
+                                .collect(Collectors.toList());
                 nameToPartitionItem.put(partitionName,
-                        toListPartitionItem(partitionName, types,
+                        toListPartitionItem(partitionName, valueTypes,
                                 part.getOrderedPartitionValues(), part.getPartitionValueNullFlags()));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionName: {}",

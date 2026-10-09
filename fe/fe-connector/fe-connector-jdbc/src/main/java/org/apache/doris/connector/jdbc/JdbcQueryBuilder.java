@@ -194,6 +194,11 @@ public final class JdbcQueryBuilder {
     private String timestampProjection(String expression, org.apache.doris.connector.spi.ConnectorType type,
             int depth) {
         if ("TIMESTAMPTZ".equals(type.getTypeName())) {
+            if (dbType == JdbcDbType.MYSQL || dbType == JdbcDbType.OCEANBASE) {
+                // MySQL drivers can apply a cached timezone even in getString() for binary results.
+                // A server-side text projection preserves the UTC session fields and microseconds.
+                return "CAST(" + expression + " AS CHAR)";
+            }
             if (dbType == JdbcDbType.CLICKHOUSE) {
                 return "toUnixTimestamp64Micro(toDateTime64(" + expression + ", 6))";
             }
@@ -222,7 +227,8 @@ public final class JdbcQueryBuilder {
     public String wrapPassthroughQuery(String query, List<ConnectorColumnHandle> columns) {
         if (columns.stream().noneMatch(c -> c instanceof JdbcColumnHandle
                 && containsInstant(((JdbcColumnHandle) c).getType()))
-                || (dbType != JdbcDbType.CLICKHOUSE && dbType != JdbcDbType.TRINO && dbType != JdbcDbType.PRESTO)) {
+                || (dbType != JdbcDbType.CLICKHOUSE && dbType != JdbcDbType.TRINO && dbType != JdbcDbType.PRESTO
+                        && dbType != JdbcDbType.MYSQL && dbType != JdbcDbType.OCEANBASE)) {
             return query;
         }
         // Project before driver decoding: a named-zone DST fold has already lost its offset afterward.
@@ -233,8 +239,77 @@ public final class JdbcQueryBuilder {
             projections.add(timestampProjection(name, jdbcColumn.getType(), 0) + " AS " + name);
         }
         String inner = query.trim().replaceAll(";+$", "");
+        // WITH SESSION belongs to the Trino statement, not to a derived-table query.
+        int queryStart = dbType == JdbcDbType.TRINO ? trinoSessionQueryStart(inner) : 0;
+        String prefix = inner.substring(0, queryStart);
         // A trailing SQL line comment must end before the wrapper closes its derived table.
-        return "SELECT " + projections + " FROM (" + inner + "\n) doris_jdbc_query";
+        return prefix + "SELECT " + projections + " FROM (" + inner.substring(queryStart)
+                + "\n) doris_jdbc_query";
+    }
+
+    private static int trinoSessionQueryStart(String sql) {
+        int depth = 0;
+        int prefixWords = 0;
+        for (int i = 0; i < sql.length();) {
+            char c = sql.charAt(i);
+            if (c == '\'' || c == '"') {
+                char quote = c;
+                for (i++; i < sql.length(); i++) {
+                    if (sql.charAt(i) == quote) {
+                        if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
+                            i++;
+                        } else {
+                            i++;
+                            break;
+                        }
+                    }
+                }
+            } else if (sql.startsWith("--", i)) {
+                int newline = sql.indexOf('\n', i + 2);
+                i = newline < 0 ? sql.length() : newline + 1;
+            } else if (sql.startsWith("/*", i)) {
+                int comments = 1;
+                i += 2;
+                while (i < sql.length() && comments > 0) {
+                    if (sql.startsWith("/*", i)) {
+                        comments++;
+                        i += 2;
+                    } else if (sql.startsWith("*/", i)) {
+                        comments--;
+                        i += 2;
+                    } else {
+                        i++;
+                    }
+                }
+            } else if (c == '(') {
+                depth++;
+                i++;
+            } else if (c == ')') {
+                depth--;
+                i++;
+            } else if (Character.isLetterOrDigit(c) || c == '_') {
+                int start = i++;
+                while (i < sql.length() && (Character.isLetterOrDigit(sql.charAt(i)) || sql.charAt(i) == '_')) {
+                    i++;
+                }
+                if (depth != 0) {
+                    continue;
+                }
+                String word = sql.substring(start, i);
+                if (prefixWords < 2) {
+                    if (!word.equalsIgnoreCase(prefixWords == 0 ? "WITH" : "SESSION")) {
+                        return 0;
+                    }
+                    prefixWords++;
+                } else if (word.equalsIgnoreCase("SELECT") || word.equalsIgnoreCase("WITH")
+                        || word.equalsIgnoreCase("TABLE") || word.equalsIgnoreCase("VALUES")) {
+                    return start;
+                }
+            } else {
+                i++;
+            }
+        }
+        return 0;
     }
 
     private static boolean hasInstant(ConnectorExpression expr) {
