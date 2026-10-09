@@ -32,10 +32,10 @@
 1	7
 
 -- !fts_prefilter_false --
-0	NULL
+0	\N
 
 -- !fts_prefilter_default --
-0	NULL
+0	\N
 
 -- !fts_filter --
 7
