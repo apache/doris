@@ -19,12 +19,13 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.TimeExtract;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -36,11 +37,13 @@ import java.util.List;
  * ScalarFunction 'hour_minute'.
  */
 public class HourMinute extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements UnaryExpression, TimeExtract, PropagateNullable {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(TimeStampNsType.INSTANCE));
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(TimeStampNsType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(TimeV2Type.WILDCARD),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT));
 
     public HourMinute(Expression arg) {
         super("hour_minute", arg);
@@ -54,6 +57,11 @@ public class HourMinute extends ScalarFunction
     public HourMinute withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new HourMinute(getFunctionParams(children));
+    }
+
+    @Override
+    public String getTimeFormat() {
+        return "%H:%i";
     }
 
     @Override
