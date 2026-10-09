@@ -2,6 +2,17 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260929
+
+- Added: OpenBLAS 0.3.30 and datasketches-cpp at commit 46025e9 (unreleased, after 5.2.0),
+  which BE used to build from the `contrib/openblas` and `contrib/datasketches-cpp`
+  submodules. OpenBLAS is a static library with LAPACK and without CBLAS, threaded with
+  OpenMP and capped at 128 threads. On Linux it selects its kernels at run time
+  (`DYNAMIC_ARCH`), and the rest of the library targets the BE baseline instead of the build
+  host: Haswell, Nehalem with `USE_AVX2=0`, ARMv8 on aarch64. Building it on macOS needs
+  Homebrew's `libomp`. datasketches-cpp is header-only and installs into
+  `include/DataSketches`.
+
 ## 20260921
 
 - Added: google-cloud-cpp 2.45.0 for OAuth2 authentication. Build static auth/common
