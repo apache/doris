@@ -85,6 +85,51 @@ public class HudiTableTypeTest {
                 detect("org.apache.hadoop.mapred.TextInputFormat", Collections.emptyMap()));
     }
 
+    @Test
+    public void testNativeGcpLocationsSelectGcsForCowAndMor() {
+        for (String authType : List.of("APPLICATION_DEFAULT", "COMPUTE_ENGINE")) {
+            for (String inputFormat : List.of("org.apache.hudi.hadoop.HoodieParquetInputFormat",
+                    "org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat")) {
+                Map<String, String> config = Map.of(
+                        "fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+                        "fs.gs.auth.type", authType,
+                        "fs.gs.auth.impersonation.service.account", "target@project.iam.gserviceaccount.com");
+                for (String scheme : List.of("s3", "s3a", "S3", "S3A", "gs")) {
+                    HudiTableHandle handle = tableHandle(scheme + "://bucket/table%20name/", inputFormat, config);
+                    Assertions.assertEquals("gs://bucket/table%20name/", handle.getBasePath());
+                }
+                for (String location : List.of("hdfs://namenode/table", "file:///tmp/table")) {
+                    Assertions.assertEquals(location, tableHandle(location, inputFormat, config).getBasePath());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testLegacyLocationsKeepTheirScheme() {
+        // GCS HMAC and anonymous access use S3A; ordinary AWS/HDFS configs must also stay unchanged.
+        for (Map<String, String> config : List.of(Collections.<String, String>emptyMap(),
+                Map.of("fs.gs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem"),
+                Map.of("fs.s3a.access.key", "access-key", "fs.s3a.secret.key", "secret-key"))) {
+            for (String location : List.of("s3://bucket/table", "s3a://bucket/table", "gs://bucket/table")) {
+                Assertions.assertEquals(location, tableHandle(location,
+                        "org.apache.hudi.hadoop.HoodieParquetInputFormat", config).getBasePath());
+            }
+        }
+    }
+
+    private HudiTableHandle tableHandle(String location, String inputFormat, Map<String, String> config) {
+        HmsTableInfo info = HmsTableInfo.builder()
+                .dbName("db").tableName("t")
+                .location(location)
+                .inputFormat(inputFormat)
+                .parameters(Collections.emptyMap())
+                .build();
+        HudiConnectorMetadata metadata = new HudiConnectorMetadata(new FakeHmsClient(info),
+                HudiTestProperties.minimal(), new DirectHudiMetaClientExecutor(), config);
+        return (HudiTableHandle) metadata.getTableHandle(null, "db", "t").orElseThrow();
+    }
+
     /**
      * Minimal {@link HmsClient} double returning a fixed table. Only {@code tableExists}
      * and {@code getTable} are exercised by {@code getTableHandle}; the rest fail loud.

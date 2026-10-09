@@ -203,7 +203,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             return Optional.empty();
         }
         HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
-        String location = tableInfo.getLocation();
+        String location = hadoopTableLocation(tableInfo.getLocation());
         String hudiTableType = detectHudiTableType(tableInfo);
 
         // Extract partition key names
@@ -220,6 +220,19 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 .partitionKeyNames(partKeyNames)
                 .tableParameters(tableInfo.getParameters())
                 .build());
+    }
+
+    private String hadoopTableLocation(String location) {
+        // Native GCP auth configures fs.gs.*, while HMS may retain an S3-compatible location.
+        // Normalize the handle so metadata, split planning and the JNI reader share the same base path.
+        if ("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem".equals(storageHadoopConfig.get("fs.gs.impl"))) {
+            if (location.regionMatches(true, 0, "s3://", 0, 5)) {
+                return "gs://" + location.substring(5);
+            } else if (location.regionMatches(true, 0, "s3a://", 0, 6)) {
+                return "gs://" + location.substring(6);
+            }
+        }
+        return location;
     }
 
     @Override
