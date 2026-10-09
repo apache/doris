@@ -2602,7 +2602,7 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     }
 
     const bool requires_external_file_ack =
-            params.__isset.iceberg_commit_datas || params.__isset.connector_commit_data;
+            params.__isset.iceberg_commit_datas || params.__isset.paimon_commit_messages;
     if (rpc_status.ok() && requires_external_file_ack &&
         (!res.__isset.external_file_commit_data_accepted ||
          !res.external_file_commit_data_accepted)) {
