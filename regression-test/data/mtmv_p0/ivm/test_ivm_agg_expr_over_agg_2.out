@@ -271,3 +271,9 @@ __DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
 -- !min_boundary_after_fallback_source --
 1	40
 
+-- !min_boundary_after_fallback_incremental --
+1	40
+
+-- !min_boundary_after_fallback_incremental_source --
+1	40
+

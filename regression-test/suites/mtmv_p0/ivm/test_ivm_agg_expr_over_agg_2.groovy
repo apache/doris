@@ -448,4 +448,15 @@ suite("test_ivm_agg_expr_over_agg_2") {
     assertEquals("MIN_MAX_BOUNDARY_HIT", fallbackTask.IvmFallbackReason.toString())
     order_qt_min_boundary_after_fallback """SELECT k, m2 FROM test_ivm_expr_over_agg_min_boundary"""
     order_qt_min_boundary_after_fallback_source """SELECT k, MIN(v) * 2 AS m2 FROM test_ivm_expr_over_agg_min_base GROUP BY k"""
+
+    // The fallback recomputed the whole MV, so its carrier must hold the rebuilt minimum: insert a
+    // non-boundary value and merge it incrementally. Reading a carrier left at the deleted extreme (10)
+    // would report 20 here instead of the expected 40.
+    sql """INSERT INTO test_ivm_expr_over_agg_min_base VALUES (4, 1, 25);"""
+    sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_min_boundary INCREMENTAL"""
+    def postFallbackTask = latestTask()
+    assertEquals("SUCCESS", postFallbackTask.Status.toString())
+    order_qt_min_boundary_after_fallback_incremental """SELECT k, m2 FROM test_ivm_expr_over_agg_min_boundary"""
+    order_qt_min_boundary_after_fallback_incremental_source """
+        SELECT k, MIN(v) * 2 AS m2 FROM test_ivm_expr_over_agg_min_base GROUP BY k"""
 }

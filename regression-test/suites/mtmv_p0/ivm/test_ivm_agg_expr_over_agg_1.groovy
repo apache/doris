@@ -282,14 +282,16 @@ suite("test_ivm_agg_expr_over_agg_1") {
     qt_bitmap_union_desc """DESC test_ivm_expr_over_agg_bitmap_union"""
     sql """set show_hidden_columns=false"""
 
-    // ARRAY_AGG wrapped in ARRAY_SIZE: the array is the aggregate state, and unlike COLLECT_LIST it
-    // keeps NULL elements, so the group that holds only a NULL row still has one element.
+    // ARRAY_AGG wrapped in ARRAY_SORT: the array is the aggregate state, and comparing the sorted
+    // elements checks the merged contents (a stale equal-length array cannot pass) while keeping the
+    // ARRAY_AGG NULL semantics visible -- unlike COLLECT_LIST it keeps NULL elements, so the group
+    // that holds only a NULL row keeps it.
     sql """
         CREATE MATERIALIZED VIEW test_ivm_expr_over_agg_array_agg
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
-        AS SELECT k, ARRAY_SIZE(ARRAY_AGG(v)) AS n FROM test_ivm_expr_over_agg_base GROUP BY k;
+        AS SELECT k, ARRAY_SORT(ARRAY_AGG(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k;
     """
     sql """set show_hidden_columns=true"""
     qt_array_agg_desc """DESC test_ivm_expr_over_agg_array_agg"""
@@ -381,9 +383,9 @@ suite("test_ivm_agg_expr_over_agg_1") {
     order_qt_initial_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
     order_qt_initial_sum_avg_mul_source """
         SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
-    order_qt_initial_array_agg """SELECT k, n FROM test_ivm_expr_over_agg_array_agg"""
+    order_qt_initial_array_agg """SELECT k, lst FROM test_ivm_expr_over_agg_array_agg"""
     order_qt_initial_array_agg_source """
-        SELECT k, ARRAY_SIZE(ARRAY_AGG(v)) AS n FROM test_ivm_expr_over_agg_base GROUP BY k"""
+        SELECT k, ARRAY_SORT(ARRAY_AGG(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
     order_qt_initial_collect_list_content """SELECT k, lst FROM test_ivm_expr_over_agg_collect_list_content"""
     order_qt_initial_collect_list_content_source """
         SELECT k, ARRAY_SORT(COLLECT_LIST(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
@@ -427,9 +429,9 @@ suite("test_ivm_agg_expr_over_agg_1") {
     order_qt_after_insert_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
     order_qt_after_insert_sum_avg_mul_source """
         SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
-    order_qt_after_insert_array_agg """SELECT k, n FROM test_ivm_expr_over_agg_array_agg"""
+    order_qt_after_insert_array_agg """SELECT k, lst FROM test_ivm_expr_over_agg_array_agg"""
     order_qt_after_insert_array_agg_source """
-        SELECT k, ARRAY_SIZE(ARRAY_AGG(v)) AS n FROM test_ivm_expr_over_agg_base GROUP BY k"""
+        SELECT k, ARRAY_SORT(ARRAY_AGG(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
     order_qt_after_insert_collect_list_content """SELECT k, lst FROM test_ivm_expr_over_agg_collect_list_content"""
     order_qt_after_insert_collect_list_content_source """
         SELECT k, ARRAY_SORT(COLLECT_LIST(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
@@ -482,9 +484,9 @@ suite("test_ivm_agg_expr_over_agg_1") {
     order_qt_after_update_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
     order_qt_after_update_sum_avg_mul_source """
         SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
-    order_qt_after_update_array_agg """SELECT k, n FROM test_ivm_expr_over_agg_array_agg"""
+    order_qt_after_update_array_agg """SELECT k, lst FROM test_ivm_expr_over_agg_array_agg"""
     order_qt_after_update_array_agg_source """
-        SELECT k, ARRAY_SIZE(ARRAY_AGG(v)) AS n FROM test_ivm_expr_over_agg_base GROUP BY k"""
+        SELECT k, ARRAY_SORT(ARRAY_AGG(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
     order_qt_after_update_collect_list_content """SELECT k, lst FROM test_ivm_expr_over_agg_collect_list_content"""
     order_qt_after_update_collect_list_content_source """
         SELECT k, ARRAY_SORT(COLLECT_LIST(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
@@ -526,9 +528,9 @@ suite("test_ivm_agg_expr_over_agg_1") {
     order_qt_after_delete_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
     order_qt_after_delete_sum_avg_mul_source """
         SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
-    order_qt_after_delete_array_agg """SELECT k, n FROM test_ivm_expr_over_agg_array_agg"""
+    order_qt_after_delete_array_agg """SELECT k, lst FROM test_ivm_expr_over_agg_array_agg"""
     order_qt_after_delete_array_agg_source """
-        SELECT k, ARRAY_SIZE(ARRAY_AGG(v)) AS n FROM test_ivm_expr_over_agg_base GROUP BY k"""
+        SELECT k, ARRAY_SORT(ARRAY_AGG(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
     order_qt_after_delete_collect_list_content """SELECT k, lst FROM test_ivm_expr_over_agg_collect_list_content"""
     order_qt_after_delete_collect_list_content_source """
         SELECT k, ARRAY_SORT(COLLECT_LIST(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
@@ -571,9 +573,9 @@ suite("test_ivm_agg_expr_over_agg_1") {
     order_qt_after_group_empty_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
     order_qt_after_group_empty_sum_avg_mul_source """
         SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
-    order_qt_after_group_empty_array_agg """SELECT k, n FROM test_ivm_expr_over_agg_array_agg"""
+    order_qt_after_group_empty_array_agg """SELECT k, lst FROM test_ivm_expr_over_agg_array_agg"""
     order_qt_after_group_empty_array_agg_source """
-        SELECT k, ARRAY_SIZE(ARRAY_AGG(v)) AS n FROM test_ivm_expr_over_agg_base GROUP BY k"""
+        SELECT k, ARRAY_SORT(ARRAY_AGG(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
     order_qt_after_group_empty_collect_list_content """SELECT k, lst FROM test_ivm_expr_over_agg_collect_list_content"""
     order_qt_after_group_empty_collect_list_content_source """
         SELECT k, ARRAY_SORT(COLLECT_LIST(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
@@ -620,9 +622,9 @@ suite("test_ivm_agg_expr_over_agg_1") {
     order_qt_final_sum_avg_mul """SELECT k, p FROM test_ivm_expr_over_agg_sum_avg_mul"""
     order_qt_final_sum_avg_mul_source """
         SELECT k, SUM(v) * AVG(v) AS p FROM test_ivm_expr_over_agg_base GROUP BY k"""
-    order_qt_final_array_agg """SELECT k, n FROM test_ivm_expr_over_agg_array_agg"""
+    order_qt_final_array_agg """SELECT k, lst FROM test_ivm_expr_over_agg_array_agg"""
     order_qt_final_array_agg_source """
-        SELECT k, ARRAY_SIZE(ARRAY_AGG(v)) AS n FROM test_ivm_expr_over_agg_base GROUP BY k"""
+        SELECT k, ARRAY_SORT(ARRAY_AGG(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
     order_qt_final_collect_list_content """SELECT k, lst FROM test_ivm_expr_over_agg_collect_list_content"""
     order_qt_final_collect_list_content_source """
         SELECT k, ARRAY_SORT(COLLECT_LIST(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
@@ -732,9 +734,9 @@ suite("test_ivm_agg_expr_over_agg_1") {
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_array_agg COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_array_agg")
-    order_qt_complete_array_agg """SELECT k, n FROM test_ivm_expr_over_agg_array_agg"""
+    order_qt_complete_array_agg """SELECT k, lst FROM test_ivm_expr_over_agg_array_agg"""
     order_qt_complete_array_agg_source """
-        SELECT k, ARRAY_SIZE(ARRAY_AGG(v)) AS n FROM test_ivm_expr_over_agg_base GROUP BY k"""
+        SELECT k, ARRAY_SORT(ARRAY_AGG(v)) AS lst FROM test_ivm_expr_over_agg_base GROUP BY k"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_collect_list_content COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_expr_over_agg_collect_list_content")
     order_qt_complete_collect_list_content """SELECT k, lst FROM test_ivm_expr_over_agg_collect_list_content"""
