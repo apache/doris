@@ -919,7 +919,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         long weightDenominator = resolveSplitWeightDenominator(session);
         // Only a statement that asked for JNI heap admission has its JNI DataSplits declare their heap.
         PaimonJniHeapEstimate jniHeapEstimate =
-                isJniHeapAdmissionEnabled(session) ? PaimonJniHeapEstimate.of(table) : null;
+                isJniHeapAdmissionEnabled(session) ? jniHeapEstimate(table, paimonHandle) : null;
 
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
@@ -1914,6 +1914,37 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return physicalVariantSchemaIds;
+    }
+
+    /**
+     * What the JNI DataSplits of {@code table} declare (PaimonJniHeapEstimate). A file holds row groups of
+     * the size set by the schema version it was written under, which an ALTER TABLE since leaves as it is,
+     * so the estimate reads the versions its files were written under. $ro reads its base table's files,
+     * under that table's schema ids, as {@link #physicalVariantSchemaIds} resolves it; the other system
+     * tables are estimated by the options they show.
+     */
+    private PaimonJniHeapEstimate jniHeapEstimate(Table table, PaimonTableHandle handle) {
+        Table physicalSchemaTable = resolveSchemaDictTable(table, handle);
+        if (!(physicalSchemaTable instanceof FileStoreTable)) {
+            return PaimonJniHeapEstimate.of(table);
+        }
+        FileStoreTable fileStoreTable = (FileStoreTable) physicalSchemaTable;
+        SchemaManager schemaManager = fileStoreTable.schemaManager();
+        return PaimonJniHeapEstimate.of(fileStoreTable, schemaId -> readSchema(schemaManager, schemaId));
+    }
+
+    // A schema file, read under the FE-injected authenticator as planSplits reads the manifests.
+    private TableSchema readSchema(SchemaManager schemaManager, long schemaId) {
+        if (context == null) {
+            return schemaManager.schema(schemaId);
+        }
+        try {
+            return context.executeAuthenticated(() -> schemaManager.schema(schemaId));
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read Paimon schema " + schemaId, e);
+        }
     }
 
     private static boolean containsVariant(DataType type) {
