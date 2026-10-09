@@ -875,8 +875,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         }
         return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS,
                 partitionNamesInfo, mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs,
-                precedingFilter, whereExpr, columnSeparator, lineDelimiter, getEnclose(), getEscape(),
-                sendBatchParallelism,
+                precedingFilter, whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism,
                 loadToSingleTablet, uniqueKeyUpdateMode, partialUpdateNewKeyPolicy, memtableOnSinkNode);
     }
 

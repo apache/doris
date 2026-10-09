@@ -282,6 +282,10 @@ public abstract class RoutineLoadJob
     @SerializedName("ccid")
     private String cloudClusterId;
 
+    protected byte enclose = 0;
+
+    protected byte escape = 0;
+
     protected boolean emptyFieldAsNull = false;
 
     // use for cloud cluster mode
@@ -411,6 +415,8 @@ public abstract class RoutineLoadJob
                     new String(new byte[]{csvFileFormatProperties.getEscape()}));
             jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
                     String.valueOf(csvFileFormatProperties.getEmptyFieldAsNull()));
+            this.enclose = csvFileFormatProperties.getEnclose();
+            this.escape = csvFileFormatProperties.getEscape();
             this.emptyFieldAsNull = csvFileFormatProperties.getEmptyFieldAsNull();
         } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
             JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) fileFormatProperties;
@@ -613,13 +619,11 @@ public abstract class RoutineLoadJob
     }
 
     public byte getEnclose() {
-        String value = jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE);
-        return Strings.isNullOrEmpty(value) ? 0 : (byte) value.charAt(0);
+        return enclose;
     }
 
     public byte getEscape() {
-        String value = jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE);
-        return Strings.isNullOrEmpty(value) ? 0 : value.getBytes()[0];
+        return escape;
     }
 
     public boolean getEmptyFieldAsNull() {
@@ -1995,6 +1999,8 @@ public abstract class RoutineLoadJob
             }
         });
         try {
+            // The original CREATE statement does not contain subsequent ALTER changes.
+            updateCsvParserProperties(jobProperties);
             ConnectContext ctx = new ConnectContext();
             ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
             StatementContext statementContext = new StatementContext();
@@ -2044,6 +2050,10 @@ public abstract class RoutineLoadJob
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {
+        if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ENCLOSE)
+                || jobProperties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
+            updateCsvParserProperties(jobProperties);
+        }
         if (jobProperties.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
@@ -2098,6 +2108,17 @@ public abstract class RoutineLoadJob
             }
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+        }
+    }
+
+    private void updateCsvParserProperties(Map<String, String> properties) {
+        CsvFileFormatProperties csvFileFormatProperties = new CsvFileFormatProperties("csv");
+        csvFileFormatProperties.analyzeFileFormatProperties(properties, false);
+        if (properties.containsKey(CsvFileFormatProperties.PROP_ENCLOSE)) {
+            enclose = csvFileFormatProperties.getEnclose();
+        }
+        if (properties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
+            escape = csvFileFormatProperties.getEscape();
         }
     }
 
