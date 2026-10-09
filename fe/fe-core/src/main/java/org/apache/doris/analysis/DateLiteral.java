@@ -97,7 +97,7 @@ public class DateLiteral extends LiteralExpr {
     private static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static DateTimeFormatter DATE_TIME_FORMATTER_TO_MICRO_SECOND = null;
     private static DateTimeFormatter DATE_FORMATTER = null;
-    private static List<DateTimeFormatter> formatterList = null;
+    static List<DateTimeFormatter> formatterList = null;
     /*
      *  The datekey type is widely used in data warehouses
      *  For example, 20121229 means '2012-12-29'
@@ -661,6 +661,9 @@ public class DateLiteral extends LiteralExpr {
             }
             long diff = getMicroPartWithinScale() - other.getMicroPartWithinScale();
             return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
+        }
+        if (expr instanceof TimeStampNsLiteral) {
+            return -expr.compareLiteral(this);
         }
         // date time will not overflow when doing addition and subtraction
         return Integer.signum(getStringValue().compareTo(expr.getStringValue()));

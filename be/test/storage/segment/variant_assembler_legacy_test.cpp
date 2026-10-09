@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/jsonb_value.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "storage/segment/variant/v2/variant_assembler.h"
@@ -349,6 +350,12 @@ TEST(VariantAssemblerLegacyTest, BinaryExtractScalarTypeMatrixPreservesTypedStat
                                          binary_cast<TimestampTzValue, UInt64>(timestamp_two))},
             TYPE_TIMESTAMPTZ,
             {R"("1970-01-01 00:00:01.000000+00:00")", R"("1970-01-01 00:00:02.000000+00:00")"});
+
+    expect_typed_cells(
+            {scaled_storage_cell<Int64>(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, 9, -1),
+             scaled_storage_cell<Int64>(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, 9, 123456789)},
+            TYPE_TIMESTAMP_NS,
+            {R"("1969-12-31 23:59:59.999999999")", R"("1970-01-01 00:00:00.123456789")"});
 
     expect_typed_cells(
             {decimal_storage_cell<int32_t>(FieldType::OLAP_FIELD_TYPE_DECIMAL32, 9, 2, 1234),

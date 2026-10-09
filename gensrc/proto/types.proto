@@ -122,6 +122,7 @@ message PGenericType {
         IPV6 = 40;
         VARBINARY = 41;
         TIMESTAMPTZ = 42;
+        TIMESTAMP_NS = 43;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

@@ -661,6 +661,10 @@ public class Column implements GsonPostProcessable {
         tColumn.setIsOnUpdateCurrentTimestamp(this.hasOnUpdateDefaultValue);
         // keep compatibility
         tColumn.setDefaultValue(this.realDefaultValue == null ? this.defaultValue : this.realDefaultValue);
+        if (type.isTimeStampNs() && realDefaultValue != null && defaultValue != null
+                && !realDefaultValue.equals(defaultValue)) {
+            tColumn.setDefaultValueExpr(defaultValue);
+        }
         tColumn.setVisible(visible);
         toChildrenThrift(this, tColumn);
 
@@ -786,6 +790,7 @@ public class Column implements GsonPostProcessable {
             case DATETIME:
                 return 8;
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
                 return 8;
             case FLOAT:
@@ -869,8 +874,14 @@ public class Column implements GsonPostProcessable {
             builder.setAggregation("NONE");
         }
         builder.setIsNullable(this.isAllowNull);
-        if (this.defaultValue != null) {
-            builder.setDefaultValue(ByteString.copyFrom(this.defaultValue.getBytes()));
+        String storageDefaultValue = type.isTimeStampNs() && realDefaultValue != null
+                ? realDefaultValue : defaultValue;
+        if (storageDefaultValue != null) {
+            builder.setDefaultValue(ByteString.copyFrom(storageDefaultValue.getBytes()));
+        }
+        if (type.isTimeStampNs() && realDefaultValue != null && defaultValue != null
+                && !realDefaultValue.equals(defaultValue)) {
+            builder.setDefaultValueExpr(ByteString.copyFrom(defaultValue.getBytes()));
         }
         builder.setPrecision(this.getPrecision());
         builder.setFrac(this.getScale());

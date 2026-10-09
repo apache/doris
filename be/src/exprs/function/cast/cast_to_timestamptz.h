@@ -19,6 +19,7 @@
 
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
@@ -134,6 +135,53 @@ public:
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null));
+        return Status::OK();
+    }
+};
+
+template <CastModeType CastMode>
+class CastToImpl<CastMode, DataTypeTimeStampNs, DataTypeTimeStampTz> : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
+        const auto& col_from =
+                assert_cast<const ColumnTimeStampNs&>(*block.get_by_position(arguments[0]).column)
+                        .get_data();
+        auto col_to = ColumnTimeStampTz::create(input_rows_count);
+        auto col_null = ColumnBool::create(input_rows_count, 0);
+        const auto& local_time_zone = context->state()->timezone_obj();
+        const auto target_scale = block.get_by_position(result).type->get_scale();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && null_map[i]) {
+                continue;
+            }
+            DateV2Value<DateTimeV2ValueType> rounded_datetime;
+            TimestampTzValue target;
+            const bool converted =
+                    transform_date_scale(target_scale, TimeStampNsValue::FRACTIONAL_DIGITS,
+                                         rounded_datetime, col_from[i]) &&
+                    target.from_datetime(rounded_datetime, local_time_zone, target_scale,
+                                         target_scale);
+            if (!converted) {
+                if constexpr (CastMode == CastModeType::StrictMode) {
+                    return Status::InvalidArgument(
+                            "can not cast TIMESTAMP_NS {} to timestamptz in timezone {}",
+                            col_from[i].to_string(), context->state()->timezone());
+                }
+                col_null->get_data()[i] = true;
+                continue;
+            }
+            col_to->get_data()[i] = target;
+        }
+
+        if constexpr (CastMode == CastModeType::StrictMode) {
+            block.get_by_position(result).column = std::move(col_to);
+        } else {
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(col_to), std::move(col_null));
+        }
         return Status::OK();
     }
 };

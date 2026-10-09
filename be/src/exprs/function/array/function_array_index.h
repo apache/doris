@@ -426,7 +426,11 @@ private:
                 }
                 return false;
             };
-            dispatch_switch_scalar(right_type->get_primitive_type(), call);
+            if (right_type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+                call(DispatchDataType<TYPE_TIMESTAMP_NS>());
+            } else {
+                dispatch_switch_scalar(right_type->get_primitive_type(), call);
+            }
         }
 
         if (return_column) {

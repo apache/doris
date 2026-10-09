@@ -18,7 +18,7 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
@@ -287,8 +287,9 @@ public class StatisticsUtil {
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
-                return new DateLiteral(columnValue, type);
+                return DateLiteralUtils.createLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -339,6 +340,7 @@ public class StatisticsUtil {
                     return literal.getDouble();
 
                 case DATETIMEV2:
+                case TIMESTAMP_NS:
                 case DATETIME:
                     DateTimeLiteral dateTimeLiteral = new DateTimeLiteral(columnValue);
                     return dateTimeLiteral.getDouble();

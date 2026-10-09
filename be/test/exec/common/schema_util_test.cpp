@@ -34,6 +34,7 @@
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
@@ -1022,6 +1023,14 @@ TEST_F(SchemaUtilTest, TestGetColumnByTypeEdgeCases) {
     EXPECT_EQ(datetime_v2_column.type(), FieldType::OLAP_FIELD_TYPE_DATETIMEV2);
     EXPECT_EQ(datetime_v2_column.precision(), -1);
     EXPECT_EQ(datetime_v2_column.frac(), 6);
+
+    auto timestamp_ns_type = std::make_shared<DataTypeTimeStampNs>();
+    auto timestamp_ns_column =
+            variant_util::get_column_by_type(timestamp_ns_type, "timestamp_ns_col", ext_info);
+    EXPECT_EQ(timestamp_ns_column.type(), FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS);
+    EXPECT_EQ(timestamp_ns_column.length(), sizeof(TimeStampNsValue));
+    EXPECT_TRUE(variant_util::is_bf_supported_by_fe_for_variant_subcolumn(
+            FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS));
 
     // Test invalid type
     auto invalid_type = std::make_shared<DataTypeNothing>();

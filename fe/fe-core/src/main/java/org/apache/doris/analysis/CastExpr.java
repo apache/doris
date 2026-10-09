@@ -39,6 +39,9 @@ public class CastExpr extends Expr {
     @SerializedName("ii")
     protected boolean isImplicit;
 
+    @SerializedName("isc")
+    protected boolean isStrict;
+
     // True if this cast does not change the type.
     protected boolean noOp = false;
 
@@ -74,6 +77,7 @@ public class CastExpr extends Expr {
     protected CastExpr(CastExpr other) {
         super(other);
         isImplicit = other.isImplicit;
+        isStrict = other.isStrict;
         noOp = other.noOp;
     }
 
@@ -126,6 +130,17 @@ public class CastExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CAST_EXPR;
         msg.setOpcode(opcode);
+        if (isStrict) {
+            msg.setIsStrictCast(true);
+        }
+    }
+
+    public boolean isStrict() {
+        return isStrict;
+    }
+
+    public void setStrict(boolean strict) {
+        isStrict = strict;
     }
 
     public boolean isImplicit() {
@@ -154,7 +169,8 @@ public class CastExpr extends Expr {
         if (type.isFixedPointType() && getChild(0).getType().isFixedPointType()) {
             return true;
         }
-        if (type.isDateType() && getChild(0).getType().isDateType()) {
+        if (type.isDateType() && getChild(0).getType().isDateType()
+                && !type.isTimeStampNs() && !getChild(0).getType().isTimeStampNs()) {
             return true;
         }
         return false;

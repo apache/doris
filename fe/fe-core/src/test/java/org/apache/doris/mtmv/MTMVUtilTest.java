@@ -17,15 +17,18 @@
 
 package org.apache.doris.mtmv;
 
+
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.util.Optional;
 
@@ -47,5 +50,13 @@ public class MTMVUtilTest {
         expr = new DateLiteral(Type.DATE, true);
         exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.empty());
         Assert.assertEquals(253402185600L, exprTimeSec);
+
+        expr = new TimeStampNsLiteral(2020, 1, 1, 0, 0, 0, 1);
+        exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.empty());
+        Assertions.assertEquals(1577808000L, exprTimeSec);
+
+        expr = TimeStampNsLiteral.createMinValue();
+        exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.empty());
+        Assertions.assertEquals(Long.MIN_VALUE, exprTimeSec);
     }
 }

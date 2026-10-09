@@ -28,6 +28,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.authentication.Principal;
@@ -101,6 +102,7 @@ import org.xnio.StreamConnection;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -218,6 +220,8 @@ public class ConnectContext {
     protected volatile MysqlCommand command;
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;
+    // Timestamp with nanosecond precision when the current command starts.
+    protected volatile Instant startTimeInstant = Instant.now();
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
 
@@ -725,6 +729,8 @@ public class ConnectContext {
                 return Literal.of(((StringLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof NullLiteral) {
                 return Literal.of(null);
+            } else if (literalExpr instanceof TimeStampNsLiteral) {
+                return Literal.fromLegacyLiteral(literalExpr, literalExpr.getType());
             } else {
                 return Literal.of(literalExpr.getStringValue());
             }
@@ -850,8 +856,13 @@ public class ConnectContext {
         return startTime;
     }
 
+    public Instant getStartTimeInstant() {
+        return startTimeInstant;
+    }
+
     public void setStartTime() {
-        startTime = System.currentTimeMillis();
+        startTimeInstant = Instant.now();
+        startTime = startTimeInstant.toEpochMilli();
         returnRows = 0;
         queryBackendSelectionDecision = null;
         loadBackendSelectionDecision = null;

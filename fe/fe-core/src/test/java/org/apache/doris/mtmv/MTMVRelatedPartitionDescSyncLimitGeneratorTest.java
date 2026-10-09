@@ -90,5 +90,15 @@ public class MTMVRelatedPartitionDescSyncLimitGeneratorTest {
         nowTruncSubSec = generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 4);
         // 2020-01-31
         Assert.assertEquals(1580400000L, nowTruncSubSec);
+
+        DateTimeV2Literal beforeEpoch = new DateTimeV2Literal("1970-01-02 20:10:10");
+        new Expectations() {
+            {
+                dateTimeAcquire.now();
+                minTimes = 0;
+                result = beforeEpoch;
+            }
+        };
+        Assert.assertEquals(-115200L, generator.getNowTruncSubSec(MTMVPartitionSyncTimeUnit.DAY, 3));
     }
 }

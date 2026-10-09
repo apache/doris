@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
@@ -48,14 +50,21 @@ import java.util.List;
  */
 public class FromUnixtime extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable, PropagateNullLiteral, Monotonic {
+    private static final DecimalV3Type DECIMAL_MICRO_ARGUMENT_TYPE = DecimalV3Type.createDecimalV3Type(18, 6);
+    private static final DecimalV3Type DECIMAL_NANO_ARGUMENT_TYPE = DecimalV3Type.createDecimalV3Type(21, 9);
+
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE, StringType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV3Type.createDecimalV3Type(18, 6)),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV3Type.createDecimalV3Type(18, 6),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DECIMAL_MICRO_ARGUMENT_TYPE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DECIMAL_MICRO_ARGUMENT_TYPE,
                     VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV3Type.createDecimalV3Type(18, 6),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DECIMAL_MICRO_ARGUMENT_TYPE,
+                    StringType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DECIMAL_NANO_ARGUMENT_TYPE,
+                    VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DECIMAL_NANO_ARGUMENT_TYPE,
                     StringType.INSTANCE));
 
     /**
@@ -94,18 +103,34 @@ public class FromUnixtime extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         // skip super.computeSignature() to avoid changing the decimal precision
-        // manually set decimal argument's type to always decimal(18, 6)
+        // Manually set the decimal argument type so the complete nanosecond fraction reaches BE.
         if (this.getArgumentType(0).isDecimalLikeType()) {
             Preconditions.checkArgument(arity() == 1 || arity() == 2, "FromUnixtime should have 1 or 2 arguments");
             if (arity() == 1) {
                 return FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                        .args(DecimalV3Type.createDecimalV3Type(18, 6));
+                        .args(DECIMAL_MICRO_ARGUMENT_TYPE);
             } else {
+                // Scale selects the execution path, independently of the input storage width:
+                // DECIMAL(10,3) uses DECIMAL64(18,6), while DECIMAL(18,9) and legacy
+                // DECIMALV2(27,9) use DECIMAL128(21,9) to preserve nanoseconds.
+                DecimalV3Type decimalType = DecimalV3Type.forType(getArgumentType(0));
+                DecimalV3Type argumentType = decimalType.getScale() <= DECIMAL_MICRO_ARGUMENT_TYPE.getScale()
+                        ? DECIMAL_MICRO_ARGUMENT_TYPE : DECIMAL_NANO_ARGUMENT_TYPE;
                 return FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                        .args(DecimalV3Type.createDecimalV3Type(18, 6), VarcharType.SYSTEM_DEFAULT);
+                        .args(argumentType, VarcharType.SYSTEM_DEFAULT);
             }
         }
         return signature;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        checkFractionFormatSpecifiers();
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkFractionFormatSpecifiers();
     }
 
     @Override
@@ -164,6 +189,23 @@ public class FromUnixtime extends ScalarFunction
         return DateUtils.monoFormat.contains(((StringLikeLiteral) format).getValue());
     }
 
+    private void checkFractionFormatSpecifiers() {
+        if (arity() != 2) {
+            return;
+        }
+        Expression formatArgument = getArgument(1);
+        if (!(formatArgument instanceof StringLikeLiteral)) {
+            return;
+        }
+        String format = ((StringLikeLiteral) formatArgument).getValue();
+        if (DateTimeFormatterUtils.containsFormatSpecifier(format, 'f')
+                && DateTimeFormatterUtils.containsFormatSpecifier(format, 'n')) {
+            // 0.999999500 is rounded to 1.000000 for %f but remains 0.999999500 for %n,
+            // so the two specifiers cannot consistently describe one FROM_UNIXTIME result.
+            throw new AnalysisException("FROM_UNIXTIME format cannot contain both %f and %n");
+        }
+    }
+
     private Instant toInstant(Literal literal) {
         if (!(literal instanceof NumericLiteral)) {
             return null;
@@ -173,6 +215,13 @@ public class FromUnixtime extends ScalarFunction
             return null;
         }
         try {
+            if (arity() == 2 && child(1) instanceof StringLikeLiteral
+                    && !DateTimeFormatterUtils.containsFormatSpecifier(
+                            ((StringLikeLiteral) child(1)).getValue(), 'n')) {
+                // Match execution before checking DST transitions: for example,
+                // 1635641999.999999500 rounds to the following integral second.
+                value = value.setScale(6, RoundingMode.HALF_UP);
+            }
             long seconds = value.setScale(0, RoundingMode.DOWN).longValueExact();
             long nanos = value.subtract(BigDecimal.valueOf(seconds))
                     .movePointRight(9)
