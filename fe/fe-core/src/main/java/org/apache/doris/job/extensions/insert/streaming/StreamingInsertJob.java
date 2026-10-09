@@ -511,6 +511,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void alterJob(AlterJobCommand alterJobCommand) throws AnalysisException, JobException {
         List<String> logParts = new ArrayList<>();
+
+        validateComputeGroupProperty(alterJobCommand.getProperties());
+
+        // Validate the merged properties before mutating the job.
+        Map<String, String> mergedSourceProperties = null;
+        Map<String, String> newConvertedSourceProperties = null;
+        if (!alterJobCommand.getSourceProperties().isEmpty()) {
+            mergedSourceProperties = new HashMap<>(this.sourceProperties);
+            mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
+            DataSourceConfigValidator.validateSource(mergedSourceProperties, dataSourceType.name());
+            newConvertedSourceProperties = buildConvertedSourceProperties(mergedSourceProperties);
+        }
+
         // update sql
         if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
             setExecuteSql(alterJobCommand.getSql());
@@ -522,8 +535,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             logParts.add("sql: " + encryptedSql);
         }
 
-        validateComputeGroupProperty(alterJobCommand.getProperties());
-
         // update properties
         if (!alterJobCommand.getProperties().isEmpty()) {
             modifyPropertiesInternal(alterJobCommand.getProperties());
@@ -531,13 +542,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
 
         // update source properties
-        if (!alterJobCommand.getSourceProperties().isEmpty()) {
-            // Convert on a merged copy first; validateSource() only checks ssl_rootcert is
-            // non-empty, so cert-file lookup can still fail here. Commit to fields only on success.
-            Map<String, String> mergedSourceProperties = new HashMap<>(this.sourceProperties);
-            mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
-            Map<String, String> newConvertedSourceProperties =
-                    buildConvertedSourceProperties(mergedSourceProperties);
+        if (mergedSourceProperties != null) {
             this.sourceProperties = mergedSourceProperties;
             this.convertedSourceProperties = newConvertedSourceProperties;
             logParts.add("source properties: " + alterJobCommand.getSourceProperties());
@@ -614,6 +619,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
         lock.writeLock().lock();
         try {
+            // Scheduler tasks are internal housekeeping and must not affect task statistics.
+            for (StreamingJobSchedulerTask task : getRunningTasks()) {
+                task.cancel(needWaitCancelComplete);
+            }
+            getRunningTasks().clear();
             if (runningStreamTask == null) {
                 return;
             }
@@ -1086,6 +1096,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setLastTaskSuccessTime(replayJob.getLastTaskSuccessTime());
         setStartTimeMs(replayJob.getStartTimeMs());
         this.boundBackendId = replayJob.boundBackendId;
+        offsetProvider.setBoundBackendId(boundBackendId);
     }
 
     /**
@@ -1095,22 +1106,25 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
+            if (Config.isCloudMode()) {
+                resetCloudProgress(offset);
+            }
             this.offsetProvider.updateOffset(offset);
             this.offsetProvider.resetLag();
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
             log.info("modifyPropertiesInternal: offset updated to {}, job {}",
                     inputStreamProps.getOffsetProperty(), getJobId());
-            if (Config.isCloudMode()) {
-                resetCloudProgress(offset);
-            }
         }
         if (inputProperties.containsKey(StreamingJobProperties.COMPUTE_GROUP_PROPERTY)) {
             this.cloudCluster = inputProperties.get(StreamingJobProperties.COMPUTE_GROUP_PROPERTY);
             offsetProvider.setCloudCluster(this.cloudCluster);
         }
+        long oldMaxIntervalSecond = this.jobProperties.getMaxIntervalSecond();
         this.properties.putAll(inputProperties);
         this.jobProperties = new StreamingJobProperties(this.properties);
-        recomputeDerivedFields();
+        if (oldMaxIntervalSecond != this.jobProperties.getMaxIntervalSecond()) {
+            recomputeDerivedFields();
+        }
     }
 
     private void resetCloudProgress(Offset offset) throws JobException {
@@ -1373,15 +1387,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             LoadJob loadJob = loadJobs.get(0);
             LoadStatistic loadStatistic = loadJob.getLoadStatistic();
 
-            String offsetJson = offsetProvider.getCommitOffsetJson(
-                    runningStreamTask.getRunningOffset(),
-                    runningStreamTask.getTaskId(),
-                    runningStreamTask.getScanBackendIds());
-
-            if (StringUtils.isBlank(offsetJson)) {
-                throw new TransactionException("Cannot find offset for attachment, load job id is "
-                        + runningStreamTask.getTaskId());
-            }
+            String offsetJson = ((StreamingInsertTask) runningStreamTask).getCommitOffsetJson();
             txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
                         getJobId(),
                         runningStreamTask.getTaskId(),
@@ -1696,8 +1702,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider != null) {
             // when fe restart, offsetProvider.jobId/sourceProperties may be null
             offsetProvider.ensureInitialized(getJobId(), getProviderProps());
-            // replayOnUpdated skips the transient provider; resync routing BE.
-            offsetProvider.setBoundBackendId(boundBackendId);
             offsetProvider.replayIfNeed(this);
         }
     }

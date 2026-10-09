@@ -63,4 +63,15 @@ public class StreamingInsertJobStatusTransitionTest {
         Assertions.assertFalse(job.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING));
         Assertions.assertEquals(JobStatus.STOPPED, job.getJobStatus());
     }
+
+    @Test
+    public void testFailedCommitCallbackReleasesWriteLock() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.RUNNING);
+        ReentrantReadWriteLock lock = Deencapsulation.getField(job, "lock");
+        lock.writeLock().lock();
+
+        job.afterCommitted(null, false);
+
+        Assertions.assertEquals(0, lock.getWriteHoldCount());
+    }
 }
