@@ -21,7 +21,10 @@ import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.fs.ResolvingFileIO;
+import org.apache.paimon.fs.hadoop.HadoopFileIO;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.rest.RESTToken;
@@ -44,6 +47,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,9 +61,11 @@ class PaimonCacheSizeEstimatorTest {
     @Test
     void admissionWeightCoversTheStoreAndIndexesBuiltAfterAdmission() throws Exception {
         // A cached table is weighed once, but the first snapshot lookup or scan builds its store (RowType copies
-        // of the schema, a copy of the options) and field lookups build every RowType's lazy index maps. The
-        // admission weight must already cover that grown graph. MUTATION: dropping the store-growth reservation
-        // -> every fixture's grown graph exceeds its weight -> red.
+        // of the schema, a copy of the options, a partial-update table's merge function) and field lookups build
+        // every RowType's lazy index maps. The admission weight must already cover that grown graph without the
+        // FileIO allowance, which pays for the FileIO. MUTATION: dropping the store-growth reservation -> every
+        // fixture's grown graph exceeds its weight -> red; dropping the partial-update reservation -> the wide
+        // partial-update fixture does -> red.
         List<FileStoreTable> fixtures = new ArrayList<>();
         fixtures.add(table("append_narrow", 10, 0, 0, 0, null));
         fixtures.add(table("append_wide", 300, 0, 0, 0, null));
@@ -72,8 +78,10 @@ class PaimonCacheSizeEstimatorTest {
         fixtures.add(table("array_of_rows", 0, 0, 0, 0, new ArrayType(rowOf(20))));
         fixtures.add(table("map_of_rows", 0, 0, 0, 0, new MapType(DataTypes.INT(), rowOf(20))));
         fixtures.add(table("multiset", 0, 0, 0, 0, new MultisetType(DataTypes.STRING())));
+        fixtures.add(mergeEngineTable("partial_update_wide", 300, "partial-update"));
+        fixtures.add(mergeEngineTable("aggregation_wide", 300, "aggregation"));
         for (FileStoreTable table : fixtures) {
-            long weight = weight(table);
+            long weight = weight(table) - PaimonCacheSizeEstimator.estimateFileIO(table.fileIO());
             Assertions.assertNull(readField(table, table.getClass(), "lazyStore"),
                     table.name() + ": estimation must not build the store");
             grow(table);
@@ -96,22 +104,47 @@ class PaimonCacheSizeEstimatorTest {
     }
 
     @Test
-    void restDataTokenFileIoIsChargedToItsTable() throws Exception {
-        // RESTCatalog with data tokens gives each table its own RESTTokenFileIO, which holds the vended token
-        // fetched on first data access. Its underlying FileIO lives in Paimon's process-wide cache, so only the
-        // RESTTokenFileIO and its token belong to the table. MUTATION: treating it as shared like other FileIOs
-        // -> both tables weigh the same -> red.
+    void everyTableCarriesAnAllowanceForItsFileIo() throws Exception {
+        // A REST catalog gives each table its own RESTTokenFileIO or ResolvingFileIO and a Hive catalog a FileIO
+        // per table location; all of them grow after admission, and none can be told apart from a FileIO the
+        // catalog shares. So a table's weight carries the same allowance whatever its FileIO is. MUTATION:
+        // charging only RESTTokenFileIO -> the other tables weigh a whole allowance less -> red.
+        FileStoreTable local = table("file_io", 10, 0, 0, 0, null);
+        CatalogContext context = CatalogContext.create(new Options());
+        ResolvingFileIO resolving = new ResolvingFileIO();
+        resolving.configure(context);
+        HadoopFileIO hadoop = new HadoopFileIO(local.location());
+        hadoop.configure(context);
+        List<FileIO> fileIOs = Arrays.asList(local.fileIO(), resolving, hadoop,
+                new RESTTokenFileIO(context, null, TABLE, local.location()));
+        long withoutFileIO = weight(local) - PaimonCacheSizeEstimator.estimateFileIO(local.fileIO());
+        for (FileIO fileIO : fileIOs) {
+            FileStoreTable table = FileStoreTableFactory.create(
+                    fileIO, local.location(), local.schema(), CatalogEnvironment.empty());
+            long allowance = PaimonCacheSizeEstimator.estimateFileIO(fileIO);
+            Assertions.assertTrue(allowance >= 16L * 1024L);
+            Assertions.assertEquals(withoutFileIO + allowance, weight(table),
+                    fileIO.getClass().getSimpleName() + " must be charged to its table");
+        }
+
+        // A ResolvingFileIO builds its backend on the first data access, after admission.
+        resolving.exists(local.location());
+        long resolved = EstimatorCalibrationAssertions.graphSize(resolving)
+                - EstimatorCalibrationAssertions.graphSize(context);
+        Assertions.assertTrue(PaimonCacheSizeEstimator.estimateFileIO(resolving) >= resolved,
+                "the allowance does not cover a ResolvingFileIO with its backend: " + resolved);
+    }
+
+    @Test
+    void fileIoAllowanceCoversARestDataTokenAndItsRefresh() throws Exception {
+        // The token arrives after admission and a refresh replaces it, so the one allowance must cover the token
+        // the first data access fetches as well as a later, larger one. The 1,200-character security token is the
+        // usual STS size; the 8,192-character one stands for a credential several times larger.
+        // MUTATION: a 4 KB allowance -> the refreshed token outgrows it -> red.
         FileStoreTable local = table("rest_token", 10, 0, 0, 0, null);
         CatalogContext context = CatalogContext.create(new Options());
         RESTTokenFileIO fileIO = new RESTTokenFileIO(context, null, TABLE, local.location());
-        FileStoreTable rest = FileStoreTableFactory.create(
-                fileIO, local.location(), local.schema(), CatalogEnvironment.empty());
-
-        long reserved = weight(rest) - weight(local);
-        // The token arrives after admission and a refresh replaces it, so the one reserve must cover the token
-        // the first data access fetches as well as a later, larger one. The 1,200-character security token is
-        // the usual STS size; the 8,192-character one stands for a credential several times larger.
-        // MUTATION: a 4 KB reserve -> the refreshed token outgrows it -> red.
+        long allowance = PaimonCacheSizeEstimator.estimateFileIO(fileIO);
         for (int securityTokenChars : new int[] {1200, 8192}) {
             Map<String, String> token = new HashMap<>();
             token.put("fs.oss.accessKeyId", "STS." + "a".repeat(28));
@@ -121,10 +154,37 @@ class PaimonCacheSizeEstimatorTest {
             setToken(fileIO, new RESTToken(token, System.currentTimeMillis() + 3_600_000L));
             long owned = EstimatorCalibrationAssertions.graphSize(fileIO)
                     - EstimatorCalibrationAssertions.graphSize(context);
-            Assertions.assertTrue(reserved >= owned, "reserved " + reserved
+            Assertions.assertTrue(allowance >= owned, "allowance " + allowance
                     + " does not cover the table-owned graph with a " + securityTokenChars + "-character token "
                     + owned);
         }
+    }
+
+    /**
+     * A primary-key table with {@code fieldCount} INT value fields under {@code mergeEngine}: a partial-update
+     * table puts them all in one sequence group with a default aggregate function, an aggregation table sums them.
+     */
+    private FileStoreTable mergeEngineTable(String name, int fieldCount, String mergeEngine) throws Exception {
+        Schema.Builder builder = Schema.newBuilder()
+                .column("part", DataTypes.INT())
+                .column("key_0", DataTypes.INT().notNull())
+                .column("seq_0", DataTypes.INT());
+        List<String> grouped = new ArrayList<>();
+        for (int i = 0; i < fieldCount; i++) {
+            builder.column("field_" + i, DataTypes.INT());
+            grouped.add("field_" + i);
+        }
+        builder.primaryKey("key_0", "part").partitionKeys("part").option("merge-engine", mergeEngine);
+        if ("partial-update".equals(mergeEngine)) {
+            builder.option("fields.seq_0.sequence-group", String.join(",", grouped));
+            builder.option("fields.default-aggregate-function", "last_non_null_value");
+        } else if ("aggregation".equals(mergeEngine)) {
+            builder.option("fields.default-aggregate-function", "sum");
+        }
+        LocalFileIO fileIO = LocalFileIO.create();
+        Path path = new Path(warehouse.resolve(name).toUri());
+        new SchemaManager(fileIO, path).createTable(builder.build());
+        return FileStoreTableFactory.create(fileIO, path);
     }
 
     private static void setToken(RESTTokenFileIO fileIO, RESTToken token) throws ReflectiveOperationException {
