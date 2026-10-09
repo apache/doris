@@ -94,6 +94,16 @@ public class PaimonPluginTest {
 
     /** The path the plugin registry takes: services file, plugin class, factory list. */
     @Test
+    public void instantiatesNativeGcsFilesystem() throws Exception {
+        Configuration conf = new Configuration();
+        conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
+        try (FileSystem fs = FileSystem.getFileSystemClass("gs", conf).getDeclaredConstructor().newInstance()) {
+            Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+                    fs.getClass().getName());
+        }
+    }
+
+    @Test
     public void isDiscoverableThroughServiceLoader() {
         Assertions.assertTrue(loadPlugin() instanceof PaimonPlugin);
     }
@@ -145,6 +155,7 @@ public class PaimonPluginTest {
         expected.put("hdfs", "org.apache.hadoop.hdfs.DistributedFileSystem");
         expected.put("webhdfs", "org.apache.hadoop.hdfs.web.WebHdfsFileSystem");
         expected.put("s3a", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        expected.put("gs", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
         expected.put("obs", "org.apache.hadoop.fs.obs.OBSFileSystem");
         expected.put("abfs", "org.apache.hadoop.fs.azurebfs.AzureBlobFileSystem");
         expected.put("wasb", "org.apache.hadoop.fs.azure.NativeAzureFileSystem");

@@ -19,7 +19,7 @@
 
 #include <glog/logging.h>
 #include <google/cloud/credentials.h>
-#include <google/cloud/oauth2/access_token_generator.h>
+#include <google/cloud/internal/unified_rest_credentials.h>
 
 #include <utility>
 
@@ -71,8 +71,12 @@ std::shared_ptr<google::cloud::Credentials> make_credentials(const GcpCredential
 
 GcpTokenProvider::GcpTokenProvider(const GcpCredentialConfig& credential,
                                    const std::string& ca_cert_path, GcpTokenScope token_scope)
-        : _credentials(make_credentials(credential, ca_cert_path, token_scope)),
-          _token_generator(google::cloud::oauth2::MakeAccessTokenGenerator(*_credentials)) {}
+        : GcpTokenProvider(google::cloud::rest_internal::MapCredentials(
+                  *make_credentials(credential, ca_cert_path, token_scope))) {}
+
+GcpTokenProvider::GcpTokenProvider(
+        std::shared_ptr<google::cloud::oauth2_internal::Credentials> credentials)
+        : _credentials(std::move(credentials)) {}
 
 GcpTokenProvider::~GcpTokenProvider() = default;
 
@@ -80,14 +84,19 @@ std::optional<std::string> GcpTokenProvider::get_token() const {
     // GcpS3Client and presign callers may share one provider across request
     // threads. Serialize access even if the underlying implementation changes
     // its thread-safety guarantees in a future google-cloud-cpp release.
-    std::lock_guard lock(_token_generator_mutex);
-    auto token = _token_generator->GetToken();
+    std::lock_guard lock(_credentials_mutex);
+    auto token = _credentials->GetToken(std::chrono::system_clock::now());
     if (!token) {
         LOG_EVERY_N(WARNING, 100) << "failed to obtain GCP access token: "
                                   << token.status().message();
         return std::nullopt;
     }
     return token->token;
+}
+
+std::string GcpTokenProvider::get_service_account_email() const {
+    std::lock_guard lock(_credentials_mutex);
+    return _credentials->AccountEmail();
 }
 
 } // namespace doris

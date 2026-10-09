@@ -38,6 +38,11 @@ struct GcsV4SignedUrlProviderOptions {
     int64_t request_timeout_ms = 10000;
 };
 
+// Resolve the identity selected by ADC or explicit impersonation, without falling back
+// to an unrelated VM service account when the selected credentials have no identity.
+Status resolve_gcs_signer_email(const GcpCredentialConfig& credential,
+                                const GcpTokenProvider& token_provider, std::string* signer_email);
+
 // Resolves the signing service account, obtains an OAuth token, and invokes
 // IAM Credentials signBlob before delegating URL construction to common auth.
 Status generate_gcs_v4_signed_url(const GcsV4SignedUrlProviderOptions& options,

@@ -32,6 +32,8 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.aws.s3.S3FileIO;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
@@ -89,6 +91,39 @@ public class IcebergPluginTest {
 
     /** The path the plugin registry takes: services file, plugin class, factory list. */
     @Test
+    public void reconstructsNativeGcpFileIoAfterSerialization() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(S3FileIOProperties.CLIENT_FACTORY,
+                "org.apache.doris.connector.iceberg.GcpS3FileIOAwsClientFactory");
+        properties.put("provider", "GCP");
+        properties.put("s3.endpoint", "https://storage.googleapis.com");
+        properties.put("s3.region", "us-central1");
+        properties.put("gs.credential_provider_type", "COMPUTE_ENGINE");
+        properties.put("gs.impersonation_service_account", "target@project.iam.gserviceaccount.com");
+        try (S3FileIO original = new S3FileIO()) {
+            original.initialize(properties);
+            // Metadata tasks carry this FileIO across to BE, where the first manifest read rebuilds its client.
+            String wire = SerializationUtil.serializeToBase64(original);
+            try (S3FileIO restored = IcebergSerializationCompat.deserializeFromBase64(wire)) {
+                Assertions.assertEquals(properties, restored.properties());
+                Assertions.assertNotNull(restored.client());
+                Assertions.assertEquals("s3://bucket/manifest.avro",
+                        restored.newInputFile("s3://bucket/manifest.avro").location());
+            }
+        }
+    }
+
+    @Test
+    public void instantiatesNativeGcsFilesystem() throws Exception {
+        Configuration conf = new Configuration();
+        conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
+        try (FileSystem fs = FileSystem.getFileSystemClass("gs", conf).getDeclaredConstructor().newInstance()) {
+            Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+                    fs.getClass().getName());
+        }
+    }
+
+    @Test
     public void isDiscoverableThroughServiceLoader() {
         Assertions.assertTrue(loadPlugin() instanceof IcebergPlugin);
     }
@@ -132,6 +167,7 @@ public class IcebergPluginTest {
         expected.put("hdfs", "org.apache.hadoop.hdfs.DistributedFileSystem");
         expected.put("webhdfs", "org.apache.hadoop.hdfs.web.WebHdfsFileSystem");
         expected.put("s3a", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        expected.put("gs", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
         expected.put("obs", "org.apache.hadoop.fs.obs.OBSFileSystem");
         expected.put("abfs", "org.apache.hadoop.fs.azurebfs.AzureBlobFileSystem");
         expected.put("wasb", "org.apache.hadoop.fs.azure.NativeAzureFileSystem");

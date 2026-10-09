@@ -43,6 +43,13 @@ under the License.
     </properties>
 
     <dependencies>
+        <!-- JNI plugins cannot inherit the GCS connector from BE's hadoop_hdfs classpath. -->
+        <dependency>
+            <groupId>com.google.cloud.bigdataoss</groupId>
+            <artifactId>gcs-connector</artifactId>
+            <classifier>shaded</classifier>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>jni-spi</artifactId>

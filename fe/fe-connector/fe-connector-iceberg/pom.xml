@@ -41,10 +41,10 @@ under the License.
     </description>
 
     <dependencies>
-        <!-- Reuse the GCS OAuth client implementation in this isolated connector plugin. -->
+        <!-- Share the serializable GCP FileIO factory with the BE metadata scanner. -->
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>fe-filesystem-gcs</artifactId>
+            <artifactId>fe-iceberg-common</artifactId>
             <version>${revision}</version>
         </dependency>
         <!-- HadoopCatalog namespace operations bypass FileIO and load the native GCS filesystem. -->

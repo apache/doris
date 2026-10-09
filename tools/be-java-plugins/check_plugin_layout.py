@@ -456,6 +456,8 @@ def _doris_owned(jars):
 # Entries are class file paths. A name absent from a plugin costs nothing: that plugin simply
 # bundles no such filesystem, and the root set is what it was.
 _NAMED_BY_DORIS = (
+    # Native GCP Hadoop access in the isolated Hudi, Paimon and Iceberg scanners.
+    "com/google/cloud/hadoop/fs/gcs/GoogleHadoopFileSystem.class",
     # fs.s3.impl / fs.s3a.impl / fs.cos.impl / fs.cosn.impl / fs.gs.impl, and the fallback
     # fs.obs.impl - one jar, hadoop-aws, and the S3A credential providers live in it too.
     "org/apache/hadoop/fs/s3a/S3AFileSystem.class",

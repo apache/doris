@@ -202,6 +202,11 @@ std::optional<std::string> apply_obj_credential(const ObjectStoreInfoPB& update,
         if (!patch.has_credential_provider_type() && !patch.has_impersonation_service_account()) {
             return "GCP credential update must specify a provider type or service account";
         }
+        if (!target->credential().has_gcp_credential() && !patch.has_credential_provider_type() &&
+            patch.impersonation_service_account().empty()) {
+            return "clearing impersonation requires an existing native GCP credential; "
+                   "specify a provider type to replace HMAC credentials";
+        }
         auto* credential = candidate.mutable_credential()->mutable_gcp_credential();
         if (target->credential().has_gcp_credential()) {
             credential->CopyFrom(target->credential().gcp_credential());

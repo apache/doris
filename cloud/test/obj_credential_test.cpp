@@ -82,6 +82,7 @@ TEST(ObjCredentialTest, SwitchFromStaticDefaultsSourceAndRemovesLegacyCredential
             stored.set_ak("encrypted-ak");
             stored.set_sk("encrypted-sk");
             stored.mutable_encryption_info()->set_key_id(1);
+            const auto original = stored.SerializeAsString();
             ObjectStoreInfoPB update;
             auto* credential = update.mutable_credential()->mutable_gcp_credential();
             credential->set_impersonation_service_account(account);
@@ -89,6 +90,11 @@ TEST(ObjCredentialTest, SwitchFromStaticDefaultsSourceAndRemovesLegacyCredential
                 credential->set_credential_provider_type(GcpCredentialPB::COMPUTE_ENGINE);
             }
             auto error = apply_obj_credential(update, &stored);
+            if (!explicit_source && std::string(account).empty()) {
+                ASSERT_TRUE(error.has_value());
+                EXPECT_EQ(stored.SerializeAsString(), original);
+                continue;
+            }
             ASSERT_FALSE(error.has_value()) << error.value_or("");
             EXPECT_TRUE(stored.credential().gcp_credential().has_credential_provider_type());
             EXPECT_EQ(stored.credential().gcp_credential().credential_provider_type(),

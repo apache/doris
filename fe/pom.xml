@@ -230,6 +230,7 @@ under the License.
         <module>fe-kerberos</module>
         <module>fe-common</module>
         <module>fe-trino-connector-common</module>
+        <module>fe-iceberg-common</module>
         <module>fe-catalog</module>
         <module>fe-filesystem</module>
         <module>fe-extension-spi</module>

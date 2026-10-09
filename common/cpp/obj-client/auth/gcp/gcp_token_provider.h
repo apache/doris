@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <google/cloud/credentials.h>
-#include <google/cloud/oauth2/access_token_generator.h>
+#include <google/cloud/internal/oauth2_credentials.h>
 
 #include <memory>
 #include <mutex>
@@ -34,24 +33,26 @@ enum class GcpTokenScope {
     CloudPlatform,
 };
 
-// Owns both objects because MakeAccessTokenGenerator takes Credentials by const
-// reference. The Google auth library handles token caching and refresh internally.
+// Use one resolved credential for tokens and signing identity. The Google auth
+// library handles ADC selection, token caching and refresh internally.
 class GcpTokenProvider {
 public:
     explicit GcpTokenProvider(const GcpCredentialConfig& credential,
                               const std::string& ca_cert_path = "",
                               GcpTokenScope token_scope = GcpTokenScope::StorageReadWrite);
+    explicit GcpTokenProvider(
+            std::shared_ptr<google::cloud::oauth2_internal::Credentials> credentials);
     ~GcpTokenProvider();
 
     GcpTokenProvider(const GcpTokenProvider&) = delete;
     GcpTokenProvider& operator=(const GcpTokenProvider&) = delete;
 
     std::optional<std::string> get_token() const;
+    std::string get_service_account_email() const;
 
 private:
-    std::shared_ptr<google::cloud::Credentials> _credentials;
-    std::shared_ptr<google::cloud::oauth2::AccessTokenGenerator> _token_generator;
-    mutable std::mutex _token_generator_mutex;
+    std::shared_ptr<google::cloud::oauth2_internal::Credentials> _credentials;
+    mutable std::mutex _credentials_mutex;
 };
 
 } // namespace doris

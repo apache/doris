@@ -20,16 +20,14 @@
 #include <fmt/format.h>
 #include <rapidjson/document.h>
 
-#include <algorithm>
-#include <cstdlib>
 #include <exception>
 #include <string_view>
 #include <utility>
 
 #include "cpp/obj-client/auth/gcp/gcp_token_provider.h"
 #include "cpp/obj-client/auth/gcp/gcs_signed_url.h"
+#include "cpp/sync_point.h"
 #include "service/http/http_client.h"
-#include "util/string_util.h"
 #include "util/url_coding.h"
 
 namespace doris::io {
@@ -37,10 +35,6 @@ namespace {
 
 constexpr std::string_view IAM_CREDENTIALS_ENDPOINT =
         "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/";
-constexpr std::string_view DEFAULT_METADATA_HOST = "metadata.google.internal";
-constexpr std::string_view METADATA_SERVICE_ACCOUNT_EMAIL_PATH =
-        "/computeMetadata/v1/instance/service-accounts/default/email";
-constexpr int64_t METADATA_REQUEST_TIMEOUT_MS = 1000;
 
 std::string iam_error_message(const rapidjson::Document& document) {
     if (!document.IsObject() || !document.HasMember("error") || !document["error"].IsObject()) {
@@ -92,6 +86,8 @@ std::string percent_encode(std::string_view value) {
 Status call_iam_sign_blob(std::string_view access_token, std::string_view service_account,
                           std::string_view string_to_sign, int64_t request_timeout_ms,
                           std::string* signature) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("GcsV4Signer::sign_blob", Status::OK(), access_token,
+                                      service_account, string_to_sign, signature);
     std::string encoded_payload;
     base64_encode(std::string(string_to_sign), &encoded_payload);
     std::string request_body = fmt::format(R"({{"payload":"{}"}})", encoded_payload);
@@ -126,32 +122,20 @@ Status call_iam_sign_blob(std::string_view access_token, std::string_view servic
     return Status::OK();
 }
 
-Status fetch_metadata_service_account_email(int64_t request_timeout_ms, std::string* email) {
-    const char* configured_host = std::getenv("GCE_METADATA_HOST");
-    std::string_view metadata_host = configured_host != nullptr && configured_host[0] != '\0'
-                                             ? configured_host
-                                             : DEFAULT_METADATA_HOST;
-    HttpClient client;
-    RETURN_IF_ERROR(client.init(
-            fmt::format("http://{}{}", metadata_host, METADATA_SERVICE_ACCOUNT_EMAIL_PATH), true,
-            HttpClient::AuthTokenMode::NONE));
-    client.set_header("Metadata-Flavor", "Google");
-    client.set_timeout_ms(request_timeout_ms > 0
-                                  ? std::min(request_timeout_ms, METADATA_REQUEST_TIMEOUT_MS)
-                                  : METADATA_REQUEST_TIMEOUT_MS);
+} // namespace
 
-    std::string response;
-    RETURN_IF_ERROR(client.execute(&response));
-    auto resolved_email = trim(response);
-    if (!is_valid_gcp_service_account_email(resolved_email)) {
-        return Status::InternalError(
-                "GCP metadata server returned an invalid service account email");
+Status resolve_gcs_signer_email(const GcpCredentialConfig& credential,
+                                const GcpTokenProvider& token_provider, std::string* signer_email) {
+    *signer_email = credential.impersonation_service_account.empty()
+                            ? token_provider.get_service_account_email()
+                            : credential.impersonation_service_account;
+    if (!is_valid_gcp_service_account_email(*signer_email)) {
+        return Status::InvalidArgument(
+                "GCS V4 signing requires a service account identity; configure "
+                "gs.impersonation_service_account for credentials without one");
     }
-    email->assign(resolved_email);
     return Status::OK();
 }
-
-} // namespace
 
 Status generate_gcs_v4_signed_url(const GcsV4SignedUrlProviderOptions& options,
                                   const GcpCredentialConfig& credential,
@@ -162,18 +146,6 @@ Status generate_gcs_v4_signed_url(const GcsV4SignedUrlProviderOptions& options,
     }
     signed_url->clear();
 
-    std::string signer_email;
-    if (!credential.impersonation_service_account.empty()) {
-        signer_email = credential.impersonation_service_account;
-    } else if (credential.provider_type == GcpCredentialProviderType::ComputeEngine) {
-        RETURN_IF_ERROR(
-                fetch_metadata_service_account_email(options.request_timeout_ms, &signer_email));
-    } else {
-        return Status::InvalidArgument(
-                "GCS V4 signing with DEFAULT credentials requires "
-                "gs.impersonation_service_account; use COMPUTE_ENGINE to resolve the VM service "
-                "account from metadata");
-    }
     if (token_provider == nullptr) {
         return Status::InternalError("GCS V4 signing token provider is not initialized");
     }
@@ -183,6 +155,11 @@ Status generate_gcs_v4_signed_url(const GcsV4SignedUrlProviderOptions& options,
         if (!token.has_value()) {
             return Status::InternalError("failed to obtain OAuth token for IAM signBlob");
         }
+
+        // Resolve identity from the same credentials that supplied the token. DEFAULT may
+        // select a VM, a key file, or another ADC source; never infer it from VM presence.
+        std::string signer_email;
+        RETURN_IF_ERROR(resolve_gcs_signer_email(credential, *token_provider, &signer_email));
 
         auto result = build_gcs_v4_signed_url(
                 {.endpoint = options.endpoint,
