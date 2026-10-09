@@ -17,9 +17,6 @@ test_drop_unreferenced_column_mtmv_mow_mv	SCHEMA_CHANGE	SUCCESS	false
 1	100
 2	200
 
--- !dup_state_after_unreferenced_drop --
-test_drop_unreferenced_column_mtmv_dup_mv	SCHEMA_CHANGE	SUCCESS	false
-
 -- !dup_rows_after_unreferenced_drop --
 1	100
 2	200
@@ -62,12 +59,6 @@ test_drop_unreferenced_column_mtmv_job_add_mv	NORMAL	SUCCESS	true
 
 -- !job_add_cols_baseline --
 test_drop_unreferenced_column_mtmv_job_add_cols_mv	NORMAL	SUCCESS	true
-
--- !job_add_state --
-test_drop_unreferenced_column_mtmv_job_add_mv	SCHEMA_CHANGE	SUCCESS	false
-
--- !job_add_cols_state --
-test_drop_unreferenced_column_mtmv_job_add_cols_mv	SCHEMA_CHANGE	SUCCESS	false
 
 -- !projection_baseline --
 1

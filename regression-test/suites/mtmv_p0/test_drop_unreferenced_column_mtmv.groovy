@@ -37,6 +37,12 @@ import org.junit.Assert;
  *       what every column change did before the queries were asked at all.</li>
  * </ol>
  *
+ * <p>That second half is the integrated cluster's. Cloud has no table a job applies a column change to:
+ * `light_schema_change` there is the platform's rather than the table's -- a table created with it false
+ * reports and uses it true, and the change lands in the statement -- so on cloud the change is judged like
+ * any light one and the answer is the first half's. Both answers are asserted where they differ, and the
+ * reason is written where the shapes are.
+ *
  * <p>The rest of the suite is about which column a name in the query answers for, because that is what
  * makes a change to a column nothing reads. A name is a column of the table the change is about only where
  * the query reads it from there, and it is the scopes' to answer for where the query resolves it across a
@@ -51,6 +57,13 @@ import org.junit.Assert;
 suite("test_drop_unreferenced_column_mtmv") {
     String dbName = context.config.getDbNameByFile(context.file)
     String suiteName = "test_drop_unreferenced_column_mtmv"
+
+    // The state a view is left in, kept out of the goldens where the answer itself is not the same on both
+    // kinds of cluster: a golden holds one answer, and the drop a job would have applied (below) is not a
+    // drop cloud has.
+    def mvStateOf = { String name ->
+        (sql("select State from mv_infos('database'='${dbName}') where Name='${name}'")[0][0]) as String
+    }
 
     // ------------------------------------------------- 1. the change is in place: the query decides
     String mowTable = "${suiteName}_mow_table"
@@ -139,10 +152,22 @@ suite("test_drop_unreferenced_column_mtmv") {
     // The hook runs where that job has not run yet, so the table still holds the column and every query
     // analyses against it: nothing can be concluded about the column from a query, and the MV is
     // invalidated the way it was before the queries were asked at all.
+    //
+    // Cloud has no such table. There `light_schema_change` is not the table's to choose: a table created
+    // with it false reports it true and takes the column change in the statement itself (a schema change
+    // there is a metadata change with no data rewrite behind it), so this drop is the light one of the half
+    // above and gets that half's answer -- the change reached the table, the query was asked, and the MV is
+    // left where it is. Both halves of the answer are pinned here: the state by an assertion, because a
+    // golden can only hold one of the two.
     sql """ALTER TABLE ${dupTable} DROP COLUMN spare"""
     assertEquals("FINISHED", getAlterColumnFinalState("${dupTable}"))
-    order_qt_dup_state_after_unreferenced_drop "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${dupMv}'"
-    mv_not_part_in(dupQuery, dupMv)
+    assertEquals(isCloudMode() ? "NORMAL" : "SCHEMA_CHANGE", mvStateOf(dupMv))
+    if (isCloudMode()) {
+        // The change does not reach this MV, so it is still a candidate for the rewrite.
+        mv_rewrite_success_without_check_chosen(dupQuery, dupMv)
+    } else {
+        mv_not_part_in(dupQuery, dupMv)
+    }
     order_qt_dup_rows_after_unreferenced_drop "SELECT k1, total FROM ${dupMv}"
 
     // ---- the name a query reaches a column by can move, and that is the query's to judge ----
@@ -319,10 +344,13 @@ suite("test_drop_unreferenced_column_mtmv") {
     waitingMTMVTaskFinishedByMvName(jobAddColsMv)
     order_qt_job_add_baseline "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${jobAddMv}'"
     order_qt_job_add_cols_baseline "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${jobAddColsMv}'"
+    // On cloud the same add is a light one -- `light_schema_change` is not the table's to choose there, as
+    // the drop above writes down -- so the column is in the table when the hook runs and the query is asked:
+    // neither view reads it, and both are left where they are.
     sql """ALTER TABLE ${jobAddTable} ADD COLUMN spare INT"""
-    order_qt_job_add_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${jobAddMv}'"
+    assertEquals(isCloudMode() ? "NORMAL" : "SCHEMA_CHANGE", mvStateOf(jobAddMv))
     sql """ALTER TABLE ${jobAddColsTable} ADD COLUMN (spare INT, other INT)"""
-    order_qt_job_add_cols_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${jobAddColsMv}'"
+    assertEquals(isCloudMode() ? "NORMAL" : "SCHEMA_CHANGE", mvStateOf(jobAddColsMv))
 
     // ---- a name a subquery's own projection answers for ----
     // The subquery below projects `flag` while the inner table has no column of that name, so the name is
