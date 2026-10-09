@@ -112,6 +112,10 @@ DEFINE_Int32(brpc_num_threads, "256");
 // the default value is set to -1, which means never close idle connection.
 DEFINE_Int32(brpc_idle_timeout_sec, "-1");
 
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+// brpc 1.4 defaults this flag to 0, which disables all MultiDimension metrics.
+DEFINE_String(bvar_max_dump_multi_dimension_metric_num, "5000");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24

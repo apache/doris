@@ -157,6 +157,9 @@ DECLARE_Int32(arrow_flight_sql_proxy_port);
 DECLARE_Int32(brpc_num_threads);
 DECLARE_Int32(brpc_idle_timeout_sec);
 
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+DECLARE_String(bvar_max_dump_multi_dimension_metric_num);
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // This is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
