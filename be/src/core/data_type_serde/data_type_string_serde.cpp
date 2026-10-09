@@ -813,8 +813,8 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb(
 
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb_vector(
-        ColumnNullable& column_to, const ColumnString& col_from_json,
-        CastParameters& castParms) const {
+        ColumnNullable& column_to, const ColumnString& col_from_json, CastParameters& castParms,
+        const NullMap::value_type* source_null_map) const {
     if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
         return Status::NotSupported(
                 "DataTypeStringSerDeBase only supports ColumnString for "
@@ -831,6 +831,11 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb_vector
     col_str.get_chars().reserve(col_from_json.get_chars().size());
 
     for (size_t i = 0; i < size; ++i) {
+        if (source_null_map && source_null_map[i]) {
+            null_map[i] = true;
+            col_str.insert_default();
+            continue;
+        }
         const auto& val = col_from_json.get_data_at(i);
         auto* jsonb_value = handle_jsonb_value(val);
         if (!jsonb_value) {

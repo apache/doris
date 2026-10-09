@@ -1271,7 +1271,8 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_co
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(
-        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options) const {
+        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+        const NullMap::value_type* source_null_map) const {
     if constexpr (T == TYPE_DECIMALV2) {
         return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb_vector");
     } else {
@@ -1279,6 +1280,10 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(
         JsonbWriter writer;
         const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_data();
         for (int i = 0; i < size; i++) {
+            if (source_null_map && source_null_map[i]) {
+                to_column.insert_default();
+                continue;
+            }
             writer.reset();
             if (!writer.writeDecimal(data[i], precision, scale)) {
                 return Status::InvalidArgument(
@@ -1309,8 +1314,8 @@ Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb_vector(
-        ColumnNullable& column_to, const ColumnString& col_from_json,
-        CastParameters& castParms) const {
+        ColumnNullable& column_to, const ColumnString& col_from_json, CastParameters& castParms,
+        const NullMap::value_type* source_null_map) const {
     if constexpr (T == TYPE_DECIMALV2) {
         return Status::NotSupported(
                 "DECIMALV2 does not support deserialize_column_from_jsonb_vector");
@@ -1325,6 +1330,11 @@ Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb_vector(
         data.resize(size);
 
         for (size_t i = 0; i < size; ++i) {
+            if (source_null_map && source_null_map[i]) {
+                null_map[i] = true;
+                data[i] = {};
+                continue;
+            }
             const auto& val = col_from_json.get_data_at(i);
             auto* jsonb_value = handle_jsonb_value(val);
             if (!jsonb_value) {

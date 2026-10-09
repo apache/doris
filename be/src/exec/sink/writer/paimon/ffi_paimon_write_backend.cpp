@@ -15,25 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+#include "exec/sink/writer/paimon/ffi_paimon_write_backend.h"
 
-import org.apache.doris.catalog.Function;
+namespace doris {
 
-/** Function call whose unselected arguments must not be evaluated. */
-public final class ShortCircuitFunctionCallExpr extends FunctionCallExpr {
-
-    /** Create a function call with mandatory lazy branch evaluation. */
-    public ShortCircuitFunctionCallExpr(
-            Function function, FunctionParams functionParams, boolean nullable) {
-        super(function, functionParams, nullable);
-    }
-
-    private ShortCircuitFunctionCallExpr(ShortCircuitFunctionCallExpr other) {
-        super(other);
-    }
-
-    @Override
-    public Expr clone() {
-        return new ShortCircuitFunctionCallExpr(this);
-    }
+Status FfiPaimonWriteBackend::open(const TPaimonTableSink&, RuntimeState*, RuntimeProfile*) {
+    return Status::NotSupported("Paimon Rust FFI writer is not implemented");
 }
+
+Status FfiPaimonWriteBackend::create_writer(std::unique_ptr<IPaimonWriter>*) {
+    return Status::NotSupported("Paimon Rust FFI writer is not implemented");
+}
+
+Status FfiPaimonWriteBackend::close() {
+    return Status::OK();
+}
+
+} // namespace doris

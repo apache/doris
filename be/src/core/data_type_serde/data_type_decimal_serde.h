@@ -93,15 +93,16 @@ public:
                                      JsonbWriter& writer,
                                      const FormatOptions& options) const override;
 
-    Status serialize_column_to_jsonb_vector(const IColumn& from_column, ColumnString& to_column,
-                                            const FormatOptions& options) const override;
+    Status serialize_column_to_jsonb_vector(
+            const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
-    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
-                                                const ColumnString& from_column,
-                                                CastParameters& castParms) const override;
+    Status deserialize_column_from_jsonb_vector(
+            ColumnNullable& column_to, const ColumnString& from_column, CastParameters& castParms,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,

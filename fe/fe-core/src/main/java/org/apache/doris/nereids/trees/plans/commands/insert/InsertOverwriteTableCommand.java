@@ -48,8 +48,6 @@ import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -71,7 +69,6 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -79,7 +76,6 @@ import org.awaitility.Awaitility;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -445,13 +441,7 @@ public class InsertOverwriteTableCommand extends Command
             // already rejected @branch for connectors without supportsWriteBranch().
             branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
             if (sink.hasStaticPartition()) {
-                Map<String, String> staticSpec = Maps.newHashMap();
-                for (Map.Entry<String, Expression> e : sink.getStaticPartitionKeyValues().entrySet()) {
-                    if (e.getValue() instanceof Literal) {
-                        staticSpec.put(e.getKey(), ((Literal) e.getValue()).getStringValue());
-                    }
-                }
-                pluginCtx.setStaticPartitionSpec(staticSpec);
+                pluginCtx.setStaticPartitionSpecFromExpressions(sink.getStaticPartitionKeyValues());
             }
             insertCtx = pluginCtx;
         } else {

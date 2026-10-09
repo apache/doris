@@ -589,11 +589,16 @@ Status DataTypeVariantV2SerDe::serialize_column_to_jsonb(const IColumn& from_col
 }
 
 Status DataTypeVariantV2SerDe::serialize_column_to_jsonb_vector(
-        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options) const {
+        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+        const NullMap::value_type* source_null_map) const {
     RETURN_IF_CATCH_EXCEPTION({
         JsonbWriter writer;
         visit_variant_v2_values(
-                from_column, 0, from_column.size(), {}, [](size_t) {},
+                from_column, 0, from_column.size(),
+                source_null_map
+                        ? std::span<const NullMap::value_type>(source_null_map, from_column.size())
+                        : std::span<const NullMap::value_type>(),
+                [&](size_t) { to_column.insert_default(); },
                 [&](size_t, VariantRef value) {
                     variant_to_jsonb(value, writer, {.timezone = options.timezone});
                     to_column.insert_data(writer.getOutput()->getBuffer(),

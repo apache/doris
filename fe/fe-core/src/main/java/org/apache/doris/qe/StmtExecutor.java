@@ -817,9 +817,9 @@ public class StmtExecutor {
                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
     }
 
-    // Whether a scan node of the current plan released, when the failed attempt was cancelled, what
-    // the BE would scan with again if handleQueryWithRetry dispatched the same plan once more
-    // (ScanNode.cannotBeRedispatched).
+    // Whether a scan node of the current plan has ranges the BE could not read again if
+    // handleQueryWithRetry dispatched the same plan once more: released when the failed attempt was
+    // cancelled, or consumed by its reading them (ScanNode.cannotBeRedispatched).
     private boolean planCannotBeRedispatched() {
         if (planner == null) {
             return false;
@@ -1293,11 +1293,13 @@ public class StmtExecutor {
                     }
                 }
                 if (isNeedRetry && planCannotBeRedispatched()) {
-                    // The failed attempt's cancel() stopped the scan nodes, and one of them released
-                    // what the BE scans with: a remote Doris scan's session on the other frontend,
-                    // whose query the scan ranges point at. The same plan cannot be dispatched again.
-                    LOG.warn("not retrying query {} with the same plan: a scan node released what the backend"
-                            + " scans with when the failed attempt was cancelled. stmt: {}",
+                    // A scan node's ranges cannot be read again: the failed attempt's cancel() released
+                    // what they point at (a remote Doris scan's session on the other frontend, whose
+                    // query the ranges are the endpoints of), or reading them consumed it (an ADBC
+                    // partition, a result stream the failed attempt may have drained). Dispatched again,
+                    // the plan would read nothing, or only what the failed attempt left, and succeed.
+                    LOG.warn("not retrying query {} with the same plan: a scan node's ranges cannot be read"
+                            + " again by the backend. stmt: {}",
                             DebugUtil.printId(context.queryId()), parsedStmt.getOrigStmt().originStmt);
                     throw e;
                 }
