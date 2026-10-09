@@ -102,6 +102,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case IPV6:
                 literalExpr = new IPv6Literal(value);
                 break;
+            case UUID:
+                literalExpr = new UuidLiteral(value);
+                break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
         }
@@ -129,6 +132,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATETIMEV2:
             case TIMESTAMPTZ:
                 return DateLiteral.createMinValue(type);
+            case UUID:
+                return new UuidLiteral(UuidLiteral.UUID_MIN);
             default:
                 throw new AnalysisException("Invalid data type for creating infinity: " + type);
         }
@@ -362,6 +367,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATE_LITERAL: return new DateLiteral(node.date_literal.value);
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
+            case UUID_LITERAL: return new UuidLiteral(new java.util.UUID(
+                    node.uuid_literal.hi, node.uuid_literal.lo).toString());
             default: throw new AnalysisException("Wrong type from thrift;");
         }
     }

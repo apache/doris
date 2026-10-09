@@ -22,6 +22,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
+#include "core/value/uuid_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "util/mysql_global.h"
 #include "util/to_string.h"
@@ -31,6 +32,8 @@ struct CastToString {
     static inline std::string from_int128(int128_t value);
     static inline std::string from_uint128(uint128_t value);
     static inline std::string from_uint128(UInt128 value);
+    static inline std::string from_uuid(UUIDValueType value);
+    static inline void push_uuid(UUIDValueType value, BufferWritable& bw);
 
     template <class SRC>
     static inline std::string from_number(const SRC& from);
@@ -165,6 +168,8 @@ constexpr size_t CastToString::string_length<TYPE_IPV4> = sizeof("255.255 .255.2
 template <>
 constexpr size_t CastToString::string_length<TYPE_IPV6> =
         sizeof("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") - 1;
+template <>
+constexpr size_t CastToString::string_length<TYPE_UUID> = 36;
 
 // BOOLEAN
 template <>
@@ -545,6 +550,16 @@ inline void CastToString::push_time(const TimeValue::TimeType& from, UInt32 scal
                                     BufferWritable& bw) {
     std::string str = timev2_to_buffer_from_double(from, scale);
     bw.write(str.data(), str.size());
+}
+
+inline std::string CastToString::from_uuid(UUIDValueType value) {
+    return UUIDValue::to_string(value);
+}
+
+inline void CastToString::push_uuid(UUIDValueType value, BufferWritable& bw) {
+    bw.resize(UUIDValue::TEXT_LENGTH);
+    UUIDValue::to_string(value, bw.data());
+    bw.add_offset(UUIDValue::TEXT_LENGTH);
 }
 
 class CastToStringFunction {

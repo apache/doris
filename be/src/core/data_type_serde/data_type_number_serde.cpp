@@ -43,6 +43,7 @@
 #include "core/packed_int128.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "exprs/function/cast/cast_to_basic_number_common.h"
 #include "exprs/function/cast/cast_to_boolean.h"
 #include "exprs/function/cast/cast_to_string.h"
@@ -705,7 +706,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
                         column, *array_builder));
             }
         }
-    } else if constexpr (T == TYPE_IPV6) {
+    } else if constexpr (T == TYPE_IPV6 || T == TYPE_UUID) {
     } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
@@ -861,7 +862,7 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
                                                               const FormatOptions& options) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
     StringRef str_ref {slice.data, slice.size};
-    if constexpr (T == TYPE_IPV6) {
+    if constexpr (T == TYPE_IPV6 || T == TYPE_UUID) {
         // TODO: support for Uint128
         return Status::InvalidArgument("uint128 is not support");
     } else if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
@@ -907,7 +908,10 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
     ColumnPtr ptr = result.first;
     row_num = result.second;
     auto data = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
-    if constexpr (T == TYPE_IPV6) {
+    if constexpr (T == TYPE_UUID) {
+        const auto uuid = UUIDValue::to_string(data);
+        bw.write(uuid.data(), uuid.size());
+    } else if constexpr (T == TYPE_IPV6) {
         std::string hex = CastToString::from_uint128(data);
         bw.write(hex.data(), hex.size());
     } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
@@ -1116,7 +1120,7 @@ constexpr bool can_write_to_jsonb_from_number() {
     return T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
            T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE ||
            T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ || T == TYPE_IPV4 ||
-           T == TYPE_IPV6 || T == TYPE_TIMEV2;
+           T == TYPE_IPV6 || T == TYPE_TIMEV2 || T == TYPE_UUID;
 }
 
 template <PrimitiveType T>
@@ -1160,6 +1164,8 @@ bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer, int scale) {
         return jsonb_writer_string(writer, CastToString::from_ip(data));
     } else if constexpr (T == TYPE_IPV6) {
         return jsonb_writer_string(writer, CastToString::from_ip(data));
+    } else if constexpr (T == TYPE_UUID) {
+        return jsonb_writer_string(writer, CastToString::from_uuid(data));
     } else if constexpr (T == TYPE_TIMEV2) {
         return jsonb_writer_string(writer, CastToString::from_time(data, scale));
     } else {
@@ -1218,6 +1224,10 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
                 return JsonbCast::cast_from_json_to_int(jsonb_value, to, castParms);
             } else if constexpr (is_float_or_double(T)) {
                 return JsonbCast::cast_from_json_to_float(jsonb_value, to, castParms);
+            } else if constexpr (T == TYPE_UUID) {
+                return jsonb_value->isString() &&
+                       UUIDValue::from_string(to, jsonb_value->unpack<JsonbStringVal>()->getBlob(),
+                                              jsonb_value->unpack<JsonbStringVal>()->getBlobLen());
             } else {
                 return false;
             }
@@ -1263,6 +1273,11 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb_vector(
                     return JsonbCast::cast_from_json_to_int(jsonb_value, to, castParms);
                 } else if constexpr (is_float_or_double(T)) {
                     return JsonbCast::cast_from_json_to_float(jsonb_value, to, castParms);
+                } else if constexpr (T == TYPE_UUID) {
+                    return jsonb_value->isString() &&
+                           UUIDValue::from_string(
+                                   to, jsonb_value->unpack<JsonbStringVal>()->getBlob(),
+                                   jsonb_value->unpack<JsonbStringVal>()->getBlobLen());
                 } else {
                     return false;
                 }
@@ -1694,6 +1709,9 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
     } else if constexpr (T == TYPE_IPV6) {
         col.insert_value(unaligned_load<Int128>(data));
         data += sizeof(Int128);
+    } else if constexpr (T == TYPE_UUID) {
+        col.insert_value(unaligned_load<UUIDValueType>(data));
+        data += sizeof(UUIDValueType);
     } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
         col.insert_value(unaligned_load<VecDateTimeValue>(data));
         data += sizeof(VecDateTimeValue);
@@ -1761,6 +1779,10 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         auto v = pack.value;
         field = Field::create_field<TYPE_IPV6>(v);
         data += sizeof(PackedUInt128);
+    } else if constexpr (T == TYPE_UUID) {
+        const auto value = unaligned_load<UUIDValueType>(data);
+        field = Field::create_field<TYPE_UUID>(value);
+        data += sizeof(UUIDValueType);
     } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
         const auto value = unaligned_load<VecDateTimeValue>(data);
         field = Field::create_field<T>(value);
@@ -1801,6 +1823,8 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::CppType value, Buffe
         CastToString::push_time(value, scale, bw);
     } else if constexpr (T == TYPE_IPV4 || T == TYPE_IPV6) {
         CastToString::push_ip(value, bw);
+    } else if constexpr (T == TYPE_UUID) {
+        CastToString::push_uuid(value, bw);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "value_to_string not implemented for type: {}", type_to_string(T));
@@ -1811,7 +1835,8 @@ template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                        const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    if constexpr (is_timestamptz_type(T) || is_date_type(T) || is_time_type(T) || is_ip(T)) {
+    if constexpr (is_timestamptz_type(T) || is_date_type(T) || is_time_type(T) || is_ip(T) ||
+                  T == TYPE_UUID) {
         if (_nesting_level > 1) {
             bw.write('"');
         }
@@ -1838,7 +1863,8 @@ bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, Bu
                                                        int64_t row_idx,
                                                        const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
-    if constexpr (is_date_type(T) || is_timestamptz_type(T) || is_time_type(T) || is_ip(T)) {
+    if constexpr (is_date_type(T) || is_timestamptz_type(T) || is_time_type(T) || is_ip(T) ||
+                  T == TYPE_UUID) {
         if (_nesting_level > 1) {
             bw.write('"');
         }
@@ -1924,6 +1950,7 @@ template class DataTypeNumberSerDe<TYPE_DATETIMEV2>;
 template class DataTypeNumberSerDe<TYPE_IPV4>;
 template class DataTypeNumberSerDe<TYPE_IPV6>;
 template class DataTypeNumberSerDe<TYPE_TIME>;
+template class DataTypeNumberSerDe<TYPE_UUID>;
 template class DataTypeNumberSerDe<TYPE_TIMEV2>;
 template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
 } // namespace doris

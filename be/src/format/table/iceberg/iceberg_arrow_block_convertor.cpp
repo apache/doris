@@ -30,7 +30,7 @@ Status IcebergArrowBlockConvertor::init() {
     if (_schema == nullptr) {
         return ArrowBlockConvertor::init();
     }
-    return IcebergArrowSchemaConvertor(*_schema, _timezone_name, _schema_json)
+    return IcebergArrowSchemaConvertor(*_schema, _timezone_name, _schema_json, true)
             .get_arrow_schema(&_arrow_schema);
 }
 

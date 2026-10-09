@@ -26,6 +26,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -51,6 +52,7 @@ public class PartitionKeyTest {
     private static Column charString;
     private static Column varchar;
     private static Column bool;
+    private static Column uuid;
 
     private Env env;
 
@@ -70,6 +72,7 @@ public class PartitionKeyTest {
         charString = new Column("char", PrimitiveType.CHAR);
         varchar = new Column("varchar", PrimitiveType.VARCHAR);
         bool = new Column("bool", PrimitiveType.BOOLEAN);
+        uuid = new Column("uuid", PrimitiveType.UUID);
 
         allColumns = Arrays.asList(tinyInt, smallInt, int32, bigInt, largeInt, date, datetime);
     }
@@ -290,6 +293,27 @@ public class PartitionKeyTest {
     public void testMaxValueToSql() throws Exception {
         PartitionKey key = PartitionKey.createInfinityPartitionKey(allColumns, true);
         Assert.assertEquals("(MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE)", key.toSql());
+    }
+
+    @Test
+    public void testUuidPartitionColumnRejected() {
+        AnalysisException rangeException = Assertions.assertThrows(AnalysisException.class,
+                () -> RangePartitionInfo.checkPartitionColumn(uuid));
+        Assertions.assertEquals("Column[uuid] type[UUID] cannot be a range partition key.",
+                rangeException.getDetailMessage());
+        AnalysisException listException = Assertions.assertThrows(AnalysisException.class,
+                () -> ListPartitionInfo.checkPartitionColumn(uuid));
+        Assertions.assertEquals("Column[uuid] type[UUID] cannot be a list partition key.",
+                listException.getDetailMessage());
+    }
+
+    @Test
+    public void testUuidDistributionKey() throws Exception {
+        PartitionKey key = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("00112233-4455-6677-8899-aabbccddeeff")),
+                Arrays.asList(uuid));
+        Assertions.assertEquals("(\"00112233-4455-6677-8899-aabbccddeeff\")", key.toSql());
+        Assertions.assertEquals(1460664532L, key.getHashValue());
     }
 
     @Test

@@ -309,6 +309,8 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_IPV4, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_IPV6, PLAIN_ENCODING>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_UUID, BIT_SHUFFLE>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_UUID, PLAIN_ENCODING>();
 
     // aggregate / binary-flavored types
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
@@ -348,6 +350,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
+    _set_v2_default<FieldType::OLAP_FIELD_TYPE_UUID, BIT_SHUFFLE>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING>();
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING>();
@@ -381,6 +384,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_UUID, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V2>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V2>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V2>();

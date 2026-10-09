@@ -20,10 +20,12 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.foundation.util.UUIDUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 /**
  * default value of a column.
@@ -37,6 +39,8 @@ public class DefaultValue {
     public static String NOW = "now";
     public static String HLL_EMPTY = "HLL_EMPTY";
     public static String BITMAP_EMPTY = "BITMAP_EMPTY";
+    public static String UUID_V4 = "uuid_v4";
+    public static String UUID_V7 = "uuid_v7";
     public static DefaultValue CURRENT_DATE_DEFAULT_VALUE = new DefaultValue(CURRENT_DATE, CURRENT_DATE.toLowerCase());
     public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(CURRENT_TIMESTAMP, NOW);
     // default null
@@ -93,6 +97,23 @@ public class DefaultValue {
         return new DefaultValue(value, exprName, precision);
     }
 
+    /** Build a UUID generation default, canonicalizing the public function aliases. */
+    public static DefaultValue uuidDefaultValue(String functionName) {
+        String normalizedName = functionName.toLowerCase(Locale.ROOT);
+        switch (normalizedName) {
+            case "uuid_v4":
+            case "generate_uuid_v4":
+            case "generateuuidv4":
+                return new DefaultValue(UUID_V4 + "()", UUID_V4);
+            case "uuid_v7":
+            case "generate_uuid_v7":
+            case "generateuuidv7":
+                return new DefaultValue(UUID_V7 + "()", UUID_V7);
+            default:
+                throw new AnalysisException("Unsupported default value function: " + functionName);
+        }
+    }
+
     public boolean isCurrentTimeStamp() {
         return "CURRENT_TIMESTAMP".equals(value) && defaultValueExprDef != null
                 && NOW.equals(defaultValueExprDef.getExprName());
@@ -136,8 +157,21 @@ public class DefaultValue {
             }
             return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
                     .format(DateTimeFormatter.ofPattern(format));
+        } else if (isUuidFunction(UUID_V4)) {
+            return UUIDUtils.fastUUID().toString();
+        } else if (isUuidFunction(UUID_V7)) {
+            return UUIDUtils.uuidV7().toString();
         }
         return value;
+    }
+
+    public boolean isUuidFunction() {
+        return isUuidFunction(UUID_V4) || isUuidFunction(UUID_V7);
+    }
+
+    private boolean isUuidFunction(String functionName) {
+        return defaultValueExprDef != null
+                && functionName.equalsIgnoreCase(defaultValueExprDef.getExprName());
     }
 
     /**

@@ -85,6 +85,7 @@ using DataTypeDecimal128 = DataTypeDecimal<TYPE_DECIMAL128I>;
 using DataTypeDecimal256 = DataTypeDecimal<TYPE_DECIMAL256>;
 class DataTypeIPv4;
 class DataTypeIPv6;
+class DataTypeUUID;
 class DataTypeString;
 class DataTypeVarbinary;
 class DataTypeHLL;
@@ -116,6 +117,7 @@ using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
 using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
 using ColumnTime = ColumnVector<TYPE_TIME>;
+using ColumnUUID = ColumnVector<TYPE_UUID>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
@@ -163,6 +165,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_DATEV2:
     case TYPE_IPV4:
     case TYPE_IPV6:
+    case TYPE_UUID:
         return true;
 
     case INVALID_TYPE:
@@ -437,6 +440,13 @@ struct PrimitiveTypeTraits<TYPE_IPV6> {
     using StorageFieldType = CppType;
     using DataType = DataTypeIPv6;
     using ColumnType = ColumnIPv6;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_UUID> {
+    using CppType = UUIDValueType;
+    using StorageFieldType = CppType;
+    using DataType = DataTypeUUID;
+    using ColumnType = ColumnUUID;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_CHAR> {

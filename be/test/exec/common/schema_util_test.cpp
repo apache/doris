@@ -34,6 +34,7 @@
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
@@ -822,6 +823,26 @@ TEST_F(SchemaUtilTest, VariantV2MarkerIsTransientAcrossSchemaCopy) {
 //    EXPECT_EQ(sorted[1]->path, "b");
 //    EXPECT_EQ(sorted[2]->path, "c");
 //}
+
+TEST_F(SchemaUtilTest, TestGetUuidColumnByType) {
+    const auto type = std::make_shared<DataTypeUUID>();
+    const variant_util::ExtraInfo ext_info {
+            .unique_id = 3, .parent_unique_id = 2, .path_info = PathInData("v.u")};
+    for (const auto& data_type : DataTypes {type, make_nullable(type)}) {
+        const auto column = variant_util::get_column_by_type(data_type, "v.u", ext_info);
+        EXPECT_EQ(column.type(), FieldType::OLAP_FIELD_TYPE_UUID);
+        EXPECT_EQ(column.length(), 16);
+        EXPECT_EQ(column.is_nullable(), data_type->is_nullable());
+        EXPECT_EQ(column.unique_id(), 3);
+        EXPECT_EQ(column.parent_unique_id(), 2);
+        EXPECT_EQ(column.path_info_ptr()->get_path(), "v.u");
+    }
+    const auto array = variant_util::get_column_by_type(
+            std::make_shared<DataTypeArray>(make_nullable(type)), "uuids", {});
+    EXPECT_EQ(array.get_sub_column(0).type(), FieldType::OLAP_FIELD_TYPE_UUID);
+    EXPECT_EQ(array.get_sub_column(0).length(), 16);
+    EXPECT_TRUE(array.get_sub_column(0).is_nullable());
+}
 
 TEST_F(SchemaUtilTest, TestHasSchemaIndexDiff) {
     TabletSchemaPB schema1_pb;

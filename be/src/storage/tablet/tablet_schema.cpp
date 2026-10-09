@@ -84,6 +84,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_IPV4;
     } else if (0 == upper_type_str.compare("IPV6")) {
         type = FieldType::OLAP_FIELD_TYPE_IPV6;
+    } else if (0 == upper_type_str.compare("UUID")) {
+        type = FieldType::OLAP_FIELD_TYPE_UUID;
     } else if (0 == upper_type_str.compare("FLOAT")) {
         type = FieldType::OLAP_FIELD_TYPE_FLOAT;
     } else if (0 == upper_type_str.compare("DISCRETE_DOUBLE")) {
@@ -218,6 +220,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_IPV6:
         return "IPV6";
 
+    case FieldType::OLAP_FIELD_TYPE_UUID:
+        return "UUID";
+
     case FieldType::OLAP_FIELD_TYPE_FLOAT:
         return "FLOAT";
 
@@ -348,6 +353,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::IPV4:
         return 4;
     case TPrimitiveType::IPV6:
+        return 16;
+    case TPrimitiveType::UUID:
         return 16;
     case TPrimitiveType::DATE:
         return 3;

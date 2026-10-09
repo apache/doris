@@ -225,6 +225,8 @@ public class ScalarType extends Type {
                 return IPV4;
             case IPV6:
                 return IPV6;
+            case UUID:
+                return UUID;
             case VARBINARY:
                 return VARBINARY;
             default:
@@ -291,6 +293,8 @@ public class ScalarType extends Type {
                 return createDecimalV3Type();
             case "LARGEINT":
                 return LARGEINT;
+            case "UUID":
+                return UUID;
             default:
                 LOG.warn("type={}", type);
                 Preconditions.checkState(false);
@@ -702,6 +706,8 @@ public class ScalarType extends Type {
                 return "ipv4";
             case IPV6:
                 return "ipv6";
+            case UUID:
+                return "uuid";
             case FLOAT:
             case DOUBLE:
             case DATE:

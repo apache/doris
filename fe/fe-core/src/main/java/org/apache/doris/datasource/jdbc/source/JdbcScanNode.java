@@ -337,6 +337,17 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+        if (tableType == TOdbcTableType.CLICKHOUSE
+                && expr.contains((Expr child) -> child.getType().isUuid())) {
+            if (expr instanceof BinaryPredicate) {
+                BinaryPredicate.Operator op = ((BinaryPredicate) expr).getOp();
+                if (op != BinaryPredicate.Operator.EQ && op != BinaryPredicate.Operator.NE) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
         // PostgreSQL instants outside the Doris range become NULL during decoding. Remote null
         // checks and even column comparisons can therefore disagree with the values Doris sees.
         if (tableType == TOdbcTableType.POSTGRESQL

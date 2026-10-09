@@ -50,6 +50,7 @@ import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -174,8 +175,9 @@ public class PointQueryExecutor implements CoordInterface {
                         .getMysqlChannel(), null, null);
     }
 
-    private static void updateScanNodeConjuncts(OlapScanNode scanNode,
-                Map<String, Expr> colNameToConjunct) {
+    @VisibleForTesting
+    static void updateScanNodeConjuncts(OlapScanNode scanNode,
+                Map<String, Expr> colNameToConjunct) throws TException {
         for (Expr conjunct : scanNode.getConjuncts()) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) conjunct;
             SlotRef slot = null;
@@ -192,8 +194,26 @@ public class PointQueryExecutor implements CoordInterface {
             if (!colNameToConjunct.containsKey(slot.getColumnName())) {
                 continue;
             }
-            binaryPredicate.setChild(updateChildIdx, colNameToConjunct.get(slot.getColumnName()));
+            binaryPredicate.setChild(updateChildIdx, getKeyColumnLiteral(
+                    colNameToConjunct.get(slot.getColumnName()), slot.getDesc().getColumn()));
         }
+    }
+
+    private static Expr getKeyColumnLiteral(Expr literalExpr, Column column) throws TException {
+        if (literalExpr instanceof LiteralExpr) {
+            Type colType = column.getType();
+            if (!colType.equals(literalExpr.getType())
+                    && !colType.matchesType(literalExpr.getType())) {
+                try {
+                    return LiteralExpr.create(
+                            ((LiteralExpr) literalExpr).getStringValue(), colType);
+                } catch (org.apache.doris.common.AnalysisException e) {
+                    throw new TException("Failed to re-type literal for key column "
+                            + column.getName() + ": " + e.getMessage(), e);
+                }
+            }
+        }
+        return literalExpr;
     }
 
     public void setTimeout(long timeoutMs) {
@@ -222,19 +242,7 @@ public class PointQueryExecutor implements CoordInterface {
             // deserialization on BE side. Prepared statement parameters may have
             // mismatched types (e.g., setBigDecimal for INT column produces a
             // DecimalLiteral, but BE expects INT_LITERAL for INT columns).
-            if (literalExpr instanceof LiteralExpr) {
-                Type colType = column.getType();
-                if (!colType.equals(literalExpr.getType())
-                        && !colType.matchesType(literalExpr.getType())) {
-                    try {
-                        literalExpr = LiteralExpr.create(
-                                ((LiteralExpr) literalExpr).getStringValue(), colType);
-                    } catch (org.apache.doris.common.AnalysisException e) {
-                        throw new TException("Failed to re-type literal for key column "
-                                + column.getName() + ": " + e.getMessage(), e);
-                    }
-                }
-            }
+            literalExpr = getKeyColumnLiteral(literalExpr, column);
             TExpr texpr = literalExpr.treeToThrift();
             // For point queries, key column values are always simple literals
             // (CastExpr no-ops are already stripped by treeToThrift).

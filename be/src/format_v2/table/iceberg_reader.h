@@ -84,6 +84,8 @@ protected:
                        ? &_iceberg_params->equality_delete_schema
                        : nullptr;
     }
+    // Iceberg UUID uses the same 16-byte STRING/VARBINARY carrier in data, defaults and deletes.
+    bool preserve_binary_uuid() const override { return true; }
 
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         options->enable_row_lineage_virtual_columns = true;

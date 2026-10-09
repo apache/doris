@@ -59,9 +59,11 @@ NativeParquetMetadata::~NativeParquetMetadata() {
 }
 
 Status NativeParquetMetadata::init_schema(bool enable_mapping_varbinary,
-                                          bool enable_mapping_timestamp_tz) {
+                                          bool enable_mapping_timestamp_tz,
+                                          bool preserve_binary_uuid) {
     _schema.set_enable_mapping_varbinary(enable_mapping_varbinary);
     _schema.set_enable_mapping_timestamp_tz(enable_mapping_timestamp_tz);
+    _schema.set_preserve_binary_uuid(preserve_binary_uuid);
     RETURN_IF_ERROR(_schema.parse_from_thrift(_metadata.schema));
     // Native readers address projected leaves by stable DFS IDs. Assign them only on the private
     // v2 schema object so v1's cached schema lifecycle and numbering remain untouched.
@@ -209,8 +211,8 @@ constexpr size_t V2_INITIAL_FOOTER_READ_SIZE = 48 * 1024;
 Status parse_native_parquet_footer(io::FileReaderSPtr file,
                                    std::unique_ptr<NativeParquetMetadata>* metadata,
                                    size_t* footer_size, io::IOContext* io_ctx,
-                                   bool enable_mapping_varbinary,
-                                   bool enable_mapping_timestamp_tz) {
+                                   bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz,
+                                   bool preserve_binary_uuid) {
     DORIS_CHECK(file != nullptr);
     DORIS_CHECK(metadata != nullptr);
     DORIS_CHECK(footer_size != nullptr);
@@ -260,7 +262,8 @@ Status parse_native_parquet_footer(io::FileReaderSPtr file,
                                            &thrift_metadata));
     auto parsed =
             std::make_unique<NativeParquetMetadata>(std::move(thrift_metadata), serialized_size);
-    RETURN_IF_ERROR(parsed->init_schema(enable_mapping_varbinary, enable_mapping_timestamp_tz));
+    RETURN_IF_ERROR(parsed->init_schema(enable_mapping_varbinary, enable_mapping_timestamp_tz,
+                                        preserve_binary_uuid));
     *footer_size = V2_PARQUET_FOOTER_SIZE + serialized_size;
     *metadata = std::move(parsed);
     return Status::OK();
@@ -286,7 +289,8 @@ bool ParquetFileContext::can_refine_physical_splits() const {
 Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx,
                                 bool enable_page_cache, const io::FileDescription& file_description,
                                 bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
-                                std::shared_ptr<const FileContext> file_context) {
+                                std::shared_ptr<const FileContext> file_context,
+                                bool preserve_binary_uuid) {
     DORIS_CHECK(input_file_reader != nullptr);
     contains_variant = false;
     if (detail::should_stage_small_http_file(input_file_reader->path().native(),
@@ -313,6 +317,7 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
         meta_cache_key.append("\0v2", 3);
         meta_cache_key.push_back(static_cast<char>(enable_mapping_varbinary));
         meta_cache_key.push_back(static_cast<char>(enable_mapping_timestamp_tz));
+        meta_cache_key.push_back(static_cast<char>(preserve_binary_uuid));
     }
     // A child must never consume a context from another physical file. Normalize optional FE
     // identity fields with reader values before validating the parent-provided context.
@@ -324,10 +329,10 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     const auto identity_path = native_file->path().native();
     const std::string file_identity = fmt::format(
             "fs[{}]={}::path[{}]={}::mtime={}::size={}::immutable={}::varbinary={}::timestamp_tz={"
-            "}",
+            "}::preserve_binary_uuid={}",
             file_description.fs_name.size(), file_description.fs_name, identity_path.size(),
             identity_path, identity_mtime, identity_file_size, file_description.is_immutable,
-            enable_mapping_varbinary, enable_mapping_timestamp_tz);
+            enable_mapping_varbinary, enable_mapping_timestamp_tz, preserve_binary_uuid);
     auto load_context = [&](std::shared_ptr<const FileContext>* result) -> Status {
         auto loaded = std::make_shared<ParquetSharedFileContext>();
         loaded->adaptive_scan_context = std::make_shared<ParquetAdaptiveContext>();
@@ -341,7 +346,7 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
             size_t native_footer_size = 0;
             RETURN_IF_ERROR(parse_native_parquet_footer(
                     native_file, &loaded->metadata_owner, &native_footer_size, io_ctx,
-                    enable_mapping_varbinary, enable_mapping_timestamp_tz));
+                    enable_mapping_varbinary, enable_mapping_timestamp_tz, preserve_binary_uuid));
             ++native_footer_read_calls;
             if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled()) {
                 meta_cache->insert(meta_cache_key, loaded->metadata_owner.release(),
