@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -748,8 +749,9 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
                                                      &has_running_task);
     if (!paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>() &&
         !paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
-        // PROCESS_MEMORY_EXCEEDED is resolved separately: the process hard limit must be
-        // enforced even when a running task prevents spilling, which the early exits below skip.
+        // PROCESS_MEMORY_EXCEEDED is resolved separately: the process hard limit and the
+        // timeout must be enforced even when a running task prevents spilling, which the
+        // early exits below skip.
         return resolve_process_memory_exceeded_query_(requestor, size_to_reserve, time_in_queue,
                                                       memory_usage, has_running_task);
     }
@@ -865,10 +867,18 @@ bool WorkloadGroupMgr::resolve_process_memory_exceeded_query_(
     const auto query_id = print_id(requestor->task_controller()->task_id());
     const auto wg = requestor->workload_group();
 
+    // Spilling needs every task of the query to be idle, so the revocable tasks are only
+    // collected while none is running. A running task does not postpone the cancellation
+    // below: cancelling is safe while the task runs.
+    std::vector<PipelineTask*> revocable_tasks;
+    if (!has_running_task) {
+        revocable_tasks = requestor->task_controller()->get_revocable_tasks();
+    }
+
     // The caller observed the pressure before it inspected the pipeline tasks and tried to
     // revoke memory from other workload groups, during which other queries or the cache may have
-    // released memory. Re-check the recorded reservation right before acting, so that the query
-    // is never cancelled from a stale observation.
+    // released memory. Re-check the recorded reservation after the last inspection and right
+    // before acting, so that the query is never spilled or cancelled from a stale observation.
     if (!GlobalMemoryArbitrator::is_exceed_soft_mem_limit(size_to_reserve)) {
         LOG(INFO) << "Query: " << query_id << ", process limit not exceeded now, resume this query"
                   << ", process memory info: "
@@ -878,39 +888,28 @@ bool WorkloadGroupMgr::resolve_process_memory_exceeded_query_(
         return true;
     }
 
-    const bool exceed_hard_mem_limit = GlobalMemoryArbitrator::is_exceed_hard_mem_limit();
-    if (has_running_task) {
-        // Spilling needs every task of the query to be idle. Below the hard limit wait for the
-        // running task to yield, the query is handled again in the next round.
-        if (!exceed_hard_mem_limit) {
-            LOG(INFO) << "Query: " << query_id
-                      << " is paused, but still has running task, skip it.";
-            return false;
-        }
-        // At the hard limit the process must release memory now, and cancelling is the only
-        // action that is safe while a task is running.
-    } else {
-        auto revocable_tasks = requestor->task_controller()->get_revocable_tasks();
-        if (!revocable_tasks.empty()) {
-            // The query is resumed by the spill callback and reserves memory again. If that
-            // still fails, it comes back here without revocable memory.
-            spill_query_(requestor);
-            return true;
-        }
+    if (!revocable_tasks.empty()) {
+        // The query is resumed by the spill callback and reserves memory again. If that
+        // still fails, it comes back here without revocable memory.
+        spill_query_(requestor);
+        return true;
     }
 
+    const bool exceed_hard_mem_limit = GlobalMemoryArbitrator::is_exceed_hard_mem_limit();
     if (!exceed_hard_mem_limit && time_in_queue < config::spill_in_paused_queue_timeout_ms) {
-        // The query has no revocable memory, cancelling it will not release much memory.
-        // Keep it paused so that it can be resumed once other queries release memory,
-        // and cancel it only after it has waited for `spill_in_paused_queue_timeout_ms`.
-        // Stop waiting once the process reaches the hard memory limit, so that the
-        // protection does not depend on memory gc, which may be disabled.
+        // The query has no revocable memory (or a running task prevents spilling), cancelling
+        // it will not release much memory. Keep it paused so that it can be resumed once other
+        // queries release memory, and cancel it only after it has waited for
+        // `spill_in_paused_queue_timeout_ms`. Stop waiting once the process reaches the hard
+        // memory limit, so that the protection does not depend on memory gc, which may be
+        // disabled.
         LOG_EVERY_T(INFO, 1) << "Query: " << query_id
                              << " process memory is exceeded, and could not find task to "
                                 "spill, keep it paused. Waited "
                              << time_in_queue
                              << " ms, timeout: " << config::spill_in_paused_queue_timeout_ms
-                             << " ms, process memory info: "
+                             << " ms, has running task: " << has_running_task
+                             << ", process memory info: "
                              << GlobalMemoryArbitrator::process_memory_used_details_str()
                              << ", wg info: " << wg->debug_string();
         return false;

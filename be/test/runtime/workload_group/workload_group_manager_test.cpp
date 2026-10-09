@@ -1680,6 +1680,57 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_below_min_memory_with_non_
     }
 }
 
+// Revoking memory from another workload group cancels one of its queries, which holds its
+// memory until the cancellation completes. While that cancellation is in flight (within
+// `revoke_memory_max_tolerance_ms`), memory reclamation keeps reporting its memory as revoked,
+// so the paused query waits for the release instead of being cancelled, also at the hard limit.
+// Once the cancellation has taken longer than the tolerance, the peer no longer counts,
+// nothing is revoked and the paused query falls through to the hard-limit fallback.
+TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_below_min_memory_waits_for_cancelling_peer) {
+    auto wg = _create_wg_with_min_memory(1);
+    auto query = _create_query_with_memory(wg, 1024L * 4);
+    ASSERT_LE(wg->total_mem_used(), wg->min_memory_limit());
+
+    auto peer_wg = _create_wg_with_min_memory(2);
+    auto peer_query = _create_query_with_memory(peer_wg, 1024L * 1024 * 300);
+    auto* peer_controller = _install_mock_query_task_controller(peer_query);
+    ASSERT_GT(peer_wg->total_mem_used(), peer_wg->min_memory_limit() + (1 << 27));
+
+    _exceed_process_hard_mem_limit();
+    _pause_for_process_memory(query);
+
+    config::spill_in_paused_queue_timeout_ms = 60 * 1000;
+    // The peer query is cancelled, the paused query waits for its memory to be released.
+    _wg_manager->handle_paused_queries();
+    ASSERT_TRUE(peer_query->is_cancelled());
+    _assert_still_paused(query);
+    ASSERT_TRUE(_wg_manager->revoking_memory_from_other_query_);
+
+    // The cancelled peer is not in the paused list, so the next round resumes the paused
+    // query, whose reservation fails again and pauses it again.
+    _wg_manager->handle_paused_queries();
+    _assert_resumed(query);
+    ASSERT_FALSE(_wg_manager->revoking_memory_from_other_query_);
+    _pause_for_process_memory(query);
+
+    // The peer still holds its memory and its cancellation is in flight: it is reported as
+    // revoked memory again, and the paused query keeps waiting for it.
+    _wg_manager->handle_paused_queries();
+    _assert_still_paused(query);
+    ASSERT_TRUE(_wg_manager->revoking_memory_from_other_query_);
+
+    _wg_manager->handle_paused_queries();
+    _assert_resumed(query);
+    _pause_for_process_memory(query);
+
+    // The cancellation has taken longer than the tolerance: the peer no longer counts, nothing
+    // is revoked and the paused query is cancelled at the hard limit.
+    peer_controller->set_cancelled_time(peer_controller->cancelled_time() -
+                                        config::revoke_memory_max_tolerance_ms - 1);
+    _wg_manager->handle_paused_queries();
+    _assert_cancelled_by_process_memory(query, true);
+}
+
 // When the process reaches the hard memory limit, the paused query should be cancelled without
 // waiting for the timeout, so that the protection does not depend on memory gc.
 TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_cancels_at_hard_limit) {
@@ -1695,31 +1746,35 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_cancels_at_hard_limit) {
     _assert_cancelled_by_process_memory(query, true);
 }
 
-// A query with a running task cannot be spilled, below the hard limit it keeps waiting for the
-// task to yield even after the timeout.
-TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_running_task_waits_below_hard_limit) {
+// A query with a running task cannot be spilled, so it keeps waiting for the task to yield.
+// The wait is still bounded: at the timeout the query is cancelled, cancelling is safe while
+// the task runs.
+TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_running_task_cancels_after_timeout) {
     auto wg = _create_wg_with_min_memory(1);
     auto query = _create_query_with_memory(wg, 1024L * 1024 * 128);
     ASSERT_GT(wg->total_mem_used(), wg->min_memory_limit());
     auto* mock_controller = _install_mock_query_task_controller(query);
     mock_controller->has_running_task_ = true;
+    // Revocable memory is not spilled while a task runs.
+    mock_controller->has_revocable_task_ = true;
 
     _exceed_process_soft_mem_limit();
     _pause_for_process_memory(query);
 
     config::spill_in_paused_queue_timeout_ms = 60 * 1000;
-    _wg_manager->handle_paused_queries();
-    _assert_still_paused(query);
+    for (int i = 0; i < 3; ++i) {
+        _wg_manager->handle_paused_queries();
+        _assert_still_paused(query);
+        ASSERT_EQ(_paused_query_count(wg), 1);
+        ASSERT_EQ(mock_controller->revoke_memory_calls_, 0);
+    }
+
     _backdate_paused_query(wg, config::spill_in_paused_queue_timeout_ms + 1);
-
     _wg_manager->handle_paused_queries();
-    _assert_still_paused(query);
-    ASSERT_EQ(_paused_query_count(wg), 1);
-
-    // Once the task yields, the query is cancelled at the timeout as usual.
-    mock_controller->has_running_task_ = false;
-    _wg_manager->handle_paused_queries();
+    ASSERT_EQ(mock_controller->revoke_memory_calls_, 0);
     _assert_cancelled_by_process_memory(query, false);
+    const auto status = query->exec_status().to_string();
+    ASSERT_NE(status.find("has running task: true"), std::string::npos) << status;
 }
 
 // At the hard limit a running task must not postpone the protection: spilling is unsafe while
@@ -1769,8 +1824,9 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_spills_revocable_tasks_at_
 }
 
 // The process memory pressure observed at the beginning of the round may be relieved while the
-// manager inspects the pipeline tasks. The timeout decision must re-check the pressure and
-// resume the query instead of cancelling it from the stale observation.
+// manager inspects the pipeline tasks, up to the last scan for revocable tasks. The timeout
+// decision must re-check the pressure after that scan and resume the query instead of
+// cancelling it from the stale observation.
 TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_recovery_before_timeout_decision_resumes) {
     auto wg = _create_wg_with_min_memory(1);
     auto query = _create_query_with_memory(wg, 1024L * 1024 * 128);
@@ -1785,8 +1841,9 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_recovery_before_timeout_de
     _assert_still_paused(query);
     _backdate_paused_query(wg, config::spill_in_paused_queue_timeout_ms + 1);
 
-    // The pressure is relieved after the round has observed it and routed the query.
-    mock_controller->on_get_revocable_info_ = [this]() { _relieve_process_mem_limit(); };
+    // The pressure is relieved after the round has observed it, routed the query and
+    // inspected its pipeline tasks for the last time.
+    mock_controller->on_get_revocable_tasks_ = [this]() { _relieve_process_mem_limit(); };
     _wg_manager->handle_paused_queries();
     _assert_resumed(query);
     ASSERT_EQ(_paused_query_count(wg), 0);

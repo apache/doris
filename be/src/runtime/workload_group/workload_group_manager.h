@@ -231,13 +231,15 @@ private:
                               size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
 
     // Resolve a query paused due to PROCESS_MEMORY_EXCEEDED, called by handle_single_query_:
-    //   1. Re-check the recorded reservation against the soft limit and resume the query if
-    //      it fits now, the caller's observation may be stale.
-    //   2. Spill if the query has revocable memory and no running task.
-    //   3. Otherwise keep the query paused until it has waited spill_in_paused_queue_timeout_ms,
-    //      then cancel it. Once the process reaches the hard memory limit, cancel it at once,
-    //      even if a running task prevents spilling, so that the protection does not depend
-    //      on memory gc. Return value as handle_single_query_.
+    //   1. Collect the revocable tasks if no task is running, then re-check the recorded
+    //      reservation against the soft limit and resume the query if it fits now, the
+    //      caller's observation may be stale.
+    //   2. Spill if revocable tasks were collected.
+    //   3. Otherwise keep the query paused until it has waited spill_in_paused_queue_timeout_ms
+    //      or the process reaches the hard memory limit, then cancel it. A running task only
+    //      prevents spilling, not the cancellation, so the bounded wait and the hard-limit
+    //      protection hold for it too and do not depend on memory gc.
+    // Return value as handle_single_query_.
     bool resolve_process_memory_exceeded_query_(const std::shared_ptr<ResourceContext>& requestor,
                                                 size_t size_to_reserve, int64_t time_in_queue,
                                                 size_t memory_usage, bool has_running_task);
