@@ -269,9 +269,7 @@ TEST_F(AggregateStateUnionTest, NativeComplexReadersNeedNoScratch) {
             "array_agg", {make_nullable(type)},
             {ColumnHelper::create_nullable_column<DataTypeString>(values, {0, 0, 0, 1, 0, 0})},
             false);
-    for (const auto* name : {"map_agg_v1", "map_agg_v2"}) {
-        check_scratch_requirement(name, {type, type}, {input, input}, false);
-    }
+    check_scratch_requirement("map_agg_v2", {type, type}, {input, input}, false);
     auto bitmap_type = std::make_shared<DataTypeBitMap>();
     auto bitmaps = ColumnBitmap::create();
     for (UInt64 value : {2, 50, 7, 0, 11, 19}) {

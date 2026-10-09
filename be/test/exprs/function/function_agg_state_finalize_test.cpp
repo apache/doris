@@ -19,13 +19,18 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include "agent/be_exec_version_manager.h"
 #include "core/column/column_array.h"
+#include "core/column/column_complex.h"
 #include "core/column/column_const.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_agg_state.h"
+#include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exprs/aggregate/aggregate_function_state_combine.h"
 #include "exprs/aggregate/aggregate_function_state_merge.h"
 #include "testutil/column_helper.h"
 
@@ -69,7 +74,213 @@ protected:
         EXPECT_TRUE(function->execute(nullptr, block, {0}, 1, states->size()).ok());
         return block.get_by_position(1).column;
     }
+
+    static void check_row_reader(const std::string& name, const DataTypes& arguments,
+                                 const Columns& inputs, bool result_nullable = false,
+                                 bool null_v2 = false) {
+        SCOPED_TRACE(name);
+        SCOPED_TRACE(null_v2);
+        AggregateFunctionAttr attr;
+        attr.enable_aggregate_function_null_v2 = null_v2;
+        const auto version = BeExecVersionManager::get_newest_version();
+        auto nested = AggregateFunctionSimpleFactory::instance().get(
+                name, arguments, nullptr, result_nullable, version, attr);
+        ASSERT_NE(nested, nullptr);
+        nested->set_version(version);
+        auto actual = nested->get_return_type()->create_column();
+        auto expected = actual->clone_empty();
+        nested->check_result_column_type(*actual);
+        nested->check_result_column_type(*expected);
+        {
+            auto states = nested->create_serialize_column();
+            std::vector<const IColumn*> columns;
+            for (const auto& input : inputs) {
+                ASSERT_EQ(input->size(), 6);
+                columns.push_back(input.get());
+            }
+            Arena arena;
+            for (size_t group = 0; group < 4; ++group) {
+                AggregateFunctionGuard state(nested.get());
+                // Three independent groups followed by an empty state.
+                if (group < 3) {
+                    nested->check_input_columns_type(columns.data());
+                    nested->add(state.data(), columns.data(), group * 2, arena);
+                    nested->add(state.data(), columns.data(), group * 2 + 1, arena);
+                }
+                auto serialized = nested->create_serialize_column();
+                nested->serialize_without_key_to_column(state.data(), *serialized);
+                states->insert_range_from(*serialized, 0, 1);
+            }
+            for (bool combine : {false, true}) {
+                auto reader = combine ? AggregateStateCombine::create(nested, arguments,
+                                                                      nested->get_serialized_type())
+                                      : nested;
+                for (size_t row : {2, 0, 3, 1, 0}) {
+                    // Read out of order and repeat a row to catch input mutation.
+                    AggregateFunctionGuard direct(reader.get());
+                    AggregateFunctionGuard merged(nested.get());
+                    reader->deserialize_from_column_row(direct.data(), *states, row, arena);
+                    nested->deserialize_and_merge_from_column_range(merged.data(), *states, row,
+                                                                    row, arena);
+                    nested->insert_result_into(direct.data(), *actual);
+                    nested->insert_result_into(merged.data(), *expected);
+                }
+            }
+        }
+        // Results must survive both the source column and the deserialized states.
+        ASSERT_EQ(actual->size(), 10);
+        for (size_t row = 0; row < actual->size(); ++row) {
+            EXPECT_EQ(actual->compare_at(row, row, *expected, 1), 0) << "row=" << row;
+        }
+    }
 };
+
+struct alignas(64) FinalizeTrackingState {
+    Int64 value = 0;
+};
+
+class FinalizeTrackingAggregateFunction final
+        : public IAggregateFunctionDataHelper<FinalizeTrackingState,
+                                              FinalizeTrackingAggregateFunction> {
+public:
+    FinalizeTrackingAggregateFunction()
+            : IAggregateFunctionDataHelper<FinalizeTrackingState,
+                                           FinalizeTrackingAggregateFunction>({}) {}
+
+    String get_name() const override { return "finalize_tracking"; }
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
+
+    void create(AggregateDataPtr place) const override {
+        EXPECT_EQ(reinterpret_cast<uintptr_t>(place) % align_of_data(), 0);
+        IAggregateFunctionDataHelper::create(place);
+        ++created;
+    }
+    void destroy(AggregateDataPtr place) const noexcept override {
+        IAggregateFunctionDataHelper::destroy(place);
+        ++destroyed;
+    }
+    void add(AggregateDataPtr, const IColumn**, ssize_t, Arena&) const override {}
+    void merge(AggregateDataPtr, ConstAggregateDataPtr, Arena&) const override { ++merged; }
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
+        buf.write_binary(data(place).value);
+    }
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {
+        ++deserialized;
+        buf.read_binary(data(place).value);
+        if (data(place).value == -1) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "mock deserialize failure");
+        }
+    }
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        if (data(place).value == -2) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "mock result insertion failure");
+        }
+        assert_cast<ColumnInt64&>(to).insert_value(data(place).value);
+    }
+
+    void check_counts(size_t rows) const {
+        EXPECT_EQ(created, rows);
+        EXPECT_EQ(destroyed, rows);
+        EXPECT_EQ(deserialized, rows);
+        EXPECT_EQ(merged, 0);
+    }
+
+    mutable size_t created = 0;
+    mutable size_t destroyed = 0;
+    mutable size_t deserialized = 0;
+    mutable size_t merged = 0;
+};
+
+TEST_F(FunctionAggStateFinalizeTest, UsesOneAlignedStateWithoutMerging) {
+    auto aggregate = std::make_shared<FinalizeTrackingAggregateFunction>();
+    FunctionAggStateFinalize function(aggregate->get_return_type(), aggregate);
+    auto states = ColumnString::create();
+    VectorBufferWriter writer(*states);
+    constexpr Int64 rows = 128;
+    for (Int64 row = 0; row < rows; ++row) {
+        writer.write_binary(row);
+        writer.commit();
+    }
+    Block block {{std::move(states), aggregate->get_serialized_type(), "state"},
+                 {nullptr, aggregate->get_return_type(), "result"}};
+    ASSERT_TRUE(function.execute_impl(nullptr, block, {0}, 1, rows).ok());
+    aggregate->check_counts(rows);
+    for (Int64 row = 0; row < rows; ++row) {
+        EXPECT_EQ(block.get_by_position(1).column->get_int(row), row);
+    }
+}
+
+TEST_F(FunctionAggStateFinalizeTest, DestroysStateOnDeserializeAndResultFailure) {
+    for (Int64 failure : {-1, -2}) {
+        auto aggregate = std::make_shared<FinalizeTrackingAggregateFunction>();
+        FunctionAggStateFinalize function(aggregate->get_return_type(), aggregate);
+        auto states = ColumnString::create();
+        VectorBufferWriter writer(*states);
+        writer.write_binary(Int64(7));
+        writer.commit();
+        writer.write_binary(failure);
+        writer.commit();
+        Block block {{std::move(states), aggregate->get_serialized_type(), "state"},
+                     {nullptr, aggregate->get_return_type(), "result"}};
+        EXPECT_THROW(static_cast<void>(function.execute_impl(nullptr, block, {0}, 1, 2)),
+                     Exception);
+        aggregate->check_counts(2);
+    }
+}
+
+TEST_F(FunctionAggStateFinalizeTest, SingleRowNativeReadersMatchMerge) {
+    auto number = std::make_shared<DataTypeInt64>();
+    auto values = ColumnHelper::create_column<DataTypeInt64>({2, 4, 7, 7, 11, 19});
+    for (const auto* name : {"sum", "avg", "min", "max", "count", "bitmap_agg",
+                             "multi_distinct_count_distribute_key"}) {
+        check_row_reader(name, {number}, {values});
+    }
+    auto string = std::make_shared<DataTypeString>();
+    auto strings = ColumnHelper::create_column<DataTypeString>(
+            {std::string(8192, 'x'), "b", "c", "c", "d", "e"});
+    check_row_reader("map_agg_v2", {string, string}, {strings, strings});
+    auto bitmap_type = std::make_shared<DataTypeBitMap>();
+    auto bitmaps = ColumnBitmap::create();
+    for (UInt64 value : {2, 4, 7, 7, 11, 19}) {
+        bitmaps->insert_value(BitmapValue(value));
+    }
+    ColumnPtr bitmap_input = std::move(bitmaps);
+    for (const auto* name : {"bitmap_union", "bitmap_intersect", "group_bitmap_xor"}) {
+        check_row_reader(name, {bitmap_type}, {bitmap_input});
+    }
+    check_row_reader(
+            "array_agg", {make_nullable(string)},
+            {ColumnHelper::create_nullable_column<DataTypeString>(
+                    {std::string(8192, 'x'), "b", "c", "", "d", "e"}, {0, 0, 0, 1, 0, 0})});
+}
+
+TEST_F(FunctionAggStateFinalizeTest, SingleRowNullableReadersMatchMerge) {
+    auto type = make_nullable(std::make_shared<DataTypeInt64>());
+    auto input = ColumnHelper::create_nullable_column<DataTypeInt64>({2, 4, 0, 0, 0, 19},
+                                                                     {0, 0, 1, 1, 1, 0});
+    for (bool null_v2 : {false, true}) {
+        for (bool result_nullable : {false, true}) {
+            for (const auto* name : {"sum", "avg", "min", "max"}) {
+                check_row_reader(name, {type}, {input}, result_nullable, null_v2);
+            }
+        }
+        check_row_reader("count", {type}, {input}, false, null_v2);
+        // Nullable V2 can also wrap a generic string-backed state.
+        check_row_reader("multi_distinct_count", {type}, {input}, false, null_v2);
+    }
+}
+
+TEST_F(FunctionAggStateFinalizeTest, SingleRowStringReadersMatchMerge) {
+    auto type = std::make_shared<DataTypeString>();
+    auto input = ColumnHelper::create_column<DataTypeString>(
+            {std::string(8192, 'x'), "b", "c", "c", "d", "e"});
+    for (const auto* name : {"min", "max", "array_agg"}) {
+        check_row_reader(name, {type}, {input});
+    }
+    auto limit_type = std::make_shared<DataTypeInt32>();
+    auto limits = ColumnHelper::create_column<DataTypeInt32>({2, 2, 2, 2, 2, 2});
+    check_row_reader("topn", {type, limit_type}, {input, limits});
+}
 
 TEST_F(FunctionAggStateFinalizeTest, FinalizesEachRowIndependently) {
     auto type = state_type("avg", std::make_shared<DataTypeInt64>());
@@ -238,6 +449,31 @@ TEST_F(FunctionAggStateFinalizeTest, VariableLengthArrayResultsOwnTheirData) {
         EXPECT_EQ(arrays.get_offsets()[group], (group + 1) * 2);
         EXPECT_EQ(strings.get_data_at(group * 2).to_string(), large);
         EXPECT_EQ(strings.get_data_at(group * 2 + 1).to_string(), std::to_string(group));
+    }
+}
+
+TEST_F(FunctionAggStateFinalizeTest, CollectSetReadsMultipleValuesAndEmptyStates) {
+    auto type = state_type("collect_set", std::make_shared<DataTypeInt64>(), false);
+    auto states = type->create_column();
+    append_state(type->get_nested_function(), ColumnHelper::create_column<DataTypeInt64>({1, 2, 2}),
+                 *states);
+    append_state(type->get_nested_function(), ColumnHelper::create_column<DataTypeInt64>({}),
+                 *states);
+    append_state(type->get_nested_function(), ColumnHelper::create_column<DataTypeInt64>({9, 7, 9}),
+                 *states);
+    auto result = finalize(type, std::move(states));
+    const auto& arrays = assert_cast<const ColumnArray&>(*result);
+    const auto& values = assert_cast<const ColumnNullable&>(arrays.get_data()).get_nested_column();
+    const std::vector<std::vector<Int64>> expected {{1, 2}, {}, {7, 9}};
+    ASSERT_EQ(arrays.size(), expected.size());
+    for (size_t row = 0; row < expected.size(); ++row) {
+        std::vector<Int64> actual;
+        const auto& offsets = arrays.get_offsets();
+        for (size_t i = offsets[static_cast<ssize_t>(row) - 1]; i < offsets[row]; ++i) {
+            actual.push_back(values.get_int(i));
+        }
+        std::ranges::sort(actual);
+        EXPECT_EQ(actual, expected[row]);
     }
 }
 

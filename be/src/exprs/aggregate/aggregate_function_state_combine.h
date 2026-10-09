@@ -160,6 +160,12 @@ public:
         _function->deserialize_and_merge(place, rhs, buf, arena);
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena& arena) const override {
+        DCHECK_LT(row, column.size());
+        _function->deserialize_from_column_row(place, column, row, arena);
+    }
+
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena& arena) const override {

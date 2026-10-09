@@ -67,7 +67,7 @@ public:
         Arena arena;
         auto finalize_row = [&](size_t row) {
             // Serialized states can use native columns as well as strings.
-            _agg_function->deserialize_and_merge_from_column_range(place, states, row, row, arena);
+            _agg_function->deserialize_from_column_row(place, states, row, arena);
             _agg_function->insert_result_into(place, *output);
         };
         auto finalize_rows = [&]<bool is_trivial>() {

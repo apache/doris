@@ -211,6 +211,14 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        const auto* data = reinterpret_cast<const UInt64*>(col.get_data().data());
+        this->data(place).count = data[row];
+    }
+
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena&) const override {

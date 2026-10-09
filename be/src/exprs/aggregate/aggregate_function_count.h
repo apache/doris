@@ -122,6 +122,14 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        const auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        AggregateFunctionCount::data(place) = data[row];
+    }
+
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena&) const override {
@@ -286,6 +294,14 @@ public:
             auto& state = *reinterpret_cast<Data*>(&data[sizeof(Data) * i]);
             state.count = !input_col.is_null_at(i);
         }
+    }
+
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        const auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        AggregateFunctionCountNotNullUnary::data(place) = data[row];
     }
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,

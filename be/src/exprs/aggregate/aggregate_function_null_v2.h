@@ -346,6 +346,21 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena& arena) const override {
+        DCHECK_LT(row, column.size());
+        if constexpr (result_is_nullable) {
+            const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
+            if (!nullable_col.is_null_at(row)) {
+                set_flag(place);
+                nested_function->deserialize_from_column_row(
+                        nested_place(place), nullable_col.get_nested_column(), row, arena);
+            }
+        } else {
+            nested_function->deserialize_from_column_row(place, column, row, arena);
+        }
+    }
+
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena& arena) const override {
