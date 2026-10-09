@@ -20,6 +20,10 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyConditionalFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.TimeExtract;
@@ -33,15 +37,18 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.function.Function;
 
-class CompositeTimeExtractTest {
+class CompositeTimeExtractTest extends ExpressionRewriteTestHelper {
     private static final List<Function<Expression, ScalarFunction>> FUNCTIONS = ImmutableList.of(
             HourMinute::new, HourSecond::new, MinuteSecond::new, SecondMicrosecond::new);
 
@@ -120,6 +127,30 @@ class CompositeTimeExtractTest {
                 Assertions.assertEquals(TimeV2Type.MAX, rewritten.child(0).getDataType());
                 Assertions.assertTrue(rewritten.nullable());
                 Assertions.assertTrue(rewritten.checkInputDataTypes().success());
+            }
+        }
+    }
+
+    @Test
+    void testStringFallbackFoldsInStrictAndNonStrictModes() {
+        NereidsParser parser = new NereidsParser();
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE),
+                bottomUp(SimplifyConditionalFunction.INSTANCE),
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)));
+        List<String> names = ImmutableList.of("hour_minute", "hour_second", "minute_second", "second_microsecond");
+        List<String> expected = ImmutableList.of("12:34", "12:34:56", "34:56", "56.789123");
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            for (boolean strictCast : new boolean[] {false, true}) {
+                mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(strictCast);
+                for (int i = 0; i < names.size(); i++) {
+                    for (String value : ImmutableList.of("12:34:56.789123", "2024-01-02 12:34:56.789123")) {
+                        Expression analyzed = ExpressionAnalyzer.analyzeFunction(null, null,
+                                parser.parseExpression(names.get(i) + "(concat('" + value + "', ''))"));
+                        Assertions.assertEquals(new VarcharLiteral(expected.get(i)),
+                                executor.rewrite(analyzed, context));
+                    }
+                }
             }
         }
     }

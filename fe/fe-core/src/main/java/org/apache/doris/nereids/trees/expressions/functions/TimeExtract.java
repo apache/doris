@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -58,10 +59,12 @@ public interface TimeExtract extends ExplicitlyCastableSignature, RewriteWhenAna
         Expression argument = getArgument(0);
         if (argument.getDataType().isStringLikeType()) {
             // Preserve DATETIME parsing (including dates and timezone suffixes), then accept
-            // time-only strings. Both casts use six digits so column values retain microseconds.
+            // time-only strings. Failed probes must return NULL even in strict mode, because
+            // COALESCE can evaluate both branches for a block containing NULL rows.
+            // Both parsers use six digits so column values retain microseconds.
             argument = new Coalesce(
-                    new Cast(new Cast(argument, DateTimeV2Type.MAX), TimeV2Type.MAX),
-                    new Cast(argument, TimeV2Type.MAX));
+                    new Cast(new TryCast(argument, DateTimeV2Type.MAX), TimeV2Type.MAX),
+                    new TryCast(argument, TimeV2Type.MAX));
         } else if (!(argument.getDataType() instanceof TimeV2Type)) {
             return (Expression) this;
         }

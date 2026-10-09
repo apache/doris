@@ -76,4 +76,26 @@ suite("test_composite_time_extract") {
         "order_qt_${mode}_datetime_column"("select id, " + selections('date_time').join(', ') +
                 " from test_composite_time_extract")
     }
+
+    // Parsing probes must tolerate failure in strict mode, including when block-level
+    // COALESCE evaluates the TIME fallback for successful DATETIME rows alongside NULL.
+    [false, true].each { strictCast ->
+        sql "set enable_strict_cast = ${strictCast}"
+        [false, true].each { shortCircuit ->
+            sql "set short_circuit_evaluation = ${shortCircuit}"
+            ['fe', 'be', 'runtime'].each { mode ->
+                sql "set enable_fold_constant_by_be = ${mode == 'be'}"
+                sql "set debug_skip_fold_constant = ${mode == 'runtime'}"
+                def tag = "strict_${strictCast}_short_${shortCircuit}_${mode}"
+                "order_qt_${tag}_string_column"("select id, " + selections('time_str').join(', ') +
+                        " from test_composite_time_extract")
+                "order_qt_${tag}_datetime_and_null"("select id, " + selections('time_str').join(', ') +
+                        " from test_composite_time_extract where id in (8, 13)")
+                ["concat('12:34:56', '.789123')", "concat('2024-01-02 ', '12:34:56.789123')",
+                 "concat('invalid_', 'time')", "concat(null, '')"].eachWithIndex { argument, i ->
+                    "order_qt_${tag}_wrapped_${i}"("select " + selections(argument).join(', '))
+                }
+            }
+        }
+    }
 }
