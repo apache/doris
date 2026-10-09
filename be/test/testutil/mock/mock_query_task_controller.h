@@ -39,6 +39,16 @@ struct MockQueryTaskController : public QueryTaskController {
 
     void set_cancelled_time(int64_t ctime) { cancelled_time_ = ctime; }
 
+    // Memory reclamation asks every candidate query whether it is cancelled while it scans a
+    // workload group, so this is where a test can let another query release memory during that
+    // scan.
+    bool is_cancelled() const override {
+        if (on_is_cancelled_) {
+            on_is_cancelled_();
+        }
+        return QueryTaskController::is_cancelled();
+    }
+
     // Pipeline state seen by WorkloadGroupMgr::handle_single_query_. The query context of a
     // unit test has no fragments, so the real implementation never reports a running or a
     // revocable task; these knobs simulate them.
@@ -71,6 +81,9 @@ struct MockQueryTaskController : public QueryTaskController {
     // Runs inside get_revocable_tasks(), the last inspection of the pipeline tasks after the
     // manager has observed the memory pressure and before it decides what to do with the query.
     std::function<void()> on_get_revocable_tasks_;
+    // Runs inside is_cancelled(), while memory reclamation scans the workload group of this
+    // query.
+    std::function<void()> on_is_cancelled_;
 };
 
 } // namespace doris

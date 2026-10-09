@@ -251,8 +251,11 @@ private:
     // Walk the overcommitted workload groups (usage - min_memory_limit, largest first)
     // and cancel the biggest queries of the first one that releases memory, to reclaim
     // ~10% of its excess memory. A WG whose queries are all too small to be cancelled
-    // releases nothing, so the next one is tried. Returns the amount of memory actually
-    // revoked, or 0 if no WG qualifies or no query of any of them could be cancelled.
+    // releases nothing, so the next one is tried. Each WG is re-checked against its
+    // current usage right before it is revoked from, so one that fell back within its
+    // min memory while the earlier ones were scanned keeps that memory reserved.
+    // Returns the amount of memory actually revoked, or 0 if no WG qualifies or no
+    // query of any of them could be cancelled.
     int64_t revoke_memory_from_other_groups_();
 
     // Recalculate and apply per-query memory limits for all queries in a workload

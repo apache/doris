@@ -291,7 +291,8 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<ResourceContext>& 
     resource_ctx->task_controller()->set_memory_sufficient(false);
     std::lock_guard<std::mutex> lock(_paused_queries_lock);
     auto wg = resource_ctx->workload_group();
-    auto&& [it, inserted] = _paused_queries_list[wg].emplace(
+    auto& queries_list = _paused_queries_list[wg];
+    auto&& [it, inserted] = queries_list.emplace(
             resource_ctx,
             doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted,
             reserve_size);
@@ -301,6 +302,18 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<ResourceContext>& 
         LOG(INFO) << "Insert one new paused query: "
                   << resource_ctx->task_controller()->debug_string()
                   << ", workload group: " << wg->debug_string();
+    } else if (reserve_size > it->reserve_size_) {
+        // Another task of the same query failed a smaller reservation first. The query is
+        // resumed as a whole, so every pending reservation is retried once it is woken up:
+        // keep the largest one, otherwise the query is resumed as soon as the smaller one fits,
+        // fails the larger one again and starts a new wait from scratch.
+        LOG(INFO) << "Query: " << print_id(resource_ctx->task_controller()->task_id())
+                  << " is already paused, raise the recorded reservation from "
+                  << PrettyPrinter::print_bytes(it->reserve_size_) << " to "
+                  << PrettyPrinter::print_bytes(reserve_size);
+        auto node = queries_list.extract(it);
+        node.value().reserve_size_ = reserve_size;
+        queries_list.insert(std::move(node));
     }
 }
 
@@ -710,14 +723,28 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
 
     int64_t freed_mem = 0;
     size_t tried_wgs = 0;
-    for (const auto& [exceeded_memory, wg] : exceeded_wgs) {
-        if (exceeded_memory < 1 << 27) {
+    for (const auto& [snapshot_exceeded_memory, wg] : exceeded_wgs) {
+        if (snapshot_exceeded_memory < 1 << 27) {
             // The remaining workload groups exceed even less.
             LOG(INFO) << "The workload group that exceed most memory among the untried ones is :"
                       << wg->memory_debug_string() << ", exceeded_memory: "
-                      << PrettyPrinter::print(exceeded_memory, TUnit::BYTES)
+                      << PrettyPrinter::print(snapshot_exceeded_memory, TUnit::BYTES)
                       << " less than 128MB, no need to revoke memory";
             break;
+        }
+        // The snapshot above was taken before the earlier workload groups were scanned, during
+        // which this one may have released memory (its queries finished or were cancelled).
+        // Decide from its current usage: the min memory stays reserved for a workload group that
+        // no longer exceeds it, and the amount to revoke is what it exceeds by now.
+        const int64_t exceeded_memory = wg->total_mem_used() - wg->min_memory_limit();
+        if (exceeded_memory < 1 << 27) {
+            LOG(INFO) << "The workload group " << wg->memory_debug_string()
+                      << " exceeded its min memory by "
+                      << PrettyPrinter::print(snapshot_exceeded_memory, TUnit::BYTES)
+                      << " when the walk started, now by "
+                      << PrettyPrinter::print(exceeded_memory, TUnit::BYTES)
+                      << " less than 128MB, skip it";
+            continue;
         }
         auto need_free_mem = static_cast<int64_t>((double)exceeded_memory * 0.1);
         // Revoke 10% of memory from the workload group that exceed most memory
