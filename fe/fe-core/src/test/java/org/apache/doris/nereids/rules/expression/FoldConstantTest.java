@@ -1731,6 +1731,21 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    void testTypeOfFold() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+
+        assertRewriteAfterTypeCoercion("typeof(cast(1 as integer))", "'integer'");
+        assertRewriteAfterTypeCoercion("typeof(cast(null as varchar(10)))", "'varchar(10)'");
+        assertRewriteAfterTypeCoercion("typeof(IA)", "'integer'");
+        assertRewriteAfterTypeCoercion("typeof(NULL)", "'unknown'");
+        assertRewriteAfterTypeCoercion("typeof('')", "'varchar(0)'");
+        assertRewriteAfterTypeCoercion("typeof(cast(null as decimal(12,3)))", "'decimal(12,3)'");
+        assertRewriteAfterTypeCoercion("typeof(cast(null as array<integer>))", "'array(integer)'");
+    }
+
+    @Test
     void testFoldNvl() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 ExpressionAnalyzer.FUNCTION_ANALYZER_RULE,
