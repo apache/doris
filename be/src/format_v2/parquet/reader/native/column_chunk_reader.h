@@ -349,6 +349,7 @@ public:
 
     size_t page_end_row() const { return _page_reader->end_row(); }
 
+    Status ensure_first_data_page_parsed();
     Status parse_page_header();
     Status next_page();
 
@@ -390,7 +391,6 @@ private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
     Status _ensure_dictionary_page_loaded();
-    Status _finish_indexed_nested_page();
     Status _decode_dict_page();
 
     void _reserve_decompress_buf(size_t size);
@@ -434,8 +434,8 @@ private:
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;
-    // Every page is parsed before advancing, so this physical-value prefix remains complete
-    // across indexed skips and sequential fallback; repeated header calls are idempotent.
+    // Parsed headers contribute exactly once. This is a complete physical prefix only while
+    // no indexed page has been skipped unverified; otherwise sequential fallback is rejected.
     size_t _chunk_parsed_values = 0;
     // this page remaining rep/def nums
     // if max_rep_level = 0 / max_def_level = 0, this value retail hava value.
@@ -455,6 +455,8 @@ private:
     Slice _v2_rep_levels;
     Slice _v2_def_levels;
     bool _dict_checked = false;
+    bool _first_data_page_parsed = false;
+    bool _skipped_unverified_indexed_page = false;
     bool _has_dict = false;
     bool _nested_row_started = false;
     Decoder* _page_decoder = nullptr;

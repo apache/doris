@@ -732,11 +732,21 @@ void ColumnReader::_generate_read_ranges(RowRange page_row_range, RowRanges* res
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_get_page_read_ranges(
         int64_t* right_row, RowRanges* read_ranges) {
-    // Unselected pages also establish the next page's absolute row coordinate. Parse before
-    // computing any range so a skipped page cannot hide a stale index span or fallback boundary.
-    RETURN_IF_ERROR(_chunk_reader->parse_page_header());
+    RETURN_IF_ERROR(_chunk_reader->ensure_first_data_page_parsed());
     *right_row = _chunk_reader->page_end_row();
     _generate_read_ranges(RowRange {_current_row_index, *right_row}, read_ranges);
+    if (read_ranges->count() == 0) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_chunk_reader->parse_page_header());
+    const auto parsed_end = _chunk_reader->page_end_row();
+    if (*right_row != parsed_end) {
+        // Parsing a selected later page can discard its OffsetIndex. Both the selection and the
+        // page-advance decision must use the reconciled bound, or unread values shift into the next page.
+        *right_row = parsed_end;
+        read_ranges->clear();
+        _generate_read_ranges(RowRange {_current_row_index, *right_row}, read_ranges);
+    }
     return Status::OK();
 }
 
