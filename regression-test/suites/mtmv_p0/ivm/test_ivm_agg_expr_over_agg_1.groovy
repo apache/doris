@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_ivm_agg_expr_over_agg_1") {
+    // Transparent rewrite could answer a query from one of the views under test, which would stop the
+    // base-table comparisons in this suite from being an oracle.
+    sql """set enable_materialized_view_rewrite = false"""
 
     // =========================================================
     // A scalar expression wrapped around an aggregate result, as

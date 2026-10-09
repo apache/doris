@@ -19,6 +19,9 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_ivm_agg_expr_over_agg_2") {
+    // Transparent rewrite could answer a query from one of the views under test, which would stop the
+    // base-table comparisons in this suite from being an oracle.
+    sql """set enable_materialized_view_rewrite = false"""
 
     // =========================================================
     // Refresh shapes around the wrapped-aggregate state carrier
