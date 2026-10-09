@@ -38,6 +38,7 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -179,6 +180,15 @@ public class ColumnDefinitionTest {
 
         assertCanonicalDefaultValue(ArrayType.of(DateV2Type.INSTANCE),
                 "[DATEV2 \"2024-01-01\", \"2024-02-02\"]", "[\"2024-01-01\", \"2024-02-02\"]");
+        // an item that cannot be cast to the type inferred from the other items is rejected instead of
+        // being replaced by NULL, which the SQL literal parser does when enable_strict_cast is off
+        Assertions.assertFalse(SessionVariable.enableStrictCast());
+        assertRejectsDefaultValue(ArrayType.of(DateV2Type.INSTANCE), "[DATEV2 \"2024-01-01\", 1]",
+                "Invalid default value '[DATEV2 \"2024-01-01\", 1]' for ARRAY<DATEV2> column");
+        // the parser would infer DATEV2 for the items and turn 1 into NULL; each item is cast to INT instead
+        assertCanonicalDefaultValue(intArray, "[DATEV2 \"2024-01-01\", 1]", "[20240101, 1]");
+        assertRejectsDefaultValue(ArrayType.of(ArrayType.of(DateV2Type.INSTANCE)),
+                "[[DATEV2 \"2024-01-01\"], [1]]", "Invalid default value");
         assertCanonicalDefaultValue(ArrayType.of(BooleanType.INSTANCE), "[true, false]", "[1, 0]");
         assertCanonicalDefaultValue(ArrayType.of(DoubleType.INSTANCE), "[1.5, 2]", "[1.5, 2.0]");
         assertCanonicalDefaultValue(ArrayType.of(DecimalV3Type.createDecimalV3Type(10, 2)), "[1.234]", "[1.23]");
@@ -200,6 +210,10 @@ public class ColumnDefinitionTest {
         assertRejectsDefaultValue(stringIntMap, "{\"a\": \"bad\"}", "Invalid default value");
         assertRejectsDefaultValue(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), "{\"bad\": 1}",
                 "Invalid default value");
+        assertRejectsDefaultValue(MapType.of(DateV2Type.INSTANCE, IntegerType.INSTANCE),
+                "{DATEV2 \"2024-01-01\": 1, 1: 2}", "Invalid default value");
+        assertRejectsDefaultValue(MapType.of(StringType.INSTANCE, DateV2Type.INSTANCE),
+                "{\"a\": DATEV2 \"2024-01-01\", \"b\": 1}", "Invalid default value");
         // keys that are distinct literals but collide after the cast to the key type are rejected
         assertRejectsDefaultValue(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), "{\"01\": 1, \"1\": 2}",
                 "map key 1 is repeated after casting to INT");
@@ -216,6 +230,9 @@ public class ColumnDefinitionTest {
                 "only supports struct literals or DEFAULT NULL");
         assertRejectsDefaultValue(structType, "{1}", "struct literal has 1 fields but the column has 2");
         assertRejectsDefaultValue(structType, "{\"bad\", \"a\"}", "Invalid default value");
+        assertRejectsDefaultValue(new StructType(Arrays.asList(
+                new StructField("f1", ArrayType.of(DateV2Type.INSTANCE), true, ""))),
+                "{[DATEV2 \"2024-01-01\", 1]}", "Invalid default value");
         assertRejectsDefaultValue(structType, "[]", "only supports struct literals or DEFAULT NULL");
 
         assertRejectsDefaultValue(JsonType.INSTANCE, "{}", "only supports DEFAULT NULL");
