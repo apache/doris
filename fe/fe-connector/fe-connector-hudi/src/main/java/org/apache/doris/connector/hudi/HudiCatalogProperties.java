@@ -18,7 +18,6 @@
 package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.hms.HmsClientConfig;
-import org.apache.doris.filesystem.auth.GcsAuthResolver;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -98,12 +97,6 @@ public final class HudiCatalogProperties {
     }
 
     public static HudiCatalogProperties of(Map<String, String> properties) {
-        // Reject unsupported native auth before creating clients, including catalog rebuilds.
-        // Resolve the mode centrally so GCS HMAC and existing S3 configurations remain supported.
-        if (GcsAuthResolver.resolve(properties).flatMap(auth -> auth.getNativeCredential()).isPresent()) {
-            throw new IllegalArgumentException("Native GCP authentication is not supported for Hudi yet; "
-                    + "use GCS HMAC credentials instead.");
-        }
         HudiCatalogProperties p = new HudiCatalogProperties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(p, properties);
         new ParamRules()

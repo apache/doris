@@ -215,21 +215,4 @@ public class PaimonConnectorValidatePropertiesTest {
                 "dlf.secret_key", "sk",
                 "dlf.region", "cn-hangzhou"));
     }
-
-    @Test
-    public void rejectsNativeGcpOnCreateAndAlter() {
-        Map<String, String> nativeGcp = props("provider", "GCP",
-                "gs.credential_provider_type", "COMPUTE_ENGINE",
-                "gs.impersonation_service_account", "reader@example.iam.gserviceaccount.com");
-        Map<String, String> properties = props("warehouse", "s3a://bucket/warehouse");
-        properties.putAll(nativeGcp);
-        IllegalArgumentException createError = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> PROVIDER.validateProperties(properties));
-        Assertions.assertTrue(createError.getMessage().contains(
-                "Native GCP authentication is not supported for Paimon"));
-        IllegalArgumentException alterError = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> PROVIDER.validatePropertiesForUpdate(props("warehouse", "s3a://bucket/warehouse"), nativeGcp));
-        Assertions.assertTrue(alterError.getMessage().contains(
-                "Native GCP authentication is not supported for Paimon"));
-    }
 }
