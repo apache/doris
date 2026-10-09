@@ -17,9 +17,13 @@
 
 #include "exec/operator/exchange_sink_buffer.h"
 
+#include <brpc/controller.h>
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
+
+#include "util/proto_util.h"
 
 namespace doris {
 
@@ -60,6 +64,11 @@ PBlock make_block_with_column_values(const std::string& column_values) {
     block.set_uncompressed_size(4096);
     return block;
 }
+
+// Minimal closure shape accepted by request_embed_attachmentv2(): it only touches cntl_.
+struct ExchangeSinkBufferTestClosure {
+    std::shared_ptr<brpc::Controller> cntl_ = std::make_shared<brpc::Controller>();
+};
 
 PTransmitDataParams make_transmit_data_params(const std::string& column_values) {
     PTransmitDataParams request;
@@ -111,7 +120,10 @@ TEST(ExchangeSinkBufferTest, CopyBlockMetadataWithoutColumnValues) {
     EXPECT_EQ(dst.column_metas(1).children(0).name(), "child_string");
     EXPECT_EQ(dst.column_metas(1).children(0).type(), PGenericType::STRING);
 
-    EXPECT_FALSE(dst.has_column_values());
+    // The payload is left for the attachment, but the field must stay present so the
+    // receiver-side PBlock::CopyFrom() keeps the bytes written back after extraction.
+    EXPECT_TRUE(dst.has_column_values());
+    EXPECT_TRUE(dst.column_values().empty());
     EXPECT_TRUE(src.has_column_values());
     EXPECT_EQ(src.column_values(), column_values);
     EXPECT_EQ(dst.be_exec_version(), 37);
@@ -154,7 +166,8 @@ TEST(ExchangeSinkBufferTest, MakeHttpRequestWithoutColumnValues) {
 
     ASSERT_TRUE(dst->has_block());
     EXPECT_EQ(dst->block().column_metas_size(), 2);
-    EXPECT_FALSE(dst->block().has_column_values());
+    EXPECT_TRUE(dst->block().has_column_values());
+    EXPECT_TRUE(dst->block().column_values().empty());
     EXPECT_EQ(dst->block().be_exec_version(), 37);
     EXPECT_TRUE(dst->block().compressed());
     EXPECT_EQ(dst->block().compression_type(), segment_v2::CompressionTypePB::LZ4);
@@ -163,6 +176,39 @@ TEST(ExchangeSinkBufferTest, MakeHttpRequestWithoutColumnValues) {
     EXPECT_EQ(src.block().column_values(), column_values);
     EXPECT_EQ(dst->blocks_size(), 0);
     EXPECT_FALSE(dst->has_row_batch());
+}
+
+// Mirrors the broadcast HTTP send/receive round trip: the metadata-only request is serialized
+// into the attachment together with the borrowed payload, the receiver extracts it the way
+// PInternalService::transmit_block_by_http does, and VDataStreamMgr::transmit_block then copies
+// the block with PBlock::CopyFrom, which only carries fields whose presence bit is set.
+TEST(ExchangeSinkBufferTest, HttpRequestKeepsColumnValuesThroughAttachmentAndCopyFrom) {
+    const std::string column_values = "broadcast-column-values";
+    auto src = make_transmit_data_params(column_values);
+
+    auto http_request = exchange_sink_buffer::detail::make_http_request_without_column_values(src);
+    auto closure = std::make_unique<ExchangeSinkBufferTestClosure>();
+    auto status =
+            request_embed_attachmentv2(http_request.get(), src.block().column_values(), closure);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    // The shared broadcast block is untouched by the HTTP send.
+    EXPECT_EQ(src.block().column_values(), column_values);
+
+    PTransmitDataParams extracted;
+    status = attachment_extract_request_contain_block(&extracted, closure->cntl_.get());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_TRUE(extracted.has_block());
+    EXPECT_TRUE(extracted.block().has_column_values());
+    EXPECT_EQ(extracted.block().column_values(), column_values);
+    EXPECT_EQ(extracted.block().column_metas_size(), 2);
+    EXPECT_EQ(extracted.packet_seq(), 6);
+
+    PBlock copied;
+    copied.CopyFrom(extracted.block());
+    EXPECT_TRUE(copied.has_column_values());
+    EXPECT_EQ(copied.column_values(), column_values);
+    EXPECT_EQ(copied.column_metas_size(), 2);
+    EXPECT_EQ(copied.uncompressed_size(), 4096);
 }
 
 } // namespace doris

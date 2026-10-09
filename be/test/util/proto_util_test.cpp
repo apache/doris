@@ -50,6 +50,14 @@ PTransmitDataParams extract_request_from_attachment(brpc::Controller* cntl) {
     return extracted;
 }
 
+// VDataStreamMgr::transmit_block() copies the extracted block with PBlock::CopyFrom, which only
+// carries proto2 fields whose presence bit is set.
+PBlock copy_block_like_receiver(const PBlock& block) {
+    PBlock copied;
+    copied.CopyFrom(block);
+    return copied;
+}
+
 } // namespace
 
 TEST(ProtoUtilTest, EmbedAttachmentMovesOwnedColumnValuesByDefault) {
@@ -60,17 +68,22 @@ TEST(ProtoUtilTest, EmbedAttachmentMovesOwnedColumnValuesByDefault) {
     auto status = request_embed_attachment_contain_blockv2(&request, closure);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
+    // The owned payload is moved out, but the field stays present-but-empty.
+    EXPECT_TRUE(request.block().has_column_values());
     EXPECT_TRUE(request.block().column_values().empty());
 
     auto extracted = extract_request_from_attachment(closure->cntl_.get());
+    EXPECT_TRUE(extracted.block().has_column_values());
     EXPECT_EQ(extracted.block().column_values(), column_values);
+    EXPECT_EQ(copy_block_like_receiver(extracted.block()).column_values(), column_values);
 }
 
 TEST(ProtoUtilTest, EmbedAttachmentUsesBorrowedColumnValuesWithoutMutation) {
     const std::string column_values = "borrowed-column-values";
     auto borrowed_owner = make_transmit_request(column_values);
-    auto request = make_transmit_request(column_values);
-    request.mutable_block()->clear_column_values();
+    // The borrowed-path request carries column_values as present-but-empty, the same shape the
+    // owned path leaves behind after moving the payload out.
+    auto request = make_transmit_request("");
     auto closure = std::make_unique<ProtoUtilTestClosure>();
 
     auto status =
@@ -78,10 +91,32 @@ TEST(ProtoUtilTest, EmbedAttachmentUsesBorrowedColumnValuesWithoutMutation) {
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     EXPECT_EQ(borrowed_owner.block().column_values(), column_values);
+    EXPECT_TRUE(request.block().has_column_values());
+    EXPECT_TRUE(request.block().column_values().empty());
+
+    auto extracted = extract_request_from_attachment(closure->cntl_.get());
+    EXPECT_TRUE(extracted.block().has_column_values());
+    EXPECT_EQ(extracted.block().column_values(), column_values);
+    EXPECT_EQ(copy_block_like_receiver(extracted.block()).column_values(), column_values);
+}
+
+// Documents why the serialized request must keep column_values present: the receiver writes the
+// attachment bytes through mutable_column_values() after ParseFromString(), and a request that
+// omitted the field leaves the presence bit clear, so the receiver-side CopyFrom drops the payload.
+TEST(ProtoUtilTest, AttachmentWithoutColumnValuesPresenceIsDroppedByCopyFrom) {
+    const std::string column_values = "payload-without-presence";
+    auto request = make_transmit_request(column_values);
+    request.mutable_block()->clear_column_values();
+    auto closure = std::make_unique<ProtoUtilTestClosure>();
+
+    auto status = request_embed_attachmentv2(&request, column_values, closure);
+    ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_FALSE(request.block().has_column_values());
 
     auto extracted = extract_request_from_attachment(closure->cntl_.get());
+    EXPECT_FALSE(extracted.block().has_column_values());
     EXPECT_EQ(extracted.block().column_values(), column_values);
+    EXPECT_TRUE(copy_block_like_receiver(extracted.block()).column_values().empty());
 }
 
 } // namespace doris
