@@ -619,9 +619,13 @@ void WorkloadGroupMgr::handle_paused_queries() {
 
                     // TODO revoke from memtable
 
-                    // Fallback: the query has waited too long and memory cannot be revoked from
-                    // anywhere, let handle_single_query_ spill or cancel it to protect the system.
+                    // Fallback: no other workload group can release memory. Once the process
+                    // reaches the hard memory limit or the query has waited too long, let
+                    // handle_single_query_ spill or cancel it to protect the process. The hard
+                    // limit is checked here as well, because the query would otherwise wait for
+                    // the timeout at the hard limit, and memory gc may be disabled.
                     handle_query_now =
+                            GlobalMemoryArbitrator::is_exceed_hard_mem_limit() ||
                             query_it->elapsed_time() > config::spill_in_paused_queue_timeout_ms;
                 }
 
@@ -667,6 +671,9 @@ void WorkloadGroupMgr::handle_paused_queries() {
 // 2. revoke 10% memory of the workload group that exceeded. For example, if the workload group exceed 10g,
 //    then revoke 1g memory.
 // 3. After revoke memory, go to the loop and wait for the query to be cancelled and check again.
+// Returns the memory that is actually being released by the cancelled queries, which is 0 when
+// no query of that workload group could be cancelled (for example, every query is too small to
+// be revoked), so that the caller does not wait for memory that will never be freed.
 int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
     MonotonicStopWatch watch;
     watch.start();
@@ -701,16 +708,16 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
                   << " less than 128MB, no need to revoke memory";
         return 0;
     }
-    int64_t freed_mem = static_cast<int64_t>((double)max_exceeded_memory * 0.1);
+    int64_t need_free_mem = static_cast<int64_t>((double)max_exceeded_memory * 0.1);
     // Revoke 10% of memory from the workload group that exceed most memory
-    max_wg->revoke_memory(freed_mem, "exceed_memory", profile.get());
+    int64_t freed_mem = max_wg->revoke_memory(need_free_mem, "exceed_memory", profile.get());
     std::stringstream ss;
     profile->pretty_print(&ss);
     LOG(INFO) << fmt::format(
             "[MemoryGC] process memory not enough, revoke memory from workload_group: {}, "
-            "free memory {}. cost(us): {}, details: {}",
-            max_wg->memory_debug_string(), PrettyPrinter::print_bytes(freed_mem),
-            watch.elapsed_time() / 1000, ss.str());
+            "need free memory {}, freed memory {}. cost(us): {}, details: {}",
+            max_wg->memory_debug_string(), PrettyPrinter::print_bytes(need_free_mem),
+            PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
     return freed_mem;
 }
 
