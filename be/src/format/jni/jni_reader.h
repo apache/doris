@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -108,6 +109,12 @@ public:
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     /**
+     * The JNI heap gate's admission, while a reader whose range declared its heap waits for it:
+     * FileScanner must not read the reader until the future is done.
+     */
+    std::optional<SharedListenableFuture<Void>> waiting_for() const;
+
+    /**
      * Close the scanner and release JNI resources.
      */
     Status close() override;
@@ -145,6 +152,9 @@ private:
 
     Status _fill_partition_columns(Block* block, size_t num_rows);
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
+    // Opens the Java scanner of a reader that declared no heap, or whose wait for it is over. A
+    // reader whose scan stopped first stays unopened and reads nothing.
+    Status _open_admitted_java_scanner();
     Status _fill_block(Block* block, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
 
@@ -173,9 +183,11 @@ private:
 
     bool _closed = false;
     bool _scanner_opened = false;
-    // Admits the Java scanner by the JVM heap its range declares (util/jni_scan_heap_gate.h). Held
-    // while the scanner is open.
-    JniScanHeapGate::Permit _heap_permit;
+    // The JVM heap the range declares (util/jni_scan_heap_gate.h): in line until the gate admits
+    // it, then held while the Java scanner is open. Null for a reader that declares none.
+    std::unique_ptr<JniScanHeapGate::Admission> _heap_admission;
+    // FileScanner's, for the gate to see the scan stop while this reader waits.
+    std::shared_ptr<io::IOContext> _io_ctx;
 
     Jni::GlobalObject _jni_scanner_obj;
     // Resolved on the SPI base class and shared by every reader in the process, so this is a

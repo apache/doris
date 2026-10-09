@@ -604,6 +604,11 @@ bool FlussUnionLakeReader::current_split_uses_metadata_count() const {
     return _lake_reader->current_split_uses_metadata_count();
 }
 
+std::optional<SharedListenableFuture<Void>> FlussUnionLakeReader::waiting_for() const {
+    DORIS_CHECK(_lake_reader != nullptr);
+    return _lake_reader->waiting_for();
+}
+
 Status FlussUnionLakeReader::abort_split() {
     DORIS_CHECK(_lake_reader != nullptr);
     return _lake_reader->abort_split();

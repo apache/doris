@@ -79,7 +79,8 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
 }
 
 Status JniTableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
-    if (_scanner_opened) {
+    // A split admitted by its declared heap opens its Java scanner in get_block(), after this.
+    if (_scanner_opened || _heap_admission != nullptr) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.refresh_conjuncts_timer);
         SCOPED_TIMER(_profile.file_reader_total_timer);
@@ -110,6 +111,16 @@ Status JniTableReader::get_block(Block* output_block, bool* eos) {
     if (_eof) {
         *eos = true;
         return Status::OK();
+    }
+    if (!_scanner_opened) {
+        // Only a split that prepare_split() left waiting for its share of the JVM heap is unopened
+        // here, and the caller asks for its blocks only once waiting_for() says the wait is over.
+        DORIS_CHECK(_heap_admission != nullptr);
+        RETURN_IF_ERROR(_open_admitted_jni_scanner());
+        if (_eof) {
+            *eos = true;
+            return Status::OK();
+        }
     }
     DORIS_CHECK(_scanner_opened);
 
@@ -437,7 +448,7 @@ void JniTableReader::_reset_split_state(JNIEnv* env) {
         DORIS_CHECK(env != nullptr);
         _jni_scanner_obj.reset(env);
     }
-    _heap_permit.release();
+    _heap_admission.reset();
     _scanner_opened = false;
     _scanner_params.clear();
     _jni_columns.clear();
@@ -461,22 +472,57 @@ Status JniTableReader::_open_jni_scanner() {
     }
     _apply_common_scanner_params();
 
-    // Before attaching to the JVM, which a split whose scan stops while it waits never does.
-    if (!_admit_by_declared_heap()) {
-        // The scan stopped while this split waited for its share of the JVM heap. It opens no Java
-        // scanner and reads nothing: it ends the way get_block() ends a split whose scan stopped.
-        _eof = true;
-        return _close_jni_scanner();
+    // Only the connector of a statement that set enable_jni_heap_admission declares the heap a
+    // reader will hold, and only for the readers that hold much; every other reader opens at once.
+    if (_current_range.__isset.jni_heap_bytes && _current_range.jni_heap_bytes > 0) {
+        // The scanner's try_stop() marks its IOContext: a cancelled query, a satisfied limit, a
+        // closing scan. The gate asks on a thread of its own, so the check owns what it reads.
+        DORIS_CHECK(_io_ctx != nullptr);
+        _heap_admission = JniScanHeapGate::instance()->request(
+                _current_range.jni_heap_bytes,
+                [io_ctx = _io_ctx]() { return io_ctx->should_stop; });
+        if (_scanner_profile != nullptr) {
+            COUNTER_UPDATE(_jvm_heap_declared_bytes, _current_range.jni_heap_bytes);
+        }
+        if (_heap_admission->waiting()) {
+            // get_block() opens it once the gate admits it. Until then the scanner parks on
+            // waiting_for() instead of keeping a worker that admitted readers need to finish.
+            return Status::OK();
+        }
     }
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-    // The permit covers the Java scanner: _reset_split_state() releases it along with the scanner,
-    // and here it goes if no scanner was created.
+    return _open_admitted_jni_scanner();
+}
+
+std::optional<SharedListenableFuture<Void>> JniTableReader::waiting_for() const {
+    if (_heap_admission != nullptr && _heap_admission->waiting()) {
+        return _heap_admission->future();
+    }
+    return std::nullopt;
+}
+
+Status JniTableReader::_open_admitted_jni_scanner() {
+    if (_heap_admission != nullptr) {
+        DORIS_CHECK(!_heap_admission->waiting());
+        if (_scanner_profile != nullptr) {
+            COUNTER_UPDATE(_jvm_heap_wait_time, _heap_admission->wait_ns());
+        }
+        if (!_heap_admission->admitted()) {
+            // The scan stopped before this split's turn. It opens no Java scanner and reads
+            // nothing: it ends the way get_block() ends a split whose scan stopped.
+            _eof = true;
+            return _close_jni_scanner();
+        }
+    }
+    // The admission covers the Java scanner: _reset_split_state() gives it back along with the
+    // scanner, and here it goes if no scanner was created - attaching to the JVM can fail too.
     Defer release_without_scanner {[this]() {
         if (!_scanner_opened) {
-            _heap_permit.release();
+            _heap_admission.reset();
         }
     }};
+    // Only now does the split attach to the JVM.
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
     RETURN_IF_ERROR(_create_jni_scanner(env, cast_set<int>(_batch_size)));
     // Once the Java object exists, close it even if open() fails partway through initialization.
@@ -492,28 +538,6 @@ Status JniTableReader::_open_jni_scanner() {
         return open_status;
     }
     return Status::OK();
-}
-
-bool JniTableReader::_admit_by_declared_heap() {
-    // Only the connector of a statement that set enable_jni_heap_admission declares the heap a
-    // reader will hold, and only for the readers that hold much; every other reader opens at once.
-    if (!_current_range.__isset.jni_heap_bytes || _current_range.jni_heap_bytes <= 0) {
-        return true;
-    }
-    int64_t wait_ns = 0;
-    const bool admitted = JniScanHeapGate::instance()->acquire(
-            _current_range.jni_heap_bytes,
-            [this]() {
-                // Stopped or cancelled: this split will not be read.
-                return (_io_ctx != nullptr && _io_ctx->should_stop) ||
-                       (_runtime_state != nullptr && _runtime_state->is_cancelled());
-            },
-            &_heap_permit, &wait_ns);
-    if (_scanner_profile != nullptr) {
-        COUNTER_UPDATE(_jvm_heap_wait_time, wait_ns);
-        COUNTER_UPDATE(_jvm_heap_declared_bytes, _current_range.jni_heap_bytes);
-    }
-    return admitted;
 }
 
 void JniTableReader::_apply_common_scanner_params() {

@@ -57,6 +57,7 @@ public:
     Status get_block(Block* block, bool* eos) override;
     bool current_split_pruned() const override;
     bool current_split_uses_metadata_count() const override;
+    std::optional<SharedListenableFuture<Void>> waiting_for() const override;
     Status abort_split() override;
     Status close() override;
     void set_batch_size(size_t batch_size) override;

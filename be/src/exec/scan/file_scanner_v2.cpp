@@ -483,6 +483,15 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                 return Status::OK();
             }
         }
+        // A JNI reader whose split declared its heap opens its Java scanner only once the JNI heap
+        // gate admits it. Until then this turn ends without a block, and the scheduler runs the
+        // scanner again once the gate is done with it.
+        if (_current_range.__isset.jni_heap_bytes && _current_range.jni_heap_bytes > 0) {
+            if (auto waiting_for = _table_reader->waiting_for()) {
+                _waiting_for = std::move(waiting_for);
+                return Status::OK();
+            }
+        }
 
         {
             if (_table_reader_rf_num != _applied_rf_num) {
