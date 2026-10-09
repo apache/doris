@@ -18,16 +18,20 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -61,6 +65,7 @@ import java.util.concurrent.TimeoutException;
 public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(FlightSqlConnectProcessor.class);
     private Schema arrowSchema;
+    private List<Literal> parameters;
 
     public FlightSqlConnectProcessor(ConnectContext context) {
         super(context);
@@ -98,6 +103,39 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
 
         ctx.setRunningQuery(query);
         super.handleQuery(query);
+    }
+
+    public void handleQuery(String query, List<Literal> parameters) throws ConnectionException {
+        this.parameters = parameters;
+        try {
+            handleQuery(query);
+        } finally {
+            this.parameters = null;
+        }
+    }
+
+    @Override
+    protected List<StatementBase> parseWithFallback(String originStmt, String convertedStmt,
+            SessionVariable sessionVariable) throws ConnectionException {
+        List<StatementBase> statements = super.parseWithFallback(originStmt, convertedStmt, sessionVariable);
+        if (parameters != null && !parameters.isEmpty() && statements != null) {
+            try {
+                if (statements.size() != 1 || !(statements.get(0) instanceof LogicalPlanAdapter)) {
+                    throw new IllegalArgumentException("Parameters require a single query statement");
+                }
+                // Reparse on every execution so bindings cannot retain planner state from a previous query.
+                FlightSqlParameters.bind(((LogicalPlanAdapter) statements.get(0)).getStatementContext(), parameters);
+            } catch (RuntimeException e) {
+                handleQueryException(e, originStmt, null, null);
+                for (StatementBase statement : statements) {
+                    if (statement instanceof LogicalPlanAdapter) {
+                        ((LogicalPlanAdapter) statement).getStatementContext().close();
+                    }
+                }
+                return null;
+            }
+        }
+        return statements;
     }
 
     // TODO

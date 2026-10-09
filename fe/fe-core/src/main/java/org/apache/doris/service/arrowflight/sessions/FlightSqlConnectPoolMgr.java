@@ -57,6 +57,9 @@ public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
 
     @Override
     public void unregisterConnection(ConnectContext ctx) {
+        // Use the short-lived prepared-state lock so teardown never waits for a running query
+        // holding the connection monitor before it can cancel that query.
+        ctx.closePreparedQueries();
         // All Flight SQL session teardown paths (idle/query timeout, bearer token expiry, and
         // explicit CloseSession) reach here. Release channel-cached Arrow results before removing
         // the context from the pool.
