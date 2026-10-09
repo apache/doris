@@ -65,6 +65,33 @@ public class PrivInfo implements Writable {
     @SerializedName(value = "userId")
     private String userId;
 
+    @SerializedName(value = "authIntegration")
+    private String authIntegration;
+    @SerializedName(value = "authIdentity")
+    private String authIdentity;
+    @SerializedName(value = "boundAccountLocked")
+    private boolean boundAccountLocked;
+
+    public String getAuthIntegration() {
+        return authIntegration;
+    }
+
+    public String getAuthIdentity() {
+        return authIdentity;
+    }
+
+    public void setAuthenticationBinding(String integration, String identity) {
+        authIntegration = integration;
+        authIdentity = identity;
+        if (integration != null) {
+            PasswordOptions options = passwordOptions == null ? PasswordOptions.UNSET_OPTION : passwordOptions;
+            boundAccountLocked = options.getAccountUnlocked() == -1;
+            // Old CREATE USER replay must install an account lock as well as the random hash.
+            passwordOptions = new PasswordOptions(PasswordOptions.UNSET, PasswordOptions.UNSET,
+                    PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET, -1);
+        }
+    }
+
     private PrivInfo() {
 
     }
@@ -172,6 +199,10 @@ public class PrivInfo implements Writable {
     }
 
     public PasswordOptions getPasswordOptions() {
+        if (authIntegration != null) {
+            return new PasswordOptions(PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET,
+                    PasswordOptions.UNSET, PasswordOptions.UNSET, boundAccountLocked ? -1 : PasswordOptions.UNSET);
+        }
         return passwordOptions == null ? PasswordOptions.UNSET_OPTION : passwordOptions;
     }
 

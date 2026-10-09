@@ -75,13 +75,28 @@ public class AlterUserInfo {
         return null;
     }
 
+    public String getAuthIntegration() {
+        return userDesc.getAuthIntegration();
+    }
+
+    public String getAuthIdentity() {
+        return userDesc.getAuthIdentity();
+    }
+
     public PasswordOptions getPasswordOptions() {
         return passwordOptions;
     }
 
     public AlterUserOpType getOpType() {
+        if (ops.contains(AlterUserOpType.SET_PASSWORD)) {
+            return AlterUserOpType.SET_PASSWORD;
+        }
         Preconditions.checkState(ops.size() == 1, "AlterUserInfo should only carry one operation");
         return ops.iterator().next();
+    }
+
+    public Set<AlterUserOpType> getOps() {
+        return java.util.Collections.unmodifiableSet(ops);
     }
 
     public String getComment() {
@@ -99,7 +114,7 @@ public class AlterUserInfo {
         userDesc.getUserIdent().analyze();
         userDesc.getPassVar().analyze();
 
-        if (userDesc.hasPassword()) {
+        if (userDesc.hasPassword() || userDesc.getAuthIntegration() != null) {
             ops.add(AlterUserOpType.SET_PASSWORD);
         }
 
@@ -125,14 +140,11 @@ public class AlterUserInfo {
         } else if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.UNLOCK_ACCOUNT) {
             ops.add(AlterUserOpType.UNLOCK_ACCOUNT);
         }
-        if (passwordOptions.getExpirePolicySecond() != PasswordOptions.UNSET
-                || passwordOptions.getHistoryPolicy() != PasswordOptions.UNSET
-                || passwordOptions.getPasswordLockSecond() != PasswordOptions.UNSET
-                || passwordOptions.getLoginAttempts() != PasswordOptions.UNSET) {
+        if (passwordOptions.hasPasswordPolicy()) {
             ops.add(AlterUserOpType.SET_PASSWORD_POLICY);
         }
 
-        if (ops.size() != 1) {
+        if (ops.isEmpty() || (ops.size() != 1 && !ops.contains(AlterUserOpType.SET_PASSWORD))) {
             throw new org.apache.doris.common.AnalysisException("Only support doing one type of operation at one time,"
                 + "actual number of type is " + ops.size());
         }

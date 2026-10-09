@@ -35,7 +35,9 @@ public class User implements Comparable<User>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(User.class);
     @SerializedName(value = "userIdentity")
     private UserIdentity userIdentity;
+    @SerializedName(value = "domainUserIdentity")
     private UserIdentity domainUserIdentity;
+    @SerializedName(value = "isSetByDomainResolver")
     private boolean isSetByDomainResolver = false;
     // host is not case sensitive
     protected PatternMatcher hostPattern;
@@ -48,6 +50,28 @@ public class User implements Comparable<User>, GsonPostProcessable {
 
     @SerializedName(value = "comment")
     private String comment;
+
+    @SerializedName(value = "authIntegration")
+    private String authIntegration;
+    @SerializedName(value = "authIdentity")
+    private String authIdentity;
+
+    public String getAuthIntegration() {
+        return authIntegration;
+    }
+
+    public String getAuthIdentity() {
+        return authIdentity;
+    }
+
+    public boolean isAuthenticationBound() {
+        return authIntegration != null;
+    }
+
+    public void setAuthenticationBinding(String integration, String identity) {
+        authIntegration = integration;
+        authIdentity = identity;
+    }
 
     public User() {
     }

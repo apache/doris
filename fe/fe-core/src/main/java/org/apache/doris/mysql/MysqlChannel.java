@@ -163,6 +163,10 @@ public class MysqlChannel implements BytesChannel {
         encryptNetData = ByteBuffer.allocate(sslEngine.getSession().getPacketBufferSize() * 2);
     }
 
+    public boolean isSslMode() {
+        return isSslMode;
+    }
+
     public void setSslMode(boolean sslMode) {
         isSslMode = sslMode;
         if (isSslMode) {

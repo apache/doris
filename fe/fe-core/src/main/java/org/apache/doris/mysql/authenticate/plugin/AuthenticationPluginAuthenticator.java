@@ -91,6 +91,10 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
 
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(request.getUserName(), request.getRemoteIp())
+                != null) {
+            return AuthenticateResponse.failedResponse;
+        }
         AuthenticationRequest pluginRequest = toPluginRequest(request);
         if (!plugin.supports(pluginRequest)) {
             return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
@@ -144,6 +148,9 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
             AuthenticationResult result) {
         Principal principal = Objects.requireNonNull(result.getPrincipal(),
                 "principal is required for successful authentication");
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(qualifiedUser, remoteIp) != null) {
+            return AuthenticateResponse.failedResponse;
+        }
         List<UserIdentity> userIdentities =
                 Env.getCurrentEnv().getAuth().getUserIdentityForExternalAuth(qualifiedUser, remoteIp);
         if (!userIdentities.isEmpty()) {
@@ -153,6 +160,10 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
         if (!Boolean.parseBoolean(integration.getProperty("enable_jit_user", "false"))) {
             LOG.info("Authentication plugin '{}' authenticated user '{}' but JIT is disabled",
                     integration.getType(), qualifiedUser);
+            return AuthenticateResponse.failedResponse;
+        }
+        if (Env.getCurrentEnv().getAuth().hasAuthenticationBinding(qualifiedUser)
+                || Env.getCurrentEnv().getAuth().hasAuthenticationBinding(principal.getName())) {
             return AuthenticateResponse.failedResponse;
         }
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(principal.getName(), remoteIp);

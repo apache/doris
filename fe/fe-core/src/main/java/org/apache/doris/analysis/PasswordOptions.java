@@ -90,6 +90,11 @@ public class PasswordOptions {
         return accountUnlocked;
     }
 
+    public boolean hasPasswordPolicy() {
+        return expirePolicySecond != UNSET || historyPolicy != UNSET || reusePolicy != UNSET
+                || loginAttempts != UNSET || passwordLockSecond != UNSET;
+    }
+
     public void analyze() throws AnalysisException {
         if (expirePolicySecond < -2L) {
             throw new AnalysisException("The password expire time must be DAFAULT or >= 0");

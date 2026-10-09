@@ -1391,7 +1391,8 @@ userIdentify
     ;
 
 grantUserIdentify
-    : userIdentify (IDENTIFIED BY PASSWORD? pwd=STRING_LITERAL)?
+    : userIdentify (IDENTIFIED (BY PASSWORD? pwd=STRING_LITERAL
+        | WITH AUTHENTICATION INTEGRATION integration=identifier (AS identity=STRING_LITERAL)?))?
     ;
 
 explain

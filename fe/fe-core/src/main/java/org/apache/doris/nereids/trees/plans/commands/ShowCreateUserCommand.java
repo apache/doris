@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -96,15 +97,34 @@ public class ShowCreateUserCommand extends ShowCommand {
         sb.append(user);
 
         // user password
-        sb.append(" IDENTIFIED BY *** ");
+        User entry = Env.getCurrentEnv().getAuth().getUserManager().getUserByUserIdentity(user);
+        boolean bound = entry != null && entry.isAuthenticationBound();
+        if (bound) {
+            sb.append(" IDENTIFIED WITH AUTHENTICATION INTEGRATION `")
+                    .append(entry.getAuthIntegration().replace("`", "``")).append("`");
+            if (entry.getAuthIdentity() != null) {
+                sb.append(" AS '").append(entry.getAuthIdentity().replace("\\", "\\\\")
+                        .replace("'", "''")).append("'");
+            }
+        } else {
+            sb.append(" IDENTIFIED BY *** ");
+        }
+
+        if (bound) {
+            List<List<String>> policies = Env.getCurrentEnv().getAuth().getPasswdPolicyManager().getPolicyInfo(user);
+            if (policies.size() > 8 && "true".equalsIgnoreCase(policies.get(8).get(1))) {
+                sb.append(" ACCOUNT_LOCK");
+            }
+        }
 
         // tls requirements
-        if (user.hasSanRequirement()) {
-            sb.append(" REQUIRE SAN '").append(user.getSanRequirementSql()).append("'");
+        UserIdentity tlsIdentity = bound ? entry.getUserIdentity() : user;
+        if (tlsIdentity.hasSanRequirement()) {
+            sb.append(" REQUIRE SAN '").append(tlsIdentity.getSanRequirementSql()).append("'");
         }
 
         // password policy
-        if (Env.getCurrentEnv().getAuth().getPasswdPolicyManager() != null) {
+        if (!bound && Env.getCurrentEnv().getAuth().getPasswdPolicyManager() != null) {
             // policies are : <expirePolicy, historyPolicy, failedLoginPolicy>
             // expirePolicy has two lists: <EXPIRATION_SECONDS>, <PASSWORD_CREATION_TIME>
             // historyPolicy has two lists: <HISTORY_NUM>, <HISTORY_PASSWORDS>

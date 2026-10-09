@@ -35,12 +35,12 @@ suite("test_revoke_role", "account") {
 
     def result = sql """ SHOW GRANTS FOR ${user} """
     assertEquals(result.size(), 1)
-    assertTrue(result[0][7].contains("internal.${dbName}: Select_priv"))
+    assertTrue(result[0][8].contains("internal.${dbName}: Select_priv"))
 
     sql """REVOKE '${role}' from ${user}"""
     result = sql """ SHOW GRANTS FOR ${user} """
     assertEquals(result.size(), 1)
-    assertFalse(result[0][7].contains("internal.${dbName}: Select_priv"))
+    assertFalse(result[0][8].contains("internal.${dbName}: Select_priv"))
 
     sql """DROP USER ${user}"""
     sql """DROP ROLE ${role}"""

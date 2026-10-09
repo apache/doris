@@ -139,6 +139,28 @@ public class PasswordPolicyManager implements Writable {
         passwordPolicy.unlockAccount();
     }
 
+    public boolean isAccountLocked(UserIdentity userIdent) {
+        return getOrCreatePolicy(userIdent).isAccountLocked();
+    }
+
+    public void setBoundAuthentication(UserIdentity userIdent, boolean bound) {
+        PasswordPolicy policy = getOrCreatePolicy(userIdent);
+        policy.setBoundAuthentication(bound, policy.isAccountLocked());
+    }
+
+    public void setBoundAuthentication(UserIdentity userIdent, boolean bound, boolean manuallyLocked) {
+        getOrCreatePolicy(userIdent).setBoundAuthentication(bound, manuallyLocked);
+    }
+
+    public void clearPasswordPolicy(UserIdentity userIdent) {
+        boolean locked = getOrCreatePolicy(userIdent).isAccountLocked();
+        PasswordPolicy policy = PasswordPolicy.createDefault();
+        if (locked) {
+            policy.lockAccount();
+        }
+        policyMap.put(userIdent, policy);
+    }
+
     public void dropUser(UserIdentity userIdent) {
         policyMap.remove(userIdent);
     }

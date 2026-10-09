@@ -33,6 +33,9 @@ public class AuthenticateResponse {
     private UserIdentity userIdentity;
     private boolean isTemp = false;
     private Principal principal;
+    private String authenticationIntegration;
+    private String boundIdentity;
+
     private Set<String> authenticatedRoles = Collections.emptySet();
     private AuthenticationFailureSummary failureSummary;
     private DelegatedCredential delegatedCredential;
@@ -91,6 +94,22 @@ public class AuthenticateResponse {
 
     public void setTemp(boolean temp) {
         isTemp = temp;
+    }
+
+    public String getBoundIdentity() {
+        return boundIdentity;
+    }
+
+    public void setBoundIdentity(String identity) {
+        boundIdentity = identity;
+    }
+
+    public String getAuthenticationIntegration() {
+        return authenticationIntegration;
+    }
+
+    public void setAuthenticationIntegration(String integration) {
+        authenticationIntegration = integration;
     }
 
     public Principal getPrincipal() {

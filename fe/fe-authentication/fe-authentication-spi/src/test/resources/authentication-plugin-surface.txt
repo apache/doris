@@ -4,7 +4,9 @@ org.apache.doris.authentication.spi.AuthenticationPlugin#description():java.lang
 org.apache.doris.authentication.spi.AuthenticationPlugin#initialize(org.apache.doris.authentication.AuthenticationIntegration):void
 org.apache.doris.authentication.spi.AuthenticationPlugin#initialize(org.apache.doris.extension.spi.PluginContext):void
 org.apache.doris.authentication.spi.AuthenticationPlugin#name():java.lang.String
+org.apache.doris.authentication.spi.AuthenticationPlugin#normalizeBoundIdentity(java.lang.String):java.lang.String
 org.apache.doris.authentication.spi.AuthenticationPlugin#reload(org.apache.doris.authentication.AuthenticationIntegration):void
+org.apache.doris.authentication.spi.AuthenticationPlugin#requiresBoundIdentity():boolean
 org.apache.doris.authentication.spi.AuthenticationPlugin#requiresClearPassword():boolean
 org.apache.doris.authentication.spi.AuthenticationPlugin#supports(org.apache.doris.authentication.AuthenticationRequest):boolean
 org.apache.doris.authentication.spi.AuthenticationPlugin#supportsMultiStep():boolean

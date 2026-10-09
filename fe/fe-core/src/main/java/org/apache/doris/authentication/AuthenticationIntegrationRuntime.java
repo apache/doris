@@ -228,6 +228,25 @@ public class AuthenticationIntegrationRuntime {
                 AuthenticationFailureType.ACCESS_DENIED);
     }
 
+    public String normalizeBoundIdentity(AuthenticationIntegrationMeta meta, String rawIdentity)
+            throws AuthenticationException {
+        AuthenticationPlugin plugin = resolvePluginForAuthentication(meta).plugin;
+        if (rawIdentity == null && plugin.requiresBoundIdentity()) {
+            throw new AuthenticationException("Authentication integration " + meta.getName() + " requires AS identity",
+                    AuthenticationFailureType.MISCONFIGURED);
+        }
+        String identity = plugin.normalizeBoundIdentity(rawIdentity);
+        if (identity == null && plugin.requiresBoundIdentity()) {
+            throw new AuthenticationException("Authentication integration " + meta.getName() + " requires AS identity",
+                    AuthenticationFailureType.MISCONFIGURED);
+        }
+        return identity;
+    }
+
+    public boolean requiresClearPassword(AuthenticationIntegrationMeta meta) throws AuthenticationException {
+        return resolvePluginForAuthentication(meta).plugin.requiresClearPassword();
+    }
+
     public RuntimeState getRuntimeState(String integrationName) {
         return runtimeStates.get(integrationName);
     }
