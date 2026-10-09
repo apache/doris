@@ -46,10 +46,17 @@ if sql.startswith('DESC'):
 elif sql.startswith('CREATE TABLE') and scenario == 'flat_ddl_error':
     sys.exit('Wide table creation failed')
 elif 'INSERT INTO' in sql:
+    if '-vvv' in args:
+        print('--------------\n' + sql + '\n--------------')
     if scenario == 'insert_error' or (scenario == 'flat_insert_error' and '_flat`' in sql):
         sys.exit('Generator exited with 23')
-    print("Query OK, 10 rows affected\n{'status':'%s'}" % (
-        'COMMITTED' if scenario == 'unpublished' or (scenario == 'flat_unpublished' and '_flat`' in sql) else 'VISIBLE'))
+    print('Query OK, 10 rows affected')
+    if scenario != 'missing_status':
+        status = ('COMMITTED' if scenario == 'unpublished' or
+                  (scenario == 'flat_unpublished' and '_flat`' in sql) else
+                  'PREPARE' if scenario == 'unexpected_status' else 'VISIBLE')
+        label = 'COMMITTED_label' if scenario == 'committed_label' else 'insert_label'
+        print("{'label':'%s', 'status':'%s', 'txnId':'123'}" % (label, status))
 elif sql.startswith('SELECT (SELECT COUNT(*)'):
     print('10\t9' if scenario == 'flat_row_loss' else '10\t10')
 elif sql.startswith('ANALYZE TABLE') and scenario == 'flat_statistics_error':
@@ -103,7 +110,7 @@ class RunBenchmarkTest(unittest.TestCase):
         self.assertEqual(1, len(self.statements()))
 
     def test_failed_or_unpublished_insert_stops_preparation(self):
-        for scenario in ("insert_error", "unpublished"):
+        for scenario in ("insert_error", "unpublished", "missing_status", "unexpected_status"):
             with self.subTest(scenario=scenario):
                 self.results = self.root / scenario
                 self.calls = self.root / f"{scenario}.jsonl"
@@ -112,6 +119,55 @@ class RunBenchmarkTest(unittest.TestCase):
                 self.assertEqual(1, sum("INSERT INTO" in sql for sql in self.statements()))
                 self.assertFalse((self.results / "result.csv").exists())
                 self.assertTrue((self.results / "prepare.log").read_text())
+
+    def test_visible_status_is_not_confused_with_sql_or_label(self):
+        for benchmark in ("ssb", "tpch", "tpcds"):
+            with self.subTest(benchmark=benchmark):
+                self.results = self.root / benchmark
+                self.calls = self.root / f"{benchmark}.jsonl"
+                result = self.run_benchmark("committed_label", "-d", f"{benchmark}_COMMITTED",
+                                            benchmark=benchmark)
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                log = (self.results / "prepare.log").read_text()
+                self.assertIn(f"{benchmark}_gen_{benchmark}_COMMITTED", log)
+                self.assertIn("'label':'COMMITTED_label'", log)
+                self.assertTrue((self.results / "result.csv").exists())
+
+    def test_visible_in_sql_does_not_hide_an_unpublished_insert(self):
+        result = self.run_benchmark("unpublished", "-d", "tpch_VISIBLE", benchmark="tpch")
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, sum("INSERT INTO" in sql for sql in self.statements()))
+        self.assertFalse((self.results / "result.csv").exists())
+
+    def test_generator_splits_scale_with_data_and_allow_override(self):
+        for benchmark, property_name in (("tpch", "splits-per-node"), ("tpcds", "split-count")):
+            for scale, splits in ((1, 10), (100, 100), (1000, 1000), (10000, 10000)):
+                for override in (None, 7):
+                    with self.subTest(benchmark=benchmark, scale=scale, override=override):
+                        name = f"{benchmark}-{scale}-{override}"
+                        self.results = self.root / name
+                        self.calls = self.root / f"{name}.jsonl"
+                        options = ("-s", str(scale))
+                        if override is not None:
+                            options += ("--splits", str(override))
+                        # Stop at the first data import: this test checks catalog configuration.
+                        result = self.run_benchmark("insert_error", *options, benchmark=benchmark)
+                        self.assertNotEqual(0, result.returncode)
+                        self.assertIn("Generator exited with 23", result.stderr)
+                        expected = override if override is not None else splits
+                        catalog = self.statements()[1]
+                        self.assertIn(f"'trino.{benchmark}.{property_name}'='{expected}'", catalog)
+
+    def test_invalid_splits_are_rejected_before_connecting(self):
+        for benchmark in ("tpch", "tpcds"):
+            for splits in ("", "0", "-1", "1.5", "abc", "2147483648", "9223372036854775808"):
+                with self.subTest(benchmark=benchmark, splits=splits):
+                    result = self.run_benchmark("", "--splits", splits, benchmark=benchmark)
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertFalse(self.calls.exists())
+        result = self.run_benchmark("", "--splits", "10", benchmark="ssb")
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse(self.calls.exists())
 
     def test_query_failure_is_reported_and_stops_the_suite(self):
         result = self.run_benchmark("query_error", "--queries-only")

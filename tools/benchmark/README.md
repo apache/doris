@@ -83,10 +83,9 @@ this operator installation step, never from catalog properties.
 These plugins use Trino's Java TPCH/TPCDS generators. They are distinct from the
 native generator versions used by the older file-based scripts; their outputs
 are not asserted to be byte-for-byte identical to those tools. TPCH explicitly
-uses standard prefixed column names and DECIMAL monetary values. Generation uses
-ten splits; each import selects target column names explicitly, so different
-source and destination column orders do not reorder the data. The TPCDS import
-also maps Trino 435's `p_response_targe` spelling to the existing Doris
+uses standard prefixed column names and DECIMAL monetary values. Each import
+selects target column names explicitly, so different source and destination
+column orders do not reorder the data. The TPCDS import also maps Trino 435's `p_response_targe` spelling to the existing Doris
 `promotion.p_response_target` column.
 
 ## Run
@@ -99,11 +98,34 @@ Set each suite's `conf/doris-cluster.conf`, or pass a separate connection file:
 ../ssb-tools/bin/run-ssb.sh -s 1 -d ssb_sf1 -c /path/to/cluster.conf
 ```
 
+TPCH/TPCDS generation defaults to `max(10, SCALE)` splits per table:
+
+| Scale factor | Default generator splits |
+| --- | --- |
+| 1 | 10 |
+| 100 | 100 |
+| 1000 | 1000 |
+| 10000 | 10000 |
+
+Use `--splits COUNT` to override this count during preparation, for example:
+
+```bash
+../tpch-tools/bin/run-tpch.sh -s 1000 -d tpch_sf1000 --splits 256
+```
+
+`COUNT` must be an integer from 1 to 2147483647. The selected count is recorded
+in `prepare.log`; the number of tasks actually executing at once depends on
+cluster resources. `--queries-only` does not recreate or change the generator
+catalog. SSB does not accept `--splits`: it retains the original generator's ten
+lineorder partitions because changing the partition count changes its random
+data streams. SSB dimension tables use one split each.
+
 Preparation requires a **new database**. An existing database is rejected before
 any tables are changed, preventing duplicate appends after a partial load.
-Imports use strict mode and zero filtered rows; errors or a COMMITTED-but-not-yet-
-VISIBLE result abort preparation. Failed runs preserve tables and logs for
-inspection. Do not rerun preparation into that database.
+Imports use strict mode and zero filtered rows. Each INSERT must return a
+`status` field equal to `VISIBLE`; errors, missing status, or any other status
+(including `COMMITTED`) abort preparation. Failed runs preserve tables and logs
+for inspection. Do not rerun preparation into that database.
 
 To repeat measurements against completed data, use `--queries-only`. For TPCDS,
 pass the same scale factor as the imported data, because query constants differ

@@ -33,7 +33,7 @@ benchmark_name=${benchmark^^}
 usage() {
     cat <<EOF
 Usage: run-${benchmark}.sh [-s SCALE] [-c CONFIG] [-d DATABASE] [--queries-only]
-                         [--result-dir DIRECTORY] [--mode both|ssb|flat]
+                         [--result-dir DIRECTORY] [--mode both|ssb|flat] [--splits COUNT]
 
 Create tables, generate and import data through the Trino ${benchmark} connector,
 collect statistics, and run every existing query three times. No data files or
@@ -42,6 +42,8 @@ separate Trino server are needed. Prepare lineorder_flat (SSB), lineitem_flat
 
 SCALE: 1, 100, 1000 (also 10000 for TPCH/TPCDS). Default: 1.
 --mode is only supported by SSB; its default is both.
+--splits is only supported by TPCH/TPCDS; its default is max(10, SCALE).
+COUNT must be an integer from 1 to 2147483647 and applies during preparation.
 Requires mysql and the generator plugin installed on every Doris FE and BE.
 The default connection configuration is conf/doris-cluster.conf.
 Preparation requires a new database. Use --queries-only against completed data.
@@ -53,8 +55,9 @@ config="${SUITE_ROOT}/conf/doris-cluster.conf"
 database=''
 queries_only=0
 mode=''
+generator_splits=''
 result_dir="${SUITE_ROOT}/results/$(date +%Y%m%d-%H%M%S)-$$"
-options=$(getopt -o hs:c:d: -l help,queries-only,mode:,result-dir: -- "$@")
+options=$(getopt -o hs:c:d: -l help,queries-only,mode:,result-dir:,splits: -- "$@")
 eval set -- "${options}"
 while true; do
     case "$1" in
@@ -86,6 +89,15 @@ while true; do
             result_dir=$2
             shift 2
             ;;
+        --splits)
+            # Both Trino connectors parse the split count as a Java int.
+            if [[ ! $2 =~ ^[1-9][0-9]{0,9}$ ]] || (($2 > 2147483647)); then
+                echo '--splits must be an integer from 1 to 2147483647.' >&2
+                exit 1
+            fi
+            generator_splits=$2
+            shift 2
+            ;;
         --)
             shift
             break
@@ -98,12 +110,14 @@ while true; do
 done
 if [[ $# -ne 0 || ! ${scale} =~ ^(1|100|1000|10000)$ ]] ||
     [[ ${benchmark} == ssb && ${scale} == 10000 ]] ||
+    [[ ${benchmark} == ssb && -n ${generator_splits} ]] ||
     [[ ${benchmark} != ssb && -n ${mode} ]] ||
     [[ -n ${mode} && ! ${mode} =~ ^(both|ssb|flat)$ ]]; then
     usage >&2
     exit 1
 fi
 mode=${mode:-both}
+generator_splits=${generator_splits:-$((scale > 10 ? scale : 10))}
 ddl="${SUITE_ROOT}/ddl/create-${benchmark}-tables-sf${scale}.sql"
 flat_tables=()
 flat_keys=()
@@ -127,7 +141,7 @@ case "${benchmark}" in
         generator_properties="'trino.connector.name'='tpch',
             'trino.tpch.column-naming'='STANDARD',
             'trino.tpch.double-type-mapping'='DECIMAL',
-            'trino.tpch.splits-per-node'='10'"
+            'trino.tpch.splits-per-node'='${generator_splits}'"
         ;;
     tpcds)
         tables=(call_center catalog_page catalog_returns catalog_sales customer_address
@@ -146,7 +160,7 @@ case "${benchmark}" in
                 *) ;;
             esac
         done
-        generator_properties="'trino.connector.name'='tpcds', 'trino.tpcds.split-count'='10'"
+        generator_properties="'trino.connector.name'='tpcds', 'trino.tpcds.split-count'='${generator_splits}'"
         ;;
 esac
 
@@ -196,7 +210,7 @@ run_sql() {
 insert_sql() {
     # A successful INSERT can otherwise return COMMITTED before its rows are visible.
     # Preserve the diagnostic and abort rather than benchmark incomplete data or retry a write.
-    local output status=0
+    local output insert_status status=0
     output=$(
         set -e
         run_sql "SET enable_insert_strict=true; SET insert_max_filter_ratio=0;
@@ -207,14 +221,28 @@ insert_sql() {
         printf '%s\n' "${output}" >&2
         return "${status}"
     fi
-    if [[ ${output} == *COMMITTED* ]]; then
-        echo 'INSERT is committed but not yet visible; inspect prepare.log before continuing.' >&2
+    # mysql -vvv also echoes the SQL. Read the status field only from returned
+    # metadata records, so SQL identifiers and label values cannot match it.
+    insert_status=$(awk -F"'" '
+        /^[[:space:]]*\{/ {
+            for (i = 2; i + 2 <= NF; i += 2) {
+                if ($i == "status" && $(i + 1) ~ /^[[:space:]]*:[[:space:]]*$/) {
+                    print $(i + 2)
+                    break
+                }
+            }
+        }' <<<"${output}")
+    if [[ ${insert_status} != VISIBLE ]]; then
+        echo "INSERT did not report VISIBLE (status: ${insert_status:-missing}); inspect prepare.log before continuing." >&2
         return 1
     fi
 }
 
 echo "${benchmark_name} SF${scale}: ${FE_HOST}:${FE_QUERY_PORT}/${database}; results: ${result_dir}"
 if [[ ${queries_only} -eq 0 ]]; then
+    if [[ ${benchmark} != ssb ]]; then
+        echo "Generator splits per table: ${generator_splits}" | tee -a "${result_dir}/prepare.log"
+    fi
     echo "Creating database and Trino ${benchmark_name} catalog"
     # CREATE DATABASE is deliberately not IF NOT EXISTS: a retry must never append
     # the same generated data to these DUPLICATE KEY tables, even after a partial run.
