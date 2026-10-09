@@ -149,6 +149,51 @@ std::string object_with_value(const std::function<void(JsonbWriter&)>& write_val
 
 } // namespace
 
+TEST(DataTypeVariantV2SerdeJsonbTest, VectorSkipsMaskedTypedNonFiniteValues) {
+    auto values = ColumnFloat64::create();
+    values->insert_value(1.5);
+    values->insert_value(std::numeric_limits<double>::quiet_NaN());
+    values->insert_value(2.5);
+    auto column = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), ColumnUInt8::create(3, 0)),
+            std::make_shared<DataTypeFloat64>());
+    DataTypeVariantV2SerDe serde;
+    DataTypeSerDe::FormatOptions options;
+    auto output = ColumnString::create();
+    const std::array<NullMap::value_type, 3> null_map {0, 1, 0};
+    ASSERT_TRUE(serde.serialize_column_to_jsonb_vector(*column, *output, options, null_map.data())
+                        .ok());
+    ASSERT_EQ(output->size(), 3);
+    EXPECT_EQ(output->get_data_at(1).size, 0);
+    const auto first = output->get_data_at(0);
+    const auto last = output->get_data_at(2);
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(first.data, first.size), "1.5");
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(last.data, last.size), "2.5");
+}
+
+TEST(DataTypeVariantV2SerdeJsonbTest, VectorPreservesMaskedEncodedAndConstantRowPositions) {
+    DataTypeVariantV2SerDe serde;
+    DataTypeSerDe::FormatOptions options;
+    const std::array<NullMap::value_type, 3> null_map {0, 1, 0};
+    auto encoded = encoded_json({"1", "null", "2"});
+    auto constant = ColumnConst::create(typed_int(42), 3);
+    for (const IColumn* column : {static_cast<const IColumn*>(encoded.get()),
+                                  static_cast<const IColumn*>(constant.get())}) {
+        auto output = ColumnString::create();
+        ASSERT_TRUE(
+                serde.serialize_column_to_jsonb_vector(*column, *output, options, null_map.data())
+                        .ok());
+        ASSERT_EQ(output->size(), 3);
+        EXPECT_EQ(output->get_data_at(1).size, 0);
+        const auto first = output->get_data_at(0);
+        const auto last = output->get_data_at(2);
+        EXPECT_EQ(JsonbToJson::jsonb_to_json_string(first.data, first.size),
+                  column == encoded.get() ? "1" : "42");
+        EXPECT_EQ(JsonbToJson::jsonb_to_json_string(last.data, last.size),
+                  column == encoded.get() ? "2" : "42");
+    }
+}
+
 TEST(DataTypeVariantV2SerdeJsonbTest, EncodedAndTypedWriteIdenticalBinaryDocumentsAndRoundTrip) {
     DataTypeVariantV2SerDe serde;
     auto typed = typed_int(42);
