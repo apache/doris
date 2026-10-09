@@ -1902,10 +1902,10 @@ TEST(LanceTableReaderVectorSearchTest, SearchFilterDefaultsToPostfilter) {
     EXPECT_TRUE(rows.empty());
     EXPECT_TRUE(reader.close().ok());
 
-    for (const char* name : {"RowIdPrefilterLoads", "RowIdPrefilterInputRows",
-                             "RowIdPrefilterInputBatches", "RowIdPrefilterIds",
-                             "RowIdPrefilterLoadTime", "RowIdPrefilterInputTime",
-                             "RowIdPrefilterBuildTime"}) {
+    for (const char* name :
+         {"RowIdPrefilterLoads", "RowIdPrefilterInputRows", "RowIdPrefilterInputBatches",
+          "RowIdPrefilterIds", "RowIdPrefilterLoadTime", "RowIdPrefilterInputTime",
+          "RowIdPrefilterBuildTime"}) {
         auto* counter = profile.get_counter(name);
         ASSERT_NE(nullptr, counter) << name;
         EXPECT_EQ(0, counter->value()) << name;
