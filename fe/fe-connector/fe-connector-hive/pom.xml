@@ -54,20 +54,15 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- fe-connector-cache: the shared external meta-cache framework (CacheSpec property validation +
-             MetaCacheEntry/CacheFactory). fe-core does NOT depend on it, so under the parent-first
-             org.apache.doris.connector.* prefix these classes resolve parent→miss→CHILD, i.e. they load from
-             this plugin's own bundled jar and link against THIS plugin's Caffeine (below). The hive connector's
-             scan-side metastore/file-listing cache (D2) is backed by MetaCacheEntry, which needs Caffeine at
-             runtime — see the caffeine dependency next. -->
+        <!-- Shared declarative metadata-cache framework used by HMS and file-listing caches. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-cache</artifactId>
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Caffeine: the runtime library the shared meta-cache framework (fe-connector-cache's MetaCacheEntry/
-             CacheFactory) links against. fe-connector-cache declares Caffeine `provided` (compiles against, never
+        <!-- Caffeine: the runtime library the shared meta-cache framework links against.
+             fe-connector-cache declares Caffeine `provided` (compiles against, never
              bundles), so each consuming plugin must carry its own Caffeine. Unlike the iceberg plugin (which gets
              2.9.3 transitively from iceberg-core), hive has no Caffeine on its classpath, so declare it here so
              it is bundled into the hive plugin zip (mirrors fe-connector-paimon). Pinned to 2.9.3 to match the
@@ -119,6 +114,14 @@ under the License.
             <artifactId>log4j-api</artifactId>
         </dependency>
 
+        <!-- Match the parser used by Hive 3.1.3 for reader-compatibility tests only. -->
+        <dependency>
+            <groupId>net.sf.opencsv</groupId>
+            <artifactId>opencsv</artifactId>
+            <version>2.3</version>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -151,6 +154,13 @@ under the License.
     <build>
         <finalName>doris-fe-connector-hive</finalName>
         <plugins>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Hive 3's real SerDe initializes StringInternUtils, which reflects on URI on Java 17. -->
+                    <argLine>@{argLine} --add-opens=java.base/java.net=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
             <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>

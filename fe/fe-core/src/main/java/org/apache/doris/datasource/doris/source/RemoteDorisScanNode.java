@@ -44,29 +44,21 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TRemoteDorisFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-import org.apache.arrow.flight.CallOptions;
-import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightEndpoint;
 import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.Location;
-import org.apache.arrow.flight.grpc.CredentialCallOption;
-import org.apache.arrow.flight.sql.FlightSqlClient;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.memory.RootAllocator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class RemoteDorisScanNode extends FileQueryScanNode {
@@ -78,6 +70,18 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     private final List<String> filters = new ArrayList<String>();
 
     private RemoteDorisSource source;
+
+    // The Flight SQL session this scan opened on the remote frontend, from getSplits until stop()
+    // closes it (see RemoteDorisFlightSession for why it must live that long and no longer). All
+    // three guarded by this: stop() may run on another thread than the one that planned the query -
+    // a KILL, the timeout checker - and more than once (cancel, then close).
+    private RemoteDorisFlightSession flightSession;
+    private boolean stopped;
+    // Whether stop() ended a session this scan had opened: the endpoints handed to the backend
+    // belong to that session's query, and a plan dispatched again with them (the same-plan retry
+    // of StmtExecutor.handleQueryWithRetry) would read what the remote frontend may have torn
+    // down with the session.
+    private boolean sessionClosedByStop;
 
     public RemoteDorisScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
                                SessionVariable sv, ScanContext scanContext) {
@@ -177,7 +181,8 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
                     source.nextHostAndArrowPort(),
                     source.getCatalog().getUsername(),
                     source.getCatalog().getPassword(),
-                    queryStr
+                    queryStr,
+                    source.getCatalog().getQueryTimeoutSec()
                 );
             } catch (Exception e) {
                 LOG.warn("arrow request node [{}] failures {}, try next nodes",
@@ -189,17 +194,98 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
         throw new RuntimeException("Failed to execute query: " + queryStr, lastException);
     }
 
-    private List<Pair<String, ByteBuffer>> executeFlightSqlQuery(Pair<String, Integer> hostAndPort,
-                     String user, String psw, String sql) throws Exception {
-        try (
-                BufferAllocator allocatorFE = new RootAllocator();
-                FlightClient clientFE = createFlightClient(allocatorFE, hostAndPort);
-                FlightSqlClient sqlClientFE = new FlightSqlClient(clientFE)
-        ) {
-            CredentialCallOption credentialCallOption = authenticate(clientFE, user, psw);
-            FlightInfo info = executeSqlWithTimeout(sqlClientFE, sql, credentialCallOption);
+    // Opens a Flight SQL session on the remote frontend and runs the query in it. The session is
+    // kept until stop(): its query serves the BE's DoGet of the endpoints returned here. A session
+    // whose query failed is closed right away, so a retry on the next node leaves nothing behind.
+    @VisibleForTesting
+    List<Pair<String, ByteBuffer>> executeFlightSqlQuery(Pair<String, Integer> hostAndPort,
+                     String user, String psw, String sql, int timeoutSec) throws Exception {
+        RemoteDorisFlightSession session = RemoteDorisFlightSession.open(hostAndPort, user, psw);
+        FlightInfo info;
+        try {
+            info = session.execute(sql, timeoutSec);
+        } catch (Throwable t) {
+            session.close();
+            throw t;
+        }
+        keepFlightSession(session);
+        return processFlightEndpoints(info.getEndpoints());
+    }
 
-            return processFlightEndpoints(info.getEndpoints());
+    /**
+     * Holds {@code session} until {@link #stop()}. A session handed over after stop() already ran,
+     * or on top of one still held, is closed at once instead: this scan owns one session at most,
+     * and none once stopped. The statement registers the node as well: stop() is the coordinator's
+     * to call, but a plan that never gets one, or whose coordinator nobody closes, is stopped when
+     * the statement ends instead ({@link org.apache.doris.nereids.StatementContext#stopScanNodeAtClose}).
+     */
+    @VisibleForTesting
+    void keepFlightSession(RemoteDorisFlightSession session) {
+        RemoteDorisFlightSession toClose;
+        synchronized (this) {
+            if (stopped) {
+                toClose = session;
+            } else {
+                toClose = flightSession;
+                flightSession = session;
+            }
+        }
+        if (toClose != null) {
+            toClose.close();
+        }
+        if (toClose != session) {
+            ConnectContext.get().getStatementContext().stopScanNodeAtClose(this);
+        }
+    }
+
+    /**
+     * True once {@link #stop()} ended the session this scan opened: the endpoints in its scan
+     * ranges belong to that session's query on the remote frontend, so the same plan must not be
+     * dispatched again (see {@link ScanNode#cannotBeRedispatched()}).
+     */
+    @Override
+    public boolean cannotBeRedispatched() {
+        synchronized (this) {
+            return sessionClosedByStop;
+        }
+    }
+
+    /**
+     * True while this scan holds a Flight SQL session on the remote frontend: the local coordinator
+     * has to stay alive until the BE has finished reading the remote query, since closing it is what
+     * ends the session ({@link #stop()}) - and the remote frontend cancels what a closed session was
+     * still running. Without this, an Arrow Flight SQL query on this frontend would close its
+     * coordinator right after dispatch (#67503), while its BE may still be reading.
+     */
+    @Override
+    public boolean coordinatorMustOutliveDispatch() {
+        if (super.coordinatorMustOutliveDispatch()) {
+            return true;
+        }
+        synchronized (this) {
+            return flightSession != null;
+        }
+    }
+
+    /**
+     * Ends the Flight SQL session on the remote frontend, in addition to what {@code FileQueryScanNode}
+     * releases. Called by the coordinator when the local query closes or is cancelled, i.e. when the
+     * BE is done with (or gave up on) the remote query's endpoints.
+     */
+    @Override
+    public void stop() {
+        super.stop();
+        RemoteDorisFlightSession session;
+        synchronized (this) {
+            stopped = true;
+            session = flightSession;
+            flightSession = null;
+            if (session != null) {
+                sessionClosedByStop = true;
+            }
+        }
+        if (session != null) {
+            session.close();
         }
     }
 
@@ -288,27 +374,6 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     private boolean isExplainStatement() {
         return ConnectContext.get().getStatementContext().getOriginStatement().originStmt
             .trim().toLowerCase().startsWith("explain");
-    }
-
-    private FlightClient createFlightClient(BufferAllocator allocator,
-                                            Pair<String, Integer> hostAndPort) throws Exception {
-        URI uri = new URI("grpc", null, hostAndPort.first, hostAndPort.second, null, null, null);
-        return FlightClient.builder(allocator, new Location(uri)).build();
-    }
-
-    private CredentialCallOption authenticate(FlightClient client, String user, String psw) throws UserException {
-        Optional<CredentialCallOption> credentialCallOption = client.authenticateBasicToken(user, psw);
-        if (!credentialCallOption.isPresent()) {
-            throw new UserException("Authenticates with a username and password failure");
-        }
-        return credentialCallOption.get();
-    }
-
-    private FlightInfo executeSqlWithTimeout(FlightSqlClient sqlClient, String sql,
-                                             CredentialCallOption credentialCallOption) {
-        int timeoutSec = source.getCatalog().getQueryTimeoutSec();
-        return sqlClient.execute(sql, credentialCallOption,
-            CallOptions.timeout(timeoutSec, TimeUnit.SECONDS));
     }
 
     private List<Pair<String, ByteBuffer>> processFlightEndpoints(List<FlightEndpoint> endpoints) {

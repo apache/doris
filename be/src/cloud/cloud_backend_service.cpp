@@ -18,6 +18,7 @@
 #include "cloud/cloud_backend_service.h"
 
 #include <brpc/controller.h>
+#include <gen_cpp/Status_types.h>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"

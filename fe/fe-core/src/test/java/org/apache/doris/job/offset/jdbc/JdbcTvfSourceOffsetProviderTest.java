@@ -19,8 +19,8 @@ package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -37,10 +37,10 @@ public class JdbcTvfSourceOffsetProviderTest {
 
         provider.ensureInitialized(1L, properties);
 
-        Assert.assertEquals("jdbc:mysql://127.0.0.1:3306/test?yearIsDateType=false"
+        Assertions.assertEquals("jdbc:mysql://127.0.0.1:3306/test?yearIsDateType=false"
                         + "&tinyInt1isBit=false&useUnicode=true&characterEncoding=utf-8",
                 provider.getSourceProperties().get(DataSourceConfigKeys.JDBC_URL));
-        Assert.assertEquals("jdbc:mysql://127.0.0.1:3306/test",
+        Assertions.assertEquals("jdbc:mysql://127.0.0.1:3306/test",
                 properties.get(DataSourceConfigKeys.JDBC_URL));
     }
 }

@@ -366,7 +366,8 @@ class OlapScanNodeBackendSelectionConfigTest {
         Mockito.when(partition.getId()).thenReturn(10L);
         Mockito.when(partition.getVisibleVersion()).thenReturn(10L);
 
-        Deencapsulation.setField(scanNode, "tabletId2BucketSeq", ImmutableMap.of(20L, 0));
+        Deencapsulation.setField(scanNode, "tabletId2BucketInfo",
+                ImmutableMap.of(20L, 1L << Integer.SIZE));
         Deencapsulation.invoke(scanNode, "addScanRangeLocations",
                 partition, ImmutableList.of(tablet), ImmutableMap.of());
         return scanNode.getScanRangeLocations(0);

@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -35,7 +36,6 @@ import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.scan.ExternalScanNode;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.load.loadv2.LoadJob;
@@ -78,7 +78,6 @@ import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
@@ -89,7 +88,6 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
@@ -138,6 +136,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
@@ -158,7 +157,6 @@ import org.jetbrains.annotations.NotNull;
 import org.joda.time.DateTime;
 
 import java.security.SecureRandom;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -236,6 +234,7 @@ public class Coordinator implements CoordInterface {
     private final List<PlanFragment> fragments;
 
     private Map<Long, PipelineExecContexts> beToPipelineExecCtxs = Maps.newHashMap();
+    private final Set<Long> dispatchedBackendIdsForAudit = Sets.newConcurrentHashSet();
 
     private final Map<Pair<Integer, Long>, PipelineExecContext> pipelineExecContexts = new HashMap<>();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
@@ -368,16 +367,8 @@ public class Coordinator implements CoordInterface {
         }
         setFromUserProperty(context);
 
-        this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
-        this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
+        CoordinatorContext.refreshQueryGlobals(this.queryGlobals, context);
         this.queryGlobals.setLoadZeroTolerance(false);
-        if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-        } else {
-            this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-        }
-        this.queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
 
@@ -400,10 +391,7 @@ public class Coordinator implements CoordInterface {
         this.queryOptions = new TQueryOptions();
         this.queryOptions.setEnableProfile(enableProfile);
         this.queryOptions.setProfileLevel(2);
-        this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
-        this.queryGlobals.setTimeZone(timezone);
-        this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
+        CoordinatorContext.setQueryGlobalsForLoad(this.queryGlobals, timezone, loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setNewVersionUnixTimestamp(true);
         this.queryOptions.setNewVersionPercentile(true);
@@ -779,6 +767,10 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
+        Status status = getQueryStatus();
+        if (!status.ok()) {
+            throw new UserException(status.getErrorMsg());
+        }
         // LoadTask does not have context, not controlled by queue now
         if (context != null) {
             if (Config.enable_workload_group) {
@@ -797,8 +789,12 @@ public class Coordinator implements CoordInterface {
                     // AllBackendComputeGroup may assocatiate with multiple workload groups
                     queryQueue = wgs.get(0).getQueryQueue();
                     queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
-                    queueToken.get(DebugUtil.printId(queryId),
-                            this.queryOptions.getExecutionTimeout() * 1000);
+                    try {
+                        queueToken.get(DebugUtil.printId(queryId),
+                                this.queryOptions.getExecutionTimeout() * 1000);
+                    } catch (UserException e) {
+                        throw preferTerminalReason(e);
+                    }
                 }
                 context.setWorkloadGroupName(wgs.get(0).getName());
             } else {
@@ -806,6 +802,28 @@ public class Coordinator implements CoordInterface {
             }
         }
         execInternal();
+    }
+
+    /**
+     * Whether the BE still depends on this coordinator after {@link #exec()} returned, so it must
+     * not be closed until the BE has finished scanning: one of its scan nodes holds something on
+     * the FE that the BE scans with and that {@link #close()} releases
+     * ({@link ScanNode#coordinatorMustOutliveDispatch()}) - the split source an external-table
+     * scan in batch mode fetches its splits from lazily, or the Flight SQL session a remote Doris
+     * scan keeps open on the other frontend. Arrow Flight SQL uses this to decide whether a
+     * query's coordinator has to outlive GetFlightInfo, the client pulling the results from the BE
+     * later in DoGet. See #62259.
+     */
+    public boolean mustOutliveDispatch() {
+        if (scanNodes == null) {
+            return false;
+        }
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode.coordinatorMustOutliveDispatch()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -869,7 +887,7 @@ public class Coordinator implements CoordInterface {
                             toBrpcHost(param.host), this.timeoutDeadline,
                             context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
                 } else {
-                    Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                    // The client pulls the result from the backend (Arrow Flight SQL); register where.
                     TUniqueId finstId;
                     if (enableParallelResultSink) {
                         finstId = queryId;
@@ -912,6 +930,9 @@ public class Coordinator implements CoordInterface {
     protected void sendPipelineCtx() throws Exception {
         lock();
         try {
+            if (!queryStatus.ok()) {
+                throw new UserException(queryStatus.getErrorMsg());
+            }
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
             for (FragmentExecParams params : fragmentExecParamsMap.values()) {
                 for (FInstanceExecParam fi : params.instanceExecParams) {
@@ -922,6 +943,7 @@ public class Coordinator implements CoordInterface {
             int backendIdx = 0;
             int profileFragmentId = 0;
             beToPipelineExecCtxs.clear();
+            dispatchedBackendIdsForAudit.clear();
             // fragment:backend
             List<Pair<PlanFragmentId, Long>> backendFragments = Lists.newArrayList();
             // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
@@ -1050,6 +1072,8 @@ public class Coordinator implements CoordInterface {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(ctxs.debugInfo());
                 }
+                // Include uncertain RPC outcomes, but never a planned backend whose dispatch was not attempted.
+                dispatchedBackendIdsForAudit.add(ctxs.getBackend().getId());
                 futures.add(Pair.of(DateTime.now().getMillis(),
                         ImmutableTriple.of(ctxs, proxy, ctxs.execRemoteFragmentsAsync(proxy))));
             }
@@ -1396,12 +1420,6 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void cancel(Status cancelReason) {
-        if (queueToken != null) {
-            queueToken.cancel();
-        }
-        for (ScanNode scanNode : scanNodes) {
-            scanNode.stop();
-        }
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is "
                     + cancelReason.toString());
@@ -1426,6 +1444,21 @@ public class Coordinator implements CoordInterface {
         } finally {
             unlock();
         }
+        if (queueToken != null) {
+            queueToken.cancel();
+        }
+        // Scan cleanup is best-effort and must never escape: the terminal status and interval cancellation
+        // above are already published, and a throwing scan would otherwise skip the remaining scans (and the
+        // caller's coordinator close), masking the retained reason. A scan whose first stop() threw still
+        // removes its own sources on the close-time retry because SplitAssignment.stop() is idempotent.
+        for (ScanNode scanNode : scanNodes) {
+            try {
+                scanNode.stop();
+            } catch (Throwable t) {
+                LOG.error("error happens when scannode stop during cancel, query id: {}",
+                        DebugUtil.printId(queryId), t);
+            }
+        }
     }
 
     public boolean isQueryCancelled() {
@@ -1435,6 +1468,28 @@ public class Coordinator implements CoordInterface {
         } finally {
             unlock();
         }
+    }
+
+    protected Status getQueryStatus() {
+        lock();
+        try {
+            return new Status(queryStatus);
+        } finally {
+            unlock();
+        }
+    }
+
+    /**
+     * A queue wait can be unblocked by {@code cancel()}, which records the real TIMEOUT/KILL reason on the
+     * coordinator before cancelling the token, while {@link QueueToken#get} can only report a generic
+     * "query is cancelled". Prefer the retained terminal reason when one is present.
+     */
+    protected UserException preferTerminalReason(UserException queueFailure) {
+        Status current = getQueryStatus();
+        if (!current.ok()) {
+            return new UserException(current.getErrorMsg());
+        }
+        return queueFailure;
     }
 
     private void cancelLatch() {
@@ -2758,8 +2813,7 @@ public class Coordinator implements CoordInterface {
         }
 
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-        boolean hasExternalCommitData = params.isSetHivePartitionUpdates()
-                || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas();
+        boolean hasExternalCommitData = CommitDataSerializer.hasCommitData(params);
         if (ctx == null) {
             if (hasExternalCommitData) {
                 throw new IllegalStateException("Missing fragment handler for external-file report");
@@ -2832,18 +2886,9 @@ public class Coordinator implements CoordInterface {
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
             }
-            if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                    || params.isSetMcCommitDatas()) {
+            if (CommitDataSerializer.hasCommitData(params)) {
                 Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(reportTxnId);
-                if (params.isSetHivePartitionUpdates()) {
-                    CommitDataSerializer.feed(txn, params.getHivePartitionUpdates());
-                }
-                if (params.isSetIcebergCommitDatas()) {
-                    CommitDataSerializer.feed(txn, params.getIcebergCommitDatas());
-                }
-                if (params.isSetMcCommitDatas()) {
-                    CommitDataSerializer.feed(txn, params.getMcCommitDatas());
-                }
+                CommitDataSerializer.feed(txn, params);
             }
 
             accepted = true;
@@ -3843,6 +3888,10 @@ public class Coordinator implements CoordInterface {
             backendAddresses.add(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         }
         return backendAddresses;
+    }
+
+    public Set<Long> getDispatchedBackendIdsForAudit() {
+        return ImmutableSet.copyOf(dispatchedBackendIdsForAudit);
     }
 
     /**

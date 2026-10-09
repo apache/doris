@@ -18,9 +18,9 @@
 package org.apache.doris.common;
 
 import java.io.File;
+import java.lang.reflect.Field;
 
 public class Config extends ConfigBase {
-
     @ConfField(description = "The path of the user-defined configuration file, used to store fe_custom.conf. "
             + "Configurations in this file will override those in fe.conf")
     public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
@@ -362,7 +362,7 @@ public class Config extends ConfigBase {
     @ConfField(description = "Path to the FE TLS private key.")
     public static String tls_private_key_path = "";
 
-    @ConfField(description = "Password for the FE TLS private key.")
+    @ConfField(sensitive = true, description = "Password for the FE TLS private key.")
     public static String tls_private_key_password = "";
 
     @ConfField(description = "Path to the FE TLS CA certificate.")
@@ -393,7 +393,7 @@ public class Config extends ConfigBase {
     public static String key_store_path =  EnvUtils.getDorisHome()
             + "/conf/ssl/doris_ssl_certificate.keystore";
 
-    @ConfField(description = "The key store password of FE https service")
+    @ConfField(sensitive = true, description = "The key store password of FE https service")
     public static String key_store_password = "";
 
     @ConfField(description = "The key store type of FE https service")
@@ -566,6 +566,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas for "
             + "a load job.")
     public static short min_load_replica_num = -1;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
+            + "required in each resource group for a load job.")
+    public static volatile String[] resource_group_load_success_quorum = {};
 
     @ConfField(description = "The interval of the load job scheduler, in seconds.")
     public static int load_checker_interval_second = 5;
@@ -754,7 +758,9 @@ public class Config extends ConfigBase {
             + "Set long enough to fit your tablet size.")
     public static long check_consistency_default_timeout_second = 600; // 10 min
 
-    @ConfField(description = "Maximum number of MySQL server connections per FE.")
+    @ConfField(description = "Maximum number of connections per FE. MySQL connections and Arrow Flight SQL "
+            + "sessions share this one pool (see arrow_flight_max_connections for the share Flight sessions "
+            + "may take of it: half by default).")
     public static int qe_max_connection = 1024;
 
     @ConfField(mutable = true, description = "Colocate join PlanFragment instance memory limit penalty factor. The "
@@ -972,6 +978,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int tablet_further_repair_max_times = 5;
+
+    /**
+     * row binlog replica missing marker timeout.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_binlog_missing_timeout_second = 20 * 60;
+
+    /**
+     * row binlog replica missing marker max times.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int tablet_binlog_missing_max_times = 5;
 
     /**
      * if tablet loaded txn failed recently, it will get higher priority to repair.
@@ -1208,7 +1226,7 @@ public class Config extends ConfigBase {
     public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static int streaming_cdc_fetch_splits_batch_size = 100;
+    public static int streaming_cdc_fetch_splits_batch_size = 16;
 
     /**
      * the max timeout of get kafka meta.
@@ -1515,6 +1533,10 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean enable_http_server_v2 = true;
+
+    @ConfField(mutable = false, masterOnly = false,
+            description = "Whether to enable the FE Web UI and its dedicated APIs.")
+    public static boolean enable_web_ui = true;
 
     /*
      * Base path is the URL prefix for all API paths.
@@ -1837,6 +1859,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = "Temporary compatibility switch that allows HLL, "
+            + "QUANTILE_STATE, and AGG_STATE columns in non-aggregate key tables. Disabled by default. This switch "
+            + "is intended only for migration and will be removed after the compatibility transition period.")
+    public static boolean enable_non_aggregate_table_state_types = false;
+
     /*---------------------- JOB CONFIG START------------------------*/
     /**
      * The number of threads used to dispatch timer job.
@@ -1987,8 +2014,14 @@ public class Config extends ConfigBase {
     /**
      * Max data version of backends serialize block.
      */
+    public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
+    // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
+    public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
+    // Older backends do not recognize PAIMON_TABLE_SINK and cannot execute Paimon writes.
+    public static final int PAIMON_WRITE_MIN_BE_EXEC_VERSION = 16;
+
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 13;
+    public static int max_be_exec_version = PAIMON_WRITE_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -2182,6 +2215,11 @@ public class Config extends ConfigBase {
     @ConfField(description = "The auto-refresh interval of the external meta cache.")
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
+    @ConfField(mutable = false, masterOnly = false,
+            description = "FE-wide maximum weight for managed external metadata caches. Supports byte units "
+                    + "or a percentage of the JVM max heap; 0 disables the global quota.")
+    public static String external_meta_cache_max_weight = "0";
+
     // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
     @ConfField(mutable = true, masterOnly = false,
             description = "Whether external meta cache uses manual miss load instead of Caffeine sync load.")
@@ -2274,6 +2312,42 @@ public class Config extends ConfigBase {
                     + "pruning.")
     public static int cache_partition_meta_table_manage_num = 100;
 
+    @ConfField(
+            mutable = true,
+            callback = NonNegativeMtmvCacheNumConfHandler.class,
+            callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
+            description = "Max mtmv plan cache entries kept by MTMVCacheManager. 0 disables the cache, "
+                    + "negative values are rejected. Default 3000.")
+    public static int mtmv_cache_manage_num = 3000;
+
+    public static class NonNegativeMtmvCacheNumConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 0) {
+                throw new ConfigException(field.getName() + " must not be negative, 0 disables the cache");
+            }
+            field.setInt(null, parsed);
+        }
+    }
+
+    public static void validateMtmvCacheConfig() throws ConfigException {
+        if (mtmv_cache_manage_num < 0) {
+            throw new ConfigException("mtmv_cache_manage_num must not be negative, 0 disables the cache");
+        }
+    }
+
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
+            description = "Idle expiration in seconds for entries in MTMVCacheManager. Default 86400.")
+    public static long expire_mtmv_cache_in_fe_second = 86400;
+
+    @ConfField(
+            mutable = true,
+            description = "Row cap for SHOW PROC '/mtmv_cache/hot'. Default 500.")
+    public static int mtmv_cache_hot_show_num = 500;
+
     /**
      * HBO plan stats. cache number which can be reused for the next query.
      */
@@ -2356,13 +2430,13 @@ public class Config extends ConfigBase {
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(sensitive = true, mutable = false, masterOnly = false)
     public static String mysql_ssl_default_ca_certificate_password = "doris";
 
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(sensitive = true, mutable = false, masterOnly = false)
     public static String mysql_ssl_default_server_certificate_password = "doris";
 
     /**
@@ -2621,8 +2695,38 @@ public class Config extends ConfigBase {
             + "automatically. Set to 0 or negative value to disable " + "this limit for user-specified buckets.")
     public static int max_bucket_num_per_partition = 768;
 
-    @ConfField(description = "Maximum number of connections for the Arrow Flight Server per FE.")
-    public static int arrow_flight_max_connections = 4096;
+    @ConfField(description = "Arrow Flight SQL sessions share the one connection pool with MySQL connections:"
+            + " both count against qe_max_connection and the user's max_user_connections. This is the sub-quota of"
+            + " Arrow Flight SQL sessions within that pool: -1 (the default) is half of qe_max_connection (512 with"
+            + " the default pool of 1024), and an explicit value never exceeds qe_max_connection (a larger one is"
+            + " capped, with a warning at startup). A session that does not fit is refused when it is opened, at"
+            + " the handshake that authenticates the user, in the words a MySQL client is refused in. A Flight"
+            + " session ends with CloseSession, a KILL CONNECTION from another connection, or wait_timeout, and"
+            + " its bearer token is valid exactly as long as it. A client that closes without CloseSession (the"
+            + " ADBC drivers send it; the Flight SQL JDBC driver only for a connection opened with a catalog) or"
+            + " that died leaves its session in the pool until wait_timeout (8 hours by default; lower it,"
+            + " globally or for the session, to reclaim such sessions sooner), and the default leaves the other"
+            + " half of the pool to MySQL connections however many such sessions there are. Raise it with"
+            + " qe_max_connection, or set it to qe_max_connection on an FE that serves Arrow Flight SQL only."
+            + " A client that authenticates again for each connection it opens to fetch a result (the Flight SQL"
+            + " JDBC driver before 15.0.0; later versions reuse the token) opens a session each time, which"
+            + " stays until wait_timeout as well. -1 is accepted from this version on: an older FE that serves"
+            + " Arrow Flight SQL exits at startup with -1 in fe.conf; remove the setting or set a positive value"
+            + " before a downgrade.")
+    public static int arrow_flight_max_connections = -1;
+
+    @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
+            + "batch mode keeps its FE coordinator alive after GetFlightInfo, so the BE can keep fetching splits "
+            + "while the client pulls the results (DoGet); that coordinator is normally released when the "
+            + "session runs its next query or is closed. Most Flight clients never close a session, so the "
+            + "coordinator, and with it the query's workload group queue slot and its active_queries entry, "
+            + "would otherwise stay held until wait_timeout. Once this many seconds have passed since the query "
+            + "started and the session is not running a statement, the coordinator is released anyway; each "
+            + "such query is bounded on its own, and the session's other commands in the meantime (a session "
+            + "option, a metadata request) neither release it earlier nor keep it longer. The bound is never "
+            + "shorter than the query's own execution timeout, and the session itself is not killed "
+            + "(wait_timeout still governs that). 0 disables the bound.")
+    public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
 
     @ConfField(mutable = true, masterOnly = true, description = "In auto bucketing, the number of buckets is "
             + "estimated based on the partition size. For storage "
@@ -2637,14 +2741,31 @@ public class Config extends ConfigBase {
             + "an abnormal case and triggers an alert.")
     public static double autobucket_out_of_bounds_percent_threshold = 0.5;
 
-    @ConfField(description = "(Deprecated, replaced by arrow_flight_max_connection) The cache limit of all user "
-            + "tokens in Arrow Flight Server, which will be eliminated by LRU rules after exceeding "
-            + "the limit. Arrow Flight SQL is a stateless protocol; the connection is usually not "
-            + "actively disconnected. A bearer token evicted from the cache will unregister its " + "ConnectContext.")
+    /**
+     * @deprecated No-op: a bearer token of the Arrow Flight SQL server is the credential of exactly one
+     *     session and lives as long as it, so there is no token cache to size; the sessions are bounded by
+     *     the connection pool (qe_max_connection, arrow_flight_max_connections, max_user_connections).
+     *     Retained for one release so operator fe.conf that sets it still parses (a value other than the
+     *     default is reported at startup); will be removed later.
+     */
+    @Deprecated
+    @ConfField(description = "Deprecated and not read: a bearer token of the Arrow Flight SQL server is the"
+            + " credential of exactly one session and lives as long as it (see arrow_flight_max_connections for"
+            + " what bounds the sessions). Kept so that a fe.conf setting it still parses; it will be removed in"
+            + " a later release.")
     public static int arrow_flight_token_cache_size = 4096;
 
-    @ConfField(description = "The alive time of the user token in Arrow Flight Server (expire after write), in "
-            + "seconds. The default value is 86400, which is 1 day.")
+    /**
+     * @deprecated No-op: a bearer token of the Arrow Flight SQL server lives exactly as long as its session,
+     *     which ends with CloseSession, KILL CONNECTION or wait_timeout; there is no expiry of its own.
+     *     Retained for one release so operator fe.conf that sets it still parses (a value other than the
+     *     default is reported at startup); will be removed later.
+     */
+    @Deprecated
+    @ConfField(description = "Deprecated and not read: a bearer token of the Arrow Flight SQL server lives"
+            + " exactly as long as its session, which ends with CloseSession, KILL CONNECTION or wait_timeout"
+            + " (see arrow_flight_max_connections). Kept so that a fe.conf setting it still parses; it will be"
+            + " removed in a later release.")
     public static int arrow_flight_token_alive_time_second = 86400;
 
     @ConfField(mutable = true, description = "To ensure compatibility with the MySQL ecosystem, Doris includes a "
@@ -2670,6 +2791,10 @@ public class Config extends ConfigBase {
             + "and use of Python UDF is disabled. In some scenarios it may be necessary to disable "
             + "this configuration to prevent command injection attacks.")
     public static boolean enable_python_udf = true;
+
+    @ConfField(description = "The user identity allowed to create AI resources, in the form 'user'@'host'. "
+            + "The default value '*' allows any user that satisfies the existing privilege checks.")
+    public static String ai_resource_allowed_user = "*";
 
     @ConfField(description = "Whether to ignore unknown modules in Image file. If true, metadata modules not in "
             + "PersistMetaModules.MODULE_NAMES will be ignored and skipped. Default is false, if Image "
@@ -2743,16 +2868,14 @@ public class Config extends ConfigBase {
             + "BE in partition rebalance mode. If it is less than " + "this value, it will be diagnosed as balanced.")
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 
-    @ConfField(masterOnly = true, description = "Set root user initial 2-staged SHA-1 encrypted password, default as "
+    @ConfField(sensitive = true, masterOnly = true, description = "Set root user initial 2-staged SHA-1 "
+            + "encrypted password, default as "
             + "'', means no root password. Subsequent `set password` operations for "
             + "root user will overwrite the initial root password. Example: If you "
             + "want to configure a plaintext password `root@123`.You can execute "
             + "Doris SQL `select password('root@123')` to generate encrypted "
             + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`")
     public static String initial_root_password = "";
-
-    @ConfField(description = "The path of the nereids trace file.")
-    public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
     @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to an "
             + "upload task during the backup process. The default " + "value is 10.")
@@ -2784,6 +2907,64 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false, description = "The maximum number of worker threads for the HTTP "
             + "SQL submitter.")
     public static int http_sql_submitter_max_worker_threads = 2;
+
+    @ConfField(mutable = true, masterOnly = false,
+            description = "Whether to enable stateful Web SQL HTTP sessions.")
+    public static boolean enable_web_sql_session = true;
+
+    @ConfField(mutable = true, masterOnly = false, callback = PositiveWebSqlIntegerConfHandler.class,
+            description = "Idle timeout for Web SQL sessions, in seconds.")
+    public static int web_sql_session_idle_timeout_seconds = 1800;
+
+    @ConfField(mutable = true, masterOnly = false, callback = PositiveWebSqlIntegerConfHandler.class,
+            description = "Maximum number of Web SQL sessions on one FE.")
+    public static int web_sql_max_sessions = 100;
+
+    /** Rejects non-positive dynamic Web SQL session limits. */
+    public static class PositiveWebSqlIntegerConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsed = Integer.parseInt(value);
+            if (parsed <= 0) {
+                throw new ConfigException(field.getName() + " must be greater than 0");
+            }
+            field.setInt(null, parsed);
+        }
+    }
+
+    public static final long WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND = 100L * 1024 * 1024;
+
+    /** Validates Web SQL limits loaded from fe.conf and fe_custom.conf at FE startup. */
+    public static void validateWebSqlConfig() throws ConfigException {
+        if (web_sql_session_idle_timeout_seconds <= 0) {
+            throw new ConfigException("web_sql_session_idle_timeout_seconds must be greater than 0");
+        }
+        if (web_sql_max_sessions <= 0) {
+            throw new ConfigException("web_sql_max_sessions must be greater than 0");
+        }
+        if (web_sql_max_result_bytes <= 0
+                || web_sql_max_result_bytes > WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND) {
+            throw new ConfigException("web_sql_max_result_bytes must be between 1 and "
+                    + WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND);
+        }
+    }
+
+    @ConfField(mutable = true, masterOnly = false, callback = WebSqlMaxResultBytesConfHandler.class,
+            description = "Approximate maximum result bytes for one Web SQL statement.")
+    public static long web_sql_max_result_bytes = 10 * 1024 * 1024;
+
+    /** Validates dynamic Web SQL result limits before publishing them to running statements. */
+    public static class WebSqlMaxResultBytesConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            long parsed = Long.parseLong(value);
+            if (parsed <= 0 || parsed > WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND) {
+                throw new ConfigException("web_sql_max_result_bytes must be between 1 and "
+                        + WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND);
+            }
+            field.setLong(null, parsed);
+        }
+    }
 
     @ConfField(mutable = true, masterOnly = true, description = "The threshold of load labels' number. After this "
             + "number is exceeded, the labels of the completed " + "import jobs or tasks will be deleted, and the "
@@ -2827,6 +3008,12 @@ public class Config extends ConfigBase {
             description = "Default storage format of inverted index, the default value is V3.")
     public static String inverted_index_storage_format = "V3";
 
+    @ConfField(mutable = true, masterOnly = true,
+            callback = PartitionInvertedIndexStorageFormatRolloutConfHandler.class, description = "Whether to "
+            + "enable partition inverted-index storage format rollout, the "
+            + "default value is false.")
+    public static boolean enable_partition_inverted_index_storage_format_rollout = false;
+
     @ConfField(mutable = true, masterOnly = true, description = "Enable the 'delete predicate' for DELETE statements. "
             + "If enabled, it will enhance the performance of " + "DELETE statements, but partial column updates after "
             + "a DELETE may result in erroneous data. If disabled, "
@@ -2866,9 +3053,6 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";
-
-    @ConfField
-    public static String spilled_minidump_storage_path = System.getenv("LOG_DIR") + File.separator + "minidump";
 
     // The max number of profiles that can be stored to storage.
     @ConfField
@@ -3247,8 +3431,20 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_warm_up_timeout_second = 86400 * 30; // 30 days
 
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true,
+            callback = PositiveCloudWarmUpSchedulerIntervalConfHandler.class)
     public static int cloud_warm_up_job_scheduler_interval_millisecond = 1000; // 1 seconds
+
+    public static class PositiveCloudWarmUpSchedulerIntervalConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsedValue = Integer.parseInt(value.trim());
+            if (parsedValue <= 0) {
+                throw new ConfigException(field.getName() + " must be greater than 0");
+            }
+            field.setInt(null, parsedValue);
+        }
+    }
 
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
@@ -3352,6 +3548,13 @@ public class Config extends ConfigBase {
                     + "other BEs in cloud mode.")
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = "Whether to drop the primary/secondary route entries of a CloudReplica whose backend no "
+                    + "longer exists, when loading the image and in the tablet rebalancer round. Those entries are "
+                    + "already ignored at query time (the replica is rehashed), so they only waste FE memory and "
+                    + "image size. Set to false to keep the legacy leaking behavior. Default is true.")
+    public static boolean enable_cloud_replica_stale_route_clean = true;
+
     @ConfField(mutable = false, masterOnly = true,
             description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "
                     + "use the legacy modulo placement. Restart-only.")
@@ -3378,7 +3581,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "Cloud table and partition version syncer interval. All frontends will perform the "
             + "checking.")
-    public static int cloud_version_syncer_interval_second = 20;
+    public static int cloud_version_syncer_interval_second = 60;
 
     @ConfField(mutable = true, description = "Whether to enable the function of syncing table and partition version "
             + "in cloud mode.")
@@ -3391,7 +3594,10 @@ public class Config extends ConfigBase {
     public static int cloud_sync_version_task_threads_num = 4;
 
     @ConfField(mutable = true, description = "Maximum table or partition batch size for get version tasks.")
-    public static int cloud_get_version_task_batch_size = 2000;
+    public static int cloud_get_version_task_batch_size = 200;
+
+    @ConfField(mutable = true, description = "Maximum retry times for cloud version syncer get version tasks.")
+    public static int cloud_version_syncer_get_version_retry_times = 3;
 
     @ConfField(mutable = true, description = "Whether to enable retry when a schema change job fails, default is true.")
     public static boolean enable_schema_change_retry = true;
@@ -3415,7 +3621,12 @@ public class Config extends ConfigBase {
     public static int meta_service_rpc_timeout_retry_times = 1;
 
     @ConfField(mutable = true, description = "Whether to enable QPS rate limit for RPC requests to meta service.")
-    public static boolean meta_service_rpc_rate_limit_enabled = false;
+    public static boolean meta_service_rpc_rate_limit_enabled = true;
+
+    @ConfField(mutable = true, description = "Whether to only evaluate and report meta service RPC rate limits "
+            + "without waiting or rejecting requests. This takes effect only when meta service RPC rate limiting "
+            + "is enabled.")
+    public static boolean meta_service_rpc_rate_limit_dry_run = true;
 
     @ConfField(mutable = true, description = "Default QPS limit for each method (requests per second) in each cpu "
             + "core, non-positive value (<= 0) means no limit")
@@ -3471,8 +3682,8 @@ public class Config extends ConfigBase {
     public static int tso_max_get_retry_count = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = "TSO service time window in milliseconds. Default is "
-            + "5000, which means the TSO service will apply for a " + "TSO time window of 5000ms from BDBJE once.")
-    public static int tso_service_window_duration_ms = 5000;
+            + "1000. Persist the readable committed TSO together with the reserved allocation window.")
+    public static int tso_service_window_duration_ms = 1000;
 
     @ConfField(mutable = true, masterOnly = true, description = "Max tolerated clock backward threshold during TSO "
             + "calibration in milliseconds. Exceeding this " + "threshold will fail enabling TSO. Default is 30 "
@@ -3561,9 +3772,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Whether to allow the use of inverted index v1 for "
             + "variant.")
     public static boolean enable_inverted_index_v1_for_variant = false;
-
-    @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
-    public static boolean enable_variant_v2 = false;
 
     @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;

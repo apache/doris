@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -30,17 +31,19 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.function.Predicate;
 
 public class OlapTableStream extends BaseTableStream {
 
@@ -58,17 +61,16 @@ public class OlapTableStream extends BaseTableStream {
         super();
     }
 
-    public OlapTableStream(long id, String streamName, List<Column> fullSchema, TableIf baseTable) {
-        super(id, streamName, fullSchema, baseTable);
+    public OlapTableStream(long id, String streamName, TableIf baseTable) {
+        super(id, streamName, baseTable);
         Preconditions.checkArgument(baseTable instanceof OlapTable);
         this.partitionOffset = new HashMap<>();
         this.partitionConsumptionTime = new HashMap<>();
         this.historicalPartitionTSO = new HashMap<>();
-        this.baseTable = baseTable;
     }
 
-    public OlapTableStream(String streamName, List<Column> fullSchema, TableIf baseTable) {
-        this(-1, streamName, fullSchema, baseTable);
+    public OlapTableStream(String streamName, TableIf baseTable) {
+        this(-1, streamName, baseTable);
     }
 
     @Override
@@ -85,6 +87,35 @@ public class OlapTableStream extends BaseTableStream {
         return (OlapTable) baseTable;
     }
 
+    @Override
+    protected List<Column> generateDynamicSchema() {
+        OlapTable baseTable = getBaseTableNullable();
+        if (baseTable == null) {
+            return ImmutableList.of();
+        }
+        ImmutableList.Builder<Column> builder = ImmutableList.builder();
+        // inherit base table's visible columns
+        for (Column column : baseTable.getBaseSchema()) {
+            if (column.isVisible()) {
+                builder.add(column);
+            }
+        }
+        // extra stream columns
+        Column sequenceColumn = new Column(Column.STREAM_SEQ_COL, Type.BIGINT);
+        sequenceColumn.setIsVisible(false);
+        builder.add(sequenceColumn);
+        Column changeTypeColumn = new Column(Column.STREAM_CHANGE_TYPE_COL, Type.VARCHAR);
+        changeTypeColumn.setIsVisible(false);
+        builder.add(changeTypeColumn);
+        // Only expose stream LSN when the base table stores row LSN, e.g. dup table with binlog.
+        if (baseTable.hasRowLsnColumn()) {
+            Column lsnColumn = new Column(Column.STREAM_LSN_COL, Type.BIGINT);
+            lsnColumn.setIsVisible(false);
+            builder.add(lsnColumn);
+        }
+        return builder.build();
+    }
+
     // used for init, should inside base table read lock
     @Override
     public void setProperties(Map<String, String> properties) throws AnalysisException {
@@ -99,17 +130,21 @@ public class OlapTableStream extends BaseTableStream {
 
     private void initializeLocalOffsets() {
         // set offset according to baseTable
+        OlapTable baseTable = getBaseTableNullable();
+        if (baseTable == null) {
+            return;
+        }
         if (!showInitialRows) {
             // set partition offset
-            ((OlapTable) baseTable).getPartitions()
+            baseTable.getPartitions()
                     .forEach(p -> partitionOffset.put(p.getId(), p.getTso()));
         } else {
-            ((OlapTable) baseTable).getPartitions()
+            baseTable.getPartitions()
                     .stream()
                     .filter(p -> p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
                     .forEach(p -> {
                                 historicalPartitionTSO.put(p.getId(), p.getTso());
-                                    }
+                                }
                     );
         }
     }
@@ -131,56 +166,105 @@ public class OlapTableStream extends BaseTableStream {
         }
         if (table.readLockIfExist()) {
             try {
-                Map<Long, Partition> id2name = table.getPartitions().stream().collect(Collectors.toMap(
-                        p -> p.getId(),
-                        p -> p,
-                        (oldValue, newValue) -> newValue,
-                        HashMap::new
-                ));
-                for (Map.Entry<Long, Partition> entry : id2name.entrySet()) {
-                    TRow trow = new TRow();
-                    // DB_NAME
-                    trow.addToColumnValue(new TCell().setStringVal(qualifiedDbName));
-                    // STREAM_NAME
-                    trow.addToColumnValue(new TCell().setStringVal(name));
-                    // STREAM_ID
-                    trow.addToColumnValue(new TCell().setLongVal(id));
-                    // UNIT
-                    trow.addToColumnValue(new TCell().setStringVal(entry.getValue().getName()));
-                    if (partitionOffset.containsKey(entry.getKey())) {
-                        // CONSUMPTION_STATUS
-                        trow.addToColumnValue(new TCell()
-                                .setStringVal(String.valueOf(partitionOffset.get(entry.getKey()))));
-                        // LAG
-                        trow.addToColumnValue(new TCell()
-                                .setStringVal(String.valueOf(
-                                        entry.getValue().getTso()
-                                                - partitionOffset.get(entry.getKey()))));
-                        // LAST_CONSUMPTION_TIME
-                        if (partitionConsumptionTime.containsKey(entry.getKey())) {
-                            trow.addToColumnValue(new TCell()
-                                    .setLongVal(partitionConsumptionTime.get(entry.getKey())));
-                        } else {
-                            trow.addToColumnValue(new TCell().setLongVal(-1));
-                        }
-                    } else {
-                        // CONSUMPTION_STATUS
-                        trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                        // LAG
-                        if (entry.getValue().hasData()) {
-                            // for partition with data and no consumption yet, lag is N/A
-                            trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                        } else {
-                            trow.addToColumnValue(new TCell().setStringVal("0"));
-                        }
-                        // LAST_CONSUMPTION_TIME
-                        trow.addToColumnValue(new TCell().setLongVal(-1));
-                    }
-                    dataBatch.add(trow);
+                for (Partition partition : table.getPartitions()) {
+                    long partitionId = partition.getId();
+                    boolean hasOffset = partitionOffset.containsKey(partitionId);
+                    appendConsumptionRow(dataBatch, qualifiedDbName, name, id, partition.getName(), hasOffset,
+                            hasOffset ? partitionOffset.get(partitionId) : 0,
+                            hasOffset ? partition.getTso() : 0,
+                            !hasOffset && partition.hasData(),
+                            partitionConsumptionTime.getOrDefault(partitionId, -1L));
                 }
             } finally {
                 table.readUnlock();
             }
+        }
+    }
+
+    @Override
+    void fillTableStreamConsumptionInfo(List<TRow> dataBatch, Predicate<String> unitSelector) {
+        for (StreamConsumptionUnitSnapshot snapshot : snapshotTableStreamConsumptionInfo()) {
+            if (unitSelector.test(snapshot.unit)) {
+                snapshot.appendRow(dataBatch, qualifiedDbName, name, id);
+            }
+        }
+    }
+
+    List<StreamConsumptionUnitSnapshot> snapshotTableStreamConsumptionInfo() {
+        // Copy row inputs under lock so UNIT expression rewriting and folding can run after unlocking.
+        OlapTable table = getBaseTableNullable();
+        if (table == null) {
+            return ImmutableList.of();
+        }
+        List<StreamConsumptionUnitSnapshot> snapshots = new ArrayList<>();
+        if (table.readLockIfExist()) {
+            try {
+                for (Partition partition : table.getPartitions()) {
+                    snapshots.add(snapshotPartition(partition));
+                }
+            } finally {
+                table.readUnlock();
+            }
+        }
+        return snapshots;
+    }
+
+    private StreamConsumptionUnitSnapshot snapshotPartition(Partition partition) {
+        long partitionId = partition.getId();
+        boolean hasOffset = partitionOffset.containsKey(partitionId);
+        return new StreamConsumptionUnitSnapshot(
+                partition.getName(), hasOffset,
+                hasOffset ? partitionOffset.get(partitionId) : 0,
+                hasOffset ? partition.getTso() : 0,
+                !hasOffset && partition.hasData(),
+                partitionConsumptionTime.getOrDefault(partitionId, -1L));
+    }
+
+    private static void appendConsumptionRow(List<TRow> dataBatch, String dbName, String streamName,
+            long streamId, String unit, boolean hasOffset, long offset, long endTso, boolean hasData,
+            long lastConsumptionTime) {
+        TRow row = new TRow();
+        row.addToColumnValue(new TCell().setStringVal(dbName));
+        row.addToColumnValue(new TCell().setStringVal(streamName));
+        row.addToColumnValue(new TCell().setLongVal(streamId));
+        row.addToColumnValue(new TCell().setStringVal(unit));
+        if (hasOffset) {
+            row.addToColumnValue(new TCell().setStringVal(String.valueOf(offset)));
+            row.addToColumnValue(new TCell().setStringVal(String.valueOf(endTso - offset)));
+            row.addToColumnValue(new TCell().setLongVal(lastConsumptionTime));
+        } else {
+            row.addToColumnValue(new TCell().setStringVal("N/A"));
+            row.addToColumnValue(new TCell().setStringVal(hasData ? "N/A" : "0"));
+            row.addToColumnValue(new TCell().setLongVal(-1));
+        }
+        dataBatch.add(row);
+    }
+
+    static class StreamConsumptionUnitSnapshot {
+        private final String unit;
+        private final boolean hasOffset;
+        private final long offset;
+        private final long endTso;
+        private final boolean hasData;
+        private final long lastConsumptionTime;
+
+        private StreamConsumptionUnitSnapshot(String unit, boolean hasOffset, long offset, long endTso,
+                boolean hasData, long lastConsumptionTime) {
+            this.unit = unit;
+            this.hasOffset = hasOffset;
+            this.offset = offset;
+            this.endTso = endTso;
+            this.hasData = hasData;
+            this.lastConsumptionTime = lastConsumptionTime;
+        }
+
+        String getUnit() {
+            return unit;
+        }
+
+        void appendRow(List<TRow> dataBatch, String dbName, String streamName, long streamId) {
+            appendConsumptionRow(dataBatch, dbName, streamName, streamId, unit, hasOffset, offset, endTso,
+                    hasData, lastConsumptionTime);
         }
     }
 
@@ -196,7 +280,13 @@ public class OlapTableStream extends BaseTableStream {
     }
 
     public boolean hasConsumedData(long partitionId) {
-        return partitionOffset.containsKey(partitionId);
+        // A partition that was empty at stream creation is recorded with the sentinel offset -1
+        // (see initializeLocalOffsets); a real committed TSO is always positive (its physical part
+        // is non-zero). So only a positive recorded offset counts as a real consumption baseline.
+        // This keeps empty partitions out of the snapshot scan instead of letting them fall back to
+        // the live partition TSO and leak post-snapshot rows.
+        Long offset = partitionOffset.get(partitionId);
+        return offset != null && offset > 0;
     }
 
     public Pair<Long, Long> getStreamUpdate(Long partitionId) {

@@ -24,7 +24,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoField;
 import java.util.Collections;
 import java.util.Map;
 import java.util.TreeMap;
@@ -44,9 +46,14 @@ public final class IcebergTimeUtils {
     // Doris overrides (CST/PRC -> Asia/Shanghai, UTC/GMT -> UTC = TimeUtils DEFAULT/UTC_TIME_ZONE).
     private static final Map<String, String> TIME_ZONE_ALIAS_MAP;
 
-    // Byte-parity with legacy TimeUtils.DATETIME_FORMAT (= DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
-    // the formatter TimeUtils.timeStringToLong uses for a non-digital FOR TIME AS OF datetime string.
-    private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    // Iceberg's committed_at value may include fractional seconds, so the time-travel parser must round-trip
+    // that value while preserving compatibility with existing whole-second literals.
+    private static final DateTimeFormatter DATETIME_FORMAT = new DateTimeFormatterBuilder()
+            .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .optionalStart()
+            .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
+            .optionalEnd()
+            .toFormatter();
 
     // Byte-parity with legacy TimeUtils.DATETIME_MS_FORMAT (= DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")),
     // the formatter TimeUtils.msTimeStringToLong uses. The rollback_to_timestamp EXECUTE action parses its
@@ -88,11 +95,10 @@ public final class IcebergTimeUtils {
     }
 
     /**
-     * Parses a {@code FOR TIME AS OF} datetime string to epoch-millis in {@code zone}, byte-faithful to legacy
-     * {@code TimeUtils.timeStringToLong(value, sessionTZ)} (parse {@code yyyy-MM-dd HH:mm:ss} as a local
-     * date-time, then interpret it in the session zone). Legacy returned {@code -1} on a parse failure and the
-     * caller ({@code IcebergUtils.getQuerySpecSnapshot}) turned that into a {@code DateTimeException}; we throw
-     * it directly (fail loud — a parse error is a user mistake, not a not-found).
+     * Parses a {@code FOR TIME AS OF} datetime string with optional fractional seconds to epoch-millis in
+     * {@code zone}. Legacy returned {@code -1} on a parse failure and the caller
+     * ({@code IcebergUtils.getQuerySpecSnapshot}) turned that into a {@code DateTimeException}; we throw it
+     * directly (fail loud — a parse error is a user mistake, not a not-found).
      */
     static long datetimeToMillis(String value, ZoneId zone) {
         try {

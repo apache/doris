@@ -57,7 +57,8 @@ public:
                   std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                   std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
                   bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
-                  std::string hive_parquet_time_zone = "");
+                  std::optional<std::string> hive_parquet_time_zone = std::nullopt,
+                  bool preserve_binary_uuid = false);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -68,6 +69,7 @@ public:
 
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
             format::TableColumnMapperOptions options) const override;
+    bool supports_rowid_fetch() const override { return true; }
 
     Status open(std::shared_ptr<format::FileScanRequest> request) override;
 
@@ -105,7 +107,9 @@ private:
     size_t _batch_size = ParquetScanScheduler::DEFAULT_READ_BATCH_SIZE;
     bool _enable_mapping_timestamp_tz = false; // whether UTC timestamps are mapped to TIMESTAMPTZ
     bool _enable_mapping_varbinary = false;    // whether raw BYTE_ARRAY is mapped to VARBINARY
-    std::string _hive_parquet_time_zone;       // explicit INT96 timezone; empty disables conversion
+    bool _preserve_binary_uuid = false;        // retain the 16-byte carrier for table compatibility
+    // nullopt preserves legacy session conversion; an engaged empty value explicitly disables it.
+    std::optional<std::string> _hive_parquet_time_zone;
 };
 
 } // namespace doris::format::parquet

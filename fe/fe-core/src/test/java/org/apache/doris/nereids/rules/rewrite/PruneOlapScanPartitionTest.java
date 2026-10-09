@@ -22,7 +22,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -155,6 +157,25 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         test("testOlapScanPartitionWithSingleColumnCase", "col1 < 4", 1);
         test("testOlapScanPartitionWithSingleColumnCase", "col1 < 0 or col1 > 6", 1);
         test("testOlapScanPartitionWithSingleColumnCase", "col1 >= 0 and col1 <= 5", 2);
+    }
+
+    @Test
+    void testEpochConversionWithTimeZoneAlias() throws Exception {
+        createTable("create table epoch_conversion_alias_prune ("
+                + "epoch_sec bigint not null) "
+                + "partition by range(epoch_sec) ("
+                + "partition p1 values[('1719792000'), ('1721001600')),"
+                + "partition p2 values[('1721001600'), ('1722470400'))"
+                + ") distributed by hash(epoch_sec) buckets 1 "
+                + "properties ('replication_num'='1')");
+
+        String previousTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("CST");
+            test("epoch_conversion_alias_prune", "from_second(epoch_sec) < '2024-07-10 00:00:00'", 1);
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(previousTimeZone);
+        }
     }
 
     @Test
@@ -329,6 +350,34 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         test("test_basic_agg", "'199.8' like '1%'", 4);
         test("test_basic_agg", " 299.8  like '1%'", 4);
         test("test_basic_agg", "'299.8' like '1%'", 4);
+    }
+
+    @Test
+    void testListPartitionWithMaxValueNotPruned() throws Exception {
+        // Tables created by older versions may contain MAXVALUE in LIST partition values.
+        // Such partition keys cannot be evaluated against the predicate, so the partition
+        // must be kept conservatively instead of being pruned. Bypass the DDL check (which
+        // forbids creating new MAXVALUE LIST partitions) with a debug point.
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        Config.enable_debug_points = true;
+        try {
+            DebugPointUtil.addDebugPoint("FE.skipCheckMaxValueInListPartition");
+            createTable("create table test_list_maxvalue(id int, part int not null) "
+                    + "partition by list(part) ("
+                    + "  partition p1 values in (('1'), ('4'), ('7')),"
+                    + "  partition p2 values in ((MAXVALUE))"
+                    + ") "
+                    + "distributed by hash(id) "
+                    + "properties ('replication_num'='1')");
+        } finally {
+            DebugPointUtil.removeDebugPoint("FE.skipCheckMaxValueInListPartition");
+            Config.enable_debug_points = originalEnableDebugPoints;
+        }
+
+        // p1 matches 'part = 1', p2 (MAXVALUE) is kept conservatively.
+        test("test_list_maxvalue", "part = 1", 2);
+        // p1 does not match, but p2 (MAXVALUE) is still kept.
+        test("test_list_maxvalue", "part = 9", 1);
     }
 
     @Test

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -211,6 +212,10 @@ public class ColumnDefinition {
         return onUpdateDefaultValue.isPresent();
     }
 
+    public boolean hasUuidDefaultValue() {
+        return defaultValue.map(DefaultValue::isUuidFunction).orElse(false);
+    }
+
     /**
      * Returns the column's default value as the catalog-level string (the same value the translated
      * {@link org.apache.doris.catalog.Column#getDefaultValue()} carries), or {@code null} when the column
@@ -311,6 +316,10 @@ public class ColumnDefinition {
         return sb.toString();
     }
 
+    private boolean isAggregateTableOnlyType() {
+        return type.isHllType() || type.isQuantileStateType() || type.isAggStateType();
+    }
+
     private DataType updateCharacterTypeLength(DataType dataType) {
         if (dataType instanceof ArrayType) {
             return ArrayType.of(updateCharacterTypeLength(((ArrayType) dataType).getItemType()));
@@ -335,8 +344,24 @@ public class ColumnDefinition {
         }
     }
 
+    /**
+     * Returns whether the given type may be used as an OLAP key column.
+     */
+    public static boolean isEligibleKeyType(DataType type) {
+        return !type.isFloatLikeType()
+                && !type.isStringType()
+                && !type.isArrayType()
+                && !type.isBitmapType()
+                && !type.isHllType()
+                && !type.isQuantileStateType()
+                && !type.isJsonType()
+                && !type.isVariantType()
+                && !type.isMapType()
+                && !type.isStructType();
+    }
+
     private void checkKeyColumnType(boolean isOlap) {
-        if (isOlap) {
+        if (isOlap && !isEligibleKeyType(type)) {
             if (type.isFloatLikeType()) {
                 throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
             } else if (type.isStringType()) {
@@ -356,6 +381,9 @@ public class ColumnDefinition {
             } else if (type.isStructType()) {
                 throw new AnalysisException("Struct can only be used in the non-key column of"
                         + " the duplicate table at present.");
+            } else {
+                throw new AnalysisException("Type " + type.toSql() + " can not be used in key column["
+                        + getName() + "].");
             }
         }
     }
@@ -365,7 +393,13 @@ public class ColumnDefinition {
      */
     public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
             KeysType keysType) {
-        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false);
+        validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false);
+    }
+
+    public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
+            KeysType keysType, boolean isSystemGeneratedTable) {
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false,
+                isSystemGeneratedTable);
     }
 
     /**
@@ -373,11 +407,11 @@ public class ColumnDefinition {
      */
     public void validateNestedColumn(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
             boolean isEnableMergeOnWrite, KeysType keysType) {
-        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true);
+        validateInternal(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, true, false);
     }
 
     private void validateInternal(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet,
-            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn) {
+            boolean isEnableMergeOnWrite, KeysType keysType, boolean nestedColumn, boolean isSystemGeneratedTable) {
         try {
             // if enableAddHiddenColumn is true, can add hidden column.
             // So does not check if the column name starts with __DORIS_
@@ -395,6 +429,13 @@ public class ColumnDefinition {
         }
         type.validateDataType();
         type = updateCharacterTypeLength(type);
+        if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
+                && !Config.enable_non_aggregate_table_state_types) {
+            throw new AnalysisException(String.format(
+                    "%s type is only supported in aggregate key tables, column: %s. "
+                            + "Set FE config 'enable_non_aggregate_table_state_types' to true to temporarily allow it",
+                    type.toSql(), name));
+        }
         if (type.isArrayType()) {
             int depth = 0;
             DataType curType = type;
@@ -612,8 +653,8 @@ public class ColumnDefinition {
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
-                generatedColumnDesc.map(desc ->
-                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
+                generatedColumnDesc.map(desc -> desc.getSessionVariables().orElseGet(() ->
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get())))
                         .orElse(null)
                 );
         column.setAggregationTypeImplicit(aggTypeImplicit);
@@ -627,12 +668,12 @@ public class ColumnDefinition {
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
                 autoIncInitValue, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
-                defaultValue.map(DefaultValue::getRawValue).orElse(null), onUpdateDefaultValue.isPresent(),
+                defaultValue.map(value -> value.getRawValue(type)).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
-                generatedColumnDesc.map(desc ->
-                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
+                generatedColumnDesc.map(desc -> desc.getSessionVariables().orElseGet(() ->
+                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get())))
                         .orElse(null));
         column.setNullableSpecified(nullableSpecified);
         column.setCommentSpecified(commentSpecified);
@@ -725,6 +766,18 @@ public class ColumnDefinition {
     }
 
     /**
+     * add hidden column __DORIS_ROW_LSN_COL__ for stable row identity on row-binlog tables.
+     */
+    public static ColumnDefinition newRowLsnColumnDefinition(AggregateType aggregateType) {
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.ROW_LSN_COL, BigIntType.INSTANCE, false,
+                    aggregateType, false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),
+                "doris row lsn hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
+    }
+
+    /**
      * used in CreateTableInfo.validate(), specify the default value as DefaultValue.NULL_DEFAULT_VALUE
      * becasue ColumnDefinition.validate() will check that bitmap type column don't set default value
      * and then set the default value of that column to bitmap_empty()
@@ -740,6 +793,10 @@ public class ColumnDefinition {
 
     public Optional<GeneratedColumnDesc> getGeneratedColumnDesc() {
         return generatedColumnDesc;
+    }
+
+    public void setGeneratedColumnDesc(GeneratedColumnDesc generatedColumnDesc) {
+        this.generatedColumnDesc = Optional.of(generatedColumnDesc);
     }
 
     public long getAutoIncInitValue() {

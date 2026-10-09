@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -32,10 +33,10 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -47,7 +48,7 @@ public class UserPropertyTest {
     private SqlBlockRuleMgr sqlBlockRuleMgr = Mockito.mock(SqlBlockRuleMgr.class);
     private MockedStatic<Env> mockedStaticEnv;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         mockedStaticEnv = Mockito.mockStatic(Env.class);
         mockedStaticEnv.when(Env::getCurrentEnv).thenReturn(env);
@@ -59,7 +60,7 @@ public class UserPropertyTest {
         Mockito.when(sqlBlockRuleMgr.existRule("test3")).thenReturn(true);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedStaticEnv != null) {
             mockedStaticEnv.close();
@@ -74,7 +75,7 @@ public class UserPropertyTest {
         List<Pair<String, String>> properties = Lists.newArrayList();
         properties.add(Pair.of("MAX_USER_CONNECTIONS", "100"));
         properties.add(Pair.of("max_qUERY_instances", "3000"));
-        properties.add(Pair.of("parallel_fragment_exec_instance_num", "2000"));
+        properties.add(Pair.of("parallel_fragment_exec_instance_num", "256"));
         properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
         properties.add(Pair.of("cpu_resource_limit", "2"));
         properties.add(Pair.of("query_timeout", "500"));
@@ -83,15 +84,15 @@ public class UserPropertyTest {
 
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
-        Assert.assertEquals(100, userProperty.getMaxConn());
-        Assert.assertEquals(3000, userProperty.getMaxQueryInstances());
-        Assert.assertEquals(2000, userProperty.getParallelFragmentExecInstanceNum());
-        Assert.assertEquals(new String[]{"rule1", "rule2"}, userProperty.getSqlBlockRules());
-        Assert.assertEquals(2, userProperty.getCpuResourceLimit());
-        Assert.assertEquals(500, userProperty.getQueryTimeout());
-        Assert.assertEquals(Sets.newHashSet(), userProperty.getCopiedResourceTags());
-        Assert.assertEquals(true, userProperty.getEnablePreferCachedRowset());
-        Assert.assertEquals(4500, userProperty.getQueryFreshnessToleranceMs());
+        Assertions.assertEquals(100, userProperty.getMaxConn());
+        Assertions.assertEquals(3000, userProperty.getMaxQueryInstances());
+        Assertions.assertEquals(256, userProperty.getParallelFragmentExecInstanceNum());
+        Assertions.assertArrayEquals(new String[]{"rule1", "rule2"}, userProperty.getSqlBlockRules());
+        Assertions.assertEquals(2, userProperty.getCpuResourceLimit());
+        Assertions.assertEquals(500, userProperty.getQueryTimeout());
+        Assertions.assertEquals(Sets.newHashSet(), userProperty.getCopiedResourceTags());
+        Assertions.assertEquals(true, userProperty.getEnablePreferCachedRowset());
+        Assertions.assertEquals(4500, userProperty.getQueryFreshnessToleranceMs());
 
         // fetch property
         List<List<String>> rows = userProperty.fetchProperty();
@@ -100,15 +101,15 @@ public class UserPropertyTest {
             String value = row.get(1);
 
             if (key.equalsIgnoreCase("max_user_connections")) {
-                Assert.assertEquals("100", value);
+                Assertions.assertEquals("100", value);
             } else if (key.equalsIgnoreCase("max_query_instances")) {
-                Assert.assertEquals("3000", value);
+                Assertions.assertEquals("3000", value);
             } else if (key.equalsIgnoreCase("sql_block_rules")) {
-                Assert.assertEquals("rule1,rule2", value);
+                Assertions.assertEquals("rule1,rule2", value);
             } else if (key.equalsIgnoreCase("cpu_resource_limit")) {
-                Assert.assertEquals("2", value);
+                Assertions.assertEquals("2", value);
             } else if (key.equalsIgnoreCase("query_timeout")) {
-                Assert.assertEquals("500", value);
+                Assertions.assertEquals("500", value);
             }
         }
 
@@ -116,11 +117,32 @@ public class UserPropertyTest {
         properties.clear();
         properties.add(Pair.of("sql_block_rules", ""));
         userProperty.update(properties);
-        Assert.assertEquals(1, userProperty.getSqlBlockRules().length);
+        Assertions.assertEquals(1, userProperty.getSqlBlockRules().length);
         properties.clear();
         properties.add(Pair.of("sql_block_rules", "test1, test2,test3"));
         userProperty.update(properties);
-        Assert.assertEquals(3, userProperty.getSqlBlockRules().length);
+        Assertions.assertEquals(3, userProperty.getSqlBlockRules().length);
+    }
+
+    @Test
+    public void testParallelFragmentExecInstanceNumLimit() throws UserException {
+        UserProperty property = new UserProperty();
+        for (int value : new int[] {Integer.MIN_VALUE, -1, 0, 1, 256}) {
+            property.update(Lists.newArrayList(
+                    Pair.of("parallel_fragment_exec_instance_num", Integer.toString(value))));
+            Assertions.assertEquals(value, property.getParallelFragmentExecInstanceNum());
+        }
+
+        for (int value : new int[] {257, 2000, Integer.MAX_VALUE}) {
+            DdlException exception = Assertions.assertThrows(DdlException.class,
+                    () -> property.update(Lists.newArrayList(
+                            Pair.of("max_user_connections", "200"),
+                            Pair.of("PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM", Integer.toString(value)))));
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "parallel_fragment_exec_instance_num must be less than or equal to 256, got " + value));
+            Assertions.assertEquals(256, property.getParallelFragmentExecInstanceNum());
+            Assertions.assertEquals(100, property.getMaxConn());
+        }
     }
 
     @Test
@@ -129,30 +151,30 @@ public class UserPropertyTest {
         properties.add(Pair.of("cpu_resource_limit", "-1"));
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
-        Assert.assertEquals(-1, userProperty.getCpuResourceLimit());
+        Assertions.assertEquals(-1, userProperty.getCpuResourceLimit());
 
         properties = Lists.newArrayList();
         properties.add(Pair.of("cpu_resource_limit", "-2"));
         userProperty = new UserProperty();
         try {
             userProperty.update(properties);
-            Assert.fail();
+            Assertions.fail();
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("is not valid"));
+            Assertions.assertTrue(e.getMessage().contains("is not valid"));
         }
-        Assert.assertEquals(-1, userProperty.getCpuResourceLimit());
+        Assertions.assertEquals(-1, userProperty.getCpuResourceLimit());
         // we should allow query_timeout  < 0, otherwise, not have command reset query_timeout of user
         properties = Lists.newArrayList();
         properties.add(Pair.of("query_timeout", "-2"));
         userProperty = new UserProperty();
         userProperty.update(properties);
-        Assert.assertEquals(-2, userProperty.getQueryTimeout());
+        Assertions.assertEquals(-2, userProperty.getQueryTimeout());
         // we should allow insert_timeout  < 0, otherwise, not have command reset insert_timeout of user
         properties = Lists.newArrayList();
         properties.add(Pair.of("insert_timeout", "-2"));
         userProperty = new UserProperty();
         userProperty.update(properties);
-        Assert.assertEquals(-2, userProperty.getInsertTimeout());
+        Assertions.assertEquals(-2, userProperty.getInsertTimeout());
     }
 
     @Test
@@ -176,24 +198,24 @@ public class UserPropertyTest {
         UserProperty userProperty = new UserProperty();
         try {
             userProperty.update(properties);
-            Assert.fail();
+            Assertions.fail();
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("not exists"));
+            Assertions.assertTrue(e.getMessage().contains("not exists"));
         }
-        Assert.assertEquals("internal",  userProperty.getInitCatalog());
+        Assertions.assertEquals("internal",  userProperty.getInitCatalog());
 
         // for exist catalog, use it directly
         properties = Lists.newArrayList();
         properties.add(Pair.of("default_init_catalog", "exist_catalog"));
         userProperty = new UserProperty();
         userProperty.update(properties);
-        Assert.assertEquals("exist_catalog",  userProperty.getInitCatalog());
+        Assertions.assertEquals("exist_catalog",  userProperty.getInitCatalog());
     }
 
     @Test
     public void testExternalTempUserUsesDefaultPropertyFallback() {
         UserPropertyMgr propertyMgr = new UserPropertyMgr();
-        Assert.assertEquals(0, propertyMgr.getMaxConn("external_alice"));
+        Assertions.assertEquals(0, propertyMgr.getMaxConn("external_alice"));
 
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("external_alice", "127.0.0.1"));
@@ -204,11 +226,11 @@ public class UserPropertyTest {
                 .build());
         ctx.setThreadLocalInfo();
         try {
-            Assert.assertEquals(100, propertyMgr.getMaxConn("external_alice"));
-            Assert.assertEquals(-1, propertyMgr.getQueryTimeout("external_alice"));
-            Assert.assertEquals(-1, propertyMgr.getInsertTimeout("external_alice"));
-            Assert.assertEquals("internal", propertyMgr.getInitCatalog("external_alice"));
-            Assert.assertEquals(WorkloadGroupMgr.DEFAULT_GROUP_NAME,
+            Assertions.assertEquals(100, propertyMgr.getMaxConn("external_alice"));
+            Assertions.assertEquals(-1, propertyMgr.getQueryTimeout("external_alice"));
+            Assertions.assertEquals(-1, propertyMgr.getInsertTimeout("external_alice"));
+            Assertions.assertEquals("internal", propertyMgr.getInitCatalog("external_alice"));
+            Assertions.assertEquals(WorkloadGroupMgr.DEFAULT_GROUP_NAME,
                     propertyMgr.getWorkloadGroup("external_alice"));
         } finally {
             ConnectContext.remove();

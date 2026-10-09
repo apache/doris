@@ -104,8 +104,8 @@ public class GetDataTypeTest {
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum0(charLiteral)));
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum0(varcharLiteral)));
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum0(stringLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum0(dateLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum0(dateTimeLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum0(dateLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum0(dateTimeLiteral)));
     }
 
     @Test

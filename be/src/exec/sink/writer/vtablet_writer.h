@@ -226,7 +226,7 @@ struct Payload {
     std::unique_ptr<IColumn::Selector> row_ids;
     RowPartTabletIds* row_part_tablet_ids = nullptr;
     std::vector<uint32_t> route_idxs;
-    std::vector<int64_t> row_binlog_lsns;
+    std::vector<int64_t> allocated_lsns;
 };
 
 // every NodeChannel keeps a data transmission channel with one BE. for multiple times open, it has a dozen of requests and corresponding closures.
@@ -723,8 +723,8 @@ private:
     bthread::Mutex _stop_check_channel;
     std::vector<std::shared_ptr<IndexChannel>> _channels;
     std::unordered_map<int64_t, std::shared_ptr<IndexChannel>> _index_id_to_channel;
-    // Table-level row-binlog LSN buffer
-    std::shared_ptr<AutoIncIDBuffer> _row_binlog_lsn_buffer;
+    // Table-level LSN buffer
+    std::shared_ptr<AutoIncIDBuffer> _allocated_lsn_buffer;
 
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 

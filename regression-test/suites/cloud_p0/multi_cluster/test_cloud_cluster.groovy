@@ -17,8 +17,10 @@
 
 import groovy.json.JsonOutput
 import java.sql.*;
+import org.apache.doris.regression.Config
 
 suite("test_cloud_cluster") {
+    withRestoredMultiClusterState(false) {
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
 
@@ -108,9 +110,19 @@ suite("test_cloud_cluster") {
 
     String user = "root";
     String password = "";
+    def jdbcUrlWithTls = { String url ->
+        if (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) {
+            return Config.buildTlsJdbcUrl(url,
+                    context.config.otherConfigs.get("keyStorePath"),
+                    context.config.otherConfigs.get("keyStorePassword"),
+                    context.config.otherConfigs.get("trustStorePath"),
+                    context.config.otherConfigs.get("trustStorePassword"))
+        }
+        return url
+    }
 
     try {
-        Connection myCon = DriverManager.getConnection(newUrl, user, password);
+        Connection myCon = DriverManager.getConnection(jdbcUrlWithTls(newUrl), user, password);
         Statement stmt = myCon.createStatement();
         ResultSet rs =  stmt.executeQuery("select * from test_table");
         while (rs.next()) {
@@ -128,7 +140,7 @@ suite("test_cloud_cluster") {
     println("newurl " + newUrl);
 
     try {
-        Connection myCon = DriverManager.getConnection(newUrl, user, password);
+        Connection myCon = DriverManager.getConnection(jdbcUrlWithTls(newUrl), user, password);
         Statement stmt = myCon.createStatement();
         ResultSet rs =  stmt.executeQuery("show clusters");
         while (rs.next()) {
@@ -147,7 +159,7 @@ suite("test_cloud_cluster") {
     println("newurl " + newUrl);
 
     try {
-        Connection myCon = DriverManager.getConnection(newUrl, user, password);
+        Connection myCon = DriverManager.getConnection(jdbcUrlWithTls(newUrl), user, password);
         Statement stmt = myCon.createStatement();
         stmt.execute("use @regression_cluster_name1");
         ResultSet rs =  stmt.executeQuery("select * from test_table");
@@ -199,4 +211,5 @@ suite("test_cloud_cluster") {
     sql """
         drop table if exists test_table
     """
+    }
 }

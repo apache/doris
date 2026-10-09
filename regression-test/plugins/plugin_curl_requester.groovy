@@ -146,7 +146,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
 
 logger.info("Added 'http_client' function to Suite")
 
-Suite.metaClass.curl = { String method, String url, String body = null, Integer timeoutSec = 10, String user = "", String pwd = ""->
+Suite.metaClass.curl = { String method, String url, String body = null, Integer timeoutSec = 10, String user = "", String pwd = "", Integer maxRetries = 10 ->
     Suite suite = delegate as Suite
     if (method != "GET" && method != "POST") {
         throw new Exception(String.format("invalid curl method: %s", method))
@@ -155,7 +155,6 @@ Suite.metaClass.curl = { String method, String url, String body = null, Integer 
         throw new Exception("invalid curl url, blank")
     }
 
-    Integer maxRetries = 10; // Maximum number of retries
     Integer retryCount = 0; // Current retry count
     Integer sleepTime = 5000; // Sleep time in milliseconds
 
@@ -304,9 +303,10 @@ Suite.metaClass.check_nested_index_file = { ip, port, tablet_id, expected_rowset
     def segment_files_count = 0
     for (def rowset in parseJson(out.trim()).rowsets) {
         assertEquals(format, rowset.index_storage_format)
-        for (int i = 0; i < rowset.segments.size(); i++) {
-            def segment = rowset.segments[i]
-            assertEquals(i, segment.segment_id)
+        def segment_ids = new HashSet()
+        for (def segment in rowset.segments) {
+            assertTrue(segment.segment_id >= 0)
+            assertTrue(segment_ids.add(segment.segment_id))
             def indices_count = segment.indices.size()
             assertEquals(expected_indices_count, indices_count)
             if (format == "V1") {

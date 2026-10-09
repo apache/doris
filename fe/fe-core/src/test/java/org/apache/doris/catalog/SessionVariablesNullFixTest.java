@@ -17,8 +17,8 @@
 
 package org.apache.doris.catalog;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 
@@ -42,9 +42,9 @@ public class SessionVariablesNullFixTest {
         // gsonPostProcess should initialize it
         view.gsonPostProcess();
 
-        Assert.assertNotNull(view.getSessionVariables());
-        Assert.assertEquals(0, view.getSessionVariables().size());
-        Assert.assertEquals("{}", view.getSessionVariables().toString());
+        Assertions.assertNotNull(view.getSessionVariables());
+        Assertions.assertEquals(0, view.getSessionVariables().size());
+        Assertions.assertEquals("{}", view.getSessionVariables().toString());
     }
 
     /**
@@ -59,9 +59,9 @@ public class SessionVariablesNullFixTest {
         // gsonPostProcess should initialize it
         column.gsonPostProcess();
 
-        Assert.assertNotNull(column.getSessionVariables());
-        Assert.assertEquals(0, column.getSessionVariables().size());
-        Assert.assertEquals("{}", column.getSessionVariables().toString());
+        Assertions.assertNotNull(column.getSessionVariables());
+        Assertions.assertEquals(0, column.getSessionVariables().size());
+        Assertions.assertEquals("{}", column.getSessionVariables().toString());
     }
 
     /**
@@ -81,9 +81,9 @@ public class SessionVariablesNullFixTest {
         // gsonPostProcess should initialize it
         aliasFunction.gsonPostProcess();
 
-        Assert.assertNotNull(aliasFunction.getSessionVariables());
-        Assert.assertEquals(0, aliasFunction.getSessionVariables().size());
-        Assert.assertEquals("{}", aliasFunction.getSessionVariables().toString());
+        Assertions.assertNotNull(aliasFunction.getSessionVariables());
+        Assertions.assertEquals(0, aliasFunction.getSessionVariables().size());
+        Assertions.assertEquals("{}", aliasFunction.getSessionVariables().toString());
     }
 
 
@@ -102,8 +102,8 @@ public class SessionVariablesNullFixTest {
         view.gsonPostProcess();
         String result = view.getSessionVariables().toString();
 
-        Assert.assertNotNull(result);
-        Assert.assertEquals("{}", result);
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals("{}", result);
     }
 
     /**
@@ -119,9 +119,9 @@ public class SessionVariablesNullFixTest {
 
         view.gsonPostProcess();
 
-        Assert.assertNotNull(view.getSessionVariables());
-        Assert.assertEquals(2, view.getSessionVariables().size());
-        Assert.assertEquals("value1", view.getSessionVariables().get("key1"));
-        Assert.assertEquals("value2", view.getSessionVariables().get("key2"));
+        Assertions.assertNotNull(view.getSessionVariables());
+        Assertions.assertEquals(2, view.getSessionVariables().size());
+        Assertions.assertEquals("value1", view.getSessionVariables().get("key1"));
+        Assertions.assertEquals("value2", view.getSessionVariables().get("key2"));
     }
 }

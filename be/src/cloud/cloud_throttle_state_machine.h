@@ -58,6 +58,8 @@ struct RpcThrottleAction {
     LoadRelatedRpc rpc_type;
     int64_t table_id;
     double qps_limit {0}; // only meaningful for SET_LIMIT
+    // Discard queued reservations when applying a downgraded SET_LIMIT action.
+    bool reset_reservation {false};
 };
 
 // ============== ThrottleStateMachine ==============
@@ -153,24 +155,26 @@ public:
 
     // Advance by specified number of ticks (caller decides actual time between ticks)
     // Returns true if downgrade should be triggered
-    bool tick(int ticks = 1);
+    bool tick(int64_t ticks = 1);
 
     // Tell coordinator whether there are pending upgrades that can be downgraded
     // Called by the state machine consumer after upgrade/downgrade
     void set_has_pending_upgrades(bool has);
 
     // Query state
-    int ticks_since_last_ms_busy() const;
-    int ticks_since_last_upgrade() const;
+    int64_t ticks_since_last_ms_busy() const;
+    int64_t ticks_since_last_upgrade() const;
     ThrottleCoordinatorParams get_params() const;
 
 private:
     mutable std::mutex _mtx;
 
     ThrottleCoordinatorParams _params;
-    int _ticks_since_last_ms_busy = -1; // -1 means never received
-    int _ticks_since_last_upgrade = -1; // -1 means never upgraded
-    bool _has_pending_upgrades = false; // Whether there are upgrade records to downgrade
+    // Counters saturate at their decision thresholds. The MS_BUSY counter is reset
+    // when there is no pending upgrade history, so neither counter grows unbounded.
+    int64_t _ticks_since_last_ms_busy = -1; // -1 means inactive or never received
+    int64_t _ticks_since_last_upgrade = -1; // -1 means never upgraded
+    bool _has_pending_upgrades = false;     // Whether there are upgrade records to downgrade
 };
 
 } // namespace doris::cloud

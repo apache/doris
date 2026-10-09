@@ -17,7 +17,6 @@
 
 #include <gtest/gtest.h>
 
-#include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
@@ -25,10 +24,10 @@
 namespace doris {
 
 TEST(VariantV2ExecutionTest, ExecutionTypeSelectsPhysicalColumn) {
-    DataTypeVariant legacy;
+    DataTypeVariant variant;
     DataTypeVariantV2 compute_v2;
 
-    EXPECT_NE(check_and_get_column<ColumnVariant>(*legacy.create_column()), nullptr);
+    EXPECT_NE(check_and_get_column<ColumnVariantV2>(*variant.create_column()), nullptr);
     EXPECT_NE(check_and_get_column<ColumnVariantV2>(*compute_v2.create_column()), nullptr);
 }
 

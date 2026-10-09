@@ -48,6 +48,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * End-to-end seam tests for the B1 DDL methods on {@link CatalogBackedIcebergCatalogOps}, exercised against a
@@ -115,6 +116,26 @@ public class CatalogBackedIcebergCatalogOpsDdlTest {
 
         ops.dropTable("db1", "t1", true);
         Assertions.assertFalse(ops.tableExists("db1", "t1"));
+    }
+
+    @Test
+    public void testOperationOwnedTablesAreCleanedOnSuccessAndFailure() {
+        AtomicInteger cleanupCount = new AtomicInteger();
+        CatalogBackedIcebergCatalogOps cleanupOps = new CatalogBackedIcebergCatalogOps(
+                catalog, false, false, true, Optional.empty(), table -> cleanupCount::incrementAndGet);
+        cleanupOps.createDatabase("db1", Collections.emptyMap());
+        cleanupOps.createTable("db1", "t1", schema(), PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        Assertions.assertEquals(1, cleanupCount.get(), "createTable must release its returned table");
+
+        Assertions.assertTrue(cleanupOps.loadTableLocation("db1", "t1").isPresent());
+        Assertions.assertEquals(2, cleanupCount.get(), "successful bounded table operation must clean up");
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> cleanupOps.withTable("db1", "t1", table -> {
+                    throw new IllegalStateException("operation failed");
+                }));
+        Assertions.assertEquals(3, cleanupCount.get(), "failed bounded table operation must clean up");
     }
 
     @Test

@@ -46,6 +46,7 @@ double get_bloom_filter_ignore_thredhold();
 namespace doris {
 
 class Block;
+class RuntimeFilterWrapper;
 class VExprContext;
 
 class RuntimeFilterExpr final : public VExpr {
@@ -54,7 +55,8 @@ class RuntimeFilterExpr final : public VExpr {
 public:
     RuntimeFilterExpr(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
                       bool null_aware, int filter_id,
-                      int sampling_frequency = RuntimeFilterSelectivity::DISABLE_SAMPLING);
+                      int sampling_frequency = RuntimeFilterSelectivity::DISABLE_SAMPLING,
+                      std::shared_ptr<RuntimeFilterWrapper> runtime_filter_wrapper = nullptr);
     ~RuntimeFilterExpr() override = default;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
@@ -124,6 +126,9 @@ public:
 
     int filter_id() const { return _filter_id; }
 
+    std::shared_ptr<const std::vector<uint32_t>> get_bucket_prune_hashes(
+            const DataTypePtr& target_type) const;
+
     std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter() const {
         return _rf_filter_rows;
     }
@@ -152,6 +157,7 @@ private:
     bool _null_aware;
     int _filter_id;
     int _sampling_frequency;
+    std::shared_ptr<RuntimeFilterWrapper> _runtime_filter_wrapper;
 };
 
 using RuntimeFilterExprPtr = std::shared_ptr<RuntimeFilterExpr>;

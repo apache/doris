@@ -38,7 +38,9 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.CloudTableStreamReadStateHook;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -46,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -63,6 +66,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -191,6 +195,82 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
     }
 
     @Test
+    public void testEmptyInsertStartsTransactionForStreamOffsetUpdate() throws Exception {
+        String sql = "insert into test_stream.tbl_target "
+                + "select * from test_stream.s1 where false";
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+
+        resetQueryContext();
+        AbstractInsertExecutor insertExecutor = command.initPlan(
+                connectContext, new StmtExecutor(connectContext, sql), true);
+        try {
+            Assertions.assertTrue(insertExecutor.isEmptyInsert());
+            Assertions.assertFalse(insertExecutor.getStreamUpdateInfos().isEmpty());
+            Assertions.assertNotEquals(AbstractInsertExecutor.INVALID_TXN_ID, insertExecutor.getTxnId());
+        } finally {
+            insertExecutor.onFail(new RuntimeException("test cleanup"));
+            resetQueryContext();
+        }
+    }
+
+    @Test
+    public void testOrdinaryEmptyInsertStillSkipsTransaction() throws Exception {
+        String sql = "insert into test_stream.tbl_target "
+                + "select * from test_stream.tbl_stream_base where false";
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+
+        resetQueryContext();
+        AbstractInsertExecutor insertExecutor = command.initPlan(
+                connectContext, new StmtExecutor(connectContext, sql), true);
+
+        Assertions.assertTrue(insertExecutor.isEmptyInsert());
+        Assertions.assertTrue(insertExecutor.getStreamUpdateInfos().isEmpty());
+        Assertions.assertFalse(insertExecutor.requiresTransaction());
+        Assertions.assertEquals(AbstractInsertExecutor.INVALID_TXN_ID, insertExecutor.getTxnId());
+    }
+
+    @Test
+    public void testEmptyInsertCommitsStreamOffsetUpdate() throws Exception {
+        Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
+        createTable("create stream if not exists test_stream.s_empty_insert_commit "
+                + "on table test_stream.tbl_stream_base properties('show_initial_rows' = 'false')");
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_empty_insert_commit");
+        Map<Long, Long> originalTso = new HashMap<>();
+        Map<Long, Long> expectedTso = new HashMap<>();
+
+        for (Partition partition : baseTable.getPartitions()) {
+            originalTso.put(partition.getId(), partition.getTso());
+            long nextTso = partition.getTso() + 1000;
+            expectedTso.put(partition.getId(), nextTso);
+            partition.setVisibleVersionAndTime(
+                    partition.getVisibleVersion(), partition.getVisibleVersionTime(), nextTso);
+        }
+
+        String sql = "insert into test_stream.tbl_target "
+                + "select * from test_stream.s_empty_insert_commit where false";
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+        resetQueryContext();
+        connectContext.getState().reset();
+        connectContext.resetReturnRows();
+        try {
+            command.run(connectContext, new StmtExecutor(connectContext, sql));
+
+            Assertions.assertEquals(MysqlStateType.OK, connectContext.getState().getStateType());
+            Assertions.assertEquals(0L, connectContext.getReturnRows());
+            for (Map.Entry<Long, Long> entry : expectedTso.entrySet()) {
+                Assertions.assertEquals(entry.getValue(), stream.getStreamUpdate(entry.getKey()).first);
+            }
+        } finally {
+            for (Partition partition : baseTable.getPartitions()) {
+                partition.setVisibleVersionAndTime(partition.getVisibleVersion(),
+                        partition.getVisibleVersionTime(), originalTso.get(partition.getId()));
+            }
+            resetQueryContext();
+        }
+    }
+
+    @Test
     public void testInitPlanCollectsUpdatesForTwoStreams() throws Exception {
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
         OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
@@ -223,6 +303,53 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         } finally {
             insertExecutor.onFail(new RuntimeException("test cleanup"));
             resetQueryContext();
+        }
+    }
+
+    @Test
+    public void testUserInsertRejectsIvmInternalTableStream() throws Exception {
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.empty());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test_stream");
+        String streamName = IvmUtil.streamName(12345L,
+                db.getTableOrDdlException("tbl_stream_base").getFullQualifiers());
+        createTable("create stream if not exists test_stream." + streamName
+                + " on table test_stream.tbl_stream_base\n"
+                + "properties('show_initial_rows' = 'true')");
+        String sql = "insert into test_stream.tbl_target select * from test_stream." + streamName;
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertTrue(logicalPlan instanceof InsertIntoTableCommand);
+
+        connectContext.setStartTime();
+        UUID uuid = UUID.randomUUID();
+        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        InsertIntoTableCommand command = (InsertIntoTableCommand) logicalPlan;
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> command.initPlan(connectContext, executor, true));
+        Assertions.assertTrue(ex.getMessage().contains("IVM internal table stream cannot be used in INSERT INTO"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testFastInsertIntoValuesAllowsMissingAnalyzedPlan() throws Exception {
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.empty());
+        boolean originalFastAnalyze = connectContext.getSessionVariable().isEnableFastAnalyzeInsertIntoValues();
+        connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(true);
+        try {
+            String sql = "insert into test_stream.tbl_target values (1, 2)";
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertTrue(logicalPlan instanceof InsertIntoTableCommand);
+
+            connectContext.setStartTime();
+            UUID uuid = UUID.randomUUID();
+            connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
+            StmtExecutor executor = new StmtExecutor(connectContext, sql);
+            InsertIntoTableCommand command = (InsertIntoTableCommand) logicalPlan;
+            Assertions.assertNotNull(command.initPlan(connectContext, executor, false));
+        } finally {
+            connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(originalFastAnalyze);
         }
     }
 
@@ -618,15 +745,17 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                             .build();
                 }).thenAnswer(invocation -> buildReadStateResponse(invocation.getArgument(0)));
 
-                ResolveCloudTableStreamReadState resolver = new ResolveCloudTableStreamReadState();
+                // Read-state installation is a post-analysis invariant, so exercise the hook that
+                // owns this lifecycle instead of the removed generic rewrite rule.
                 org.apache.doris.nereids.exceptions.AnalysisException exception = Assertions.assertThrows(
                         org.apache.doris.nereids.exceptions.AnalysisException.class,
-                        () -> resolver.rewriteRoot(analyzedPlan, null));
+                        () -> Deencapsulation.invoke(
+                                CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan));
                 Assertions.assertTrue(exception.getMessage()
                         .contains("did not return all Cloud Table Stream bindings"));
                 Assertions.assertTrue(wrappers.stream().noneMatch(OlapTableStreamWrapper::hasCloudReadStates));
 
-                resolver.rewriteRoot(analyzedPlan, null);
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
                 Assertions.assertTrue(wrappers.stream().allMatch(OlapTableStreamWrapper::hasCloudReadStates));
                 ArgumentCaptor<Cloud.GetTableStreamOffsetRequest> requestCaptor =
                         ArgumentCaptor.forClass(Cloud.GetTableStreamOffsetRequest.class);
@@ -691,7 +820,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 connectContext.setQueryId(
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", checker.getPlan());
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", checker.getPlan());
                 checker.getCascadesContext().getStatementContext().setForceRecordTmpPlan(true);
                 checker.rewrite();
 
@@ -768,7 +897,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
                 Plan analyzedPlan = checker.getPlan();
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", analyzedPlan);
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
                 checker.rewrite();
 
                 List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);
@@ -833,7 +962,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
                 Plan analyzedPlan = checker.getPlan();
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", analyzedPlan);
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
                 checker.rewrite();
 
                 List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);

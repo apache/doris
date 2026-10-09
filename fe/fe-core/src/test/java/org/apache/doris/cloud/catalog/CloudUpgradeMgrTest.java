@@ -25,10 +25,10 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -42,12 +42,12 @@ public class CloudUpgradeMgrTest {
 
     private boolean oldEnableAbortConflictTxn;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         oldEnableAbortConflictTxn = Config.enable_abort_txn_by_checking_conflict_txn;
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.enable_abort_txn_by_checking_conflict_txn = oldEnableAbortConflictTxn;
     }
@@ -75,9 +75,9 @@ public class CloudUpgradeMgrTest {
             long endTransactionId = invocation.getArgument(0);
             long actualDbId = invocation.getArgument(1);
             List<Long> actualTableIdList = invocation.getArgument(2);
-            Assert.assertEquals(waterTxnId, endTransactionId);
-            Assert.assertEquals(dbId, actualDbId);
-            Assert.assertEquals(tableIdList, actualTableIdList);
+            Assertions.assertEquals(waterTxnId, endTransactionId);
+            Assertions.assertEquals(dbId, actualDbId);
+            Assertions.assertEquals(tableIdList, actualTableIdList);
             return conflictTxns;
         }).when(txnMgr).getUnFinishedPreviousLoad(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyList());
 
@@ -85,8 +85,8 @@ public class CloudUpgradeMgrTest {
             Long actualDbId = invocation.getArgument(0);
             Long txnId = invocation.getArgument(1);
             String reason = invocation.getArgument(2);
-            Assert.assertEquals(dbId, actualDbId.longValue());
-            Assert.assertEquals("Cancel by cloud upgrade", reason);
+            Assertions.assertEquals(dbId, actualDbId.longValue());
+            Assertions.assertEquals("Cancel by cloud upgrade", reason);
             abortedTxnIds.add(txnId);
             return null;
         }).when(txnMgr).abortTransaction(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyString());
@@ -97,7 +97,7 @@ public class CloudUpgradeMgrTest {
             mockedGlobalTxnMgr.when(() -> GlobalTransactionMgr.checkFailedTxns(Mockito.anyList()))
                     .thenAnswer(invocation -> {
                         List<TransactionState> txns = invocation.getArgument(0);
-                        Assert.assertEquals(conflictTxns, txns);
+                        Assertions.assertEquals(conflictTxns, txns);
                         return failedTxns;
                     });
 
@@ -105,7 +105,7 @@ public class CloudUpgradeMgrTest {
                     tableIdList);
         }
 
-        Assert.assertEquals(Lists.newArrayList(101L, 103L), abortedTxnIds);
+        Assertions.assertEquals(Lists.newArrayList(101L, 103L), abortedTxnIds);
     }
 
     @Test
@@ -146,8 +146,8 @@ public class CloudUpgradeMgrTest {
                     tableIdList);
         }
 
-        Assert.assertEquals(0, checkFailedCallCount.get());
-        Assert.assertEquals(0, abortCallCount.get());
+        Assertions.assertEquals(0, checkFailedCallCount.get());
+        Assertions.assertEquals(0, abortCallCount.get());
     }
 
     @Test
@@ -188,7 +188,7 @@ public class CloudUpgradeMgrTest {
                     tableIdList);
         }
 
-        Assert.assertEquals(2, abortAttemptCount.get());
+        Assertions.assertEquals(2, abortAttemptCount.get());
     }
 
     private static TransactionState newTxn(long dbId, long txnId, String label) {

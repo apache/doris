@@ -49,7 +49,6 @@ public class OptimizeGroupExpressionJob extends Job {
             return;
         }
 
-        countJobExecutionTimesOfGroupExpressions(groupExpression);
         List<Rule> implementationRules = getImplementationRules();
         List<Rule> explorationRules = getExplorationRules(context.getCascadesContext());
 

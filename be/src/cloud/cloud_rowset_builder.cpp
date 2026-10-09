@@ -107,7 +107,7 @@ Status CloudRowsetBuilder::init() {
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
     context.write_binlog_opt().enable = _req.write_req_type == WriteRequestType::ROW_BINLOG;
-    context.file_cache_ttl_sec = _tablet->ttl_seconds();
+    context.file_cache_expiration_time = _tablet->file_cache_ttl_expiration_time();
     context.storage_resource = _engine.get_storage_resource(_req.storage_vault_id);
     if (!context.storage_resource) {
         return Status::InternalError("vault id not found, maybe not sync, vault id {}",
@@ -139,6 +139,7 @@ Status CloudGroupRowsetBuilder::init() {
     RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_writer));
     group_writer->set_data_writer(_data_builder->rowset_writer());
     group_writer->set_row_binlog_writer(_row_binlog_builder->rowset_writer());
+    RETURN_IF_ERROR(group_writer->init(_data_builder->rowset_writer()->context()));
 
     {
         const auto& data_ctx = _data_builder->rowset_writer()->context();

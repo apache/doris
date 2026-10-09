@@ -27,13 +27,16 @@ import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -93,6 +96,18 @@ class AbstractJobProcessorTest {
         Assertions.assertEquals(Arrays.asList("publish:" + trackingUrl, "cancel", "final"), events);
     }
 
+    @Test
+    void opaqueConnectorDataRequiresARegisteredFragmentHandler() {
+        TestJobProcessor processor = new TestJobProcessor(Mockito.mock(CoordinatorContext.class));
+        processor.setBackendFragmentTasks(Collections.emptyMap());
+        TReportExecStatusParams params = new TReportExecStatusParams()
+                .setStatus(new TStatus(TStatusCode.OK))
+                .setConnectorCommitData(Collections.singletonList(ByteBuffer.wrap(new byte[] {1})));
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> processor.updateFragmentExecStatus(params));
+    }
+
     private static TestJobProcessor createProcessor(MultiFragmentsPipelineTask fragmentsTask) {
         BackendWorker worker = Mockito.mock(BackendWorker.class);
         PipelineExecutionTask executionTask = Mockito.mock(PipelineExecutionTask.class);
@@ -126,6 +141,10 @@ class AbstractJobProcessorTest {
         @Override
         protected void publishReportDiagnosticsBeforeStatus(TReportExecStatusParams params) {
             reportEventRecorder.accept("publish:" + params.getTrackingUrl());
+        }
+
+        void setBackendFragmentTasks(Map<BackendFragmentId, SingleFragmentPipelineTask> tasks) {
+            this.backendFragmentTasks = Optional.of(tasks);
         }
 
         @Override

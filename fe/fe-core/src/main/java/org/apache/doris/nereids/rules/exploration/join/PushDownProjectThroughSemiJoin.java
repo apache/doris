@@ -19,10 +19,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -30,10 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Rule for pushdown project through left-semi/anti join
@@ -62,10 +56,10 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
                     .whenNot(j -> j.left().child().hasDistributeHint())
                     .then(topJoin -> {
                         LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.left();
-                        if (projectBothJoinSide(project)) {
+                        Plan newLeft = ProjectJoinReorderHelper.normalize(project).orElse(null);
+                        if (newLeft == null) {
                             return null;
                         }
-                        Plan newLeft = pushdownProject(project);
                         return topJoin.withChildren(newLeft, topJoin.right());
                     }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN_LEFT),
 
@@ -76,39 +70,12 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
                     .whenNot(j -> j.right().child().hasDistributeHint())
                     .then(topJoin -> {
                         LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.right();
-                        if (projectBothJoinSide(project)) {
+                        Plan newRight = ProjectJoinReorderHelper.normalize(project).orElse(null);
+                        if (newRight == null) {
                             return null;
                         }
-                        Plan newRight = pushdownProject(project);
                         return topJoin.withChildren(topJoin.left(), newRight);
                     }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN_RIGHT)
                 );
-    }
-
-    private boolean projectBothJoinSide(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        // if project contains both side of join, it can't be pushed.
-        // such as:
-        //  Project(l, null as r)
-        //  ------ L(l) left anti join R(r)
-        LogicalJoin<?, ?> join = project.child();
-        Set<Slot> projectOutput = project.getOutputSet();
-        boolean containLeft = join.left().getOutput().stream().anyMatch(projectOutput::contains);
-        boolean containRight = join.right().getOutput().stream().anyMatch(projectOutput::contains);
-        return containRight && containLeft;
-    }
-
-    private Plan pushdownProject(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
-        LogicalJoin<GroupPlan, GroupPlan> join = project.child();
-        Set<Slot> conditionLeftSlots = CBOUtils.joinChildConditionSlots(join, true);
-
-        List<NamedExpression> newProject = new ArrayList<>(project.getProjects());
-        Set<Slot> projectUsedSlots = project.getProjects().stream().map(NamedExpression::toSlot)
-                .collect(Collectors.toSet());
-        conditionLeftSlots.stream().filter(slot -> !projectUsedSlots.contains(slot))
-                .forEach(newProject::add);
-        Plan newLeft = new LogicalProject<>(newProject, join.left());
-
-        Plan newJoin = join.withChildren(newLeft, join.right());
-        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), newJoin);
     }
 }

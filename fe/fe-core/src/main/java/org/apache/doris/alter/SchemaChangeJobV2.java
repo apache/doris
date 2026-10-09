@@ -56,7 +56,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -935,8 +935,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
 
                 for (Tablet shadownTablet : shadowIndex.getTablets()) {
+                    // Full schema-change jobs cannot originate from a row-binlog table.
                     TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                            indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium);
+                            indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium,
+                            false /* isRowBinlog */);
                     invertedIndex.addTablet(shadownTablet.getId(), shadowTabletMeta);
                     for (Replica shadowReplica : shadownTablet.getReplicas()) {
                         invertedIndex.addReplica(shadownTablet.getId(), shadowReplica);

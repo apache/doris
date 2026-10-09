@@ -29,6 +29,9 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,6 +41,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -235,6 +239,50 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
+    public void nonPositiveTableTtlKeepsConnectorLoadsLiveWithAndWithoutQuota() throws Exception {
+        for (String ttl : new String[] {"-1", "0"}) {
+            for (String quotaKey : new String[] {"", "meta.cache.max-weight",
+                    "meta.cache.iceberg.table.max-weight"}) {
+                Map<String, String> properties = props(IcebergConnector.TABLE_CACHE_TTL_SECOND, ttl);
+                if (!quotaKey.isEmpty()) {
+                    properties.put(quotaKey, "1MB");
+                }
+                try (IcebergConnector connector =
+                        new IcebergConnector(properties, new RecordingConnectorContext())) {
+                    IcebergTableCache tables = connector.tableCacheForTest();
+                    IcebergLatestSnapshotCache snapshots = connector.latestSnapshotCacheForTest();
+                    TableIdentifier id = TableIdentifier.of("db1", "t1");
+                    AtomicInteger loads = new AtomicInteger();
+                    Supplier<IcebergLatestSnapshotCache.CachedSnapshot> loader = () -> {
+                        Table table = tables.getOrLoad(id, () -> fakeTable(
+                                Integer.toString(loads.incrementAndGet())));
+                        return new IcebergLatestSnapshotCache.CachedSnapshot(
+                                Long.parseLong(table.name()), table.schema().schemaId());
+                    };
+                    Assertions.assertEquals(1L, snapshots.getOrLoad(id, loader).snapshotId);
+                    Assertions.assertEquals(2L, snapshots.getOrLoad(id, loader).snapshotId);
+                    Assertions.assertEquals(2, loads.get());
+                    Assertions.assertFalse(tables.isEnabled(), ttl + " / " + quotaKey);
+                    Assertions.assertEquals(0, tables.size());
+                    Assertions.assertEquals(0, snapshots.size());
+                    Assertions.assertFalse(connector.partitionCacheForTest().isEnabled());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void independentPartitionTtlKeepsItsNoExpirationSemantics() throws Exception {
+        Map<String, String> properties = props(IcebergConnector.TABLE_CACHE_TTL_SECOND, "-1");
+        properties.put("meta.cache.iceberg.partition.ttl-second", "-1");
+        try (IcebergConnector connector =
+                new IcebergConnector(properties, new RecordingConnectorContext())) {
+            Assertions.assertFalse(connector.tableCacheForTest().isEnabled());
+            Assertions.assertTrue(connector.partitionCacheForTest().isEnabled());
+        }
+    }
+
+    @Test
     public void crossQueryTableCacheDisabledForVendedCredentials() {
         // REST vended-credentials: the cached raw table's FileIO carries a server-vended token that expires
         // within the query (iceberg keeps it fresh by reloading the table each query). A 24h-TTL cross-query hit
@@ -287,10 +335,75 @@ public class IcebergConnectorCacheTest {
         Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
     }
 
+    @Test
+    public void closeInvalidatesCrossQueryTableCache() throws Exception {
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergTableCache cache = connector.tableCacheForTest();
+        cache.getOrLoad(TableIdentifier.of("db1", "t1"), () -> fakeTable("db1.t1"));
+        Assertions.assertEquals(1, cache.size());
+
+        connector.close();
+
+        Assertions.assertEquals(0, cache.size(), "connector teardown must release its table-cache ownership");
+    }
+
+    @Test
+    public void directTableCleanupOnlyClosesTableOwnedFileIO() {
+        RecordingFileIO tableFileIO = new RecordingFileIO();
+        FakeIcebergTable table = (FakeIcebergTable) fakeTable("rest.table");
+        table.setIo(tableFileIO);
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_REST).run();
+        Assertions.assertEquals(0, tableFileIO.closeCalls,
+                "REST FileIO is owned by the retained REST catalog generation and its FileIOTracker");
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_GLUE).run();
+        Assertions.assertEquals(1, tableFileIO.closeCalls);
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_S3_TABLES).run();
+        Assertions.assertEquals(2, tableFileIO.closeCalls);
+    }
+
+    @Test
+    public void restConfigOnlyTableFileIOIsOwnedByTable() {
+        RecordingFileIO catalogFileIO = new RecordingFileIO();
+        RecordingFileIO configOnlyTableFileIO = new RecordingFileIO();
+
+        Assertions.assertFalse(IcebergConnector.shouldCloseTableFileIO(
+                IcebergCatalogProperties.TYPE_REST, catalogFileIO, catalogFileIO));
+        Assertions.assertTrue(IcebergConnector.shouldCloseTableFileIO(
+                IcebergCatalogProperties.TYPE_REST, configOnlyTableFileIO, catalogFileIO));
+    }
+
+    private static final class RecordingFileIO implements FileIO {
+        private int closeCalls;
+
+        @Override
+        public InputFile newInputFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public OutputFile newOutputFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public void deleteFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public void close() {
+            closeCalls++;
+        }
+    }
+
     // ============ PERF-02: partition-view cache (session=user gated) + invalidation ============
 
     private static IcebergPartitionCache.Key partKey(String db, String tbl, long snapshotId) {
-        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId);
+        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId, 0, 0);
     }
 
     @Test

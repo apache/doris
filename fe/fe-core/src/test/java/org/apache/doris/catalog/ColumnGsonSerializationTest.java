@@ -23,10 +23,14 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInput;
 import java.io.DataInputStream;
@@ -43,7 +47,7 @@ public class ColumnGsonSerializationTest {
     private static String fileName = "./ColumnGsonSerializationTest";
     private static Path path = Paths.get(fileName);
 
-    @After
+    @AfterEach
     public void tearDown() throws IOException {
         Files.deleteIfExists(path);
     }
@@ -83,7 +87,7 @@ public class ColumnGsonSerializationTest {
         String readJson = Text.readString(in);
         Column readC1 = GsonUtils.GSON.fromJson(readJson, Column.class);
 
-        Assert.assertEquals(c1, readC1);
+        Assertions.assertEquals(c1, readC1);
         // 3.close
         in.close();
     }
@@ -113,12 +117,80 @@ public class ColumnGsonSerializationTest {
         ColumnList readList = ColumnList.read(in);
         List<Column> columns = readList.columns;
 
-        Assert.assertEquals(3, columns.size());
-        Assert.assertEquals(c1, columns.get(0));
-        Assert.assertEquals(c2, columns.get(1));
-        Assert.assertEquals(c3, columns.get(2));
+        Assertions.assertEquals(3, columns.size());
+        Assertions.assertEquals(c1, columns.get(0));
+        Assertions.assertEquals(c2, columns.get(1));
+        Assertions.assertEquals(c3, columns.get(2));
         // 3.close
         in.close();
+    }
+
+    @Test
+    public void testReplayPreRootTurkishStructFieldName() {
+        StructType structType = new StructType(new StructField("I", Type.INT));
+        JsonObject legacyJson = JsonParser.parseString(
+                GsonUtils.GSON.toJson(structType, Type.class)).getAsJsonObject();
+
+        JsonObject fieldMap = legacyJson.getAsJsonObject("fieldMap");
+        JsonElement legacyMapField = fieldMap.remove("i");
+        setLegacyTurkishFieldName(legacyMapField.getAsJsonObject());
+        fieldMap.add("ı", legacyMapField);
+        JsonArray fields = legacyJson.getAsJsonArray("fields");
+        setLegacyTurkishFieldName(fields.get(0).getAsJsonObject());
+
+        StructType replayed = (StructType) GsonUtils.GSON.fromJson(legacyJson, Type.class);
+        Assertions.assertEquals("ı", replayed.getField("I").getName());
+
+        org.apache.doris.nereids.types.StructType nereidsType =
+                (org.apache.doris.nereids.types.StructType)
+                        org.apache.doris.nereids.types.DataType.fromCatalogType(replayed);
+        Assertions.assertEquals("ı", nereidsType.getField("I").getName());
+
+        StructType roundTrip = (StructType) nereidsType.toCatalogDataType();
+        Assertions.assertEquals("ı", roundTrip.getField("I").getName());
+    }
+
+    @Test
+    public void testCurrentDotlessStructFieldDoesNotMatchAsciiI() {
+        StructType structType = new StructType(new StructField("ı", Type.INT));
+        Assertions.assertNull(structType.getField("I"));
+
+        org.apache.doris.nereids.types.StructType nereidsType =
+                (org.apache.doris.nereids.types.StructType)
+                        org.apache.doris.nereids.types.DataType.fromCatalogType(structType);
+        Assertions.assertNull(nereidsType.getField("I"));
+    }
+
+    @Test
+    public void testReplayPreRootTurkishStructFieldCollisionIsAmbiguous() {
+        StructType structType = new StructType(
+                new StructField("ı", Type.INT), new StructField("i", Type.BIGINT));
+        JsonObject legacyJson = JsonParser.parseString(
+                GsonUtils.GSON.toJson(structType, Type.class)).getAsJsonObject();
+        legacyJson.getAsJsonObject("fieldMap").entrySet().forEach(
+                entry -> entry.getValue().getAsJsonObject().remove("originalName"));
+        legacyJson.getAsJsonArray("fields").forEach(
+                field -> field.getAsJsonObject().remove("originalName"));
+
+        StructType replayed = (StructType) GsonUtils.GSON.fromJson(legacyJson, Type.class);
+        Assertions.assertNull(replayed.getField("I"));
+        Assertions.assertEquals("ı", replayed.getField("ı").getName());
+        Assertions.assertEquals("i", replayed.getField("i").getName());
+
+        org.apache.doris.nereids.types.StructType nereidsType =
+                (org.apache.doris.nereids.types.StructType)
+                        org.apache.doris.nereids.types.DataType.fromCatalogType(replayed);
+        Assertions.assertNull(nereidsType.getField("I"));
+        Assertions.assertEquals("ı", nereidsType.getField("ı").getName());
+        Assertions.assertEquals("i", nereidsType.getField("i").getName());
+
+        StructType roundTrip = (StructType) nereidsType.toCatalogDataType();
+        Assertions.assertNull(roundTrip.getField("I"));
+    }
+
+    private static void setLegacyTurkishFieldName(JsonObject field) {
+        field.addProperty("name", "ı");
+        field.remove("originalName");
     }
 
 }

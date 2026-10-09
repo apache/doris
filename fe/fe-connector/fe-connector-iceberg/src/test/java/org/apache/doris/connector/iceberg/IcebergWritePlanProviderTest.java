@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
@@ -1193,25 +1194,28 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
-    public void planWriteRejectsWriteDefaultEvolution() {
+    public void planWriteRejectsWriteDefaultEvolutionBySchemaGeneration() {
         InMemoryCatalog catalog = freshCatalog();
-        Table table = unpartitionedUnsortedTable(catalog);
+        Table table = formatVersionThreeTable(catalog);
         table.updateSchema().updateColumnDefault("id", Literal.of(42)).commit();
-        List<ConnectorColumn> boundColumns = Arrays.asList(
-                new ConnectorColumn("id", ConnectorType.of("INT"), "", false, null)
-                        .withDefaultValueSql("42")
-                        .withUniqueId(table.schema().findField("id").fieldId()),
-                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null)
-                        .withUniqueId(table.schema().findField("name").fieldId()));
+        RecordingConnectorContext context = contextWithStorage();
+        IcebergWritePlanProvider provider = providerFor(table, context);
+        WriteSession session = sessionFor(table, context);
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "tv3");
+        // Bind columns and generation in one statement scope, as a real INSERT does.
+        List<ConnectorColumn> boundColumns = provider.getWriteColumns(
+                session, tableHandle, Optional.empty()).orElseThrow(AssertionError::new);
+        String boundIdentity = provider.getWriteMetadataIdentity(session, tableHandle);
 
         table.updateSchema().updateColumnDefault("id", Literal.of(7)).commit();
 
+        // A default change always commits a new schema id, so the schema-generation fences reject the stale
+        // write before any column comparison; write defaults need no comparison of their own.
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> planSink(table, contextWithStorage(),
-                        new WriteHandle(new IcebergTableHandle("db1", "t2"))
-                                .boundTargetColumns(boundColumns)));
-        Assertions.assertTrue(ex.getMessage().contains("schema changed"),
-                "a statement must retry instead of writing a value materialized from the stale default");
+                () -> provider.planWrite(session, new WriteHandle(tableHandle)
+                        .boundTargetColumns(boundColumns)
+                        .boundWriteMetadataIdentity(boundIdentity)));
+        Assertions.assertTrue(ex.getMessage().contains("changed"), ex.getMessage());
     }
 
     @Test
@@ -1231,6 +1235,29 @@ public class IcebergWritePlanProviderTest {
                 .getDataSink().getIcebergTableSink();
 
         Assertions.assertTrue(sink.getSchemaJson().contains("\"write-default\":42"));
+    }
+
+    @Test
+    public void planRewriteAcceptsStableWriteDefault() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = formatVersionThreeTable(catalog);
+        table.updateSchema().addColumn("bonus", Types.IntegerType.get(), Literal.of(7)).commit();
+        table.updateSchema().updateColumnDefault("bonus", Literal.of(9)).commit();
+        // rewrite_data_files binds the cached read schema, which deliberately carries no write default.
+        List<ConnectorColumn> boundColumns = new ArrayList<>(boundDataColumns(table));
+        boundColumns.add(new ConnectorColumn("bonus", ConnectorType.of("INT"), "", true, null)
+                .withUniqueId(table.schema().findField("bonus").fieldId()));
+        boundColumns.add(new ConnectorColumn("_row_id", ConnectorType.of("BIGINT"), "", true, null)
+                .invisible().reservedPassthrough());
+        boundColumns.add(new ConnectorColumn(
+                "_last_updated_sequence_number", ConnectorType.of("BIGINT"), "", true, null)
+                .invisible().reservedPassthrough());
+
+        TIcebergTableSink sink = Assertions.assertDoesNotThrow(() -> planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "tv3"))
+                        .boundTargetColumns(boundColumns)
+                        .writeOperation(WriteOperation.REWRITE)));
+        Assertions.assertEquals(TIcebergWriteType.REWRITE, sink.getWriteType());
     }
 
     @Test
@@ -1724,8 +1751,8 @@ public class IcebergWritePlanProviderTest {
         providerFor(ops.table, ctx).planWrite(new WriteSession(txn),
                 new WriteHandle(emptyPinnedHandle).writeOperation(WriteOperation.MERGE));
 
-        Assertions.assertNull(txn.getBaseSnapshotId(),
-                "an explicitly empty read must leave RowDelta validation unbounded across the first append");
+        Assertions.assertEquals(Long.valueOf(-1L), txn.getBaseSnapshotId(),
+                "an explicitly empty read must preserve its OCC generation fence across the first append");
     }
 
     // ───────────────────────────── MERGE sink (TIcebergMergeSink) ─────────────────────────────
@@ -1742,6 +1769,30 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals(TDataSinkType.ICEBERG_MERGE_SINK, plan.getDataSink().getType(),
                 "an UPDATE/MERGE write operation must dispatch to the TIcebergMergeSink dialect");
         return plan.getDataSink().getIcebergMergeSink();
+    }
+
+    // The replacement data files an UPDATE / SQL MERGE writes go through the same iceberg parquet writer as
+    // an INSERT, and VIcebergMergeSink builds its inner TIcebergTableSink by copying fields across one by
+    // one. A NaN-count policy shipped only on the INSERT sink therefore leaves merge-written files reporting
+    // no nan_value_counts, so they stay unprunable even when NaN-free — the pruning restoration would cover
+    // only part of what Doris writes. This pins that the merge dialect carries it too.
+    @Test
+    public void planWriteMergeSinkShipsTheNanCountFieldIds() {
+        Schema floatSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "d", Types.DoubleType.get()));
+        Map<String, String> tableProps = new HashMap<>();
+        tableProps.put("write.format.default", "parquet");
+        tableProps.put("write.data.path", "oss://bucket/wh/db1/t1/data");
+        Table table = freshCatalog().createTable(TableIdentifier.of("db1", "t1"), floatSchema,
+                PartitionSpec.unpartitioned(), tableProps);
+        TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                        .writeOperation(WriteOperation.MERGE));
+
+        Assertions.assertTrue(sink.isSetNanCountFieldIds(),
+                "the merge dialect must carry the NaN-count policy, not just the INSERT sink");
+        Assertions.assertEquals(Collections.singletonList(2), sink.getNanCountFieldIds());
     }
 
     // #66112: UPDATE and SQL MERGE share the TIcebergMergeSink dialect, but only SQL MERGE carries the
@@ -1867,7 +1918,9 @@ public class IcebergWritePlanProviderTest {
         IcebergWritePlanProvider provider = providerFor(unpartitionedUnsortedTable(freshCatalog()), contextWithStorage());
 
         Assertions.assertEquals(EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE,
-                WriteOperation.DELETE, WriteOperation.MERGE, WriteOperation.REWRITE), provider.supportedOperations());
+                WriteOperation.DELETE, WriteOperation.UPDATE, WriteOperation.MERGE, WriteOperation.REWRITE),
+                provider.supportedOperations());
+        Assertions.assertEquals(ConnectorRowChangeStyle.POSITION_DELETE, provider.getRowChangeStyle());
         Assertions.assertTrue(provider.supportsWriteBranch());
         Assertions.assertTrue(provider.requiresParallelWrite());
         Assertions.assertTrue(provider.requiresFullSchemaWriteOrder());

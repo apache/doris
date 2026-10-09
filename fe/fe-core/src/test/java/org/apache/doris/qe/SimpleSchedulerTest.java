@@ -30,7 +30,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
@@ -96,13 +96,13 @@ public class SimpleSchedulerTest {
                     long start = System.currentTimeMillis();
                     for (int i = 0; i < 1000; i++) {
                         TNetworkAddress address = SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
-                        Assert.assertNotNull(address);
+                        Assertions.assertNotNull(address);
                         if (!foundCandidate && address.getHostname().equals(be2.getHost())) {
                             foundCandidate = true;
                         }
                     }
                     System.out.println("cost: " + (System.currentTimeMillis() - start));
-                    Assert.assertTrue(foundCandidate);
+                    Assertions.assertTrue(foundCandidate);
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
@@ -117,11 +117,11 @@ public class SimpleSchedulerTest {
                     Set<String> resBackends = Sets.newHashSet();
                     for (int i = 0; i < 1000; i++) {
                         TNetworkAddress address = SimpleScheduler.getHost(backends, ref);
-                        Assert.assertNotNull(address);
+                        Assertions.assertNotNull(address);
                         resBackends.add(address.hostname);
                     }
                     System.out.println("cost: " + (System.currentTimeMillis() - start));
-                    Assert.assertTrue(resBackends.size() >= 4);
+                    Assertions.assertTrue(resBackends.size() >= 4);
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
@@ -150,11 +150,11 @@ public class SimpleSchedulerTest {
         t1.join();
         t2.join();
 
-        Assert.assertFalse(SimpleScheduler.isAvailable(be1));
+        Assertions.assertFalse(SimpleScheduler.isAvailable(be1));
         be1.setAlive(true);
         // Sleep 5s so that UpdateBlacklistThread will remove be1 from blacklist
         Thread.sleep(1000 * 5L);
-        Assert.assertTrue(SimpleScheduler.isAvailable(be1));
+        Assertions.assertTrue(SimpleScheduler.isAvailable(be1));
     }
 
     @Test
@@ -173,7 +173,7 @@ public class SimpleSchedulerTest {
 
         try {
             SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException e) {
             System.out.println(e.getMessage());
         }
@@ -211,7 +211,7 @@ public class SimpleSchedulerTest {
 
         try {
             SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref);
-            Assert.fail();
+            Assertions.fail();
         } catch (UserException e) {
             System.out.println(e.getMessage());
         }
@@ -222,6 +222,6 @@ public class SimpleSchedulerTest {
         be4.setAlive(true);
         be5.setAlive(true);
         Thread.sleep((Config.heartbeat_interval_second + 5) * 1000);
-        Assert.assertNotNull(SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref));
+        Assertions.assertNotNull(SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref));
     }
 }

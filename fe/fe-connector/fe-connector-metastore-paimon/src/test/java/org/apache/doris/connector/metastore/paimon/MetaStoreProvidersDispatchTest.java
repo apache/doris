@@ -78,23 +78,15 @@ public class MetaStoreProvidersDispatchTest {
     }
 
     @Test
-    public void removedDlfTypeNoLongerDispatches() {
-        // WHY: paimon.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed, so it
-        // must now behave exactly like any unknown flavor — fail loud at bind. MUTATION: leaving the provider
-        // registered (or its services entry) would silently route to a backend whose client no longer ships.
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> MetaStoreProviders.bind(typed("dlf"), Collections.emptyMap()));
+    public void dlfTypeDispatches() {
+        Assertions.assertEquals("DLF", providerOf("dlf"));
     }
 
     @Test
-    public void allFourProvidersAreRegistered() {
+    public void allFiveProvidersAreRegistered() {
         Assertions.assertTrue(MetaStoreProviders.registeredNames()
-                .containsAll(java.util.Arrays.asList("HMS", "REST", "JDBC", "FILESYSTEM")),
+                .containsAll(java.util.Arrays.asList("HMS", "REST", "JDBC", "DLF", "FILESYSTEM")),
                 "registered=" + MetaStoreProviders.registeredNames());
-        // WHY: dlf 1.0 was removed. Its provider must be gone from the ServiceLoader, not merely unreachable —
-        // a stale services entry would resurrect a backend whose client no longer exists.
-        Assertions.assertFalse(MetaStoreProviders.registeredNames().contains("DLF"),
-                "the removed DLF 1.0 provider must not be registered: " + MetaStoreProviders.registeredNames());
     }
 
     @Test

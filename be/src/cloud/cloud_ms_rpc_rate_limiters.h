@@ -20,6 +20,7 @@
 #include <bvar/bvar.h>
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -78,8 +79,14 @@ struct RpcRateLimiter {
 
     RpcRateLimiter(int qps, std::string_view op_name);
 
+    // Each RPC type owns one RpcRateLimiter, so log suppression is independent per RPC type.
+    bool should_log(int64_t now_us);
+
     // Reset the rate limiter with new QPS
     void reset(int qps);
+
+private:
+    std::atomic<int64_t> _next_log_time_us {0};
 };
 
 // Host-level rate limiters for MS RPCs to prevent burst traffic
@@ -96,7 +103,8 @@ public:
 
     ~HostLevelMSRpcRateLimiters() = default;
 
-    // Rate limit the specified RPC method, returns actual sleep time in nanoseconds
+    // Rate limit the specified RPC method, returning the actual sleep time in nanoseconds.
+    // Dry-run mode updates the limiter and its metrics without sleeping, and returns 0.
     // Thread-safe: each limiter handles its own synchronization
     int64_t limit(MetaServiceRPC rpc);
 

@@ -21,7 +21,6 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/auth/STSCredentialsProvider.h>
-#include <aws/core/platform/Environment.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/sts/STSClient.h>
 #include <aws/sts/model/AssumeRoleRequest.h>
@@ -34,6 +33,7 @@
 #include <sstream>
 
 #include "common/logging.h"
+#include "cpp/aws_common.h"
 
 namespace doris {
 
@@ -51,8 +51,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_provid
     } else if (provider_upper == "INSTANCE_PROFILE" || provider_upper == "INSTANCEPROFILE") {
         return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
     } else if (provider_upper == "CONTAINER" || provider_upper == "ECS") {
-        return std::make_shared<Aws::Auth::TaskRoleCredentialsProvider>(
-                Aws::Environment::GetEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").c_str());
+        return create_container_credentials_provider();
     } else if (provider_upper == "SYSTEM_PROPERTIES" || provider_upper == "SYSTEMPROPERTIES") {
         return std::make_shared<Aws::Auth::ProfileConfigFileAWSCredentialsProvider>();
     } else if (provider_upper == "WEB_IDENTITY" || provider_upper == "WEBIDENTITY" ||

@@ -41,6 +41,17 @@ suite("test_timestamptz_dst_fold") {
         (4, 'post_explicit', CAST('2024-11-03 01:05:00 -05:00' AS TIMESTAMPTZ(6)));
     """
 
+    sql "SET time_zone = '+00:00';"
+    sql "SET @dst_fold_ts = CAST('2024-11-03 05:05:00 +00:00' AS TIMESTAMPTZ(6));"
+    sql "SET time_zone = 'America/New_York';"
+    qt_user_var_render "SELECT CAST(@dst_fold_ts AS VARCHAR(64));"
+    order_qt_user_var_comparison """
+        SELECT id, label
+        FROM tz_dst_fold_events
+        WHERE ts = @dst_fold_ts
+        ORDER BY id;
+    """
+
     sql "SET debug_skip_fold_constant = true;"
     qt_sql """
         SELECT id, label, CAST(ts AS VARCHAR(64)) AS rendered

@@ -168,7 +168,6 @@ Status IndexBuilder::update_inverted_index_info() {
                 return size_st;
             }
         }
-        auto num_segments = input_rowset->num_segments();
         size_t drop_index_size = 0;
 
         if (_is_drop_op) {
@@ -202,10 +201,10 @@ Status IndexBuilder::update_inverted_index_info() {
                         InvertedIndexStorageFormatPB::V1) {
                         const auto& fs = io::global_local_filesystem();
 
-                        for (int seg_id = 0; seg_id < num_segments; seg_id++) {
+                        for (auto seg : input_rowset->segments()) {
                             auto seg_path = local_segment_path(
                                     _tablet->tablet_path(), input_rowset->rowset_id().to_string(),
-                                    seg_id);
+                                    seg.id());
                             auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
                                     InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
                                     index_meta->index_id(), index_meta->get_index_suffix());
@@ -374,8 +373,8 @@ Status IndexBuilder::update_inverted_index_info() {
             rowset_meta->set_index_disk_size(
                     preserve_snii_container ? input_rowset_meta->index_disk_size() : 0);
         } else {
-            for (int seg_id = 0; seg_id < num_segments; seg_id++) {
-                auto seg_path = DORIS_TRY(input_rowset->segment_path(seg_id));
+            for (auto seg : input_rowset->segments()) {
+                auto seg_path = DORIS_TRY(seg.path());
                 auto idx_file_reader = std::make_unique<IndexFileReader>(
                         context.fs(),
                         std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
@@ -387,11 +386,18 @@ Status IndexBuilder::update_inverted_index_info() {
                             st = Status::Error<ErrorCode::INIT_FAILED>(
                                     "debug point: reader init error");
                         })
-                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+                // A missing container (the rowset predates every index) and an
+                // EMPTY one (the schema owns an index, but no logical index had
+                // anything to write -- an all-NULL VARIANT column) both mean the
+                // same thing here: there is nothing to carry over. Both leave the
+                // reader un-inited, so get_all_directories() yields an empty map
+                // and every requested index is built from the raw columns.
+                if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() &&
+                    !st.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
                     return st;
                 }
                 _index_file_readers.emplace(
-                        std::make_pair(output_rs_writer->rowset_id().to_string(), seg_id),
+                        std::make_pair(output_rs_writer->rowset_id().to_string(), seg.id()),
                         std::move(idx_file_reader));
             }
             rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() -
@@ -404,6 +410,9 @@ Status IndexBuilder::update_inverted_index_info() {
         rowset_meta->set_num_segments(input_rowset_meta->num_segments());
         rowset_meta->set_segments_overlap(input_rowset_meta->segments_overlap());
         rowset_meta->set_rowset_state(input_rowset_meta->rowset_state());
+        if (input_rowset_meta->has_commit_tso()) {
+            rowset_meta->set_commit_tso(input_rowset_meta->commit_tso());
+        }
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
         rowset_meta->set_segments_key_bounds_truncated(
@@ -447,8 +456,23 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                       << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
             return Status::OK();
         }
-        if (output_rs_tablet_schema->get_inverted_index_storage_format() !=
-            InvertedIndexStorageFormatPB::V1) {
+        // Dropping the last index leaves a schema that owns no index file at all,
+        // and a rowset must not keep a file its own schema does not claim: link,
+        // copy, upload, remove and CRC all decide whether to touch the container
+        // by asking has_inverted_or_ann_index() of the rowset's own schema, so a
+        // file written here would be linked by nobody and deleted by nobody.
+        // Both segment writer paths already gate container creation the same way;
+        // this is the one caller that did not. It used to be masked by
+        // ~LocalFileWriter deleting a file that was never closed -- an accident,
+        // not a design, and one that never held for remote storage.
+        const bool is_v1 = output_rs_tablet_schema->get_inverted_index_storage_format() ==
+                           InvertedIndexStorageFormatPB::V1;
+        const bool output_has_index_file = output_rs_tablet_schema->has_inverted_or_ann_index();
+        if (!is_v1 && !output_has_index_file) {
+            LOG(INFO) << "drop index removed the last index, no index file is written. tablet_id="
+                      << _tablet->tablet_id()
+                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
+        } else if (!is_v1) {
             const auto& fs = output_rowset_meta->fs();
 
             const auto& output_rowset_schema = output_rowset_meta->tablet_schema();
@@ -517,12 +541,26 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         return Status::OK();
     } else {
         // create inverted or ann index writer
-        const auto& fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
+        // Same invariant as the drop branch above, and it holds for every storage
+        // format: no index in the output schema, no index file. Reached when
+        // nothing the request asked for survived schema resolution (every
+        // requested column is missing) and the input rowset carried no index
+        // either -- SNII would otherwise seal a header-only container here.
+        if (!output_rowset_schema->has_inverted_or_ann_index()) {
+            LOG(INFO) << "no index in the output rowset schema, no index file is written."
+                      << " tablet_id=" << _tablet->tablet_id()
+                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string()
+                      << " source_rows=" << output_rowset_meta->num_rows();
+            return Status::OK();
+        }
         if (output_rowset_schema->get_inverted_index_storage_format() ==
             InvertedIndexStorageFormatPB::SNII) {
             return _handle_single_rowset_snii(output_rowset_meta, segments);
         }
+        // fs() looks the tablet up to pick the encryption algorithm, so resolve it
+        // only on the V2/V3 path that writes an index file.
+        const auto& fs = output_rowset_meta->fs();
         size_t inverted_index_size = 0;
         for (auto& seg_ptr : segments) {
             std::string index_path_prefix {
@@ -683,7 +721,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             StorageReadOptions read_options;
             OlapReaderStatistics stats;
             read_options.stats = &stats;
-            read_options.tablet_schema = output_rowset_schema;
             auto schema = std::make_shared<ReadSchema>(
                     project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
             std::unique_ptr<RowwiseIterator> iter;
@@ -919,7 +956,6 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
     StorageReadOptions read_options;
     OlapReaderStatistics stats;
     read_options.stats = &stats;
-    read_options.tablet_schema = output_rowset_schema;
     auto schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
     std::unique_ptr<RowwiseIterator> iter;

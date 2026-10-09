@@ -25,6 +25,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -49,7 +50,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
@@ -358,15 +359,15 @@ public class StreamingJobUtils {
      *
      * <p>Returns a {@link LinkedHashMap} whose key is the <b>source</b> (upstream) table name and
      * whose value is the corresponding {@link CreateTableCommand} that creates the Doris target
-     * table (which may have a different name when {@code table.<src>.target_table} is configured).
-     * Callers must use the map key as the upstream source table identifier for CDC monitoring and
-     * the {@link CreateTableCommand} value for the actual DDL execution.
+     * table (which may have a different name when {@code table.<src>.target_table} is configured),
+     * or empty when the target table already exists. Callers must use the map key as the upstream
+     * source table identifier for CDC monitoring.
      */
-    public static LinkedHashMap<String, CreateTableCommand> generateCreateTableCmds(String targetDb,
+    public static LinkedHashMap<String, Optional<CreateTableCommand>> generateCreateTableCmds(String targetDb,
             DataSourceType sourceType,
             Map<String, String> properties, Map<String, String> targetProperties)
             throws JobException {
-        LinkedHashMap<String, CreateTableCommand> createtblCmds = new LinkedHashMap<>();
+        LinkedHashMap<String, Optional<CreateTableCommand>> createtblCmds = new LinkedHashMap<>();
         String includeTables = properties.get(DataSourceConfigKeys.INCLUDE_TABLES);
         String excludeTables = properties.get(DataSourceConfigKeys.EXCLUDE_TABLES);
         List<String> includeTablesList = new ArrayList<>();
@@ -381,10 +382,13 @@ public class StreamingJobUtils {
         JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
         try {
             String database = getRemoteDbName(sourceType, properties);
+            String sourceLocation = sourceType == DataSourceType.POSTGRES ? "schema" : "database";
             List<String> tablesNameList = jdbcClient.getTablesNameList(database);
             if (tablesNameList.isEmpty()) {
-                throw new JobException("No tables found in database " + database);
+                throw new JobException("No source tables found in " + sourceLocation + " '" + database + "'");
             }
+            Database targetDatabase = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
+            Preconditions.checkNotNull(targetDatabase, "target database %s does not exist", targetDb);
             Map<String, String> tableCreateProperties = getTableCreateProperties(targetProperties);
 
             List<String> noPrimaryKeyTables = new ArrayList<>();
@@ -404,21 +408,33 @@ public class StreamingJobUtils {
                 }
 
                 List<String> primaryKeys = jdbcClient.getPrimaryKeys(database, table);
-                List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
                 if (primaryKeys.isEmpty()) {
                     noPrimaryKeyTables.add(table);
                 }
 
                 // Resolve target (Doris) table name; defaults to source table name if not configured
-                String targetTableName = properties.getOrDefault(
+                String targetTableName = new TableNameInfo(targetDb, properties.getOrDefault(
                         DataSourceConfigKeys.TABLE + "." + table + "."
                                 + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
-                        table).trim();
+                        table).trim()).getTbl();
 
                 // Validate and apply exclude_columns for this table
                 Set<String> excludeColumns = parseExcludeColumns(properties, table);
+                if (targetDatabase.isTableExist(targetTableName)) {
+                    if (!excludeColumns.isEmpty()) {
+                        Set<String> columnNames = jdbcClient.getJdbcColumnsInfo(database, table).stream()
+                                .map(field -> field.getColumnName())
+                                .collect(Collectors.toSet());
+                        validateExcludeColumns(excludeColumns, table, columnNames, primaryKeys);
+                    }
+                    createtblCmds.put(table, Optional.empty());
+                    continue;
+                }
+
+                List<Column> columns = getColumns(jdbcClient, database, table, primaryKeys);
                 if (!excludeColumns.isEmpty()) {
-                    validateExcludeColumns(excludeColumns, table, columns, primaryKeys);
+                    Set<String> columnNames = columns.stream().map(Column::getName).collect(Collectors.toSet());
+                    validateExcludeColumns(excludeColumns, table, columnNames, primaryKeys);
                     columns = columns.stream()
                             .filter(col -> !excludeColumns.contains(col.getName()))
                             .collect(Collectors.toList());
@@ -461,15 +477,16 @@ public class StreamingJobUtils {
                 );
                 CreateTableCommand createtblCmd = new CreateTableCommand(Optional.empty(), createtblInfo);
                 // Key: source (PG/MySQL) table name; Value: command that creates the Doris target table
-                createtblCmds.put(table, createtblCmd);
+                createtblCmds.put(table, Optional.of(createtblCmd));
             }
             if (createtblCmds.isEmpty()) {
                 throw new JobException("Can not found match table in database " + database);
             }
 
             if (!noPrimaryKeyTables.isEmpty()) {
-                throw new JobException("The following tables do not have primary key defined: "
-                        + String.join(", ", noPrimaryKeyTables));
+                throw new JobException("Source tables require primary keys: "
+                        + String.join(", ", noPrimaryKeyTables)
+                        + ". Add a primary key or exclude these tables.");
             }
             return createtblCmds;
         } finally {
@@ -484,7 +501,8 @@ public class StreamingJobUtils {
         List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
         columns.forEach(col -> {
             Preconditions.checkArgument(!col.getType().isUnsupported(),
-                    "Unsupported column type, table:[%s], column:[%s]", table, col.getName());
+                    "Unsupported column type for source column '%s.%s.%s'",
+                    database, table, col.getName());
             if (col.getType().isVarchar()) {
                 // The length of varchar needs to be multiplied by 3.
                 int len = col.getType().getLength() * 3;
@@ -623,10 +641,9 @@ public class StreamingJobUtils {
     }
 
     private static void validateExcludeColumns(Set<String> excludeColumns, String tableName,
-            List<Column> columns, List<String> primaryKeys) throws JobException {
-        Set<String> colNames = columns.stream().map(Column::getName).collect(Collectors.toSet());
+            Set<String> columnNames, List<String> primaryKeys) throws JobException {
         for (String col : excludeColumns) {
-            if (!colNames.contains(col)) {
+            if (!columnNames.contains(col)) {
                 throw new JobException(String.format(
                         "exclude_columns validation failed: column '%s' does not exist in table '%s'",
                         col, tableName));

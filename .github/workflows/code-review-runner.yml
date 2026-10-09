@@ -5,14 +5,19 @@ on:
     types: [created]
   workflow_dispatch:
     inputs:
+      runtime_canary:
+        description: Test the staged Codex package without submitting a review.
+        required: false
+        type: boolean
+        default: false
       pr_number:
-        required: true
+        required: false
         type: string
       head_sha:
-        required: true
+        required: false
         type: string
       base_sha:
-        required: true
+        required: false
         type: string
       review_focus:
         required: false
@@ -23,28 +28,6 @@ on:
         required: false
         type: boolean
         default: true
-  workflow_call:
-    inputs:
-      pr_number:
-        required: true
-        type: string
-      head_sha:
-        required: true
-        type: string
-      base_sha:
-        required: true
-        type: string
-      review_focus:
-        required: false
-        type: string
-        default: ''
-      manage_status:
-        description: >-
-          Update the code-review commit status. Callers that enable this must
-          grant statuses: write.
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   statuses: write
@@ -52,22 +35,185 @@ permissions:
   contents: read
   issues: write
 
+# One review-step budget for helper download, all attempts, and final verification.
+env:
+  REVIEW_TIMEOUT_MINUTES: 120
+
 jobs:
+  runtime-canary:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.runtime_canary == true }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Install ossutil
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl -fsSL -o "$tmp_dir/ossutil.zip" https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil-v1.7.19-linux-amd64.zip
+          unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
+          sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
+
+      - name: Install staged Codex package
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/codex-exec-goal.tar.gz"
+          package="$RUNNER_TEMP/codex-exec-goal"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            cp -f oss://doris-community-ci/codex/releases/codex-exec-goal-0.156.1-a310d33f7ebb-x86_64-unknown-linux-gnu.tar.gz "$archive"
+          echo "2ee3073479bc8c94436684b55a13d7a3f299e768d04436d90e0427814a3954bc  $archive" | sha256sum --check
+          mkdir -p "$package"
+          tar -xzf "$archive" -C "$package"
+          (cd "$package" && sha256sum --check SHA256SUMS)
+          test "$(jq -r .version "$package/codex-package.json")" = 0.156.1
+          "$package/bin/codex" --version
+          "$package/bin/codex" exec --help | grep -q -- '--goal'
+          echo "CODEX_CANARY_BIN=$package/bin/codex" >> "$GITHUB_ENV"
+
+      - name: Load one review auth snapshot
+        id: auth
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+        run: |
+          set -euo pipefail
+          umask 077
+          home="$RUNNER_TEMP/codex-canary-home"
+          install -m 700 -d "$home"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            cp -f oss://doris-community-ci/codex/auth.json.4 "$home/auth.json" >/dev/null
+          jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$home/auth.json" >/dev/null
+          sha256sum "$home/auth.json" | awk '{print $1}' \
+            > "$RUNNER_TEMP/codex-canary-auth-original.sha256"
+          cat > "$home/config.toml" <<'EOF'
+          cli_auth_credentials_store = "file"
+          approval_policy = "never"
+
+          [features]
+          memories = true
+
+          [memories]
+          use_memories = true
+          generate_memories = true
+
+          [otel]
+          environment = "github-actions"
+          exporter = "none"
+          trace_exporter = "none"
+          metrics_exporter = "none"
+          EOF
+          echo "CODEX_HOME=$home" >> "$GITHUB_ENV"
+
+      - name: Test ChatGPT model access and goal mode without GitHub writes
+        timeout-minutes: 12
+        run: |
+          set -uo pipefail
+          run_model() {
+            local label="$1" model="$2" goal="$3"
+            local events="$RUNNER_TEMP/codex-canary-$label.jsonl"
+            local final="$RUNNER_TEMP/codex-canary-$label.txt"
+            local args=(exec --skip-git-repo-check --json --model "$model"
+              --config model_reasoning_effort=low --sandbox read-only
+              --color never --output-last-message "$final")
+            if [ "$goal" = true ]; then
+              args+=(--goal)
+            fi
+            local prompt="Reply with exactly OK. Do not access files or external services."
+            if [ "$goal" = true ]; then
+              prompt="Create a goal to reply OK, mark it complete, then reply OK. Do not access files or external services."
+            fi
+            timeout --signal=INT --kill-after=10s 180s \
+              env -u GH_TOKEN -u GITHUB_TOKEN "$CODEX_CANARY_BIN" \
+              "${args[@]}" "$prompt" > "$events" 2> "$RUNNER_TEMP/codex-canary-$label.stderr"
+            local status=$?
+            echo "$label: exit_status=$status"
+            jq -r 'select(.type == "turn.failed" or .type == "error") |
+              .error.message // .message // empty' "$events" | tail -n 2 || true
+            if [ "$status" -ne 0 ] ||
+               ! jq -e 'select(.type == "turn.completed")' "$events" >/dev/null; then
+              return 1
+            fi
+            return 0
+          }
+
+          run_model sol gpt-6-sol false
+          sol_status=$?
+          run_model prior-sol gpt-5.6-sol false
+          prior_status=$?
+          goal_status=1
+          if [ "$sol_status" -eq 0 ]; then
+            run_model sol-goal gpt-6-sol true
+            goal_status=$?
+          fi
+          echo "model_canary: gpt-6-sol=$sol_status gpt-5.6-sol=$prior_status gpt-6-sol-goal=$goal_status"
+          test "$sol_status" -eq 0 && test "$goal_status" -eq 0
+
+      - name: Sync refreshed canary auth
+        if: ${{ always() && steps.auth.outcome == 'success' }}
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+        run: |
+          set -euo pipefail
+          auth_object=oss://doris-community-ci/codex/auth.json.4
+          jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$CODEX_HOME/auth.json" >/dev/null
+          original_hash="$(cat "$RUNNER_TEMP/codex-canary-auth-original.sha256")"
+          local_hash="$(sha256sum "$CODEX_HOME/auth.json" | awk '{print $1}')"
+          if [ "$local_hash" = "$original_hash" ]; then
+            echo "Canary auth was unchanged."
+            exit 0
+          fi
+          remote_auth="$(mktemp "$RUNNER_TEMP/codex-canary-current.XXXXXX")"
+          trap 'rm -f "$remote_auth"' EXIT
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            cp -f "$auth_object" "$remote_auth" >/dev/null
+          remote_hash="$(sha256sum "$remote_auth" | awk '{print $1}')"
+          if [ "$remote_hash" != "$original_hash" ]; then
+            echo "::error::Auth changed concurrently; refusing to overwrite it."
+            exit 1
+          fi
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            cp -f "$CODEX_HOME/auth.json" "$auth_object" >/dev/null
+          echo "Synced refreshed canary auth."
+
   code-review:
-    runs-on: ubuntu-latest
-    # Pre-finalization steps can use 183 minutes and auth sync can use 8 more,
+    runs-on: ubuntu-24.04
+    outputs:
+      base_sha: ${{ steps.review_inputs.outputs.base_sha }}
+      head_sha: ${{ steps.review_inputs.outputs.head_sha }}
+      manage_status: ${{ steps.review_inputs.outputs.manage_status }}
+      pr_number: ${{ steps.review_inputs.outputs.pr_number }}
+    # Pre-finalization steps can use 218 minutes and auth sync can use 8 more,
     # leaving 12 minutes for runner setup and post-job cleanup.
-    timeout-minutes: 203
+    timeout-minutes: 238
     if: >-
-      inputs.pr_number != '' ||
+      inputs.runtime_canary != true &&
       (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request &&
-        startsWith(github.event.comment.body, '/review') &&
+        inputs.pr_number != '' ||
         (
-          github.event.comment.author_association == 'MEMBER' ||
-          github.event.comment.author_association == 'OWNER' ||
-          github.event.comment.author_association == 'COLLABORATOR'
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request &&
+          startsWith(github.event.comment.body, '/review') &&
+          (
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'COLLABORATOR'
+          )
         )
       )
     steps:
@@ -136,15 +282,25 @@ jobs:
         if: ${{ steps.review_inputs.outputs.manage_status == 'true' }}
         timeout-minutes: 2
         env:
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           REPO: ${{ github.repository }}
         run: |
           gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
             -X POST \
             -f state='pending' \
             -f context='code-review' \
-            -f description="Automated review is running for ${HEAD_SHA}." \
+            -f description="Automated review is running for PR #${PR_NUMBER}." \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          source_context="code-review/source/automated/pr-${PR_NUMBER}/base-${BASE_SHA}"
+          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state='pending' \
+            -f context="$source_context" \
+            -f description="Automated review is running for PR #${PR_NUMBER} at ${BASE_SHA:0:12}." \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Checkout repository
@@ -160,20 +316,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ripgrep
 
-      - name: Install Codex
-        timeout-minutes: 5
-        run: |
-          for attempt in 1 2 3; do
-            if npm install -g @openai/codex; then
-              codex --version
-              exit 0
-            fi
-            echo "Install attempt $attempt failed, retrying in 10s..."
-            sleep 10
-          done
-          echo "All install attempts failed"
-          exit 1
-
       - name: Install ossutil
         timeout-minutes: 5
         run: |
@@ -183,32 +325,36 @@ jobs:
           unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
           sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
 
-      - name: Install Codex goal binary
+      - name: Install pinned Codex package
         timeout-minutes: 10
         run: |
-          codex_cmd="$(command -v codex)"
-          codex_target="$(readlink -f "$codex_cmd")"
-          tmp_dir="$(mktemp -d)"
-          trap 'rm -rf "$tmp_dir"' EXIT
-
-          downloaded=false
-          for object in "$OSS_CODEX_GOAL_OBJECT" "$OSS_CODEX_GOAL_FALLBACK_OBJECT"; do
-            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$object" "$tmp_dir/codex-goal"; then
-              downloaded=true
-              break
-            fi
-          done
-          test "$downloaded" = "true"
-          test -s "$tmp_dir/codex-goal"
-          sudo install -m 0755 "$tmp_dir/codex-goal" "$codex_target"
-          "$codex_cmd" exec --help | grep -q -- '--goal'
-          "$codex_cmd" --version
+          set -euo pipefail
+          archive="$RUNNER_TEMP/codex-exec-goal.tar.gz"
+          package="$RUNNER_TEMP/codex-exec-goal"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            cp -f "$OSS_CODEX_PACKAGE_OBJECT" "$archive"
+          echo "2ee3073479bc8c94436684b55a13d7a3f299e768d04436d90e0427814a3954bc  $archive" | sha256sum --check
+          mkdir -p "$package"
+          tar -xzf "$archive" -C "$package"
+          (cd "$package" && sha256sum --check SHA256SUMS)
+          test "$(jq -r .version "$package/codex-package.json")" = 0.156.1
+          echo "$package/bin" >> "$GITHUB_PATH"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_GOAL_OBJECT: oss://doris-community-ci/codex-goal
-          OSS_CODEX_GOAL_FALLBACK_OBJECT: oss://doris-community-ci/codex/codex-goal
+          OSS_CODEX_PACKAGE_OBJECT: oss://doris-community-ci/codex/releases/codex-exec-goal-0.156.1-a310d33f7ebb-x86_64-unknown-linux-gnu.tar.gz
+
+      - name: Verify pinned Codex runtime
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          codex_cmd="$(command -v codex)"
+          test "$(readlink -f "$codex_cmd")" = "$RUNNER_TEMP/codex-exec-goal/bin/codex"
+          echo "e07e6d32e9333cbc52ba058195d6b225c6e072c8c438541d61ec97645b811906  $codex_cmd" | sha256sum --check
+          codex --version
+          codex exec --help | grep -q -- '--goal'
+          codex exec --goal resume --help >/dev/null
 
       - name: Configure Codex auth
         id: auth
@@ -269,13 +415,46 @@ jobs:
               fi
             fi
 
+            candidate_auth="$(mktemp "$RUNNER_TEMP/codex-home/candidate-auth.XXXXXX")"
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$candidate" "$candidate_auth"
+            jq -e '
+              .auth_mode == "chatgpt"
+              and (.tokens.access_token | type == "string" and length > 0)
+              and (.tokens.refresh_token | type == "string" and length > 0)
+            ' "$candidate_auth" >/dev/null
+            refresh_token_hash="$(jq -rj '.tokens.refresh_token' "$candidate_auth" | sha256sum | awk '{print $1}')"
+
+            # Quarantine the refresh token, not the slot or the entire auth file:
+            # replacing the token restores eligibility; changing metadata does not.
+            invalid_object="${candidate}.invalid.${refresh_token_hash}"
+            invalid_listing="$(mktemp "$RUNNER_TEMP/codex-auth-invalid.XXXXXX")"
+            if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+              ls "$invalid_object" -s > "$invalid_listing"; then
+              auth_failure_reason="Failed to check invalid-token marker for ${candidate##*/}."
+              echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
+              echo "::error::$auth_failure_reason"
+              exit 1
+            fi
+            if grep -Fxq "$invalid_object" "$invalid_listing"; then
+              echo "Skipping Codex auth ${candidate##*/}: refresh token was already used."
+              rm -f "$candidate_auth"
+              continue
+            fi
+
             auth_object="$candidate"
+            # Use the checked snapshot; downloading it again could select a different token.
+            mv "$candidate_auth" "$RUNNER_TEMP/codex-home/auth.json"
+            printf '%s\n' "$refresh_token_hash" > "$RUNNER_TEMP/codex-auth-refresh-token.sha256"
             break
           done < <(shuf "$auth_candidates")
 
           if [ -z "$auth_object" ]; then
-            retry_at="$(date -u -d "@$earliest_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
-            auth_failure_reason="All Codex review accounts are usage-limited; earliest retry is $retry_at."
+            auth_failure_reason="No eligible Codex review credentials: all are usage-limited or have a reused refresh token."
+            if [ -n "$earliest_retry_after_epoch" ]; then
+              retry_at="$(date -u -d "@$earliest_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+              auth_failure_reason="$auth_failure_reason Earliest usage-limit retry is $retry_at."
+            fi
+            auth_failure_reason="$auth_failure_reason Credentials with reused refresh tokens must be replaced."
             echo "failure_reason=$auth_failure_reason" >> "$GITHUB_OUTPUT"
             echo "::error::$auth_failure_reason"
             exit 1
@@ -283,14 +462,7 @@ jobs:
 
           printf 'CODEX_AUTH_OSS_OBJECT=%s\n' "$auth_object" >> "$GITHUB_ENV"
           echo "Selected Codex auth object: ${auth_object##*/}"
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$auth_object" "$RUNNER_TEMP/codex-home/auth.json"
           chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
-          test -s "$RUNNER_TEMP/codex-home/auth.json"
-          jq -e '
-            .auth_mode == "chatgpt"
-            and (.tokens.access_token | type == "string" and length > 0)
-            and (.tokens.refresh_token | type == "string" and length > 0)
-          ' "$RUNNER_TEMP/codex-home/auth.json" >/dev/null
           sha256sum "$RUNNER_TEMP/codex-home/auth.json" \
             | awk '{print $1}' \
             > "$RUNNER_TEMP/codex-auth-original.sha256"
@@ -455,6 +627,7 @@ jobs:
           live_pr="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
           live_head_sha="$(jq -r '.head.sha' <<<"$live_pr")"
           live_base_sha="$(jq -r '.base.sha' <<<"$live_pr")"
+          live_base_ref="$(jq -er '.base.ref' <<<"$live_pr")"
           if [ "$live_head_sha" != "$HEAD_SHA" ] || [ "$live_base_sha" != "$BASE_SHA" ]; then
             echo "PR changed while review context was being prepared; restart the review"
             echo "Expected base/head: $BASE_SHA $HEAD_SHA"
@@ -491,7 +664,10 @@ jobs:
           python3 "$helper" \
             --changed-files "$REVIEW_CONTEXT_DIR/pr_changed_files.txt" \
             --required-agents "$REVIEW_CONTEXT_DIR/required_agents.txt" \
-            --prompt-block "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt"
+            --prompt-block "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt" \
+            --base-ref "$live_base_ref" \
+            --trusted-ref "$HELPER_REF" \
+            --skill-prompt-block "$REVIEW_CONTEXT_DIR/review_skill_prompt.txt"
 
           echo "Required AGENTS.md files for this review:"
           sed 's/^/  /' "$REVIEW_CONTEXT_DIR/required_agents.txt"
@@ -524,9 +700,9 @@ jobs:
 
           PR diff and path-reading (for all subagents and the main agent):
           - PLACEHOLDER_CONTEXT_DIR/pr.diff and PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt were both generated locally with `git diff PLACEHOLDER_BASE_SHA...PLACEHOLDER_HEAD_SHA` after the live PR base/head were verified. They are the authoritative PR diff and changed-path list: they contain changes from the computed merge base to the PR head. The listed PR Base SHA identifies the target-branch snapshot and is not necessarily the diff's left endpoint. Do not obtain the PR diff or changed-path list through other means.
-          - Before reading any file whose exact path is not already confirmed by PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt, PLACEHOLDER_CONTEXT_DIR/pr.diff, or a previous successful command output, you MUST first run `rg --files` to confirm the actual path of the target file.
+          - Before reading any file whose exact path is not already confirmed by this prompt, the selected skill's AGENTS.md references, PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt, PLACEHOLDER_CONTEXT_DIR/pr.diff, or a previous successful command output, you MUST first run `rg --files` to confirm the actual path of the target file.
 
-          Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
+          PLACEHOLDER_REVIEW_SKILL_BLOCK
           The active review goal's progress tracking MUST include, and must stay current throughout the review:
           1. Read the review prompt, code-review skill, required AGENTS.md files, existing review threads, user focus, changed-file list, and the shared subagent review ledger.
           2. Perform a main-agent initial risk scan before spawning review subagents. You must thoroughly read all the changes in this PR and understand all the involved mechanisms, pointing out: if there is a problem with this PR, where is the problem most likely to be? Or are there any points you suspect to be risky? write the result under `## Main Initial Risk Scan` in the shared ledger.
@@ -563,15 +739,14 @@ jobs:
 
           ## Final response format
           - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
-          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
-              - Note that when submitting review comments in this way, the content will not be escaped, so you need to input multi-line text with line breaks directly, rather than using `\n`.
-          - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
-              - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
-              - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
-              - Do not force suggested changes for broad, architectural, or multi-file issues; explain those normally.
-              - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
-              - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
-              - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
+          - After the required convergence rounds and final sweep, declare the COMPLETE final review in a JSON file with exactly these fields:
+            {"body":"<comprehensive summary>","comments":[{"path":"<file>","position":<diff_position>,"body":"[P1] <finding title and explanation>"}],"existing_blocking_comment_ids":[]}
+          - Every new finding must be inline and start with [P0], [P1], [P2] or [P3]. Suggested changes are welcome for precise, self-contained fixes.
+          - Include ALL accepted new findings in comments. Use an empty array when there are none. In existing_blocking_comment_ids, list the numeric IDs of every already-reported P0/P1 inline finding you independently confirmed still applies to this head. Do not duplicate those findings. Explain their disposition in the summary; use an empty array only if none still apply.
+          - Submit only after all review completion criteria are satisfied, using the trusted helper: python3 "$RUNNER_TEMP/submit_review.py" --context-dir PLACEHOLDER_CONTEXT_DIR --input-file <json_file>
+          - The helper pins the head, adds this invocation's completion marker, submits the review and verifies the entire summary and inline comment set. P0/P1 results request changes; other completed reviews are comments. This is the ONLY final GitHub submission path. Do not submit reviews or inline comments directly with gh.
+          - If the helper reports an error, inspect it and verify the outcome before proceeding. Do not change or delete its review-run.json or review-submission.json files. A retry with the identical JSON reads back a submitted review instead of posting it again.
+          - Mark the goal complete only after the helper reports the verified review ID. A completed review with P0/P1 is still a completed execution; the workflow applies the separate blocking verdict.
           PROMPT
 
           sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
@@ -580,7 +755,7 @@ jobs:
           sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_CONTEXT_DIR|${REVIEW_CONTEXT_REL}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
 
-          python3 - "$REVIEW_CONTEXT_DIR/review_prompt.txt" "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt" <<'PY'
+          python3 - "$REVIEW_CONTEXT_DIR/review_prompt.txt" "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt" "$REVIEW_CONTEXT_DIR/review_skill_prompt.txt" <<'PY'
           import sys
           from pathlib import Path
 
@@ -588,7 +763,9 @@ jobs:
           required_agents_path = Path(sys.argv[2])
           prompt = prompt_path.read_text()
           required_agents = required_agents_path.read_text().rstrip()
-          prompt_path.write_text(prompt.replace("PLACEHOLDER_REQUIRED_AGENTS_BLOCK", required_agents))
+          skill_instructions = Path(sys.argv[3]).read_text().rstrip()
+          prompt = prompt.replace("PLACEHOLDER_REQUIRED_AGENTS_BLOCK", required_agents)
+          prompt_path.write_text(prompt.replace("PLACEHOLDER_REVIEW_SKILL_BLOCK", skill_instructions))
           PY
 
           cat > "$REVIEW_CONTEXT_DIR/subagent_review_findings.md" <<'LEDGER'
@@ -670,30 +847,43 @@ jobs:
 
       - name: Run automated code review
         id: review
-        timeout-minutes: 90
+        timeout-minutes: ${{ fromJSON(env.REVIEW_TIMEOUT_MINUTES) }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
-          GOAL_PROMPT="$(cat "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt")"
-          review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          review_step_started_at=$SECONDS
 
+          for script in run_review_with_resume.py submit_review.py; do
+            gh api \
+              -H "Accept: application/vnd.github.raw" \
+              "repos/${REPO}/contents/.github/scripts/${script}?ref=${HELPER_REF}" \
+              > "$RUNNER_TEMP/$script"
+          done
+          helper="$RUNNER_TEMP/run_review_with_resume.py"
+
+          # Share the step's budget; reserve two minutes for process cleanup and
+          # GitHub review verification. Both helper downloads count too.
+          budget_seconds=$((REVIEW_TIMEOUT_MINUTES * 60 - (SECONDS - review_step_started_at) - 120))
           set +e
           # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
           # Codex uses bubblewrap for that mode and uid maps can be unavailable.
-          codex exec --goal "$GOAL_PROMPT" \
-            --cd "$GITHUB_WORKSPACE" \
-            --model "gpt-5.6-sol" \
-            --config "model_reasoning_effort=xhigh" \
-            --sandbox danger-full-access \
-            --color never \
-            --json \
-            --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
-            > "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
-            2> >(tee "$REVIEW_CONTEXT_DIR/codex-stderr.log" >&2)
+          python3 "$helper" \
+            --context-dir "$REVIEW_CONTEXT_DIR" \
+            --cwd "$GITHUB_WORKSPACE" \
+            --repository "$REPO" \
+            --pr-number "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" \
+            --model "gpt-6-sol" \
+            --fallback-model "gpt-5.6-sol" \
+            --effort xhigh \
+            --budget-seconds "$budget_seconds"
           status=$?
           set -e
 
@@ -710,6 +900,17 @@ jobs:
             fi
             if [ -z "$failure_reason" ]; then
               failure_reason="Codex exited with status $status"
+            fi
+
+            # Only terminal auth errors and Codex's own stderr identify an invalid
+            # token. A tool result quoting this error must not quarantine credentials.
+            if grep -Fqi "Your access token could not be refreshed because your refresh token was already used." <<<"$failure_reason" || \
+               grep -Fxq "refresh_token_reused" <<<"$failure_reason" || \
+               { jq -r 'select(.type == "turn.failed" or .type == "error") | .error.code // .code // empty' \
+                   "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | grep -Fx "refresh_token_reused" >/dev/null; } || \
+               grep -Eq '"code"[[:space:]]*:[[:space:]]*"refresh_token_reused"' "$REVIEW_CONTEXT_DIR/codex-stderr.log"; then
+              echo "auth_invalid_reason=refresh_token_reused" >> "$GITHUB_OUTPUT"
+              echo "::warning::Codex refresh token was already used; recording this credential version as invalid."
             fi
 
             usage_limit_retry_after_epoch=""
@@ -734,32 +935,6 @@ jobs:
             fi
           fi
 
-          if [ -z "$failure_reason" ]; then
-            reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
-            reviews_api_ok=false
-            review_verified=false
-            for attempt in 1 2 3 4 5 6; do
-              if gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file"; then
-                reviews_api_ok=true
-                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
-                  (add // [])
-                  | map(select((.submitted_at // "") >= $started_at and (.commit_id // "") == $head_sha))
-                  | length > 0
-                ' "$reviews_file" >/dev/null; then
-                  review_verified=true
-                  break
-                fi
-              fi
-              sleep 5
-            done
-
-            if [ "$review_verified" != "true" ] && [ "$reviews_api_ok" != "true" ]; then
-              failure_reason="Codex completed, but the workflow could not verify pull request reviews through GitHub API."
-            elif [ "$review_verified" != "true" ]; then
-              failure_reason="Codex completed, but no new pull request review was submitted for the current head SHA."
-            fi
-          fi
-
           if [ -n "$failure_reason" ]; then
             {
               echo "failure_reason<<EOF"
@@ -768,6 +943,40 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 1
           fi
+
+          # Execution succeeded even when verified findings block the PR check.
+          # This result is written only after the runner's own API readback.
+          jq -er 'select(.state == "success" or .state == "failure") |
+            "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)"' \
+            "$REVIEW_CONTEXT_DIR/review-result.json" >> "$GITHUB_OUTPUT"
+
+      - name: Record invalid Codex auth
+        id: auth_invalid_record
+        if: ${{ always() && steps.auth.outcome == 'success' && steps.review.outputs.auth_invalid_reason == 'refresh_token_reused' }}
+        timeout-minutes: 5
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+        run: |
+          # Bind the marker to the selected snapshot, so a late failing job cannot
+          # invalidate a replacement uploaded by another job or an operator.
+          refresh_token_hash="$(<"$RUNNER_TEMP/codex-auth-refresh-token.sha256")"
+          [[ "$refresh_token_hash" =~ ^[0-9a-f]{64}$ ]]
+          invalid_file="$(mktemp "$RUNNER_TEMP/codex-auth-invalid.XXXXXX")"
+          jq -n --arg refresh_token_sha256 "$refresh_token_hash" \
+            '{version: 1, state: "auth_invalid", reason: "refresh_token_reused", refresh_token_sha256: $refresh_token_sha256}' \
+            > "$invalid_file"
+
+          # A separate object per token is idempotent and cannot be overwritten by
+          # concurrent usage-limit context writes or failures of older tokens.
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            --retry-times=3 --connect-timeout=10 --read-timeout=30 \
+            cp -f "$invalid_file" "${CODEX_AUTH_OSS_OBJECT}.invalid.${refresh_token_hash}"; then
+            echo "::error::Could not record the invalid Codex refresh token; it may still be selected."
+            exit 1
+          fi
+          echo "Recorded invalid refresh token for ${CODEX_AUTH_OSS_OBJECT##*/}; this credential version will be skipped."
 
       - name: Record Codex usage limit
         id: usage_limit_record
@@ -796,6 +1005,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUTH_FAILURE_REASON: ${{ steps.auth.outputs.failure_reason }}
+          AUTH_INVALID_REASON: ${{ steps.review.outputs.auth_invalid_reason }}
+          AUTH_INVALID_RECORD_OUTCOME: ${{ steps.auth_invalid_record.outcome }}
           USAGE_LIMIT_RECORD_OUTCOME: ${{ steps.usage_limit_record.outcome }}
           USAGE_LIMIT_RETRY_AFTER_EPOCH: ${{ steps.review.outputs.usage_limit_retry_after_epoch }}
           REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
@@ -807,7 +1018,13 @@ jobs:
           recovery_msg="Please inspect the workflow logs and rerun the review after the underlying issue is resolved."
           if [ -n "$AUTH_FAILURE_REASON" ]; then
             error_msg="$AUTH_FAILURE_REASON"
-            recovery_msg="Please trigger /review again after that time."
+          elif [ "$AUTH_INVALID_REASON" = "refresh_token_reused" ]; then
+            error_msg="${REVIEW_FAILURE_REASON:-The selected Codex refresh token was already used.}"
+            if [ "$AUTH_INVALID_RECORD_OUTCOME" = "success" ]; then
+              recovery_msg="This credential version is excluded from future reviews. Replace its refresh token to restore eligibility. Please trigger /review again; another configured account may be available."
+            else
+              recovery_msg="The workflow failed to record the invalid credential, so it may still be selected. Please inspect the recording step before retrying."
+            fi
           elif [ -n "$USAGE_LIMIT_RETRY_AFTER_EPOCH" ] && \
                [ "$USAGE_LIMIT_RECORD_OUTCOME" = "success" ]; then
             retry_at="$(date -u -d "@$USAGE_LIMIT_RETRY_AFTER_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
@@ -859,27 +1076,38 @@ jobs:
           }}
         timeout-minutes: 2
         env:
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
           JOB_STATUS: ${{ job.status }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           REPO: ${{ github.repository }}
           REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          REVIEW_STATE: ${{ steps.review.outputs.review_state }}
+          REVIEW_P0: ${{ steps.review.outputs.p0 }}
+          REVIEW_P1: ${{ steps.review.outputs.p1 }}
         run: |
           state="pending"
-          summary="Trigger /review to start automated review for ${HEAD_SHA}."
+          summary="Automated review did not pass for PR #${PR_NUMBER} at ${BASE_SHA:0:12}."
 
           if [ "$JOB_STATUS" = "success" ] && \
              [ "$REVIEW_CONTEXT_OUTCOME" = "success" ] && \
              [ "$REVIEW_OUTCOME" = "success" ]; then
-            state="success"
-            summary="Automated review was triggered for ${HEAD_SHA}."
+            case "$REVIEW_STATE" in
+              success|failure)
+                state="$REVIEW_STATE"
+                summary="Review completed for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
+                ;;
+              *) echo "::error::Missing verified review verdict"; exit 1 ;;
+            esac
           fi
 
+          source_context="code-review/source/automated/pr-${PR_NUMBER}/base-${BASE_SHA}"
           gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
             -X POST \
             -f state="${state}" \
-            -f context='code-review' \
+            -f context="$source_context" \
             -f description="${summary}" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
@@ -923,7 +1151,7 @@ jobs:
             --pr-number "$PR_NUMBER" \
             --head-sha "$HEAD_SHA" \
             --base-sha "$BASE_SHA" \
-            --model "gpt-5.6-sol" \
+            --model "$(cat "$REVIEW_CONTEXT_DIR/codex-review-model.txt")" \
             --reasoning-effort "xhigh" \
             --environment "github-actions" \
             --max-payload-bytes 4000000 \
@@ -931,6 +1159,7 @@ jobs:
             --min-step-observations 2 \
             --verify-attempts 24 \
             --verify-sleep-seconds 5 \
+            --verify-timeout-seconds 120 \
             --verify
 
       - name: Sync Codex sessions back to OSS
@@ -1012,3 +1241,17 @@ jobs:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+
+  aggregate-status:
+    needs: code-review
+    if: >-
+      always() &&
+      needs.code-review.outputs.manage_status == 'true' &&
+      needs.code-review.outputs.head_sha != ''
+    uses: ./.github/workflows/code-review-aggregate-status.yml
+    with:
+      head_sha: ${{ needs.code-review.outputs.head_sha }}
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write

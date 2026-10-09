@@ -223,8 +223,9 @@ public class UserProperty {
                     throw new DdlException(PROP_MAX_USER_CONNECTIONS + " is not number");
                 }
 
-                if (newMaxConn <= 0 || newMaxConn > 10000) {
-                    throw new DdlException(PROP_MAX_USER_CONNECTIONS + " is not valid, must between 1 and 10000");
+                // No need to set a hard-coded upper bound for the per-user max connections.
+                if (newMaxConn <= 0) {
+                    throw new DdlException(PROP_MAX_USER_CONNECTIONS + " is not valid, must be greater than 0");
                 }
             } else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_CLOUD_CLUSTER, isReplay);
@@ -251,6 +252,11 @@ public class UserProperty {
                     newParallelFragmentExecInstanceNum = Integer.parseInt(value);
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM + " is not number");
+                }
+                // Replay must accept historical values; SessionVariable caps their effective parallelism.
+                if (!isReplay && newParallelFragmentExecInstanceNum > 256) {
+                    throw new DdlException(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM
+                            + " must be less than or equal to 256, got " + value);
                 }
             } else if (keyArr[0].equalsIgnoreCase(PROP_SQL_BLOCK_RULES)) {
                 // set property "sql_block_rules" = "test_rule1,test_rule2"

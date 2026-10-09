@@ -187,8 +187,10 @@ protected:
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
         auto lsn_ids = std::make_shared<std::vector<int64_t>>();
-        RETURN_IF_ERROR_RESULT(allocate_binlog_lsn(lsn_buffer, num_rows, *lsn_ids));
-        binlog_options.insert_seg_lsn(0, lsn_ids);
+        RETURN_IF_ERROR_RESULT(allocate_lsn(lsn_buffer, num_rows, *lsn_ids));
+        row_binlog_context.allocated_lsn_map =
+                std::make_shared<segment_v2::SegmentAllocatedLsnMap>();
+        row_binlog_context.insert_segment_allocated_lsns(0, lsn_ids);
         return _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
     }
 
@@ -220,6 +222,11 @@ protected:
                 std::shared_ptr<RowsetWriter>(std::move(data_writer_result.value())));
         group_writer->set_row_binlog_writer(
                 std::shared_ptr<RowsetWriter>(std::move(row_binlog_writer_result.value())));
+        auto& row_binlog_context =
+                const_cast<RowsetWriterContext&>(group_writer->row_binlog_writer()->context());
+        auto lsn_ids = row_binlog_context.get_segment_allocated_lsns(0);
+        RETURN_IF_ERROR_RESULT(group_writer->init(group_writer->data_writer()->context()));
+        row_binlog_context.insert_segment_allocated_lsns(0, lsn_ids);
         return group_writer;
     }
 
@@ -256,9 +263,10 @@ protected:
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
-        auto lsn_ids = std::make_shared<std::vector<int64_t>>();
-        RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, *lsn_ids));
-        cfg.insert_seg_lsn(0, lsn_ids);
+        std::vector<int64_t> allocated_lsns;
+        RETURN_IF_ERROR(allocate_lsn(lsn_buffer, num_rows, allocated_lsns));
+        auto lsn_ids = std::make_shared<std::vector<int64_t>>(allocated_lsns.begin(),
+                                                              allocated_lsns.end());
         auto row_binlog_writer_res =
                 _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
         if (!row_binlog_writer_res.has_value()) {
@@ -272,6 +280,10 @@ protected:
         (*group_writer)
                 ->set_row_binlog_writer(
                         std::shared_ptr<RowsetWriter>(std::move(row_binlog_writer_res.value())));
+        RETURN_IF_ERROR((*group_writer)->init((*group_writer)->data_writer()->context()));
+        auto& group_binlog_ctx =
+                const_cast<RowsetWriterContext&>((*group_writer)->row_binlog_writer()->context());
+        group_binlog_ctx.insert_segment_allocated_lsns(0, lsn_ids);
         return Status::OK();
     }
 
@@ -390,11 +402,15 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     const auto& row_binlog_schema = _row_binlog_tablet->tablet_schema();
     ASSERT_EQ(7, row_binlog_schema->num_columns());
     RowsetReaderContext reader_context;
-    reader_context.tablet_schema = row_binlog_schema;
     reader_context.need_ordered_result = false;
     // Read schema covers all row-binlog columns in order.
     auto read_schema = std::make_shared<ReadSchema>(row_binlog_schema->columns());
     reader_context.read_schema = read_schema;
+    EXPECT_TRUE(read_schema
+                        ->init_from_tablet_schema(*row_binlog_schema,
+                                                  /*merge_by_sequence_mapping=*/false,
+                                                  /*map_row_binlog_columns=*/false)
+                        .ok());
 
     RowsetReaderSharedPtr rowset_reader;
     ASSERT_TRUE(row_binlog_rowset->create_reader(&rowset_reader).ok());
@@ -459,9 +475,13 @@ TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdatePreservesNarrowBlock) {
     auto read_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
             row_binlog_schema->columns(), std::vector<ColumnId> {0, 1, 2, 3, 4, 5, 6}));
     RowsetReaderContext reader_context;
-    reader_context.tablet_schema = row_binlog_schema;
     reader_context.need_ordered_result = false;
     reader_context.read_schema = read_schema;
+    EXPECT_TRUE(read_schema
+                        ->init_from_tablet_schema(*row_binlog_schema,
+                                                  /*merge_by_sequence_mapping=*/false,
+                                                  /*map_row_binlog_columns=*/false)
+                        .ok());
 
     RowsetReaderSharedPtr rowset_reader;
     ASSERT_TRUE(rowsets[1]->create_reader(&rowset_reader).ok());

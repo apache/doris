@@ -17,18 +17,23 @@
 
 package org.apache.doris.connector.maxcompute;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
+import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.Table;
 import com.aliyun.odps.TableSchema;
 import com.aliyun.odps.Tables;
+import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.table.TableIdentifier;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -36,6 +41,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Tests {@link MaxComputePartitionCache}: the connector-owned partition-listing cache (a structural copy of the
@@ -53,6 +59,74 @@ import java.util.Optional;
  */
 public class MaxComputePartitionCacheTest {
 
+    @Test
+    public void connectorRegistersManagedOwnerAndClosesIt() throws Exception {
+        Map<String, String> properties = MCTestProperties.minimalMap();
+        properties.put("meta.cache.max_compute.partition.max-weight", "1MB");
+        long id = MCTestProperties.context().getCatalogId();
+        int before = MetaCacheGovernance.catalogCaches(id).size();
+        try (MaxComputeDorisConnector connector = new MaxComputeDorisConnector(
+                properties, MCTestProperties.context())) {
+            Assertions.assertEquals(before + 1, MetaCacheGovernance.catalogCaches(id).size());
+            Assertions.assertTrue(MetaCacheGovernance.catalogCaches(id).stream()
+                    .anyMatch(owner -> "max_compute".equals(owner.engine())
+                            && owner.entries().get("max-compute-partition").isWeightBounded()));
+        }
+        Assertions.assertEquals(before, MetaCacheGovernance.catalogCaches(id).size());
+    }
+
+    @Test
+    public void weightValidationDistinguishesSubmittedAndPersistedUnknownEntries() {
+        Map<String, String> current = MCTestProperties.minimalMap();
+        current.put("meta.cache.max_compute.future_entry.max-weight", "future-format");
+        MaxComputeConnectorProvider provider = new MaxComputeConnectorProvider();
+        Assertions.assertDoesNotThrow(() -> MCCatalogProperties.of(current));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(current));
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(current, Map.of("comment", "new")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Map.of("meta.cache.max_compute.partiton.max-weight", "1MB")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Map.of("meta.cache.max_compute.partition.max-weight", "invalid")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Map.of("meta.cache.max-weight", "1MB", "meta.cache.max_compute.partition.max-weight", "2MB")));
+    }
+
+    @Test
+    public void managedCacheRetainsOnlySpecsAndHonorsBothLimits() throws Exception {
+        Odps odps = new Odps(new AliyunAccount("ak", "sk"));
+        PartitionSpec spec = new PartitionSpec("ds='2026-09-11'");
+        // Construct a real SDK partition without initializing the unrelated Arrow table-reader classes.
+        Constructor<Partition> constructor = Partition.class.getDeclaredConstructor(
+                PartitionSpec.class, String.class, String.class, String.class, Odps.class);
+        constructor.setAccessible(true);
+        Partition partition = constructor.newInstance(spec, "project", null, "table", odps);
+        long baseline = MetaCacheGovernance.globalEstimatedWeight();
+        for (String limit : List.of("meta.cache.max-weight", "meta.cache.max_compute.partition.max-weight")) {
+            for (String max : List.of("1MB", "1")) {
+                Map<String, String> props = Map.of(limit, max);
+                AtomicInteger loads = new AtomicInteger();
+                try (CatalogMetaCache owner = CatalogMetaCache.managed(91004L, "max_compute", props)) {
+                    MaxComputePartitionCache cache = new MaxComputePartitionCache(owner, props, (db, table) -> {
+                        loads.incrementAndGet();
+                        return List.of(partition);
+                    });
+                    for (int i = 0; i < 2; i++) {
+                        Assertions.assertEquals(List.of(spec), cache.getPartitions("db", "t"));
+                    }
+                    boolean admitted = "1MB".equals(max);
+                    Assertions.assertEquals(admitted ? 1 : 2, loads.get());
+                    Assertions.assertEquals(admitted,
+                            owner.entries().get("max-compute-partition").metrics().getEstimatedWeight() > 0);
+                    Assertions.assertEquals(admitted ? 0L : 2L,
+                            owner.entries().get("max-compute-partition").metrics().getWeightRejectCount());
+                    Assertions.assertEquals(List.of(owner), MetaCacheGovernance.catalogCaches(91004L));
+                }
+                Assertions.assertTrue(MetaCacheGovernance.catalogCaches(91004L).isEmpty());
+                Assertions.assertEquals(baseline, MetaCacheGovernance.globalEstimatedWeight());
+            }
+        }
+    }
+
     // ==================== caching: hit / miss keyed by (db, table) ====================
 
     @Test
@@ -60,8 +134,8 @@ public class MaxComputePartitionCacheTest {
         CountingPartitionLister lister = new CountingPartitionLister();
         MaxComputePartitionCache cache = new MaxComputePartitionCache(Collections.emptyMap(), lister);
 
-        List<Partition> a = cache.getPartitions("db", "t");
-        List<Partition> b = cache.getPartitions("db", "t");
+        List<?> a = cache.getPartitions("db", "t");
+        List<?> b = cache.getPartitions("db", "t");
         // WHY: a hit must serve the cached listing without re-listing ODPS.
         Assertions.assertSame(a, b);
         Assertions.assertEquals(1, lister.totalCalls);

@@ -40,7 +40,6 @@ suite("test_packed_file_async_close_error", "p0, nonConcurrent") {
 
     setBeConfigTemporary([
         "enable_packed_file": "false",
-        "enable_vertical_segment_writer": "true",
         "small_file_threshold_bytes": "1048576",
         "packed_file_size_threshold_bytes": "1048576",
         "packed_file_time_threshold_ms": "1"

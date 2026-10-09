@@ -264,15 +264,7 @@ public class SchemaChangeProcDir implements ProcDirInterface {
 
         //limit
         if (limitElement != null && limitElement.hasLimit()) {
-            int beginIndex = (int) limitElement.getOffset();
-            int endIndex = (int) (beginIndex + limitElement.getLimit());
-            if (endIndex > jobInfos.size()) {
-                endIndex = jobInfos.size();
-            }
-            if (beginIndex > endIndex) {
-                beginIndex = endIndex;
-            }
-            jobInfos = jobInfos.subList(beginIndex, endIndex);
+            jobInfos = limitElement.applyTo(jobInfos);
         }
 
         BaseProcResult result = new BaseProcResult();
@@ -329,12 +321,7 @@ public class SchemaChangeProcDir implements ProcDirInterface {
 
         //limit
         if (limitElement != null && limitElement.hasLimit()) {
-            int beginIndex = (int) limitElement.getOffset();
-            int endIndex = (int) (beginIndex + limitElement.getLimit());
-            if (endIndex > jobInfos.size()) {
-                endIndex = jobInfos.size();
-            }
-            jobInfos = jobInfos.subList(beginIndex, endIndex);
+            jobInfos = limitElement.applyTo(jobInfos);
         }
 
         BaseProcResult result = new BaseProcResult();

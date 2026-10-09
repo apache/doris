@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.adbc;
 
+import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorContext;
 
@@ -38,6 +39,22 @@ import java.util.concurrent.atomic.AtomicInteger;
  * catalog whose driver file it does not have.
  */
 class AdbcConnectorCacheHookTest {
+
+    @Test
+    void connectorRegistersManagedOwnerAndClosesIt() throws Exception {
+        int before = MetaCacheGovernance.catalogCaches(1L).size();
+        try (AdbcConnector connector = new AdbcConnector(Map.of(
+                AdbcCatalogProperties.URI, "file:/tmp/does-not-matter.db",
+                AdbcCatalogProperties.DRIVER_URL, "libadbc_driver_sqlite.so",
+                "meta.cache.adbc.metadata.max-weight", "1MB"), context())) {
+            Assertions.assertEquals(before + 1, MetaCacheGovernance.catalogCaches(1L).size());
+            rememberSchemaOf(connector.metadataCache(), MAIN_T1);
+            Assertions.assertTrue(MetaCacheGovernance.catalogCaches(1L).stream()
+                    .anyMatch(owner -> owner.entries().values().stream()
+                            .anyMatch(entry -> entry.metrics().getEstimatedWeight() > 0)));
+        }
+        Assertions.assertEquals(before, MetaCacheGovernance.catalogCaches(1L).size());
+    }
 
     private static final AdbcNamespace MAIN = new AdbcNamespace("main", "");
     private static final AdbcTableHandle MAIN_T1 = new AdbcTableHandle(MAIN, "t1");
