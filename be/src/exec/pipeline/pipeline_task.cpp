@@ -871,6 +871,10 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
         _spilling = true;
         return false;
     }
+    // The query made progress: a later reservation that fails for process memory starts a new
+    // bounded wait instead of continuing the one that this reservation may have been retried
+    // from.
+    _state->get_query_ctx()->resource_ctx()->task_controller()->end_process_memory_wait();
     return true;
 }
 

@@ -97,6 +97,20 @@ public:
     void reset_paused_reason() { paused_reason_.reset(); }
     Status paused_reason() { return paused_reason_.status(); }
     void add_paused_count() { paused_count_.fetch_add(1); }
+    // The wait of a task paused for process memory is bounded from the first reservation that
+    // failed since its last successful one, not from its latest pause. The task is resumed to
+    // retry its pending reservations, and a retry that fails again before any of them succeeded
+    // continues the same wait instead of starting a new one. Returns the start of the wait
+    // (monotonic ms), starting it at `now_ms` when none is pending.
+    int64_t start_process_memory_wait(int64_t now_ms) {
+        int64_t expected = 0;
+        return process_memory_wait_start_ms_.compare_exchange_strong(expected, now_ms) ? now_ms
+                                                                                       : expected;
+    }
+    // A reservation succeeded: the task made progress, the next failed reservation starts a new
+    // wait.
+    void end_process_memory_wait() { process_memory_wait_start_ms_ = 0; }
+    int64_t process_memory_wait_start_ms() const { return process_memory_wait_start_ms_; }
 
     /* memory status action
     */
@@ -146,6 +160,7 @@ protected:
     */
     AtomicStatus paused_reason_;
     std::atomic<int64_t> paused_count_ = 0;
+    std::atomic<int64_t> process_memory_wait_start_ms_ = 0;
 
     /* memory status property
     */

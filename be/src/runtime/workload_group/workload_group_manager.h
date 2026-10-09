@@ -18,7 +18,6 @@
 
 #include <stdint.h>
 
-#include <chrono>
 #include <map>
 #include <set>
 #include <shared_mutex>
@@ -26,6 +25,7 @@
 
 #include "common/be_mock_util.h"
 #include "runtime/workload_group/workload_group.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -42,18 +42,17 @@ public:
     // Use weak ptr to save resource ctx, to make sure if the query is cancelled
     // the resource will be released
     std::weak_ptr<ResourceContext> resource_ctx_;
-    std::chrono::steady_clock::time_point enqueue_at;
+    // Monotonic ms. For a query paused for process memory this is the start of its bounded wait,
+    // which may predate this entry: see TaskController::start_process_memory_wait().
+    int64_t enqueue_at {0};
     size_t last_mem_usage {0};
     double cache_ratio_ {0.0};
     int64_t reserve_size_ {0};
 
     PausedQuery(std::shared_ptr<ResourceContext> resource_ctx_, double cache_ratio,
-                int64_t reserve_size);
+                int64_t reserve_size, int64_t enqueue_at_ms);
 
-    int64_t elapsed_time() const {
-        auto now = std::chrono::steady_clock::now();
-        return std::chrono::duration_cast<std::chrono::milliseconds>(now - enqueue_at).count();
-    }
+    int64_t elapsed_time() const { return MonotonicMillis() - enqueue_at; }
 
     std::string query_id() const { return query_id_; }
 

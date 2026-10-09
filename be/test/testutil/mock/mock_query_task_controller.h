@@ -69,9 +69,15 @@ struct MockQueryTaskController : public QueryTaskController {
                                    : std::vector<PipelineTask*> {};
     }
 
+    // The spill of a unit test completes at once: like the spill callback of the real
+    // implementation, resume the query so that its blocked tasks retry their reservations. The
+    // spilled tasks have nothing left to revoke.
     Status revoke_memory() override {
         ++revoke_memory_calls_;
-        return revoke_memory_status_;
+        RETURN_IF_ERROR(revoke_memory_status_);
+        has_revocable_task_ = false;
+        set_memory_sufficient(true);
+        return Status::OK();
     }
 
     bool has_running_task_ {false};

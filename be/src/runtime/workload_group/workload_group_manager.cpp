@@ -47,13 +47,12 @@ const static std::string INTERNAL_NORMAL_WG_NAME = "normal";
 const static uint64_t INTERNAL_NORMAL_WG_ID = 1;
 
 PausedQuery::PausedQuery(std::shared_ptr<ResourceContext> resource_ctx, double cache_ratio,
-                         int64_t reserve_size)
+                         int64_t reserve_size, int64_t enqueue_at_ms)
         : resource_ctx_(resource_ctx),
+          enqueue_at(enqueue_at_ms),
           cache_ratio_(cache_ratio),
           reserve_size_(reserve_size),
-          query_id_(print_id(resource_ctx->task_controller()->task_id())) {
-    enqueue_at = std::chrono::steady_clock::now();
-}
+          query_id_(print_id(resource_ctx->task_controller()->task_id())) {}
 
 WorkloadGroupMgr::~WorkloadGroupMgr() = default;
 
@@ -289,32 +288,51 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<ResourceContext>& 
     resource_ctx->task_controller()->update_paused_reason(status);
     resource_ctx->task_controller()->set_low_memory_mode(true);
     resource_ctx->task_controller()->set_memory_sufficient(false);
+    // A query paused for process memory is resumed once its recorded reservation fits and every
+    // blocked task then retries its own request. A retry that fails again (another task took the
+    // memory first, or a sibling that fit on its own still does not fit next to the others)
+    // pauses the query again: it continues the wait it was resumed from, so that the wait stays
+    // bounded by spill_in_paused_queue_timeout_ms. The wait ends with the first reservation that
+    // succeeds, see PipelineTask::_try_to_reserve_memory().
+    const int64_t now_ms = MonotonicMillis();
+    const int64_t enqueue_at =
+            status.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()
+                    ? resource_ctx->task_controller()->start_process_memory_wait(now_ms)
+                    : now_ms;
     std::lock_guard<std::mutex> lock(_paused_queries_lock);
     auto wg = resource_ctx->workload_group();
     auto& queries_list = _paused_queries_list[wg];
     auto&& [it, inserted] = queries_list.emplace(
             resource_ctx,
             doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted,
-            reserve_size);
+            reserve_size, enqueue_at);
     // Check if this is an invalid reserve, for example, if the reserve size is too large, larger than the query limit
     // if hard limit is enabled, then not need enable other queries hard limit.
     if (inserted) {
         LOG(INFO) << "Insert one new paused query: "
                   << resource_ctx->task_controller()->debug_string()
-                  << ", workload group: " << wg->debug_string();
-    } else {
-        // Another task of the same query already failed a reservation. The query is resumed as
-        // a whole and every blocked task then retries its own request, so record the sum of the
-        // pending requests: the query is woken up only once all of them fit at the same time.
-        // Waking it up as soon as one of them fits would fail the others again and start a new
-        // wait from scratch.
+                  << ", workload group: " << wg->debug_string() << ", waited " << it->elapsed_time()
+                  << " ms";
+    } else if (reserve_size > it->reserve_size_) {
+        // Another task of the same query already failed a smaller reservation. The query is
+        // resumed as a whole and every blocked task then retries its own request, so record the
+        // largest pending one: the query is woken up once that one fits, which is when the
+        // tasks can reserve one after another (a task releases its reservation after each
+        // block, so the pending requests do not need to fit at the same time). Waking it up
+        // for a smaller one would fail the largest again right away.
         LOG(INFO) << "Query: " << print_id(resource_ctx->task_controller()->task_id())
-                  << " is already paused, add the pending reservation "
-                  << PrettyPrinter::print_bytes(reserve_size) << " to the recorded "
-                  << PrettyPrinter::print_bytes(it->reserve_size_);
+                  << " is already paused, raise the recorded reservation from "
+                  << PrettyPrinter::print_bytes(it->reserve_size_) << " to "
+                  << PrettyPrinter::print_bytes(reserve_size);
         auto node = queries_list.extract(it);
-        node.value().reserve_size_ += reserve_size;
+        node.value().reserve_size_ = reserve_size;
         queries_list.insert(std::move(node));
+    } else {
+        LOG(INFO) << "Query: " << print_id(resource_ctx->task_controller()->task_id())
+                  << " is already paused, keep the recorded reservation "
+                  << PrettyPrinter::print_bytes(it->reserve_size_)
+                  << " which is not smaller than the pending "
+                  << PrettyPrinter::print_bytes(reserve_size);
     }
 }
 
