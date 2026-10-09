@@ -845,7 +845,7 @@ TEST(ScannerProjectionTest, shared_limit_refunds_rows_held_in_padding) {
     auto& projection = op->set_projection_for_test(
             MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
     op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
-    op->_shared_scan_limit.store(10);
+    op->set_limit_for_test(10);
 
     auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
     local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
@@ -898,7 +898,7 @@ TEST(ScannerProjectionTest, shared_limit_keeps_padding_small_blocks) {
     auto& projection = op->set_projection_for_test(
             MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
     op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
-    op->_shared_scan_limit.store(100);
+    op->set_limit_for_test(100);
 
     auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
     local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
@@ -929,6 +929,74 @@ TEST(ScannerProjectionTest, shared_limit_keeps_padding_small_blocks) {
     EXPECT_EQ(op->_shared_scan_limit.load(), 94);
 }
 
+// A scanner initialized while peers hold the counter below zero still observes the shared LIMIT.
+// The counter dips below zero for a moment when a scanner charges its held padding rows and reads
+// on while peers charge their own rows, and it is restored when the padding rows are refunded.
+TEST(ScannerProjectionTest, shared_limit_observed_by_scanner_initialized_under_negative_counter) {
+    ObjectPool pool;
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto row_descriptor = MockRowDescriptor({data_type}, &pool);
+
+    MockRuntimeState state;
+    state._batch_size = 8;
+
+    auto op = std::make_shared<MockScanOperatorX>();
+    op->_row_descriptor = row_descriptor;
+    auto& projection = op->set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
+    op->set_limit_for_test(8);
+    // Peers charged 9 rows in total while one of them still holds 2 of them in its padding block.
+    op->_shared_scan_limit.store(-1);
+
+    auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
+    local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
+
+    RuntimeProfile profile("scanner");
+    TestScanner scanner(&state, local_state.get(), -1, &profile);
+    ASSERT_TRUE(scanner.init(&state, {}).ok());
+    ASSERT_EQ(scanner._shared_scan_limit, &op->_shared_scan_limit);
+
+    // The holder refunds its 2 padding rows: 1 row of the LIMIT is still missing.
+    op->_shared_scan_limit.fetch_add(2);
+    ASSERT_EQ(op->_shared_scan_limit.load(), 1);
+    scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({0, 1, 2}));
+    scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({3, 4, 5}));
+
+    // The first block satisfies the LIMIT, so the scanner charges it and stops without reading on.
+    Block output;
+    bool eos = false;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output.rows(), 3);
+    EXPECT_EQ(op->_shared_scan_limit.load(), -2);
+    EXPECT_EQ(scanner._blocks.size(), 1);
+}
+
+// Without a SQL LIMIT the scanner gets no counter, whatever the counter holds.
+TEST(ScannerProjectionTest, no_shared_limit_without_sql_limit) {
+    ObjectPool pool;
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto row_descriptor = MockRowDescriptor({data_type}, &pool);
+
+    MockRuntimeState state;
+    auto op = std::make_shared<MockScanOperatorX>();
+    op->_row_descriptor = row_descriptor;
+    auto& projection = op->set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
+    ASSERT_EQ(op->limit(), -1);
+    op->_shared_scan_limit.store(5);
+
+    auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
+    local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
+
+    RuntimeProfile profile("scanner");
+    TestScanner scanner(&state, local_state.get(), -1, &profile);
+    ASSERT_TRUE(scanner.init(&state, {}).ok());
+    EXPECT_EQ(scanner._shared_scan_limit, nullptr);
+}
+
 // The scanner stops once its rows exhaust the shared LIMIT, even though its reader still has data.
 TEST(ScannerProjectionTest, shared_limit_reports_eos_when_scanner_rows_exhaust_it) {
     ObjectPool pool;
@@ -943,7 +1011,7 @@ TEST(ScannerProjectionTest, shared_limit_reports_eos_when_scanner_rows_exhaust_i
     auto& projection = op->set_projection_for_test(
             MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
     op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
-    op->_shared_scan_limit.store(3);
+    op->set_limit_for_test(3);
 
     auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
     local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
