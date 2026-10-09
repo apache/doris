@@ -53,6 +53,7 @@
 #include "exec/spill/spill_remote_upload_budget.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -98,7 +99,10 @@ struct MockS3Store {
     // blocked; the others behave normally.
     std::atomic<int64_t> fail_put_index {0};
     std::atomic<bool> fail_create_multipart {false};
+    std::atomic<bool> fail_heads {false};
     std::atomic<bool> fail_deletes {false};
+    // Guarded by mutex. Delete every other key, then report a per-key failure.
+    std::string fail_delete_key;
     std::atomic<bool> block_uploads {false};
     std::atomic<int64_t> put_requests {0};
     std::atomic<int64_t> get_requests {0};
@@ -132,7 +136,9 @@ struct MockS3Store {
         fail_puts_after = 0;
         fail_put_index = 0;
         fail_create_multipart = false;
+        fail_heads = false;
         fail_deletes = false;
+        fail_delete_key.clear();
         block_uploads = false;
         put_requests = 0;
         get_requests = 0;
@@ -270,6 +276,10 @@ public:
     io::ObjStorageHeadResult head_object(const io::ObjStoragePath& opts) override {
         io::ObjStorageHeadResult resp;
         _store->head_requests++;
+        if (_store->fail_heads) {
+            resp.resp = make_error("injected head_object failure");
+            return resp;
+        }
         std::lock_guard lock(_store->mutex);
         auto it = _store->objects.find(_store->make_key(opts.bucket, opts.key));
         if (it == _store->objects.end()) {
@@ -324,10 +334,16 @@ public:
             return make_error("injected delete failure");
         }
         std::lock_guard lock(_store->mutex);
+        bool failed = false;
         for (const auto& obj : objs) {
-            _store->objects.erase(_store->make_key(opts.bucket, obj));
+            if (obj == _store->fail_delete_key) {
+                failed = true;
+            } else {
+                _store->objects.erase(_store->make_key(opts.bucket, obj));
+            }
         }
-        return io::ObjStorageResponse::OK();
+        return failed ? make_error("injected per-key delete failure")
+                      : io::ObjStorageResponse::OK();
     }
 
     io::ObjStorageResponse delete_object(const io::ObjStoragePath& opts) override {
@@ -483,6 +499,10 @@ protected:
 
     void TearDown() override {
         _destroy_manager();
+        if (!_local_test_path.empty()) {
+            static_cast<void>(io::global_local_filesystem()->delete_directory(_local_test_path));
+            _local_test_path.clear();
+        }
         _runtime_state.reset();
         mock_store().set_block_uploads(false);
         config::spill_file_part_size_bytes = _saved_part_size;
@@ -496,8 +516,9 @@ protected:
         BackendOptions::set_localhost(_saved_localhost);
     }
 
-    // Build a manager with one remote store bound to the mock file system.
-    void _create_manager(bool bind_fs = true, std::string vault_id = "vault-1") {
+    // Build a manager with one remote store and, optionally, a local root for external writers.
+    void _create_manager(bool bind_fs = true, std::string vault_id = "vault-1",
+                         std::string local_path = "") {
         auto store = std::make_unique<RemoteSpillDataDir>(std::move(vault_id));
         if (bind_fs) {
             store->init_remote_fs(_s3_fs, kEndpoint);
@@ -505,6 +526,14 @@ protected:
         _data_dir = store.get();
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
         data_map.emplace("s3", std::move(store));
+        if (!local_path.empty()) {
+            _local_test_path = std::move(local_path);
+            auto st = io::global_local_filesystem()->create_directory(_local_test_path, false);
+            ASSERT_TRUE(st.ok()) << st;
+            data_map.emplace(_local_test_path,
+                             std::make_unique<LocalSpillDataDir>(
+                                     _local_test_path, 128L * 1024 * 1024, TStorageMedium::SSD));
+        }
         _manager = new SpillFileManager(std::move(data_map));
         ExecEnv::GetInstance()->_spill_file_mgr = _manager;
         auto st = _manager->init();
@@ -661,6 +690,7 @@ protected:
     std::unique_ptr<RuntimeProfile> _common_profile;
     SpillFileManager* _manager = nullptr;
     RemoteSpillDataDir* _data_dir = nullptr;
+    std::string _local_test_path;
     int64_t _saved_part_size = 0;
     int64_t _saved_buffer_size = 0;
     int64_t _saved_limit = 0;
@@ -755,8 +785,73 @@ TEST_F(SpillFileS3Test, RemoteBillingExcludesOpenPartReservations) {
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
 }
 
-TEST_F(SpillFileS3Test, ExternalSpillSessionRequiresLocalRoot) {
+TEST_F(SpillFileS3Test, PublishedPartRemainsBillableWhenVerificationAndCleanupFail) {
+    config::enable_s3_object_check_after_upload = true;
     _create_manager();
+    mock_store().fail_heads = true;
+    std::mt19937 rng(126);
+    Status close_status;
+    auto file = _write_blocks("query_failed_head/sort-1", {_random_string_block(rng, 16, 100)},
+                              &close_status);
+    ASSERT_FALSE(close_status.ok());
+    auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_failed_head/");
+    ASSERT_EQ(keys.size(), 1);
+    ASSERT_FALSE(file->ready_for_reading());
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), _object(keys.front()).size());
+
+    _manager->stop();
+    mock_store().fail_deletes = true;
+    file.reset();
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), _object(keys.front()).size());
+    mock_store().fail_deletes = false;
+    mock_store().fail_heads = false;
+    _manager->gc(1000);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+}
+
+TEST_F(SpillFileS3Test, PartialDeleteReconcilesOnlyRemainingObjectBytes) {
+    _create_manager();
+    std::mt19937 rng(127);
+    std::vector<Block> blocks;
+    for (int i = 0; i < 8; ++i) {
+        blocks.push_back(_random_string_block(rng, 64, 200));
+    }
+    Status close_status;
+    auto file = _write_blocks("query_partial_delete/sort-1", blocks, &close_status);
+    ASSERT_TRUE(close_status.ok()) << close_status;
+    auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_partial_delete/");
+    ASSERT_GT(keys.size(), 1);
+    int64_t remaining_bytes = 0;
+    for (size_t i = 1; i < keys.size(); ++i) {
+        remaining_bytes += _object(keys[i]).size();
+    }
+    {
+        std::lock_guard lock(mock_store().mutex);
+        // The mock client deletes one key per batch. Let the first batch succeed and
+        // the second fail, leaving a genuine partially deleted prefix to reconcile.
+        mock_store().fail_delete_key = keys[1];
+    }
+    _manager->stop();
+    file.reset();
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), remaining_bytes);
+    ASSERT_EQ(
+            mock_store().keys_with_prefix(kBucket, spill_root() + "/query_partial_delete/").size(),
+            keys.size() - 1);
+
+    _manager->gc(1000);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), remaining_bytes);
+    {
+        std::lock_guard lock(mock_store().mutex);
+        mock_store().fail_delete_key.clear();
+    }
+    _manager->gc(1000);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+}
+
+TEST_F(SpillFileS3Test, ExternalSpillSessionUsesLocalRootWhileQuerySpillUsesS3) {
+    _create_manager(true, "vault-1", "./ut_dir/spill_file_s3_paimon");
     TUniqueId query_id;
     query_id.hi = 41;
     query_id.lo = 42;
@@ -767,9 +862,31 @@ TEST_F(SpillFileS3Test, ExternalSpillSessionRequiresLocalRoot) {
 
     std::vector<std::string> paths;
     st = spill_session->get_paths(&paths);
-    ASSERT_FALSE(st.ok());
-    ASSERT_TRUE(paths.empty());
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(paths.size(), 1);
+    ASSERT_TRUE(paths.front().starts_with(_local_test_path + "/spill/"));
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(paths.front()).ok());
+    auto temp_file = paths.front() + "/paimon-temp";
+    ASSERT_TRUE(spill_session->reserve(temp_file, 4).ok());
+    io::FileWriterPtr local_writer;
+    ASSERT_TRUE(io::global_local_filesystem()->create_file(temp_file, &local_writer).ok());
+    ASSERT_TRUE(local_writer->append(Slice("temp", 4)).ok());
+    ASSERT_TRUE(local_writer->close().ok());
+    spill_session->update_accounting(temp_file, 0, 4, 0);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+
+    std::mt19937 rng(125);
+    Status write_status;
+    auto query_spill = _write_blocks("query_s3_with_paimon/sort-1",
+                                     {_random_string_block(rng, 16, 100)}, &write_status);
+    ASSERT_TRUE(write_status.ok()) << write_status;
+    ASSERT_FALSE(mock_store()
+                         .keys_with_prefix(kBucket, spill_root() + "/query_s3_with_paimon/")
+                         .empty());
+    query_spill.reset();
+    spill_session.reset();
+    query_ctx.reset();
 }
 
 TEST_F(SpillFileS3Test, NotReadyUntilVaultResolved) {

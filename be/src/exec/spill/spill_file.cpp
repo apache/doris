@@ -56,7 +56,6 @@ void SpillFile::gc() {
         _active_writer->_discard(this);
     }
     const int64_t written_bytes = std::exchange(_total_written_bytes, 0);
-    const int64_t persisted_bytes = std::exchange(_persisted_bytes, 0);
     if (!_dir_created) {
         _data_dir->release(written_bytes);
         return;
@@ -74,9 +73,18 @@ void SpillFile::gc() {
     });
     if (status.ok()) {
         _data_dir->release(written_bytes);
-        _data_dir->release_persisted_bytes(persisted_bytes);
+        _data_dir->release_persisted_bytes(std::exchange(_persisted_bytes, 0));
         return;
     }
+    if (_data_dir->is_remote()) {
+        auto reconcile_status =
+                reconcile_remote_spill_bytes(_data_dir, _fs, _spill_dir, &_persisted_bytes);
+        if (!reconcile_status.ok()) {
+            LOG_EVERY_T(WARNING, 60) << "failed to reconcile remote spill bytes after deletion: "
+                                     << reconcile_status;
+        }
+    }
+    const int64_t persisted_bytes = std::exchange(_persisted_bytes, 0);
     LOG_EVERY_T(WARNING, 1) << fmt::format("failed to delete spill data, dir {}, error: {}",
                                            _spill_dir, status.to_string());
     // The data is still stored: keep it charged until a retry of the manager deletes it.
@@ -119,6 +127,17 @@ void SpillFile::add_part(int64_t part_bytes) {
     if (_data_dir->is_remote()) {
         _data_dir->record_persisted_bytes(part_bytes);
         _persisted_bytes += part_bytes;
+    }
+}
+
+void SpillFile::account_potential_part(int64_t part_bytes) {
+    DORIS_CHECK(_data_dir->is_remote());
+    _data_dir->record_persisted_bytes(part_bytes);
+    _persisted_bytes += part_bytes;
+    auto status = reconcile_remote_spill_bytes(_data_dir, _fs, _spill_dir, &_persisted_bytes);
+    if (!status.ok()) {
+        LOG_EVERY_T(WARNING, 60) << "failed to reconcile spill bytes after uncertain upload: "
+                                 << status;
     }
 }
 

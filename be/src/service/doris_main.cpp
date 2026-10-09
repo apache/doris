@@ -503,19 +503,17 @@ int main(int argc, char** argv) {
                          << doris::config::s3_write_buffer_size
                          << "); every spill part will hold a mostly empty upload buffer";
         }
-        LOG(INFO) << "spill data will be written to object storage, spill_storage_root_path is "
-                     "ignored";
-    } else {
-        if (doris::config::spill_storage_root_path.empty()) {
-            doris::config::spill_storage_root_path = doris::config::storage_root_path;
-        }
-        olap_res =
-                doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
-        if (!olap_res) {
-            LOG(ERROR) << "parse config spill storage path failed, path="
-                       << doris::config::spill_storage_root_path;
-            exit(-1);
-        }
+        LOG(INFO) << "query spill data will be written to object storage; local spill paths "
+                     "remain available to external writers that require native file paths";
+    }
+    if (doris::config::spill_storage_root_path.empty()) {
+        doris::config::spill_storage_root_path = doris::config::storage_root_path;
+    }
+    olap_res = doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
+    if (!olap_res) {
+        LOG(ERROR) << "parse config spill storage path failed, path="
+                   << doris::config::spill_storage_root_path;
+        exit(-1);
     }
     std::set<std::string> broken_paths;
     doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);

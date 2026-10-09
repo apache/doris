@@ -26,6 +26,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -149,6 +150,28 @@ public class MasterOpExecutorBackendSelectionTest {
     }
 
     @Test
+    public void testCancelDoesNotEraseForwardedAuditBackendIds() throws Exception {
+        TMasterOpResult queryResult = new TMasterOpResult();
+        queryResult.setAuditStatisticsBackendIds(List.of(10001L, 10002L));
+        ConnectContext context = mockConnectContext();
+        Mockito.when(context.queryId()).thenReturn(new TUniqueId(1L, 2L));
+        Mockito.when(context.getDatabase()).thenReturn("db");
+        Mockito.when(context.getQualifiedUser()).thenReturn("user");
+        Env env = context.getEnv();
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+        TestingMasterOpExecutor executor = new TestingMasterOpExecutor(context, queryResult);
+        executor.cancelResult = new TMasterOpResult();
+        executor.installForwardResult();
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            executor.cancel();
+        }
+
+        Assertions.assertEquals(Set.of(10001L, 10002L), executor.getAuditStatisticsBackendIds());
+    }
+
+    @Test
     public void testDisabledLoadSelectionDoesNotPopulateForwardedInfo() {
         ConnectContext context = new ConnectContext();
         TGroupCommitInfo info = new TGroupCommitInfo();
@@ -222,6 +245,7 @@ public class MasterOpExecutorBackendSelectionTest {
 
     private static final class TestingMasterOpExecutor extends MasterOpExecutor {
         private final TMasterOpResult forwardResult;
+        private TMasterOpResult cancelResult;
         private TMasterOpRequest capturedRequest;
 
         private TestingMasterOpExecutor(ConnectContext context, TMasterOpResult forwardResult) {
@@ -232,7 +256,7 @@ public class MasterOpExecutorBackendSelectionTest {
         @Override
         protected TMasterOpResult forward(TMasterOpRequest params) {
             capturedRequest = params;
-            return forwardResult;
+            return params.isCancelQeury() && cancelResult != null ? cancelResult : forwardResult;
         }
 
         private void installForwardResult() {
