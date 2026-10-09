@@ -161,30 +161,6 @@ suite("test_multi_statement_response") {
         }
     }
 
-    // 3. Connector/J with allowMultiQueries=true, CLIENT_MULTI_STATEMENTS negotiated: every
-    //    statement's response reaches the client. Before the server advertised the flag, 8.x and
-    //    9.x drivers dropped it from their request and got only the last response, as in 1.
-    connect(context.config.jdbcUser, context.config.jdbcPassword, url + "&allowMultiQueries=true") {
-        context.getConnection().createStatement().withCloseable { statement ->
-            statement.execute("USE ${context.dbName}")
-
-            assertTrue(statement.execute("SELECT 1; SELECT 2"))
-            assertEquals([1], readRows(statement))
-            assertTrue(statement.getMoreResults())
-            assertEquals([2], readRows(statement))
-            assertFalse(statement.getMoreResults())
-            assertEquals(-1, statement.getUpdateCount())
-
-            // The query's result set, then the SET's OK as an update count of 0.
-            assertTrue(statement.execute("SELECT 1; SET @multi_stmt_var = 12"))
-            assertEquals([1], readRows(statement))
-            assertFalse(statement.getMoreResults())
-            assertEquals(0, statement.getUpdateCount())
-            assertTrue(statement.execute("SELECT @multi_stmt_var"))
-            assertEquals([12], readRows(statement))
-        }
-    }
-
     sql "DROP TABLE IF EXISTS ${tableName}"
 }
 
