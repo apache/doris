@@ -28,6 +28,7 @@ import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -567,6 +568,46 @@ public class SPMFrozenTreeReplayTest {
                 "SELECT * FROM t1 WHERE a NOT IN (SELECT x FROM t2 WHERE y > 100)",
                 "SELECT * FROM t1 WHERE a NOT IN (SELECT x FROM t2 WHERE y > _spm_const_var(1))",
                 "SELECT * FROM t1 WHERE a NOT IN (SELECT x FROM t2 WHERE y > 42)");
+    }
+
+    /**
+     * The ASSERT_ROWS relation of a frozen scalar-subquery plan replays: the user
+     * value is substituted inside the assertion's subquery and the re-parsed tree
+     * keeps the single-row contract (LogicalAssertNumRows) instead of leaking the
+     * captured literal.
+     */
+    @Test
+    public void testAssertRowsFrozenTextReplaysWithTheContract() throws Exception {
+        installConnectContext();
+        SPMPlanner planner = new SPMPlanner();
+        String bindSql = "SELECT * FROM t1 WHERE a > (SELECT y FROM t2 WHERE z > 100)";
+        // the decompiler's rendering of the scalar-subquery unnest: the inner side
+        // reaches the join as the ASSERT_ROWS relation
+        String frozenPlanSql = "SELECT * FROM t1 INNER JOIN"
+                + " ASSERT_ROWS (SELECT y FROM t2 WHERE z > _spm_const_var(1)) t_0"
+                + " ON (t1.a > t_0.y)";
+        manager.createBaseline(frozenBaseline(bindSql, frozenPlanSql));
+
+        LogicalPlan userPlan = parse(
+                "SELECT * FROM t1 WHERE a > (SELECT y FROM t2 WHERE z > 42)");
+        LogicalPlan rewritten = planner.tryRewritePlan(userPlan,
+                System.currentTimeMillis() + 5000);
+
+        Assertions.assertNotNull(rewritten,
+                "a frozen ASSERT_ROWS baseline must replay: " + frozenPlanSql);
+        boolean[] asserted = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(rewritten, plan -> {
+            if (plan instanceof LogicalAssertNumRows) {
+                asserted[0] = true;
+            }
+        });
+        Assertions.assertTrue(asserted[0],
+                "the replay must rebuild the single-row assertion: " + rewritten.treeString());
+        Assertions.assertFalse(SPMPlanTreeSupport.containsFrozenPlaceholder(rewritten),
+                "no placeholder call may remain anywhere in the replayed tree");
+        Assertions.assertTrue(allExprSqlsDeep(rewritten).contains("42"),
+                "the user value must be substituted inside the assert subquery: "
+                        + allExprSqlsDeep(rewritten));
     }
 
     /** Asserts one frozen-subquery replay substitutes the user value everywhere. */

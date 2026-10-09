@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -788,22 +789,124 @@ public class SPMPlan2SQLBuilderTest {
 
     // ==================== ASSERT_ROWS (PhysicalAssertNumRows) ====================
 
+    /**
+     * The single-row assertion of a scalar-subquery unnest renders as the ASSERT_ROWS
+     * relation prefix of its PARENT's FROM clause (the shape ScalarApplyToJoin builds:
+     * the assert is one join input), and the frozen text parses back into a
+     * LogicalAssertNumRows - the parser rebuilds the contract on replay.
+     */
     @Test
     public void testDecompileAssertNumRows() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        PhysicalOlapScan scan = mockScan("t1", List.of(a));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        PhysicalOlapScan left = mockScan("t1", List.of(a));
+        PhysicalOlapScan subScan = mockScan("t2", List.of(b));
 
         PhysicalAssertNumRows<?> assertNumRows = Mockito.mock(PhysicalAssertNumRows.class);
-        Mockito.when(assertNumRows.child(0)).thenReturn(scan);
+        Mockito.when(assertNumRows.child(0)).thenReturn(subScan);
         stubAccept(assertNumRows);
 
-        // The Nereids grammar has NO ASSERT_ROWS relation production, so rendering one
-        // produced frozen texts that cannot be re-parsed - after a restart such a baseline
-        // had no plan tree to fall back to and silently stopped applying. The node must
-        // therefore be REJECTED, which makes the freeze keep the user planSql text.
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> new SPMPlan2SQLBuilder().toSQL(assertNumRows),
-                "ASSERT_ROWS has no SQL representation and must fail the decompile");
+        PhysicalHashJoin<?, ?> join = mockJoin(left, assertNumRows, new EqualTo(a, b));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("ASSERT_ROWS (SELECT"),
+                "the scalar-subquery assert must render as the ASSERT_ROWS relation: " + sql);
+
+        // The frozen text must round-trip: re-parsing rebuilds the assertion node.
+        Plan parsed = new NereidsParser().parseSingle(sql);
+        boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(parsed, plan -> {
+            if (plan instanceof LogicalAssertNumRows) {
+                found[0] = true;
+            }
+        });
+        Assertions.assertTrue(found[0],
+                "the frozen SQL must re-parse into a LogicalAssertNumRows: " + sql);
+    }
+
+    /**
+     * The wrapper chain between the join and the assert (the scalar expression
+     * projected over the single-row input) must render INSIDE the relation the join
+     * references: the assert prefix belongs to the projected relation's FROM, and the
+     * join's ON condition keeps reading the projected alias. The frozen text must
+     * still re-parse into the assertion.
+     */
+    @Test
+    public void testDecompileProjectOverAssertNumRows() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        PhysicalOlapScan left = mockScan("t1", List.of(a));
+        PhysicalOlapScan subScan = mockScan("t2", List.of(b));
+        PhysicalAssertNumRows<?> assertNumRows = mockAssert(subScan);
+
+        Alias scaled = new Alias(new Add(b, new IntegerLiteral(2)), "e");
+        PhysicalProject<?> wrapper = mockProjectExprs(
+                List.of((NamedExpression) scaled), assertNumRows);
+        // a real PhysicalProject reports its output slots; the live-column analysis
+        // reaches the wrapper through them (the join's ON references "e")
+        Mockito.when(wrapper.getOutput()).thenReturn(List.<Slot>of(scaled.toSlot()));
+        PhysicalHashJoin<?, ?> join = mockJoin(left, wrapper,
+                new GreaterThan(a, scaled.toSlot()));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("ASSERT_ROWS (SELECT"),
+                "the projected assert must stay in the wrapper's FROM: " + sql);
+        Assertions.assertTrue(sql.contains("AS e"),
+                "the projection over the assert must keep its output: " + sql);
+        assertReparsesIntoAssertion(sql);
+    }
+
+    /**
+     * The assert side renders under every join type: an uncorrelated scalar subquery
+     * reaches the plan as a CROSS join and a correlated one can reach a LEFT OUTER
+     * (the removed scalar-collapse refused both and fell back to the user planSql).
+     */
+    @Test
+    public void testDecompileAssertNumRowsUnderOuterAndCrossJoins() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        PhysicalOlapScan left = mockScan("t1", List.of(a));
+        PhysicalOlapScan subScan = mockScan("t2", List.of(b));
+        PhysicalAssertNumRows<?> assertNumRows = mockAssert(subScan);
+
+        PhysicalHashJoin<?, ?> leftOuter = mockJoin(left, assertNumRows, new EqualTo(a, b));
+        Mockito.when(leftOuter.getJoinType()).thenReturn(JoinType.LEFT_OUTER_JOIN);
+        String leftOuterSql = new SPMPlan2SQLBuilder().toSQL(leftOuter);
+        Assertions.assertTrue(leftOuterSql.contains("LEFT OUTER JOIN ASSERT_ROWS (SELECT"),
+                "a correlated assert must render under the outer join: " + leftOuterSql);
+        assertReparsesIntoAssertion(leftOuterSql);
+
+        PhysicalHashJoin<?, ?> cross = mockJoin(left, assertNumRows, new EqualTo(a, b));
+        Mockito.when(cross.getHashJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(cross.getJoinType()).thenReturn(JoinType.CROSS_JOIN);
+        String crossSql = new SPMPlan2SQLBuilder().toSQL(cross);
+        Assertions.assertTrue(crossSql.contains("CROSS JOIN ASSERT_ROWS (SELECT"),
+                "an uncorrelated assert must render under the cross join: " + crossSql);
+        assertReparsesIntoAssertion(crossSql);
+    }
+
+    /**
+     * The frozen form of a real scalar-subquery plan, where the outer query and the
+     * subquery read the SAME table: the assertion relation is its own scope, so the
+     * frozen text must keep both sides unambiguous and re-parse into the assertion.
+     */
+    @Test
+    public void testDecompileAssertNumRowsSelfJoin() {
+        SlotReference outerA = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference outerK = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference subA = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference subK = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan left = mockScan("t1", List.of(outerA, outerK));
+        PhysicalFilter<?> subFilter = mockFilter(new EqualTo(subK, new IntegerLiteral(3)),
+                mockScan("t1", List.of(subA, subK)));
+        PhysicalAssertNumRows<?> assertNumRows = mockAssert(subFilter);
+        PhysicalHashJoin<?, ?> join = mockJoin(left, assertNumRows,
+                new EqualTo(outerA, subA));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("ASSERT_ROWS (SELECT"),
+                "the same-table assert must render its own relation: " + sql);
+        assertReparsesIntoAssertion(sql);
     }
 
     // ==================== the exported alias of a wrapped join operand ====================
@@ -1100,6 +1203,32 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(join.right()).thenReturn(right);
         stubAccept(join);
         return join;
+    }
+
+    /**
+     * Builds a PhysicalAssertNumRows mock over the child plan.
+     */
+    private static PhysicalAssertNumRows<?> mockAssert(Plan child) {
+        PhysicalAssertNumRows<?> assertNumRows = Mockito.mock(PhysicalAssertNumRows.class);
+        Mockito.when(assertNumRows.child(0)).thenReturn(child);
+        stubAccept(assertNumRows);
+        return assertNumRows;
+    }
+
+    /**
+     * Asserts the frozen text re-parses into the LogicalAssertNumRows contract the
+     * parser rebuilds for the ASSERT_ROWS relation.
+     */
+    private static void assertReparsesIntoAssertion(String sql) {
+        Plan parsed = new NereidsParser().parseSingle(sql);
+        boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(parsed, plan -> {
+            if (plan instanceof LogicalAssertNumRows) {
+                found[0] = true;
+            }
+        });
+        Assertions.assertTrue(found[0],
+                "the frozen SQL must re-parse into a LogicalAssertNumRows: " + sql);
     }
 
     /**

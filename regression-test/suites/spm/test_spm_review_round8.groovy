@@ -27,7 +27,7 @@ suite("test_spm_review_round8", "spm") {
     //  - SELECT ... INTO OUTFILE is rejected by CREATE BASELINE (its destination lives
     //    outside the plan, so a frozen wrapper would write to the captured file)
     //  - a three-argument LIKE keeps its ESCAPE child through freeze and replay
-    //  - scalar-subquery statements no longer freeze ASSERT_ROWS text (unparseable);
+    //  - scalar-subquery statements now freeze their ASSERT_ROWS assertion text (the parser consumes it);
     //    the baseline still hits and returns exactly the direct result
     //  - a SET_VAR-hint baseline survives the periodic refresh (the daemon parses the
     //    persisted bind SQL without a ConnectContext; a throw used to drop the baseline)
@@ -173,12 +173,12 @@ suite("test_spm_review_round8", "spm") {
             "the escape-replay must treat '!' literally: " + escapeRows + " vs " + escapeDirect)
     order_qt_like_escape_replay """SELECT k FROM spm_r8_t1 WHERE s LIKE 'a!b%' ESCAPE '!' ORDER BY k"""
 
-    // ==================== scalar subquery: no ASSERT_ROWS text, replay proves it (comment 13) ====================
+    // ==================== scalar subquery: ASSERT_ROWS round-trips, replay proves it (comment 13) ====================
     String scalarBindSql = "SELECT k FROM spm_r8_t1 WHERE a = (SELECT a FROM spm_r8_t1 WHERE k = 3) AND k > 1 ORDER BY k"
     long scalarId = createBaseline(scalarBindSql)
     String scalarPlanSql = sql("""SELECT plan_sql FROM __internal_schema.spm_baselines WHERE id = ${scalarId}""")[0][0].toString()
-    assertFalse(scalarPlanSql.toUpperCase().contains("ASSERT_ROWS"),
-            "the frozen row must not contain ASSERT_ROWS (the parser cannot consume it): " + scalarPlanSql)
+    assertTrue(scalarPlanSql.toUpperCase().contains("ASSERT_ROWS"),
+            "the frozen row must render the scalar-subquery assert as ASSERT_ROWS: " + scalarPlanSql)
 
     // frozen replay: the literal variant must hit and return the direct result
     String scalarReplaySql = "SELECT k FROM spm_r8_t1 WHERE a = (SELECT a FROM spm_r8_t1 WHERE k = 3) AND k > 2 ORDER BY k"

@@ -1754,7 +1754,7 @@ optScanParams
 relationPrimary
     : multipartIdentifier optScanParams? materializedViewName? tableSnapshot? specifiedPartition?
        tabletList? tableAlias sample? relationHint? lateralView*                           #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                 #aliasedQuery
+    | ASSERT_ROWS? LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                                               #tableValuedFunction
@@ -2300,6 +2300,7 @@ nonReserved
     | ANALYZED
     | ANN
     | ARRAY
+    | ASSERT_ROWS
     | AT
     | AUTHORS
     | AUTHENTICATION

@@ -103,8 +103,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -785,9 +783,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             merged.addAll(cteDefinitions);
             relation.setCte(merged);
         }
-        // A top-level ASSERT_ROWS (e.g. EXISTS / single-row assertion) has no SQL
-        // representation and is rejected by visitPhysicalAssertNumRows; the decompile then
-        // falls back to the user planSql.
+        // PhysicalAssertNumRows carries no node of its own in the frozen text: it renders
+        // as the ASSERT_ROWS relation prefix wherever its parent references the input
+        // relation (visitPhysicalAssertNumRows), and the parser rebuilds the assertion.
         return relation.toSQL();
     }
 
@@ -1826,203 +1824,6 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * Tries to render a join that unnesting a SCALAR SUBQUERY introduced.
-     *
-     * ScalarApplyToJoin rewrites "expr cmp (SELECT one_value FROM sub)" into an
-     * INNER / CROSS join between the outer input and the subquery, the subquery side
-     * wrapped in a PhysicalAssertNumRows (the "at most one row" contract) and the
-     * comparison moved into the join condition:
-     *
-     *   INNER NLJ(main, Project(0.9 * rank_col AS e, ASSERT(sub)))
-     *       with otherCondition = [main.rank_col > e]
-     *
-     * The Nereids grammar has no ASSERT_ROWS production, so the join cannot be
-     * rendered as-is. What CAN be rendered is the scalar subquery itself - which is
-     * what the user query contained in the first place: every column of the assert
-     * input becomes "(SELECT col FROM (subquery) t_N)", every projection over it is
-     * re-printed through that mapping, and the join conjuncts move to a WHERE clause
-     * of the other side. Keeping the subquery in an EXPRESSION position preserves the
-     * single-row contract: the replayed query raises the executor's "scalar subquery
-     * returns more than one row" error exactly when the unnest join would.
-     *
-     * Only INNER / CROSS joins can collapse: a correlated LEFT OUTER shape needs its
-     * correlation predicates pushed back into the subquery (left to the ordinary
-     * rendering, which still refuses the assert node loudly).
-     *
-     * @return the collapsed relation, or null when the shape does not match
-     */
-    private SQLRelation tryCollapseScalarSubqueryJoin(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
-        if (join.isMarkJoin()) {
-            return null;
-        }
-        JoinType joinType = join.getJoinType();
-        if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN) {
-            return null;
-        }
-        ScalarSubquerySide leftSide = scalarSubquerySide(join.left());
-        ScalarSubquerySide rightSide = scalarSubquerySide(join.right());
-        if (leftSide != null && rightSide != null) {
-            LOG.info("SPM scalar collapse refused: both inputs of {} unnest a scalar subquery",
-                    join.getClass().getSimpleName());
-            return null;
-        }
-        if (leftSide == null && rightSide == null) {
-            return null; // no scalar subquery side
-        }
-        ScalarSubquerySide scalarSide = leftSide != null ? leftSide : rightSide;
-        Plan otherSide = leftSide != null ? join.right() : join.left();
-
-        // The other side is decompiled first: like every join, its relation is the
-        // scope the join's own expressions are rendered against.
-        SQLRelation base = process(otherSide);
-
-        // The subquery itself: its derived-table form exports one column per output slot.
-        PhysicalAssertNumRows<? extends Plan> assertNode = scalarSide.assertNode;
-        Plan subPlan = assertNode.child(0);
-        SQLRelation sub = process(subPlan);
-        String subSql = sub.toRelationSQL();
-        Map<ExprId, String> substitutions = new LinkedHashMap<>();
-        for (Slot slot : subPlan.getOutput()) {
-            String exported = exportedColumnName(sub, slot);
-            if (exported == null) {
-                LOG.info("SPM scalar collapse refused: the subquery relation does not export {}",
-                        slot);
-                return null;
-            }
-            substitutions.put(slot.getExprId(), "(SELECT " + exported + " FROM " + subSql + ")");
-        }
-
-        // Re-print every projection sitting between the join and the assert, from the
-        // inside out: the outermost wrapper's items may read the inner wrappers' slots.
-        SQLRelation printContext = new SQLRelation();
-        printContext.getColumnNames().putAll(base.getColumnNames());
-        printContext.getColumnNames().putAll(substitutions);
-        for (int i = scalarSide.wrappers.size() - 1; i >= 0; i--) {
-            Plan wrapper = scalarSide.wrappers.get(i);
-            if (wrapper instanceof PhysicalDistribute) {
-                continue;
-            }
-            for (NamedExpression item : ((PhysicalProject<? extends Plan>) wrapper).getProjects()) {
-                Expression value = item instanceof Alias ? item.child(0) : item;
-                Set<ExprId> referenced = new LinkedHashSet<>();
-                collectSlotRefs(value, referenced);
-                if (!printContext.getColumnNames().keySet().containsAll(referenced)) {
-                    Set<ExprId> missing = new LinkedHashSet<>(referenced);
-                    missing.removeAll(printContext.getColumnNames().keySet());
-                    LOG.info("SPM scalar collapse refused: wrapper {} reads unprintable slots {}",
-                            wrapper.getClass().getSimpleName(), missing);
-                    return null;
-                }
-                String text = exprSqlBuilder.print(value, printContext);
-                substitutions.put(item.getExprId(), text);
-                printContext.getColumnNames().put(item.getExprId(), text);
-            }
-        }
-
-        // The join conjuncts move to a WHERE over the other side; both their outer-side
-        // and scalar-side references resolve through the maps above.
-        SQLRelation result = new SQLRelation();
-        result.setFrom(base.toRelationSQL());
-        result.getColumnNames().putAll(base.getColumnNames());
-        result.getColumnNames().putAll(substitutions);
-        List<String> conjuncts = new ArrayList<>();
-        for (Expression conjunct : join.getHashJoinConjuncts()) {
-            String text = printCollapsedConjunct(conjunct, result);
-            if (text == null) {
-                return null;
-            }
-            conjuncts.add(text);
-        }
-        for (Expression conjunct : join.getOtherJoinConjuncts()) {
-            String text = printCollapsedConjunct(conjunct, result);
-            if (text == null) {
-                return null;
-            }
-            conjuncts.add(text);
-        }
-        if (joinType == JoinType.CROSS_JOIN && !conjuncts.isEmpty()) {
-            return null; // a CROSS join never carries conjuncts
-        }
-        if (!conjuncts.isEmpty()) {
-            result.setWhere(String.join(" AND ", conjuncts));
-        }
-        result.newAlias();
-        return result;
-    }
-
-    /** One input of a join recognized as the unnest of a scalar subquery. */
-    private static final class ScalarSubquerySide {
-        private final PhysicalAssertNumRows<? extends Plan> assertNode;
-        /** Nodes between the join input and the assert, outermost first. */
-        private final List<Plan> wrappers;
-
-        private ScalarSubquerySide(PhysicalAssertNumRows<? extends Plan> assertNode, List<Plan> wrappers) {
-            this.assertNode = assertNode;
-            this.wrappers = wrappers;
-        }
-    }
-
-    /**
-     * Recognizes the scalar-subquery shape of one join input: an exchange / projection
-     * chain down to a single-row PhysicalAssertNumRows. Returns null for everything else
-     * (including the two-phase shapes the ordinary join rendering must refuse).
-     */
-    private static ScalarSubquerySide scalarSubquerySide(Plan root) {
-        List<Plan> wrappers = new ArrayList<>();
-        Plan plan = root;
-        while (!(plan instanceof PhysicalAssertNumRows)) {
-            if ((!(plan instanceof PhysicalDistribute) && !(plan instanceof PhysicalProject))
-                    || plan.children().size() != 1) {
-                return null;
-            }
-            wrappers.add(plan);
-            plan = plan.child(0);
-        }
-        return new ScalarSubquerySide((PhysicalAssertNumRows<? extends Plan>) plan, wrappers);
-    }
-
-    /** Prints one collapsed join conjunct, or null when it is not expressible. */
-    private String printCollapsedConjunct(Expression conjunct, SQLRelation context) {
-        Set<ExprId> referenced = new LinkedHashSet<>();
-        collectSlotRefs(conjunct, referenced);
-        if (!context.getColumnNames().keySet().containsAll(referenced)) {
-            Set<ExprId> missing = new LinkedHashSet<>(referenced);
-            missing.removeAll(context.getColumnNames().keySet());
-            LOG.info("SPM scalar collapse refused: conjunct {} references unprintable slots {}",
-                    conjunct, missing);
-            return null;
-        }
-        return exprSqlBuilder.print(conjunct, context);
-    }
-
-    private static void collectSlotRefs(Expression expression, Set<ExprId> referenced) {
-        if (expression instanceof SlotReference) {
-            referenced.add(((SlotReference) expression).getExprId());
-        }
-        for (Expression child : expression.children()) {
-            collectSlotRefs(child, referenced);
-        }
-    }
-
-    /**
-     * The name under which a subquery relation exports one of its output slots: the
-     * alias / output name of the matching SELECT item, or the registered column name
-     * when the relation renders as "SELECT *" (no explicit item list).
-     */
-    private static String exportedColumnName(SQLRelation relation, Slot slot) {
-        List<Pair<ExprId, String>> selects = relation.getSelects();
-        if (selects != null && !selects.isEmpty()) {
-            for (Pair<ExprId, String> select : selects) {
-                if (select.key().equals(slot.getExprId())) {
-                    return selectOutputName(select.value());
-                }
-            }
-            return null;
-        }
-        return relation.getColumnNames().get(slot.getExprId());
-    }
-
-    /**
      * Common Join handling: recursively process left/right, assemble FROM (including
      * the distribution HINT), build the ON condition, merge column names and wrap.
      *
@@ -2033,10 +1834,6 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * references stay unambiguous.
      */
     private SQLRelation visitPhysicalJoin(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join, Void context) {
-        SQLRelation scalarSubquery = tryCollapseScalarSubqueryJoin(join);
-        if (scalarSubquery != null) {
-            return scalarSubquery;
-        }
         JoinType joinType = join.getJoinType();
         boolean isMarkJoin = join.isMarkJoin();
         // ===== ASOF / MARK / NULL-AWARE join handling =====
@@ -2044,7 +1841,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // IN / NOT IN / EXISTS / NOT EXISTS predicate). The MARK / MARK_CONDITION /
         // MARK_SLOT keywords are only the SQL surface that passes the mark parameters
         // back into the very same SEMI/ANTI join, so every MARK join decompiles
-        // natively in one of three shapes (comments2):
+        // natively in one of three shapes:
         //  1. correlation in ON, no mark key  : SEMI/ANTI MARK JOIN ... MARK_SLOT m ON <conds>
         //  2. only a mark key, no correlation : SEMI/ANTI MARK JOIN ... MARK_CONDITION(<key>) MARK_SLOT m ON true
         //  3. correlation in ON + a mark key  : SEMI/ANTI MARK JOIN ... MARK_CONDITION(<key>) MARK_SLOT m ON <conds>
@@ -4307,18 +4104,23 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     // ==================== ASSERT_ROWS (PhysicalAssertNumRows) ====================
 
     /**
-     * PhysicalAssertNumRows (single-row assertion, e.g. a scalar subquery): the Nereids
-     * grammar has NO ASSERT_ROWS relation production, so the previous
-     * "ASSERT_ROWS (SELECT ...) t_N" rendering produced frozen texts that cannot be
-     * re-parsed - after a restart such a baseline had no plan tree to fall back to and
-     * silently stopped applying. Reject the node: the decompile falls back to the user's
-     * planSql text, which re-parses and replays through the parameterized tree.
+     * PhysicalAssertNumRows (the "at most one row" assertion of a scalar-subquery
+     * unnest, e.g. the inner side of the INNER join ScalarApplyToJoin builds): render it
+     * as the ASSERT_ROWS relation prefix, "ASSERT_ROWS (SELECT ...) t_N". The Nereids
+     * grammar accepts that relation and the parser rebuilds the LogicalAssertNumRows on
+     * replay, so the frozen text keeps the single-row contract instead of falling back
+     * to the user planSql.
      */
     @Override
     public SQLRelation visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows, Void context) {
-        throw new UnsupportedOperationException(
-                "SPM decompile: ASSERT_ROWS has no SQL representation; the baseline keeps the"
-                        + " user planSql and replays through the parameterized tree");
+        SQLRelation relation = process(assertNumRows.child(0));
+        relation.setAssertRows(true);
+        if (relation.getRelationName() == null) {
+            // The parent references this input as "ASSERT_ROWS (...) t_N": an inline
+            // fragment (e.g. a bare scan) carries no alias to append to that text.
+            relation.newAlias();
+        }
+        return relation;
     }
 
     // ==================== helper methods ====================

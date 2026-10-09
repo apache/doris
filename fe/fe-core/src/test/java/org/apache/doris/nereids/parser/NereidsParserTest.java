@@ -33,6 +33,7 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -66,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -357,6 +359,63 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 1);
         Optional<List<String>> columnAliases = ((LogicalCTE<?>) logicalPlan).getAliasQueries().get(0).getColumnAliases();
         Assertions.assertEquals(columnAliases.get().size(), 2);
+    }
+
+    /**
+     * The SPM frozen form of a scalar-subquery unnest: "ASSERT_ROWS (SELECT ...) t_N".
+     * The parser must rebuild the LogicalAssertNumRows contract ScalarApplyToJoin
+     * attaches to a scalar subquery (EQ 1 - at most one row), so a replayed frozen
+     * baseline keeps the single-row check; a plain derived table must not gain one.
+     */
+    @Test
+    public void testAssertRowsRelationRebuildsTheSingleRowContract() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Plan plan = nereidsParser.parseSingle(
+                "SELECT * FROM ASSERT_ROWS (SELECT b FROM t2) t_0");
+        LogicalAssertNumRows<?> assertRows = findFirstAssertNumRows(plan);
+        Assertions.assertNotNull(assertRows,
+                "ASSERT_ROWS (...) must rebuild the single-row assertion");
+        Assertions.assertEquals(AssertNumRowsElement.Assertion.EQ,
+                assertRows.getAssertNumRowsElement().getAssertion());
+        Assertions.assertEquals(1L,
+                assertRows.getAssertNumRowsElement().getDesiredNumOfRows());
+
+        Plan plain = nereidsParser.parseSingle(
+                "SELECT * FROM (SELECT b FROM t2) t_0");
+        Assertions.assertNull(findFirstAssertNumRows(plain),
+                "a plain derived table must not gain an assertion");
+    }
+
+    /**
+     * The decompiler emits "ASSERT_ROWS (SELECT ...) t_N"; without the derived-table
+     * alias the relation is rejected like every alias-less derived table.
+     */
+    @Test
+    public void testAssertRowsRelationRequiresItsAlias() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("SELECT * FROM ASSERT_ROWS (SELECT b FROM t2)"));
+    }
+
+    /** ASSERT_ROWS is a non-reserved keyword: it stays usable as a plain identifier. */
+    @Test
+    public void testAssertRowsRemainsUsableAsIdentifier() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Plan plan = nereidsParser.parseSingle("SELECT assert_rows FROM assert_rows");
+        Assertions.assertNotNull(plan);
+    }
+
+    private static LogicalAssertNumRows<?> findFirstAssertNumRows(Plan plan) {
+        if (plan instanceof LogicalAssertNumRows) {
+            return (LogicalAssertNumRows<?>) plan;
+        }
+        for (Plan child : plan.children()) {
+            LogicalAssertNumRows<?> found = findFirstAssertNumRows(child);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
     }
 
     @Test

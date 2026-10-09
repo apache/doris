@@ -46,9 +46,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * - SPMPlanTreeSupport#stripSelectHints removed EVERY LogicalSelectHint from the
  *   in-memory fallback tree, so a plan SQL with an ORDERED hint (stored as
- *   the authored fallback whenever the decompiler rejects a node, e.g. the
- *   PhysicalAssertNumRows of a scalar subquery) lost the join-order hint the baseline
- *   exists to enforce. Only the captured SET_VAR payloads may go.
+ *   the authored fallback whenever the decompiler rejects a node) lost the join-order
+ *   hint the baseline exists to enforce. Only the captured SET_VAR payloads may go.
  * - the db-qualified suffix branch of the locked-table lookup ignored the CATALOG: a
  *   baseline binding cat1.db.t to a plan over cat2.db.t fingerprinted cat2's table, and
  *   the correct cat1 fingerprint then failed the pre-match containment check - the

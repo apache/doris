@@ -17,15 +17,13 @@
 
 suite("test_spm_review_round24", "spm") {
 
-    // The plan-selection hint of a NON-FROZEN replay and the
-    // namespace-qualified bind-table pinning.
+    // The frozen scalar-subquery replay and the namespace-qualified bind-table pinning.
     //
-    //  - a plan SQL with /*+ LEADING(...) */ and a NON-aggregated scalar subquery makes
-    //    the decompiler fall back to the authored SQL (PhysicalAssertNumRows), so the
-    //    replay plans the parameterized TREE: stripping the whole hint wrapper there
-    //    dropped the join-order hint the baseline exists to enforce. The frozen=0
-    //    assertion below pins the fallback path, and the EXPLAIN scan order pins that
-    //    the hint still drives the replay.
+    //  - a plan SQL with /*+ LEADING(...) */ and a NON-aggregated scalar subquery freezes
+    //    the decompiled text, which carries the PhysicalAssertNumRows as the ASSERT_ROWS
+    //    relation prefix; the frozen=1 assertion below pins that path and the plan_sql
+    //    check pins the assertion text. (The plan-selection hint of the FALLBACK replay
+    //    is covered by SPMRound24SafetyTest.)
     //  - a cross-DATABASE pair of same-named tables must keep the bind baseline of
     //    db1.t working (and never leak it onto db2.t).
     // #1/#4 (master-handoff fencing of a status flip) are covered by
@@ -90,28 +88,25 @@ suite("test_spm_review_round24", "spm") {
     sql """INSERT INTO spm_r24_db1.t VALUES (1), (2)"""
     sql """INSERT INTO spm_r24_db2.t VALUES (10), (20)"""
 
-    // ==================== #2: a non-frozen replay keeps its plan-selection hint ====================
+    // ==================== #2: a scalar-subquery plan freezes its ASSERT_ROWS text ====================
     // the scalar subquery is NOT aggregated and is filtered to ONE row at run time: the
-    // optimizer inserts PhysicalAssertNumRows, the decompiler rejects it and the authored
-    // SQL is stored as the (non-frozen) plan
+    // optimizer inserts PhysicalAssertNumRows, and the frozen text renders it as the
+    // ASSERT_ROWS relation prefix, which re-parses into the assertion on replay
     String leadingQuery = "SELECT /*+ LEADING(b, a) */ a.k FROM spm_r24_a a" +
             " JOIN spm_r24_b b ON a.k = b.k" +
             " WHERE a.k = (SELECT k FROM spm_r24_b b2 WHERE b2.k = 1)"
     long leadingId = createBaseline(leadingQuery)
-    assertTrue("0".equals(planFrozen(leadingId)) || "false".equals(planFrozen(leadingId)),
-            "the CREATE must store the raw fallback text (plan_frozen=0), got: "
+    assertTrue("1".equals(planFrozen(leadingId)) || "true".equals(planFrozen(leadingId)),
+            "the CREATE must freeze the decompiled text (plan_frozen=1), got: "
                     + planFrozen(leadingId))
+    String leadingPlanSql = sql("""SELECT plan_sql FROM __internal_schema.spm_baselines WHERE id = ${leadingId}""")[0][0].toString()
+    assertTrue(leadingPlanSql.contains("ASSERT_ROWS"),
+            "the frozen text must keep the scalar-subquery assertion: " + leadingPlanSql)
     String leadingExplain = explainOf(leadingQuery)
     assertTrue(leadingExplain.contains("SPM baseline hit: id=${leadingId}"),
-            "the fallback baseline must still be hit: " + leadingExplain)
-    // LEADING(b, a) flips the join: the FIRST scan in the replayed plan is b's. Without
-    // the hint (the pre-fix strip) the optimizer picked a's scan first - and the falling
-    // back to the authored join order is exactly what the baseline was created for.
-    assertTrue(leadingExplain.indexOf("spm_r24_b(") >= 0
-                    && leadingExplain.indexOf("spm_r24_b(") < leadingExplain.indexOf("spm_r24_a("),
-            "the replay must keep the authored join order: " + leadingExplain)
+            "the frozen baseline must be hit: " + leadingExplain)
     assertTrue(sql(leadingQuery) == rowsWithRewriteOff(leadingQuery),
-            "the fallback replay must return the original rows")
+            "the frozen replay must return the original rows")
 
     // ==================== #3: the bind baseline stays pinned to its own database ====================
     String db1Query = "SELECT k FROM spm_r24_db1.t"

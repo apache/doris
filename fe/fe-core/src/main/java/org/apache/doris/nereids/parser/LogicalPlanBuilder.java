@@ -539,6 +539,7 @@ import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -1074,6 +1075,7 @@ import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCloudClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
@@ -2925,7 +2927,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableAlias().getText().equals("")) {
             throw new ParseException("Every derived table must have its own alias", ctx);
         }
-        LogicalPlan plan = withTableAlias(visitQuery(ctx.query()), ctx.tableAlias());
+        LogicalPlan plan = visitQuery(ctx.query());
+        if (ctx.ASSERT_ROWS() != null) {
+            // The SPM frozen planSql renders a scalar-subquery unnest as the
+            // "ASSERT_ROWS (SELECT ...) t_N" relation; rebuild the same "at most one row"
+            // contract ScalarApplyToJoin creates (EQ 1 with a nullable output slot).
+            plan = new LogicalAssertNumRows<>(new AssertNumRowsElement(1, "",
+                    AssertNumRowsElement.Assertion.EQ), plan);
+        }
+        plan = withTableAlias(plan, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
         }

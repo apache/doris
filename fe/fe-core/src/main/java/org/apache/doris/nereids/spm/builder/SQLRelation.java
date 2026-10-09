@@ -37,6 +37,8 @@ import java.util.stream.Collectors;
  *
  * - relationName == null (inline): return the from field directly (e.g. "t1")
  * - relationName != null (after newAlias): wrap as a (SELECT ...) t_N subquery
+ * - assertRows (after setAssertRows): render as the ASSERT_ROWS (SELECT ...) t_N
+ *   relation prefix (the frozen form of a scalar subquery's single-row assertion)
  *
  * This class models the relation rendering state of SPMPlan2SQLBuilder (design doc 6.2.1).
  * Key fields: columnNames (ExprId -> SQL reference name), from / where / groupBy / having /
@@ -91,6 +93,13 @@ public class SQLRelation {
 
     /** Subquery alias (t_N). null means inline (no subquery nesting). */
     private String relationName = null;
+
+    /**
+     * Whether the relation is rendered as the ASSERT_ROWS relation prefix: the frozen
+     * form of a scalar subquery's single-row assertion (PhysicalAssertNumRows), which
+     * the parser turns back into a LogicalAssertNumRows on replay.
+     */
+    private boolean assertRows = false;
 
     /**
      * Whether the FROM fragment ALREADY carries the relation alias in itself (a derived
@@ -226,8 +235,9 @@ public class SQLRelation {
 
     /**
      * Returns the SQL fragment that a parent operator can reference; this is where
-     * subquery nesting is generated. Two branches (design doc 6.2.1):
+     * subquery nesting is generated. Three branches (design doc 6.2.1):
      *
+     * - assertRows: the ASSERT_ROWS (SELECT ...) t_N relation prefix
      * - relationName == null: inline, return from directly (e.g. "t1")
      * - otherwise: wrap as the (SELECT ...) t_N subquery - UNLESS the FROM fragment is
      *   already an aliased derived table (a set-operation expression), which is its own
@@ -236,6 +246,13 @@ public class SQLRelation {
      * @return the fragment that can be embedded into a parent FROM clause
      */
     public String toRelationSQL() {
+        if (assertRows) {
+            // The single-row assertion of a scalar subquery renders as the ASSERT_ROWS
+            // relation prefix; the parser rebuilds the LogicalAssertNumRows on replay
+            // (LogicalPlanBuilder#visitAliasedQuery). The alias has been allocated by
+            // visitPhysicalAssertNumRows, so relationName is set here.
+            return "ASSERT_ROWS (" + toSQL() + ") " + relationName;
+        }
         if (relationName == null) {
             if (from.isEmpty()) {
                 // A FROM-less relation (a reduced one-row plan such as "SELECT 7 AS id")
@@ -425,6 +442,16 @@ public class SQLRelation {
 
     public void setRelationName(String relationName) {
         this.relationName = relationName;
+    }
+
+    /** Whether this relation renders as the ASSERT_ROWS relation prefix. */
+    public boolean isAssertRows() {
+        return assertRows;
+    }
+
+    /** Marks this relation as the ASSERT_ROWS (SELECT ...) t_N form. */
+    public void setAssertRows(boolean assertRows) {
+        this.assertRows = assertRows;
     }
 
     public List<String> getReserveNames() {
