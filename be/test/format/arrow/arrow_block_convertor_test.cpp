@@ -23,6 +23,7 @@
 #include <arrow/ipc/api.h>
 #include <gtest/gtest.h>
 
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -287,6 +288,138 @@ TEST_F(ArrowBlockConvertorTest, TableConvertersRejectMismatchedNestedSchemas) {
             }
         }
     }
+}
+
+TEST_F(ArrowBlockConvertorTest, FlightRejectsInvalidUtf8BeforeReturningBatch) {
+    auto type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+    for (const std::string& value :
+         {std::string("\x84"), std::string("\xc0\xaf"), std::string("\xed\xa0\x80"),
+          std::string("\xf4\x90\x80\x80")}) {
+        auto column = type->create_column();
+        column->insert(Field::create_field<TYPE_STRING>(value));
+        Block block {{std::move(column), type, "payload"}};
+        ArrowFlightArrowBlockConvertor flight(block, "UTC", cctz::utc_time_zone());
+        ASSERT_TRUE(flight.init().ok());
+        const ArrowBlockConvertor& converter = flight;
+        std::shared_ptr<arrow::RecordBatch> batch;
+        const auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+        EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code()) << status;
+        EXPECT_NE(std::string::npos, status.to_string().find("payload"));
+        EXPECT_NE(std::string::npos, status.to_string().find("UTF8"));
+        EXPECT_EQ(nullptr, batch);
+
+        DorisArrowBlockConvertor ordinary(block, "UTC", cctz::utc_time_zone());
+        ASSERT_TRUE(ordinary.init().ok());
+        EXPECT_TRUE(ordinary.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+    }
+}
+
+TEST_F(ArrowBlockConvertorTest, FlightChecksEachStringAndEveryBatch) {
+    auto type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+    auto column = type->create_column();
+    for (const std::string& value :
+         {std::string("valid"), std::string("\xc2"), std::string("\xa2")}) {
+        column->insert(Field::create_field<TYPE_STRING>(value));
+    }
+    Block block {{std::move(column), type, "payload"}};
+    ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone());
+    ASSERT_TRUE(converter.init().ok());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, 0, 1).ok());
+    ASSERT_EQ(1, batch->num_rows());
+    batch.reset();
+    // Adjacent invalid strings form valid UTF-8 when concatenated; row boundaries matter.
+    EXPECT_FALSE(
+            converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, 1, 3).ok());
+    EXPECT_EQ(nullptr, batch);
+}
+
+TEST_F(ArrowBlockConvertorTest, FlightPreservesValidTextNullsAndBinary) {
+    auto text = make_nullable(DataTypeFactory::instance().create_data_type(TYPE_STRING, false));
+    auto strings = text->create_column();
+    strings->insert(Field::create_field<TYPE_STRING>(std::string("\xe4\xb8\xad\xf0\x9f\x98\x80")));
+    strings->insert(Field::create_field<TYPE_STRING>(std::string()));
+    strings->insert(Field::create_field<TYPE_STRING>(std::string("a\0b", 3)));
+    strings->insert_default();
+    auto binary = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, false);
+    auto bytes = binary->create_column();
+    for (int i = 0; i < 4; ++i) {
+        bytes->insert_data("\x84\0\xff", 3);
+    }
+    Block block {{std::move(strings), text, "text"}, {std::move(bytes), binary, "binary"}};
+    ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone());
+    ASSERT_TRUE(converter.init().ok());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    const auto& values = static_cast<const arrow::StringArray&>(*batch->column(0));
+    EXPECT_EQ("\xe4\xb8\xad\xf0\x9f\x98\x80", values.GetString(0));
+    EXPECT_EQ("", values.GetString(1));
+    EXPECT_EQ(std::string("a\0b", 3), values.GetString(2));
+    EXPECT_TRUE(values.IsNull(3));
+    ASSERT_EQ(arrow::Type::BINARY, batch->column(1)->type_id());
+    const auto& binary_values = static_cast<const arrow::BinaryArray&>(*batch->column(1));
+    EXPECT_EQ(std::string("\x84\0\xff", 3), binary_values.GetString(0));
+}
+
+TEST_F(ArrowBlockConvertorTest, FlightRejectsNestedInvalidUtf8) {
+    auto text = make_nullable(DataTypeFactory::instance().create_data_type(TYPE_STRING, false));
+    const auto invalid = Field::create_field<TYPE_STRING>(std::string("\x84"));
+    const auto valid = Field::create_field<TYPE_STRING>(std::string("key"));
+    DataTypes types {std::make_shared<DataTypeArray>(text),
+                     std::make_shared<DataTypeStruct>(DataTypes {text}, Strings {"child"}),
+                     std::make_shared<DataTypeMap>(text, text),
+                     std::make_shared<DataTypeMap>(text, text)};
+    FieldVector fields {
+            Field::create_field<TYPE_ARRAY>(Array {invalid}),
+            Field::create_field<TYPE_STRUCT>(Struct {invalid}),
+            Field::create_field<TYPE_MAP>(Map {Field::create_field<TYPE_ARRAY>(Array {valid}),
+                                               Field::create_field<TYPE_ARRAY>(Array {invalid})}),
+            Field::create_field<TYPE_MAP>(Map {Field::create_field<TYPE_ARRAY>(Array {invalid}),
+                                               Field::create_field<TYPE_ARRAY>(Array {valid})})};
+    for (size_t i = 0; i < types.size(); ++i) {
+        SCOPED_TRACE(types[i]->get_name());
+        auto column = types[i]->create_column();
+        column->insert(fields[i]);
+        Block block {{std::move(column), types[i], "nested"}};
+        ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone());
+        ASSERT_TRUE(converter.init().ok());
+        std::shared_ptr<arrow::RecordBatch> batch;
+        const auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+        EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code()) << status;
+        EXPECT_NE(std::string::npos, status.to_string().find("nested"));
+        EXPECT_EQ(nullptr, batch);
+    }
+}
+
+TEST_F(ArrowBlockConvertorTest, FlightRejectsInvalidLargeString) {
+    auto type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+    auto column = type->create_column();
+    column->insert(Field::create_field<TYPE_STRING>(std::string("\x84")));
+    Block block {{std::move(column), type, "large_text"}};
+    auto schema = arrow::schema({arrow::field("large_text", arrow::large_utf8(), false)});
+    ArrowFlightArrowBlockConvertor converter(schema, cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    const auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code()) << status;
+    EXPECT_NE(std::string::npos, status.to_string().find("large_text"));
+    EXPECT_EQ(nullptr, batch);
+}
+
+TEST_F(ArrowBlockConvertorTest, FlightIgnoresBytesMaskedByNull) {
+    auto text = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+    auto values = text->create_column();
+    values->insert_data("\x84", 1);
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(1);
+    Block block {{ColumnNullable::create(std::move(values), std::move(nulls)), make_nullable(text),
+                  "nullable_text"}};
+    ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone());
+    ASSERT_TRUE(converter.init().ok());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    EXPECT_TRUE(batch->column(0)->IsNull(0));
 }
 
 } // namespace doris

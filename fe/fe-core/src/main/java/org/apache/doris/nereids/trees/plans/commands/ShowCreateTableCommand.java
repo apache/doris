@@ -128,6 +128,19 @@ public class ShowCreateTableCommand extends ShowCommand {
         return ShowResultSetMetaData.builder().build();
     }
 
+    /** Resolve the result header without rendering the table DDL. */
+    public ShowResultSetMetaData getMetaData(ConnectContext ctx) throws AnalysisException {
+        // The table kind determines the header; rendering DDL is unnecessary for schema discovery.
+        validate(ctx);
+        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblNameInfo.getCtl())
+                .getDbOrAnalysisException(tblNameInfo.getDb());
+        TableIf table = resolveShowCreateTarget(db);
+        if (table instanceof View) {
+            return VIEW_META_DATA;
+        }
+        return table.getType() == Table.TableType.MATERIALIZED_VIEW ? MATERIALIZED_VIEW_META_DATA : META_DATA;
+    }
+
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);

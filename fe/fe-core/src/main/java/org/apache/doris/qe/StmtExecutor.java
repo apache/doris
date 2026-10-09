@@ -1183,6 +1183,12 @@ public class StmtExecutor {
     }
 
     private void forwardToMaster() throws Exception {
+        // COM_QUERY forwarding carries SQL text but not Flight's typed placeholder bindings.
+        if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL
+                && !statementContext.getIdToPlaceholderRealExpr().isEmpty()) {
+            throw new UserException("Flight SQL queries with bound parameters cannot be forwarded; "
+                    + "connect to master FE");
+        }
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
@@ -1456,6 +1462,12 @@ public class StmtExecutor {
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
+                if (coordBase == coord) {
+                    context.getFlightSqlChannel().registerRemoteQuery(coord.getQueryId(),
+                            context.getFlightSqlEndpointsLocations().stream()
+                                    .map(endpoint -> endpoint.getFinstId()).distinct().collect(Collectors.toList()),
+                            coord.getBackendBrpcAddresses(), coord.getQueryOptions().getExecutionTimeout());
+                }
                 // The client pulls the results from the BE later (DoGet). Only an external-table
                 // scan in batch mode still needs the coordinator after this point: the BE fetches
                 // its splits lazily from the split source the coordinator holds, so closing the

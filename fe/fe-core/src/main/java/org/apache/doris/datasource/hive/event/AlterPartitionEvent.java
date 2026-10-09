@@ -113,14 +113,14 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
                     catalogName, dbName, tblName, partitionNameBefore, partitionNameAfter);
             if (isRename) {
                 Env.getCurrentEnv().getCatalogMgr()
-                        .dropExternalPartitions(catalogName, dbName, tblName,
+                        .dropExternalPartitions(catalogName, hmsTbl.getDbName(), tblName,
                                 Lists.newArrayList(partitionNameBefore), eventTime, true);
                 Env.getCurrentEnv().getCatalogMgr()
-                        .addExternalPartitions(catalogName, dbName, tblName,
+                        .addExternalPartitions(catalogName, hmsTbl.getDbName(), tblName,
                                 Lists.newArrayList(partitionNameAfter), eventTime, true);
             } else {
                 Env.getCurrentEnv().getRefreshManager()
-                        .refreshPartitions(catalogName, dbName, hmsTbl.getTableName(),
+                        .refreshPartitions(catalogName, hmsTbl.getDbName(), hmsTbl.getTableName(),
                                 Lists.newArrayList(partitionNameAfter), eventTime, true);
             }
         } catch (DdlException e) {

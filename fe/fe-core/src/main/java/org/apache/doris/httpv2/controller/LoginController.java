@@ -17,6 +17,9 @@
 
 package org.apache.doris.httpv2.controller;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.qe.ConnectContext;
+
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,7 +35,13 @@ public class LoginController extends BaseController {
 
     @RequestMapping(path = "/login", method = RequestMethod.POST)
     public Object login(HttpServletRequest request, HttpServletResponse response) {
-        checkAuthWithCookie(request, response);
+        // Login only establishes who the caller is. What the account may reach is decided on each /rest/v1 request
+        // that follows, where the session issued here is checked for the required privilege; this lets the UI
+        // tell an account that lacks it apart from a failed sign-in.
+        checkWithCookie(request, response, false);
+        if (Config.isCloudMode()) {
+            checkInstanceOverdue(ConnectContext.get().getCurrentUserIdentity());
+        }
         Map<String, Object> msg = new HashMap<>();
         msg.put("code", 200);
         msg.put("msg", "Login success!");

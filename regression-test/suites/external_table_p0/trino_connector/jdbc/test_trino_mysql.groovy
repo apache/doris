@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_trino_mysql", "p0,external,mysql,external_docker,external_docker_mysql") {
+    // MySQL TIMESTAMP carries an instant; keep its rendered zone independent of the runner.
+    sql "SET time_zone = '+08:00'"
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String enabled_trino_connector = context.config.otherConfigs.get("enableTrinoConnectorTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -49,6 +52,11 @@ suite("test_trino_mysql", "p0,external,mysql,external_docker,external_docker_mys
 
         qt_desc_all_types_null """desc all_types_nullable;"""
         qt_select_all_types_null """select * except(time1,time2,time3) from all_types_nullable order by 1;"""
+        // Verify source instants independently of TIMESTAMPTZ's display format.
+        def timestampBounds = sql """select min(unix_timestamp(timestamp1)),
+                max(unix_timestamp(timestamp1)) from all_types_nullable"""
+        assertEquals(1L, timestampBounds[0][0] as long)
+        assertEquals(2147483647L, timestampBounds[0][1] as long)
 
         qt_desc_all_types_non_null """desc all_types_non_nullable;"""
         qt_select_all_types_non_null """select * except(time1,time2,time3) from all_types_non_nullable order by 1;"""
@@ -61,4 +69,3 @@ suite("test_trino_mysql", "p0,external,mysql,external_docker,external_docker_mys
         sql """drop catalog if exists trino_mysql_test """
     }
 }
-

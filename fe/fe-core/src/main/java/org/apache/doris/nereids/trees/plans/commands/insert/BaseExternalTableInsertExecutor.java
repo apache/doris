@@ -136,12 +136,9 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
      * Default: full table refresh.
      */
     protected void doAfterCommit() throws DdlException {
-        // Default: full table refresh
-        Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
-                catalogName,
-                table.getDatabase().getFullName(),
-                table.getName(),
-                true);
+        // The transaction is already committed and this executor still owns the exact table
+        // identity. Do not re-resolve it through an evictable metadata cache before fencing it.
+        Env.getCurrentEnv().getRefreshManager().refreshTableAfterCommit((ExternalTable) table);
     }
 
     @Override

@@ -19,13 +19,14 @@
 #
 # The fixture has several readers and they do not all run the same Lance version:
 #
-#   lance-c v0.1.6 (lance-rs 7.0.0-beta.7)  BE, both from source and from the prebuilt
+#   lance-c v0.1.9 (lance-rs 11.0.0, patched)  BE, both from source and from the prebuilt
 #                                           doris-thirdparty package - thirdparty/vars.sh
 #   lance-java 4.0.0                        Spark, via lance-spark-bundle 0.4.0; it
 #                                           registers runtime tables into the same __manifest
-#   lance-java 9.1.0-beta.3                 Doris FE Directory Namespace client - fe/pom.xml
+#   lance-java 12.0.0                       Doris FE Directory Namespace client - fe/pom.xml
 #
-# The writer is pinned to the Lance generation the BE actually reads. It used to be pinned
+# The writer stays on Lance 7, the generation the BE read when this pin was set; the BE's
+# lance-rs 11 reads what it writes, which the regression run verifies. It used to be pinned
 # to the oldest reader instead, on the theory that an older writer is readable by every
 # reader above; that stopped being possible once the fixture had to carry non-Float32
 # indexes. Measured on pylance 4.0.1 (Lance 4): IVF_HNSW_FLAT + float64 and
@@ -36,6 +37,12 @@
 # guarantees; it is something the regression run verifies. external_table_p0/lance covers
 # it: the Spark and REST catalog suites read and register into the same __manifest this
 # writer produces, and they must pass for a fixture rebuild to be acceptable.
+#
+# One fixture is the exception: legacy_vector_index.lance must carry a vector index without
+# index details, which only writers before 0.20 produce, so lance_build_legacy_vector_index.py
+# builds it with pylance 0.18.2 and the catalog build carries it over as-is. Likewise
+# unicode_branch.lance is built by pylance 12.0.0, because Lance 7 stores a non-ASCII branch
+# directory percent-encoded, which Lance 12 does not find (see lance_build_unicode_branch.py).
 #
 # The pylance and lance-namespace pins are enforced rather than advisory:
 # check_pinned_writer() refuses to build or verify the fixture unless the installed versions

@@ -39,13 +39,16 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "exec/scan/scanner.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format/csv/csv_reader.h"
 #include "format_v2/column_mapper.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 
@@ -323,6 +326,163 @@ VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
     EXPECT_TRUE(status.ok()) << status;
     return context;
 }
+
+class PlainCsvSplitTest : public testing::TestWithParam<bool> {
+protected:
+    void read_range(const std::string& content, const std::string& delimiter, int64_t start,
+                    int64_t size, bool count_only, std::vector<std::string>* values,
+                    size_t* total_rows, int header_mode = 0) {
+        const auto path = (_dir.path() / "split.csv").string();
+        std::ofstream(path, std::ios::binary) << content;
+        auto params = csv_scan_params();
+        params.__set_compress_type(TFileCompressType::PLAIN);
+        params.__set_column_idxs({0});
+        params.file_attributes.__isset.header_type = false;
+        params.file_attributes.text_params.__set_line_delimiter(delimiter);
+        if (header_mode == 1) {
+            params.file_attributes.__set_header_type(BeConsts::CSV_WITH_NAMES);
+        } else if (header_mode == 2) {
+            params.file_attributes.__set_header_type(BeConsts::CSV_WITH_NAMES_AND_TYPES);
+        } else if (header_mode == 3) {
+            params.file_attributes.__set_skip_lines(2);
+        }
+        ObjectPool pool;
+        auto type = make_nullable(std::make_shared<DataTypeString>());
+        std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, type, "id")};
+        MockRuntimeState state;
+        state._batch_size = 2;
+        RuntimeProfile profile("plain_csv_split_test");
+        auto read_blocks = [&](auto&& next_block) {
+            bool eof = false;
+            while (!eof) {
+                Block block;
+                block.insert({type->create_column(), type, "id"});
+                size_t rows = 0;
+                auto status = next_block(&block, &rows, &eof);
+                ASSERT_TRUE(status.ok()) << status;
+                ASSERT_EQ(rows, block.rows());
+                *total_rows += rows;
+                if (!count_only) {
+                    for (size_t row = 0; row < rows; ++row) {
+                        ASSERT_FALSE(is_null_at(*block.get_by_position(0).column, row));
+                        values->push_back(
+                                nullable_string_at(*block.get_by_position(0).column, row));
+                    }
+                }
+            }
+        };
+        if (GetParam()) {
+            auto reader = create_reader(path, &params, slots, &state, &profile, start, size);
+            auto request = std::make_shared<FileScanRequest>();
+            request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+            ASSERT_TRUE(reader->open(request).ok());
+            if (count_only) {
+                FileAggregateRequest aggregate_request;
+                aggregate_request.agg_type = TPushAggOp::type::COUNT;
+                FileAggregateResult result;
+                ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &result).ok());
+                *total_rows += result.count;
+            } else {
+                read_blocks([&](Block* block, size_t* rows, bool* eof) {
+                    return reader->get_block(block, rows, eof);
+                });
+            }
+        } else {
+            TFileRangeDesc range;
+            range.__set_path(path);
+            range.__set_start_offset(start);
+            range.__set_size(size);
+            range.__set_file_size(content.size());
+            ScannerCounter counter;
+            auto reader = ::doris::CsvReader::create_unique(
+                    &state, &profile, &counter, params, range, slots, state.batch_size(), nullptr);
+            ASSERT_TRUE(reader->init_reader(true).ok());
+            if (count_only) {
+                reader->set_push_down_agg_type(TPushAggOp::type::COUNT);
+            }
+            read_blocks([&](Block* block, size_t* rows, bool* eof) {
+                return reader->get_next_block(block, rows, eof);
+            });
+            EXPECT_EQ(counter.num_rows_filtered, 0);
+        }
+    }
+
+    doris::test::ScopedTempDirectory _dir {"doris_plain_csv_split_test"};
+};
+
+TEST_P(PlainCsvSplitTest, EveryByteBoundaryMatchesUnsplitRowsAndCount) {
+    for (const std::string delimiter : {"\n", "\r\n", "ABCDE", "||", "aba"}) {
+        const std::string extra = delimiter == "||" ? "|" : delimiter == "aba" ? "ba" : "";
+        for (bool trailing : {false, true}) {
+            const std::string content =
+                    "1" + delimiter + extra + "2" + delimiter + "3" + (trailing ? delimiter : "");
+            const auto file_size = static_cast<int64_t>(content.size());
+            const std::vector<std::string> expected {"1", extra + "2", "3"};
+            for (bool count_only : {false, true}) {
+                SCOPED_TRACE(testing::Message() << "delimiter=" << delimiter << ", trailing="
+                                                << trailing << ", count=" << count_only);
+                std::vector<std::string> unsplit;
+                size_t unsplit_rows = 0;
+                ASSERT_NO_FATAL_FAILURE(read_range(content, delimiter, 0, file_size, count_only,
+                                                   &unsplit, &unsplit_rows));
+                ASSERT_EQ(unsplit_rows, expected.size());
+                if (!count_only) {
+                    ASSERT_EQ(unsplit, expected);
+                }
+                for (int64_t split = 1; split < file_size; ++split) {
+                    SCOPED_TRACE(testing::Message() << "split=" << split);
+                    std::vector<std::string> values;
+                    size_t rows = 0;
+                    ASSERT_NO_FATAL_FAILURE(
+                            read_range(content, delimiter, 0, split, count_only, &values, &rows));
+                    ASSERT_NO_FATAL_FAILURE(read_range(content, delimiter, split, file_size - split,
+                                                       count_only, &values, &rows));
+                    ASSERT_EQ(rows, expected.size());
+                    if (!count_only) {
+                        ASSERT_EQ(values, expected);
+                    }
+                }
+                std::vector<std::string> values;
+                size_t rows = 0;
+                for (int64_t start = 0; start < file_size; ++start) {
+                    ASSERT_NO_FATAL_FAILURE(
+                            read_range(content, delimiter, start, 1, count_only, &values, &rows));
+                }
+                EXPECT_EQ(rows, expected.size());
+                if (!count_only) {
+                    EXPECT_EQ(values, expected);
+                }
+            }
+        }
+    }
+}
+
+TEST_P(PlainCsvSplitTest, FirstSplitStillHonorsHeadersAndSkipLines) {
+    for (int header_mode : {1, 2, 3}) {
+        const std::string header = header_mode == 1 ? "id||" : "id||String||";
+        const std::string content = header + "1|||2||3";
+        const auto split = static_cast<int64_t>(header.size() + 4);
+        for (bool count_only : {false, true}) {
+            SCOPED_TRACE(testing::Message()
+                         << "header_mode=" << header_mode << ", count=" << count_only);
+            std::vector<std::string> values;
+            size_t rows = 0;
+            ASSERT_NO_FATAL_FAILURE(
+                    read_range(content, "||", 0, split, count_only, &values, &rows, header_mode));
+            ASSERT_NO_FATAL_FAILURE(read_range(content, "||", split, content.size() - split,
+                                               count_only, &values, &rows, header_mode));
+            EXPECT_EQ(rows, 3);
+            if (!count_only) {
+                EXPECT_EQ(values, (std::vector<std::string> {"1", "|2", "3"}));
+            }
+        }
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(LegacyAndV2, PlainCsvSplitTest, testing::Bool(),
+                         [](const testing::TestParamInfo<bool>& info) {
+                             return info.param ? "V2" : "Legacy";
+                         });
 
 class CsvV2ReaderTest : public testing::Test {
 public:

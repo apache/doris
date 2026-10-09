@@ -1661,6 +1661,16 @@ bool set_native_page_scalar_min_max(const tparquet::ColumnIndex& column_index,
     }
     const auto min_value = unaligned_load<ValueType>(column_index.min_values[page_idx].data());
     const auto max_value = unaligned_load<ValueType>(column_index.max_values[page_idx].data());
+    if constexpr (std::is_same_v<ValueType, int32_t>) {
+        if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_DATEV2 &&
+            !epoch_days_range_is_representable(min_value, max_value)) {
+            // An invalid interior DATE errors in strict mode and becomes NULL otherwise.
+            // Neither min/max nor physical null counts prove the materialized result here.
+            // Retain this page without discarding usable statistics on the other pages.
+            *page_statistics = {};
+            return true;
+        }
+    }
     if constexpr (std::is_integral_v<ValueType>) {
         if (remove_nullable(column_schema.type)->get_primitive_type() == TYPE_TIMEV2) {
             int64_t units_per_day = 0;

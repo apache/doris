@@ -52,6 +52,15 @@ public final class PaimonTableLoader {
         }
     }
 
+    public void invalidateDatabase(long catalogId, String localDbName) {
+        try {
+            catalog(catalogId).invalidatePaimonDatabaseByLocalName(localDbName);
+        } catch (Exception e) {
+            throw new CacheException("failed to invalidate paimon database %s.%s: %s",
+                    e, catalogId, localDbName, e.getMessage());
+        }
+    }
+
     public void invalidateCatalog(long catalogId) {
         try {
             catalog(catalogId).invalidatePaimonCatalog();

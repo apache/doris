@@ -120,6 +120,22 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         ExternalFunctionRules.check(catalogProperty.getProperties().getOrDefault(JdbcResource.FUNCTION_RULES, ""));
     }
 
+    @Override
+    public boolean validatePropertiesBeforeUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        // The identifier mapping is rebuilt during reset, after property publication. Reject an
+        // invalid candidate here so a failed ALTER cannot leave invalid durable properties.
+        if (updatedProperties.containsKey(META_NAMES_MAPPING)
+                || updatedProperties.containsKey(LOWER_CASE_META_NAMES)) {
+            String mapping = updatedProperties.getOrDefault(META_NAMES_MAPPING, getMetaNamesMapping());
+            String lowerCase = updatedProperties.getOrDefault(LOWER_CASE_META_NAMES, getLowerCaseMetaNames());
+            new JdbcIdentifierMapping(
+                    Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase(),
+                    Boolean.parseBoolean(lowerCase), mapping);
+        }
+        return false;
+    }
+
     /**
      * Enforce the mandatory driver URL rule on user-facing CREATE and ALTER CATALOG validation.
      * Catalog replay does not call {@link #checkProperties()}, so existing catalogs remain compatible.
@@ -149,11 +165,16 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     public void resetToUninitialized(boolean invalidCache) {
-        super.resetToUninitialized(invalidCache);
-        this.identifierMapping = new JdbcIdentifierMapping(
-                (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
-                Boolean.parseBoolean(getLowerCaseMetaNames()),
-                getMetaNamesMapping());
+        try {
+            super.resetToUninitialized(invalidCache);
+        } finally {
+            // The committed ALTER has already published the new properties; rebuild the derived name
+            // mapping even when the reset's client cleanup (closeClient) throws.
+            this.identifierMapping = new JdbcIdentifierMapping(
+                    (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
+                    Boolean.parseBoolean(getLowerCaseMetaNames()),
+                    getMetaNamesMapping());
+        }
     }
 
     @Override
@@ -266,7 +287,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime())
                 .setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime())
                 .setConnectionPoolKeepAlive(isConnectionPoolKeepAlive())
-                .setEnableMappingVarbinary(getEnableMappingVarbinary())
                 .setEnableMappingTimestampTz(getEnableMappingTimestampTz());
 
         return JdbcClient.createJdbcClient(jdbcClientConfig);

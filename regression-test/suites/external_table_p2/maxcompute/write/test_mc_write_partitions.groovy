@@ -50,6 +50,22 @@ suite("test_mc_write_partitions", "p2,external,maxcompute,external_remote,extern
     sql """use ${db}"""
 
     try {
+        // Inferred MaxCompute engines must not silently ignore transforms or partition bounds.
+        String rejectedTable = "partition_model_rejected_${uuid}"
+        [
+            ["PARTITION BY (date_trunc(ts, 'day')) ()", "MaxCompute only supports partitioning by columns"],
+            ["PARTITION BY LIST(ds) (PARTITION p1 VALUES IN ('20260101'))",
+                    "MaxCompute does not support explicit partition definitions"],
+            ["PARTITION BY RANGE(ds) (PARTITION p1 VALUES LESS THAN ('20260102'))",
+                    "MaxCompute does not support explicit partition definitions"]
+        ].each { entry ->
+            test {
+                sql """CREATE TABLE `${rejectedTable}` (id INT, ts DATETIME, ds STRING) ${entry[0]}"""
+                exception entry[1]
+            }
+            assertEquals([], sql("""SHOW TABLES LIKE '${rejectedTable}'"""))
+        }
+
         // Test 1: Single partition column INSERT
         String tb1 = "single_part_${uuid}"
         sql """DROP TABLE IF EXISTS ${tb1}"""

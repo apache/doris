@@ -231,6 +231,8 @@ struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
     3: optional TFetchOption fetch_option;
+    // Absent for old FEs, whose Flight schema comparison requires legacy field metadata.
+    4: optional bool enable_arrow_type_metadata = false;
 }
 
 struct TResultFileSink {
@@ -492,6 +494,8 @@ struct TIcebergTableSink {
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
     // Unset keeps collection enabled for rolling upgrades with older FEs.
     18: optional bool collect_column_stats;
+    // Thrift map values cannot be null. These keys distinguish SQL NULL from text and empty bytes.
+    19: optional set<string> static_partition_null_keys;
 }
 
 struct TIcebergRewritableDeleteFileSet {

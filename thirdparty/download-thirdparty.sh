@@ -718,30 +718,23 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
-# Apply Doris lance-c patches as one chain to the pinned release archive.
+# Foyer remains a local patch until its cache interface is accepted upstream.
+# All search fixes are supplied by the immutable lance-c dependency revision.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
+    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
+    foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
+    # A new local patch must also replace previously patched cached sources.
+    # Empty markers from older builds cannot identify the applied patch version.
+    if [[ -f "${foyer_patch_marker}" ]] &&
+        [[ "$(cat "${foyer_patch_marker}")" != "${foyer_patch_checksum}" ]]; then
+        rm -rf "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_C_NAME}" -C "${TP_SOURCE_DIR}/"
+    fi
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
-    LANCE_C_PATCHED_MARK="${PATCHED_MARK}_community_pr83_prefilter"
-    # Older source caches carry a different PR #73 and cannot accept this chain incrementally.
-    if [[ -f "${PATCHED_MARK}" && ! -f "${LANCE_C_PATCHED_MARK}" ]]; then
-        echo "The lance-c patch chain changed; remove ${TP_SOURCE_DIR}/${LANCE_C_SOURCE} and rebuild."
-        exit 1
-    fi
-    if [[ ! -f "${LANCE_C_PATCHED_MARK}" ]]; then
-        # PR #77 provides Lance v11 for the following community patches. PR #83
-        # retains PR #79's scalar-segment path when adding multi-vector execution.
-        # The final patch pins the full-snapshot prefilter fix and its execution metrics.
-        for lance_patch in pr-74 pr-75-pr-78 pr-77 pr-73 pr-79 pr-80 pr-83 prefilter; do
-            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-                -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-${lance_patch}.patch"
-        done
-        touch "${PATCHED_MARK}" "${LANCE_C_PATCHED_MARK}"
-    fi
-    # Cached sources may carry the earlier prefilter pin; upgrade FTS metrics independently.
-    if [[ ! -f "${PATCHED_MARK}_prefilter_fts" ]]; then
+    if [[ ! -f "${PATCHED_MARK}_foyer" ]]; then
         patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-            -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-prefilter-fts.patch"
-        touch "${PATCHED_MARK}_prefilter_fts"
+            -p1 <"${TP_PATCH_DIR}/lance-c-foyer.patch"
+        printf '%s\n' "${foyer_patch_checksum}" > "${PATCHED_MARK}_foyer"
     fi
     cd -
     echo "Finished patching ${LANCE_C_SOURCE}"

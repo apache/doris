@@ -487,10 +487,30 @@ bool set_date_zone_map(const ::orc::ColumnStatistics& statistics, segment_v2::Zo
         !date_statistics->hasMaximum()) {
         return false;
     }
-    auto& date_dict = date_day_offset_dict::get();
-    return set_validated_zone_map(
-            Field::create_field<TYPE_DATEV2>(date_dict[date_statistics->getMinimum()]),
-            Field::create_field<TYPE_DATEV2>(date_dict[date_statistics->getMaximum()]), zone_map);
+    if (!epoch_days_range_is_representable(date_statistics->getMinimum(),
+                                           date_statistics->getMaximum())) {
+        return false;
+    }
+    // ORC DATE statistics are proleptic-Gregorian day ordinals, the same domain the row decoder
+    // (DataTypeDateV2SerDe::read_column_from_orc) interprets. Converting them through
+    // `date_day_offset_dict` instead would put the year-zero window one day off the rows and let a
+    // pushed-down MIN/MAX report a value no row holds. A bound with no Doris DATE disables the
+    // statistics, so MIN/MAX falls back to scanning rows.
+    const auto to_date = [](int64_t epoch_days) -> std::optional<DateV2Value<DateV2ValueType>> {
+        const int64_t daynr = epoch_days_to_daynr(epoch_days);
+        DateV2Value<DateV2ValueType> value;
+        if (daynr == 0 || !value.get_date_from_daynr(static_cast<uint64_t>(daynr))) {
+            return std::nullopt;
+        }
+        return value;
+    };
+    const auto min_value = to_date(date_statistics->getMinimum());
+    const auto max_value = to_date(date_statistics->getMaximum());
+    if (!min_value.has_value() || !max_value.has_value()) {
+        return false;
+    }
+    return set_validated_zone_map(Field::create_field<TYPE_DATEV2>(*min_value),
+                                  Field::create_field<TYPE_DATEV2>(*max_value), zone_map);
 }
 
 std::optional<DateV2Value<DateTimeV2ValueType>> datetime_v2_from_orc_millis(
@@ -740,6 +760,7 @@ struct OrcReaderScanState {
         uint64_t last_stripe = 0;
         uint64_t offset = 0;
         uint64_t length = 0;
+        bool disable_sarg = false;
     };
 
     std::unique_ptr<::orc::Reader> reader;
@@ -747,6 +768,7 @@ struct OrcReaderScanState {
     const ::orc::Type* root_type = nullptr;
     ::orc::ReaderMetrics reader_metrics;
     ::orc::RowReaderOptions row_reader_options; // projection + filter + SARG + stripe range
+    ::orc::RowReaderOptions active_row_reader_options;
     std::string timezone = TimezoneUtils::default_time_zone;
     cctz::time_zone timezone_obj;
     std::unique_ptr<::orc::RowReader> row_reader;
@@ -771,6 +793,7 @@ struct OrcReaderScanState {
     bool orc_lazy_selection_valid = false;
     OrcSargBuildOptions sarg_build_options;
 
+    std::vector<uint64_t> decoded_date_column_ids;
     std::vector<StripeRange> selected_stripe_ranges;
     size_t current_stripe_range = 0;
     bool stripe_pruning_applied = false;
@@ -1502,6 +1525,35 @@ Status OrcReader::_init_search_argument_from_local_filters() {
     }
 
     try {
+        const auto collect_dates = [&](const auto& self, const ::orc::Type& type,
+                                       const std::set<uint64_t>* projected_ids) -> void {
+            if (projected_ids != nullptr && !projected_ids->contains(type.getColumnId())) {
+                return;
+            }
+            if (type.getKind() == ::orc::TypeKind::DATE) {
+                _state->decoded_date_column_ids.push_back(type.getColumnId());
+            }
+            for (uint64_t child = 0; child < type.getSubtypeCount(); ++child) {
+                self(self, *type.getSubtype(child), projected_ids);
+            }
+        };
+        for (const auto column_id : _state->read_columns) {
+            if (is_virtual_column(column_id)) {
+                continue;
+            }
+            const auto& type =
+                    *_state->root_type->getSubtype(static_cast<uint64_t>(column_id.value()));
+            const auto* projection = find_request_projection(*_request, column_id);
+            DORIS_CHECK(projection != nullptr);
+            std::set<uint64_t> projected_ids;
+            const bool partial = has_pruned_projection(*projection);
+            if (partial) {
+                // Match includeTypes exactly: an unread DATE sibling cannot raise a conversion
+                // error and must not disable pruning for the projected columns.
+                RETURN_IF_ERROR(collect_projected_type_ids(type, *projection, &projected_ids));
+            }
+            collect_dates(collect_dates, type, partial ? &projected_ids : nullptr);
+        }
         auto builder = ::orc::SearchArgumentFactory::newBuilder();
         bool has_pushdown = false;
         builder->startAnd();
@@ -1670,8 +1722,45 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     }
 
     std::vector<int> sarg_needed_stripes;
+    std::set<uint64_t> unsafe_date_stripes;
     try {
+        if (!_state->decoded_date_column_ids.empty()) {
+            // getStripeStatistics also reads every ROW_INDEX stream. A metadata-only SARG
+            // proves which stripes cannot contain an invalid DATE without touching skipped data
+            // or exposing malformed, unprojected row-index streams to the SDK.
+            constexpr auto date_type = ::orc::PredicateDataType::DATE;
+            auto builder = ::orc::SearchArgumentFactory::newBuilder();
+            builder->startOr();
+            for (const auto column_id : _state->decoded_date_column_ids) {
+                builder->lessThan(column_id, date_type, ::orc::Literal(date_type, EPOCH_DAYS_MIN));
+                builder->startNot();
+                builder->lessThanEquals(column_id, date_type,
+                                        ::orc::Literal(date_type, EPOCH_DAYS_MAX));
+                builder->end();
+                builder->equals(column_id, date_type,
+                                ::orc::Literal(date_type, EPOCH_DAYS_0000_02_29));
+            }
+            builder->end();
+            // The SDK non-const copy constructor transfers ownership instead of copying.
+            ::orc::RowReaderOptions validation_options(std::as_const(_state->row_reader_options));
+            validation_options.searchArgument(builder->build());
+            const auto needs_validation = _state->reader->getNeedReadStripes(validation_options);
+            // The SDK caches a borrowed evaluator for its next row reader. Consume it while
+            // validation_options is alive, before installing the query's actual SARG.
+            _state->reader->createRowReader(validation_options).reset();
+            for (const auto stripe_index : split_stripes) {
+                if (stripe_index >= needs_validation.size() ||
+                    needs_validation[stripe_index] != 0) {
+                    unsafe_date_stripes.insert(stripe_index);
+                }
+            }
+        }
         sarg_needed_stripes = _state->reader->getNeedReadStripes(_state->row_reader_options);
+        if (!unsafe_date_stripes.empty()) {
+            // getNeedReadStripes caches its SARG evaluator for the first row reader, even when
+            // that reader has no SARG. Consume the cache before opening an unsafe range.
+            _state->reader->createRowReader(_state->row_reader_options).reset();
+        }
     } catch (const Exception& e) {
         if (is_orc_stop(_io_ctx.get(), e)) {
             return Status::EndOfFile("stop");
@@ -1695,7 +1784,8 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     int64_t filtered_bytes = 0;
     for (const auto stripe_index : split_stripes) {
         bool drop = false;
-        if (stripe_index < sarg_needed_stripes.size() && sarg_needed_stripes[stripe_index] == 0) {
+        if (!unsafe_date_stripes.contains(stripe_index) &&
+            stripe_index < sarg_needed_stripes.size() && sarg_needed_stripes[stripe_index] == 0) {
             drop = true;
         }
         if (!drop) {
@@ -1712,7 +1802,7 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
         }
     }
 
-    if (filtered_stripes == 0) {
+    if (filtered_stripes == 0 && unsafe_date_stripes.empty()) {
         return Status::OK();
     }
 
@@ -1739,6 +1829,7 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
                     .last_stripe = last_stripe,
                     .offset = offset,
                     .length = end_offset - offset,
+                    .disable_sarg = unsafe_date_stripes.contains(first_stripe),
             });
         } catch (const std::exception& e) {
             return Status::InternalError("Failed to build ORC stripe read range: {}", e.what());
@@ -1750,7 +1841,8 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     uint64_t previous = range_first;
     for (size_t idx = 1; idx < selected_stripes.size(); ++idx) {
         const auto stripe_index = selected_stripes[idx];
-        if (stripe_index == previous + 1) {
+        if (stripe_index == previous + 1 &&
+            unsafe_date_stripes.contains(stripe_index) == unsafe_date_stripes.contains(previous)) {
             previous = stripe_index;
             continue;
         }
@@ -1790,9 +1882,18 @@ Status OrcReader::_create_row_reader() {
         if (_state->orc_lazy_read_enabled && _orc_filter == nullptr) {
             _orc_filter = std::make_unique<OrcFilterImpl>(this);
         }
+        // The SDK retains its SARG by reference, so the active options must outlive the reader.
+        _state->row_reader.reset();
+        auto& options = _state->active_row_reader_options;
+        options = _state->row_reader_options;
+        if (_state->stripe_pruning_applied &&
+            _state->selected_stripe_ranges[_state->current_stripe_range].disable_sarg) {
+            // The SDK also prunes row groups; clearing only a copy lets later safe ranges keep
+            // their SARG while the retained unsafe range reaches DATE decoding.
+            options.searchArgument(nullptr);
+        }
         _state->row_reader = _state->reader->createRowReader(
-                _state->row_reader_options,
-                _state->orc_lazy_read_enabled ? _orc_filter.get() : nullptr);
+                options, _state->orc_lazy_read_enabled ? _orc_filter.get() : nullptr);
         _state->selected_type = &_state->row_reader->getSelectedType();
         DORIS_CHECK(_state->selected_type->getKind() == ::orc::TypeKind::STRUCT);
         // Row-id fetch seeks before every read; a one-row batch preserves exact selection instead
@@ -2275,6 +2376,17 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
                 _state->root_type->getSubtype(static_cast<uint64_t>(count_projection.local_id()));
         DORIS_CHECK(count_type != nullptr);
 
+        std::vector<uint32_t> date_column_ids;
+        const auto collect_dates = [&](auto&& self, const ::orc::Type& type) -> void {
+            if (type.getKind() == ::orc::TypeKind::DATE) {
+                date_column_ids.push_back(cast_set<uint32_t>(type.getColumnId()));
+            }
+            for (uint64_t i = 0; i < type.getSubtypeCount(); ++i) {
+                self(self, *type.getSubtype(i));
+            }
+        };
+        collect_dates(collect_dates, *count_type);
+
         result->count = 0;
         const auto stripe_statistics_count = _state->reader->getNumberOfStripeStatistics();
         for (const auto stripe_index : selected_stripes) {
@@ -2293,6 +2405,26 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
             if (stripe_statistics == nullptr) {
                 return Status::NotSupported("Missing ORC stripe statistics for stripe {}",
                                             stripe_index);
+            }
+            // COUNT skips decoding even for complex arguments. Every DATE leaf must be safe,
+            // including an unrepresentable day inside otherwise valid bounds, to preserve errors.
+            for (const auto column_id : date_column_ids) {
+                // Schema IDs can outlive truncated stripe statistics; the SDK lookup is unchecked.
+                if (column_id >= stripe_statistics->getNumberOfColumns()) {
+                    return Status::NotSupported("Missing ORC DATE statistics for COUNT");
+                }
+                const auto* date_statistics = dynamic_cast<const ::orc::DateColumnStatistics*>(
+                        stripe_statistics->getColumnStatistics(column_id));
+                if (date_statistics == nullptr ||
+                    (date_statistics->getNumberOfValues() != 0 &&
+                     (!date_statistics->hasMinimum() || !date_statistics->hasMaximum() ||
+                      !epoch_days_range_is_representable(date_statistics->getMinimum(),
+                                                         date_statistics->getMaximum())))) {
+                    return Status::NotSupported("ORC DATE COUNT requires value validation");
+                }
+            }
+            if (count_type->getColumnId() >= stripe_statistics->getNumberOfColumns()) {
+                return Status::NotSupported("Missing ORC COUNT column statistics");
             }
             const auto* column_statistics = stripe_statistics->getColumnStatistics(
                     cast_set<uint32_t>(count_type->getColumnId()));
@@ -2353,6 +2485,9 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
                 return Status::NotSupported("Missing ORC stripe statistics for stripe {}",
                                             stripe_index);
             }
+            if (leaf_type->getColumnId() >= stripe_statistics->getNumberOfColumns()) {
+                return Status::NotSupported("Missing ORC min/max column statistics");
+            }
             const auto* column_statistics = stripe_statistics->getColumnStatistics(
                     cast_set<uint32_t>(leaf_type->getColumnId()));
             if (column_statistics == nullptr) {
@@ -2409,8 +2544,15 @@ Status OrcReader::_decode_column_into_block(const ::orc::StructVectorBatch& stru
     const auto* selected_type = _state->selected_type->getSubtype(selected_batch_idx);
     DORIS_CHECK(selected_type != nullptr);
     auto column = file_block->get_by_position(block_position.value()).column->assert_mutable();
-    RETURN_IF_ERROR(_decode_column(*type, *selected_type, *struct_batch.fields[selected_batch_idx],
-                                   column, rows, selected_rows));
+    auto status = _decode_column(*type, *selected_type, *struct_batch.fields[selected_batch_idx],
+                                 column, rows, selected_rows);
+    if (!status.ok()) {
+        // The decoders work on a bare value buffer and cannot name the column themselves; without
+        // this the user only learns that some DATE/TIMESTAMP in some file is unrepresentable.
+        return status.prepend(fmt::format(
+                "Failed to decode ORC column '{}': ",
+                _state->root_type->getFieldName(static_cast<uint64_t>(file_column_id.value()))));
+    }
     file_block->replace_by_position(block_position.value(), std::move(column));
     return Status::OK();
 }

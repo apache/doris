@@ -72,40 +72,34 @@ void SmartGetWord::reset(const std::vector<Rune>& runes) {
 }
 
 std::string SmartGetWord::frontWords() {
-    if (i_ >= runes_.size()) {
-        return NULL_RESULT;
-    }
+    // Skip unmatched runes iteratively so long non-dictionary input cannot exhaust the stack.
+    for (; i_ < runes_.size(); i_++) {
+        size_t tempEndIndex = 0; // Track the end position (exclusive) for matched word
+        branch_ = forest_;
 
-    size_t tempEndIndex = 0; // Track the end position (exclusive) for matched word
-    branch_ = forest_;
+        for (size_t j = i_; j < runes_.size(); j++) {
+            UChar32 cp = runes_[j].cp;
 
-    for (size_t j = i_; j < runes_.size(); j++) {
-        UChar32 cp = runes_[j].cp;
+            // Move to next branch first
+            branch_ = branch_->getBranch(cp);
+            if (!branch_) {
+                break;
+            }
 
-        // Move to next branch first
-        branch_ = branch_->getBranch(cp);
-        if (!branch_) {
-            break;
+            // Then check if current branch represents a word end
+            if (branch_->getStatus() == SmartForest::WORD_END ||
+                branch_->getStatus() == SmartForest::WORD_CONTINUE) {
+                tempEndIndex = j + 1; // End position is exclusive, so j+1
+                temp_offe_ = i_;
+                param_ = branch_->getParam();
+            }
         }
 
-        // Then check if current branch represents a word end
-        if (branch_->getStatus() == SmartForest::WORD_END ||
-            branch_->getStatus() == SmartForest::WORD_CONTINUE) {
-            tempEndIndex = j + 1; // End position is exclusive, so j+1
-            temp_offe_ = i_;
-            param_ = branch_->getParam();
-        }
-    }
-
-    if (tempEndIndex > i_) {
-        offe = runes_[i_].byte_start;
-        std::string result = runes_to_utf8(runes_, i_, tempEndIndex);
-        i_ = tempEndIndex;
-        return result;
-    } else {
-        if (i_ < runes_.size()) {
-            i_++;
-            return frontWords();
+        if (tempEndIndex > i_) {
+            offe = runes_[i_].byte_start;
+            std::string result = runes_to_utf8(runes_, i_, tempEndIndex);
+            i_ = tempEndIndex;
+            return result;
         }
     }
 

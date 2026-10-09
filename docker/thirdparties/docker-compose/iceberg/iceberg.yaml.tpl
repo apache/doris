@@ -118,10 +118,37 @@ services:
       - ./scripts/lance_rest_server.py:/opt/lance-rest/server.py:ro
     environment:
       LANCE_REST_BEARER_TOKEN: doris-lance-rest-test-token
-      LANCE_REST_TABLES_JSON: '{"all_types":"s3://warehouse/lance/all_types.lance","all_types_unprefixed":"s3://warehouse/lance/all_types.lance"}'
+      LANCE_REST_TABLES_JSON: '{"all_types":"s3://warehouse/lance/all_types.lance","all_types_unprefixed":"s3://warehouse/lance/all_types.lance","time_travel":"s3://warehouse/lance/time_travel.lance","search_snapshot":"s3://warehouse/lance/search_snapshot.lance","search_snapshot_pruned":"s3://warehouse/lance/search_snapshot_pruned.lance"}'
       # all_types_unprefixed serves the same dataset but vends its credentials under the
       # unprefixed object-store spelling, which is what real namespace servers emit.
-      LANCE_REST_UNPREFIXED_TABLES_JSON: '["all_types_unprefixed"]'
+      LANCE_REST_UNPREFIXED_TABLES_JSON: '["all_types_unprefixed","time_travel_managed_unprefixed"]'
+      # The time_travel_managed tables are the same three-version dataset; they differ in what the namespace
+      # records. A reader that resolves versions through the namespace cannot see a version
+      # missing there even though its manifest is still in storage, and its latest version is
+      # the namespace's latest, not storage's:
+      #   time_travel_managed             every version, with commit times, and branch dev
+      #                                   (versions 2 and 3 under tree/dev/)
+      #   time_travel_managed_partial     versions 1 and 3
+      #   time_travel_managed_lagging     versions 1 and 2, storage already has 3
+      #   time_travel_managed_untimed     every version, no commit times reported
+      #   time_travel_managed_unprefixed  every version, credentials vended unprefixed
+      #   time_travel_managed_pending     every version, and version 4 (main and dev) recorded at a
+      #                                   staged manifest whose commit never finalized
+      #   time_travel_managed_staged      every version, version 3 recorded at its staged manifest
+      #                                   although its canonical one exists
+      #   time_travel_managed_misrecorded every version, version 3 recorded at a manifest Doris
+      #                                   does not read
+      # The search_snapshot_managed tables serve search_snapshot.lance (seven versions, see
+      # lance_build_search_snapshot.py) to the search TVFs:
+      #   search_snapshot_managed         every version, with commit times, and branch dev
+      #                                   (versions 4 to 6 under tree/dev/)
+      #   search_snapshot_managed_partial every version but 6
+      # unicode_branch_managed serves unicode_branch.lance, whose branch dev\u1c89 has a letter newer
+      # than the JDK's Unicode tables (see lance_build_unicode_branch.py).
+      # Versions and commit times (epoch millis, UTC) match the committed time_travel.lance and
+      # search_snapshot.lance, see lance_build_time_travel.py and lance_build_search_snapshot.py. Doris resolves FOR TIME AS OF from the manifests' commit
+      # times, so the reported ones are not what the time-travel results depend on.
+      LANCE_REST_MANAGED_TABLES_JSON: '{"time_travel_managed":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113},{"version":3,"timestamp_millis":1789823170621}],"branches":{"dev":{"versions":[2,3]}}},"time_travel_managed_partial":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":3,"timestamp_millis":1789823170621}]},"time_travel_managed_lagging":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113}]},"time_travel_managed_untimed":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[1,2,3]},"time_travel_managed_unprefixed":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113},{"version":3,"timestamp_millis":1789823170621}]},"time_travel_managed_pending":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113},{"version":3,"timestamp_millis":1789823170621},{"version":4,"staged":true}],"branches":{"dev":{"versions":[2,3,{"version":4,"staged":true}]}}},"time_travel_managed_staged":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113},{"version":3,"timestamp_millis":1789823170621,"staged":true}]},"time_travel_managed_misrecorded":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113},{"version":3,"timestamp_millis":1789823170621,"manifest_path":"lance/time_travel.lance/_versions/custom.manifest"}]},"search_snapshot_managed":{"uri":"s3://warehouse/lance/search_snapshot.lance","versions":[{"version":1,"timestamp_millis":1790693511410},{"version":2,"timestamp_millis":1790693512929},{"version":3,"timestamp_millis":1790693514457},{"version":4,"timestamp_millis":1790693515985},{"version":5,"timestamp_millis":1790693517507},{"version":6,"timestamp_millis":1790693519031},{"version":7,"timestamp_millis":1790693520565}],"branches":{"dev":{"versions":[4,5,6]}}},"search_snapshot_managed_partial":{"uri":"s3://warehouse/lance/search_snapshot.lance","versions":[{"version":1,"timestamp_millis":1790693511410},{"version":2,"timestamp_millis":1790693512929},{"version":3,"timestamp_millis":1790693514457},{"version":4,"timestamp_millis":1790693515985},{"version":5,"timestamp_millis":1790693517507},{"version":7,"timestamp_millis":1790693520565}]},"unicode_branch_managed":{"uri":"s3://warehouse/lance/unicode_branch.lance","versions":[1],"branches":{"dev\u1c89":{"versions":[1,2]}}}}'
       LANCE_S3_ACCESS_KEY: admin
       LANCE_S3_SECRET_KEY: password
       LANCE_S3_REGION: us-east-1
@@ -158,7 +185,7 @@ services:
       retries: 120
 
   minio:
-    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    image: doristhirdpartydocker/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: doris--iceberg-minio
     ports:
       - ${MINIO_API_PORT}:9000
@@ -184,7 +211,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    image: minio/mc:RELEASE.2025-01-17T23-25-50Z
+    image: doristhirdpartydocker/mc:RELEASE.2025-01-17T23-25-50Z
     container_name: doris--iceberg-mc
     environment:
       - AWS_ACCESS_KEY_ID=admin

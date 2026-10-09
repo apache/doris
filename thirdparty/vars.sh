@@ -580,10 +580,17 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.9.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.9.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.9"
-LANCE_C_MD5SUM="7138ed44e92d4bc91d5b522a6b92ed64"
+# Includes lance-c #94: synchronous index prewarm through the upstream C/C++ APIs.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/98468344bc9d56aa7ed4a4192e844afa62b34ba1"
+LANCE_C_NAME="lance-c-98468344bc9d56aa7ed4a4192e844afa62b34ba1.tar.gz"
+LANCE_C_SOURCE="lance-c-98468344bc9d56aa7ed4a4192e844afa62b34ba1"
+LANCE_C_MD5SUM="b452bab5d05f5bce5f0bfebe8b1fb831"
+
+# paimon-rust
+PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-v0.4.0-rc1.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-0.4.0-rc1"
+PAIMON_RUST_MD5SUM="23cd0634692108debf77a26ef4dc20a7"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -672,6 +679,7 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'LANCE_C'
+    'PAIMON_RUST'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

@@ -22,18 +22,50 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
+import org.apache.doris.thrift.TVectorSearchOptions;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
 
 public class VectorSearchTableValuedFunctionTest {
+    private TVectorSearchOptions parseOptions(Map<String, String> params) throws Exception {
+        return VectorSearchTableValuedFunction.buildVectorSearchOptions(params, true);
+    }
+
+    @Test
+    public void testQueryParallelismOptions() throws Exception {
+        Assert.assertNull(parseOptions(Collections.emptyMap()));
+        Assert.assertFalse(parseOptions(Collections.singletonMap("nprobes", "4")).isSetQueryParallelism());
+        for (String value : new String[] {"-1", "0", "1", "4", "2147483647"}) {
+            TVectorSearchOptions options = parseOptions(Collections.singletonMap("query_parallelism", value));
+            Assert.assertNotNull("query_parallelism must be serialized", options);
+            TVectorSearchOptions decoded = new TVectorSearchOptions();
+            new TDeserializer().deserialize(decoded, new TSerializer().serialize(options));
+            Assert.assertTrue(decoded.isSetQueryParallelism());
+            Assert.assertEquals(Integer.parseInt(value), decoded.getQueryParallelism());
+            Assert.assertFalse(decoded.isSetNprobes());
+        }
+    }
+
+    @Test
+    public void testRejectInvalidQueryParallelism() {
+        for (String value : new String[] {"-2", "2147483648", "1.5", "abc", ""}) {
+            AnalysisException error = Assert.assertThrows(AnalysisException.class,
+                    () -> parseOptions(Collections.singletonMap("query_parallelism", value)));
+            Assert.assertTrue(error.getMessage(), error.getMessage().contains("query_parallelism"));
+        }
+    }
+
     @Test
     public void testParseQuotedMultiLevelNamespace() throws AnalysisException {
         TableName tableName = VectorSearchTableValuedFunction.parseTableName(
@@ -42,6 +74,25 @@ public class VectorSearchTableValuedFunctionTest {
         Assert.assertEquals("lance_catalog", tableName.getCtl());
         Assert.assertEquals("doris.analytics", tableName.getDb());
         Assert.assertEquals("items", tableName.getTbl());
+    }
+
+    @Test
+    public void testBackquotedTableNameMayContainSelectorCharacters() throws Exception {
+        TableName at = VectorSearchTableValuedFunction.parseTableName("c.d.`user@corp`");
+        Assert.assertEquals("user@corp", at.getTbl());
+        TableName forName = VectorSearchTableValuedFunction.parseTableName("c.d.`sales for version 2024`");
+        Assert.assertEquals("sales for version 2024", forName.getTbl());
+    }
+
+    @Test
+    public void testTableNameCannotSelectVersionTagOrBranch() {
+        for (String table : new String[] {"c.d.t@tag(v1)", "c.d.t@branch(dev)", "c.d.t FOR VERSION AS OF 2"}) {
+            AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                    () -> VectorSearchTableValuedFunction.parseTableName(table));
+            Assert.assertTrue(exception.getMessage(),
+                    exception.getMessage().contains("cannot select a version, tag or branch;"
+                            + " use the 'version', 'timestamp', 'tag' or 'branch' property"));
+        }
     }
 
     @Test

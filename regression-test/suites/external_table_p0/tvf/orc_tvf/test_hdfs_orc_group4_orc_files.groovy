@@ -25,7 +25,11 @@ suite("test_hdfs_orc_group4_orc_files","external,hive,tvf,external_docker") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def originalTimeZone = sql "SELECT @@time_zone"
         try {
+            // Instant-annotated timestamps now retain their timezone-aware type in TVFs.
+            // Pin the display timezone so the golden results do not depend on the FE default.
+            sql "SET time_zone = 'Asia/Shanghai'"
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group4/timestamp-tz-micros.orc"
             order_qt_test_0 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -67,6 +71,7 @@ suite("test_hdfs_orc_group4_orc_files","external,hive,tvf,external_docker") {
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "orc") order by y limit 100; """
         } finally {
+            sql "SET time_zone = '${originalTimeZone[0][0]}'"
         }
     }
 }

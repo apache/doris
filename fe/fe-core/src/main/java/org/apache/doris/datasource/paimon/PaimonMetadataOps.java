@@ -147,6 +147,12 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        return dropDbImplWithResolvedName(dbName, ifExists, force).isPresent();
+    }
+
+    @Override
+    public Optional<String> dropDbImplWithResolvedName(String dbName, boolean ifExists, boolean force)
+            throws DdlException {
         try {
             return executionAuthenticator.execute(() -> performDropDb(dbName, ifExists, force));
         } catch (Exception e) {
@@ -155,17 +161,17 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private boolean performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+    private Optional<String> performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         ExternalDatabase dorisDb = dorisCatalog.getDbNullable(dbName);
         if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
                 // Database does not exist and IF EXISTS is specified; treat as no-op.
-                return false;
+                return Optional.empty();
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
                 // ErrorReport.reportDdlException is expected to throw DdlException.
-                return false;
+                return Optional.empty();
             }
         }
 
@@ -186,30 +192,15 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         } catch (DatabaseNotEmptyException e) {
             throw new RuntimeException("database " + dbName + " is not empty! please check!");
         }
-        return true;
+        return Optional.of(dorisDb.getFullName());
     }
 
     @Override
     public void afterDropDb(String dbName) {
-        Optional<ExternalDatabase<? extends ExternalTable>> db = dorisCatalog.getDbForReplay(dbName);
         try {
-            if (db.isPresent()) {
-                // getDbForReplay normalizes case-insensitive database names (lower_case_database_names
-                // mode 1/2), so an alternate-case DROP DATABASE can resolve the cached database while
-                // an exact-key eviction with the caller's spelling would miss it. Evict by the resolved
-                // canonical local key so the removal listener still performs the one typed SDK
-                // invalidation; do not add a second typed scan under the catalog write fence.
-                dorisCatalog.unregisterDatabase(db.get().getFullName());
-                return;
-            }
-            // The cached database could not be resolved (for example a mode-2 case mapping was removed
-            // by a names refresh before replay). Exact-key eviction can miss the canonical local key,
-            // so also retire the remaining legacy database objects; otherwise a same-name recreation
-            // could reuse the stale object and its nested table-name cache. The catalog-wide engine
-            // flush below covers the SDK side, so the per-database engine callbacks are suppressed.
+            // The DROP owns historical-name resolution. Ordinary replay lookup also serves CREATE
+            // and REFRESH, where a case-insensitive alias must still resolve the current database.
             dorisCatalog.unregisterDatabase(dbName);
-            dorisCatalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
-            invalidatePaimonCatalogForUnresolvedReplay();
         } catch (Exception e) {
             // The remote drop is already committed and ExternalCatalog.dropDb still has to journal
             // it; keep the post-drop cache cleanup best-effort so the log and its replay are not
@@ -222,13 +213,9 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     @Override
     public void afterDropDbNoOp(String dbName) {
         try {
-            // A no-op IF EXISTS drop can still leave a retained canonical database object when a
-            // case-insensitive (mode 2) name mapping was lost before the statement. Retire the legacy
-            // database objects so a same-name recreation cannot reuse the stale incarnation. The SDK
-            // catalog is intentionally not flushed because the remote metastore was not mutated.
-            dorisCatalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
+            dorisCatalog.retireCachedDatabaseForNoOp(dbName);
         } catch (Exception e) {
-            LOG.warn("Failed to retire legacy database objects after no-op drop of {}: {}",
+            LOG.warn("Failed to retire cached database after no-op drop of {}: {}",
                     dbName, e.getMessage(), e);
         }
     }
@@ -394,7 +381,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropTable(String dbName, String tblName) {
-        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForDropReplay(dbName);
         try {
             if (db.isPresent()) {
                 boolean invalidated = db.get().unregisterTableForReplay(tblName);
@@ -408,12 +395,9 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
                     invalidatePaimonCatalogForUnresolvedReplay();
                 }
             } else {
-                // The database itself could not be resolved (for example a mode-2 mapping was lost
-                // before replay). Retire any retained legacy database object first so a same-name
-                // recreation cannot reuse its stale nested table-name cache, then flush the engine
-                // group; a failure in either is best-effort so the drop log is still written.
-                dorisCatalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
-                invalidatePaimonCatalogForUnresolvedReplay();
+                // A cold DB with a retained canonical mapping has a narrow invalidation target.
+                // Only a genuinely lost mapping requires catalog-wide hidden-object retirement.
+                dorisCatalog.invalidateColdDatabaseForReplay(dbName);
             }
         } catch (Exception e) {
             // The remote drop is already committed and ExternalCatalog.dropTable still has to

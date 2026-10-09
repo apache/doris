@@ -1130,6 +1130,9 @@ public class CreateTableInfo {
      * analyzeEngine
      */
     public void analyzeEngine() {
+        if (isExternal) {
+            partitionTableInfo.validateExternalPartition(engineName);
+        }
         this.partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
         this.distributionDesc =
             distribution != null ? distribution.translateToCatalogStyle() : null;
@@ -1145,12 +1148,6 @@ public class CreateTableInfo {
                     && distributionDesc != null) {
                 throw new AnalysisException("Create " + engineName
                     + " table should not contain distribution desc");
-            }
-            if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG)
-                    && !engineName.equals(ENGINE_PAIMON) && !engineName.equals(ENGINE_MAXCOMPUTE)
-                    && partitionDesc != null) {
-                throw new AnalysisException("Create " + engineName
-                    + " table should not contain partition desc");
             }
         }
     }

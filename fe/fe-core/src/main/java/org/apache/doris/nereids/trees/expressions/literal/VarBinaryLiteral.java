@@ -98,6 +98,12 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
     }
 
     @Override
+    public String computeToSql() {
+        // Persisted views must retain the literal's binary type instead of only its hex digits.
+        return "X'" + toString() + "'";
+    }
+
+    @Override
     public LiteralExpr toLegacyLiteral() {
         try {
             org.apache.doris.analysis.VarBinaryLiteral literal

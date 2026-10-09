@@ -31,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -551,6 +552,21 @@ public class MetaCache<T> {
     public Optional<T> getMetaObjById(long id) {
         String name = withMetaObjLifecycleReadLock(() -> idToName.get(id));
         return name == null ? Optional.empty() : getMetaObj(name, id);
+    }
+
+    /** Return the retained canonical name without loading an evicted metadata object. */
+    public Optional<String> getNameByIdIfPresent(long id) {
+        return Optional.ofNullable(withMetaObjLifecycleReadLock(() -> idToName.get(id)));
+    }
+
+    /** Snapshot resident object identities matching a DROP alias under the catalog's name mode. */
+    public List<Pair<String, Long>> getCachedIdentitiesMatching(String name, boolean ignoreCase) {
+        String foldedName = ignoreCase ? name.toLowerCase(Locale.ROOT) : name;
+        return withMetaObjLifecycleReadLock(() -> idToName.entrySet().stream()
+                .filter(entry -> ignoreCase ? entry.getValue().toLowerCase(Locale.ROOT).equals(foldedName)
+                        : entry.getValue().equals(name))
+                .map(entry -> Pair.of(entry.getValue(), entry.getKey()))
+                .collect(Collectors.toList()));
     }
 
     public void updateCache(String remoteName, String localName, T obj, long id) {

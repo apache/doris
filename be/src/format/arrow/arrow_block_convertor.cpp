@@ -17,6 +17,8 @@
 
 #include "format/arrow/arrow_block_convertor.h"
 
+#include <arrow/array/array_nested.h>
+#include <arrow/array/array_primitive.h>
 #include <arrow/array/builder_base.h>
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_decimal.h>
@@ -34,6 +36,7 @@
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <ctime>
@@ -62,6 +65,134 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
+
+class FlightTimestampValidator {
+public:
+    Status init(std::shared_ptr<arrow::Array> array, std::string path,
+                const cctz::time_zone& timezone) {
+        _array = std::move(array);
+        _path = std::move(path);
+        switch (_array->type_id()) {
+        case arrow::Type::TIMESTAMP: {
+            const auto& type = static_cast<const arrow::TimestampType&>(*_array->type());
+            int64_t units_per_second = 1;
+            switch (type.unit()) {
+            case arrow::TimeUnit::SECOND:
+                units_per_second = 1;
+                break;
+            case arrow::TimeUnit::MILLI:
+                units_per_second = 1000;
+                break;
+            case arrow::TimeUnit::MICRO:
+                units_per_second = 1000000;
+                break;
+            case arrow::TimeUnit::NANO:
+                units_per_second = 1000000000;
+                break;
+            }
+            int64_t min_seconds = -62135596800LL;
+            int64_t end_seconds = 253402300800LL;
+            if (!type.timezone().empty()) {
+                // The ordinary Arrow writer has already checked the schema/timezone binding.
+                const auto local_start = cctz::convert(cctz::civil_second(1, 1, 1), timezone);
+                const auto local_end = cctz::convert(cctz::civil_second(10000, 1, 1), timezone);
+                // Python first constructs UTC and then applies the Arrow timezone. Both calendar
+                // representations must fit, including offsets at the first and last supported day.
+                min_seconds =
+                        std::max<int64_t>(min_seconds, local_start.time_since_epoch().count());
+                end_seconds = std::min<int64_t>(end_seconds, local_end.time_since_epoch().count());
+            }
+            // Nanosecond bounds do not fit int64_t, even though every encoded value does.
+            _min = static_cast<__int128>(min_seconds) * units_per_second;
+            _end = static_cast<__int128>(end_seconds) * units_per_second;
+            break;
+        }
+        case arrow::Type::LIST: {
+            const auto& list = static_cast<const arrow::ListArray&>(*_array);
+            RETURN_IF_ERROR(add_child(list.values(), _path + "[]", timezone));
+            break;
+        }
+        case arrow::Type::MAP: {
+            const auto& map = static_cast<const arrow::MapArray&>(*_array);
+            RETURN_IF_ERROR(add_child(map.keys(), _path + ".key", timezone));
+            RETURN_IF_ERROR(add_child(map.items(), _path + ".value", timezone));
+            break;
+        }
+        case arrow::Type::STRUCT: {
+            const auto& structure = static_cast<const arrow::StructArray&>(*_array);
+            for (int i = 0; i < structure.num_fields(); ++i) {
+                RETURN_IF_ERROR(add_child(structure.field(i),
+                                          _path + "." + _array->type()->field(i)->name(),
+                                          timezone));
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        return Status::OK();
+    }
+
+    Status validate(int64_t start, int64_t end, size_t block_start, int64_t parent_row = -1) const {
+        if (!has_timestamps()) {
+            return Status::OK();
+        }
+        for (int64_t row = start; row < end; ++row) {
+            // Children of a NULL struct/list/map are not observable, even if their physical
+            // buffers contain default zero dates. Never validate those masked values.
+            if (_array->IsNull(row)) {
+                continue;
+            }
+            const int64_t output_row = parent_row < 0 ? row : parent_row;
+            if (_array->type_id() == arrow::Type::TIMESTAMP) {
+                const int64_t value = static_cast<const arrow::TimestampArray&>(*_array).Value(row);
+                if (value < _min || value >= _end) {
+                    return Status::InvalidArgument(
+                            "Arrow Flight timestamp in column '{}' at row {} is outside the "
+                            "supported 0001-9999 range (type: {})",
+                            _path, block_start + output_row + 1, _array->type()->ToString());
+                }
+                continue;
+            }
+            int64_t child_start = row;
+            int64_t child_end = row + 1;
+            if (_array->type_id() == arrow::Type::LIST) {
+                const auto& list = static_cast<const arrow::ListArray&>(*_array);
+                child_start = list.value_offset(row);
+                child_end = child_start + list.value_length(row);
+            } else if (_array->type_id() == arrow::Type::MAP) {
+                const auto& map = static_cast<const arrow::MapArray&>(*_array);
+                child_start = map.value_offset(row);
+                child_end = child_start + map.value_length(row);
+            }
+            for (const auto& child : _children) {
+                RETURN_IF_ERROR(child.validate(child_start, child_end, block_start, output_row));
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    bool has_timestamps() const {
+        return _array->type_id() == arrow::Type::TIMESTAMP || !_children.empty();
+    }
+
+    Status add_child(std::shared_ptr<arrow::Array> array, std::string path,
+                     const cctz::time_zone& timezone) {
+        FlightTimestampValidator child;
+        RETURN_IF_ERROR(child.init(std::move(array), std::move(path), timezone));
+        if (child.has_timestamps()) {
+            _children.push_back(std::move(child));
+        }
+        return Status::OK();
+    }
+
+    std::shared_ptr<arrow::Array> _array;
+    std::string _path;
+    std::vector<FlightTimestampValidator> _children;
+    __int128 _min = 0;
+    __int128 _end = 0;
+};
 
 int hex_value(char c) {
     if (c >= '0' && c <= '9') {
@@ -312,7 +443,8 @@ Status ArrowBlockConvertor::write_plain_arrow_column(const std::shared_ptr<const
                                                      int64_t start, int64_t end,
                                                      const cctz::time_zone& ctz) const {
     std::shared_ptr<arrow::DataType> plain_arrow_type;
-    RETURN_IF_ERROR(convert_to_arrow_type(type, &plain_arrow_type, ctz.name()));
+    RETURN_IF_ERROR(
+            DorisArrowSchemaConvertor(ctz.name()).convert_to_arrow_type(type, &plain_arrow_type));
     const auto storage_type = extension_storage_type(field->type());
     // This is an exact binding check selected by the target converter, not a recovery path. A
     // mismatch returns without invoking SerDe, and a SerDe error is never retried elsewhere.
@@ -341,12 +473,67 @@ Status ArrowBlockConvertor::init() {
     return Status::OK();
 }
 
+Status ArrowFlightArrowBlockConvertor::write_column(const std::shared_ptr<const IDataType>& type,
+                                                    const DataTypeSerDe& serde,
+                                                    const IColumn& column, const NullMap* null_map,
+                                                    const std::shared_ptr<arrow::Field>& field,
+                                                    arrow::ArrayBuilder* array_builder,
+                                                    int64_t start, int64_t end,
+                                                    const cctz::time_zone& ctz) const {
+    if (contains_extension_type(field->type())) {
+        std::shared_ptr<arrow::DataType> native_type;
+        RETURN_IF_ERROR(
+                ArrowFlightSchemaConvertor(ctz.name()).convert_to_arrow_type(type, &native_type));
+        // Check the extension identity and its complete nested shape before allowing the
+        // Variant SerDe to write binary storage. An arbitrary STRUCT is not a Variant binding.
+        // Timestamp labels may differ for equivalent fixed offsets, including inside containers.
+        if (is_declared_plain_arrow_binding(type, native_type, field->type())) {
+            return serde.write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+        }
+    }
+    return DorisArrowBlockConvertor::write_column(type, serde, column, null_map, field,
+                                                  array_builder, start, end, ctz);
+}
+
+Status ArrowFlightArrowBlockConvertor::convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
+                                                        std::shared_ptr<arrow::RecordBatch>* result,
+                                                        size_t start_row, size_t end_row) const {
+    std::shared_ptr<arrow::RecordBatch> batch;
+    RETURN_IF_ERROR(ArrowBlockConvertor::convert_to_arrow(block, pool, &batch, start_row, end_row));
+    // String builders accept arbitrary bytes, but Flight UTF-8 values must be valid per row,
+    // including nested children. Validate before publishing the batch to the reader.
+    for (int i = 0; i < batch->num_columns(); ++i) {
+        auto status = batch->column(i)->ValidateFull();
+        if (!status.ok()) {
+            return Status::InvalidArgument("Invalid Arrow Flight result in column {} ('{}'): {}",
+                                           i + 1, batch->schema()->field(i)->name(),
+                                           status.ToString());
+        }
+        // Arrow accepts the full int64 timestamp domain; ValidateFull cannot enforce the calendar
+        // range required by Flight clients. Check the encoded values before publishing the batch.
+        FlightTimestampValidator validator;
+        RETURN_IF_ERROR(
+                validator.init(batch->column(i), batch->schema()->field(i)->name(), _timezone));
+        RETURN_IF_ERROR(validator.validate(0, batch->num_rows(), start_row));
+    }
+    *result = std::move(batch);
+    return Status::OK();
+}
+
 Status DorisArrowBlockConvertor::init() {
     if (_arrow_schema == nullptr) {
         // cctz names fixed offsets as "Fixed/UTC+HH:MM:SS", which is not the Arrow
         // protocol label. Keep the declared name so Python metadata and batches agree.
-        RETURN_IF_ERROR(get_arrow_schema_from_block(_header, &_arrow_schema, _timezone_name,
-                                                    _datetime_naive));
+        RETURN_IF_ERROR(DorisArrowSchemaConvertor(_header, _timezone_name)
+                                .get_arrow_schema(&_arrow_schema));
+    }
+    return ArrowBlockConvertor::init();
+}
+
+Status ArrowFlightArrowBlockConvertor::init() {
+    if (_arrow_schema == nullptr) {
+        RETURN_IF_ERROR(ArrowFlightSchemaConvertor(_header, _timezone_name)
+                                .get_arrow_schema(&_arrow_schema));
     }
     return ArrowBlockConvertor::init();
 }

@@ -173,6 +173,21 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         }));
     }
 
+    public synchronized void invalidatePaimonDatabaseByLocalName(String localDbName) throws Exception {
+        if (!isInitialized()) {
+            return;
+        }
+        withSdkCatalogCacheWriteLock(() -> executionAuthenticator.execute(() -> {
+            boolean caseSensitive = catalog.caseSensitive();
+            invalidateCachedPaimonTables(identifier -> {
+                String remoteName = identifier.getDatabaseName();
+                String candidateLocalName = localDatabaseNameFromRemote(remoteName);
+                return identifierPartEquals(candidateLocalName, localDbName, caseSensitive);
+            });
+            return null;
+        }));
+    }
+
     public synchronized void invalidatePaimonCatalog() throws Exception {
         if (!isInitialized()) {
             return;
@@ -469,11 +484,17 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
-        super.notifyPropertiesUpdated(updatedProps);
-        if (updatedProps.keySet().stream()
-                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, PaimonExternalMetaCache.ENGINE)
-                        || AbstractPaimonProperties.isTableOptionProperty(key))) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), PaimonExternalMetaCache.ENGINE);
+        try {
+            super.notifyPropertiesUpdated(updatedProps);
+        } finally {
+            // The committed ALTER already published the properties; retire the engine group even
+            // when the generic reset cleanup throws.
+            if (updatedProps.keySet().stream()
+                    .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, PaimonExternalMetaCache.ENGINE)
+                            || AbstractPaimonProperties.isTableOptionProperty(key))) {
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .removeCatalogByEngine(getId(), PaimonExternalMetaCache.ENGINE);
+            }
         }
     }
 

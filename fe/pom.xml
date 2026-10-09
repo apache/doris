@@ -234,7 +234,7 @@ under the License.
         <doris.hive.catalog.shade.version>3.1.3</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
-        <parquet.version>1.17.0</parquet.version>
+        <parquet.version>1.18.0</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>1.0.2</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
@@ -291,14 +291,14 @@ under the License.
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.24.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
-        <log4j2.version>2.25.4</log4j2.version>
-        <log4j-1.2.version>2.25.4</log4j-1.2.version>
+        <log4j2.version>2.25.5</log4j2.version>
+        <log4j-1.2.version>2.25.5</log4j-1.2.version>
         <mqtt.version>1.2.5</mqtt.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <resilience4j.version>2.4.0</resilience4j.version>
         <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
-        <netty-all.version>4.2.15.Final</netty-all.version>
+        <netty-all.version>4.2.17.Final</netty-all.version>
         <!-- OpenTelemetry versions before 1.62.0 allow unbounded allocation while parsing W3C
              baggage (CVE-2026-45292); align the complete OpenTelemetry graph on the fixed BOM. -->
         <opentelemetry.version>1.62.0</opentelemetry.version>
@@ -341,7 +341,6 @@ under the License.
         <hudi-spark.version>hudi-spark3.4.x</hudi-spark.version>
         <hive.version>3.1.3</hive.version>
         <hive.common.version>2.3.9</hive.common.version>
-        <nimbusds.version>9.35</nimbusds.version>
         <mapreduce.client.version>2.10.1</mapreduce.client.version>
         <calcite.version>1.33.0</calcite.version>
         <avatica.version>1.22.0</avatica.version>
@@ -349,7 +348,7 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.11.0</iceberg.version>
-        <lance.version>11.0.0</lance.version>
+        <lance.version>12.0.0</lance.version>
         <substrait.version>0.40.0</substrait.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
         <maxcompute.version>0.53.2-public</maxcompute.version>
@@ -373,7 +372,7 @@ under the License.
         <!-- HttpClient 5.5.2 can leak pooled connections on decode errors (CVE-2026-64607),
              and HttpCore 5.3.6 is affected by HTTP/1 and HTTP/2 memory-exhaustion issues
              (CVE-2026-54399 and CVE-2026-54428). Use their fixed maintenance releases. -->
-        <httpclient5.version>5.6.3</httpclient5.version>
+        <httpclient5.version>5.6.4</httpclient5.version>
         <httpcore5.version>5.4.3</httpcore5.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
@@ -382,8 +381,8 @@ under the License.
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_25.version>1.5.0</hadoop.thirdparty.protobuf_3_25.version>
-        <hbase.version>2.6.3</hbase.version>
-        <jline.version>3.30.6</jline.version>
+        <hbase.version>2.6.6</hbase.version>
+        <jline.version>3.30.14</jline.version>
         <hbase-shaded-gson.version>4.1.7</hbase-shaded-gson.version>
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
@@ -397,7 +396,7 @@ under the License.
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
-        <ranger-plugins-common.version>2.8.0</ranger-plugins-common.version>
+        <ranger-plugins-common.version>2.9.0</ranger-plugins-common.version>
         <!-- Huawei IAM pulls bcprov-jdk15on 1.69, whose final 1.70 release is vulnerable to
              CVE-2023-33202. Use the compatible jdk18on line at 1.84, which also fixes
              CVE-2025-14813, CVE-2026-0636, CVE-2026-3505, CVE-2026-5588, and CVE-2026-5598. -->
@@ -627,6 +626,7 @@ under the License.
                 <artifactId>quartz</artifactId>
                 <version>${quartz.version}</version>
             </dependency>
+            <!-- Maven 3.10+ rejects duplicate coordinates in dependencyManagement. -->
             <dependency>
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
@@ -1898,6 +1898,16 @@ under the License.
                         <artifactId>bootstrap</artifactId>
                         <groupId>io.airlift</groupId>
                     </exclusion>
+                    <!-- trino-main is used to load Trino connector plugins and plan through them
+                         (fe-common and fe-core datasource/trinoconnector, BE trino-connector-scanner);
+                         none of them starts Trino's own HTTP server (io.airlift.http.server). Drops
+                         the Jetty server side it brings (jetty-servlet, http2-server, jetty-jmx, and
+                         jetty-server/jetty-security where nothing else brings them); http2-client
+                         stays, it comes from io.airlift:http-client. -->
+                    <exclusion>
+                        <artifactId>http-server</artifactId>
+                        <groupId>io.airlift</groupId>
+                    </exclusion>
                     <exclusion>
                         <artifactId>re2j</artifactId>
                         <groupId>io.trino</groupId>
@@ -1917,11 +1927,6 @@ under the License.
                         <artifactId>jetty-jakarta-servlet-api</artifactId>
                     </exclusion>
                 </exclusions>
-            </dependency>
-            <dependency>
-                <groupId>com.nimbusds</groupId>
-                <artifactId>nimbus-jose-jwt</artifactId>
-                <version>${nimbusds.version}</version>
             </dependency>
             <dependency>
                 <groupId>jakarta.annotation</groupId>

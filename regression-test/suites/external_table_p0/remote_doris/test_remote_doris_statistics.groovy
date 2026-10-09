@@ -82,8 +82,9 @@ suite("test_remote_doris_statistics", "p0,external,doris,external_docker,externa
         );
     """
 
+    // Successful Flight reads require timestamps within the supported 0001-9999 range.
     sql """
-        INSERT INTO `test_remote_doris_statistics_db`.`test_remote_doris_statistics_t1` values('2025-05-18 01:00:00.000', true, -128, -32768, -2147483648, -9223372036854775808, -1234567890123456790, -123.456, -123456.789, -123457, -123456789012346, -1234567890123456789012345678, '1970-01-01', '0000-01-01 00:00:00', 'A', 'Hello', 'Hello, Doris!', '["apple", "banana", "orange"]', {"Emily":101,"age":25} , {11, 3.14, "Emily"})
+        INSERT INTO `test_remote_doris_statistics_db`.`test_remote_doris_statistics_t1` values('2025-05-18 01:00:00.000', true, -128, -32768, -2147483648, -9223372036854775808, -1234567890123456790, -123.456, -123456.789, -123457, -123456789012346, -1234567890123456789012345678, '1970-01-01', '0001-01-01 00:00:00', 'A', 'Hello', 'Hello, Doris!', '["apple", "banana", "orange"]', {"Emily":101,"age":25} , {11, 3.14, "Emily"})
     """
     sql """
         INSERT INTO `test_remote_doris_statistics_db`.`test_remote_doris_statistics_t1` values('2025-05-18 02:00:00.000', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)

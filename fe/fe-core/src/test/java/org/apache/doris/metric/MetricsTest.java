@@ -23,6 +23,7 @@ import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.JsonUtil;
 import org.apache.doris.ha.FrontendNodeType;
@@ -61,6 +62,29 @@ public class MetricsTest {
     public static void setUp() {
         FeConstants.runningUnitTest = true;
         MetricRepo.init();
+    }
+
+    @Test
+    public void testVersionMetricIsExportedWithBuildLabels() {
+        StringBuilder value = new StringBuilder()
+                .append(Version.DORIS_BUILD_VERSION_MAJOR).append(0)
+                .append(Version.DORIS_BUILD_VERSION_MINOR).append(0)
+                .append(Version.DORIS_BUILD_VERSION_PATCH);
+        if (Version.DORIS_BUILD_VERSION_HOTFIX > 0) {
+            value.append(0).append(Version.DORIS_BUILD_VERSION_HOTFIX);
+        }
+
+        String expectedSample = "doris_fe_version{version=\"" + Version.DORIS_BUILD_VERSION
+                + "\", major=\"" + Version.DORIS_BUILD_VERSION_MAJOR
+                + "\", minor=\"" + Version.DORIS_BUILD_VERSION_MINOR
+                + "\", patch=\"" + Version.DORIS_BUILD_VERSION_PATCH
+                + "\", hotfix=\"" + Version.DORIS_BUILD_VERSION_HOTFIX
+                + "\", short_hash=\"" + Version.DORIS_BUILD_SHORT_HASH
+                + "\"} " + Long.parseLong(value.toString());
+
+        String metricResult = getPrometheusMetrics();
+        Assert.assertTrue(metricResult, metricResult.contains("# TYPE doris_fe_version gauge"));
+        Assert.assertTrue(metricResult, metricResult.contains(expectedSample));
     }
 
     @Test

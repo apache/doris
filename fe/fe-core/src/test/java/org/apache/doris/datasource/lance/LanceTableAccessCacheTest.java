@@ -86,6 +86,23 @@ public class LanceTableAccessCacheTest {
         Mockito.verify(namespace, Mockito.times(2)).describeTable(Mockito.any());
     }
 
+    /**
+     * A managed table is described on every read even without vended options: the version list
+     * a read asks for next is the namespace's current one, and must be checked against the
+     * location the namespace reports now.
+     */
+    @Test
+    public void testManagedTableIsDescribedForEveryRead() {
+        LanceNamespace namespace = namespace();
+        Mockito.when(namespace.describeTable(Mockito.any())).thenReturn(new DescribeTableResponse()
+                .location("s3://example-bucket/items.lance").tableUri("s3://example-bucket/items.lance")
+                .managedVersioning(true));
+        LanceNamespaceClient client = client(namespace, "rest", 60, new AtomicLong(1_000_000));
+        Assertions.assertTrue(client.resolveTableAccess("default", "items").isManagedVersioning());
+        client.resolveTableAccess("default", "items");
+        Mockito.verify(namespace, Mockito.times(2)).describeTable(Mockito.any());
+    }
+
     @Test
     public void testVendedCredentialsAreResolvedForEveryRead() {
         LanceNamespace namespace = namespace();

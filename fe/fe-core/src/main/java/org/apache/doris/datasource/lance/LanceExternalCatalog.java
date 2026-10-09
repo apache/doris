@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.lance;
 
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
@@ -28,6 +29,7 @@ import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
+import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
 import org.apache.doris.datasource.property.metastore.AbstractLanceProperties;
@@ -214,15 +216,27 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName, Optional<TableSnapshot> snapshot) {
-        return withClient(current -> current.loadTableMetadata(dbName, tableName, snapshot));
+        return loadTableMetadata(dbName, tableName, LanceRefSelector.snapshot(snapshot));
+    }
+
+    public LanceTableMetadata loadTableMetadata(String dbName, String tableName, LanceRefSelector selector) {
+        return withClient(current -> current.loadTableMetadata(dbName, tableName, selector));
     }
 
     public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName) {
-        return withClient(current -> current.loadTableMetadataForSearch(dbName, tableName));
+        return loadTableMetadataForSearch(dbName, tableName, LanceRefSelector.latest());
+    }
+
+    public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName, LanceRefSelector selector) {
+        return withClient(current -> current.loadTableMetadataForSearch(dbName, tableName, selector));
     }
 
     public LanceTableMetadata loadBasicTableMetadata(String dbName, String tableName) {
-        return withClient(current -> current.loadBasicTableMetadata(dbName, tableName));
+        return loadBasicTableMetadata(dbName, tableName, LanceRefSelector.latest());
+    }
+
+    public LanceTableMetadata loadBasicTableMetadata(String dbName, String tableName, LanceRefSelector selector) {
+        return withClient(current -> current.loadBasicTableMetadata(dbName, tableName, selector));
     }
 
     public Schema loadTableSchema(String dbName, String tableName) {
@@ -280,6 +294,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
     @Override
     public void unregisterDatabase(String dbName) {
         // Dropping a namespace is a semantic change, unlike routine local DB-object eviction.
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId());
         invalidateTableAccessCache();
         super.unregisterDatabase(dbName);
     }
@@ -294,6 +309,8 @@ public class LanceExternalCatalog extends ExternalCatalog {
     @Override
     public void onRefreshCache(boolean invalidCache) {
         if (invalidCache) {
+            // A new Session can resolve a replacement dataset before the catalog reset below.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId());
             refreshSessionCache();
         }
         super.onRefreshCache(invalidCache);

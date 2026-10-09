@@ -80,6 +80,86 @@ public class MaxComputeJniWriterTest {
     }
 
     @Test
+    public void testTimestampVectorsAcrossTimezonesAndDstOverlap() {
+        java.util.TimeZone original = java.util.TimeZone.getDefault();
+        try (BufferAllocator allocator = new RootAllocator()) {
+            for (String zone : new String[] {"UTC", "Asia/Shanghai", "America/New_York"}) {
+                java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zone));
+                try (org.apache.arrow.vector.TimeStampMicroTZVector vector =
+                        new org.apache.arrow.vector.TimeStampMicroTZVector("ts", allocator, zone)) {
+                    vector.allocateNew(1);
+                    vector.setValueCount(1);
+                    MaxComputeColumnValue value = new MaxComputeColumnValue(vector, 0, java.time.ZoneId.of(zone));
+                    for (long micros : new long[] {-1L, 0L, 1636263000123456L, 1636266600123456L}) {
+                        vector.setSafe(0, micros);
+                        java.time.Instant expected = java.time.Instant.ofEpochSecond(
+                                Math.floorDiv(micros, 1_000_000), Math.floorMod(micros, 1_000_000) * 1000);
+                        Assert.assertEquals(java.time.LocalDateTime.ofInstant(expected, java.time.ZoneOffset.UTC),
+                                value.getTimeStampTz());
+                    }
+                    vector.setNull(0);
+                    Assert.assertTrue(value.isNull());
+                }
+            }
+        } finally {
+            java.util.TimeZone.setDefault(original);
+        }
+    }
+
+    @Test
+    public void testTimestampWriteKeepsUtcMicros() throws Exception {
+        java.util.Map<String, String> params = new java.util.HashMap<>();
+        params.put("endpoint", "http://localhost");
+        params.put("project", "test_project");
+        params.put("table", "events");
+        params.put("txn_id", "1");
+        params.put("write_session_id", "test_session");
+        params.put("fe_host", "localhost");
+        params.put("fe_port", "9020");
+        MaxComputeJniWriter writer = new MaxComputeJniWriter(1, params);
+        org.apache.doris.common.jni.utils.OffHeap.setTesting();
+        org.apache.doris.common.jni.vec.VectorColumn column =
+                org.apache.doris.common.jni.vec.VectorColumn.createWritableColumn(
+                        org.apache.doris.common.jni.vec.ColumnType.parseType("ts", "timestamptz(6)"), 1);
+        java.time.LocalDateTime utc = java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000);
+        column.appendTimeStampTz(utc);
+        try (BufferAllocator allocator = new RootAllocator();
+                org.apache.arrow.vector.TimeStampMicroVector vector =
+                        new org.apache.arrow.vector.TimeStampMicroVector("ts", allocator);
+                VectorSchemaRoot root = new VectorSchemaRoot(Collections.singletonList(vector))) {
+            java.lang.reflect.Method streaming = MaxComputeJniWriter.class.getDeclaredMethod(
+                    "fillArrowVectorStreaming", VectorSchemaRoot.class, int.class, com.aliyun.odps.OdpsType.class,
+                    org.apache.doris.common.jni.vec.VectorColumn.class, int.class, int.class);
+            streaming.setAccessible(true);
+            streaming.invoke(writer, root, 0, com.aliyun.odps.OdpsType.TIMESTAMP, column, 0, 1);
+            Assert.assertEquals(-1L, vector.get(0));
+            java.lang.reflect.Method buffered = MaxComputeJniWriter.class.getDeclaredMethod(
+                    "fillArrowVector", VectorSchemaRoot.class, int.class, com.aliyun.odps.OdpsType.class,
+                    Object[].class, int.class, int.class);
+            buffered.setAccessible(true);
+            buffered.invoke(writer, root, 0, com.aliyun.odps.OdpsType.TIMESTAMP, new Object[] {utc}, 0, 1);
+            Assert.assertEquals(-1L, vector.get(0));
+        } finally {
+            column.close();
+            writer.close();
+        }
+    }
+
+    @Test
+    public void testTimestampReadPreservesInstant() {
+        try (BufferAllocator allocator = new RootAllocator();
+                org.apache.arrow.vector.TimeStampMicroTZVector vector =
+                        new org.apache.arrow.vector.TimeStampMicroTZVector("ts", allocator, "UTC")) {
+            vector.allocateNew(1);
+            vector.setSafe(0, -1L);
+            vector.setValueCount(1);
+            MaxComputeColumnValue value = new MaxComputeColumnValue(vector, 0, java.time.ZoneId.of("Asia/Shanghai"));
+            Assert.assertEquals(java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000),
+                    value.getTimeStampTz());
+        }
+    }
+
+    @Test
     public void testPrefixBufferBytesMeasuresLeadingRowsWithoutRebuild() {
         try (BufferAllocator allocator = new RootAllocator();
                 IntVector vec = new IntVector("c", allocator)) {

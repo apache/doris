@@ -54,8 +54,8 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
 
     createCatalog(mappedCatalog, true, true)
     createCatalog(legacyCatalog, false, false)
-    // Exercise the legacy UUID/FIXED/BINARY carrier without also writing TIMESTAMPTZ through its
-    // unrelated legacy DATETIME physical mapping into the shared ORC fixture.
+    // Retired mapping properties must not change typed external reads or writes, including when
+    // a catalog retains a mixed combination of the old binary and timestamp settings.
     createCatalog(legacyWriteCatalog, false, true)
 
     def executeCommandWithStatus = { String cmd, int timeoutSeconds = 300,
@@ -528,6 +528,9 @@ suite("test_iceberg_initial_defaults", "p0,external,nonConcurrent") {
 
             sql """switch ${legacyCatalog}"""
             sql """use ${namespace}"""
+            // Disabling the retired toggle must preserve the zoned type and its UTC instant.
+            assertEquals("timestamptz(6)",
+                    sql("DESC ${tableName}").find { it[0] == "default_timestamptz" }[1])
             "order_qt_${prefix}_legacy_mapping" """
                 SELECT ${legacyProjection}
                 FROM ${tableName}

@@ -30,6 +30,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
@@ -37,9 +38,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalScanNode;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
@@ -49,12 +54,16 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
+import org.apache.doris.datasource.iceberg.IcebergRowId;
 import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTableCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
+import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
+import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -65,10 +74,13 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TAccessPathType;
 import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TDataAccessPath;
+import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
+import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TMetaAccessPath;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.schema.external.TField;
@@ -78,6 +90,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.BaseMetadataTable;
 import org.apache.iceberg.BaseTable;
@@ -85,10 +98,12 @@ import org.apache.iceberg.BatchScan;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.DorisDataTableScan;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.PartitionData;
@@ -117,6 +132,7 @@ import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.Closeable;
@@ -152,6 +168,12 @@ public class IcebergScanNodeTest {
 
     @Rule
     public final TemporaryFolder temporaryFolder = new TemporaryFolder();
+
+    @Test
+    public void testDoesNotUseHiveParquetInt96TimeZone() {
+        IcebergScanNode node = Mockito.mock(IcebergScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Assert.assertEquals("", node.getHiveParquetTimeZone());
+    }
 
     @SuppressWarnings("unchecked")
     private static Optional<Map<Integer, List<String>>> extractNameMapping(
@@ -225,6 +247,10 @@ public class IcebergScanNodeTest {
 
         TableScan createRealTableScan() throws UserException {
             return super.createTableScan();
+        }
+
+        boolean isRealBatchMode() {
+            return super.isBatchMode();
         }
 
         @Override
@@ -1618,7 +1644,7 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testLegacyBinaryInitialDefaultBuildsRawByteExpression() throws Exception {
+    public void testObsoleteBinaryMappingFlagStillBuildsVarbinaryLiteral() throws Exception {
         byte[] defaultBytes = new byte[] {(byte) 0x80, 0, (byte) 0xFF};
         Schema schema = new Schema(Types.NestedField.optional("binary_default")
                 .withId(7)
@@ -1634,11 +1660,11 @@ public class IcebergScanNodeTest {
 
         org.apache.doris.nereids.trees.expressions.Expression expression =
                 node.defaultExpression(column);
-        Assert.assertTrue(expression
-                instanceof org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex);
-        Assert.assertEquals("8000FF",
-                ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral)
-                        expression.child(0)).getStringValue());
+        Assert.assertTrue(
+                expression instanceof org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral);
+        org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral literal =
+                (org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral) expression;
+        Assert.assertArrayEquals(defaultBytes, (byte[]) literal.getValue());
     }
 
     @Test
@@ -1799,6 +1825,69 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSplitKeepsOldSpecIdentityValuesAfterEvolvingToUnpartitioned() throws Exception {
+        // A file written under identity(p) keeps p=7 only in its manifest partition metadata. Gating on
+        // the CURRENT spec drops that value once the default spec evolves to unpartitioned, and keying
+        // the partition-key classification off the columns common to all specs leaves BE reading p from
+        // a file that does not store it, so the column comes back NULL in both cases.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        String location = temporaryFolder.newFolder("identity_evolved_table").toURI().toString();
+        Table table = new HadoopTables(new Configuration()).create(schema, spec, location);
+        table.newFastAppend()
+                .appendFile(DataFiles.builder(table.spec())
+                        .withPath(location + "data/p=7/old.parquet")
+                        .withFileSizeInBytes(1024L)
+                        .withRecordCount(2L)
+                        .withFormat(FileFormat.PARQUET)
+                        .withPartitionPath("p=7")
+                        .build())
+                .commit();
+        table.updateSpec().removeField("p").commit();
+        Assert.assertTrue(table.spec().isUnpartitioned());
+
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableFileScannerV2 = true;
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+        setIcebergTable(node, table);
+        setPrivateField(node, "formatVersion", 2);
+        setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
+        setPrivateField(node, "partitionMapInfos", new HashMap<>());
+        // Exactly what doInitialize computes for this table.
+        setPrivateField(node, "isPartitionedTable", table.spec().isPartitioned());
+        setPrivateField(node, "hasPartitionedSpec", IcebergUtils.hasPartitionedSpec(table));
+
+        // p must stay a partition key even though the current spec no longer mentions it; otherwise BE
+        // ignores the split value and reads the (absent) physical column.
+        Assert.assertEquals(ImmutableList.of("p"), orderedPathPartitionKeys(node));
+
+        FileScanTask task;
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            Iterator<FileScanTask> iterator = tasks.iterator();
+            Assert.assertTrue(iterator.hasNext());
+            task = iterator.next();
+        }
+
+        IcebergSplit split = createIcebergSplit(node, task);
+        Assert.assertEquals(ImmutableMap.of("p", "7"), split.getIcebergPartitionValues());
+        Assert.assertEquals(Integer.valueOf(0), split.getPartitionSpecId());
+        // A plain read does not project the row ID, so no row-ID partition JSON is generated.
+        Assert.assertNull(split.getPartitionDataJson());
+
+        // What BE actually receives: p=7 as a columns-from-path constant for this range.
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        setIcebergParams(node, rangeDesc, split);
+        Assert.assertEquals(ImmutableList.of("p"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(ImmutableList.of("7"), rangeDesc.getColumnsFromPath());
+
+        // Display parity: the CURRENT spec is unpartitioned, so the table still reports no scanned
+        // partitions and the batch-mode estimate stays at the unpartitioned default.
+        Assert.assertEquals(1, node.numApproximateSplits());
+    }
+
+    @Test
     public void testBatchSplitCarriesDroppedEqualitySchemaThroughThrift() throws Exception {
         Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
         Types.NestedField equalityKey = Types.NestedField.required("k")
@@ -1867,6 +1956,341 @@ public class IcebergScanNodeTest {
         setIcebergParams(node, currentRangeDesc, currentKeySplit);
         Assert.assertFalse(currentRangeDesc.getTableFormatParams().getIcebergParams()
                 .isSetEqualityDeleteSchema());
+    }
+
+    @Test
+    public void testDeleteSplitKeepsSpecAfterReplacingPartitionedTable() throws Exception {
+        HadoopTables tables = new HadoopTables(new Configuration());
+        Schema schema = new Schema(Types.NestedField.required(1, "record_key", Types.IntegerType.get()));
+        String location = temporaryFolder.newFolder("replace_partitioned").toURI().toString();
+        Table table = tables.create(schema, PartitionSpec.builderFor(schema).identity("record_key").build(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"), location);
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/old.parquet")
+                .withPartitionPath("record_key=7").withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+        org.apache.iceberg.Transaction replace = tables.buildTable(location, schema)
+                .withPartitionSpec(PartitionSpec.unpartitioned()).replaceTransaction();
+        replace.newAppend().appendFile(DataFiles.builder(replace.table().spec()).withPath("file:///warehouse/new.parquet")
+                .withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+        replace.commitTransaction();
+        table.refresh();
+
+        Assert.assertTrue(table.spec().isUnpartitioned());
+        Assert.assertTrue(table.specs().get(0).isPartitioned());
+        Assert.assertNotEquals(0, table.spec().specId());
+        assertDeleteSplitPartitionMetadata(table);
+    }
+
+    @Test
+    public void testDeleteSplitKeepsOldAndNewSpecsAfterDroppingPartitionField() throws Exception {
+        Schema schema = new Schema(Types.NestedField.required(1, "record_key", Types.IntegerType.get()));
+        Table table = new HadoopTables(new Configuration()).create(schema,
+                PartitionSpec.builderFor(schema).identity("record_key").build(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"),
+                temporaryFolder.newFolder("drop_partition_field").toURI().toString());
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/old.parquet")
+                .withPartitionPath("record_key=7").withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+        table.updateSpec().removeField("record_key").commit();
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/new.parquet")
+                .withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+
+        Assert.assertTrue(table.spec().isUnpartitioned());
+        assertDeleteSplitPartitionMetadata(table);
+    }
+
+    @Test
+    public void testReadSplitsSkipPartitionJson() throws Exception {
+        for (boolean keepPartitioned : Arrays.asList(false, true)) {
+            Schema schema = new Schema(Types.NestedField.required(1, "record_key", Types.IntegerType.get()));
+            Table table = new HadoopTables(new Configuration()).create(schema,
+                    PartitionSpec.builderFor(schema).identity("record_key").build(),
+                    Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"),
+                    temporaryFolder.newFolder().toURI().toString());
+            table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/old.parquet")
+                    .withPartitionPath("record_key=7").withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+            if (!keepPartitioned) {
+                table.updateSpec().removeField("record_key").commit();
+            }
+            DataFiles.Builder newFile = DataFiles.builder(table.spec()).withPath("file:///warehouse/new.parquet")
+                    .withRecordCount(1).withFileSizeInBytes(128);
+            if (keepPartitioned) {
+                newFile.withPartitionPath("record_key=9");
+            }
+            table.newAppend().appendFile(newFile.build()).commit();
+
+            TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+            node.addSlot(0, new Column("record_key", Type.INT));
+            setIcebergTable(node, table);
+            setPrivateField(node, "isPartitionedTable", keepPartitioned);
+            setPrivateField(node, "hasPartitionedSpec", IcebergUtils.hasPartitionedSpec(table));
+            setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
+            setPrivateField(node, "formatVersion", 2);
+            setPrivateField(node, "partitionMapInfos", new HashMap<>());
+            setPrivateField(node, "orderedPathPartitionKeys", Collections.emptyList());
+            setPrivateField(node, "orderedPartitionMetadataKeys", Collections.emptyList());
+            try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+                int fileCount = 0;
+                for (FileScanTask task : tasks) {
+                    IcebergSplit split = createIcebergSplit(node, task);
+                    TFileRangeDesc range = new TFileRangeDesc();
+                    setIcebergParams(node, range, split);
+                    TIcebergFileDesc file = range.getTableFormatParams().getIcebergParams();
+                    Assert.assertTrue(file.isSetPartitionSpecId());
+                    Assert.assertEquals(task.file().specId(), file.getPartitionSpecId());
+                    Assert.assertFalse(file.isSetPartitionDataJson());
+                    if (keepPartitioned) {
+                        Assert.assertEquals(Collections.singletonMap("record_key",
+                                        task.file().partition().get(0, Integer.class).toString()),
+                                split.getIcebergPartitionValues());
+                    }
+                    fileCount++;
+                }
+                Assert.assertEquals(2, fileCount);
+            }
+        }
+    }
+
+    @Test
+    public void testReadSplitAfterDroppingPartitionSourceColumn() throws Exception {
+        for (boolean keepPartitioned : Arrays.asList(false, true)) {
+            for (Integer value : Arrays.asList(7, null)) {
+                assertSplitAfterDroppingPartitionSourceColumn(keepPartitioned, value, false);
+            }
+        }
+    }
+
+    @Test
+    public void testRowIdScanRejectsDroppedPartitionSourceColumn() throws Exception {
+        for (boolean keepPartitioned : Arrays.asList(false, true)) {
+            for (Integer value : Arrays.asList(7, null)) {
+                assertSplitAfterDroppingPartitionSourceColumn(keepPartitioned, value, true);
+            }
+        }
+    }
+
+    private void assertSplitAfterDroppingPartitionSourceColumn(
+            boolean keepPartitioned, Integer value, boolean requireRowId) throws Exception {
+        assertSplitAfterDroppingPartitionSourceColumn(
+                keepPartitioned, value, requireRowId, new ExecutionAuthenticator() {});
+    }
+
+    @Test
+    public void testRowIdScanPreservesErrorThroughHadoopAuthentication() throws Exception {
+        assertSplitAfterDroppingPartitionSourceColumn(false, 7, true,
+                new HadoopExecutionAuthenticator(() -> UserGroupInformation.createRemoteUser("test_user")));
+    }
+
+    private void assertSplitAfterDroppingPartitionSourceColumn(boolean keepPartitioned, Integer value,
+            boolean requireRowId, ExecutionAuthenticator authenticator) throws Exception {
+        Schema schema = new Schema(Types.NestedField.optional(1, "record_key", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "partition_key", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "retained_key", Types.IntegerType.get()));
+        PartitionSpec.Builder specBuilder = PartitionSpec.builderFor(schema).identity("partition_key");
+        if (keepPartitioned) {
+            specBuilder.identity("retained_key");
+        }
+        HadoopTables tables = new HadoopTables(new Configuration());
+        String location = temporaryFolder.newFolder().toURI().toString();
+        Table table = tables.create(schema, specBuilder.build(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"), location);
+        PartitionData partition = new PartitionData(table.spec().partitionType());
+        partition.set(0, value);
+        if (keepPartitioned) {
+            partition.set(1, 3);
+        }
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/old.parquet")
+                .withPartition(partition).withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+        table.updateSpec().removeField("partition_key").commit();
+        table.updateSchema().deleteColumn("partition_key").commit();
+        // Reload metadata so historical specs bind to the schema without the dropped source column.
+        table = tables.load(location);
+        Assert.assertEquals(keepPartitioned, table.spec().isPartitioned());
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        setPrivateField(node, "isPartitionedTable", keepPartitioned);
+        setPrivateField(node, "hasPartitionedSpec", IcebergUtils.hasPartitionedSpec(table));
+        setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
+        setPrivateField(node, "formatVersion", 2);
+        setPrivateField(node, "partitionMapInfos", new HashMap<>());
+        setPrivateField(node, "orderedPathPartitionKeys", Collections.emptyList());
+        setPrivateField(node, "orderedPartitionMetadataKeys", Collections.emptyList());
+        node.addSlot(0, new Column("record_key", Type.INT));
+        if (requireRowId) {
+            node.addSlot(1, IcebergRowId.createHiddenColumn());
+        }
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            int fileCount = 0;
+            for (FileScanTask task : tasks) {
+                PartitionData actualPartition = (PartitionData) task.file().partition();
+                Assert.assertEquals(Types.UnknownType.get(), actualPartition.getPartitionType().fields().get(0).type());
+                Assert.assertEquals(value, actualPartition.get(0));
+                if (requireRowId) {
+                    UserException thrown = Assert.assertThrows(UserException.class,
+                            () -> getSplitsWithTask(node, task, authenticator));
+                    Assert.assertTrue(thrown.getMessage().contains(
+                            "Cannot produce Iceberg row IDs with unsupported partition types"));
+                    Assert.assertTrue(thrown.getMessage().contains("spec " + task.file().specId()));
+                    Assert.assertTrue(thrown.getMessage().contains("Rewrite historical data files"));
+                    Assert.assertTrue(thrown.getCause() instanceof UnsupportedOperationException);
+                } else {
+                    IcebergSplit split = createIcebergSplit(node, task);
+                    TFileRangeDesc range = new TFileRangeDesc();
+                    setIcebergParams(node, range, split);
+                    TIcebergFileDesc file = range.getTableFormatParams().getIcebergParams();
+                    Assert.assertEquals(task.file().specId(), file.getPartitionSpecId());
+                    Assert.assertFalse(file.isSetPartitionDataJson());
+                    if (keepPartitioned) {
+                        Assert.assertEquals(Collections.singletonMap("retained_key", "3"),
+                                split.getIcebergPartitionValues());
+                    }
+                }
+                fileCount++;
+            }
+            Assert.assertEquals(1, fileCount);
+        }
+    }
+
+    private static void getSplitsWithTask(IcebergScanNode node, FileScanTask task,
+            ExecutionAuthenticator authenticator) throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext());
+        context.getStatementContext().setIcebergRewriteFileScanTasks(Collections.singletonList(task));
+        context.setThreadLocalInfo();
+        setPreExecutionAuthenticator(node, authenticator);
+        try {
+            // Exercise the public non-batch entry point used by row-level DML, including error wrapping.
+            node.getSplits(1);
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testDeleteSplitKeepsBinaryPartitionAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.BinaryType.get(),
+                ByteBuffer.wrap(new byte[] {0, (byte) 0xff, (byte) 0x80, 0x2f}));
+        assertDeleteAfterDroppingPartitionField(Types.BinaryType.get(), ByteBuffer.allocate(0));
+        assertDeleteAfterDroppingPartitionField(Types.BinaryType.get(), null);
+    }
+
+    @Test
+    public void testDeleteSplitKeepsFixedPartitionAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.FixedType.ofLength(4),
+                ByteBuffer.wrap(new byte[] {0, (byte) 0xff, (byte) 0x80, 0x2f}));
+        assertDeleteAfterDroppingPartitionField(Types.FixedType.ofLength(4), null);
+    }
+
+    @Test
+    public void testDeleteSplitKeepsUuidPartitionAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.UUIDType.get(),
+                UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+    }
+
+    @Test
+    public void testDeleteSplitKeepsTimePartitionAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.TimeType.get(), 12_345_678_901L);
+    }
+
+    @Test
+    public void testDeleteSplitKeepsPreEpochTimestampAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.TimestampType.withoutZone(), -1L);
+        assertDeleteAfterDroppingPartitionField(Types.TimestampType.withoutZone(), -1_000_001L);
+    }
+
+    @Test
+    public void testDeleteSplitKeepsPreEpochTimestamptzAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.TimestampType.withZone(), -1L);
+        assertDeleteAfterDroppingPartitionField(Types.TimestampType.withZone(), -1_000_001L);
+    }
+
+    private void assertDeleteAfterDroppingPartitionField(org.apache.iceberg.types.Type type, Object value)
+            throws Exception {
+        Schema schema = new Schema(Types.NestedField.optional(1, "partition_key", type));
+        Table table = new HadoopTables(new Configuration()).create(schema,
+                PartitionSpec.builderFor(schema).identity("partition_key").build(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"),
+                temporaryFolder.newFolder().toURI().toString());
+        PartitionData partition = new PartitionData(table.spec().partitionType());
+        partition.set(0, value);
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/old.parquet")
+                .withPartition(partition).withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+        table.updateSpec().removeField("partition_key").commit();
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/new.parquet")
+                .withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+
+        Assert.assertTrue(table.spec().isUnpartitioned());
+        assertDeleteSplitPartitionMetadata(table);
+    }
+
+    private void assertDeleteSplitPartitionMetadata(Table table) throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("UTC");
+        context.setThreadLocalInfo();
+        try {
+            assertDeleteSplitPartitionMetadata(table, context.getSessionVariable());
+        } finally {
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    private void assertDeleteSplitPartitionMetadata(Table table, SessionVariable sessionVariable) throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+        node.addSlot(0, IcebergRowId.createHiddenColumn());
+        setIcebergTable(node, table);
+        setPrivateField(node, "isPartitionedTable", table.spec().isPartitioned());
+        setPrivateField(node, "hasPartitionedSpec", IcebergUtils.hasPartitionedSpec(table));
+        setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
+        setPrivateField(node, "formatVersion", 2);
+        setPrivateField(node, "partitionMapInfos", new HashMap<>());
+        setPrivateField(node, "orderedPathPartitionKeys", Collections.emptyList());
+        setPrivateField(node, "orderedPartitionMetadataKeys", Collections.emptyList());
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            int fileCount = 0;
+            for (FileScanTask task : tasks) {
+                IcebergSplit split = createIcebergSplit(node, task);
+                TFileRangeDesc range = new TFileRangeDesc();
+                setIcebergParams(node, range, split);
+                byte[] bytes = new TSerializer(new TCompactProtocol.Factory()).serialize(range);
+                TFileRangeDesc restored = new TFileRangeDesc();
+                new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, bytes);
+                TIcebergFileDesc file = restored.getTableFormatParams().getIcebergParams();
+                Assert.assertTrue("Every data file must carry its spec id through Thrift", file.isSetPartitionSpecId());
+                Assert.assertEquals(task.file().specId(), file.getPartitionSpecId());
+                PartitionSpec spec = table.specs().get(file.getPartitionSpecId());
+                Assert.assertNotNull(file.getPartitionDataJson());
+                if (spec.isUnpartitioned()) {
+                    Assert.assertEquals("[]", file.getPartitionDataJson());
+                }
+
+                TIcebergCommitData commit = new TIcebergCommitData();
+                commit.setFilePath("delete-" + fileCount + ".parquet");
+                commit.setFileSize(128);
+                commit.setRowCount(1);
+                commit.setFileContent(TFileContent.POSITION_DELETES);
+                commit.setPartitionSpecId(file.getPartitionSpecId());
+                commit.setPartitionDataJson(file.getPartitionDataJson());
+                DeleteFile delete = IcebergWriterHelper.convertToDeleteFiles(
+                        FileFormat.PARQUET, spec, Collections.singletonList(commit)).get(0);
+                Assert.assertEquals(task.file().specId(), delete.specId());
+                Assert.assertEquals(task.file().partition().size(), delete.partition().size());
+                // PartitionData.equals compares binary backing arrays by identity, not byte content.
+                for (int i = 0; i < task.file().partition().size(); i++) {
+                    Assert.assertEquals(task.file().partition().get(i, Object.class),
+                            delete.partition().get(i, Object.class));
+                }
+                fileCount++;
+            }
+            Assert.assertEquals(table.currentSnapshot().summary().get("total-data-files"),
+                    Integer.toString(fileCount));
+        }
     }
 
     @Test
@@ -3102,32 +3526,75 @@ public class IcebergScanNodeTest {
 
     @Test
     public void testHistoricalPredicatePlansAfterColumnRename() throws Exception {
-        assertHistoricalPredicatePlansAfterSchemaEvolution(false);
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false, true);
     }
 
     @Test
     public void testHistoricalPredicatePlansAfterColumnDrop() throws Exception {
-        assertHistoricalPredicatePlansAfterSchemaEvolution(true);
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true, true);
     }
 
-    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn) throws Exception {
+    @Test
+    public void testHistoricalPredicatePlansAfterSchemaOnlyRename() throws Exception {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false, false);
+    }
+
+    @Test
+    public void testHistoricalPredicatePlansAfterSchemaOnlyDrop() throws Exception {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true, false);
+    }
+
+    @Test
+    public void testHistoricalPredicatePlansAfterMetadataOnlyPartitionEvolution() throws Exception {
+        for (boolean partitioned : new boolean[] {false, true}) {
+            assertHistoricalPredicatePlansAfterSchemaEvolution(false, false, partitioned, false, true);
+        }
+    }
+
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn, boolean append)
+            throws Exception {
+        for (boolean partitioned : new boolean[] {false, true}) {
+            for (boolean reuseName : new boolean[] {false, true}) {
+                assertHistoricalPredicatePlansAfterSchemaEvolution(dropColumn, append, partitioned, reuseName, false);
+            }
+        }
+    }
+
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(
+            boolean dropColumn, boolean append, boolean partitioned, boolean reuseName, boolean evolveSpec)
+            throws Exception {
         Schema historicalSchema = new Schema(
                 Types.NestedField.optional(1, "x", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "y", Types.IntegerType.get()),
                 Types.NestedField.optional(3, "part", Types.IntegerType.get()));
         HadoopTables tables = new HadoopTables(new Configuration());
         String tableLocation = temporaryFolder.getRoot().toPath()
-                .resolve("historical_predicate_after_" + (dropColumn ? "drop" : "rename")).toUri().toString();
+                .resolve("historical_predicate_after_" + (dropColumn ? "drop" : "rename")
+                        + "_" + partitioned + "_" + reuseName).toUri().toString();
+        PartitionSpec spec = partitioned ? PartitionSpec.builderFor(historicalSchema).identity("part").build()
+                : PartitionSpec.unpartitioned();
         Table table = tables.create(
-                historicalSchema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                historicalSchema, spec, SortOrder.unsorted(),
                 ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"), tableLocation);
         DataFile historicalDataFile = DataFiles.builder(table.spec())
                 .withPath(tableLocation + "/data/historical.parquet")
+                .withPartitionPath(partitioned ? "part=2" : "")
                 .withFormat(FileFormat.PARQUET)
                 .withFileSizeInBytes(10)
                 .withRecordCount(2)
                 .build();
         table.newFastAppend().appendFile(historicalDataFile).commit();
+        if (partitioned) {
+            // A separate manifest in the same snapshot must be rejected by partition pruning.
+            DataFile nonmatchingDataFile = DataFiles.builder(table.spec())
+                    .withPath(tableLocation + "/data/nonmatching.parquet")
+                    .withPartitionPath("part=3")
+                    .withFormat(FileFormat.PARQUET)
+                    .withFileSizeInBytes(10)
+                    .withRecordCount(1)
+                    .build();
+            table.newFastAppend().appendFile(nonmatchingDataFile).commit();
+        }
         long historicalSnapshotId = table.currentSnapshot().snapshotId();
         int historicalSchemaId = table.currentSnapshot().schemaId();
 
@@ -3136,25 +3603,145 @@ public class IcebergScanNodeTest {
         } else {
             table.updateSchema().renameColumn("x", "renamed_x").commit();
         }
-        DataFile currentDataFile = DataFiles.builder(table.spec())
-                .withPath(tableLocation + "/data/current.parquet")
+        if (evolveSpec) {
+            // This later spec is unused by the snapshot and conflicts with its old column name.
+            table.updateSpec().addField("x", Expressions.ref("y")).commit();
+        }
+        if (reuseName) {
+            table.updateSchema().addColumn("x", Types.IntegerType.get()).commit();
+        }
+        if (append) {
+            DataFile currentDataFile = DataFiles.builder(table.spec())
+                    .withPath(tableLocation + "/data/current.parquet")
+                    .withPartitionPath(partitioned ? "part=3" : "")
+                    .withFormat(FileFormat.PARQUET)
+                    .withFileSizeInBytes(10)
+                    .withRecordCount(1)
+                    .build();
+            table.newFastAppend().appendFile(currentDataFile).commit();
+        }
+        table = tables.load(tableLocation);
+        Assert.assertEquals(!append, historicalSnapshotId == table.currentSnapshot().snapshotId());
+
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableExternalTableBatchMode = true;
+        sessionVariable.numFilesInBatchMode = 1;
+        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(sessionVariable));
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getThreadPoolWithPreAuth()).thenReturn(executor);
+        setIcebergSource(node, source);
+        setIcebergTable(node, table);
+        setPreExecutionAuthenticator(node, new ExecutionAuthenticator() {});
+        Mockito.doReturn(new IcebergTableQueryInfo(historicalSnapshotId, null, historicalSchemaId))
+                .when(node).getSpecifiedSnapshot();
+        node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(new TableName(), "x"), new IntLiteral(1, Type.INT)));
+        node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(new TableName(), "part"), new IntLiteral(2, Type.INT)));
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext());
+        context.setThreadLocalInfo();
+        try {
+            // Exercise both Doris planning paths; an SDK-only scan misses batch-mode manifest filtering.
+            TableScan scan = node.createRealTableScan();
+            node.setTableScan(scan);
+            List<FileScanTask> tasks = materializeTasks(scan);
+            Assert.assertEquals(1, tasks.size());
+            Assert.assertEquals(historicalDataFile.path().toString(), tasks.get(0).file().path().toString());
+            Assert.assertTrue(node.isRealBatchMode());
+            if (partitioned) {
+                Assert.assertEquals(2, scan.snapshot().dataManifests(table.io()).size());
+                // Counting the nonmatching manifest would incorrectly enable batch mode at two files.
+                sessionVariable.numFilesInBatchMode = 2;
+                setPrivateField(node, "isBatchMode", null);
+                Assert.assertFalse(node.isRealBatchMode());
+            }
+            if (evolveSpec) {
+                Assert.assertFalse(DorisDataTableScan.specsForScan(scan).containsKey(table.spec().specId()));
+            }
+        } finally {
+            ConnectContext.remove();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testManifestCachePlanningResolvesDroppedEqualityDeleteField() throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "k", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "row_tag", Types.StringType.get()));
+        String tableLocation = temporaryFolder.getRoot().toPath()
+                .resolve("manifest_cache_dropped_equality_key").toUri().toString();
+        Table table = new HadoopTables(new Configuration()).create(
+                schema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"), tableLocation);
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/old.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(2)
+                .build()).commit();
+        table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec())
+                .ofEqualityDeletes(1)
+                .withPath(tableLocation + "/data/eq-delete.parquet")
                 .withFormat(FileFormat.PARQUET)
                 .withFileSizeInBytes(10)
                 .withRecordCount(1)
-                .build();
-        table.newFastAppend().appendFile(currentDataFile).commit();
+                .build()).commit();
+        // The live equality delete still references field 1 after it leaves the current schema.
+        table.updateSchema().deleteColumn("k").commit();
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/new.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(1)
+                .build()).commit();
 
-        // Historical filters must be resolved with the snapshot schema after later schema evolution.
-        TableScan scan = table.newScan()
-                .useSnapshot(historicalSnapshotId)
-                .project(table.schemas().get(historicalSchemaId));
-        BinaryPredicate conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                new SlotRef(new TableName(), "x"), new IntLiteral(1, Type.INT));
-        org.apache.iceberg.expressions.Expression predicate =
-                IcebergUtils.convertToIcebergExpr(conjunct, scan.schema());
-        Assert.assertNotNull(predicate);
-        scan = scan.filter(predicate);
-        Assert.assertEquals(1, materializeTasks(scan).size());
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(ExternalCatalog.class));
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(ExternalTable.class));
+        setPrivateField(node, "source", source);
+        setPrivateField(node, "icebergTable", table);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(Mockito.mock(ExternalMetaCacheMgr.class));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<IcebergManifestCacheLoader> loader =
+                        Mockito.mockStatic(IcebergManifestCacheLoader.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            loader.when(() -> IcebergManifestCacheLoader.loadDeleteFilesWithCache(Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        List<DeleteFile> files = new ArrayList<>();
+                        try (CloseableIterable<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                                invocation.getArgument(2), table.io(), table.specs())) {
+                            reader.forEach(file -> files.add(file.copy()));
+                        }
+                        return ManifestCacheValue.forDeleteFiles(files);
+                    });
+            loader.when(() -> IcebergManifestCacheLoader.loadDataFilesWithCache(Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        List<DataFile> files = new ArrayList<>();
+                        try (CloseableIterable<DataFile> reader = ManifestFiles.read(
+                                invocation.getArgument(2), table.io(), table.specs())) {
+                            reader.forEach(file -> files.add(file.copy()));
+                        }
+                        return ManifestCacheValue.forDataFiles(files);
+                    });
+
+            List<FileScanTask> tasks = node.loadFileScanTasksWithManifestCache(
+                    table.newScan(), table.currentSnapshot());
+
+            Map<String, Integer> deleteCounts = new HashMap<>();
+            tasks.forEach(task -> deleteCounts.put(task.file().location(), task.deletes().size()));
+            Assert.assertEquals(ImmutableMap.of(
+                    tableLocation + "/data/old.parquet", 1,
+                    tableLocation + "/data/new.parquet", 0), deleteCounts);
+        }
     }
 
     @Test
@@ -3576,6 +4163,13 @@ public class IcebergScanNodeTest {
         return task;
     }
 
+    @SuppressWarnings("unchecked")
+    private static List<String> orderedPathPartitionKeys(IcebergScanNode node) throws Exception {
+        Method method = IcebergScanNode.class.getDeclaredMethod("getOrderedPathPartitionKeys");
+        method.setAccessible(true);
+        return (List<String>) method.invoke(node);
+    }
+
     private static IcebergSplit createIcebergSplit(IcebergScanNode node, FileScanTask task)
             throws Exception {
         Method method = IcebergScanNode.class.getDeclaredMethod("createIcebergSplit", FileScanTask.class);
@@ -3818,23 +4412,30 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testRejectBinaryPartitionValueWithoutBinarySafeTransport() throws Exception {
-        assertUnsupportedPositionDeletesPartitionValue(
-                Types.BinaryType.get(), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), false, "binary");
-        assertUnsupportedPositionDeletesPartitionValue(
-                Types.FixedType.ofLength(2), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), false, "fixed[2]");
+    public void testBinaryPartitionValueUsesHexTransport() throws Exception {
+        assertPositionDeletesBinaryPartitionValue(
+                Types.BinaryType.get(), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), "0x00FF");
+        assertPositionDeletesBinaryPartitionValue(
+                Types.FixedType.ofLength(2), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), "0x00FF");
+        assertPositionDeletesBinaryPartitionValue(Types.BinaryType.get(), ByteBuffer.allocate(0), "0x");
+        ByteBuffer sliced = ByteBuffer.wrap(new byte[] {1, 0, (byte) 0xff, 2});
+        sliced.position(1);
+        sliced.limit(3);
+        assertPositionDeletesBinaryPartitionValue(Types.BinaryType.get(), sliced, "0x00FF");
+        Assert.assertEquals(1, sliced.position());
     }
 
     @Test
-    public void testRejectUuidPartitionValueWhenMappedToVarbinary() throws Exception {
-        assertUnsupportedPositionDeletesPartitionValue(
-                Types.UUIDType.get(), UUID.fromString("123e4567-e89b-12d3-a456-426614174000"), true, "uuid");
+    public void testUuidPartitionValueUsesHexTransport() throws Exception {
+        assertPositionDeletesBinaryPartitionValue(
+                Types.UUIDType.get(), UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
+                "0x123E4567E89B12D3A456426614174000");
+        assertPositionDeletesBinaryPartitionValue(Types.UUIDType.get(), null, null);
     }
 
-    private void assertUnsupportedPositionDeletesPartitionValue(
-            org.apache.iceberg.types.Type type, Object value, boolean enableMappingVarbinary,
-            String expectedType) throws Exception {
-        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable(), enableMappingVarbinary);
+    private void assertPositionDeletesBinaryPartitionValue(
+            org.apache.iceberg.types.Type type, Object value, String expectedHex) throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
         Schema schema = new Schema(Types.NestedField.required(1, "p", type));
         PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
         PartitionData partitionData = new PartitionData(spec.partitionType());
@@ -3843,14 +4444,8 @@ public class IcebergScanNodeTest {
         Method method = IcebergScanNode.class.getDeclaredMethod("getPartitionDataObjectJson",
                 PartitionData.class, PartitionSpec.class, List.class);
         method.setAccessible(true);
-        try {
-            method.invoke(node, partitionData, spec, spec.partitionType().fields());
-            Assert.fail("Binary partition values must not be silently materialized as NULL");
-        } catch (InvocationTargetException e) {
-            Assert.assertTrue(e.getCause() instanceof UserException);
-            Assert.assertTrue(e.getCause().getMessage().contains("partition field 'p'"));
-            Assert.assertTrue(e.getCause().getMessage().contains(expectedType));
-        }
+        String expected = expectedHex == null ? "{}" : "{\"p\":\"" + expectedHex + "\"}";
+        Assert.assertEquals(expected, method.invoke(node, partitionData, spec, spec.partitionType().fields()));
     }
 
     @Test

@@ -357,6 +357,7 @@ enum TPaimonReaderType {
     PAIMON_JNI = 1,
     // Deprecated wire value kept during rolling upgrades. New plans never emit it.
     PAIMON_CPP = 2,
+    PAIMON_RUST = 3,
 }
 
 struct TPaimonFileDesc {
@@ -378,6 +379,12 @@ struct TPaimonFileDesc {
     16: optional i64 schema_id; // for schema change.
     // Reader implementation for logical paimon split. Native file split uses range format type.
     17: optional TPaimonReaderType reader_type;
+    // paimon-rust: TableSchema serialized via JsonSerdeUtil.toJson(table.schema()).
+    // Consumed by paimon_table_from_schema_json on BE; skips catalog/warehouse resolution.
+    18: optional string paimon_table_schema_json
+    // paimon-rust: non-default branch name. Unset means main branch (matches
+    // upstream paimon commit 742da63: null-if-DEFAULT_MAIN_BRANCH).
+    19: optional string paimon_branch
 }
 
 struct TTrinoConnectorFileDesc {
@@ -545,6 +552,8 @@ struct TVectorSearchOptions {
     2: optional i32 refine_factor
     3: optional i32 ef
     4: optional bool use_index
+    // Lance: -1 uses available CPU parallelism, 0 selects automatically, positive values cap it.
+    5: optional i32 query_parallelism
 }
 
 // The active union field identifies the logical search kind. A future hybrid field can contain both

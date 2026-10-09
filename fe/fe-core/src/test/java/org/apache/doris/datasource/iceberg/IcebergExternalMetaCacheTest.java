@@ -1544,12 +1544,12 @@ public class IcebergExternalMetaCacheTest {
 
             Assert.assertTrue(viewLoadStarted.await(10, TimeUnit.SECONDS));
             // Model reset completion before the retained load resumes. The in-flight G1
-            // projection must still finish with the retained G1 view, auth and flags.
+            // projection must retain the G1 view and auth while using mandatory logical type mappings.
             resetCompleted.set(true);
             finishViewLoad.countDown();
             IcebergSchemaCacheValue result = (IcebergSchemaCacheValue) loaded.get(10, TimeUnit.SECONDS);
 
-            Assert.assertEquals(org.apache.doris.catalog.PrimitiveType.STRING,
+            Assert.assertEquals(org.apache.doris.catalog.PrimitiveType.VARBINARY,
                     result.getSchema().get(0).getType().getPrimitiveType());
             Assert.assertEquals(1, retainedAuthCalls.get());
             Mockito.verify(retainedOps).loadViewWithinCatalogGeneration("remote_db", "remote_view");

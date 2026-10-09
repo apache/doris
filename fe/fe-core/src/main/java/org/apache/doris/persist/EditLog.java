@@ -395,7 +395,7 @@ public class EditLog {
                         ExternalCatalog ctl = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
                                 .getCatalog(info.getCtl());
                         if (ctl != null) {
-                            ctl.replayDropTable(info.getDb(), info.getTableName());
+                            ctl.replayDropTable(info.getDb(), info.getTableName(), info.getResolvedDb());
                         }
                     }
                     break;

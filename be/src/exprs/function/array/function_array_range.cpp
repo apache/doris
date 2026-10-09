@@ -41,6 +41,7 @@
 #include "core/pod_array_fwd.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
+#include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_date_or_datetime_computation.h"
@@ -78,6 +79,10 @@ public:
         auto res = std::make_shared<DataTypeArray>(nested_type);
         return make_nullable(res);
     }
+
+    // range_execute skips the rows with a NULL argument. The default NULL handling would build a
+    // range from the value under the NULL, which can be larger than the array size limit.
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
@@ -147,6 +152,13 @@ struct RangeImplUtil {
         for (int i = 0; i < 3; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
+                // Read the null map before replacing the column, because the replacement can free
+                // the nullable column.
+                VectorizedUtils::update_null_map(args_null_map->get_data(),
+                                                 nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
+            }
         }
         auto start_column =
                 assert_cast<const ColumnVector<SourceDataPType>*>(argument_columns[0].get());

@@ -2899,6 +2899,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     }
                 }
             } else {
+                if ("full_text_search".equalsIgnoreCase(functionName) && ctx.properties != null) {
+                    // A placeholder would otherwise reach the function as the literal text "?".
+                    for (PropertyItemContext argument : ctx.properties.properties) {
+                        if (argument.key.constant() instanceof DorisParser.PlaceholderContext
+                                || argument.value.constant() instanceof DorisParser.PlaceholderContext) {
+                            throw new AnalysisException("full_text_search properties must be constant"
+                                    + " in a prepared statement");
+                        }
+                    }
+                }
                 map = visitPropertyItemList(ctx.properties);
             }
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
@@ -9145,35 +9155,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new TransactionRollbackCommand();
     }
 
+    /**
+     * The object of a table privilege is db, db.tbl or ctl.db.tbl; TablePattern.analyze() checks its wildcards.
+     */
+    private TablePattern parsePrivilegeTablePattern(DorisParser.MultipartIdentifierOrAsteriskContext ctx) {
+        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx);
+        switch (parts.size()) {
+            case 1:
+                return new TablePattern(parts.get(0), "");
+            case 2:
+                return new TablePattern(parts.get(0), parts.get(1));
+            case 3:
+                return new TablePattern(parts.get(0), parts.get(1), parts.get(2));
+            default:
+                throw new ParseException("Privilege object name should be db, db.tbl or ctl.db.tbl, but got: "
+                        + String.join(".", parts), ctx);
+        }
+    }
+
     @Override
     public LogicalPlan visitGrantTablePrivilege(DorisParser.GrantTablePrivilegeContext ctx) {
         List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
-
-        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
-        int size = parts.size();
-
-        if (size < 1) {
-            throw new AnalysisException("grant table privilege statement missing parameters");
-        }
-
-        TablePattern tablePattern = null;
-        if (size == 1) {
-            String db = parts.get(size - 1);
-            tablePattern = new TablePattern(db, "");
-        }
-
-        if (size == 2) {
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(db, tbl);
-        }
-
-        if (size == 3) {
-            String ctl = parts.get(size - 3);
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(ctl, db, tbl);
-        }
+        TablePattern tablePattern = parsePrivilegeTablePattern(ctx.multipartIdentifierOrAsterisk());
 
         Optional<UserIdentity> userIdentity = Optional.empty();
         Optional<String> role = Optional.empty();
@@ -9319,28 +9322,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitRevokeTablePrivilege(DorisParser.RevokeTablePrivilegeContext ctx) {
         List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
-
-        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
-        int size = parts.size();
-
-        TablePattern tablePattern = null;
-        if (size == 1) {
-            String db = parts.get(size - 1);
-            tablePattern = new TablePattern(db, "");
-        }
-
-        if (size == 2) {
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(db, tbl);
-        }
-
-        if (size == 3) {
-            String ctl = parts.get(size - 3);
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(ctl, db, tbl);
-        }
+        TablePattern tablePattern = parsePrivilegeTablePattern(ctx.multipartIdentifierOrAsterisk());
 
         Optional<UserIdentity> userIdentity = Optional.empty();
         Optional<String> role = Optional.empty();
