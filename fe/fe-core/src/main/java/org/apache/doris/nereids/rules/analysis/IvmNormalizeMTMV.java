@@ -1237,6 +1237,12 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         if (aggMeta == null) {
             return;
         }
+        // A complete refresh recomputes every column from the base tables and reads no old state, so a view
+        // whose layout predates the carrier column can still be recovered that way. Incremental refresh
+        // stays guarded by the stored layout signature and by this check.
+        if (statementContext.getIvmRewriteContext().get().getMode() == IvmRewriteContext.Mode.FULL) {
+            return;
+        }
         Set<String> persistedColumns = normalizedPlan.getOutput().stream()
                 .map(Slot::getName)
                 .collect(Collectors.toSet());
