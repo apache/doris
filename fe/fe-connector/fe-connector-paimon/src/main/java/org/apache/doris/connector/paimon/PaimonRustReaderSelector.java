@@ -78,7 +78,7 @@ final class PaimonRustReaderSelector {
         String mergeOnRead = schema.options().get(DELETION_VECTORS_MERGE_ON_READ);
         deletionVectorsMergeOnRead = "true".equalsIgnoreCase(mergeOnRead);
 
-        String location = table.location();
+        String location = table.location().toString();
         boolean enabled = session != null && "true".equalsIgnoreCase(
                 session.getSessionProperties().get(ENABLE_PAIMON_RUST_READER));
         boolean fileScannerV2 = session != null && "true".equalsIgnoreCase(

@@ -22,22 +22,22 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TBackendInfo;
 
 import com.google.gson.JsonObject;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class BackendPaimonRustCapabilityTest {
     @Test
     public void testCapabilitySurvivesHeartbeatReplayAndBackendImage() {
         Backend backend = new Backend(1, "127.0.0.1", 9050);
-        Assert.assertFalse(backend.isPaimonRustReaderSupported());
+        Assertions.assertFalse(backend.isPaimonRustReaderSupported());
         BackendHbResponse response = heartbeat();
         response.setPaimonRustReaderSupported(true);
         BackendHbResponse replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(response), BackendHbResponse.class);
-        Assert.assertTrue(replay.isPaimonRustReaderSupported());
-        Assert.assertTrue(backend.handleHbResponse(replay, true));
-        Assert.assertTrue(backend.isPaimonRustReaderSupported());
+        Assertions.assertTrue(replay.isPaimonRustReaderSupported());
+        Assertions.assertTrue(backend.handleHbResponse(replay, true));
+        Assertions.assertTrue(backend.isPaimonRustReaderSupported());
         Backend restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(backend), Backend.class);
-        Assert.assertTrue(restored.isPaimonRustReaderSupported());
+        Assertions.assertTrue(restored.isPaimonRustReaderSupported());
     }
 
     @Test
@@ -46,21 +46,21 @@ public class BackendPaimonRustCapabilityTest {
         BackendHbResponse response = heartbeat();
         response.setPaimonRustReaderSupported(true);
         backend.handleHbResponse(response, false);
-        Assert.assertTrue(backend.isPaimonRustReaderSupported());
+        Assertions.assertTrue(backend.isPaimonRustReaderSupported());
 
         TBackendInfo legacy = new TBackendInfo();
-        Assert.assertFalse(legacy.isSetSupportsPaimonRustReader());
-        Assert.assertFalse(legacy.isSupportsPaimonRustReader());
+        Assertions.assertFalse(legacy.isSetSupportsPaimonRustReader());
+        Assertions.assertFalse(legacy.isSupportsPaimonRustReader());
         BackendHbResponse legacyResponse = heartbeat();
-        Assert.assertFalse(legacyResponse.isPaimonRustReaderSupported());
-        Assert.assertTrue(backend.handleHbResponse(legacyResponse, false));
-        Assert.assertFalse(backend.isPaimonRustReaderSupported());
+        Assertions.assertFalse(legacyResponse.isPaimonRustReaderSupported());
+        Assertions.assertTrue(backend.handleHbResponse(legacyResponse, false));
+        Assertions.assertFalse(backend.isPaimonRustReaderSupported());
 
         JsonObject legacyJson = GsonUtils.GSON.toJsonTree(heartbeat()).getAsJsonObject();
         legacyJson.remove("supportsPaimonRustReader");
         BackendHbResponse replay = GsonUtils.GSON.fromJson(legacyJson, BackendHbResponse.class);
-        Assert.assertFalse(replay.isPaimonRustReaderSupported());
-        Assert.assertFalse(GsonUtils.GSON.fromJson("{}", Backend.class).isPaimonRustReaderSupported());
+        Assertions.assertFalse(replay.isPaimonRustReaderSupported());
+        Assertions.assertFalse(GsonUtils.GSON.fromJson("{}", Backend.class).isPaimonRustReaderSupported());
     }
 
     private BackendHbResponse heartbeat() {
