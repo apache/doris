@@ -163,11 +163,11 @@ bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
 #ifndef BE_TEST
     int64_t replay_interval = 0;
     if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
-        replay_interval =
-                int64_t(pow(2, config::group_commit_replay_wal_retry_num) *
-                                config::group_commit_replay_wal_retry_interval_seconds * 1000 +
-                        (wal_info->get_retry_num() - config::group_commit_replay_wal_retry_num) *
-                                config::group_commit_replay_wal_retry_interval_max_seconds * 1000);
+        replay_interval = int64_t(
+                pow(2, config::group_commit_replay_wal_retry_num) *
+                        config::group_commit_replay_wal_retry_interval_seconds * 1000 +
+                (int64_t(wal_info->get_retry_num()) - config::group_commit_replay_wal_retry_num) *
+                        config::group_commit_replay_wal_retry_interval_max_seconds * 1000);
     } else {
         replay_interval = int64_t(pow(2, wal_info->get_retry_num()) *
                                   config::group_commit_replay_wal_retry_interval_seconds * 1000);
