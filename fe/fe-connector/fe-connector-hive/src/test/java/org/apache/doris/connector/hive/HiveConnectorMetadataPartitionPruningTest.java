@@ -105,6 +105,30 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
+    public void testLocalFallbackComparesFloatingPointValuesNumerically() {
+        assertFloatingPointValuesMatch(
+                "FLOAT", Arrays.asList("p-x=1.0", "p-x=1.00", "p-x=1e0", "p-x=1.00000001", "p-x=2.0"));
+        assertFloatingPointValuesMatch(
+                "DOUBLE", Arrays.asList(
+                        "p-x=1.0", "p-x=1.00", "p-x=1e0", "p-x=1.00000000000000001", "p-x=2.0"));
+    }
+
+    private void assertFloatingPointValuesMatch(String typeName, List<String> parts) {
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("p-x"))
+                .partitionKeyTypes(Collections.singletonMap("p-x", typeName))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("p-x", "1.0")));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(parts.subList(0, 4), prunedLocations(result));
+    }
+
+    @Test
     public void testHmsFilterDeclinesReservedWordAndAllDigitPartitionKeys() {
         // `date` is a valid partition key, but the metastore filter lexer tokenizes it as KW_DATE and an
         // all-digit name as an IntegralLiteral, while a key operand must be an Identifier: the connector must
