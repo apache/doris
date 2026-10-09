@@ -50,7 +50,10 @@ import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
+import org.apache.arrow.vector.TimeStampMicroTZVector;
+import org.apache.arrow.vector.TimeStampMicroVector;
 import org.apache.arrow.vector.TimeStampMilliVector;
+import org.apache.arrow.vector.TimeStampVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
@@ -961,6 +964,12 @@ public class MaxComputeJniWriter extends JniWriter {
             BigDecimal bd = elem instanceof BigDecimal ? (BigDecimal) elem
                     : new BigDecimal(elem.toString());
             ((DecimalVector) vec).setSafe(idx, bd);
+        } else if (vec instanceof TimeStampMicroVector || vec instanceof TimeStampMicroTZVector) {
+            // Nested TIMESTAMPTZ uses the same UTC microsecond carrier as top-level TIMESTAMP writes.
+            java.time.Instant instant = elem instanceof java.sql.Timestamp
+                    ? ((java.sql.Timestamp) elem).toInstant()
+                    : ((LocalDateTime) elem).toInstant(java.time.ZoneOffset.UTC);
+            ((TimeStampVector) vec).setSafe(idx, instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000);
         } else if (vec instanceof StructVector) {
             StructVector structVec = (StructVector) vec;
             structVec.setIndexDefined(idx);

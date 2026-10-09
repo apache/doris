@@ -193,7 +193,7 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
         IcebergPartitionData hybrid({std::any(), Int32(7)});
         ASSERT_EQ("key=null/id=7", writer._partition_to_path(hybrid));
         EXPECT_EQ(std::vector<std::string>({"null", "7"}), writer._partition_values(hybrid));
-        writer._partitions_to_writers["key=null/id=7"] = recording_writer;
+        writer._partitions_to_writers[writer._partition_to_writer_key(hybrid)] = recording_writer;
         Block hybrid_block({ColumnWithTypeAndName(null_column->get_ptr(), type, "key"),
                             ColumnWithTypeAndName(id_column->get_ptr(), id_type, "id")});
         ASSERT_TRUE(writer._write_prepared_block(hybrid_block).ok());
@@ -239,6 +239,11 @@ TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     IcebergPartitionData data({value});
     EXPECT_EQ("key=3q0%3D", writer._partition_to_path(data));
     EXPECT_EQ(std::vector<std::string>({"0xdead"}), writer._partition_values(data));
+    IcebergPartitionData null_value({std::any()});
+    IcebergPartitionData null_text({std::string("\x9e\xe9\x65", 3)});
+    EXPECT_EQ(writer._partition_to_path(null_value), writer._partition_to_path(null_text));
+    EXPECT_NE(writer._partition_to_writer_key(null_value),
+              writer._partition_to_writer_key(null_text));
     writer._init_static_partition_values();
     EXPECT_TRUE(writer._is_full_static_partition);
     EXPECT_EQ("key=3q0%3D", writer._static_partition_path);

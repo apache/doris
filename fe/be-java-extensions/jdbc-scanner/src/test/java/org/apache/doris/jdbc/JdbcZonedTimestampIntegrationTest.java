@@ -273,6 +273,30 @@ class JdbcZonedTimestampIntegrationTest {
     }
 
     @Test
+    @EnabledIfSystemProperty(named = "prestodb.integration.url", matches = ".+")
+    void testOfficialPrestoDbNestedTimestampArrays() throws Exception {
+        withDriver("prestodb", "com.facebook.presto.jdbc.PrestoDriver", connection -> {
+            PrestoTypeHandler handler = new PrestoTypeHandler();
+            ColumnType type = ColumnType.parseType("events", "array<array<timestamptz(6)>>");
+            try (Statement statement = connection.createStatement();
+                    ResultSet result = statement.executeQuery("SELECT ARRAY[ARRAY["
+                            + "TIMESTAMP '2023-11-05 01:30:00.123 -07:00',"
+                            + "TIMESTAMP '2023-11-05 01:30:00.123 -08:00',"
+                            + "TIMESTAMP '1969-12-31 23:59:59.999 UTC',"
+                            + "CAST(NULL AS TIMESTAMP WITH TIME ZONE)], NULL, ARRAY[]]")) {
+                Assertions.assertTrue(result.next());
+                Object raw = handler.getColumnValue(result, 1, type, result.getMetaData());
+                Object converted = handler.getOutputConverter(type, "").convert(new Object[] {raw})[0];
+                Assertions.assertEquals(java.util.Arrays.asList(java.util.Arrays.asList(
+                        LocalDateTime.of(2023, 11, 5, 8, 30, 0, 123000000),
+                        LocalDateTime.of(2023, 11, 5, 9, 30, 0, 123000000),
+                        LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999000000), null),
+                        null, java.util.Collections.emptyList()), converted);
+            }
+        });
+    }
+
+    @Test
     @EnabledIfSystemProperty(named = "oraclelegacy.integration.url", matches = ".+")
     void testOracleLegacyDriverTimestampWriteRoundTrip() throws Exception {
         verifyTimestampWriteRoundTrip("oraclelegacy", "oracle.jdbc.OracleDriver", OracleTypeHandler.class,

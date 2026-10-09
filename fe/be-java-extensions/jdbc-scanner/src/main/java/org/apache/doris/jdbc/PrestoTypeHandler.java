@@ -26,11 +26,28 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.temporal.ChronoField;
 
 /** PrestoDB needs a VARCHAR parameter with an explicit server-side zoned timestamp cast. */
 public class PrestoTypeHandler extends TrinoTypeHandler {
     private static final DateTimeFormatter FORMAT = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
+
+    private static final DateTimeFormatter ARRAY_TIMESTAMP_FORMAT = new DateTimeFormatterBuilder()
+            .appendPattern("uuuu-MM-dd HH:mm:ss")
+            .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+            .appendLiteral(' ').appendZoneOrOffsetId().toFormatter();
+
+    @Override
+    protected LocalDateTime convertTimestampTzArrayElement(Object element) {
+        // PrestoDB preserves zoned array elements as strings, unlike its scalar getTimestamp path.
+        if (element instanceof String) {
+            return checkedUtcTimestamp(ZonedDateTime.parse((String) element, ARRAY_TIMESTAMP_FORMAT).toInstant());
+        }
+        return super.convertTimestampTzArrayElement(element);
+    }
 
     @Override
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,

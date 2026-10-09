@@ -262,4 +262,44 @@ public class MaxComputeJniWriterTest {
             return bytes;
         };
     }
+
+    @Test
+    public void testNestedTimestampWriteKeepsUtcMicros() throws Exception {
+        java.util.Map<String, String> params = new java.util.HashMap<>();
+        params.put("endpoint", "http://localhost");
+        params.put("project", "test_project");
+        params.put("table", "events");
+        params.put("txn_id", "1");
+        params.put("write_session_id", "test_session");
+        params.put("fe_host", "localhost");
+        params.put("fe_port", "9020");
+        MaxComputeJniWriter writer = new MaxComputeJniWriter(1, params);
+        try {
+            for (String timezone : new String[] {null, "UTC"}) {
+                try (BufferAllocator allocator = new RootAllocator();
+                        org.apache.arrow.vector.complex.ListVector vector =
+                                org.apache.arrow.vector.complex.ListVector.empty("events", allocator)) {
+                    vector.initializeChildrenFromFields(Collections.singletonList(new org.apache.arrow.vector.types.pojo.Field(
+                            "element", org.apache.arrow.vector.types.pojo.FieldType.nullable(
+                                    new org.apache.arrow.vector.types.pojo.ArrowType.Timestamp(
+                                            org.apache.arrow.vector.types.TimeUnit.MICROSECOND, timezone)), null)));
+                    vector.allocateNew();
+                    java.lang.reflect.Method write = MaxComputeJniWriter.class.getDeclaredMethod(
+                            "writeListElement", org.apache.arrow.vector.FieldVector.class, int.class, Object.class);
+                    write.setAccessible(true);
+                    write.invoke(writer, vector, 0, java.util.Arrays.asList(
+                            java.time.LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000), null,
+                            java.time.LocalDateTime.of(2021, 11, 7, 6, 30, 0, 123456000)));
+                    org.apache.arrow.vector.TimeStampVector values =
+                            (org.apache.arrow.vector.TimeStampVector) vector.getDataVector();
+                    Assertions.assertEquals(-1L, values.get(0));
+                    Assertions.assertTrue(values.isNull(1));
+                    Assertions.assertEquals(1636266600123456L, values.get(2));
+                }
+            }
+        } finally {
+            writer.close();
+        }
+    }
+
 }

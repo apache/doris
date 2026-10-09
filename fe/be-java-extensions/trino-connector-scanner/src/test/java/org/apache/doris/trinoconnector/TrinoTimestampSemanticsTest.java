@@ -58,4 +58,30 @@ class TrinoTimestampSemanticsTest {
             }
         }
     }
+
+    @Test
+    public void testJniRejectsUtcYearOverflow() {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        org.apache.doris.jni.spi.vec.ColumnType columnType =
+                org.apache.doris.jni.spi.vec.ColumnType.parseType("ts", "timestamptz(6)");
+        for (String text : new String[] {"0000-12-31T23:59:59Z", "+10000-01-01T00:00:00Z"}) {
+            java.time.Instant instant = java.time.Instant.parse(text);
+            TimestampWithTimeZoneType type = TimestampWithTimeZoneType.createTimestampWithTimeZoneType(6);
+            BlockBuilder block = type.createBlockBuilder(null, 1);
+            type.writeObject(block, LongTimestampWithTimeZone.fromEpochMillisAndFraction(
+                    instant.toEpochMilli(), 0, TimeZoneKey.UTC_KEY));
+            TrinoConnectorColumnValue value = new TrinoConnectorColumnValue();
+            value.setTrinoType(type);
+            value.setBlock(block.build());
+            value.setPosition(0);
+            org.apache.doris.jni.spi.vec.VectorColumn column =
+                    org.apache.doris.jni.spi.vec.VectorColumn.createWritableColumn(columnType, 1);
+            try {
+                Assertions.assertThrows(IllegalArgumentException.class, () -> column.appendValue(value));
+            } finally {
+                column.close();
+            }
+        }
+    }
+
 }

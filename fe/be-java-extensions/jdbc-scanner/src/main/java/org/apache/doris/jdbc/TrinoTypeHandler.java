@@ -118,6 +118,10 @@ public class TrinoTypeHandler extends DefaultTypeHandler {
         }
     }
 
+    protected LocalDateTime convertTimestampTzArrayElement(Object element) {
+        return checkedUtcTimestamp(((Timestamp) element).toInstant());
+    }
+
     private List<?> convertArray(List<?> array, ColumnType type) {
         if (array == null) {
             return null;
@@ -136,10 +140,9 @@ public class TrinoTypeHandler extends DefaultTypeHandler {
             }
             case TIMESTAMPTZ: {
                 List<LocalDateTime> result = Lists.newArrayList();
-                // Trino JDBC exposes timestamp-with-zone array elements as java.sql.Timestamp.
                 for (Object element : array) {
                     result.add(element == null ? null
-                            : checkedUtcTimestamp(((Timestamp) element).toInstant()));
+                            : convertTimestampTzArrayElement(element));
                 }
                 return result;
             }

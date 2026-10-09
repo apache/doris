@@ -308,4 +308,20 @@ class JdbcTimestampSemanticsTest {
         Assertions.assertEquals(UTC_VALUE, executor.getColumnValue(resultSet, 1, type, null));
         Assertions.assertNull(executor.getColumnValue(resultSet, 1, type, null));
     }
+
+    @Test
+    void prestoDbZonedArrayStringsPreserveOffsetsAndNulls() {
+        PrestoTypeHandler handler = new PrestoTypeHandler();
+        ColumnType type = ColumnType.parseType("events", "array<array<timestamptz(6)>>");
+        Object input = java.util.Arrays.asList(java.util.Arrays.asList(
+                "2023-11-05 01:30:00.123 -07:00", "2023-11-05 01:30:00.123 -08:00",
+                "1969-12-31 23:59:59.999 UTC", null), null, java.util.Collections.emptyList());
+        Object expected = java.util.Arrays.asList(java.util.Arrays.asList(
+                LocalDateTime.of(2023, 11, 5, 8, 30, 0, 123000000),
+                LocalDateTime.of(2023, 11, 5, 9, 30, 0, 123000000),
+                LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999000000), null),
+                null, java.util.Collections.emptyList());
+        Assertions.assertEquals(expected, handler.getOutputConverter(type, "").convert(new Object[] {input})[0]);
+    }
+
 }

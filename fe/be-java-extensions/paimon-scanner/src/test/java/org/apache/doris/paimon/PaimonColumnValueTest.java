@@ -352,4 +352,24 @@ public class PaimonColumnValueTest {
         result.put(key2, value2);
         return result;
     }
+
+    @Test
+    public void testJniRejectsUtcYearOverflow() {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        org.apache.doris.jni.spi.vec.ColumnType columnType =
+                org.apache.doris.jni.spi.vec.ColumnType.parseType("ts", "timestamptz(6)");
+        for (String text : new String[] {"0000-12-31T23:59:59Z", "+10000-01-01T00:00:00Z"}) {
+            java.time.Instant instant = java.time.Instant.parse(text);
+            PaimonColumnValue value = new PaimonColumnValue(GenericRow.of(Timestamp.fromInstant(instant)),
+                    0, columnType, new LocalZonedTimestampType(6), "America/Los_Angeles");
+            org.apache.doris.jni.spi.vec.VectorColumn column =
+                    org.apache.doris.jni.spi.vec.VectorColumn.createWritableColumn(columnType, 1);
+            try {
+                Assertions.assertThrows(IllegalArgumentException.class, () -> column.appendValue(value));
+            } finally {
+                column.close();
+            }
+        }
+    }
+
 }

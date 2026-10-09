@@ -26,7 +26,8 @@ suite("test_iceberg_write_binary_partitions", "p0,external,iceberg,external_dock
             ?: "http://${externalEnvIp}:${minioPort}"
     String catalogName = "test_iceberg_write_binary_partitions"
     String dbName = "binary_partition_roundtrip"
-    def hexValues = ["C3A900FF", "", "616263", "00FF80", "000102030405060708090A0B0C0D0E0FFF80"]
+    // Base64(0x9EE965) is "null": its partition must remain distinct from the NULL row.
+    def hexValues = ["C3A900FF", "", "616263", "00FF80", "000102030405060708090A0B0C0D0E0FFF80", "9EE965"]
     try {
         sql "DROP CATALOG IF EXISTS ${catalogName}"
         sql """CREATE CATALOG ${catalogName} PROPERTIES (
@@ -49,7 +50,7 @@ suite("test_iceberg_write_binary_partitions", "p0,external,iceberg,external_dock
                 // Include a prefix inside UTF-8, embedded NULs, invalid UTF-8, and arena-backed bytes.
                 String rows = hexValues.withIndex().collect { value, index ->
                     "(${index + 1}, X'${value}')"
-                }.join(", ") + ", (6, NULL)"
+                }.join(", ") + ", (7, NULL)"
                 for (String operation : ["INSERT INTO", "INSERT OVERWRITE TABLE"]) {
                     sql "${operation} ${table} VALUES ${rows}"
                     String tag = "${table}_${operation.replace(' ', '_')}"
@@ -57,7 +58,7 @@ suite("test_iceberg_write_binary_partitions", "p0,external,iceberg,external_dock
                         // Reads alone can pass if malformed binary metadata silently drops every partition.
                         explain {
                             sql "SELECT id FROM ${table}"
-                            contains "partition=6/6"
+                            contains "partition=7/7"
                         }
                     }
                     "order_qt_${tag}_bytes" "SELECT id, HEX(binary_key) FROM ${table} ORDER BY id"

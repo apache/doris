@@ -95,4 +95,25 @@ public class HadoopHudiColumnValueTest {
 
         Assertions.assertEquals(LocalDateTime.of(1970, 1, 1, 0, 0), value.getDateTime());
     }
+
+    @Test
+    public void testJniRejectsUtcYearOverflow() {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        org.apache.doris.jni.spi.vec.ColumnType columnType =
+                org.apache.doris.jni.spi.vec.ColumnType.parseType("ts", "timestamptz(6)");
+        for (String text : new String[] {"0000-12-31T23:59:59Z", "+10000-01-01T00:00:00Z"}) {
+            java.time.Instant instant = java.time.Instant.parse(text);
+            HadoopHudiColumnValue value = new HadoopHudiColumnValue(ZoneId.of("America/Los_Angeles"));
+            value.setField(columnType, PrimitiveObjectInspectorFactory.writableTimestampObjectInspector);
+            value.setRow(new LongWritable(instant.getEpochSecond() * 1_000_000L));
+            org.apache.doris.jni.spi.vec.VectorColumn column =
+                    org.apache.doris.jni.spi.vec.VectorColumn.createWritableColumn(columnType, 1);
+            try {
+                Assertions.assertThrows(IllegalArgumentException.class, () -> column.appendValue(value));
+            } finally {
+                column.close();
+            }
+        }
+    }
+
 }

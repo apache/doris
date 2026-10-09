@@ -5,10 +5,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_parquet_identity_INSERT_INTO_null --
-6
+7
 
 -- !binary_parquet_identity_INSERT_OVERWRITE_TABLE_bytes --
 1	C3A900FF
@@ -16,10 +17,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_parquet_identity_INSERT_OVERWRITE_TABLE_null --
-6
+7
 
 -- !binary_parquet_bucket_INSERT_INTO_bytes --
 1	C3A900FF
@@ -27,10 +29,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_parquet_bucket_INSERT_INTO_null --
-6
+7
 
 -- !binary_parquet_bucket_INSERT_OVERWRITE_TABLE_bytes --
 1	C3A900FF
@@ -38,10 +41,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_parquet_bucket_INSERT_OVERWRITE_TABLE_null --
-6
+7
 
 -- !binary_parquet_truncate_INSERT_INTO_bytes --
 1	C3A900FF
@@ -49,10 +53,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_parquet_truncate_INSERT_INTO_null --
-6
+7
 
 -- !binary_parquet_truncate_INSERT_OVERWRITE_TABLE_bytes --
 1	C3A900FF
@@ -60,10 +65,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_parquet_truncate_INSERT_OVERWRITE_TABLE_null --
-6
+7
 
 -- !binary_orc_identity_INSERT_INTO_bytes --
 1	C3A900FF
@@ -71,10 +77,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_orc_identity_INSERT_INTO_null --
-6
+7
 
 -- !binary_orc_identity_INSERT_OVERWRITE_TABLE_bytes --
 1	C3A900FF
@@ -82,10 +89,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_orc_identity_INSERT_OVERWRITE_TABLE_null --
-6
+7
 
 -- !binary_orc_bucket_INSERT_INTO_bytes --
 1	C3A900FF
@@ -93,10 +101,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_orc_bucket_INSERT_INTO_null --
-6
+7
 
 -- !binary_orc_bucket_INSERT_OVERWRITE_TABLE_bytes --
 1	C3A900FF
@@ -104,10 +113,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_orc_bucket_INSERT_OVERWRITE_TABLE_null --
-6
+7
 
 -- !binary_orc_truncate_INSERT_INTO_bytes --
 1	C3A900FF
@@ -115,10 +125,11 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_orc_truncate_INSERT_INTO_null --
-6
+7
 
 -- !binary_orc_truncate_INSERT_OVERWRITE_TABLE_bytes --
 1	C3A900FF
@@ -126,8 +137,9 @@
 3	616263
 4	00FF80
 5	000102030405060708090A0B0C0D0E0FFF80
-6	\N
+6	9EE965
+7	\N
 
 -- !binary_orc_truncate_INSERT_OVERWRITE_TABLE_null --
-6
+7
 
