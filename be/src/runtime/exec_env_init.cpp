@@ -511,6 +511,14 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
         }
         return;
     }
+    // Runs first because it rejects a nonpositive file_cache_each_block_size, which the
+    // s3_write_buffer_size check below divides by.
+    auto hdfs_batch_status = io::validate_hdfs_write_batch_buffer_size(
+            config::hdfs_write_batch_buffer_size_mb, config::file_cache_each_block_size);
+    if (!hdfs_batch_status.ok()) {
+        LOG_FATAL("{}", hdfs_batch_status.to_string());
+        exit(-1);
+    }
     if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
         config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
         LOG_FATAL(
@@ -518,12 +526,6 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 "s3_write_buffer_size {} and config::s3_write_buffer_size % "
                 "config::file_cache_each_block_size must be zero",
                 config::file_cache_each_block_size, config::s3_write_buffer_size);
-        exit(-1);
-    }
-    auto hdfs_batch_status = io::validate_hdfs_write_batch_buffer_size(
-            config::hdfs_write_batch_buffer_size_mb, config::file_cache_each_block_size);
-    if (!hdfs_batch_status.ok()) {
-        LOG_FATAL("{}", hdfs_batch_status.to_string());
         exit(-1);
     }
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
