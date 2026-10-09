@@ -222,14 +222,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
 
-        // The catalog property was removed, but this TVF-only option must remain explicit because
-        // changing an ad-hoc TVF result schema also breaks CTAS type inference.
-        String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
-        fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
-
-        // Consume the legacy option, but let file logical types determine timezone semantics.
+        // Logical file types retain binary bytes and instant semantics regardless of legacy flags.
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY);
         copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ);
+        fileFormatProperties.enableMappingVarbinary = true;
         fileFormatProperties.enableMappingTimestampTz = true;
 
         String hiveParquetTimeZone = getOrDefaultAndRemove(copiedProps,

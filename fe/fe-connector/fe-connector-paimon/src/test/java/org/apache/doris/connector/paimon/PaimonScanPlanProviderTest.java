@@ -2667,6 +2667,57 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void fallbackOrcUsesEachBranchOptionsAndSchemas(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            List<FileStoreTable> branches = new ArrayList<>();
+            for (int branch = 0; branch < 2; branch++) {
+                Identifier id = Identifier.create("db", "branch_" + branch);
+                catalog.createTable(id, Schema.newBuilder()
+                        .column("id", DataTypes.INT())
+                        .column("event_time", new org.apache.paimon.types.LocalZonedTimestampType(6))
+                        .partitionKeys("id").option("file.format", "orc")
+                        .option(org.apache.paimon.format.OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key(),
+                                String.valueOf(branch == 1))
+                        .build(), false);
+                if (branch == 1) {
+                    // A fallback branch can own schema IDs that never existed on the primary branch.
+                    catalog.alterTable(id, Collections.singletonList(SchemaChange.addColumn("unused", DataTypes.INT())),
+                            false);
+                    catalog.alterTable(id, Collections.singletonList(SchemaChange.dropColumn("unused")), false);
+                }
+                FileStoreTable branchTable = (FileStoreTable) catalog.getTable(id);
+                BatchWriteBuilder writer = branchTable.newBatchWriteBuilder();
+                try (BatchTableWrite write = writer.newWrite()) {
+                    write.write(GenericRow.of(branch, org.apache.paimon.data.Timestamp.fromEpochMillis(1000)));
+                    try (BatchTableCommit commit = writer.newCommit()) {
+                        commit.commit(write.prepareCommit());
+                    }
+                }
+                branches.add(branchTable);
+            }
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = new org.apache.paimon.table.FallbackReadFileStoreTable(
+                    branches.get(0), branches.get(1), true);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "branch_0", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("event_time", 1))).build());
+            Assertions.assertEquals(2, ranges.size());
+            Assertions.assertEquals(1, ranges.stream().filter(range -> range.getPath().isPresent()).count());
+            ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("id", 0))).build());
+            Assertions.assertEquals(2, ranges.size());
+            Assertions.assertTrue(ranges.stream().allMatch(range -> range.getPath().isPresent()));
+        }
+    }
+
+    @Test
     public void unusedLegacyOrcTimestampKeepsNativeMetadataScan(@TempDir Path warehouse) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {

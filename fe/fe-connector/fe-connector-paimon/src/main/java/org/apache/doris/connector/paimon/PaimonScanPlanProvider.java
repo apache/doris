@@ -942,8 +942,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 ? physicalVariantSchemaIds(table, paimonHandle, rowType, columns, dataSplits)
                 : Collections.emptySet();
 
-        // Schema IDs belong to this resolved table/branch; avoid reloading one schema for every file.
-        Map<Long, Boolean> legacyOrcTimestampSchemas = new HashMap<>();
+        // Schema IDs are branch-local, even when both branches expose the same current row type.
+        Map<FileStoreTable, Map<Long, Boolean>> legacyOrcTimestampSchemas = new java.util.IdentityHashMap<>();
         Set<Integer> readFieldIds = scanReadFieldIds(rowType, columns, filter);
         // $ro wraps the pinned file-store table; resolve its schema dictionary once, only if native is considered.
         java.util.function.Supplier<Table> legacyOrcSchemaTable = com.google.common.base.Suppliers.memoize(
@@ -966,8 +966,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
             boolean nativeEligible = shouldUseNativeReader(paimonHandle.isForceJni(),
                     isForceJniScannerEnabled(session), hasVariantProjection, physicalVariantSchemaIds, optRawFiles);
-            boolean legacyOrcTimestamp = nativeEligible && requiresLegacyOrcTimestampReader(
-                    legacyOrcSchemaTable.get(), optRawFiles, readFieldIds, legacyOrcTimestampSchemas);
+            boolean legacyOrcTimestamp = false;
+            if (nativeEligible) {
+                FileStoreTable splitTable = legacyOrcSplitTable((FileStoreTable) legacyOrcSchemaTable.get(), dataSplit);
+                legacyOrcTimestamp = requiresLegacyOrcTimestampReader(splitTable, optRawFiles, readFieldIds,
+                        legacyOrcTimestampSchemas.computeIfAbsent(splitTable, ignored -> new HashMap<>()));
+            }
             if (nativeEligible && !legacyOrcTimestamp) {
                 if (ignoreNative) {
                     if (requiresMetadataColumns) {
@@ -1965,6 +1969,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             names.add(((ConnectorColumnRef) expression).getColumnName().toLowerCase(Locale.ROOT));
         }
         expression.getChildren().forEach(child -> collectFilterColumnNames(child, names));
+    }
+
+    static FileStoreTable legacyOrcSplitTable(FileStoreTable table, DataSplit split) {
+        FileStoreTable base = PaimonTableDecorators.unwrapToFallbackOrBase(table);
+        if (base instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) base;
+            boolean fallback = ((FallbackReadFileStoreTable.FallbackSplit) split).isFallback();
+            // Match the SDK reader's branch selection before reading either options or historical schemas.
+            return PaimonReaderOptions.isWrappedFirst(pair) != fallback ? pair.wrapped() : pair.other();
+        }
+        return base;
     }
 
     static boolean requiresLegacyOrcTimestampReader(Table table, Optional<List<RawFile>> rawFiles,

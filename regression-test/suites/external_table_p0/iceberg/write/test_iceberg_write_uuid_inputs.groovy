@@ -88,6 +88,54 @@ suite("test_iceberg_write_uuid_inputs", "p0,external,iceberg,external_docker,ext
                     "qt_${table}_overwrite" "SELECT id, HEX(u) FROM ${table} ORDER BY id"
                 }
             }
+            String nested = "uuid_nested_${format}"
+            sql "DROP TABLE IF EXISTS ${nested}"
+            // UUID semantics must survive ARRAY/STRUCT nesting, including null containers and elements.
+            def nestedRequest = [name: nested, schema: [type: "struct", "schema-id": 0, fields: [
+                    [id: 1, name: "id", required: false, type: "int"],
+                    [id: 2, name: "items", required: false,
+                            type: [type: "list", "element-id": 3, element: "uuid", "element-required": false]],
+                    [id: 4, name: "record", required: false, type: [type: "struct", fields: [
+                            [id: 5, name: "u", required: false, type: "uuid"],
+                            [id: 6, name: "text", required: false, type: "string"]]]]]],
+                    "partition-spec": ["spec-id": 0, fields: []],
+                    properties: ["format-version": "2", "write.format.default": format]]
+            def nestedConnection = new URL("http://${host}:${restPort}/v1/namespaces/${database}/tables").openConnection()
+            try {
+                nestedConnection.setConnectTimeout(10000)
+                nestedConnection.setReadTimeout(60000)
+                nestedConnection.setRequestMethod("POST")
+                nestedConnection.setRequestProperty("Content-Type", "application/json")
+                nestedConnection.setDoOutput(true)
+                nestedConnection.getOutputStream().withCloseable {
+                    it.write(JsonOutput.toJson(nestedRequest).getBytes("UTF-8"))
+                }
+                assertEquals(200, nestedConnection.getResponseCode())
+            } finally {
+                nestedConnection.disconnect()
+            }
+            sql """INSERT INTO ${nested} VALUES
+                (1, ['${canonical}', NULL], named_struct('u', '${compact}', 'text', 'text')),
+                (2, [X'${compact}', NULL], named_struct('u', X'${compact}', 'text', 'bytes')),
+                (3, NULL, NULL), (4, [], named_struct('u', NULL, 'text', NULL))"""
+            sql """INSERT INTO ${nested} SELECT id + 10,
+                IF(id = 3, NULL, ['${compact}', NULL]),
+                IF(id = 3, NULL, named_struct('u', '${canonical}', 'text', 'dynamic')) FROM ${nested}"""
+            "qt_${nested}" """SELECT id, items IS NULL, size(items), hex(items[1]), hex(items[2]),
+                record IS NULL, hex(record.u), record.text FROM ${nested} ORDER BY id"""
+            def dataFile = sql("SELECT file_path FROM `${nested}\$files` ORDER BY file_path LIMIT 1")[0][0]
+            for (String flag : ["unset", "false", "true"]) {
+                String mapping = flag == "unset" ? "" : ", 'enable_mapping_varbinary'='${flag}'"
+                // File TVFs and catalog scans must expose the same binary types for every legacy flag value.
+                "qt_${nested}_tvf_${flag}" """DESC FUNCTION s3(
+                    'uri'='${dataFile}', 'format'='${format}', 's3.endpoint'='${endpoint}',
+                    's3.access_key'='admin', 's3.secret_key'='password', 's3.region'='us-east-1',
+                    'use_path_style'='true' ${mapping})"""
+            }
+            test {
+                sql "INSERT INTO ${nested} VALUES (30, ['invalid-uuid'], NULL)"
+                exception "parse uuid failed"
+            }
         }
     } finally {
         sql "SWITCH internal"

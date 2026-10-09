@@ -45,9 +45,8 @@ public abstract class FileFormatProperties {
     protected TFileFormatType fileFormatType;
 
     protected TFileCompressType compressionType;
-    // TVFs are schema-on-read entry points, so callers must opt in before their result contract
-    // changes from STRING to VARBINARY. Catalog binary mappings do not use this setting.
-    public boolean enableMappingVarbinary = false;
+    // External binary payloads are bytes, including when no mapping option is supplied.
+    public boolean enableMappingVarbinary = true;
     public boolean enableMappingTimestampTz = true;
 
     public FileFormatProperties(TFileFormatType fileFormatType, String formatName) {

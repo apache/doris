@@ -97,7 +97,7 @@ public class HadoopHudiColumnValueTest {
     }
 
     @Test
-    public void testJniRejectsUtcYearOverflow() {
+    public void testJniUtcYearBounds() {
         org.apache.doris.jni.spi.utils.OffHeap.setTesting();
         org.apache.doris.jni.spi.vec.ColumnType columnType =
                 org.apache.doris.jni.spi.vec.ColumnType.parseType("ts", "timestamptz(6)");
@@ -109,7 +109,14 @@ public class HadoopHudiColumnValueTest {
             org.apache.doris.jni.spi.vec.VectorColumn column =
                     org.apache.doris.jni.spi.vec.VectorColumn.createWritableColumn(columnType, 1);
             try {
-                Assertions.assertThrows(IllegalArgumentException.class, () -> column.appendValue(value));
+                // Doris accepts year zero; only the UTC instant outside years 0..9999 is invalid.
+                if (text.startsWith("0000")) {
+                    column.appendValue(value);
+                    Assertions.assertEquals(java.time.LocalDateTime.ofInstant(instant, java.time.ZoneOffset.UTC),
+                            column.getTimeStampTzColumn(0, 1)[0]);
+                } else {
+                    Assertions.assertThrows(IllegalArgumentException.class, () -> column.appendValue(value));
+                }
             } finally {
                 column.close();
             }

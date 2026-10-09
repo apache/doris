@@ -158,9 +158,10 @@ final class IcebergWriteSchemaContext {
             ConnectorColumn column = new ConnectorColumn(
                     field.name(), type, field.doc() == null ? "" : field.doc(),
                     field.isOptional(), null, true).withUniqueId(field.fieldId());
-            if (enableMappingVarbinary && field.type().typeId() == Type.TypeID.UUID) {
-                // UUID accepts canonical text on write, while scans and typed binary inputs retain bytes.
-                column = column.withStringWriteType(ConnectorType.of("UUID"));
+            ConnectorType stringWriteType = stringWriteType(field.type(), type);
+            if (stringWriteType != null) {
+                // Nested UUID leaves need the same text normalization as top-level UUID columns.
+                column = column.withStringWriteType(stringWriteType);
             }
             if (isTimestampWithZone(field.type())) {
                 column = column.withTimeZone();
@@ -175,6 +176,42 @@ final class IcebergWriteSchemaContext {
             columnBuilder.add(column);
         }
         this.columns = columnBuilder.build();
+    }
+
+    private static ConnectorType stringWriteType(Type type, ConnectorType mapped) {
+        if (type.typeId() == Type.TypeID.UUID) {
+            return ConnectorType.of("UUID");
+        }
+        if (type.isPrimitiveType()) {
+            return null;
+        }
+        List<Types.NestedField> fields;
+        switch (type.typeId()) {
+            case LIST:
+                fields = type.asListType().fields();
+                break;
+            case STRUCT:
+                fields = type.asStructType().fields();
+                break;
+            default:
+                return null;
+        }
+        List<ConnectorType> children = new java.util.ArrayList<>();
+        boolean hasUuid = false;
+        for (int i = 0; i < fields.size(); i++) {
+            ConnectorType semantic = stringWriteType(fields.get(i).type(), mapped.getChildren().get(i));
+            hasUuid |= semantic != null;
+            children.add(semantic == null ? mapped.getChildren().get(i) : semantic);
+        }
+        if (!hasUuid) {
+            return null;
+        }
+        switch (type.typeId()) {
+            case LIST:
+                return ConnectorType.arrayOf(children.get(0), type.asListType().isElementOptional());
+            default:
+                return ConnectorType.structOf(mapped.getFieldNames(), children);
+        }
     }
 
     private static PartitionSpec bindPartitionSpec(

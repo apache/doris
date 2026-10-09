@@ -29,6 +29,31 @@
 24	\N
 31	00112233445566778899AABBCCDDEEFF
 
+-- !uuid_nested_parquet --
+1	false	2	00112233445566778899AABBCCDDEEFF	\N	false	00112233445566778899AABBCCDDEEFF	text
+2	false	2	00112233445566778899AABBCCDDEEFF	\N	false	00112233445566778899AABBCCDDEEFF	bytes
+3	true	\N	\N	\N	true	\N	\N
+4	false	0	\N	\N	false	\N	\N
+11	false	2	00112233445566778899AABBCCDDEEFF	\N	false	00112233445566778899AABBCCDDEEFF	dynamic
+12	false	2	00112233445566778899AABBCCDDEEFF	\N	false	00112233445566778899AABBCCDDEEFF	dynamic
+13	true	\N	\N	\N	true	\N	\N
+14	false	2	00112233445566778899AABBCCDDEEFF	\N	false	00112233445566778899AABBCCDDEEFF	dynamic
+
+-- !uuid_nested_parquet_tvf_unset --
+id	int	Yes	false	\N	NONE
+items	array<varbinary(16)>	Yes	false	\N	NONE
+record	struct<u:varbinary(16),text:text>	Yes	false	\N	NONE
+
+-- !uuid_nested_parquet_tvf_false --
+id	int	Yes	false	\N	NONE
+items	array<varbinary(16)>	Yes	false	\N	NONE
+record	struct<u:varbinary(16),text:text>	Yes	false	\N	NONE
+
+-- !uuid_nested_parquet_tvf_true --
+id	int	Yes	false	\N	NONE
+items	array<varbinary(16)>	Yes	false	\N	NONE
+record	struct<u:varbinary(16),text:text>	Yes	false	\N	NONE
+
 -- !uuid_orc_false --
 1	00112233445566778899AABBCCDDEEFF
 2	00112233445566778899AABBCCDDEEFF
@@ -58,4 +83,29 @@
 14	\N
 24	\N
 31	00112233445566778899AABBCCDDEEFF
+
+-- !uuid_nested_orc --
+1	false	2	00112233445566778899AABBCCDDEEFF	\N	false	00112233445566778899AABBCCDDEEFF	text
+2	false	2	00112233445566778899AABBCCDDEEFF	\N	false	00112233445566778899AABBCCDDEEFF	bytes
+3	true	\N	\N	\N	true	\N	\N
+4	false	0	\N	\N	false	\N	\N
+11	false	2	00112233445566778899AABBCCDDEEFF	\N	false	00112233445566778899AABBCCDDEEFF	dynamic
+12	false	2	00112233445566778899AABBCCDDEEFF	\N	false	00112233445566778899AABBCCDDEEFF	dynamic
+13	true	\N	\N	\N	true	\N	\N
+14	false	2	00112233445566778899AABBCCDDEEFF	\N	false	00112233445566778899AABBCCDDEEFF	dynamic
+
+-- !uuid_nested_orc_tvf_unset --
+id	int	Yes	false	\N	NONE
+items	array<varbinary(65533)>	Yes	false	\N	NONE
+record	struct<u:varbinary(65533),text:text>	Yes	false	\N	NONE
+
+-- !uuid_nested_orc_tvf_false --
+id	int	Yes	false	\N	NONE
+items	array<varbinary(65533)>	Yes	false	\N	NONE
+record	struct<u:varbinary(65533),text:text>	Yes	false	\N	NONE
+
+-- !uuid_nested_orc_tvf_true --
+id	int	Yes	false	\N	NONE
+items	array<varbinary(65533)>	Yes	false	\N	NONE
+record	struct<u:varbinary(65533),text:text>	Yes	false	\N	NONE
 

@@ -69,4 +69,37 @@ class ConnectorWriteValueConverterTest {
                 ConnectorType.of("VARBINARY"), "", true, null));
         Assertions.assertSame(value, ConnectorWriteValueConverter.convert(binary, value));
     }
+
+    @Test
+    void nestedUuidTextIsConvertedBeforeComplexTypeCoercion() {
+        ConnectorType bytes = ConnectorType.of("VARBINARY", 16, 0);
+        ConnectorType uuid = ConnectorType.of("UUID");
+        Column array = ConnectorColumnConverter.convertColumn(new ConnectorColumn("items",
+                ConnectorType.arrayOf(bytes), "", true, null)
+                .withStringWriteType(ConnectorType.arrayOf(uuid)));
+        Expression source = SlotReference.of("items",
+                org.apache.doris.nereids.types.ArrayType.of(StringType.INSTANCE));
+        Expression result = ConnectorWriteValueConverter.convert(array, source);
+        Assertions.assertEquals(org.apache.doris.nereids.types.ArrayType.of(
+                VarBinaryType.createVarBinaryType(16)), result.getDataType());
+        Assertions.assertTrue(result.toSql().contains("unhex"));
+        Assertions.assertTrue(result.toSql().contains("array_map"));
+        Assertions.assertSame(NullLiteral.INSTANCE, ConnectorWriteValueConverter.convert(array, NullLiteral.INSTANCE));
+
+        java.util.List<String> names = java.util.Arrays.asList("u", "text");
+        Column struct = ConnectorColumnConverter.convertColumn(new ConnectorColumn("record",
+                ConnectorType.structOf(names, java.util.Arrays.asList(bytes, ConnectorType.of("STRING"))),
+                "", true, null).withStringWriteType(ConnectorType.structOf(names,
+                        java.util.Arrays.asList(uuid, ConnectorType.of("STRING")))));
+        Expression record = SlotReference.of("record", org.apache.doris.nereids.types.DataType.fromCatalogType(
+                ConnectorColumnConverter.convertColumn(new ConnectorColumn("record",
+                        ConnectorType.structOf(names, java.util.Arrays.asList(
+                                ConnectorType.of("STRING"), ConnectorType.of("STRING"))), "", true, null)).getType()));
+        Expression converted = ConnectorWriteValueConverter.convert(struct, record);
+        Assertions.assertEquals(org.apache.doris.nereids.types.DataType.fromCatalogType(struct.getType()),
+                converted.getDataType());
+        Assertions.assertTrue(converted.nullable());
+        Assertions.assertTrue(converted.toSql().contains("unhex"));
+    }
+
 }

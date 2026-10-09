@@ -205,7 +205,7 @@ public class ExternalFileTableValuedFunctionTest {
     }
 
     @Test
-    public void testTimestampMappingCannotBeDisabled() throws AnalysisException {
+    public void testLogicalTypeMappingCannotBeDisabled() throws AnalysisException {
         for (String legacyFlag : Arrays.asList(null, "false", "true")) {
             ExternalFileTableValuedFunction tvf = Mockito.mock(
                     ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
@@ -213,9 +213,12 @@ public class ExternalFileTableValuedFunctionTest {
             properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
             if (legacyFlag != null) {
                 properties.put(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, legacyFlag);
+                properties.put(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, legacyFlag);
             }
             Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
             Assertions.assertTrue(tvf.fileFormatProperties.enableMappingTimestampTz);
+            Assertions.assertTrue(tvf.fileFormatProperties.enableMappingVarbinary);
+            Assertions.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY));
             Assertions.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ));
         }
     }

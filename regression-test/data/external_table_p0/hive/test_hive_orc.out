@@ -1053,3 +1053,6 @@ tablets	tinyint_col	179	182	182	187	183	181	177	183	177	187	183	202	202	186	528	
 0x796F75746820626563617573652065787065646974696F6E	youth because expedition
 0x7A65726F207765617220736561736F6E	zero wear season
 
+-- !desc_varbinary_view --
+binary_col	varbinary(2147483647)	Yes	false	\N	
+
