@@ -90,6 +90,10 @@ public:
     static void set_soft_mem_limit_for_test(int64_t soft_mem_limit) {
         _s_soft_mem_limit.store(soft_mem_limit, std::memory_order_relaxed);
     }
+    // Returns the previous value so that the test can restore it.
+    static int64_t set_sys_mem_available_for_test(int64_t sys_mem_available) {
+        return _s_sys_mem_available.exchange(sys_mem_available, std::memory_order_relaxed);
+    }
 #endif
     static inline std::string mem_limit_str() {
         DCHECK(_s_initialized);

@@ -16,6 +16,9 @@
 // under the License.
 
 #pragma once
+#include <functional>
+#include <vector>
+
 #include "runtime/workload_management/query_task_controller.h"
 
 namespace doris {
@@ -35,6 +38,39 @@ struct MockQueryTaskController : public QueryTaskController {
     }
 
     void set_cancelled_time(int64_t ctime) { cancelled_time_ = ctime; }
+
+    // Pipeline state seen by WorkloadGroupMgr::handle_single_query_. The query context of a
+    // unit test has no fragments, so the real implementation never reports a running or a
+    // revocable task; these knobs simulate them.
+    // NOLINTNEXTLINE(readability-make-member-function-const): overrides a non-const virtual.
+    void get_revocable_info(size_t* revocable_size, size_t* memory_usage,
+                            bool* has_running_task) override {
+        QueryTaskController::get_revocable_info(revocable_size, memory_usage, has_running_task);
+        *has_running_task = has_running_task_;
+        if (on_get_revocable_info_) {
+            on_get_revocable_info_();
+        }
+    }
+
+    // The manager only checks whether the list is empty before it calls revoke_memory(), which
+    // is mocked below, so a placeholder entry is enough to stand for a revocable task.
+    std::vector<PipelineTask*> get_revocable_tasks() override {
+        return has_revocable_task_ ? std::vector<PipelineTask*> {nullptr}
+                                   : std::vector<PipelineTask*> {};
+    }
+
+    Status revoke_memory() override {
+        ++revoke_memory_calls_;
+        return revoke_memory_status_;
+    }
+
+    bool has_running_task_ {false};
+    bool has_revocable_task_ {false};
+    Status revoke_memory_status_ {Status::OK()};
+    int revoke_memory_calls_ {0};
+    // Runs inside get_revocable_info(), after the manager has observed the memory pressure
+    // and before it decides what to do with the query.
+    std::function<void()> on_get_revocable_info_;
 };
 
 } // namespace doris

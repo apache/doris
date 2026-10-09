@@ -200,7 +200,7 @@ private:
     //   3. If the WG's usage exceeds its min_memory_limit, spill via
     //      release_query_memory_(stop_after_release=true) — one spill per round.
     //   4. Otherwise, try to revoke memory from other overcommitted WGs by
-    //      cancelling their largest queries.
+    //      cancelling their largest queries. Only memory actually revoked counts.
     //   5. If nothing could be revoked and the process has reached its hard limit or the query
     //      has waited for spill_in_paused_queue_timeout_ms, spill or cancel it via
     //      release_query_memory_.
@@ -223,17 +223,33 @@ private:
 
     // Attempt to resolve a single paused query: if revocable memory exists, trigger
     // spill; if under limit, resume; if no memory can be freed, cancel the query or
-    // disable reserve memory and resume. For PROCESS_MEMORY_EXCEEDED with no revocable
-    // memory, keep the query paused until it has waited spill_in_paused_queue_timeout_ms
-    // or the process reaches the hard memory limit, then cancel it. Returns true if the
-    // query was acted upon (spilled/cancelled/resumed), false if it should keep waiting
-    // (still has running tasks, or is within the process-memory grace period).
+    // disable reserve memory and resume. PROCESS_MEMORY_EXCEEDED is delegated to
+    // resolve_process_memory_exceeded_query_. Returns true if the query was acted upon
+    // (spilled/cancelled/resumed), false if it should keep waiting (still has running
+    // tasks, or is within the process-memory grace period).
     bool handle_single_query_(const std::shared_ptr<ResourceContext>& requestor,
                               size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
 
+    // Resolve a query paused due to PROCESS_MEMORY_EXCEEDED, called by handle_single_query_:
+    //   1. Re-check the recorded reservation against the soft limit and resume the query if
+    //      it fits now, the caller's observation may be stale.
+    //   2. Spill if the query has revocable memory and no running task.
+    //   3. Otherwise keep the query paused until it has waited spill_in_paused_queue_timeout_ms,
+    //      then cancel it. Once the process reaches the hard memory limit, cancel it at once,
+    //      even if a running task prevents spilling, so that the protection does not depend
+    //      on memory gc. Return value as handle_single_query_.
+    bool resolve_process_memory_exceeded_query_(const std::shared_ptr<ResourceContext>& requestor,
+                                                size_t size_to_reserve, int64_t time_in_queue,
+                                                size_t memory_usage, bool has_running_task);
+
+    // Spill the revocable tasks of the query, the query is resumed by the spill callback.
+    // The query is cancelled if the spill could not be started.
+    void spill_query_(const std::shared_ptr<ResourceContext>& requestor);
+
     // Find the most overcommitted workload group (usage - min_memory_limit is
     // largest) and cancel its biggest query to reclaim ~10% of the excess memory.
-    // Returns the amount of memory expected to be freed, or 0 if no WG qualifies.
+    // Returns the amount of memory actually revoked, or 0 if no WG qualifies or
+    // no query of that WG could be cancelled.
     int64_t revoke_memory_from_other_groups_();
 
     // Recalculate and apply per-query memory limits for all queries in a workload
