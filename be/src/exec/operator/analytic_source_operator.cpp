@@ -168,18 +168,53 @@ Status AnalyticLocalState::_next_replay_rows(RuntimeState* state, Block* block, 
 }
 
 size_t AnalyticLocalState::_spill_replay_reserve_bytes(RuntimeState* state) const {
-    if (!_shared_state->spill_enabled.load() || _replay_block_position < _replay_block.rows()) {
+    if (!_shared_state->spill_enabled.load()) {
         return 0;
     }
-    // The next call reads a new Block. A spilled record holds Blocks coalesced up to about the
-    // spill buffer size and is deserialized into a new Block. Opening the reader of the next
-    // batch additionally allocates the buffer for its largest serialized record, and it is not
-    // known yet whether that batch was spilled.
+    // A spilled record holds Blocks coalesced up to about the spill buffer size: opening a reader
+    // allocates the buffer for the largest serialized record of the file and every read
+    // deserializes a whole record into a new Block. In-memory batches cost nothing to replay.
     const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
-    if (_current_batch && _batch_output_position < _current_batch->rows) {
-        return _current_batch->data_file ? spill_buffer_bytes : 0;
+    if (!_current_batch || _batch_output_position >= _current_batch->rows) {
+        // The next call opens the batch at the head of the queue: it opens the readers of its
+        // spilled files, reads the first peer group record and then the first data record.
+        LockGuard lock(_shared_state->buffer_mutex);
+        if (_shared_state->spill_batches.empty()) {
+            return 0;
+        }
+        const auto& next_batch = _shared_state->spill_batches.front();
+        size_t reserve_bytes = 0;
+        if (next_batch->data_file) {
+            reserve_bytes += 2 * spill_buffer_bytes;
+        }
+        if (next_batch->peer_group_file) {
+            reserve_bytes += 2 * spill_buffer_bytes;
+        }
+        return reserve_bytes;
     }
-    return 2 * spill_buffer_bytes;
+    size_t reserve_bytes = 0;
+    if (_batch_reader && _replay_block_position >= _replay_block.rows()) {
+        reserve_bytes += spill_buffer_bytes;
+    }
+    if (_next_slice_reads_peer_group_record(state)) {
+        reserve_bytes += spill_buffer_bytes;
+    }
+    return reserve_bytes;
+}
+
+bool AnalyticLocalState::_next_slice_reads_peer_group_record(RuntimeState* state) const {
+    if (!_peer_group_reader) {
+        return false;
+    }
+    // The next call outputs at most batch_size rows starting at _batch_output_position and needs
+    // a new peer group record once one of them is not covered by the last group end read so far.
+    DCHECK_GT(_peer_group_block.rows(), 0);
+    const auto& column =
+            assert_cast<const ColumnInt64&>(*_peer_group_block.get_by_position(0).column);
+    const int64_t last_peer_group_end = column.get_data().back();
+    const int64_t slice_end =
+            std::min<int64_t>(_batch_output_position + state->batch_size(), _current_batch->rows);
+    return last_peer_group_end < slice_end;
 }
 
 Status AnalyticLocalState::_next_peer_group_end(RuntimeState* state) {

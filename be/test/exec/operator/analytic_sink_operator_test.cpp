@@ -981,9 +981,15 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathCoalescesSmallBlocksAndSlicesReplay) {
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(spill_write_block_count(sink_local_state), 2);
 
+    // Opening the batch reserves the data reader and its first record, reading the second record
+    // one more Block, and slicing a retained Block nothing.
+    const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
+    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 2 * spill_buffer_bytes);
     // The 27-row coalesced Block is replayed in batch-size slices.
     expect_next_spill_block(source.get(), state.get(), values_with_sum(0, 3, 435));
+    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), spill_buffer_bytes);
     expect_next_spill_block(source.get(), state.get(), values_with_sum(3, 8, 435));
+    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 0);
     expect_next_spill_block(source.get(), state.get(), values_with_sum(11, 8, 435));
     expect_next_spill_block(source.get(), state.get(), values_with_sum(19, 8, 435));
     expect_next_spill_block(source.get(), state.get(), values_with_sum(27, 3, 435));
@@ -1050,18 +1056,22 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathReplaysPeerGroupsFromSidecarFile) {
     status = sink->sink(state.get(), &second, true);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    // The first replay of a batch reserves the reader buffer and one deserialized Block.
+    // Opening the batch reserves the reader buffer and one deserialized record for the data file
+    // and for the peer group sidecar file.
     const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
-    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 2 * spill_buffer_bytes);
+    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 4 * spill_buffer_bytes);
     EXPECT_GE(source->get_reserve_mem_size(state.get()),
-              2 * spill_buffer_bytes + state->minimum_operator_memory_required_bytes());
+              4 * spill_buffer_bytes + state->minimum_operator_memory_required_bytes());
     expect_next_spill_block(source.get(), state.get(),
                             order_block_with_double_result({1, 1, 2}, {0.4, 0.4, 0.8}));
     ASSERT_NE(source_local_state->_peer_group_reader, nullptr);
+    // The second sidecar record ([4, 5]) was read while replaying row 2 and covers the rest of
+    // the batch, so only the next data record is reserved.
     EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), spill_buffer_bytes);
     expect_next_spill_block(source.get(), state.get(),
                             order_block_with_double_result({2, 4}, {0.8, 1.0}));
-    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 2 * spill_buffer_bytes);
+    // Nothing is queued behind the batch, so finishing it reserves nothing.
+    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 0);
     expect_spill_source_eos(source.get(), state.get());
 }
 
@@ -1087,9 +1097,23 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathFlushesPeerGroupsAtSpillBufferSize) {
     status = sink->sink(state.get(), &eos_block, true);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
+    // Opening the batch reserves the sidecar reader and its first record; the rows are in
+    // memory and reserve nothing. Afterwards only the slice that starts at the first row not
+    // covered by the first sidecar record reads the second record.
+    const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
+    constexpr int64_t first_record_peer_groups = 1024 * 1024 / sizeof(int64_t);
     int64_t output_rows = 0;
     bool eos = false;
     while (!eos) {
+        size_t expected_reserve_bytes = 0;
+        if (output_rows == 0) {
+            expected_reserve_bytes = 2 * spill_buffer_bytes;
+        } else if (output_rows == first_record_peer_groups) {
+            expected_reserve_bytes = spill_buffer_bytes;
+        }
+        EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()),
+                  expected_reserve_bytes)
+                << "output_rows=" << output_rows;
         Block output;
         status = source->get_block(state.get(), &output, &eos);
         ASSERT_TRUE(status.ok()) << status.to_string();
@@ -1152,6 +1176,11 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathKeepsSealedBatchBelowSinkLimitInMemory
         EXPECT_GT(batch_bytes, state->spill_min_revocable_mem());
     }
     EXPECT_EQ(spill_write_block_count(sink_local_state), 0);
+    // Replaying the in-memory batch opens no spill file, so the source reserves nothing beyond
+    // the operator minimum before dequeuing it.
+    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 0);
+    EXPECT_EQ(source->get_reserve_mem_size(state.get()),
+              state->minimum_operator_memory_required_bytes());
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathSpillsAtAnalyticSinkMemLimit) {
