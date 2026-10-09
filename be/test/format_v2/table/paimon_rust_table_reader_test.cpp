@@ -162,8 +162,7 @@ TEST_F(PaimonRustTableReaderTest, ValidatesRustSplit) {
 }
 
 TEST_F(PaimonRustTableReaderTest, AdaptiveBatchSizeBoundsWideStringReads) {
-    const auto fixture = std::filesystem::path(__FILE__).parent_path() /
-                         "../../exec/test_data/paimon_rust_batch_size";
+    const auto fixture = std::filesystem::path("be/test/exec/test_data/paimon_rust_batch_size");
     const auto read_file = [](const std::filesystem::path& path) {
         std::ifstream input(path, std::ios::binary);
         return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
