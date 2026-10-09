@@ -353,6 +353,8 @@ public:
         this->data(place).insert_result_into(to);
     }
 
+    bool needs_deserialize_and_merge_scratch() const override { return false; }
+
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {

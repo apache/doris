@@ -123,8 +123,11 @@ private:
         // keep passing the caller's arena for allocations that merged states may retain.
         // The function can be shared by evaluators, so scratch must not be a mutable member.
         Arena scratch_arena;
-        auto* scratch = scratch_arena.aligned_alloc(batch_size * _function->size_of_data(),
-                                                    _function->align_of_data());
+        AggregateDataPtr scratch = nullptr;
+        if (_function->needs_deserialize_and_merge_scratch()) {
+            scratch = scratch_arena.aligned_alloc(batch_size * _function->size_of_data(),
+                                                  _function->align_of_data());
+        }
         if constexpr (selected) {
             _function->deserialize_and_merge_vec_selected(places, place_offset, scratch, columns[0],
                                                           arena, batch_size);

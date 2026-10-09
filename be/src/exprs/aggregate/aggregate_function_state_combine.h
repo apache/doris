@@ -139,6 +139,10 @@ public:
         _function->deserialize_vec(places, column, arena, num_rows);
     }
 
+    bool needs_deserialize_and_merge_scratch() const override {
+        return _function->needs_deserialize_and_merge_scratch();
+    }
+
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {

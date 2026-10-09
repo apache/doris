@@ -169,6 +169,10 @@ public:
     virtual void deserialize_vec(AggregateDataPtr places, const ColumnString* column, Arena&,
                                  size_t num_rows) const = 0;
 
+    // Returning false guarantees that both deserialize_and_merge_vec variants accept nullptr
+    // for rhs and never access it. Generic readers require storage for temporary states.
+    virtual bool needs_deserialize_and_merge_scratch() const { return true; }
+
     virtual void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                            AggregateDataPtr rhs, const IColumn* column, Arena&,
                                            const size_t num_rows) const = 0;

@@ -20,13 +20,51 @@
 #include <array>
 
 #include "agent/be_exec_version_manager.h"
+#include "core/column/column_complex.h"
+#include "core/data_type/data_type_bitmap.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_string.h"
+#include "exprs/aggregate/aggregate_function_state_combine.h"
 #include "exprs/aggregate/aggregate_function_state_merge.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
 #include "testutil/column_helper.h"
 
 namespace doris {
+
+// Reuse the state lifecycle forwarding while inspecting the scratch passed by UNION/MERGE.
+class ScratchCheckingAggregateFunction final : public AggregateStateUnion {
+public:
+    using AggregateStateUnion::AggregateStateUnion;
+
+    bool needs_deserialize_and_merge_scratch() const override {
+        return _function->needs_deserialize_and_merge_scratch();
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena& arena,
+                                   size_t num_rows) const override {
+        check_scratch(rhs);
+        ++batch_calls;
+        _function->deserialize_and_merge_vec(places, offset, rhs, column, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const IColumn* column,
+                                            Arena& arena, size_t num_rows) const override {
+        check_scratch(rhs);
+        ++selected_batch_calls;
+        _function->deserialize_and_merge_vec_selected(places, offset, rhs, column, arena, num_rows);
+    }
+
+    mutable size_t batch_calls = 0;
+    mutable size_t selected_batch_calls = 0;
+
+private:
+    void check_scratch(ConstAggregateDataPtr rhs) const {
+        EXPECT_EQ(rhs != nullptr, needs_deserialize_and_merge_scratch());
+        EXPECT_EQ(reinterpret_cast<uintptr_t>(rhs) % align_of_data(), 0);
+    }
+};
 
 class AggregateStateUnionTest : public testing::Test {
 protected:
@@ -108,27 +146,63 @@ protected:
         auto type = std::make_shared<DataTypeAggState>(DataTypes {argument}, result_nullable, name,
                                                        BeExecVersionManager::get_newest_version());
         auto nested = type->get_nested_function();
-        auto states = type->create_column();
+        check_function(nested, {input}, type);
+    }
+
+    static void check_function(const AggregateFunctionPtr& nested, const Columns& inputs,
+                               const DataTypePtr& state_type) {
+        auto states = nested->create_serialize_column();
+        std::vector<const IColumn*> columns;
+        for (const auto& input : inputs) {
+            columns.push_back(input.get());
+        }
         Arena arena;
         // Serialize independently built states, as produced by *_state or *_combine.
-        for (size_t row = 0; row < input->size(); ++row) {
+        for (size_t row = 0; row < inputs[0]->size(); ++row) {
             auto* place = arena.aligned_alloc(nested->size_of_data(), nested->align_of_data());
             nested->create(place);
             DEFER(nested->destroy(place));
-            const IColumn* columns[] = {input.get()};
-            nested->add(place, columns, row, arena);
+            nested->add(place, columns.data(), row, arena);
             auto serialized = nested->create_serialize_column();
             nested->serialize_without_key_to_column(place, *serialized);
             states->insert_range_from(*serialized, 0, 1);
         }
-        for (bool merge : {false, true}) {
-            SCOPED_TRACE(merge ? "merge" : "union");
-            auto function =
-                    merge ? AggregateStateMerge::create(nested, {type}, nested->get_return_type())
-                          : AggregateStateUnion::create(nested, {type}, type);
-            check_batches(function, nested, *states, false);
-            check_batches(function, nested, *states, true);
+        for (bool combine : {false, true}) {
+            SCOPED_TRACE(combine ? "combine reader" : "direct reader");
+            auto reader = combine ? AggregateStateCombine::create(
+                                            nested, nested->get_argument_types(), state_type)
+                                  : nested;
+            auto checked = std::make_shared<ScratchCheckingAggregateFunction>(
+                    reader, DataTypes {state_type}, state_type);
+            EXPECT_EQ(checked->needs_deserialize_and_merge_scratch(),
+                      nested->needs_deserialize_and_merge_scratch());
+            for (bool merge : {false, true}) {
+                SCOPED_TRACE(merge ? "merge" : "union");
+                auto function =
+                        merge ? AggregateStateMerge::create(checked, {state_type},
+                                                            nested->get_return_type())
+                              : AggregateStateUnion::create(checked, {state_type}, state_type);
+                check_batches(function, nested, *states, false);
+                check_batches(function, nested, *states, true);
+            }
+            EXPECT_GT(checked->batch_calls, 0);
+            EXPECT_GT(checked->selected_batch_calls, 0);
         }
+    }
+
+    static void check_scratch_requirement(const std::string& name, const DataTypes& arguments,
+                                          const Columns& inputs, bool needs_scratch,
+                                          bool result_nullable = false, bool null_v2 = false) {
+        SCOPED_TRACE(name);
+        AggregateFunctionAttr attr;
+        attr.enable_aggregate_function_null_v2 = null_v2;
+        auto nested = AggregateFunctionSimpleFactory::instance().get(
+                name, arguments, nullptr, result_nullable,
+                BeExecVersionManager::get_newest_version(), attr);
+        ASSERT_NE(nested, nullptr);
+        nested->set_version(BeExecVersionManager::get_newest_version());
+        ASSERT_EQ(nested->needs_deserialize_and_merge_scratch(), needs_scratch);
+        check_function(nested, inputs, nested->get_serialized_type());
     }
 };
 
@@ -171,6 +245,74 @@ TEST_F(AggregateStateUnionTest, NullableStringMinStateLifetime) {
           ColumnHelper::create_nullable_column<DataTypeString>(
                   {std::string(4096, 'a'), "z", "c", "", std::string(8192, 'b'), "e"},
                   {0, 0, 0, 1, 0, 0}));
+}
+
+TEST_F(AggregateStateUnionTest, NativeNumericReadersNeedNoScratch) {
+    auto type = std::make_shared<DataTypeInt64>();
+    auto input = ColumnHelper::create_column<DataTypeInt64>({2, 50, 7, 0, 11, 19});
+    for (const auto* name : {"sum", "avg", "count", "min", "max", "bitmap_agg"}) {
+        check_scratch_requirement(name, {type}, {input}, false);
+    }
+    check_scratch_requirement("count", {make_nullable(type)},
+                              {ColumnHelper::create_nullable_column<DataTypeInt64>(
+                                      {2, 50, 7, 0, 11, 19}, {0, 0, 0, 1, 0, 0})},
+                              false);
+}
+
+TEST_F(AggregateStateUnionTest, NativeComplexReadersNeedNoScratch) {
+    auto type = std::make_shared<DataTypeString>();
+    const std::vector<std::string> values = {std::string(4096, 'a'), "b", "c", "",
+                                             std::string(8192, 'd'), "e"};
+    auto input = ColumnHelper::create_column<DataTypeString>(values);
+    // Nullable inputs select the native array reader; non-nullable inputs select collect_list.
+    check_scratch_requirement(
+            "array_agg", {make_nullable(type)},
+            {ColumnHelper::create_nullable_column<DataTypeString>(values, {0, 0, 0, 1, 0, 0})},
+            false);
+    for (const auto* name : {"map_agg_v1", "map_agg_v2"}) {
+        check_scratch_requirement(name, {type, type}, {input, input}, false);
+    }
+    auto bitmap_type = std::make_shared<DataTypeBitMap>();
+    auto bitmaps = ColumnBitmap::create();
+    for (UInt64 value : {2, 50, 7, 0, 11, 19}) {
+        bitmaps->insert_value(BitmapValue(value));
+    }
+    check_scratch_requirement("bitmap_union", {bitmap_type}, {std::move(bitmaps)}, false);
+}
+
+TEST_F(AggregateStateUnionTest, GenericAndStringMinMaxNeedScratch) {
+    auto type = std::make_shared<DataTypeString>();
+    auto input = ColumnHelper::create_column<DataTypeString>(
+            {std::string(4096, 'a'), "z", "c", "", std::string(8192, 'b'), "e"});
+    for (const auto* name : {"min", "max"}) {
+        check_scratch_requirement(name, {type}, {input}, true);
+    }
+    check_scratch_requirement("array_agg", {type}, {input}, true);
+}
+
+TEST_F(AggregateStateUnionTest, NullableReadersPreserveScratchRequirement) {
+    auto type = make_nullable(std::make_shared<DataTypeInt64>());
+    for (bool all_null : {false, true}) {
+        auto input = ColumnHelper::create_nullable_column<DataTypeInt64>(
+                {2, 50, 7, 0, 11, 19}, all_null ? std::vector<UInt8> {1, 1, 1, 1, 1, 1}
+                                                : std::vector<UInt8> {0, 0, 0, 1, 0, 0});
+        for (bool null_v2 : {false, true}) {
+            for (bool result_nullable : {false, true}) {
+                check_scratch_requirement("sum", {type}, {input}, !null_v2, result_nullable,
+                                          null_v2);
+            }
+            // The generic serialized-string reader still needs scratch inside Nullable V2.
+            check_scratch_requirement("multi_distinct_count", {type}, {input}, true, false,
+                                      null_v2);
+        }
+    }
+}
+
+TEST_F(AggregateStateUnionTest, FixedLengthColumnCanStillNeedScratch) {
+    // This reader reconstructs a hash-set state from each fixed-width serialized count.
+    check_scratch_requirement(
+            "multi_distinct_count_distribute_key", {std::make_shared<DataTypeInt64>()},
+            {ColumnHelper::create_column<DataTypeInt64>({2, 50, 7, 0, 11, 19})}, true);
 }
 
 } // namespace doris
