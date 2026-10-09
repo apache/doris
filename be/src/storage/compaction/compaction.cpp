@@ -134,10 +134,17 @@ namespace {
 constexpr size_t kSniiCompactionReadAheadBudgetBytes = 64ULL << 20;
 
 bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
-                    const RowsetSharedPtr& rhs) {
+                    const RowsetSharedPtr& rhs, bool has_version_col) {
     size_t min_tidy_size = config::ordered_data_compaction_min_segment_size;
     if (rhs->num_segments() == 0) {
         return true;
+    }
+    // A load stores the hidden VERSION column as a zero placeholder, and readers substitute the
+    // rowset version only while the rowset is single-version (get_read_time_hidden_column_value).
+    // Linking its segments under a multi-version output would expose the placeholder, so such a
+    // rowset goes through the rewriting compaction, which materializes the value.
+    if (has_version_col && rhs->start_version() == rhs->end_version()) {
+        return false;
     }
     if (rhs->is_segments_overlapping()) {
         return false;
@@ -678,8 +685,11 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         auto input_size = _input_rowsets.size();
         std::string pre_max_key;
         bool pre_rs_key_bounds_truncated {false};
+        // by name, like readers classify hidden columns: TabletMeta does not fill version_col_idx
+        const bool has_version_col = _tablet->tablet_schema()->field_index(VERSION_COL) != -1;
         for (auto i = 0; i < input_size; ++i) {
-            if (!is_rowset_tidy(pre_max_key, pre_rs_key_bounds_truncated, _input_rowsets[i])) {
+            if (!is_rowset_tidy(pre_max_key, pre_rs_key_bounds_truncated, _input_rowsets[i],
+                                has_version_col)) {
                 if (i <= input_size / 2) {
                     return false;
                 } else {
