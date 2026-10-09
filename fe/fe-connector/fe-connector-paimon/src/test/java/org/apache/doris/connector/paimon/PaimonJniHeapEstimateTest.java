@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
@@ -24,7 +25,9 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.stats.SimpleStats;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.types.DataTypes;
@@ -33,9 +36,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class PaimonJniHeapEstimateTest {
@@ -43,7 +48,8 @@ public class PaimonJniHeapEstimateTest {
     private static final long MB = 1024L * 1024;
 
     // 128 MB row groups, 64 MB stripes, four columns a file (4 MB of dictionaries).
-    private final PaimonJniHeapEstimate estimate = new PaimonJniHeapEstimate(128 * MB, 64 * MB, 4);
+    private final PaimonJniHeapEstimate estimate =
+            new PaimonJniHeapEstimate(schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, 4));
 
     /**
      * The split that ran a 2 GB heap out sixteen at a time: an uncompacted primary-key bucket whose 130 MB
@@ -76,7 +82,9 @@ public class PaimonJniHeapEstimateTest {
 
     /**
      * The row group comes from the table's options with the precedence paimon's writers apply, and every
-     * file has a dictionary for each column, the keys a second time beside the sequence and row kind.
+     * file has a dictionary for each column, the keys a second time beside the sequence and row kind. A
+     * file written under the table's own schema version is laid out without reading any schema, and a
+     * table whose versions are not at hand (a system table other than $ro) is laid out the same way.
      */
     @Test
     public void theTableOptionsSetTheRowGroupAndTheColumns(@TempDir Path warehouse) throws Exception {
@@ -85,18 +93,55 @@ public class PaimonJniHeapEstimateTest {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
             catalog.createDatabase("db", false);
-            Assertions.assertEquals((100 + 6) * MB, PaimonJniHeapEstimate.of(
-                    table(catalog, "defaults", Collections.emptyMap())).bytesOf(oneBigFile));
-            Assertions.assertEquals((64 + 6) * MB, PaimonJniHeapEstimate.of(
-                    table(catalog, "parquet_option", Collections.singletonMap("parquet.block.size",
-                            String.valueOf(32 * MB)))).bytesOf(oneBigFile));
+            assertBothDeclare((100 + 6) * MB, table(catalog, "defaults", Collections.emptyMap()), oneBigFile);
+            assertBothDeclare((64 + 6) * MB, table(catalog, "parquet_option",
+                    Collections.singletonMap("parquet.block.size", String.valueOf(32 * MB))), oneBigFile);
             // file.block-size wins over the format's own option.
             Map<String, String> both = new HashMap<>();
             both.put("file.block-size", "16 mb");
             both.put("parquet.block.size", String.valueOf(32 * MB));
-            Assertions.assertEquals((32 + 6) * MB, PaimonJniHeapEstimate.of(
-                    table(catalog, "block_size", both)).bytesOf(oneBigFile));
+            assertBothDeclare((32 + 6) * MB, table(catalog, "block_size", both), oneBigFile);
         }
+    }
+
+    /**
+     * An ALTER TABLE leaves the files written before it as they are, so a file is laid out by the schema
+     * version it was written under: its row group size and its columns. The version is read once, however
+     * many files were written under it, and the table's own version is never read.
+     */
+    @Test
+    public void eachFileIsLaidOutByTheSchemaVersionItWasWrittenUnder(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            // Version 0: 128 MB row groups by default, 6 columns a file.
+            table(catalog, "altered", Collections.emptyMap());
+            // Version 1: 16 MB row groups, and a column more: 7 columns a file.
+            Identifier id = Identifier.create("db", "altered");
+            catalog.alterTable(id, Arrays.asList(
+                    SchemaChange.setOption(CoreOptions.FILE_BLOCK_SIZE.key(), "16 mb"),
+                    SchemaChange.addColumn("x", DataTypes.INT())), false);
+            FileStoreTable table = (FileStoreTable) catalog.getTable(id);
+            Assertions.assertEquals(1L, table.schema().id());
+            List<Long> reads = new ArrayList<>();
+            PaimonJniHeapEstimate estimate = PaimonJniHeapEstimate.of(table, schemaId -> {
+                reads.add(schemaId);
+                return table.schemaManager().schema(schemaId);
+            });
+
+            DataSplit merged = split(false, file("data-0.parquet", 900 * MB, 0), file("data-1.parquet", 900 * MB, 1));
+            Assertions.assertEquals((256 + 6) * MB + (32 + 7) * MB, estimate.bytesOf(merged));
+            Assertions.assertEquals((256 + 6) * MB,
+                    estimate.bytesOf(split(false, file("data-2.parquet", 900 * MB, 0))));
+            Assertions.assertEquals(Collections.singletonList(0L), reads);
+        }
+    }
+
+    private static void assertBothDeclare(long expected, Table table, DataSplit split) {
+        Assertions.assertEquals(expected, PaimonJniHeapEstimate.of((FileStoreTable) table, schemaId -> {
+            throw new AssertionError("read schema " + schemaId + ", the table's own");
+        }).bytesOf(split));
+        Assertions.assertEquals(expected, PaimonJniHeapEstimate.of(table).bytesOf(split));
     }
 
     private static Table table(Catalog catalog, String name, Map<String, String> options) throws Exception {
@@ -113,7 +158,11 @@ public class PaimonJniHeapEstimateTest {
     }
 
     private static DataFileMeta file(String name, long size) {
-        return DataFileMeta.forAppend(name, size, 1000L, SimpleStats.EMPTY_STATS, 0L, 0L, 0L,
+        return file(name, size, 0L);
+    }
+
+    private static DataFileMeta file(String name, long size, long schemaId) {
+        return DataFileMeta.forAppend(name, size, 1000L, SimpleStats.EMPTY_STATS, 0L, 0L, schemaId,
                 Collections.emptyList(), null, null, null, null, null, null);
     }
 
