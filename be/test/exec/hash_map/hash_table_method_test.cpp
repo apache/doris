@@ -246,7 +246,8 @@ TEST(HashTableMethodTest, testNullableVoidNullKeyCreationExceptionSafety) {
     EXPECT_FALSE(method.hash_table->has_null_key_data());
     EXPECT_TRUE(method.hash_table->empty());
 
-    method.lazy_emplace(state, 0, [](const auto&, auto&, auto&) {}, [] {});
+    method.lazy_emplace(
+            state, 0, [](const auto&, auto&, auto&) {}, [] {});
     EXPECT_TRUE(method.hash_table->has_null_key_data());
     EXPECT_EQ(method.hash_table->size(), 1);
 }
