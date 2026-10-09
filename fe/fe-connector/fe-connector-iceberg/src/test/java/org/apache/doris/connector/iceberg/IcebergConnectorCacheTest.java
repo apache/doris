@@ -250,6 +250,13 @@ public class IcebergConnectorCacheTest {
         Assertions.assertEquals(Long.valueOf(oneMb), viewLimited.get("iceberg.list-partitions-view"),
                 "both physical partition views belong to the partition_view entry");
         Assertions.assertEquals(Long.valueOf(-1L), viewLimited.get("iceberg-partition"));
+
+        // Only a REST vended-credentials catalog builds the comment cache; the catalog limit bounds it as well.
+        Map<String, String> vended = props("meta.cache.max-weight", "1MB");
+        vended.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        vended.put("iceberg.rest.vended-credentials-enabled", "true");
+        Assertions.assertEquals(Long.valueOf(oneMb), maxWeightsOf(vended).get("iceberg-comment"),
+                "a catalog limit must bound iceberg-comment");
     }
 
     /** MAX_WEIGHT of every cache one connector registers: its effective limit, or -1 when only count-bounded. */

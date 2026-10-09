@@ -34,6 +34,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -81,16 +82,21 @@ class MetaCacheBudgetManagerTest {
         ExecutorService executor = Executors.newFixedThreadPool(8);
         CountDownLatch start = new CountDownLatch(1);
         List<AdmissionReservation> reservations = Collections.synchronizedList(new ArrayList<>());
+        List<Future<?>> attempts = new ArrayList<>();
         try {
             for (int i = 0; i < 200; i++) {
-                executor.submit(() -> {
+                attempts.add(executor.submit(() -> {
                     await(start);
                     budget.tryReserve(1L).ifPresent(reservations::add);
-                });
+                }));
             }
             start.countDown();
             executor.shutdown();
             Assertions.assertTrue(executor.awaitTermination(10L, TimeUnit.SECONDS));
+            // A refused attempt returns an empty Optional; an attempt that threw would surface here.
+            for (Future<?> attempt : attempts) {
+                attempt.get();
+            }
             Assertions.assertEquals(100, reservations.size());
             Assertions.assertEquals(100L, manager.getGlobalUsedWeight());
         } finally {
@@ -402,6 +408,34 @@ class MetaCacheBudgetManagerTest {
         Assertions.assertTrue(privateMap(manager, "entryGroupBuckets").isEmpty());
         Assertions.assertTrue(privateMap(manager, "entryBudgets").isEmpty());
         Assertions.assertEquals(0L, manager.getGlobalUsedWeight());
+    }
+
+    @Test
+    void sharedEntryGroupKeepsItsLimitUntilItsLastPhysicalCacheCloses() throws Exception {
+        // Iceberg's two physical partition-view caches share the partition_view entry limit.
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(NONE);
+        EntryBudget mvccView = manager.createEntryBudget(
+                1L, "iceberg", "mvcc-partition-view", "partition_view", NONE, OptionalLong.of(100L));
+        EntryBudget listView = manager.createEntryBudget(
+                1L, "iceberg", "list-partitions-view", "partition_view", NONE, OptionalLong.of(100L));
+        AdmissionReservation held = mvccView.tryReserve(60L).get();
+
+        // Closing one sibling keeps the group bucket, so a re-created sibling still shares the 60 bytes held.
+        listView.close();
+        Assertions.assertEquals(1, privateMap(manager, "entryGroupBuckets").size());
+        EntryBudget recreated = manager.createEntryBudget(
+                1L, "iceberg", "list-partitions-view", "partition_view", NONE, OptionalLong.of(100L));
+        Assertions.assertFalse(recreated.tryReserve(41L).isPresent(),
+                "a fresh group bucket would admit 41 bytes on top of the live sibling's 60");
+        AdmissionReservation fits = recreated.tryReserve(40L).get();
+
+        // The group bucket goes away only with its last physical cache.
+        fits.release();
+        held.release();
+        mvccView.close();
+        Assertions.assertEquals(1, privateMap(manager, "entryGroupBuckets").size());
+        recreated.close();
+        Assertions.assertTrue(privateMap(manager, "entryGroupBuckets").isEmpty());
     }
 
     private static Map<?, ?> privateMap(MetaCacheBudgetManager manager, String fieldName)
