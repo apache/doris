@@ -751,8 +751,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     }
 
     private void assertTimeTravelBoundary(String table, String snapshot, long exclusiveBound, boolean mow) {
-        Plan plan = PlanChecker.from(connectContext)
-                .analyze("select * from test_stream." + table + " for " + snapshot)
+        Plan plan = analyzeTimeTravel("select * from test_stream." + table + " for " + snapshot)
                 .getCascadesContext().getRewritePlan();
         Set<LogicalFilter<?>> filters = plan.collect(node -> node instanceof LogicalFilter);
         List<Expression> commitPredicates = new ArrayList<>();
@@ -781,8 +780,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
     @Test
     public void testMowTimeTravelBranchProjectionPreservesQualifier() {
-        Plan plan = PlanChecker.from(connectContext)
-                .analyze("select * from test_stream.tbl_stream_base for version as of 1001")
+        Plan plan = analyzeTimeTravel("select * from test_stream.tbl_stream_base for version as of 1001")
                 .getCascadesContext().getRewritePlan();
         Set<LogicalUnion> unions = plan.collect(node -> node instanceof LogicalUnion);
         Assertions.assertEquals(1, unions.size());
@@ -806,16 +804,22 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     public void testMowTimeTravelQualifiedColumnCanBind() {
         // MOW time-travel goes through a union whose outputs are rebuilt with empty qualifiers.
         // The union must be wrapped in a subquery alias so qualified columns still bind.
-        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
-                .analyze("select tbl_stream_base.k1, tbl_stream_base.k2 "
+        Assertions.assertDoesNotThrow(() -> analyzeTimeTravel("select tbl_stream_base.k1, tbl_stream_base.k2 "
                         + "from test_stream.tbl_stream_base for version as of 1001"));
     }
 
     @Test
     public void testMowTimeTravelQualifiedStarCanBind() {
-        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
-                .analyze("select tbl_stream_base.* "
+        Assertions.assertDoesNotThrow(() -> analyzeTimeTravel("select tbl_stream_base.* "
                         + "from test_stream.tbl_stream_base for version as of 1001"));
+    }
+
+    private PlanChecker analyzeTimeTravel(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
+        // Direct analyzer tests bypass the planner's statement reference initialization.
+        checker.getCascadesContext().getStatementContext().getOrRegisterRowBinlogReferenceTso(
+                () -> TSOTimestamp.composePhysicalTimestamp(1700000000001L));
+        return checker.analyze();
     }
 
     @Test
