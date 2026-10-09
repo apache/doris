@@ -17,17 +17,23 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
@@ -78,6 +84,27 @@ public class FileTvfCountPushDownTest {
                 aggregate(scan, new Count()), session).get());
         Assertions.assertSame(scan, PhysicalPlanTranslator.countPushDownFileTvf(
                 aggregate(project, new Count(new IntegerLiteral(1))), session).get());
+    }
+
+    @Test
+    public void rejectRetainedAssertionsInProjects() {
+        PhysicalTVFRelation scan = tvf(true);
+        SlotReference id = new SlotReference("id", IntegerType.INSTANCE);
+        Alias assertion = new Alias(new AssertTrue(new GreaterThan(id, new IntegerLiteral(0)),
+                new StringLiteral("positive id")), "checked");
+        PhysicalProject<?> project = Mockito.mock(PhysicalProject.class);
+        Mockito.doReturn(scan).when(project).child(0);
+        Mockito.doReturn(ImmutableList.of(assertion)).when(project).getProjects();
+        SessionVariable session = new SessionVariable();
+        Assertions.assertFalse(PhysicalPlanTranslator.countPushDownFileTvf(
+                aggregate(project, new Count()), session).isPresent());
+
+        // The expression can survive in an intermediate layer even when the final layer only forwards its slot.
+        Mockito.doReturn(ImmutableList.of(assertion.toSlot())).when(project).getProjects();
+        Mockito.doReturn(ImmutableList.of(ImmutableList.of(assertion), ImmutableList.of(assertion.toSlot())))
+                .when(project).getMultiLayerProjects();
+        Assertions.assertFalse(PhysicalPlanTranslator.countPushDownFileTvf(
+                aggregate(project, new Count()), session).isPresent());
     }
 
     @Test

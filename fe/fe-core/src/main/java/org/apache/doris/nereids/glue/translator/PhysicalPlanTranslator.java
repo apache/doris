@@ -94,6 +94,7 @@ import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -1320,6 +1321,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     static Optional<PhysicalTVFRelation> countPushDownFileTvf(
             PhysicalHashAggregate<? extends Plan> aggregate, SessionVariable sessionVariable) {
         Plan child = aggregate.child(0);
+        if (child instanceof PhysicalProject) {
+            PhysicalProject<?> project = (PhysicalProject<?>) child;
+            // COUNT readers synthesize column values, but retained expressions still execute on those columns.
+            if (project.getProjects().stream()
+                    .anyMatch(expression -> expression.containsType(NoneMovableFunction.class))
+                    || project.getMultiLayerProjects().stream().flatMap(List::stream)
+                            .anyMatch(expression -> expression.containsType(NoneMovableFunction.class))) {
+                return Optional.empty();
+            }
+        }
         Plan tvfChild = child instanceof PhysicalProject && child.child(0) instanceof PhysicalTVFRelation
                 ? child.child(0) : child;
         Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();

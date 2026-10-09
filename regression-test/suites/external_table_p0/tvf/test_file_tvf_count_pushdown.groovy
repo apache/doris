@@ -72,6 +72,24 @@ suite("test_file_tvf_count_pushdown", "p0,external") {
                 quickTest("${mode}_${format}_filter", "SELECT COUNT(*) FROM ${table} WHERE id > 2")
                 quickTest("${mode}_${format}_group", "SELECT value, COUNT(*) FROM ${table} GROUP BY value", true)
 
+                if (format == "parquet" || format == "orc") {
+                    // Retained assertions must see file values, not the COUNT reader's synthetic columns.
+                    def assertedCount = """SELECT COUNT(*) FROM (
+                        SELECT assert_true(id > 0, 'positive id') AS checked FROM ${table}) t"""
+                    explain {
+                        sql assertedCount
+                        contains "pushdown agg=NONE"
+                    }
+                    test {
+                        sql assertedCount
+                    }
+                    test {
+                        sql """SELECT COUNT(*) FROM (
+                            SELECT assert_true(id = 0, 'zero id required') AS checked FROM ${table}) t"""
+                        exception "zero id required"
+                    }
+                }
+
                 // CSV has an explicit schema; empty Parquet/ORC files contain schema metadata.
                 // A zero-byte JSON file has no schema for standalone TVF inference.
                 if (format != "json") {
