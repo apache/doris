@@ -50,7 +50,7 @@ class IvmAggSumProcessor extends IvmAggSumLikeProcessor {
     public void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext applyContext) {
         IvmAggExpressionBuilder ctx = applyContext.expressions();
         Expression newSum = new Add(
-                applyContext.oldMvSlotZeroIfNull(target.getVisibleSlot().getName()),
+                applyContext.oldMvSlotZeroIfNull(target.getValueStateColumnName()),
                 applyContext.deltaSlotValue(target, IvmAggFunctionKind.SUM));
         Expression newCount = applyContext.buildNewHiddenCount(target);
         applyContext.putFinalExpression(target, target.getHiddenStateSlot(IvmAggStateKey.COUNT).getName(), newCount);
