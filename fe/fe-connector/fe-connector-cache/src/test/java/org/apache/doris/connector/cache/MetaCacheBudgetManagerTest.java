@@ -279,6 +279,10 @@ class MetaCacheBudgetManagerTest {
             releaseFirstReclaim.countDown();
 
             Assertions.assertTrue(secondReclaimFinished.await(10L, TimeUnit.SECONDS));
+            // The second drain may still be running here. The first barrier runs after it has finished and
+            // has queued any further drain for a request it left behind; the second barrier runs after that.
+            awaitPeerReclaimBarrier();
+            awaitPeerReclaimBarrier();
             Assertions.assertEquals(Arrays.asList(10L, 20L), new ArrayList<>(targets),
                     "misses queued behind a running reclamation collapse into one request for the largest");
         } finally {
@@ -451,6 +455,30 @@ class MetaCacheBudgetManagerTest {
             Thread.sleep(10L);
         }
         Assertions.assertTrue(observed.size() >= expected, "reclaimer was not asked in time");
+    }
+
+    /**
+     * Returns once the process-wide peer-reclaim thread has run every drain queued before this call. The
+     * barrier is a drain of a separate manager, so it never touches the budgets under test.
+     */
+    private static void awaitPeerReclaimBarrier() throws InterruptedException {
+        MetaCacheBudgetManager barrierManager = new MetaCacheBudgetManager(OptionalLong.of(1L));
+        EntryBudget holder = barrierManager.createEntryBudget(1L, "barrier", "holder", "holder", NONE, NONE);
+        EntryBudget requester = barrierManager.createEntryBudget(1L, "barrier", "requester", "requester", NONE, NONE);
+        AdmissionReservation held = holder.tryReserve(1L).get();
+        CountDownLatch reached = new CountDownLatch(1);
+        holder.setReclaimer(target -> {
+            reached.countDown();
+            return 0L;
+        });
+        try {
+            requester.requestPeerReclaim(1L);
+            Assertions.assertTrue(reached.await(10L, TimeUnit.SECONDS), "peer-reclaim barrier did not run in time");
+        } finally {
+            held.release();
+            holder.close();
+            requester.close();
+        }
     }
 
     private static void await(CountDownLatch latch) {
