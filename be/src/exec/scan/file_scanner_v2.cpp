@@ -21,6 +21,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <algorithm>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <optional>
@@ -1180,7 +1181,8 @@ Status FileScannerV2::close(RuntimeState* state) {
 void FileScannerV2::try_stop() {
     Scanner::try_stop();
     if (_io_ctx) {
-        _io_ctx->should_stop = true;
+        // Atomically: the JNI heap gate's thread reads it while a JNI reader of this scan waits.
+        std::atomic_ref<bool>(_io_ctx->should_stop).store(true, std::memory_order_relaxed);
     }
 }
 

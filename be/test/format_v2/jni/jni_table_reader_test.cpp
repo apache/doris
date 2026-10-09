@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <limits>
 #include <map>
@@ -472,8 +473,9 @@ TEST(JniTableReaderTest, ASplitWhoseScanStopsWhileItWaitsForHeapOpensNothing) {
     ASSERT_TRUE(waiting_for.has_value());
 
     // The scan stops - the scanner's try_stop() - while the split waits: the gate sees it, and the
-    // split leaves the line without a share and ends without opening anything.
-    io_ctx->should_stop = true;
+    // split leaves the line without a share and ends without opening anything. Written as try_stop()
+    // writes it, since the gate's thread reads it meanwhile.
+    std::atomic_ref<bool>(io_ctx->should_stop).store(true, std::memory_order_relaxed);
     ASSERT_TRUE(done_soon(*waiting_for));
     Block block;
     bool eos = false;

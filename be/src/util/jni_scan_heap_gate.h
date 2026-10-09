@@ -123,7 +123,8 @@ public:
     // scan stopped, and waiting otherwise; a waiting one's future is done when it stops waiting.
     // `stop_waiting` is asked now and then every POLL_INTERVAL while the reader waits, on the gate's
     // thread and without its lock: it may only read state the reader shares ownership of, since it
-    // can run while the reader is being destroyed.
+    // can run while the reader is being destroyed, and must read it atomically, since whoever stops
+    // the scan writes it on a thread of its own.
     std::unique_ptr<Admission> request(int64_t bytes, std::function<bool()> stop_waiting);
 
     int64_t admitted_bytes() const;

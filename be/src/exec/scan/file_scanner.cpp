@@ -27,6 +27,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <atomic>
 #include <boost/iterator/iterator_facade.hpp>
 #include <map>
 #include <ranges>
@@ -2026,7 +2027,8 @@ Status FileScanner::close(RuntimeState* state) {
 void FileScanner::try_stop() {
     Scanner::try_stop();
     if (_io_ctx) {
-        _io_ctx->should_stop = true;
+        // Atomically: the JNI heap gate's thread reads it while a JNI reader of this scan waits.
+        std::atomic_ref<bool>(_io_ctx->should_stop).store(true, std::memory_order_relaxed);
     }
 }
 
