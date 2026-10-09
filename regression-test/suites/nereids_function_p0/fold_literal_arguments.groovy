@@ -159,6 +159,27 @@ suite("fold_literal_arguments") {
         sql "select sequence_count(cast(null as string), dt, k = 1, k = 2) from fold_literal_arguments_t"
         exception "must be string constant, but it is null"
     }
+    test {
+        sql """select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),
+                cast(null as varchar)) from fold_literal_arguments_t"""
+        exception "must not be null"
+    }
+    test {
+        sql """select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),
+                cast(null as varchar)) from fold_literal_arguments_t"""
+        exception "must not be null"
+    }
+    // FE cannot fold crc32, so the NULL formula reaches BE's nullable aggregate wrapper.
+    test {
+        sql """select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),
+                if(crc32('') = 0, cast(null as varchar), '1')) from fold_literal_arguments_t"""
+        exception "must not be null"
+    }
+    test {
+        sql """select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),
+                if(crc32('') = 0, cast(null as varchar), '1')) from fold_literal_arguments_t"""
+        exception "must not be null"
+    }
 
     // a non-constant argument is still rejected
     test {
@@ -217,6 +238,13 @@ suite("fold_literal_arguments") {
             to_bitmap(k), cast(k as varchar), lpad('|2', 3, '1'))) from fold_literal_arguments_t"""
     qt_orthogonal_bitmap_expr_calculate_count_be """select orthogonal_bitmap_expr_calculate_count(
             to_bitmap(k), cast(k as varchar), lpad('|2', 3, '1')) from fold_literal_arguments_t"""
+    // A nullable formula expression that evaluates to a non-NULL value must still aggregate normally.
+    qt_orthogonal_bitmap_expr_calculate_nullable_be """select bitmap_to_string(orthogonal_bitmap_expr_calculate(
+            to_bitmap(k), cast(k as varchar), if(crc32('') = 0, '1', cast(null as varchar))))
+            from fold_literal_arguments_t"""
+    qt_orthogonal_bitmap_expr_calculate_count_nullable_be """select orthogonal_bitmap_expr_calculate_count(
+            to_bitmap(k), cast(k as varchar), if(crc32('') = 0, '1', cast(null as varchar)))
+            from fold_literal_arguments_t"""
     qt_topn_be """select topn(s, 2 + crc32('')), topn_array(s, 2 + crc32('')) from
             (select 'a' s union all select 'a' union all select 'b' union all select 'b' union all select 'b' union all select 'c') t"""
     qt_topn_weighted_be "select topn_weighted(s, k, 2 + crc32('')) from fold_literal_arguments_t"

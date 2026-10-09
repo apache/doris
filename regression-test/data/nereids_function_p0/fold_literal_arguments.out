@@ -149,6 +149,12 @@ true
 -- !orthogonal_bitmap_expr_calculate_count_be --
 2
 
+-- !orthogonal_bitmap_expr_calculate_nullable_be --
+1
+
+-- !orthogonal_bitmap_expr_calculate_count_nullable_be --
+1
+
 -- !topn_be --
 {"b":3,"a":2}	["b", "a"]
 
