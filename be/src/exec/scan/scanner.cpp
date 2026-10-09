@@ -101,6 +101,16 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
             RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
             return _do_projections(&_origin_block, block);
         }
+        // get_block() charges the shared LIMIT as soon as rows pass the filters, but rows that stay
+        // in _padding_block when this call returns are not returned by it. Peer scanners may
+        // exhaust the LIMIT before this scanner runs again, and the context then finishes without
+        // running it, so those rows would be charged but never returned. Keep the counter equal
+        // to "LIMIT minus returned rows" between calls: charge the held rows again on entry, so
+        // every row this scanner holds during the call is charged and the read loop below stops
+        // as soon as the LIMIT is reached, and refund whatever is still held on exit.
+        if (_shared_scan_limit && !_padding_block.empty()) {
+            _shared_scan_limit->fetch_sub(_padding_block.rows(), std::memory_order_acq_rel);
+        }
         const auto min_batch_size = std::max(state->batch_size() / 2, 1);
         const auto block_max_bytes = state->preferred_block_size_bytes();
         while (_padding_block.rows() < min_batch_size && _padding_block.bytes() < block_max_bytes &&
@@ -132,6 +142,9 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
 
         if (_origin_block.empty() && !_padding_block.empty()) {
             _padding_block.swap(_origin_block);
+        }
+        if (_shared_scan_limit && !_padding_block.empty()) {
+            _shared_scan_limit->fetch_add(_padding_block.rows(), std::memory_order_acq_rel);
         }
         return _do_projections(&_origin_block, block);
     } else {

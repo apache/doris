@@ -828,4 +828,138 @@ TEST(ScannerProjectionTest, projects_incompatible_blocks_before_reading_the_next
     EXPECT_EQ(final_output.rows(), 0);
 }
 
+// With parallel scanners, the scan context may finish as soon as the shared LIMIT counter is
+// exhausted, without running a pending scanner again. get_block() charges rows as soon as they pass
+// the filters, so rows that stay in the padding block when a call returns must be refunded, or they
+// are charged but silently dropped. Between calls the counter equals LIMIT minus the returned rows.
+TEST(ScannerProjectionTest, shared_limit_refunds_rows_held_in_padding) {
+    ObjectPool pool;
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto row_descriptor = MockRowDescriptor({data_type}, &pool);
+
+    MockRuntimeState state;
+    state._batch_size = 8;
+
+    auto op = std::make_shared<MockScanOperatorX>();
+    op->_row_descriptor = row_descriptor;
+    auto& projection = op->set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
+    op->_shared_scan_limit.store(10);
+
+    auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
+    local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
+
+    RuntimeProfile profile("scanner");
+    TestScanner scanner(&state, local_state.get(), -1, &profile);
+    ASSERT_TRUE(scanner.init(&state, {}).ok());
+    // The first block is below the padding threshold and is held while the second block, which
+    // reaches the threshold on its own, is emitted.
+    scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({0}));
+    scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5}));
+
+    Block first_output;
+    bool eos = false;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &first_output, &eos).ok());
+    EXPECT_FALSE(eos);
+    ASSERT_EQ(first_output.rows(), 5);
+    EXPECT_EQ(first_output.get_by_position(0).column->get_int(0), 1);
+    // Both blocks were charged when they were read, but only the returned rows stay charged.
+    EXPECT_EQ(op->_shared_scan_limit.load(), 5);
+
+    // Peer scanners return the remaining rows of the LIMIT. Had the held row stayed charged, the
+    // counter would already be exhausted here and the context could finish without this scanner.
+    op->_shared_scan_limit.fetch_sub(4);
+    EXPECT_EQ(op->_shared_scan_limit.load(), 1);
+
+    // The held row is charged again on entry, which exhausts the counter, so it is flushed with eos
+    // instead of reading on.
+    Block final_output;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &final_output, &eos).ok());
+    EXPECT_TRUE(eos);
+    ASSERT_EQ(final_output.rows(), 1);
+    EXPECT_EQ(final_output.get_by_position(0).column->get_int(0), 0);
+    EXPECT_EQ(op->_shared_scan_limit.load(), 0);
+}
+
+// A selective scan under a large shared LIMIT still coalesces small blocks: one call reads several
+// source blocks and returns them as one block, instead of handing every surviving row to the
+// operator alone.
+TEST(ScannerProjectionTest, shared_limit_keeps_padding_small_blocks) {
+    ObjectPool pool;
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto row_descriptor = MockRowDescriptor({data_type}, &pool);
+
+    MockRuntimeState state;
+    state._batch_size = 8;
+
+    auto op = std::make_shared<MockScanOperatorX>();
+    op->_row_descriptor = row_descriptor;
+    auto& projection = op->set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
+    op->_shared_scan_limit.store(100);
+
+    auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
+    local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
+
+    RuntimeProfile profile("scanner");
+    TestScanner scanner(&state, local_state.get(), -1, &profile);
+    ASSERT_TRUE(scanner.init(&state, {}).ok());
+    for (int i = 0; i < 6; ++i) {
+        scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({i}));
+    }
+
+    // Four single-row blocks fill half a batch and are returned together.
+    Block output;
+    bool eos = false;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &output, &eos).ok());
+    EXPECT_FALSE(eos);
+    ASSERT_EQ(output.rows(), 4);
+    for (int i = 0; i < 4; ++i) {
+        EXPECT_EQ(output.get_by_position(0).column->get_int(i), i);
+    }
+    EXPECT_EQ(op->_shared_scan_limit.load(), 96);
+
+    // The tail is returned with eos; nothing is held across the calls.
+    Block tail;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &tail, &eos).ok());
+    EXPECT_TRUE(eos);
+    ASSERT_EQ(tail.rows(), 2);
+    EXPECT_EQ(op->_shared_scan_limit.load(), 94);
+}
+
+// The scanner stops once its rows exhaust the shared LIMIT, even though its reader still has data.
+TEST(ScannerProjectionTest, shared_limit_reports_eos_when_scanner_rows_exhaust_it) {
+    ObjectPool pool;
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto row_descriptor = MockRowDescriptor({data_type}, &pool);
+
+    MockRuntimeState state;
+    state._batch_size = 8;
+
+    auto op = std::make_shared<MockScanOperatorX>();
+    op->_row_descriptor = row_descriptor;
+    auto& projection = op->set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
+    op->_shared_scan_limit.store(3);
+
+    auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
+    local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
+
+    RuntimeProfile profile("scanner");
+    TestScanner scanner(&state, local_state.get(), -1, &profile);
+    ASSERT_TRUE(scanner.init(&state, {}).ok());
+    scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({0, 1, 2, 3, 4}));
+    scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({5, 6, 7, 8, 9}));
+
+    Block output;
+    bool eos = false;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output.rows(), 5);
+    EXPECT_EQ(op->_shared_scan_limit.load(), -2);
+}
+
 } // namespace doris
