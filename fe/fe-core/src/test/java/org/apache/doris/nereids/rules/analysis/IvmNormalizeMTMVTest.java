@@ -873,17 +873,15 @@ class IvmNormalizeMTMVTest {
         Assertions.assertTrue(withCarrier.getOutput().stream()
                 .anyMatch(slot -> carrierName.equals(slot.getName())));
 
-        // An MV without it (created before that column existed) cannot refresh incrementally: the layout
-        // owns which columns exist, so normalize reports the missing state column instead of adding one
-        // the MV does not have.
+        // An MV without it owns which columns exist, so the refresh must not add one the MV does not
+        // have; apply then reads the MV's own visible column instead.
         MTMV layoutWithoutCarrier = Mockito.mock(MTMV.class);
         Mockito.when(layoutWithoutCarrier.getColumn(carrierName)).thenReturn(null);
-        JobContext withoutCarrierContext = newJobContextForRoot(project, true, Collections.emptySet(),
-                java.util.Optional.of(IvmRewriteContext.normalize(layoutWithoutCarrier)));
-        IvmException missingState = Assertions.assertThrows(IvmException.class,
-                () -> new IvmNormalizeMTMV().rewriteRoot(project, withoutCarrierContext));
-        Assertions.assertTrue(missingState.getMessage().contains(sumAlias.toSlot().getName()),
-                missingState.getMessage());
+        Plan withoutCarrier = new IvmNormalizeMTMV().rewriteRoot(project,
+                newJobContextForRoot(project, true, Collections.emptySet(),
+                        java.util.Optional.of(IvmRewriteContext.normalize(layoutWithoutCarrier))));
+        Assertions.assertFalse(withoutCarrier.getOutput().stream()
+                .anyMatch(slot -> carrierName.equals(slot.getName())));
     }
 
     @Test

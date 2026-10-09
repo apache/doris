@@ -213,8 +213,11 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
 
     private IvmRewriteResult rewriteResult;
     private final IvmAggFunctionRegistry aggFunctionRegistry = IvmAggFunctionRegistry.INSTANCE;
-    private StatementContext statementContext;
     private boolean useFullKeys;
+    // The IVM rewrite context of this statement; normalize only runs when it is present, so it needs no
+    // presence checks of its own.
+    private IvmRewriteContext ivmRewriteContext;
+    private Set<TableNameInfo> excludedTriggerTables = ImmutableSet.of();
     private final IdentityHashMap<Plan, List<Slot>> identityKeysByNode = new IdentityHashMap<>();
     private int sinkKeyCounter;
     private int unionIdxCounter;
@@ -222,9 +225,10 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        boolean enabledByIvmRewriteContext = jobContext.getCascadesContext().getStatementContext()
-                .isIvmMTMVRewrite();
-        if (!enabledByIvmRewriteContext) {
+        StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
+        ivmRewriteContext = statementContext.getIvmRewriteContext().orElse(null);
+        if (ivmRewriteContext == null) {
+            // Not an IVM rewrite: nothing to normalize.
             return plan;
         }
         // Idempotency: if already normalized (e.g. rewritten plan re-entering), skip.
@@ -234,25 +238,25 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         }
         rewriteResult.setNormalizeRewritten(true);
         this.rewriteResult = rewriteResult;
-        statementContext = jobContext.getCascadesContext().getStatementContext();
+        excludedTriggerTables = statementContext.getExcludedTriggerTables();
         this.useFullKeys = resolveUseFullKeys();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
         validateAggStateColumnsPersisted(result);
         rewriteResult.setNormalizedPlan(result);
         IvmPlanSignature planSignature = new IvmPlanSignatureGenerator().generate(result);
         rewriteResult.setPlanSignature(planSignature);
-        IvmRewriteContext.Mode mode = statementContext.getIvmRewriteContext().get().getMode();
+        IvmRewriteContext.Mode mode = ivmRewriteContext.getMode();
         if (mode == IvmRewriteContext.Mode.INCREMENTAL) {
             // Incremental refresh relies on the stored IVM layout: a drift in the normalized
             // plan (row-id generation path) would produce an unmatchable delta. Check the
             // signature as soon as normalization completes so every incremental path fails
             // fast instead of attempting a delta rewrite against a stale layout baseline.
-            validatePlanSignature(statementContext.getIvmRewriteContext().get().getMtmv(), rewriteResult);
+            validatePlanSignature(ivmRewriteContext.getMtmv(), rewriteResult);
         }
         if (mode == IvmRewriteContext.Mode.CREATE) {
             LOG.info("IVM normalized plan, mtmvName={}, mode={}, inputRoot={}, plan={}, canonicalString={}, "
                             + "signature={}",
-                    statementContext.getIvmRewriteContext().get().getMtmvName(), mode,
+                    ivmRewriteContext.getMtmvName(), mode,
                     plan.getClass().getSimpleName(), result.treeString(), planSignature.getCanonicalString(),
                     planSignature.getSha256());
         }
@@ -279,15 +283,13 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     }
 
     private boolean resolveUseFullKeys() {
-        if (statementContext == null || !statementContext.getIvmRewriteContext().isPresent()) {
-            return false;
+        if (ivmRewriteContext.getUseFullKeys() != null) {
+            return ivmRewriteContext.getUseFullKeys();
         }
-        IvmRewriteContext rewriteContext = statementContext.getIvmRewriteContext().get();
-        if (rewriteContext.getUseFullKeys() != null) {
-            return rewriteContext.getUseFullKeys();
-        }
-        if (rewriteContext.getMtmv() != null && rewriteContext.getMtmv().getIvmInfo() != null) {
-            return rewriteContext.getMtmv().getIvmInfo().isUseFullKeys();
+        // CREATE has no MV yet, so its full-keys setting can only come from the context.
+        MTMV mtmv = ivmRewriteContext.getMtmv();
+        if (mtmv != null && mtmv.getIvmInfo() != null) {
+            return mtmv.getIvmInfo().isUseFullKeys();
         }
         return false;
     }
@@ -1106,7 +1108,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         boolean rebound = false;
         // While the layout is being created there is no MV yet (CREATE MATERIALIZED VIEW keeps only its
         // name), so normalize decides the layout itself; a refresh is bound by the MV's own schema.
-        MTMV mtmv = statementContext.getIvmRewriteContext().get().getMtmv();
+        MTMV mtmv = ivmRewriteContext.getMtmv();
         for (IvmAggTarget target : aggMeta.getAggTargets()) {
             Slot valueStateSlot = valueStateSlotFor(target, mtmv, extendedOutputs, aggMeta);
             ImmutableMap.Builder<IvmAggStateKey, Slot> hiddenStateSlots = ImmutableMap.builder();
@@ -1237,10 +1239,14 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         if (aggMeta == null) {
             return;
         }
-        // A complete refresh recomputes every column from the base tables and reads no old state, so a view
-        // whose layout predates the carrier column can still be recovered that way. Incremental refresh
-        // stays guarded by the stored layout signature and by this check.
-        if (statementContext.getIvmRewriteContext().get().getMode() == IvmRewriteContext.Mode.FULL) {
+        // The layout is only defined where the view is created or where an incremental refresh reads the
+        // old state, and those are the two places this check runs: at CREATE it reports early that the
+        // layout being defined cannot be maintained incrementally, and on an incremental refresh it
+        // reports the state a merge would read. NORMALIZE and FULL only re-analyze the layout of an
+        // existing view, where a state column can be absent for reasons this check cannot judge -- the
+        // view then still completes a full refresh, which is how such a layout is rebuilt.
+        IvmRewriteContext.Mode mode = ivmRewriteContext.getMode();
+        if (mode != IvmRewriteContext.Mode.CREATE && mode != IvmRewriteContext.Mode.INCREMENTAL) {
             return;
         }
         Set<String> persistedColumns = normalizedPlan.getOutput().stream()
@@ -1428,7 +1434,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
     }
 
     private boolean isExcludedTriggerTable(LogicalOlapScan scan) {
-        if (statementContext == null || statementContext.getExcludedTriggerTables().isEmpty()) {
+        if (excludedTriggerTables.isEmpty()) {
             return false;
         }
         OlapTable table = scan.getTable();
@@ -1443,7 +1449,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                     : InternalCatalog.INTERNAL_CATALOG_NAME;
             tableNameInfo = new TableNameInfo(ctlName, dbName, table.getName());
         }
-        return MTMVPartitionUtil.isTableExcluded(statementContext.getExcludedTriggerTables(), tableNameInfo);
+        return MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, tableNameInfo);
     }
 
 }
