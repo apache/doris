@@ -103,10 +103,11 @@ public:
 
     String get_name() const override { return Op::name; }
 
-    AggregateFunctionQuantileStateOp(const DataTypes& argument_types_)
+    AggregateFunctionQuantileStateOp(const DataTypes& argument_types_, bool is_window_function)
             : IAggregateFunctionDataHelper<AggregateFunctionQuantileStateData<Op>,
                                            AggregateFunctionQuantileStateOp<arg_is_nullable, Op>>(
-                      argument_types_) {}
+                      argument_types_),
+              _is_window_function(is_window_function) {}
 
     DataTypePtr get_return_type() const override {
         return std::make_shared<DataTypeQuantileState>();
@@ -144,11 +145,26 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(this->data(place).get());
+        auto& column = assert_cast<ColVecResult&, TypeCheckOnRelease::DISABLE>(to);
+        const auto& value = this->data(place).get();
+        column.get_data().push_back(_is_window_function ? value.copy_for_result() : value);
+    }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        if (start == end) {
+            return;
+        }
+        insert_result_into(place, to);
+        auto& data = assert_cast<ColVecResult&, TypeCheckOnRelease::DISABLE>(to).get_data();
+        // Rows with the same window result share one compact digest.
+        data.insert(data.end(), end - start - 1, data.back());
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+
+private:
+    const bool _is_window_function;
 };
 
 AggregateFunctionPtr create_aggregate_function_quantile_state_union(
