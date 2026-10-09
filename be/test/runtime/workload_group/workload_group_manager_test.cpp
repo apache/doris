@@ -59,11 +59,14 @@
 
 namespace doris {
 
-// Process memory limits for the PROCESS_MEMORY_EXCEEDED cases. The workload group memory limits
-// are derived from the process memory limit, so the process memory limit is set before the
-// workload group is created, and only lowered afterwards to simulate process memory pressure.
+// Process memory limit for the PROCESS_MEMORY_EXCEEDED cases. The workload group memory limits
+// are derived from the process memory limit whenever their usage is refreshed, so it is set before
+// the workload group is created and kept; process memory pressure is simulated by the soft memory
+// limit, the memory growth since the last refresh and the system available memory instead.
 static constexpr int64_t kProcessMemLimitForWg = 1024L * 1024 * 1000;
-static constexpr int64_t kLargeProcessMemLimit = std::numeric_limits<int64_t>::max() / 2;
+// System available memory far above the warning water mark, so that only the process memory
+// limits decide the process memory predicates unless a case lowers it on purpose.
+static constexpr int64_t kLargeSysMemAvailable = std::numeric_limits<int64_t>::max() / 2;
 static constexpr int64_t kProcessPausedReserveSize = 1024L;
 
 class WorkloadGroupManagerTest : public testing::Test {
@@ -72,6 +75,11 @@ protected:
     void SetUp() override {
         _original_mem_limit = MemInfo::mem_limit();
         _original_soft_mem_limit = MemInfo::soft_mem_limit();
+        // The process memory predicates also depend on the system available memory, which is
+        // read from the runner otherwise: a runner below the water marks reports pressure before
+        // a case sets any process memory limit.
+        _original_sys_mem_available =
+                MemInfo::set_sys_mem_available_for_test(kLargeSysMemAvailable);
         _wg_manager = std::make_unique<WorkloadGroupMgr>();
         // generate a unique test directory to avoid conflicts between parallel runs
         std::ostringstream _oss;
@@ -117,6 +125,8 @@ protected:
         _consumed_memory.clear();
         MemInfo::set_mem_limit_for_test(_original_mem_limit);
         MemInfo::set_soft_mem_limit_for_test(_original_soft_mem_limit);
+        MemInfo::set_sys_mem_available_for_test(_original_sys_mem_available);
+        GlobalMemoryArbitrator::reset_refresh_interval_memory_growth();
         _wg_manager.reset();
         ExecEnv::GetInstance()->spill_file_mgr()->stop();
         SAFE_DELETE(ExecEnv::GetInstance()->_spill_file_mgr);
@@ -201,38 +211,46 @@ private:
         return query;
     }
 
-    // Release `memory` bytes of `query` while a case has lowered the process memory limit.
-    // refresh_memory_usage() also derives the workload group limits from the process memory
-    // limit, so it runs under the limit the workload group was created with.
-    void _release_query_memory(const std::shared_ptr<WorkloadGroup>& wg,
-                               const std::shared_ptr<QueryContext>& query, int64_t memory) {
+    // Release `memory` bytes of `query` without refreshing the usage of its workload group:
+    // total_mem_used() keeps the value cached by the last refresh, as it does in production
+    // until the next maintenance round or revocation refreshes it.
+    void _release_query_memory(const std::shared_ptr<QueryContext>& query, int64_t memory) {
         query->query_mem_tracker()->consume(-memory);
         _consumed_memory.emplace_back(query, -memory);
-        const int64_t mem_limit = MemInfo::mem_limit();
-        MemInfo::set_mem_limit_for_test(kProcessMemLimitForWg);
-        wg->refresh_memory_usage();
-        MemInfo::set_mem_limit_for_test(mem_limit);
-        ASSERT_EQ(wg->min_memory_limit(), 1024L * 1024 * 100);
     }
+
+    // The process memory predicates are controlled from both sides in the following helpers:
+    // the process memory usage is the vm_rss of PerfCounters (never refreshed in a unit test)
+    // plus the memory growth since the last refresh, which the helpers set; the system available
+    // memory is set in SetUp far above the water marks. The process memory limit is kept at
+    // kProcessMemLimitForWg, which refresh_memory_usage() derives the workload group limits from.
 
     // Process soft memory limit is exceeded, hard memory limit is not.
     static void _exceed_process_soft_mem_limit() {
-        MemInfo::set_mem_limit_for_test(kLargeProcessMemLimit);
+        GlobalMemoryArbitrator::reset_refresh_interval_memory_growth();
+        MemInfo::set_mem_limit_for_test(kProcessMemLimitForWg);
         MemInfo::set_soft_mem_limit_for_test(1);
         ASSERT_TRUE(GlobalMemoryArbitrator::is_exceed_soft_mem_limit(kProcessPausedReserveSize));
         ASSERT_FALSE(GlobalMemoryArbitrator::is_exceed_hard_mem_limit());
     }
 
-    // Both the soft and the hard process memory limits are exceeded.
+    // Both the soft and the hard process memory limits are exceeded: the process has grown by
+    // its whole memory limit since the last refresh.
     static void _exceed_process_hard_mem_limit() {
-        MemInfo::set_mem_limit_for_test(0);
-        MemInfo::set_soft_mem_limit_for_test(0);
+        MemInfo::set_mem_limit_for_test(kProcessMemLimitForWg);
+        MemInfo::set_soft_mem_limit_for_test(kProcessMemLimitForWg);
+        GlobalMemoryArbitrator::refresh_interval_memory_growth = kProcessMemLimitForWg;
         ASSERT_TRUE(GlobalMemoryArbitrator::is_exceed_hard_mem_limit());
     }
 
-    void _relieve_process_mem_limit() const {
-        MemInfo::set_mem_limit_for_test(_original_mem_limit);
-        MemInfo::set_soft_mem_limit_for_test(_original_soft_mem_limit);
+    // Neither process memory limit is exceeded: the process memory limit has its whole headroom
+    // and the system available memory is far above the warning water mark.
+    static void _relieve_process_mem_limit() {
+        GlobalMemoryArbitrator::reset_refresh_interval_memory_growth();
+        MemInfo::set_mem_limit_for_test(kProcessMemLimitForWg);
+        MemInfo::set_soft_mem_limit_for_test(kProcessMemLimitForWg);
+        MemInfo::set_sys_mem_available_for_test(kLargeSysMemAvailable);
+        ASSERT_FALSE(GlobalMemoryArbitrator::is_exceed_soft_mem_limit(kProcessPausedReserveSize));
     }
 
     void _pause_for_process_memory(const std::shared_ptr<QueryContext>& query) {
@@ -295,6 +313,7 @@ private:
     const int64_t _spill_in_paused_queue_timeout_ms = config::spill_in_paused_queue_timeout_ms;
     int64_t _original_mem_limit {0};
     int64_t _original_soft_mem_limit {0};
+    int64_t _original_sys_mem_available {0};
     std::vector<std::pair<std::shared_ptr<QueryContext>, int64_t>> _consumed_memory;
 };
 
@@ -771,7 +790,7 @@ TEST_F(WorkloadGroupManagerTest, ProcessMemoryNotEnough) {
     wg3->refresh_memory_usage();
 
     // There is no query in workload groups, so that revoke memory will return 0
-    EXPECT_EQ(0, _wg_manager->revoke_memory_from_other_groups_());
+    EXPECT_EQ(0, _wg_manager->revoke_memory_from_other_groups_(kProcessPausedReserveSize));
 
     // If exceed memory less than 128MB, then not revoke
     auto query_context21 = _generate_on_query(wg2);
@@ -781,7 +800,7 @@ TEST_F(WorkloadGroupManagerTest, ProcessMemoryNotEnough) {
     EXPECT_EQ(wg2->total_mem_used(), 1024 * 1024 * 50);
     EXPECT_EQ(wg2->min_memory_limit(), 1024 * 1024 * 100);
     // There is not workload group's memory usage > it's min memory limit.
-    EXPECT_EQ(0, _wg_manager->revoke_memory_from_other_groups_());
+    EXPECT_EQ(0, _wg_manager->revoke_memory_from_other_groups_(kProcessPausedReserveSize));
     ASSERT_FALSE(query_context21->is_cancelled());
 
     // Add another query that use a lot of memory
@@ -792,7 +811,7 @@ TEST_F(WorkloadGroupManagerTest, ProcessMemoryNotEnough) {
     EXPECT_EQ(wg2->total_mem_used(), 1024 * 1024 * 110);
     EXPECT_EQ(wg2->min_memory_limit(), 1024 * 1024 * 100);
     // Could not revoke larger than 128MB, not revoke.
-    EXPECT_EQ(0, _wg_manager->revoke_memory_from_other_groups_());
+    EXPECT_EQ(0, _wg_manager->revoke_memory_from_other_groups_(kProcessPausedReserveSize));
     ASSERT_FALSE(query_context21->is_cancelled());
     ASSERT_FALSE(query_context22->is_cancelled());
 
@@ -805,7 +824,8 @@ TEST_F(WorkloadGroupManagerTest, ProcessMemoryNotEnough) {
     EXPECT_EQ(wg2->min_memory_limit(), 1024 * 1024 * 100);
     // WG2 exceeds its min memory by 310MB, so 31MB should be revoked. The largest query (300MB)
     // is cancelled and its whole memory is reported as revoked.
-    EXPECT_EQ(300L * 1024 * 1024, _wg_manager->revoke_memory_from_other_groups_());
+    EXPECT_EQ(300L * 1024 * 1024,
+              _wg_manager->revoke_memory_from_other_groups_(kProcessPausedReserveSize));
     ASSERT_FALSE(query_context21->is_cancelled());
     ASSERT_FALSE(query_context22->is_cancelled());
     ASSERT_TRUE(query_context23->is_cancelled());
@@ -832,7 +852,8 @@ TEST_F(WorkloadGroupManagerTest, ProcessMemoryNotEnough) {
     EXPECT_EQ(wg3->total_mem_used(), 1024 * 1024 * 500); // WG3 exceed 400MB
 
     // WG3 exceeds most, 40MB should be revoked, and the cancelled query31 frees 500MB.
-    EXPECT_EQ(500L * 1024 * 1024, _wg_manager->revoke_memory_from_other_groups_());
+    EXPECT_EQ(500L * 1024 * 1024,
+              _wg_manager->revoke_memory_from_other_groups_(kProcessPausedReserveSize));
 
     wg1->refresh_memory_usage();
     wg2->refresh_memory_usage();
@@ -841,7 +862,8 @@ TEST_F(WorkloadGroupManagerTest, ProcessMemoryNotEnough) {
     ASSERT_TRUE(query_context31->is_cancelled());
     // query31 is still in wg3, so that it is not cancel again. It was cancelled just now and is
     // still releasing memory, so its memory is counted as revoked again.
-    EXPECT_EQ(500L * 1024 * 1024, _wg_manager->revoke_memory_from_other_groups_());
+    EXPECT_EQ(500L * 1024 * 1024,
+              _wg_manager->revoke_memory_from_other_groups_(kProcessPausedReserveSize));
     ASSERT_FALSE(query_context11->is_cancelled());
     ASSERT_FALSE(query_context21->is_cancelled());
     ASSERT_FALSE(query_context22->is_cancelled());
@@ -1591,14 +1613,12 @@ TEST_F(WorkloadGroupManagerTest,
     _wg_manager->handle_paused_queries();
     _assert_still_paused(query);
 
-    // The process limits are no longer exceeded, only the system available memory is close to
-    // the warning water mark: 16 MiB above it.
+    // The process limits have their whole headroom, only the system available memory is close
+    // to the warning water mark: 16 MiB above it.
     _relieve_process_mem_limit();
     ASSERT_GT(MemInfo::sys_mem_available_warning_water_mark(), 0);
-    const int64_t original_sys_mem_available = MemInfo::set_sys_mem_available_for_test(
-            MemInfo::sys_mem_available_warning_water_mark() + 1024L * 1024 * 16);
-    Defer restore_sys_mem_available {
-            [&]() { MemInfo::set_sys_mem_available_for_test(original_sys_mem_available); }};
+    MemInfo::set_sys_mem_available_for_test(MemInfo::sys_mem_available_warning_water_mark() +
+                                            1024L * 1024 * 16);
     ASSERT_FALSE(GlobalMemoryArbitrator::is_exceed_soft_mem_limit(kProcessPausedReserveSize));
     ASSERT_TRUE(GlobalMemoryArbitrator::is_exceed_soft_mem_limit(1024L * 1024 * 32));
     _backdate_paused_query(wg, config::spill_in_paused_queue_timeout_ms + 1);
@@ -1902,17 +1922,18 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_recovery_before_timeout_de
 
     // The pressure is relieved after the round has observed it, routed the query and
     // inspected its pipeline tasks for the last time.
-    mock_controller->on_get_revocable_tasks_ = [this]() { _relieve_process_mem_limit(); };
+    mock_controller->on_get_revocable_tasks_ = []() { _relieve_process_mem_limit(); };
     _wg_manager->handle_paused_queries();
     _assert_resumed(query);
     ASSERT_EQ(_paused_query_count(wg), 0);
 }
 
-// Two tasks of one query fail process reservations of different sizes before the next
-// maintenance round. The query is resumed as a whole, so the recorded reservation must be the
-// largest pending one: once the smaller one fits, the query stays paused (keeping its timer)
-// until the larger one fits too.
-TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_keeps_largest_pending_reservation) {
+// Several tasks of one query fail process reservations of different sizes before the next
+// maintenance round. The query is resumed as a whole and every task then retries its own
+// request, so the recorded reservation must be the sum of the pending ones: the query stays
+// paused (keeping its timer) until all of them fit at the same time, not once the largest one
+// fits on its own.
+TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_keeps_all_pending_reservations) {
     auto wg = _create_wg_with_min_memory(1);
     auto query = _create_query_with_memory(wg, 1024L * 1024 * 128);
     ASSERT_GT(wg->total_mem_used(), wg->min_memory_limit());
@@ -1920,14 +1941,13 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_keeps_largest_pending_rese
     _exceed_process_soft_mem_limit();
     _pause_for_process_memory(query);
     ASSERT_EQ(_recorded_reserve_size(wg), kProcessPausedReserveSize);
-    // A sibling task fails a larger reservation: the entry is shared and keeps the larger size.
+    // Two sibling tasks fail their reservations: the entry is shared and adds them up.
     _wg_manager->add_paused_query(query->resource_ctx(), 1024L * 1024 * 64,
                                   Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
-    ASSERT_EQ(_recorded_reserve_size(wg), 1024L * 1024 * 64);
-    // A later smaller failure does not lower it.
+    ASSERT_EQ(_recorded_reserve_size(wg), kProcessPausedReserveSize + 1024L * 1024 * 64);
     _wg_manager->add_paused_query(query->resource_ctx(), 1024L * 1024 * 4,
                                   Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
-    ASSERT_EQ(_recorded_reserve_size(wg), 1024L * 1024 * 64);
+    ASSERT_EQ(_recorded_reserve_size(wg), kProcessPausedReserveSize + 1024L * 1024 * 68);
 
     config::spill_in_paused_queue_timeout_ms = 60 * 1000;
     _wg_manager->handle_paused_queries();
@@ -1945,19 +1965,30 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_keeps_largest_pending_rese
         ASSERT_EQ(_paused_query_count(wg), 1);
     }
 
-    // Once the largest pending reservation fits, the query is resumed.
+    // 65 MiB headroom: every reservation fits on its own, but not all of them at the same
+    // time. Waking the query up would succeed the 64 MiB one and fail the 4 MiB one again.
     MemInfo::set_soft_mem_limit_for_test(GlobalMemoryArbitrator::process_memory_usage() +
                                          1024L * 1024 * 65);
+    ASSERT_FALSE(GlobalMemoryArbitrator::is_exceed_soft_mem_limit(1024L * 1024 * 64));
+    for (int i = 0; i < 3; ++i) {
+        _wg_manager->handle_paused_queries();
+        _assert_still_paused(query);
+        ASSERT_EQ(_paused_query_count(wg), 1);
+    }
+
+    // Once all pending reservations fit together, the query is resumed.
+    MemInfo::set_soft_mem_limit_for_test(GlobalMemoryArbitrator::process_memory_usage() +
+                                         1024L * 1024 * 69);
     _wg_manager->handle_paused_queries();
     _assert_resumed(query);
     ASSERT_EQ(_paused_query_count(wg), 0);
 }
 
-// Same two pending reservations near the timeout: the query keeps the entry it was paused with
-// instead of being woken up by the smaller reservation and starting a fresh wait, so the bounded
-// wait still ends with the cancellation.
-TEST_F(WorkloadGroupManagerTest,
-       process_mem_exceeded_largest_pending_reservation_cancels_after_timeout) {
+// Two pending reservations near the timeout, with headroom for either of them but not for
+// both: the query keeps the entry it was paused with instead of being woken up and starting a
+// fresh wait after one of them fails again, so the bounded wait still ends with the
+// cancellation.
+TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_pending_reservations_cancel_after_timeout) {
     auto wg = _create_wg_with_min_memory(1);
     auto query = _create_query_with_memory(wg, 1024L * 1024 * 128);
     ASSERT_GT(wg->total_mem_used(), wg->min_memory_limit());
@@ -1966,16 +1997,18 @@ TEST_F(WorkloadGroupManagerTest,
     _pause_for_process_memory(query);
     _wg_manager->add_paused_query(query->resource_ctx(), 1024L * 1024 * 64,
                                   Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
-    ASSERT_EQ(_recorded_reserve_size(wg), 1024L * 1024 * 64);
+    ASSERT_EQ(_recorded_reserve_size(wg), kProcessPausedReserveSize + 1024L * 1024 * 64);
 
     config::spill_in_paused_queue_timeout_ms = 60 * 1000;
     _wg_manager->handle_paused_queries();
     _assert_still_paused(query);
 
     MemInfo::set_soft_mem_limit_for_test(GlobalMemoryArbitrator::process_memory_usage() +
-                                         1024L * 1024 * 16);
+                                         1024L * 1024 * 64 + kProcessPausedReserveSize);
     ASSERT_FALSE(GlobalMemoryArbitrator::is_exceed_soft_mem_limit(kProcessPausedReserveSize));
-    ASSERT_TRUE(GlobalMemoryArbitrator::is_exceed_soft_mem_limit(1024L * 1024 * 64));
+    ASSERT_FALSE(GlobalMemoryArbitrator::is_exceed_soft_mem_limit(1024L * 1024 * 64));
+    ASSERT_TRUE(GlobalMemoryArbitrator::is_exceed_soft_mem_limit(1024L * 1024 * 64 +
+                                                                 kProcessPausedReserveSize));
     _backdate_paused_query(wg, config::spill_in_paused_queue_timeout_ms + 1);
 
     _wg_manager->handle_paused_queries();
@@ -2008,15 +2041,16 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_below_min_memory_skips_pee
 
     // While the first peer is scanned, the second peer's query releases 180 MiB and the
     // workload group drops to 70 MiB, within its 100 MiB min memory; its query is still larger
-    // than SMALL_MEMORY_TASK, so it could be cancelled.
+    // than SMALL_MEMORY_TASK, so it could be cancelled. Nothing refreshes the workload group
+    // usage meanwhile, so its cached usage still shows the 250 MiB of the snapshot.
     bool released = false;
     first_peer_controller->on_is_cancelled_ = [&]() {
         if (released) {
             return;
         }
         released = true;
-        _release_query_memory(second_peer_wg, second_peer_query, 1024L * 1024 * 180);
-        ASSERT_LE(second_peer_wg->total_mem_used(), second_peer_wg->min_memory_limit());
+        _release_query_memory(second_peer_query, 1024L * 1024 * 180);
+        ASSERT_GT(second_peer_wg->total_mem_used(), second_peer_wg->min_memory_limit());
     };
 
     _exceed_process_hard_mem_limit();
@@ -2026,8 +2060,58 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_below_min_memory_skips_pee
     _wg_manager->handle_paused_queries();
     ASSERT_TRUE(released);
     ASSERT_FALSE(second_peer_query->is_cancelled());
+    // The walk refreshed the second peer's usage before deciding on it.
+    ASSERT_EQ(second_peer_wg->total_mem_used(), 1024L * 1024 * 70);
+    ASSERT_EQ(second_peer_wg->min_memory_limit(), 1024L * 1024 * 100);
     // Nothing could be revoked, the paused query falls through to the hard-limit fallback.
     _assert_cancelled_by_process_memory(query, true);
+}
+
+// Two workload groups exceed their min memory limit by more than 128 MiB. The first one holds
+// only a query whose cancellation has already taken longer than `revoke_memory_max_tolerance_ms`,
+// so it releases nothing; while it is scanned, the process memory pressure is relieved (other
+// queries or the cache released memory). The second one must not have its query cancelled for
+// pressure that is gone, and the paused query must be resumed instead of being cancelled at the
+// hard limit it was observed under before the walk.
+TEST_F(WorkloadGroupManagerTest,
+       process_mem_exceeded_below_min_memory_resumes_when_relieved_during_peer_scan) {
+    auto wg = _create_wg_with_min_memory(1);
+    auto query = _create_query_with_memory(wg, 1024L * 4);
+    ASSERT_LE(wg->total_mem_used(), wg->min_memory_limit());
+
+    auto first_peer_wg = _create_wg_with_min_memory(2);
+    auto first_peer_query = _create_query_with_memory(first_peer_wg, 1024L * 1024 * 300);
+    auto* first_peer_controller = _install_mock_query_task_controller(first_peer_query);
+    first_peer_controller->cancel(Status::InternalError("memory gc cancel"));
+    first_peer_controller->set_cancelled_time(first_peer_controller->cancelled_time() -
+                                              config::revoke_memory_max_tolerance_ms - 1);
+
+    auto second_peer_wg = _create_wg_with_min_memory(3);
+    auto second_peer_query = _create_query_with_memory(second_peer_wg, 1024L * 1024 * 250);
+    ASSERT_GT(second_peer_wg->total_mem_used(), second_peer_wg->min_memory_limit() + (1 << 27));
+    // The first peer exceeds its min memory most, so it is scanned first.
+    ASSERT_GT(first_peer_wg->total_mem_used() - first_peer_wg->min_memory_limit(),
+              second_peer_wg->total_mem_used() - second_peer_wg->min_memory_limit());
+
+    bool relieved = false;
+    first_peer_controller->on_is_cancelled_ = [&]() {
+        if (relieved) {
+            return;
+        }
+        relieved = true;
+        _relieve_process_mem_limit();
+    };
+
+    _exceed_process_hard_mem_limit();
+    _pause_for_process_memory(query);
+
+    config::spill_in_paused_queue_timeout_ms = 60 * 1000;
+    _wg_manager->handle_paused_queries();
+    ASSERT_TRUE(relieved);
+    ASSERT_FALSE(second_peer_query->is_cancelled());
+    ASSERT_FALSE(_wg_manager->revoking_memory_from_other_query_);
+    _assert_resumed(query);
+    ASSERT_EQ(_paused_query_count(wg), 0);
 }
 
 } // namespace doris

@@ -302,17 +302,18 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<ResourceContext>& 
         LOG(INFO) << "Insert one new paused query: "
                   << resource_ctx->task_controller()->debug_string()
                   << ", workload group: " << wg->debug_string();
-    } else if (reserve_size > it->reserve_size_) {
-        // Another task of the same query failed a smaller reservation first. The query is
-        // resumed as a whole, so every pending reservation is retried once it is woken up:
-        // keep the largest one, otherwise the query is resumed as soon as the smaller one fits,
-        // fails the larger one again and starts a new wait from scratch.
+    } else {
+        // Another task of the same query already failed a reservation. The query is resumed as
+        // a whole and every blocked task then retries its own request, so record the sum of the
+        // pending requests: the query is woken up only once all of them fit at the same time.
+        // Waking it up as soon as one of them fits would fail the others again and start a new
+        // wait from scratch.
         LOG(INFO) << "Query: " << print_id(resource_ctx->task_controller()->task_id())
-                  << " is already paused, raise the recorded reservation from "
-                  << PrettyPrinter::print_bytes(it->reserve_size_) << " to "
-                  << PrettyPrinter::print_bytes(reserve_size);
+                  << " is already paused, add the pending reservation "
+                  << PrettyPrinter::print_bytes(reserve_size) << " to the recorded "
+                  << PrettyPrinter::print_bytes(it->reserve_size_);
         auto node = queries_list.extract(it);
-        node.value().reserve_size_ = reserve_size;
+        node.value().reserve_size_ += reserve_size;
         queries_list.insert(std::move(node));
     }
 }
@@ -622,13 +623,7 @@ bool WorkloadGroupMgr::handle_process_memory_exceeded_(
     // Test the recorded reservation itself: this is the predicate the failed reservation used,
     // so the query is resumed exactly when its request fits now.
     if (!GlobalMemoryArbitrator::is_exceed_soft_mem_limit(query_it->reserve_size_)) {
-        LOG(INFO) << "Query: " << print_id(resource_ctx->task_controller()->task_id())
-                  << ", process limit not exceeded now, resume this query"
-                  << ", process memory info: "
-                  << GlobalMemoryArbitrator::process_memory_used_details_str()
-                  << ", wg info: " << wg->debug_string();
-        resource_ctx->task_controller()->set_memory_sufficient(true);
-        query_it = queries_list.erase(query_it);
+        resume_process_paused_query_(wg, queries_list, query_it, resource_ctx);
         return false;
     }
 
@@ -643,12 +638,20 @@ bool WorkloadGroupMgr::handle_process_memory_exceeded_(
     // exceeds its min memory but has nothing cancellable releases nothing (the next exceeding
     // workload group is tried instead), and waiting for it would resume this query without any
     // memory being freed.
-    int64_t revoked_size = revoke_memory_from_other_groups_();
+    int64_t revoked_size = revoke_memory_from_other_groups_(query_it->reserve_size_);
     if (revoked_size > 0) {
         // Revoke memory from other workload groups will cancel some queries, wait them cancel finished
         // and then check it again.
         revoking_memory_from_other_query_ = true;
         return true;
+    }
+
+    // While the other workload groups were scanned, other queries or the cache may have released
+    // enough memory for the recorded reservation (the walk stops as soon as it fits). Resume the
+    // query instead of cancelling it below from the stale observation.
+    if (!GlobalMemoryArbitrator::is_exceed_soft_mem_limit(query_it->reserve_size_)) {
+        resume_process_paused_query_(wg, queries_list, query_it, resource_ctx);
+        return false;
     }
 
     // TODO revoke from memtable
@@ -662,6 +665,18 @@ bool WorkloadGroupMgr::handle_process_memory_exceeded_(
     }
     ++query_it;
     return false;
+}
+
+void WorkloadGroupMgr::resume_process_paused_query_(
+        const WorkloadGroupPtr& wg, PausedQuerySet& queries_list, PausedQueryIterator& query_it,
+        const std::shared_ptr<ResourceContext>& resource_ctx) {
+    LOG(INFO) << "Query: " << print_id(resource_ctx->task_controller()->task_id())
+              << ", process limit not exceeded now, resume this query"
+              << ", process memory info: "
+              << GlobalMemoryArbitrator::process_memory_used_details_str()
+              << ", wg info: " << wg->debug_string();
+    resource_ctx->task_controller()->set_memory_sufficient(true);
+    query_it = queries_list.erase(query_it);
 }
 
 bool WorkloadGroupMgr::release_query_memory_(PausedQuerySet& queries_list,
@@ -695,9 +710,11 @@ bool WorkloadGroupMgr::release_query_memory_(PausedQuerySet& queries_list,
 //    then revoke 1g memory. A workload group may release nothing although it exceeds its min
 //    memory (for example, every query is too small to be cancelled), then try the next one.
 // 3. After revoke memory, go to the loop and wait for the query to be cancelled and check again.
+// `reserve_size` is the reservation of the paused query this walk serves: the walk stops once it
+// fits, nothing needs to be revoked for it any more.
 // Returns the memory actually revoked, which is 0 when no query of any of these workload groups
 // could be cancelled.
-int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
+int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_(int64_t reserve_size) {
     MonotonicStopWatch watch;
     watch.start();
     std::unique_ptr<RuntimeProfile> profile =
@@ -732,11 +749,23 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
                       << " less than 128MB, no need to revoke memory";
             break;
         }
+        // Scanning the earlier workload groups took time (a cancellation in flight is waited for
+        // up to revoke_memory_max_tolerance_ms), during which other queries or the cache may have
+        // released memory. The caller checked the reservation before the walk only: stop as soon
+        // as it fits, so that no further query is cancelled for pressure that is gone.
+        if (tried_wgs > 0 && !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(reserve_size)) {
+            LOG(INFO) << "Process memory pressure is relieved after trying " << tried_wgs
+                      << " workload group(s), the reservation "
+                      << PrettyPrinter::print_bytes(reserve_size)
+                      << " fits now, stop revoking memory from other workload groups";
+            break;
+        }
         // The snapshot above was taken before the earlier workload groups were scanned, during
         // which this one may have released memory (its queries finished or were cancelled).
-        // Decide from its current usage: the min memory stays reserved for a workload group that
+        // total_mem_used() is the usage cached by the last maintenance refresh, so refresh it and
+        // decide from the current usage: the min memory stays reserved for a workload group that
         // no longer exceeds it, and the amount to revoke is what it exceeds by now.
-        const int64_t exceeded_memory = wg->total_mem_used() - wg->min_memory_limit();
+        const int64_t exceeded_memory = wg->refresh_memory_usage() - wg->min_memory_limit();
         if (exceeded_memory < 1 << 27) {
             LOG(INFO) << "The workload group " << wg->memory_debug_string()
                       << " exceeded its min memory by "

@@ -201,14 +201,21 @@ private:
     //      release_query_memory_(stop_after_release=true) — one spill per round.
     //   4. Otherwise, try to revoke memory from other overcommitted WGs by
     //      cancelling their largest queries. Only memory actually revoked counts.
-    //   5. If nothing could be revoked and the process has reached its hard limit or the query
-    //      has waited for spill_in_paused_queue_timeout_ms, spill or cancel it via
-    //      release_query_memory_.
+    //   5. If nothing could be revoked, re-check the recorded reservation: the walk may have
+    //      taken a while and stops as soon as the reservation fits, then resume the query.
+    //   6. If the process has reached its hard limit or the query has waited for
+    //      spill_in_paused_queue_timeout_ms, spill or cancel it via release_query_memory_.
     // Returns true if the caller should stop processing further queries/WGs.
     bool handle_process_memory_exceeded_(const WorkloadGroupPtr& wg, PausedQuerySet& queries_list,
                                          PausedQueryIterator& query_it,
                                          const std::shared_ptr<ResourceContext>& resource_ctx,
                                          const RecentlyCancelledQueries& recently_cancelled);
+
+    // Resume a query paused due to PROCESS_MEMORY_EXCEEDED whose recorded reservation fits now,
+    // and erase it from the paused list (the iterator is advanced).
+    void resume_process_paused_query_(const WorkloadGroupPtr& wg, PausedQuerySet& queries_list,
+                                      PausedQueryIterator& query_it,
+                                      const std::shared_ptr<ResourceContext>& resource_ctx);
 
     // Common helper: attempt to release memory for a single paused query by calling
     // handle_single_query_() (which triggers spill or cancel). On success, erases the
@@ -252,11 +259,13 @@ private:
     // and cancel the biggest queries of the first one that releases memory, to reclaim
     // ~10% of its excess memory. A WG whose queries are all too small to be cancelled
     // releases nothing, so the next one is tried. Each WG is re-checked against its
-    // current usage right before it is revoked from, so one that fell back within its
-    // min memory while the earlier ones were scanned keeps that memory reserved.
+    // refreshed usage right before it is revoked from, so one that fell back within its
+    // min memory while the earlier ones were scanned keeps that memory reserved. The walk
+    // also stops before the next WG once `reserve_size` (the reservation of the paused
+    // query it serves) fits under the process soft limit.
     // Returns the amount of memory actually revoked, or 0 if no WG qualifies or no
     // query of any of them could be cancelled.
-    int64_t revoke_memory_from_other_groups_();
+    int64_t revoke_memory_from_other_groups_(int64_t reserve_size);
 
     // Recalculate and apply per-query memory limits for all queries in a workload
     // group based on the slot memory policy (NONE/FIXED/DYNAMIC). When
