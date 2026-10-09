@@ -20,6 +20,8 @@ package org.apache.doris.filesystem.gcs;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 class GcsFileSystemPropertiesTest {
@@ -260,6 +262,55 @@ class GcsFileSystemPropertiesTest {
         // The restriction applies to native OAuth; preserve legacy HMAC Hadoop configuration.
         Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of("provider", "GCP",
                 "gs.access_key", "ak", "gs.secret_key", "sk", "fs.gs.storage.root.url", "https://custom.example/")));
+    }
+
+    @Test
+    void nativeHadoopAuthCannotBeOverriddenByRawProperties() {
+        List<Map<String, String>> nativeModes = List.of(
+                Map.of("provider", "GCP"),
+                Map.of("provider", "GCP", "gs.credential_provider_type", "DEFAULT"),
+                Map.of("provider", "GCP", "gs.credential_provider_type", "COMPUTE_ENGINE"));
+        Map<String, String> overrides = Map.of(
+                "fs.gs.auth.type", "UNAUTHENTICATED",
+                "fs.gs.auth.impersonation.service.account", "other@test.iam.gserviceaccount.com",
+                "fs.gs.auth.service.account.json.keyfile", "/tmp/other-service-account.json");
+        for (Map<String, String> mode : nativeModes) {
+            for (String account : new String[] {"", "target@test.iam.gserviceaccount.com"}) {
+                overrides.forEach((key, value) -> {
+                    Map<String, String> properties = new HashMap<>(mode);
+                    if (!account.isEmpty()) {
+                        properties.put("gs.impersonation_service_account", account);
+                    }
+                    properties.put(key, value);
+                    IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                            () -> GcsFileSystemProperties.of(properties));
+                    Assertions.assertTrue(error.getMessage().contains(key));
+                    Assertions.assertTrue(error.getMessage().contains("gs.credential_provider_type"));
+                    Assertions.assertTrue(error.getMessage().contains("gs.impersonation_service_account"));
+                });
+            }
+        }
+        // An empty raw value must not clear the selected impersonation identity either.
+        Assertions.assertThrows(IllegalArgumentException.class, () -> GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com",
+                "fs.gs.auth.impersonation.service.account", "")));
+    }
+
+    @Test
+    void nativeHadoopAuthValidationPreservesOtherModesAndUnrelatedProperties() {
+        Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "gs.access_key", "ak", "gs.secret_key", "sk",
+                "fs.gs.auth.type", "UNAUTHENTICATED")));
+        Assertions.assertDoesNotThrow(() -> GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "gs.credential_provider_type", "ANONYMOUS",
+                "fs.gs.auth.type", "UNAUTHENTICATED")));
+        GcsFileSystemProperties props = GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "gs.credential_provider_type", "COMPUTE_ENGINE",
+                "gs.impersonation_service_account", "target@test.iam.gserviceaccount.com",
+                "fs.gs.http.max.retry", "3"));
+        Assertions.assertEquals("COMPUTE_ENGINE", props.toHadoopConfigurationMap().get("fs.gs.auth.type"));
+        Assertions.assertEquals("target@test.iam.gserviceaccount.com",
+                props.toHadoopConfigurationMap().get("fs.gs.auth.impersonation.service.account"));
     }
 
     @Test

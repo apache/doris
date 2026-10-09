@@ -145,6 +145,14 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
                             + "; configure the storage endpoint with gs.endpoint instead");
                 }
             }
+            // Raw auth overrides would make Hadoop use a different identity from object clients.
+            for (String key : rawProperties().keySet()) {
+                if (key.startsWith("fs.gs.auth.")) {
+                    throw new IllegalArgumentException("Native GCP authentication does not allow " + key
+                            + "; configure authentication with " + GcpCredential.CREDENTIAL_PROVIDER_TYPE
+                            + " and " + GcpCredential.IMPERSONATION_SERVICE_ACCOUNT + " instead");
+                }
+            }
         }
     }
 
