@@ -139,6 +139,10 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private static final long MAX_RETAINED_SERIALIZED_TASK_BYTES = 16L * 1024 * 1024;
     private volatile PaimonRustReaderCapabilities rustReaderCapabilities;
+
+    // Rust-fallback reason combinations already logged for this scan node, so a
+    // 960-split scan does not repeat the same one-line reason 960 times.
+    private Set<String> loggedRustFallbackReasons;
     private long maxRetainedSerializedTaskBytes = MAX_RETAINED_SERIALIZED_TASK_BYTES;
     // The keys of incremental read params for Paimon SDK
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
@@ -1190,67 +1194,125 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && nativeSplit && !fallbackRead
                     && !isFullyMaterializedPkDvSplit((DataSplit) split);
             boolean vectorSearchSplit = paimonSplit.getVectorPayloadBytes() != null;
-            // A PK-vector search split is not read as a DataSplit at all: FE ships it
-            // serialized inside vector_payload (paimon_split is empty on the wire) and
-            // BE executes paimon-rust's eager Top-K chain, which applies deletion
-            // vectors and the merge inside the search itself. So its gate is computed
-            // separately from the batch reader's: every DataSplit-shape gate below
-            // (nativeSplit / splitDvNotMaterialized / externalFileSplit, the
-            // PaimonRustReaderCapabilities whitelist) judges a split the vector path
-            // never opens and must not apply -- this partial-update + unmaterialized-DV
-            // shape is the standard PK-vector table layout the batch reader rejects.
-            // The gates kept for vector constrain the search itself: both switches,
-            // !fallbackRead (BE opens via the FileStoreTable schema json),
-            // provider-mode translation and auth/query-auth shapes, the merge-option
-            // matrix and merge-on-read shape the search's row lookup must honor,
-            // orc-ltz / projected-variant bounds on the returned user columns,
-            // the table's storage scheme and credential shape, scan-mode default
+            // Session, table and storage gates shared by both rust readers (the batch
+            // reader and the PK-vector search reader): both switches, the FallbackRead
+            // wrapper shape, incremental scans, provider-mode translation and the
+            // query-auth / REST-token shapes, the merge-option matrix and merge-on-read
+            // shape, the orc-ltz / projected-variant bounds on the returned columns, the
+            // table's storage scheme and credential shape, the scan-mode default the
+            // pinned Rust builder requires, the FileStoreTable schema json BE opens with,
             // and the all-backend rust capability negotiation.
-            boolean canUseRust;
-            if (vectorSearchSplit) {
-                canUseRust = sessionVariable.isEnablePaimonRustReader()
-                        && sessionVariable.enableFileScannerV2 && !fallbackRead
-                        && !isIncremental && providerModeTranslatable && !queryAuthTable
-                        && !restTokenTable
-                        && !dvMergeOnRead
-                        && !orcLtzSchema && !projectedVariant
-                        && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
-                        && schemeCapabilityVerified && hdfsBackendVerified
-                        && paimonFileStoreTable != null;
-            } else {
-                canUseRust = sessionVariable.isEnablePaimonRustReader()
-                        && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
-                        && !isIncremental && providerModeTranslatable && !queryAuthTable
-                        && !restTokenTable
-                        && !dvMergeOnRead && !splitDvNotMaterialized
-                        && !orcLtzSchema && !projectedVariant && !externalFileSplit
-                        && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
-                        && schemeCapabilityVerified && hdfsBackendVerified
-                        && paimonFileStoreTable != null;
-            }
-            if (canUseRust) {
-                // Branch tables can retain persisted modes without a selector. Validate the
-                // transported options too: the pinned Rust builder only accepts default here.
+            boolean allBackendsRustCapable = !backendPolicy.getBackends().isEmpty()
+                    && backendPolicy.getBackends().stream().allMatch(Backend::isPaimonRustReaderSupported);
+            boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
+                    && sessionVariable.enableFileScannerV2
+                    && !fallbackRead
+                    && !isIncremental && providerModeTranslatable
+                    && !queryAuthTable && !restTokenTable
+                    && !dvMergeOnRead
+                    && !orcLtzSchema && !projectedVariant
+                    && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
+                    && schemeCapabilityVerified && hdfsBackendVerified
+                    && allBackendsRustCapable
+                    && paimonFileStoreTable != null;
+            // Branch tables can retain persisted modes without a selector. Validate the
+            // transported options too: the pinned Rust builder only accepts default here.
+            // Kept lazy and null-safe: fallback-shaped tables can carry a null schema and
+            // the check is only meaningful once every other gate passed.
+            boolean scanModeNotDefault = false;
+            if (canUseRust && paimonFileStoreTable.schema() != null) {
                 String scanMode = PaimonScanParams.withoutTimeTravelSelectors(paimonFileStoreTable.schema())
                         .options().get(CoreOptions.SCAN_MODE.key());
-                canUseRust = scanMode == null || "default".equalsIgnoreCase(scanMode);
+                scanModeNotDefault = scanMode != null && !"default".equalsIgnoreCase(scanMode);
+                canUseRust = !scanModeNotDefault;
             }
-            if (canUseRust) {
-                // Every candidate can receive this range; older BEs cannot decode reader type 3.
-                canUseRust = !backendPolicy.getBackends().isEmpty()
-                        && backendPolicy.getBackends().stream().allMatch(Backend::isPaimonRustReaderSupported);
+            // The remaining gates judge the DataSplit the BATCH reader opens: the native
+            // DataSplit shape, unmaterialized partial-update / aggregation deletion
+            // vectors, external-path files, and the PaimonRustReaderCapabilities whitelist
+            // (single-file PK buckets, zero delete rows, schema-evolution whitelist). A
+            // PK-vector search split is never read as a DataSplit -- FE ships it serialized
+            // inside vector_payload (paimon_split is empty on the wire) and BE executes
+            // paimon-rust's eager Top-K chain, which applies deletion vectors and the merge
+            // inside the search itself -- so those gates must not judge it.
+            if (!vectorSearchSplit) {
+                canUseRust = canUseRust && nativeSplit && !splitDvNotMaterialized
+                        && !externalFileSplit;
             }
-            // A primary-key vector (ANN) search split executes paimon-rust's eager Top-K
-            // vector path, not the batch reader: PaimonRustReaderCapabilities describes
-            // the batch reader only (single-file PK buckets, zero delete rows, nested
-            // schema-evolution whitelist), and a vector bucket legitimately spans
-            // multiple data files and applies deletion vectors inside the search itself,
-            // so the per-split capability whitelist must not judge it.
             if (canUseRust && !vectorSearchSplit) {
                 if (rustReaderCapabilities == null) {
                     rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
                 }
                 canUseRust = rustReaderCapabilities.canRead((DataSplit) split);
+            }
+            // With the rust reader enabled, a logical split that still routes to JNI was
+            // rejected by a gate above: make the reason visible instead of a silent
+            // fallback, so "why is this table not using the rust reader" is answerable
+            // from the FE log.
+            if (sessionVariable.isEnablePaimonRustReader() && sessionVariable.enableFileScannerV2
+                    && !canUseRust) {
+                List<String> reasons = new ArrayList<>();
+                if (!vectorSearchSplit && !nativeSplit) {
+                    reasons.add("non_data_split");
+                }
+                if (fallbackRead) {
+                    reasons.add("fallback_read_table");
+                }
+                if (isIncremental) {
+                    reasons.add("incremental_scan");
+                }
+                if (!providerModeTranslatable) {
+                    reasons.add("provider_mode_untranslatable");
+                }
+                if (queryAuthTable) {
+                    reasons.add("query_auth_table");
+                }
+                if (restTokenTable) {
+                    reasons.add("rest_token_table");
+                }
+                if (dvMergeOnRead) {
+                    reasons.add("dv_merge_on_read");
+                }
+                if (!vectorSearchSplit && splitDvNotMaterialized) {
+                    reasons.add("split_dv_not_materialized");
+                }
+                if (orcLtzSchema) {
+                    reasons.add("orc_ltz_schema");
+                }
+                if (projectedVariant) {
+                    reasons.add("projected_variant");
+                }
+                if (!vectorSearchSplit && externalFileSplit) {
+                    reasons.add("external_file_split");
+                }
+                if (deduplicateIgnoreDelete) {
+                    reasons.add("deduplicate_ignore_delete");
+                }
+                if (rustUnsupportedMergeOption) {
+                    reasons.add("unsupported_merge_option");
+                }
+                if (!schemeCapabilityVerified) {
+                    reasons.add("unverified_location_scheme");
+                }
+                if (!hdfsBackendVerified) {
+                    reasons.add("hdfs_backend_credentials");
+                }
+                if (scanModeNotDefault) {
+                    reasons.add("scan_mode_not_default");
+                }
+                if (paimonFileStoreTable == null) {
+                    reasons.add("not_file_store_table");
+                }
+                if (!allBackendsRustCapable) {
+                    reasons.add("backend_without_rust_support");
+                }
+                if (reasons.isEmpty()) {
+                    reasons.add(vectorSearchSplit ? "unknown" : "capability_whitelist");
+                }
+                String splitDesc = split instanceof DataSplit
+                        ? "bucket=" + ((DataSplit) split).bucket()
+                                + " files=" + ((DataSplit) split).dataFiles().size()
+                        : split.getClass().getSimpleName();
+                logRustFallbackReasons(splitDesc, String.join(",", reasons));
             }
             if (vectorSearchSplit) {
                 // Primary-key vector (ANN) search: the serialized bucket split rides in
@@ -1476,7 +1538,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
                 pushDownCountSplits.add(split);
                 pushDownCountSum += count;
-            } else if (!forceJniScanner && !forceJniForSystemTable && supportNativeReader(optRawFiles)) {
+            } else if (!forceJniScanner && !forceJniForSystemTable
+                    && supportNativeReader(optRawFiles)) {
                 // Keep raw-file reads ahead of logical JNI/Rust dispatch: only the native file
                 // reader can use footer aggregates for COUNT(col) and MIN/MAX. Logical DataSplits
                 // may require merge/delete semantics and cannot reuse independent file statistics.
@@ -2430,6 +2493,23 @@ public class PaimonScanNode extends FileQueryScanNode {
      * rejects an unset or unsupported metric with an explicit error -- a loud failure,
      * which is strictly better than a silently degraded plan.
      */
+    /**
+     * Log why a logical paimon split routed to JNI although the rust reader was enabled.
+     * One line per distinct reason combination per scan node, so a 960-split scan whose
+     * splits fail the same gate logs once, while a scan with differently-shaped splits
+     * (e.g. per-split DV materialization) logs each distinct shape once.
+     */
+    private void logRustFallbackReasons(String splitDesc, String reasons) {
+        if (loggedRustFallbackReasons == null) {
+            loggedRustFallbackReasons = new HashSet<>();
+        }
+        if (loggedRustFallbackReasons.add(reasons)) {
+            LOG.info("paimon-rust reader enabled but a logical paimon split routed to JNI:"
+                    + " table={} split={} reasons=[{}]",
+                    source == null ? "unknown" : source.getTableLocation(), splitDesc, reasons);
+        }
+    }
+
     public boolean isVectorSearch() {
         return annSortQueryVector != null && annSortColumnName != null && annSortLimit >= 0;
     }

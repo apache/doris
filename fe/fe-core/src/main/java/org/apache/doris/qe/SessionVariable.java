@@ -3116,6 +3116,7 @@ public class SessionVariable implements Serializable, Writable {
                     "Use paimon-rust for non-native Paimon reads, higher priority than paimon-cpp"})
     private boolean enablePaimonRustReader = false;
 
+
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
