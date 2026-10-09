@@ -1245,6 +1245,28 @@ public enum ErrorCode {
     // 5103 (ERR_LANCE_INDEX_JOB_NOT_FOUND) was removed with the durable Lance index job
     // framework; the number stays unused so old client-visible codes keep their meaning.
 
+    ERR_LANCE_INDEX_MUTATION_INDETERMINATE(5104, new byte[]{'4', '2', '0', '0', '0'},
+            "Lance index mutation may or may not have committed (%s). No complete trusted result"
+            + " was received, so the outcome is unknown and must not be blindly retried; inspect"
+            + " authoritative metadata with SHOW INDEX FROM <table> and lance_index_entries()"),
+
+    ERR_LANCE_INDEX_MUTATION_COMMITTED_REFRESH_INCOMPLETE(5105, new byte[]{'4', '2', '0', '0', '0'},
+            "Lance index mutation committed successfully, but the metadata refresh did not complete"
+            + " (%s). This is not a build failure; inspect authoritative metadata with"
+            + " SHOW INDEX FROM <table> and lance_index_entries()"),
+
+    ERR_LANCE_INDEX_MUTATION_BUSY(5106, new byte[]{'4', '2', '0', '0', '0'},
+            "Lance index mutation is rejected because the mutation path is busy (%s);"
+            + " the statement was not queued, retry it later"),
+
+    ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED(5107, new byte[]{'4', '2', '0', '0', '0'},
+            "Lance index mutation completed as a no-op, but the required local metadata cache"
+            + " invalidation failed (%s); no mutation was executed and this is not a build failure"),
+
+    ERR_LANCE_INDEX_MUTATION_REJECTED(5108, new byte[]{'4', '2', '0', '0', '0'},
+            "Lance index mutation was rejected and nothing was committed (%s); the complete"
+            + " trusted result proves this invocation made no change"),
+
     ERR_NOT_CLOUD_MODE(6000, new byte[]{'4', '2', '0', '0', '0'},
             "Command only support in cloud mode.");
 
