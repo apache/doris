@@ -130,6 +130,29 @@ public class IcebergWritePlanProviderTest {
                 () -> IcebergWritePlanProvider.validateWriteSchema(partialInsert));
     }
 
+    @Test
+    public void rejectsRootAndNestedComputeVariantCarrier() {
+        // The engine hands an Iceberg VARIANT column to the write path as the VARIANT_COMPUTE_V2 carrier
+        // (ConnectorColumnConverter), not as plain VARIANT, so the read-only gate must recognize the carrier
+        // both as a root column and nested in a complex type. MUTATION: dropping the VARIANT_COMPUTE_V2 arm
+        // of containsVariant -> red.
+        ConnectorType carrier = ConnectorType.of("VARIANT_COMPUTE_V2");
+        ConnectorColumn rootVariant = new ConnectorColumn("v", carrier, null, true, null);
+        ConnectorColumn nestedVariant = new ConnectorColumn("payload",
+                ConnectorType.structOf(Collections.singletonList("nested"), Collections.singletonList(carrier)),
+                null, true, null);
+        for (ConnectorColumn column : Arrays.asList(rootVariant, nestedVariant)) {
+            DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> IcebergWritePlanProvider.validateWriteSchema(Collections.singletonList(column), true),
+                    column.getName());
+            Assertions.assertTrue(exception.getMessage().contains("VARIANT")
+                    && exception.getMessage().contains("read-only"), exception.getMessage());
+            // A delete-only MERGE writes no data file, so the same schema stays usable for it.
+            Assertions.assertDoesNotThrow(() -> IcebergWritePlanProvider.validateWriteSchema(
+                    Collections.singletonList(column), false), column.getName());
+        }
+    }
+
     private static InMemoryCatalog freshCatalog() {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());
@@ -1751,8 +1774,8 @@ public class IcebergWritePlanProviderTest {
         providerFor(ops.table, ctx).planWrite(new WriteSession(txn),
                 new WriteHandle(emptyPinnedHandle).writeOperation(WriteOperation.MERGE));
 
-        Assertions.assertNull(txn.getBaseSnapshotId(),
-                "an explicitly empty read must leave RowDelta validation unbounded across the first append");
+        Assertions.assertEquals(Long.valueOf(-1L), txn.getBaseSnapshotId(),
+                "an explicitly empty read must preserve its OCC generation fence across the first append");
     }
 
     // ───────────────────────────── MERGE sink (TIcebergMergeSink) ─────────────────────────────
@@ -1826,6 +1849,29 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertFalse(sink.isRequireMergeCardinalityCheck(),
                 "UPDATE shares this sink dialect but has no SQL cardinality rule; validating it would reject"
                         + " legal UPDATEs whose predicate matches a row through several source rows");
+    }
+
+    @Test
+    public void planWriteMergeSinkShipsWhetherTheWriteProducesDataFiles() {
+        // BE opens the data-file writer only when writes_data_files is true. A delete-only SQL MERGE must
+        // ship false so it neither builds a writer it never uses nor trips the writer-side schema checks
+        // (an Iceberg VARIANT target is deletable but not writable). MUTATION: dropping setWritesDataFiles,
+        // or shipping a constant -> one of the two plans below carries the wrong value -> red.
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergMergeSink deleteOnlyMerge = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                        .writeOperation(WriteOperation.MERGE)
+                        .writesDataFiles(false)
+                        .requireMergeCardinalityCheck(true));
+        Assertions.assertTrue(deleteOnlyMerge.isSetWritesDataFiles(),
+                "the field must always be set so BE never has to guess from an unset field");
+        Assertions.assertFalse(deleteOnlyMerge.isWritesDataFiles());
+
+        TIcebergMergeSink update = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                        .writeOperation(WriteOperation.UPDATE));
+        Assertions.assertTrue(update.isSetWritesDataFiles());
+        Assertions.assertTrue(update.isWritesDataFiles());
     }
 
     @Test

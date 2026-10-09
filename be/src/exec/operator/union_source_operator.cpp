@@ -117,8 +117,7 @@ Status UnionSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, b
             return Status::OK();
         }
         block->swap(*queue_block.block);
-        queue_block.block->clear_column_data(
-                operator_row_desc_before_projection().num_materialized_slots());
+        queue_block.block->clear_column_data(operator_row_desc_before_projection().num_slots());
         local_state._shared_state->data_queue.push_free_block(std::move(queue_block));
     }
     local_state.reached_limit(block, eos);

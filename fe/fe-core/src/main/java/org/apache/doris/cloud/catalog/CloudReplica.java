@@ -31,6 +31,8 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Interner;
+import com.google.common.collect.Interners;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.gson.annotations.SerializedName;
@@ -51,6 +53,10 @@ import java.util.stream.Collectors;
 
 public class CloudReplica extends Replica implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CloudReplica.class);
+
+    // Routes keep shared objects alive; weak interners release IDs after their last route disappears.
+    private static final Interner<String> SHARED_CLUSTER_IDS = Interners.newWeakInterner();
+    private static final Interner<Long> SHARED_BACKEND_IDS = Interners.newWeakInterner();
 
     // a replica is mapped to one BE in a cluster, use primaryClusterToBackend instead of primaryClusterToBackends
     @Deprecated
@@ -599,8 +605,16 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return idx;
     }
 
+    private static String shareClusterId(String clusterId) {
+        return SHARED_CLUSTER_IDS.intern(clusterId);
+    }
+
+    private static Long shareBackendId(Long backendId) {
+        return SHARED_BACKEND_IDS.intern(backendId);
+    }
+
     public void updateClusterToPrimaryBe(String cluster, long beId) {
-        primaryClusterToBackend.put(cluster, beId);
+        primaryClusterToBackend.put(shareClusterId(cluster), shareBackendId(beId));
         secondaryClusterToBackends.remove(cluster);
     }
 
@@ -615,7 +629,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             LOG.debug("add to secondary clusterId {}, beId {}, changeTimestamp {}, replica info {}",
                     cluster, beId, changeTimestamp, this);
         }
-        secondaryClusterToBackends.put(cluster, Pair.of(beId, changeTimestamp));
+        secondaryClusterToBackends.put(shareClusterId(cluster), Pair.of(beId, changeTimestamp));
     }
 
     public void clearClusterToBe(String cluster) {
@@ -745,5 +759,10 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         // checkpoint thread resolves Env.getCurrentEnv() to its own Env, so the backend set read here is
         // the one belonging to the image being loaded.
         removeInvalidRoutes();
+
+        ConcurrentHashMap<String, Long> sharedRoutes = new ConcurrentHashMap<>(primaryClusterToBackend.size());
+        primaryClusterToBackend.forEach((clusterId, backendId) ->
+                sharedRoutes.put(shareClusterId(clusterId), shareBackendId(backendId)));
+        primaryClusterToBackend = sharedRoutes;
     }
 }
