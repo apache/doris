@@ -158,10 +158,12 @@ suite("paimon_timestamp_types", "p0,external") {
         // Native ORC rounds scales 7-9 to microseconds; JNI truncates. Native Parquet uses
         // Paimon history semantics for high-precision INT96 instead of the session timezone.
         sql """set force_jni_scanner=false"""
-        // Legacy ORC LTZ needs the SDK's compatibility conversion even when JNI is not forced.
-        // Native Parquet continues to use V2 independently of this session preference.
+        // Precision-aware native predicates use V2; V1 compares raw nanoseconds before truncation.
+        // SELECT * still falls back to JNI because it includes legacy ORC LTZ fields.
+        sql """set enable_file_scanner_v2=true"""
+        test_scale("2024-01-02 10:04:05.123457")
+        // Keep testing legacy LTZ fallback with V2 disabled independently of the NTZ predicate tests.
         sql """set enable_file_scanner_v2=false"""
-        test_scale("2024-01-02 10:04:05.123456")
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
         // test_ltz_ntz("test_timestamp_ntz_ltz_parquet")
         test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc", "2024-01-02 10:12:34.123456+08:00")

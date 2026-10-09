@@ -42,6 +42,15 @@ public class HmsTypeMappingTest {
     }
 
     @Test
+    public void binaryReadTypesCanBeWrittenBackToHive() {
+        // INSERT/CTAS must reverse the binary mapping at every nesting level.
+        for (String hiveType : new String[] {"binary", "array<binary>", "map<string,binary>",
+                "struct<payload:binary,items:array<binary>>"}) {
+            Assertions.assertEquals(hiveType, HmsTypeMapping.toHiveTypeString(map(hiveType)));
+        }
+    }
+
+    @Test
     public void testPrimitives() {
         Assertions.assertEquals(ConnectorType.of("BOOLEAN"), map("boolean"));
         Assertions.assertEquals(ConnectorType.of("TINYINT"), map("tinyint"));

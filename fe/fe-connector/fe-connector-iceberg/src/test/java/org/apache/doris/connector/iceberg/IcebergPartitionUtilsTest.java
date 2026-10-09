@@ -75,6 +75,35 @@ public class IcebergPartitionUtilsTest {
     // ---- serializePartitionValue: legacy type matrix (direct, package-private) ----
 
     @Test
+    public void listBinaryIdentityPartitionsPreservesBytesAndNulls() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("binary_partitions", Collections.emptyMap());
+        Namespace ns = Namespace.of("db");
+        catalog.createNamespace(ns);
+        Schema schema = new Schema(Types.NestedField.optional(1, "b", Types.BinaryType.get()),
+                Types.NestedField.optional(2, "f", Types.FixedType.ofLength(2)));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("b").identity("f").build();
+        Table table = catalog.createTable(TableIdentifier.of(ns, "tbl"), schema, spec);
+        for (int i = 0; i < 3; i++) {
+            PartitionData data = new PartitionData(spec.partitionType());
+            data.set(0, i == 2 ? null : ByteBuffer.wrap(i == 0 ? new byte[] {(byte) 0xff}
+                    : new byte[] {(byte) 0xff, 0}));
+            data.set(1, ByteBuffer.wrap(new byte[] {0, (byte) 0x80}));
+            table.newAppend().appendFile(DataFiles.builder(spec).withPath("file-" + i + ".parquet")
+                    .withFormat(FileFormat.PARQUET).withPartition(data).withFileSizeInBytes(100)
+                    .withRecordCount(1).build()).commit();
+        }
+        List<ConnectorPartitionInfo> parts = IcebergPartitionUtils.listPartitions(table);
+        Assertions.assertEquals(3, parts.size());
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("b=0xff/f=0x0080", "b=0xff00/f=0x0080",
+                "b=null/f=0x0080")), parts.stream().map(ConnectorPartitionInfo::getPartitionName)
+                .collect(Collectors.toSet()));
+        Assertions.assertEquals(Arrays.asList(true, false), parts.stream()
+                .filter(part -> part.getPartitionName().startsWith("b=null/"))
+                .findFirst().get().getPartitionValueNullFlags());
+    }
+
+    @Test
     public void uuidIdentityPartitionUsesBinaryBytesWithoutChangingPartitionText() {
         Schema schema = new Schema(Types.NestedField.optional(1, "key", Types.UUIDType.get()));
         PartitionSpec spec = PartitionSpec.builderFor(schema).identity("key").build();

@@ -53,10 +53,8 @@ suite("test_trino_mysql", "p0,external") {
         qt_desc_all_types_null """desc all_types_nullable;"""
         qt_select_all_types_null """select * except(time1,time2,time3) from all_types_nullable order by 1;"""
         // Verify source instants independently of TIMESTAMPTZ's display format.
-        def timestampBounds = sql """select min(unix_timestamp(timestamp1)),
+        order_qt_timestamp_bounds """select min(unix_timestamp(timestamp1)),
                 max(unix_timestamp(timestamp1)) from all_types_nullable"""
-        assertEquals(1L, timestampBounds[0][0] as long)
-        assertEquals(2147483647L, timestampBounds[0][1] as long)
 
         qt_desc_all_types_non_null """desc all_types_non_nullable;"""
         qt_select_all_types_non_null """select * except(time1,time2,time3) from all_types_non_nullable order by 1;"""

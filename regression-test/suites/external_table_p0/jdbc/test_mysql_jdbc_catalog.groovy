@@ -179,7 +179,14 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
         // Both legacy and modern drivers must preserve the fixture's UTC instant.
-        assertEquals(1669532991L, (sql "select unix_timestamp(timestamp_value) from ${ex_tb19}")[0][0] as long)
+        order_qt_timestamp_epoch "select unix_timestamp(timestamp_value) from ${ex_tb19}"
+        // CAST stripping must not compare the UTC source value with this +08:00 wall-clock literal.
+        // LIMIT also stays above the local filter so it cannot discard qualifying rows remotely.
+        order_qt_timestamp_wall_clock_literal """
+            SELECT unix_timestamp(timestamp_value) FROM ${ex_tb19}
+            WHERE CAST(timestamp_value AS DATETIMEV2) > CAST('2022-11-27 12:00:00' AS DATETIMEV2)
+            ORDER BY timestamp_value LIMIT 1
+        """
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
         order_qt_ex_tb21_1  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
         order_qt_ex_tb21_2  """ select `key`, `id` from ${ex_tb21} where `key` like 2 order by id;"""

@@ -247,13 +247,17 @@ public final class JdbcQueryBuilder {
         return expr.getChildren().stream().anyMatch(JdbcQueryBuilder::hasInstant);
     }
 
-    private static boolean hasWallClockColumn(ConnectorExpression expr) {
-        if (expr instanceof ConnectorColumnRef) {
-            String name = ((ConnectorColumnRef) expr).getType().getTypeName();
+    private static boolean hasWallClockValue(ConnectorExpression expr) {
+        if (expr instanceof ConnectorColumnRef || expr instanceof ConnectorLiteral) {
+            // CAST removal can leave an unzoned literal beside an instant column. Its comparison
+            // still depends on the Doris session zone, unlike the remote connection's UTC zone.
+            ConnectorType type = expr instanceof ConnectorColumnRef
+                    ? ((ConnectorColumnRef) expr).getType() : ((ConnectorLiteral) expr).getType();
+            String name = type.getTypeName();
             return "DATETIMEV2".equalsIgnoreCase(name) || "DATETIME".equalsIgnoreCase(name)
                     || "DATEV2".equalsIgnoreCase(name) || "DATE".equalsIgnoreCase(name);
         }
-        return expr.getChildren().stream().anyMatch(JdbcQueryBuilder::hasWallClockColumn);
+        return expr.getChildren().stream().anyMatch(JdbcQueryBuilder::hasWallClockValue);
     }
 
     private static boolean containsBinaryLiteral(ConnectorExpression expr) {
@@ -336,7 +340,7 @@ public final class JdbcQueryBuilder {
      */
     private boolean shouldPushDownExpression(ConnectorExpression expr) {
         // Stripped CASTs lose the Doris session zone when an instant is compared with wall-clock fields.
-        if (hasInstant(expr) && hasWallClockColumn(expr)) {
+        if (hasInstant(expr) && hasWallClockValue(expr)) {
             return false;
         }
         // Remote NULL handling and calendar operations can differ from decoded Doris instants.

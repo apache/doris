@@ -26,7 +26,6 @@ import com.google.common.io.BaseEncoding;
 
 import java.util.Arrays;
 import java.util.Locale;
-import java.util.Objects;
 
 /**
  * Represents varbinary literal
@@ -45,7 +44,11 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
     }
 
     public VarBinaryLiteral(byte[] byteValues) {
-        super(VarBinaryType.INSTANCE);
+        this(VarBinaryType.INSTANCE, byteValues);
+    }
+
+    public VarBinaryLiteral(VarBinaryType type, byte[] byteValues) {
+        super(type);
         this.byteValues = byteValues;
     }
 
@@ -93,7 +96,9 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
     @Override
     public LiteralExpr toLegacyLiteral() {
         try {
-            return new org.apache.doris.analysis.VarBinaryLiteral(byteValues);
+            LiteralExpr literal = new org.apache.doris.analysis.VarBinaryLiteral(byteValues);
+            literal.setType(dataType.toCatalogDataType());
+            return literal;
         } catch (Exception e) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException("Invalid VarBinary format.");
         }
@@ -102,33 +107,8 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
     @Override
     public int compareTo(ComparableLiteral other) {
         if (other instanceof VarBinaryLiteral) {
-            byte[] thisBytes = this.byteValues;
-            byte[] otherBytes = ((VarBinaryLiteral) other).byteValues;
-
-            int minLength = Math.min(thisBytes.length, otherBytes.length);
-            int i = 0;
-            for (i = 0; i < minLength; i++) {
-                if (Byte.toUnsignedInt(thisBytes[i]) < Byte.toUnsignedInt(otherBytes[i])) {
-                    return -1;
-                } else if (Byte.toUnsignedInt(thisBytes[i]) > Byte.toUnsignedInt(otherBytes[i])) {
-                    return 1;
-                }
-            }
-            if (thisBytes.length > otherBytes.length) {
-                if (thisBytes[i] == 0x00) {
-                    return 0;
-                } else {
-                    return 1;
-                }
-            } else if (thisBytes.length < otherBytes.length) {
-                if (otherBytes[i] == 0x00) {
-                    return 0;
-                } else {
-                    return -1;
-                }
-            } else {
-                return 0;
-            }
+            // Binary partition keys have no padding: a prefix and its zero extension are distinct.
+            return Arrays.compareUnsigned(byteValues, ((VarBinaryLiteral) other).byteValues);
         }
         if (other instanceof NullLiteral) {
             return 1;
@@ -155,6 +135,7 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
 
     @Override
     protected int computeHashCode() {
-        return Objects.hash(super.computeHashCode(), byteValues);
+        // equals compares byte contents independently of the declared length, never array identity.
+        return Arrays.hashCode(byteValues);
     }
 }

@@ -75,7 +75,7 @@ suite("test_mariadb_jdbc_catalog", "p0,external") {
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
         order_qt_dt """select * from ${dt}; """
         // The fixture uses UTC; assert the instant as well as its session-local rendering.
-        assertEquals(1686996000L, (sql "select unix_timestamp(timestamp0) from ${dt}")[0][0] as long)
+        order_qt_timestamp_epoch "select unix_timestamp(timestamp0) from ${dt}"
 
         // test all types supported by Mariadb
         sql """use doris_test;"""

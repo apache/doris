@@ -274,6 +274,9 @@ public final class HmsTypeMapping {
             case "VARCHAR":
             case "STRING":
                 return "string";
+            case "VARBINARY":
+                // Hive binary now reads as VARBINARY, including nested INSERT/CTAS columns.
+                return "binary";
             case "DECIMALV2":
             case "DECIMAL32":
             case "DECIMAL64":

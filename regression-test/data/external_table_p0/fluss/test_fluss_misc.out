@@ -132,7 +132,7 @@ f_char	text	Yes	false	\N	NONE
 f_string	text	Yes	false	\N	NONE
 f_date	date	Yes	false	\N	NONE
 f_timestamp	datetime(6)	Yes	false	\N	NONE
-f_timestamp_ltz	datetime(3)	Yes	false	\N	NONE
+f_timestamp_ltz	timestamptz(3)	Yes	false	\N	NONE
 f_array	array<int>	Yes	false	\N	NONE
 f_map	map<text,int>	Yes	false	\N	NONE
 f_row	struct<r_int:int,r_string:text>	Yes	false	\N	NONE

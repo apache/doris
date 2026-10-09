@@ -764,14 +764,15 @@ final class IcebergPartitionUtils {
             // the two positionally (PluginDrivenMvccExternalTable.toListPartitionItem's load-bearing
             // checkState), so emitting one value per spec FIELD against one column per DISTINCT source
             // column would skip every partition and silently disable pruning.
-            // String.valueOf keeps byte-parity with the legacy parse, which reads a null field rendered
-            // into the name as the literal "null" (StringBuilder append of a null Object).
+            // Typed NULLs must not be parsed as bytes (or confused with a STRING value "null").
             List<String> orderedValues = new ArrayList<>(values.size());
+            List<Boolean> nullFlags = new ArrayList<>(values.size());
             for (String value : values.values()) {
                 orderedValues.add(String.valueOf(value));
+                nullFlags.add(value == null);
             }
             partitions.add(new ConnectorPartitionInfo(raw.name, values, Collections.emptyMap(),
-                    orderedValues, Collections.emptyList()));
+                    orderedValues, nullFlags));
         }
         return partitions;
     }
@@ -880,6 +881,14 @@ final class IcebergPartitionUtils {
             int ordinal = partitionFieldOrdinals.get(partitionField.fieldId());
             Object o = partitionData.get(ordinal, fieldClass);
             String fieldValue = o == null ? null : o.toString();
+            Type fieldType = partitionSpec.partitionType().fields().get(i).type();
+            // ByteBuffer.toString() describes its bounds, not the partition bytes. Use the
+            // transformed type so bucket(binary) remains an integer while identity/truncate keep bytes.
+            if (fieldType.typeId() == Type.TypeID.BINARY || fieldType.typeId() == Type.TypeID.FIXED) {
+                fieldValue = serializePartitionValue(fieldType, o, ZoneOffset.UTC);
+            } else if (fieldType.typeId() == Type.TypeID.UUID && o != null) {
+                fieldValue = "0x" + o.toString().replace("-", "");
+            }
             sb.append(partitionField.name()).append("=").append(fieldValue).append("/");
             // Resolve the partition field's SOURCE column name (case-preserved), matching the generic
             // "partition_columns" contract in IcebergConnectorMetadata.buildTableSchema; fall back to the

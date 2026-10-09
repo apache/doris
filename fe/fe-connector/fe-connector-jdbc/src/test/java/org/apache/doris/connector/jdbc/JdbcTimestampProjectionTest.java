@@ -24,6 +24,28 @@ import org.junit.jupiter.api.Test;
 
 class JdbcTimestampProjectionTest {
     @Test
+    void wallClockLiteralsKeepInstantPredicatesAndLimitLocal() {
+        ConnectorType instant = ConnectorType.of("TIMESTAMPTZ", 6, 0);
+        for (String name : new String[] {"DATE", "DATEV2", "DATETIME", "DATETIMEV2"}) {
+            ConnectorType local = ConnectorType.of(name, 6, 0);
+            org.apache.doris.connector.spi.pushdown.ConnectorExpression filter =
+                    new org.apache.doris.connector.spi.pushdown.ConnectorComparison(
+                            org.apache.doris.connector.spi.pushdown.ConnectorComparison.Operator.GT,
+                            new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef("ts", instant),
+                            new org.apache.doris.connector.spi.pushdown.ConnectorLiteral(local,
+                                    "DATE".equals(name) || "DATEV2".equals(name)
+                                            ? java.time.LocalDate.of(2020, 1, 2)
+                                            : java.time.LocalDateTime.of(2020, 1, 2, 4, 0)));
+            String sql = new JdbcQueryBuilder(JdbcDbType.MYSQL).buildQuery("db", "tbl",
+                    java.util.Collections.singletonList(new JdbcColumnHandle("ts", "ts", instant)),
+                    java.util.Optional.of(filter), 1);
+            // A +08:00 session compares local 08:00 to 04:00; the remote UTC session sees 00:00.
+            Assertions.assertFalse(sql.contains("WHERE"), sql);
+            Assertions.assertFalse(sql.contains("LIMIT"), sql);
+        }
+    }
+
+    @Test
     void mysqlMixedTimestampComparisonsRemainLocal() {
         ConnectorType instant = ConnectorType.of("TIMESTAMPTZ", 6, 0);
         ConnectorType local = ConnectorType.of("DATETIMEV2", 6, 0);

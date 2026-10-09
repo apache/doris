@@ -27,7 +27,6 @@ suite("test_iceberg_write_binary_partitions", "p0,external,iceberg,external_dock
     String catalogName = "test_iceberg_write_binary_partitions"
     String dbName = "binary_partition_roundtrip"
     def hexValues = ["C3A900FF", "", "616263", "00FF80", "000102030405060708090A0B0C0D0E0FFF80"]
-    def expected = hexValues.withIndex().collect { value, index -> [index + 1, value] } + [[6, null]]
     try {
         sql "DROP CATALOG IF EXISTS ${catalogName}"
         sql """CREATE CATALOG ${catalogName} PROPERTIES (
@@ -39,43 +38,48 @@ suite("test_iceberg_write_binary_partitions", "p0,external,iceberg,external_dock
         sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
         sql "USE ${dbName}"
         for (String format : ["parquet", "orc"]) {
-            for (String transform : ["bucket", "truncate"]) {
+            for (String transform : ["identity", "bucket", "truncate"]) {
                 String table = "binary_${format}_${transform}"
-                String expression = transform == "bucket" ? "bucket(16, binary_key)" : "truncate(1, binary_key)"
+                String expression = transform == "identity" ? "binary_key"
+                        : transform == "bucket" ? "bucket(16, binary_key)" : "truncate(1, binary_key)"
                 sql "DROP TABLE IF EXISTS ${table}"
-                try {
-                    spark_iceberg """CREATE TABLE demo.${dbName}.${table} (id INT, binary_key BINARY)
-                        USING iceberg PARTITIONED BY (${expression})
-                        TBLPROPERTIES ('format-version'='2', 'write.format.default'='${format}')"""
-                    // Include a prefix inside UTF-8, embedded NULs, invalid UTF-8, and arena-backed bytes.
-                    String rows = hexValues.withIndex().collect { value, index ->
-                        "(${index + 1}, X'${value}')"
-                    }.join(", ") + ", (6, NULL)"
-                    for (String operation : ["INSERT INTO", "INSERT OVERWRITE TABLE"]) {
-                        sql "${operation} ${table} VALUES ${rows}"
-                        assertEquals(expected, sql("SELECT id, from_hex(binary_key) FROM ${table} ORDER BY id"))
-                        assertEquals([[6]], sql("SELECT id FROM ${table} WHERE binary_key IS NULL"))
-                        spark_iceberg "REFRESH TABLE demo.${dbName}.${table}"
-                        assertSparkDorisResultEquals(spark_iceberg("""
-                            SELECT id, hex(binary_key) FROM demo.${dbName}.${table} ORDER BY id
-                        """), expected)
-                        // Spark's partition pruning verifies committed transforms independently of Doris scans.
-                        hexValues.eachWithIndex { value, index ->
-                            assertSparkDorisResultEquals(spark_iceberg("""
-                                SELECT id FROM demo.${dbName}.${table} WHERE binary_key = X'${value}'
-                            """), [[index + 1]])
+                spark_iceberg """CREATE TABLE demo.${dbName}.${table} (id INT, binary_key BINARY)
+                    USING iceberg PARTITIONED BY (${expression})
+                    TBLPROPERTIES ('format-version'='2', 'write.format.default'='${format}')"""
+                // Include a prefix inside UTF-8, embedded NULs, invalid UTF-8, and arena-backed bytes.
+                String rows = hexValues.withIndex().collect { value, index ->
+                    "(${index + 1}, X'${value}')"
+                }.join(", ") + ", (6, NULL)"
+                for (String operation : ["INSERT INTO", "INSERT OVERWRITE TABLE"]) {
+                    sql "${operation} ${table} VALUES ${rows}"
+                    String tag = "${table}_${operation.replace(' ', '_')}"
+                    if (transform == "identity") {
+                        // Reads alone can pass if malformed binary metadata silently drops every partition.
+                        explain {
+                            sql "SELECT id FROM ${table}"
+                            contains "partition=6/6"
                         }
-                        assertSparkDorisResultEquals(spark_iceberg("""
-                            SELECT id FROM demo.${dbName}.${table} WHERE binary_key IS NULL
-                        """), [[6]])
                     }
-                } finally {
-                    sql "DROP TABLE IF EXISTS ${table}"
+                    "order_qt_${tag}_bytes" "SELECT id, HEX(binary_key) FROM ${table} ORDER BY id"
+                    "order_qt_${tag}_null" "SELECT id FROM ${table} WHERE binary_key IS NULL ORDER BY id"
+                    def actual = sql("SELECT id, HEX(binary_key) FROM ${table} ORDER BY id")
+                    spark_iceberg "REFRESH TABLE demo.${dbName}.${table}"
+                    assertSparkDorisResultEquals(spark_iceberg("""
+                        SELECT id, hex(binary_key) FROM demo.${dbName}.${table} ORDER BY id
+                    """), actual)
+                    // Spark's partition pruning verifies committed transforms independently of Doris scans.
+                    hexValues.eachWithIndex { value, index ->
+                        assertSparkDorisResultEquals(spark_iceberg("""
+                            SELECT id FROM demo.${dbName}.${table} WHERE binary_key = X'${value}'
+                        """), sql("SELECT id FROM ${table} WHERE HEX(binary_key) = '${value}' ORDER BY id"))
+                    }
+                    assertSparkDorisResultEquals(spark_iceberg("""
+                        SELECT id FROM demo.${dbName}.${table} WHERE binary_key IS NULL
+                    """), sql("SELECT id FROM ${table} WHERE binary_key IS NULL ORDER BY id"))
                 }
             }
         }
     } finally {
         sql "SWITCH internal"
-        sql "DROP CATALOG IF EXISTS ${catalogName}"
     }
 }

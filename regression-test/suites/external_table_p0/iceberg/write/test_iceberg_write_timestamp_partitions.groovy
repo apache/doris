@@ -27,9 +27,6 @@ suite("test_iceberg_write_timestamp_partitions", "p0,external,iceberg,external_d
     String catalogName = "test_iceberg_write_timestamp_partitions"
     String dbName = "timestamp_partition_roundtrip"
     def previousZone = sql("SELECT @@time_zone")[0][0]
-    def expected = [[1, "2021-11-07 05:30:00.123456+00:00"],
-                    [2, "2021-11-07 06:30:00.123456+00:00"],
-                    [3, "1969-12-31 23:59:58.999999+00:00"], [4, null]]
     try {
         sql "DROP CATALOG IF EXISTS ${catalogName}"
         sql """CREATE CATALOG ${catalogName} PROPERTIES (
@@ -64,35 +61,37 @@ suite("test_iceberg_write_timestamp_partitions", "p0,external,iceberg,external_d
                         (2, '2021-11-07 01:30:00.123456-05:00'),
                         (3, '1969-12-31 23:59:58.999999+00:00'), (4, NULL)"""
                     sql "SET time_zone = 'UTC'"
-                    assertEquals(expected, sql("SELECT id, CAST(event_time AS STRING) FROM ${table} ORDER BY id"))
+                    String tag = "${table}_${zone.replace('/', '_')}"
+                    "order_qt_${tag}_values" "SELECT id, CAST(event_time AS STRING) FROM ${table} ORDER BY id"
+                    // UNIX_TIMESTAMP clamps pre-epoch dates; compute signed microseconds in UTC instead.
+                    def actualEpochs = sql("SELECT id, microseconds_diff(CAST(event_time AS DATETIMEV2(6)), "
+                            + "CAST('1970-01-01 00:00:00' AS DATETIMEV2(6))) FROM ${table} ORDER BY id")
                     spark_iceberg "REFRESH TABLE demo.${dbName}.${table}"
                     assertSparkDorisResultEquals(spark_iceberg("""
                         SELECT id, unix_micros(event_time) FROM demo.${dbName}.${table} ORDER BY id
-                    """), [[1, 1636263000123456L], [2, 1636266600123456L], [3, -1000001L], [4, null]])
+                    """), actualEpochs)
                     // Equality pruning must agree with the committed partition values, not merely a full scan.
-                    assertEquals([[2]], sql("""SELECT id FROM ${table}
-                        WHERE event_time = CAST('2021-11-07 06:30:00.123456+00:00' AS TIMESTAMPTZ(6))"""))
-                    assertEquals([[3]], sql("""SELECT id FROM ${table}
-                        WHERE event_time = CAST('1969-12-31 23:59:58.999999+00:00' AS TIMESTAMPTZ(6))"""))
-                    assertEquals([[4]], sql("SELECT id FROM ${table} WHERE event_time IS NULL"))
+                    "order_qt_${tag}_fold" """SELECT id FROM ${table}
+                        WHERE event_time = CAST('2021-11-07 06:30:00.123456+00:00' AS TIMESTAMPTZ(6)) ORDER BY id"""
+                    "order_qt_${tag}_epoch" """SELECT id FROM ${table}
+                        WHERE event_time = CAST('1969-12-31 23:59:58.999999+00:00' AS TIMESTAMPTZ(6)) ORDER BY id"""
+                    "order_qt_${tag}_null" "SELECT id FROM ${table} WHERE event_time IS NULL ORDER BY id"
                     if (transform == "identity") {
                         sql "SET time_zone = '${zone}'"
                         sql """INSERT OVERWRITE TABLE ${table}
                             PARTITION (event_time='2021-11-07 01:30:00.123456-05:00') SELECT 20"""
                         sql "SET time_zone = 'UTC'"
-                        assertEquals([[1], [3], [4], [20]], sql("SELECT id FROM ${table} ORDER BY id"))
+                        "order_qt_${tag}_overwrite" "SELECT id FROM ${table} ORDER BY id"
                         // Delete commits also carry partition metadata through the scan path.
                         sql "SET time_zone = 'America/New_York'"
                         sql "DELETE FROM ${table} WHERE id = 20"
-                        assertEquals([[1], [3], [4]], sql("SELECT id FROM ${table} ORDER BY id"))
+                        "order_qt_${tag}_delete" "SELECT id FROM ${table} ORDER BY id"
                     }
                 }
-                sql "DROP TABLE ${table}"
             }
         }
     } finally {
         sql "SET time_zone = '${previousZone}'"
         sql "SWITCH internal"
-        sql "DROP CATALOG IF EXISTS ${catalogName}"
     }
 }

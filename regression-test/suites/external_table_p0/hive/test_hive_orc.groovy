@@ -270,7 +270,6 @@ suite("test_hive_orc", "p0,external") {
                 exception "varbinary"
             }
             assertTrue(sql("DESC test_view_varbinary")[0][1].toLowerCase().startsWith("varbinary"))
-            sql "DROP DATABASE test_view_varbinary_db FORCE"
 
             test {
                 sql " select count() from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` group by binary_col; "
