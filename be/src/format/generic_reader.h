@@ -47,6 +47,10 @@ namespace doris {
 class ColumnPredicate;
 } // namespace doris
 
+namespace doris::io {
+struct IOContext;
+} // namespace doris::io
+
 namespace doris {
 
 class Block;
@@ -69,6 +73,8 @@ struct ReaderInitContext {
     const TFileScanRangeParams* params = nullptr;
     const TFileRangeDesc* range = nullptr;
     TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
+    // The scanner's, marked when its scan stops (FileScanner::try_stop()).
+    std::shared_ptr<io::IOContext> io_ctx;
 
     // ---- Output slots (populated by on_before_init_reader, consumed by _do_init_reader) ----
     // column_names: the list of file columns to read. Populated by on_before_init_reader
