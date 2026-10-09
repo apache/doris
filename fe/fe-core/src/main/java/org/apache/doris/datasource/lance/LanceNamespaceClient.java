@@ -30,18 +30,30 @@ import com.github.benmanes.caffeine.cache.Ticker;
 import org.apache.commons.lang3.StringUtils;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.errors.NamespaceNotFoundException;
+import org.lance.namespace.errors.TableAlreadyExistsException;
 import org.lance.namespace.errors.TableNotFoundException;
 import org.lance.namespace.errors.TableVersionNotFoundException;
+import org.lance.namespace.model.AddColumnsEntry;
+import org.lance.namespace.model.AlterColumnsEntry;
+import org.lance.namespace.model.AlterTableAddColumnsRequest;
+import org.lance.namespace.model.AlterTableAlterColumnsRequest;
+import org.lance.namespace.model.AlterTableDropColumnsRequest;
+import org.lance.namespace.model.CreateNamespaceRequest;
+import org.lance.namespace.model.CreateTableRequest;
 import org.lance.namespace.model.DescribeTableRequest;
 import org.lance.namespace.model.DescribeTableResponse;
 import org.lance.namespace.model.DescribeTableVersionRequest;
 import org.lance.namespace.model.DescribeTableVersionResponse;
+import org.lance.namespace.model.DropNamespaceRequest;
+import org.lance.namespace.model.DropTableRequest;
 import org.lance.namespace.model.ListNamespacesRequest;
 import org.lance.namespace.model.ListNamespacesResponse;
 import org.lance.namespace.model.ListTableVersionsRequest;
 import org.lance.namespace.model.ListTableVersionsResponse;
 import org.lance.namespace.model.ListTablesRequest;
 import org.lance.namespace.model.ListTablesResponse;
+import org.lance.namespace.model.NamespaceExistsRequest;
+import org.lance.namespace.model.RegisterTableRequest;
 import org.lance.namespace.model.TableExistsRequest;
 import org.lance.namespace.model.TableVersion;
 
@@ -67,6 +79,7 @@ import java.util.concurrent.TimeUnit;
 final class LanceNamespaceClient {
     private static final String DATABASE_NAMESPACE_DELIMITER = ".";
     private static final int PAGE_SIZE = 1000;
+    private static final String LANCE_FILESYSTEM = AbstractLanceProperties.LANCE_FILESYSTEM;
     private static final String LANCE_REST = AbstractLanceProperties.LANCE_REST;
 
     private final LanceNamespace namespace;
@@ -81,6 +94,7 @@ final class LanceNamespaceClient {
      * concurrently (lance-jni calls them through a shared reference on its multi-threaded runtime),
      * and a stalled describe must not hold up every other table of the catalog.
      */
+    private final Map<String, String> namespaceStorageOptions;
     private final Object namespaceLock = new Object();
     private final long tableAccessTtlNanos;
     private final Ticker ticker;
@@ -89,18 +103,35 @@ final class LanceNamespaceClient {
     LanceNamespaceClient(LanceNamespace namespace, String catalogType, String rootDatabase,
             List<String> parentNamespace, List<StorageProperties> storageProperties) {
         this(namespace, catalogType, rootDatabase, parentNamespace, storageProperties,
-                AbstractLanceProperties.DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS,
+                Collections.emptyMap(), AbstractLanceProperties.DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS,
+                Ticker.systemTicker());
+    }
+
+    LanceNamespaceClient(LanceNamespace namespace, String catalogType, String rootDatabase,
+            List<String> parentNamespace, List<StorageProperties> storageProperties,
+            Map<String, String> namespaceStorageOptions) {
+        this(namespace, catalogType, rootDatabase, parentNamespace, storageProperties,
+                namespaceStorageOptions, AbstractLanceProperties.DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS,
                 Ticker.systemTicker());
     }
 
     LanceNamespaceClient(LanceNamespace namespace, String catalogType, String rootDatabase,
             List<String> parentNamespace, List<StorageProperties> storageProperties,
             long tableAccessTtlSeconds, Ticker ticker) {
+        this(namespace, catalogType, rootDatabase, parentNamespace, storageProperties,
+                Collections.emptyMap(), tableAccessTtlSeconds, ticker);
+    }
+
+    LanceNamespaceClient(LanceNamespace namespace, String catalogType, String rootDatabase,
+            List<String> parentNamespace, List<StorageProperties> storageProperties,
+            Map<String, String> namespaceStorageOptions, long tableAccessTtlSeconds, Ticker ticker) {
         this.namespace = namespace;
         this.catalogType = catalogType;
         this.rootDatabase = rootDatabase;
         this.parentNamespace = Collections.unmodifiableList(new ArrayList<>(parentNamespace));
         this.storageProperties = Collections.unmodifiableList(new ArrayList<>(storageProperties));
+        this.namespaceStorageOptions = Collections.unmodifiableMap(
+                new java.util.HashMap<>(namespaceStorageOptions));
         this.tableAccessTtlNanos = TimeUnit.SECONDS.toNanos(tableAccessTtlSeconds);
         this.ticker = ticker;
         this.tableAccessCache = newTableAccessCache();
@@ -139,6 +170,59 @@ final class LanceNamespaceClient {
         return new ArrayList<>(databases);
     }
 
+    boolean isRootDatabase(String dbName) {
+        return rootDatabase.equals(dbName);
+    }
+
+    boolean isRootNamespace(String dbName) throws DdlException {
+        return buildNamespaceId(dbName).isEmpty();
+    }
+
+    boolean databaseExists(String dbName) {
+        if (isRootDatabase(dbName)) {
+            return true;
+        }
+        try {
+            NamespaceExistsRequest request = new NamespaceExistsRequest().id(buildNamespaceId(dbName));
+            synchronized (namespaceLock) {
+                namespace.namespaceExists(request);
+            }
+            return true;
+        } catch (NamespaceNotFoundException e) {
+            return false;
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void createDatabase(String dbName, Map<String, String> properties) {
+        try {
+            CreateNamespaceRequest request = new CreateNamespaceRequest()
+                    .id(buildNamespaceId(dbName))
+                    .mode("Create")
+                    .properties(properties == null ? Collections.emptyMap() : properties);
+            synchronized (namespaceLock) {
+                namespace.createNamespace(request);
+            }
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void dropDatabase(String dbName, boolean ifExists, boolean force) {
+        try {
+            List<String> namespaceId = buildNamespaceId(dbName);
+            synchronized (namespaceLock) {
+                namespace.dropNamespace(new DropNamespaceRequest()
+                        .id(namespaceId)
+                        .mode(ifExists ? "Skip" : "Fail")
+                        .behavior(force ? "Cascade" : "Restrict"));
+            }
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /**
      * Lists all direct child namespace names under the given full Lance namespace.
      *
@@ -171,31 +255,34 @@ final class LanceNamespaceClient {
 
     List<String> listTableNames(String dbName) {
         try {
-            List<String> namespaceId = buildNamespaceId(dbName);
-            List<String> result = new ArrayList<>();
-            String pageToken = null;
-            Set<String> consumedTokens = new HashSet<>();
-            do {
-                ListTablesRequest request = new ListTablesRequest().id(namespaceId).limit(PAGE_SIZE);
-                if (pageToken != null) {
-                    request.pageToken(pageToken);
-                }
-                ListTablesResponse response;
-                synchronized (namespaceLock) {
-                    response = namespace.listTables(request);
-                }
-                if (response.getTables() != null) {
-                    result.addAll(response.getTables());
-                }
-                pageToken = response.getPageToken();
-                if (StringUtils.isNotEmpty(pageToken) && !consumedTokens.add(pageToken)) {
-                    throw new IllegalStateException("Lance namespace repeated a pagination token");
-                }
-            } while (StringUtils.isNotEmpty(pageToken));
-            return result;
+            return listTableNames(buildNamespaceId(dbName));
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private List<String> listTableNames(List<String> namespaceId) {
+        List<String> result = new ArrayList<>();
+        String pageToken = null;
+        Set<String> consumedTokens = new HashSet<>();
+        do {
+            ListTablesRequest request = new ListTablesRequest().id(namespaceId).limit(PAGE_SIZE);
+            if (pageToken != null) {
+                request.pageToken(pageToken);
+            }
+            ListTablesResponse response;
+            synchronized (namespaceLock) {
+                response = namespace.listTables(request);
+            }
+            if (response.getTables() != null) {
+                result.addAll(response.getTables());
+            }
+            pageToken = response.getPageToken();
+            if (StringUtils.isNotEmpty(pageToken) && !consumedTokens.add(pageToken)) {
+                throw new IllegalStateException("Lance namespace repeated a pagination token");
+            }
+        } while (StringUtils.isNotEmpty(pageToken));
+        return result;
     }
 
     boolean tableExists(String dbName, String tblName) {
@@ -210,6 +297,102 @@ final class LanceNamespaceClient {
             return false;
         } catch (DdlException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    void createTable(String dbName, String tableName, Map<String, String> properties,
+            byte[] arrowStream) {
+        try {
+            CreateTableRequest request = new CreateTableRequest()
+                    .id(buildTableId(dbName, tableName))
+                    .mode("Create")
+                    .properties(properties == null ? Collections.emptyMap() : properties)
+                    .storageOptions(namespaceStorageOptions);
+            synchronized (namespaceLock) {
+                namespace.createTable(request, arrowStream);
+            }
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void dropTable(String dbName, String tableName) {
+        try {
+            DropTableRequest request = new DropTableRequest().id(buildTableId(dbName, tableName));
+            executeTableMutation(dbName, tableName, () -> namespace.dropTable(request));
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void addColumns(String dbName, String tableName, List<AddColumnsEntry> columns) {
+        try {
+            AlterTableAddColumnsRequest request = new AlterTableAddColumnsRequest()
+                    .id(buildTableId(dbName, tableName))
+                    .newColumns(columns);
+            executeTableMutation(dbName, tableName, () -> namespace.alterTableAddColumns(request));
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void alterColumns(String dbName, String tableName, List<AlterColumnsEntry> alterations) {
+        try {
+            AlterTableAlterColumnsRequest request = new AlterTableAlterColumnsRequest()
+                    .id(buildTableId(dbName, tableName))
+                    .alterations(alterations);
+            executeTableMutation(dbName, tableName, () -> namespace.alterTableAlterColumns(request));
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void dropColumns(String dbName, String tableName, List<String> columns) {
+        try {
+            AlterTableDropColumnsRequest request = new AlterTableDropColumnsRequest()
+                    .id(buildTableId(dbName, tableName))
+                    .columns(columns);
+            executeTableMutation(dbName, tableName, () -> namespace.alterTableDropColumns(request));
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void executeTableMutation(String dbName, String tableName, Runnable mutation)
+            throws DdlException {
+        List<String> namespaceId = buildNamespaceId(dbName);
+        List<String> tableId = new ArrayList<>(namespaceId);
+        tableId.add(tableName);
+        synchronized (namespaceLock) {
+            try {
+                mutation.run();
+                return;
+            } catch (TableNotFoundException originalException) {
+                if (!LANCE_FILESYSTEM.equals(catalogType) || !namespaceId.isEmpty()) {
+                    throw originalException;
+                }
+                try {
+                    namespace.tableExists(new TableExistsRequest().id(tableId));
+                } catch (TableNotFoundException | NamespaceNotFoundException e) {
+                    throw originalException;
+                }
+                String expectedLocation = tableName + ".lance";
+                try {
+                    // DirectoryNamespace only accepts locations relative to its warehouse root.
+                    namespace.registerTable(new RegisterTableRequest()
+                            .id(tableId)
+                            .location(expectedLocation)
+                            .mode("Create"));
+                } catch (TableAlreadyExistsException e) {
+                    String registeredLocation = describeTable(tableId).getLocation();
+                    if (!expectedLocation.equals(registeredLocation)) {
+                        throw new DdlException("Refusing to mutate Lance table " + tableName
+                                + " because it was concurrently registered at "
+                                + registeredLocation + " instead of " + expectedLocation);
+                    }
+                }
+                mutation.run();
+            }
         }
     }
 
@@ -394,6 +577,19 @@ final class LanceNamespaceClient {
         } catch (URISyntaxException e) {
             // Unclassified locators remain usable but must not be assumed credential-free.
             return 0;
+        }
+    }
+
+    DescribeTableResponse describeTable(String dbName, String tableName, boolean vendCredentials) {
+        try {
+            List<String> tableId = buildTableId(dbName, tableName);
+            DescribeTableRequest request = new DescribeTableRequest().id(tableId).withTableUri(true)
+                    .vendCredentials(vendCredentials && LANCE_REST.equals(catalogType));
+            synchronized (namespaceLock) {
+                return namespace.describeTable(request);
+            }
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
         }
     }
 
