@@ -2769,9 +2769,15 @@ bool Tablet::can_add_binlog(uint64_t total_binlog_size) const {
     return !_data_dir->reach_capacity_limit(total_binlog_size);
 }
 
-void Tablet::set_binlog_config(BinlogConfig binlog_config) {
+Status Tablet::set_binlog_config(BinlogConfig binlog_config) {
     std::lock_guard wlock(_meta_lock);
+    if (binlog_config.config_version() < tablet_meta()->binlog_config().config_version()) {
+        return Status::InvalidArgument("Outdated binlog configuration for tablet {}: {} < {}",
+                                       tablet_id(), binlog_config.config_version(),
+                                       tablet_meta()->binlog_config().config_version());
+    }
     tablet_meta()->set_binlog_config(binlog_config);
+    return Status::OK();
 }
 
 void Tablet::gc_binlogs(int64_t version) {

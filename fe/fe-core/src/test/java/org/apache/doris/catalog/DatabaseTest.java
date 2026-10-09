@@ -56,6 +56,19 @@ public class DatabaseTest {
     private MockedStatic<Env> mockedEnvStatic;
 
     @Test
+    public void enablingRowBinlogValidatesTheMergedRetention() throws Exception {
+        for (String ttl : new String[] {"-1", "0"}) {
+            db.updateDbProperties(Map.of("binlog.enable", "false", "binlog.format", "ROW",
+                    "binlog.ttl_seconds", ttl));
+            Assertions.assertThrows(DdlException.class,
+                    () -> db.updateDbProperties(Map.of("binlog.enable", "true")));
+            Assertions.assertFalse(db.getBinlogConfig().getEnable());
+        }
+        db.updateDbProperties(Map.of("binlog.enable", "true", "binlog.ttl_seconds", "60"));
+        Assertions.assertEquals(60, db.getBinlogConfigsForCreateTable(Map.of()).second.getTtlSeconds());
+    }
+
+    @Test
     public void rowBinlogTtlDefaultsAndInheritance() throws Exception {
         Map<String, String> tableProperties = new HashMap<>();
         tableProperties.put("binlog.enable", "true");

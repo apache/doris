@@ -336,7 +336,9 @@ public class CollectRelation implements AnalysisRuleFactory {
                             && context.getFullRefreshNonPctReadMode().orElse(null) == StreamReadMode.SNAPSHOT)
                     .orElse(false);
             if (((OlapTable) table).hasRowBinlogTtl()
-                    && (ivmReadsBinlog || scanParams != null && scanParams.incrementalRead())) {
+                    && (ivmReadsBinlog || scanParams != null && scanParams.incrementalRead()
+                            || relation.getTableSnapshot().isPresent()
+                            && ((OlapTable) table).isUniqKeyMergeOnWrite())) {
                 statementContext.requireRowBinlogReferenceTso();
             }
             return;

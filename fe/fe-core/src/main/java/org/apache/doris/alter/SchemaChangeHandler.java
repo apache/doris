@@ -70,6 +70,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BufferSizeUtil;
 import org.apache.doris.common.util.DbUtil;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -3075,17 +3076,33 @@ public class SchemaChangeHandler extends AlterHandler {
                                           int skipWriteIndexOnLoad,
                                           int disableAutoCompaction,
                                           int verticalCompactionNumColumnsPerGroup) throws UserException {
-        // be id -> <tablet id,schemaHash>
-        Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        Partition partition;
         olapTable.readLock();
         try {
-            Partition partition = olapTable.getPartition(partitionName);
+            partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException(
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
             }
+        } finally {
+            olapTable.readUnlock();
+        }
+        updatePartitionProperties(db, olapTable, partition, storagePolicyId, isInMemory, binlogConfig,
+                compactionPolicy, timeSeriesCompactionConfig, skipWriteIndexOnLoad, disableAutoCompaction,
+                verticalCompactionNumColumnsPerGroup);
+    }
 
+    protected void updatePartitionProperties(Database db, OlapTable olapTable, Partition partition,
+            long storagePolicyId, int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
+            Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad, int disableAutoCompaction,
+            int verticalCompactionNumColumnsPerGroup) throws UserException {
+        String tableName = olapTable.getName();
+        String partitionName = partition.getName();
+        // Use the captured partition identity, including temporary partitions with the same name.
+        Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
+        olapTable.readLock();
+        try {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                 for (Tablet tablet : index.getTablets()) {
@@ -3980,7 +3997,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         boolean hasChanged = !newBinlogConfig.equals(oldBinlogConfig);
-        if (!hasChanged) {
+        if (!hasChanged && !oldBinlogConfig.isEnableForStreaming()) {
             LOG.info("table {} binlog config is same as the previous version, so nothing need to do",
                     olapTable.getName());
             return true;
@@ -4013,6 +4030,10 @@ public class SchemaChangeHandler extends AlterHandler {
         LOG.info("begin to update table's binlog config. table: {}, old binlog: {}, new binlog: {}",
                 olapTable.getName(), oldBinlogConfig, newBinlogConfig);
 
+        if (oldBinlogConfig.isEnableForStreaming()) {
+            updateRowBinlogConfig(db, olapTable, oldBinlogConfig, newBinlogConfig);
+            return false;
+        }
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
@@ -4027,6 +4048,60 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         return false;
+    }
+
+    private void updateRowBinlogConfig(Database db, OlapTable table, BinlogConfig oldConfig,
+            BinlogConfig newConfig) throws UserException {
+        List<Partition> partitions;
+        table.writeLockOrDdlException();
+        try {
+            if (!table.getBinlogConfig().equals(oldConfig)) {
+                throw new DdlException("Binlog configuration changed concurrently; retry ALTER TABLE");
+            }
+            // Journal a new generation even for an identical retry. Earlier timed-out tasks
+            // must not overwrite tablets after a later retention extension has succeeded.
+            newConfig.setConfigVersion(Math.addExact(oldConfig.getConfigVersion(), 1));
+            BinlogConfig published = new BinlogConfig(newConfig);
+            if (oldConfig.isRowTtlEnabled() && newConfig.getTtlSeconds() > oldConfig.getTtlSeconds()) {
+                // An extension is visible only after every tablet accepts the longer TTL.
+                published.setTtlSeconds(oldConfig.getTtlSeconds());
+            }
+            // A shorter TTL authorizes irreversible deletion. Persist it before any RPC.
+            Env.getCurrentEnv().updateBinlogConfig(db, table, published);
+            partitions = Lists.newArrayList(table.getAllPartitions());
+        } finally {
+            table.writeUnlock();
+        }
+
+        int updatedPartitions = 0;
+        for (Partition partition : partitions) {
+            int failAfter = DebugPointUtil.getDebugParamOrDefault(
+                    "SchemaChangeHandler.updateRowBinlogConfig.fail_after_partitions", -1);
+            if (failAfter >= 0 && updatedPartitions >= failAfter) {
+                throw new DdlException("debug point: ROW binlog configuration update failed after "
+                        + updatedPartitions + " partitions");
+            }
+            updatePartitionProperties(db, table, partition, -1, -1,
+                    newConfig, null, null, -1, -1, -1);
+            updatedPartitions++;
+        }
+
+        table.writeLockOrDdlException();
+        try {
+            if (table.getBinlogConfig().getConfigVersion() != newConfig.getConfigVersion()) {
+                throw new DdlException("Binlog configuration changed concurrently; retry ALTER TABLE");
+            }
+            Set<Long> updatedIds = partitions.stream().map(Partition::getId).collect(Collectors.toSet());
+            Set<Long> currentIds = table.getAllPartitions().stream().map(Partition::getId).collect(Collectors.toSet());
+            if (!updatedIds.equals(currentIds)) {
+                throw new DdlException("Partitions changed during binlog configuration update; retry ALTER TABLE");
+            }
+            if (!table.getBinlogConfig().equals(newConfig)) {
+                Env.getCurrentEnv().updateBinlogConfig(db, table, newConfig);
+            }
+        } finally {
+            table.writeUnlock();
+        }
     }
 
     private void removeColumnWhenDropGeneratedColumn(Column dropColumn, Map<String, Column> nameToColumn) {

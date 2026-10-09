@@ -23,7 +23,7 @@ import org.apache.doris.common.GenericPool;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.FrontendService;
-import org.apache.doris.thrift.TGetCurrentTsoResult;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -78,25 +78,28 @@ class MasterTsoProviderTest {
         GenericPool<FrontendService.Client> originalPool = ClientPool.frontendPool;
         ClientPool.frontendPool = pool;
         try {
-            Mockito.when(client.getCurrentTso()).thenReturn(
-                    new TGetCurrentTsoResult(new TStatus(TStatusCode.OK)).setTso(123L));
+            Mockito.when(client.acquireTimeBasedChangeReadFence(Mockito.any())).thenReturn(
+                    new TAcquireTimeBasedChangeReadFenceResult(new TStatus(TStatusCode.OK)).setCurrentTso(123L));
             Assertions.assertEquals(123L, MasterTsoProvider.getCurrentTso(context));
+            Mockito.verify(client).acquireTimeBasedChangeReadFence(Mockito.argThat(request ->
+                    request.getDbToTableIds().isEmpty() && !request.isWaitForTransactions()
+                            && !request.isSetEndTimestampMs() && request.getTimeoutMs() == 10000));
             Mockito.verify(pool).returnObject(address, client);
 
             Mockito.clearInvocations(pool);
-            Mockito.when(client.getCurrentTso()).thenReturn(
-                    new TGetCurrentTsoResult(new TStatus(TStatusCode.NOT_MASTER)));
+            Mockito.when(client.acquireTimeBasedChangeReadFence(Mockito.any())).thenReturn(
+                    new TAcquireTimeBasedChangeReadFenceResult(new TStatus(TStatusCode.NOT_MASTER)));
             Assertions.assertThrows(AnalysisException.class, () -> MasterTsoProvider.getCurrentTso(context));
             Mockito.verify(pool).returnObject(address, client);
 
             Mockito.clearInvocations(pool);
-            Mockito.when(client.getCurrentTso()).thenReturn(
-                    new TGetCurrentTsoResult(new TStatus(TStatusCode.INTERNAL_ERROR)));
+            Mockito.when(client.acquireTimeBasedChangeReadFence(Mockito.any())).thenReturn(
+                    new TAcquireTimeBasedChangeReadFenceResult(new TStatus(TStatusCode.INTERNAL_ERROR)));
             Assertions.assertThrows(AnalysisException.class, () -> MasterTsoProvider.getCurrentTso(context));
             Mockito.verify(pool).returnObject(address, client);
 
             Mockito.clearInvocations(pool);
-            Mockito.when(client.getCurrentTso()).thenThrow(new TException("transport failure"));
+            Mockito.when(client.acquireTimeBasedChangeReadFence(Mockito.any())).thenThrow(new TException("transport failure"));
             Assertions.assertThrows(AnalysisException.class, () -> MasterTsoProvider.getCurrentTso(context));
             Mockito.verify(pool).invalidateObject(address, client);
             Mockito.verify(pool, Mockito.never()).returnObject(address, client);

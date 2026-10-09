@@ -29,6 +29,27 @@ import java.util.Map;
 
 public class RowBinlogTtlConfigTest {
     @Test
+    public void publicationVersionSurvivesJournalImageAndWireFormats() {
+        BinlogConfig config = new BinlogConfig(true, 60, 1024, 10, BinlogConfig.BinlogFormat.ROW, false);
+        config.setConfigVersion(42);
+        Assertions.assertEquals(config, new BinlogConfig(config));
+        Assertions.assertEquals(config, BinlogConfig.fromProperties(config.toProperties()));
+        Assertions.assertEquals(42, config.toThrift().getConfigVersion());
+        Assertions.assertEquals(42, config.toProtobuf().getConfigVersion());
+        TableProperty properties = new TableProperty(new HashMap<>());
+        properties.setBinlogConfig(config);
+        TableProperty restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(properties), TableProperty.class);
+        Assertions.assertEquals(config, restored.getBinlogConfig());
+        Assertions.assertEquals(config, restored.buildBinlogConfig().getBinlogConfig());
+        Map<String, String> legacy = new HashMap<>(config.toProperties());
+        legacy.remove(BinlogConfig.CONFIG_VERSION);
+        Assertions.assertEquals(0, BinlogConfig.fromProperties(legacy).getConfigVersion());
+        BinlogConfig statement = new BinlogConfig();
+        statement.mergeFromProperties(config.toProperties(), false);
+        Assertions.assertEquals(0, statement.getConfigVersion(), "Statements cannot set the internal generation");
+    }
+
+    @Test
     public void propertiesSurviveCreateTableAnalysis() throws Exception {
         BinlogConfig config = new BinlogConfig();
         config.setEnable(true);

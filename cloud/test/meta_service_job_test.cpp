@@ -4839,6 +4839,48 @@ TEST(MetaServiceJobTest, RowBinlogTtlCommitChecksCurrentConfiguration) {
     }
 }
 
+TEST(MetaServiceJobTest, RowBinlogConfigRejectsOutOfOrderUpdates) {
+    for (bool versioned : {false, true}) {
+        auto service = get_meta_service(!versioned);
+        const std::string instance = "row_binlog_config_generation";
+        MOCK_GET_INSTANCE_ID(instance);
+        if (versioned) {
+            create_and_refresh_instance(service.get(), instance);
+        }
+        constexpr int64_t tablet_id = 4;
+        ASSERT_NO_FATAL_FAILURE(create_tablet(service.get(), 1, 2, 3, tablet_id, false));
+        auto update = [&](int64_t version, int64_t ttl) {
+            brpc::Controller controller;
+            UpdateTabletRequest request;
+            auto* meta = request.add_tablet_meta_infos();
+            meta->set_tablet_id(tablet_id);
+            auto* config = meta->mutable_binlog_config();
+            config->set_enable(true);
+            config->set_binlog_format(doris::BinlogFormatPB::ROW);
+            config->set_ttl_seconds(ttl);
+            config->set_max_bytes(1024);
+            config->set_max_history_nums(10);
+            config->set_config_version(version);
+            UpdateTabletResponse response;
+            service->update_tablet(&controller, &request, &response, nullptr);
+            return response.status().code();
+        };
+        EXPECT_EQ(MetaServiceCode::OK, update(2, 3600));
+        EXPECT_EQ(MetaServiceCode::OK, update(2, 3600));
+        EXPECT_EQ(MetaServiceCode::INVALID_ARGUMENT, update(1, 60));
+        EXPECT_EQ(MetaServiceCode::INVALID_ARGUMENT, update(0, 60));
+        brpc::Controller controller;
+        GetTabletRequest request;
+        request.set_tablet_id(tablet_id);
+        GetTabletResponse response;
+        service->get_tablet(&controller, &request, &response, nullptr);
+        ASSERT_EQ(MetaServiceCode::OK, response.status().code()) << response.DebugString();
+        EXPECT_EQ(2, response.tablet_meta().binlog_config().config_version());
+        EXPECT_EQ(3600, response.tablet_meta().binlog_config().ttl_seconds());
+        EXPECT_EQ(MetaServiceCode::OK, update(3, 60));
+    }
+}
+
 TEST(MetaServiceJobTest, ParallelCumuCompactionUsesPointProposalSnapshot) {
     auto meta_service = get_meta_service();
 

@@ -489,7 +489,7 @@ public:
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
     int64_t binlog_max_bytes() const { return _tablet_meta->binlog_config().max_bytes(); }
 
-    void set_binlog_config(BinlogConfig binlog_config);
+    Status set_binlog_config(BinlogConfig binlog_config);
 
     void set_is_full_compaction_running(bool is_full_compaction_running) {
         _is_full_compaction_running = is_full_compaction_running;

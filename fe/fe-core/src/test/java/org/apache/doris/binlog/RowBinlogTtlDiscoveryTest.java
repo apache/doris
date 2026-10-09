@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.qe.ComputeGroupException.FailedTypeEnum;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -32,6 +33,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -40,6 +42,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -54,6 +57,15 @@ public class RowBinlogTtlDiscoveryTest {
     @ParameterizedTest
     @EnumSource(value = FailedTypeEnum.class, names = {"CURRENT_COMPUTE_GROUP_NO_BE", "COMPUTE_GROUPS_NO_ALIVE_BE"})
     public void unavailableComputeGroupDoesNotBlockHealthyGroups(FailedTypeEnum failedType) throws Exception {
+        verifyHealthyGroups(failedType, false);
+    }
+
+    @Test
+    public void synchronousDispatchFailureDoesNotBlockLaterBackends() throws Exception {
+        verifyHealthyGroups(FailedTypeEnum.CURRENT_COMPUTE_GROUP_NO_BE, true);
+    }
+
+    private void verifyHealthyGroups(FailedTypeEnum failedType, boolean dispatchFails) throws Exception {
         boolean previous = Config.enable_feature_binlog;
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database database = Mockito.mock(Database.class);
@@ -96,10 +108,13 @@ public class RowBinlogTtlDiscoveryTest {
         Mockito.when(firstBackend.getBrpcAddress()).thenReturn(firstAddress);
         Mockito.when(lastBackend.getBrpcAddress()).thenReturn(lastAddress);
         Map<TNetworkAddress, List<Long>> delivered = new HashMap<>();
-        Map<TNetworkAddress, List<Long>> expected = Map.of(
+        Map<TNetworkAddress, List<Long>> expected = dispatchFails ? Map.of(lastAddress, List.of(1L, 2L)) : Map.of(
                 firstAddress, List.of(1L, 2L), lastAddress, List.of(1L, 2L));
         Mockito.when(proxy.syncTabletMeta(Mockito.any(), Mockito.any())).thenAnswer(invocation -> {
             TNetworkAddress address = invocation.getArgument(0);
+            if (dispatchFails && address.equals(firstAddress)) {
+                throw new RpcException("first-backend", "injected synchronous dispatch failure");
+            }
             InternalService.PSyncTabletMetaRequest request = invocation.getArgument(1);
             Assertions.assertTrue(request.getDiscoverRowBinlogTtl());
             delivered.computeIfAbsent(address, ignored -> new ArrayList<>()).addAll(request.getTabletIdsList());
@@ -125,8 +140,102 @@ public class RowBinlogTtlDiscoveryTest {
         }
     }
 
-    @Test
-    public void boundedSweepsVisitUncachedTabletsAndRetryFailedRequests() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 4, 32})
+    public void batchesRespectGlobalAndBackendLimitsAcrossComputeGroups(int backendsPerGroup) throws Exception {
+        boolean previous = Config.enable_feature_binlog;
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex binlogIndex = Mockito.mock(MaterializedIndex.class);
+        CloudSystemInfoService info = Mockito.mock(CloudSystemInfoService.class);
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        List<String> groups = List.of("first-group", "last-group");
+        Map<Long, Backend> backends = new HashMap<>();
+        Map<TNetworkAddress, Integer> addressGroups = new HashMap<>();
+        Map<TNetworkAddress, List<Long>> expected = new HashMap<>();
+        List<CloudReplica> replicas = new ArrayList<>();
+        for (int backendIndex = 0; backendIndex < backendsPerGroup; backendIndex++) {
+            CloudReplica replica = Mockito.mock(CloudReplica.class);
+            for (int group = 0; group < groups.size(); group++) {
+                long backendId = 1L + group * backendsPerGroup + backendIndex;
+                Backend backend = Mockito.mock(Backend.class);
+                TNetworkAddress address = new TNetworkAddress(groups.get(group) + "-" + backendIndex, 8060);
+                Mockito.when(backend.isAlive()).thenReturn(true);
+                Mockito.when(backend.getBrpcAddress()).thenReturn(address);
+                Mockito.when(replica.getBackendIdWithClusterId(groups.get(group))).thenReturn(backendId);
+                backends.put(backendId, backend);
+                addressGroups.put(address, group);
+                expected.put(address, new ArrayList<>());
+            }
+            replicas.add(replica);
+        }
+        List<Tablet> tablets = new ArrayList<>();
+        for (long id = 1; id <= 2050; id++) {
+            int backendIndex = (int) ((id - 1) % backendsPerGroup);
+            CloudTablet tablet = new CloudTablet(id);
+            tablet.addReplica(replicas.get(backendIndex), true);
+            tablets.add(tablet);
+            for (int group = 0; group < groups.size(); group++) {
+                long backendId = 1L + group * backendsPerGroup + backendIndex;
+                expected.get(backends.get(backendId).getBrpcAddress()).add(id);
+            }
+        }
+        // A single catalog sweep prevents later sweeps from hiding tablets lost at a batch boundary.
+        Mockito.when(catalog.getDbs()).thenReturn(List.of(database), List.of());
+        Mockito.when(database.getTables()).thenReturn(List.of(table));
+        Mockito.when(table.hasRowBinlogTtl()).thenReturn(true);
+        Mockito.when(table.getPartitions()).thenReturn(List.of(partition));
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
+                .thenReturn(List.of(binlogIndex));
+        Mockito.when(binlogIndex.isRowBinlog()).thenReturn(true);
+        Mockito.when(binlogIndex.getTablets()).thenReturn(tablets);
+        Mockito.when(info.getCloudClusterIds()).thenReturn(groups);
+        Mockito.when(info.getBackend(Mockito.anyLong()))
+                .thenAnswer(invocation -> backends.get(invocation.<Long>getArgument(0)));
+        Map<TNetworkAddress, List<Long>> delivered = new HashMap<>();
+        Map<TNetworkAddress, List<Long>> batch = new HashMap<>();
+        Mockito.when(proxy.syncTabletMeta(Mockito.any(), Mockito.any())).thenAnswer(invocation -> {
+            TNetworkAddress address = invocation.getArgument(0);
+            InternalService.PSyncTabletMetaRequest request = invocation.getArgument(1);
+            Assertions.assertTrue(request.getDiscoverRowBinlogTtl());
+            delivered.computeIfAbsent(address, ignored -> new ArrayList<>()).addAll(request.getTabletIdsList());
+            batch.computeIfAbsent(address, ignored -> new ArrayList<>()).addAll(request.getTabletIdsList());
+            return Futures.immediateFuture(InternalService.PSyncTabletMetaResponse.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+        });
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                MockedStatic<Env> env = Mockito.mockStatic(Env.class);
+                MockedStatic<BackendServiceProxy> service = Mockito.mockStatic(BackendServiceProxy.class)) {
+            Config.enable_feature_binlog = true;
+            config.when(Config::isCloudMode).thenReturn(true);
+            env.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            env.when(Env::getCurrentSystemInfo).thenReturn(info);
+            service.when(BackendServiceProxy::getInstance).thenReturn(proxy);
+            RowBinlogTtlDiscovery discovery = new RowBinlogTtlDiscovery();
+            // The time budget may end any batch early, so check limits and coverage across calls.
+            for (int round = 0; round < 10000 && !delivered.equals(expected); round++) {
+                batch.clear();
+                discovery.discover();
+                List<Set<Long>> groupTablets = List.of(new HashSet<>(), new HashSet<>());
+                for (Map.Entry<TNetworkAddress, List<Long>> target : batch.entrySet()) {
+                    Assertions.assertTrue(target.getValue().size() <= 64);
+                    groupTablets.get(addressGroups.get(target.getKey())).addAll(target.getValue());
+                }
+                Assertions.assertTrue(groupTablets.get(0).size() <= 1024);
+                // The tablet that fills a BE's batch must still reach the remaining compute group.
+                Assertions.assertEquals(groupTablets.get(0), groupTablets.get(1));
+            }
+            Assertions.assertEquals(expected, delivered);
+        } finally {
+            Config.enable_feature_binlog = previous;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {130, 100000})
+    public void boundedSweepsVisitUncachedTabletsAndRetryFailedRequests(int tabletCount) throws Exception {
         boolean previous = Config.enable_feature_binlog;
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database database = Mockito.mock(Database.class);
@@ -142,10 +251,9 @@ public class RowBinlogTtlDiscoveryTest {
         TNetworkAddress address = new TNetworkAddress("backend", 8060);
         List<Tablet> tablets = new ArrayList<>();
         Set<Long> expected = new HashSet<>();
-        for (long id = 1; id <= 130; id++) {
-            Tablet tablet = Mockito.mock(Tablet.class);
-            Mockito.when(tablet.getId()).thenReturn(id);
-            Mockito.when(tablet.getReplicas()).thenReturn(List.of(replica));
+        for (long id = 1; id <= tabletCount; id++) {
+            CloudTablet tablet = new CloudTablet(id);
+            tablet.addReplica(replica, true);
             tablets.add(tablet);
             expected.add(id);
         }
@@ -183,9 +291,16 @@ public class RowBinlogTtlDiscoveryTest {
             env.when(Env::getCurrentSystemInfo).thenReturn(info);
             service.when(BackendServiceProxy::getInstance).thenReturn(proxy);
             RowBinlogTtlDiscovery discovery = new RowBinlogTtlDiscovery();
-            for (int round = 0; round < 100 && !delivered.equals(expected); round++) {
+            long scheduledDelayMs = 0;
+            int rounds = 0;
+            while (rounds++ < 10000 && delivered.size() < tabletCount) {
                 discovery.discover();
+                scheduledDelayMs += discovery.getInterval();
             }
+            // Includes a failed RPC and a second sweep, without sleeping in the unit test.
+            Assertions.assertTrue(scheduledDelayMs < 400000, "scheduled delay ms=" + scheduledDelayMs);
+            System.out.println("ROW discovery tablets=" + tabletCount + ", batches=" + rounds
+                    + ", scheduled delay ms=" + scheduledDelayMs);
             Assertions.assertEquals(expected, delivered);
             for (InternalService.PSyncTabletMetaRequest request : requests) {
                 Assertions.assertTrue(request.getDiscoverRowBinlogTtl());

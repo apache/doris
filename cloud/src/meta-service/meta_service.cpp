@@ -1206,6 +1206,12 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
             tablet_meta.set_ttl_seconds(tablet_meta_info.ttl_seconds());
         } else if (tablet_meta_info.has_binlog_config()) {
             const auto& binlog_config = tablet_meta_info.binlog_config();
+            if (binlog_config.config_version() < tablet_meta.binlog_config().config_version()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "Outdated binlog configuration for tablet " +
+                      std::to_string(tablet_meta_info.tablet_id());
+                return;
+            }
             if (!binlog_config.has_enable() || !binlog_config.has_ttl_seconds() ||
                 !binlog_config.has_max_bytes() || !binlog_config.has_max_history_nums()) {
                 code = MetaServiceCode::INVALID_ARGUMENT;

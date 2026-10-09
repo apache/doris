@@ -42,6 +42,9 @@ int64_t BinlogConfig::row_ttl_cutoff_tso(int64_t reference_tso) const {
 }
 
 BinlogConfig& BinlogConfig::operator=(const TBinlogConfig& config) {
+    if (config.__isset.config_version) {
+        _config_version = config.config_version;
+    }
     if (config.__isset.enable) {
         _enable = config.enable;
     }
@@ -70,6 +73,9 @@ BinlogConfig& BinlogConfig::operator=(const TBinlogConfig& config) {
 }
 
 BinlogConfig& BinlogConfig::operator=(const BinlogConfigPB& config) {
+    if (config.has_config_version()) {
+        _config_version = config.config_version();
+    }
     if (config.has_enable()) {
         _enable = config.enable();
     }
@@ -92,6 +98,7 @@ BinlogConfig& BinlogConfig::operator=(const BinlogConfigPB& config) {
 }
 
 void BinlogConfig::to_pb(BinlogConfigPB* config_pb) const {
+    config_pb->set_config_version(_config_version);
     config_pb->set_enable(_enable);
     config_pb->set_ttl_seconds(_ttl_seconds);
     config_pb->set_max_bytes(_max_bytes);
@@ -103,9 +110,9 @@ void BinlogConfig::to_pb(BinlogConfigPB* config_pb) const {
 std::string BinlogConfig::to_string() const {
     return fmt::format(
             "BinlogConfig enable: {}, ttl_seconds: {}, max_bytes: {}, max_history_nums: {}, "
-            "binlog_format: {}, need_historical_value: {}",
+            "binlog_format: {}, need_historical_value: {}, config_version: {}",
             _enable, _ttl_seconds, _max_bytes, _max_history_nums, _binlog_format,
-            _need_historical_value);
+            _need_historical_value, _config_version);
 }
 
 } // namespace doris

@@ -17,7 +17,6 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.binlog.RowBinlogTtlDiscovery;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
@@ -85,7 +84,6 @@ public class HeartbeatMgr extends MasterDaemon {
     private final ExecutorService abortTxnExecutor;
     private final ExecutorService rowBinlogTtlExecutor;
     private final AtomicBoolean rowBinlogTtlRefreshPending = new AtomicBoolean();
-    private final RowBinlogTtlDiscovery rowBinlogTtlDiscovery = new RowBinlogTtlDiscovery();
     private long lastRowBinlogTtlRefreshMs;
 
 
@@ -149,8 +147,8 @@ public class HeartbeatMgr extends MasterDaemon {
             lastRowBinlogTtlRefreshMs = now;
             rowBinlogTtlExecutor.submit(() -> {
                 try {
-                    if (Env.getCurrentEnv().isMaster() && refreshRowBinlogTtlReferenceTso()) {
-                        rowBinlogTtlDiscovery.discover();
+                    if (Env.getCurrentEnv().isMaster()) {
+                        refreshRowBinlogTtlReferenceTso();
                     }
                 } finally {
                     rowBinlogTtlRefreshPending.set(false);

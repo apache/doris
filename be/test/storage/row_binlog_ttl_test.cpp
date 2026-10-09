@@ -18,17 +18,22 @@
 #include <gen_cpp/AgentService_types.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <future>
 #include <limits>
+#include <memory>
 #include <thread>
+#include <vector>
 
 #include "agent/heartbeat_server.h"
+#include "common/config.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"
 #include "storage/binlog_config.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
 
@@ -161,6 +166,58 @@ TEST(RowBinlogTtlTest, SubmissionDeduplicatesAndBoundsOutstandingWork) {
     engine._row_binlog_ttl_prepare_pool->wait();
 }
 
+TEST(RowBinlogTtlTest, DisabledScannerStillPrunesExpiredRegistrationsPastLiveTablets) {
+    const bool original_enable = config::enable_feature_binlog;
+    const bool original_disable = config::disable_auto_compaction;
+    auto* previous = ExecEnv::GetInstance()->cluster_info();
+    Defer restore([&] {
+        config::enable_feature_binlog = original_enable;
+        config::disable_auto_compaction = original_disable;
+        ExecEnv::GetInstance()->set_cluster_info(previous);
+    });
+    for (int disabled_by = 0; disabled_by < 3; ++disabled_by) {
+        ClusterInfo cluster;
+        cluster.advance_row_binlog_ttl_reference_tso(disabled_by == 2 ? 0 : 100);
+        ExecEnv::GetInstance()->set_cluster_info(&cluster);
+        config::enable_feature_binlog = disabled_by != 0;
+        config::disable_auto_compaction = disabled_by == 1;
+        StorageEngine engine(EngineOptions {});
+        std::vector<std::shared_ptr<Tablet>> live;
+        // A full batch of live entries must not prevent reaching evicted tablets at the tail.
+        for (int64_t id = 1; id <= 64; ++id) {
+            auto meta = std::make_shared<TabletMeta>(1, 2, id, 4, 5, 6, TTabletSchema(), 7,
+                                                     std::unordered_map<uint32_t, uint32_t> {},
+                                                     UniqueId(8, id), TTabletType::TABLET_TYPE_DISK,
+                                                     TCompressionType::LZ4F);
+            live.push_back(
+                    std::make_shared<Tablet>(engine, meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+            engine._row_binlog_ttl_tablets[id] = live.back();
+        }
+        for (int64_t id = 65; id <= 130; ++id) {
+            engine._row_binlog_ttl_tablets[id] = std::weak_ptr<BaseTablet>();
+        }
+        ASSERT_TRUE(engine._start_row_binlog_ttl_scanner().ok());
+        Defer stop([&] {
+            engine._stop_background_threads_latch.count_down();
+            engine._stop_row_binlog_ttl_scanner();
+        });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        size_t remaining = 130;
+        do {
+            {
+                std::lock_guard lock(engine._row_binlog_ttl_mutex);
+                remaining = engine._row_binlog_ttl_tablets.size();
+                EXPECT_TRUE(engine._row_binlog_ttl_pending.empty());
+            }
+            if (remaining == live.size()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        } while (std::chrono::steady_clock::now() < deadline);
+        EXPECT_EQ(live.size(), remaining) << "disabled_by=" << disabled_by;
+    }
+}
+
 TEST(RowBinlogTtlTest, RowRetentionUsesTtlSeconds) {
     BinlogConfigPB pb;
     pb.set_enable(true);
@@ -224,6 +281,46 @@ TEST(RowBinlogTtlTest, ThriftMetadataUsesTtlSeconds) {
     config.to_pb(&pb);
     EXPECT_EQ(12, pb.ttl_seconds());
     EXPECT_EQ(123, pb.max_bytes());
+}
+
+TEST(RowBinlogTtlTest, DelayedUpdatesCannotRestoreAnOlderRetentionPolicy) {
+    EngineOptions options;
+    StorageEngine engine(options);
+    auto meta = std::make_shared<TabletMeta>(
+            1, 2, 3, 4, 5, 6, TTabletSchema(), 7, std::unordered_map<uint32_t, uint32_t> {},
+            UniqueId(8, 9), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    auto tablet = std::make_shared<Tablet>(engine, meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY);
+    TBinlogConfig request;
+    request.__set_enable(true);
+    request.__set_binlog_format(TBinlogFormat::ROW);
+    request.__set_ttl_seconds(3600);
+    request.__set_config_version(2);
+    BinlogConfig current;
+    current = request;
+    ASSERT_TRUE(tablet->set_binlog_config(current).ok());
+    ASSERT_TRUE(tablet->set_binlog_config(current).ok()); // Idempotent retry.
+
+    for (int64_t version : {0, 1}) {
+        request.__set_config_version(version);
+        request.__set_ttl_seconds(60);
+        BinlogConfig delayed;
+        delayed = request;
+        EXPECT_FALSE(tablet->set_binlog_config(delayed).ok());
+        EXPECT_EQ(meta->binlog_config(), current);
+    }
+
+    TabletMetaPB persisted;
+    meta->to_meta_pb(&persisted, false);
+    TabletMeta restored;
+    restored.init_from_pb(persisted);
+    EXPECT_EQ(restored.binlog_config(), current);
+    EXPECT_EQ(restored.binlog_config().config_version(), 2);
+
+    // A later, durably published shrink is allowed.
+    request.__set_config_version(3);
+    current = request;
+    EXPECT_TRUE(tablet->set_binlog_config(current).ok());
+    EXPECT_EQ(meta->binlog_config().ttl_seconds(), 60);
 }
 
 TEST(RowBinlogTtlTest, OnlyCompleteValidRangesExpire) {

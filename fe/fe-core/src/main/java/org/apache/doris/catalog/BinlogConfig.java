@@ -33,6 +33,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class BinlogConfig {
+    // Internal persistence property, not a user-settable table property.
+    public static final String CONFIG_VERSION = "__binlog_config_version";
+
+    @SerializedName("configVersion")
+    private long configVersion;
+
     @SerializedName("enable")
     private boolean enable;
 
@@ -88,6 +94,7 @@ public class BinlogConfig {
     public BinlogConfig(BinlogConfig config) {
         this(config.enable, config.ttlSeconds, config.maxBytes, config.maxHistoryNums,
                 config.getBinlogFormat(), config.needHistoricalValue);
+        configVersion = config.configVersion;
     }
 
     public BinlogConfig() {
@@ -101,6 +108,9 @@ public class BinlogConfig {
     public Pair<Boolean, String> mergeFromProperties(Map<String, String> properties, boolean force) {
         if (properties == null) {
             return Pair.of(true, null);
+        }
+        if (force && properties.containsKey(CONFIG_VERSION)) {
+            configVersion = Long.parseLong(properties.get(CONFIG_VERSION));
         }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
@@ -160,6 +170,14 @@ public class BinlogConfig {
 
     public long getTtlSeconds() {
         return ttlSeconds;
+    }
+
+    public long getConfigVersion() {
+        return configVersion;
+    }
+
+    public void setConfigVersion(long configVersion) {
+        this.configVersion = configVersion;
     }
 
     public void setTtlSeconds(long ttlSeconds) {
@@ -231,6 +249,7 @@ public class BinlogConfig {
             tBinlogConfig.setBinlogFormat(TBinlogFormat.valueOf(binlogFormat.name()));
         }
         tBinlogConfig.setNeedHistoricalValue(needHistoricalValue);
+        tBinlogConfig.setConfigVersion(configVersion);
         return tBinlogConfig;
     }
 
@@ -244,11 +263,15 @@ public class BinlogConfig {
             binlogConfigBuilder.setBinlogFormat(OlapFile.BinlogFormatPB.valueOf(binlogFormat.name()));
         }
         binlogConfigBuilder.setNeedHistoricalValue(needHistoricalValue);
+        binlogConfigBuilder.setConfigVersion(configVersion);
         return binlogConfigBuilder.build();
     }
 
     public Map<String, String> toProperties() {
         Map<String, String> properties = new HashMap<>();
+        if (configVersion != 0) {
+            properties.put(CONFIG_VERSION, String.valueOf(configVersion));
+        }
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(enable));
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(ttlSeconds));
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES, String.valueOf(maxBytes));
@@ -265,6 +288,7 @@ public class BinlogConfig {
         }
         BinlogConfig other = (BinlogConfig) obj;
         return enable == other.enable
+                && configVersion == other.configVersion
                 && ttlSeconds == other.ttlSeconds
                 && maxBytes == other.maxBytes
                 && maxHistoryNums == other.maxHistoryNums

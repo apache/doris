@@ -27,6 +27,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.tso.TSOTimestamp;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -52,6 +53,9 @@ class CollectRelationRowBinlogTtlTest extends TestWithFeService {
                 + "properties('replication_num'='1', 'binlog.enable'='true', 'binlog.format'='ROW')");
         createTable("create table plain_base (k int) distributed by hash(k) buckets 1 "
                 + "properties('replication_num'='1')");
+        createTable("create table mow_base (k int, v int) unique key(k) distributed by hash(k) buckets 1 "
+                + "properties('replication_num'='1', 'binlog.enable'='true', 'binlog.format'='ROW', "
+                + "'enable_unique_key_merge_on_write'='true', 'binlog.need_historical_value'='true')");
         createTable("create stream binlog_stream on table binlog_base");
     }
 
@@ -59,6 +63,24 @@ class CollectRelationRowBinlogTtlTest extends TestWithFeService {
     protected void runAfterAll() {
         Config.enable_feature_binlog = originalEnableFeatureBinlog;
         Config.enable_table_stream = originalEnableTableStream;
+    }
+
+    @Test
+    void timeTravelUsesRetentionOnlyWhenItNeedsBeforeImages() {
+        for (String snapshot : new String[] {"for version as of 1001", "for time as of '2000-01-01 00:00:01'"}) {
+            String sql = "select * from mow_base " + snapshot;
+            Assertions.assertTrue(collect(sql, Optional.empty()).isRowBinlogReferenceTsoRequired());
+            Assertions.assertFalse(collect("select * from binlog_base " + snapshot, Optional.empty())
+                    .isRowBinlogReferenceTsoRequired());
+            StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0));
+            LogicalPlan plan = new NereidsParser().parseSingle(sql);
+            CascadesContext context = CascadesContext.initContext(statement, plan, PhysicalProperties.ANY);
+            context.newTableCollector(true).collect();
+            statement.getOrRegisterRowBinlogReferenceTso(
+                    () -> TSOTimestamp.composePhysicalTimestamp(1_800_000_000_000L));
+            Exception error = Assertions.assertThrows(Exception.class, () -> context.newAnalyzer().analyze());
+            Assertions.assertTrue(error.getMessage().contains("Row binlog offset has expired"), error.getMessage());
+        }
     }
 
     @Test

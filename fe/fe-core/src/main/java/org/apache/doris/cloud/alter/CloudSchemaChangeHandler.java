@@ -428,7 +428,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
     }
 
     @Override
-    public void updatePartitionProperties(Database db, String tableName, String partitionName,
+    protected void updatePartitionProperties(Database db, OlapTable table, Partition partition,
             long storagePolicyId, int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
             Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad,
             int disableAutoCompaction, int verticalCompactionNumColumnsPerGroup) throws UserException {
@@ -436,7 +436,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
         param.binlogConfig = binlogConfig;
         param.type = UpdatePartitionMetaParam.TabletMetaType.BINLOG_CONFIG;
-        updateCloudPartitionMeta(db, tableName, partitionName, param);
+        updateCloudPartitionMeta(table, partition, param);
     }
 
     private static class UpdatePartitionMetaParam {
@@ -482,15 +482,26 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             String tableName,
             String partitionName,
             UpdatePartitionMetaParam param) throws UserException {
-        List<Long> tabletIds = new ArrayList<>();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        Partition partition;
         olapTable.readLock();
         try {
-            Partition partition = olapTable.getPartition(partitionName);
+            partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException(
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
             }
+        } finally {
+            olapTable.readUnlock();
+        }
+        updateCloudPartitionMeta(olapTable, partition, param);
+    }
+
+    private void updateCloudPartitionMeta(OlapTable olapTable, Partition partition,
+            UpdatePartitionMetaParam param) throws UserException {
+        List<Long> tabletIds = new ArrayList<>();
+        olapTable.readLock();
+        try {
             boolean includeRowBinlog = param.type != UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY;
             for (MaterializedIndex index
                     : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeRowBinlog)) {
@@ -501,7 +512,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         } finally {
             olapTable.readUnlock();
         }
-        updateCloudTabletMeta(tableName, tabletIds, param);
+        updateCloudTabletMeta(olapTable.getName(), tabletIds, param);
     }
 
     private void updateCloudTabletMeta(String tableName, List<Long> tabletIds,

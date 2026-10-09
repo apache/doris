@@ -1000,7 +1000,11 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
                     "new_binlog_config={}",
                     tablet_meta_info.tablet_id, tablet->tablet_meta()->binlog_config().to_string(),
                     new_binlog_config.to_string());
-            tablet->set_binlog_config(new_binlog_config);
+            auto st = tablet->set_binlog_config(new_binlog_config);
+            if (!st.ok()) {
+                status = st;
+                continue;
+            }
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.disable_auto_compaction) {

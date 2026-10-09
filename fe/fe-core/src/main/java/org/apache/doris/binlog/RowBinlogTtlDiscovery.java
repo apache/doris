@@ -28,6 +28,7 @@ import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -49,8 +50,10 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /** Bounded catalog discovery for tablets absent from a BE's metadata cache. */
-public final class RowBinlogTtlDiscovery {
+public final class RowBinlogTtlDiscovery extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(RowBinlogTtlDiscovery.class);
+    private static final int MAX_TABLETS_PER_ROUND = 1024;
+    private static final int MAX_TABLETS_PER_BACKEND = 64;
     private Iterator<Database> databases = Collections.emptyIterator();
     private Iterator<Table> tables = Collections.emptyIterator();
     private Iterator<Partition> partitions = Collections.emptyIterator();
@@ -58,8 +61,18 @@ public final class RowBinlogTtlDiscovery {
     private Iterator<MaterializedIndex> indexes = Collections.emptyIterator();
     private OlapTable currentTable;
 
+    public RowBinlogTtlDiscovery() {
+        super("row-binlog-ttl-discovery", 100);
+    }
+
+    @Override
+    protected void runAfterCatalogReady() {
+        discover();
+    }
+
     public void discover() {
         if (!Config.isCloudMode() || !Config.enable_feature_binlog) {
+            setInterval(15000);
             return;
         }
         try {
@@ -70,12 +83,13 @@ public final class RowBinlogTtlDiscovery {
                     && !indexes.hasNext() && !tablets.hasNext()) {
                 databases = Env.getCurrentInternalCatalog().getDbs().iterator();
             }
-            for (int n = 0; n < 64 && System.nanoTime() < deadline; n++) {
+            for (int n = 0; n < MAX_TABLETS_PER_ROUND && System.nanoTime() < deadline; n++) {
                 Tablet tablet = nextTablet(deadline);
                 if (tablet == null) {
                     break;
                 }
                 CloudReplica replica = (CloudReplica) tablet.getReplicas().get(0);
+                boolean batchFull = false;
                 // One existing replica owner per compute group. BE read/write separation
                 // decides which group may compact; Meta Service arbitrates competing jobs.
                 for (String clusterId : info.getCloudClusterIds()) {
@@ -89,8 +103,15 @@ public final class RowBinlogTtlDiscovery {
                     }
                     Backend backend = info.getBackend(backendId);
                     if (backend != null && backend.isAlive()) {
-                        targets.computeIfAbsent(backendId, ignored -> new ArrayList<>()).add(tablet.getId());
+                        List<Long> backendTablets = targets.computeIfAbsent(backendId, ignored -> new ArrayList<>());
+                        backendTablets.add(tablet.getId());
+                        batchFull |= backendTablets.size() >= MAX_TABLETS_PER_BACKEND;
                     }
+                }
+                // Bound each BE's burst to its prepare queue size, but finish all compute groups
+                // for this tablet before yielding so advancing the iterator cannot skip a target.
+                if (batchFull) {
+                    break;
                 }
             }
             for (Map.Entry<Long, List<Long>> target : targets.entrySet()) {
@@ -100,24 +121,32 @@ public final class RowBinlogTtlDiscovery {
                 }
                 InternalService.PSyncTabletMetaRequest request = InternalService.PSyncTabletMetaRequest.newBuilder()
                         .addAllTabletIds(target.getValue()).setDiscoverRowBinlogTtl(true).build();
-                Futures.addCallback(BackendServiceProxy.getInstance().syncTabletMeta(backend.getBrpcAddress(), request),
-                        new FutureCallback<InternalService.PSyncTabletMetaResponse>() {
-                            @Override
-                            public void onSuccess(InternalService.PSyncTabletMetaResponse response) {
-                                if (!response.hasStatus() || response.getStatus().getStatusCode()
-                                        != TStatusCode.OK.getValue() || response.getFailedTablets() > 0) {
-                                    LOG.warn("ROW binlog TTL discovery deferred, backend={}, response={}",
-                                            target.getKey(), response);
+                try {
+                    Futures.addCallback(BackendServiceProxy.getInstance()
+                                    .syncTabletMeta(backend.getBrpcAddress(), request),
+                            new FutureCallback<InternalService.PSyncTabletMetaResponse>() {
+                                @Override
+                                public void onSuccess(InternalService.PSyncTabletMetaResponse response) {
+                                    if (!response.hasStatus() || response.getStatus().getStatusCode()
+                                            != TStatusCode.OK.getValue() || response.getFailedTablets() > 0) {
+                                        LOG.warn("ROW binlog TTL discovery deferred, backend={}, response={}",
+                                                target.getKey(), response);
+                                    }
                                 }
-                            }
 
-                            @Override
-                            public void onFailure(Throwable t) {
-                                LOG.warn("ROW binlog TTL discovery failed, backend={}", target.getKey(), t);
-                            }
-                        }, MoreExecutors.directExecutor());
+                                @Override
+                                public void onFailure(Throwable t) {
+                                    LOG.warn("ROW binlog TTL discovery failed, backend={}", target.getKey(), t);
+                                }
+                            }, MoreExecutors.directExecutor());
+                } catch (RpcException e) {
+                    LOG.warn("ROW binlog TTL discovery dispatch failed, backend={}", target.getKey(), e);
+                }
             }
-        } catch (RpcException | RuntimeException e) {
+            // Continue a large sweep promptly, but avoid repeatedly scanning a small catalog.
+            setInterval(databases.hasNext() || tables.hasNext() || partitions.hasNext()
+                    || indexes.hasNext() || tablets.hasNext() ? 100 : 15000);
+        } catch (RuntimeException e) {
             LOG.warn("ROW binlog TTL discovery deferred until next catalog sweep", e);
         }
     }

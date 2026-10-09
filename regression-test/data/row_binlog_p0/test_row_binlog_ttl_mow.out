@@ -2,6 +2,14 @@
 -- !base_before --
 1      11
 
+-- !version_before --
+1      10
+2      20
+
+-- !time_before --
+1      10
+2      20
+
 -- !retained --
 5
 
@@ -13,6 +21,10 @@
 
 -- !paused_retained --
 4
+
+-- !version_extended --
+1      10
+2      20
 
 -- !retention_extended --
 5
@@ -28,4 +40,12 @@
 
 -- !base_after_repeated_cleanup --
 1      13
+
+-- !snapshot_before_expiry --
+1      13
+3      30
+
+-- !snapshot_repeated --
+1      13
+3      30
 

@@ -132,11 +132,6 @@ Status BaseStorageEngine::_start_row_binlog_ttl_scanner() {
                 SCOPED_INIT_THREAD_CONTEXT();
                 int64_t cursor = 0;
                 do {
-                    if (!config::enable_feature_binlog || config::disable_auto_compaction ||
-                        ExecEnv::GetInstance()->cluster_info()->row_binlog_ttl_reference_tso() <=
-                                0) {
-                        continue;
-                    }
                     std::vector<int64_t> batch;
                     {
                         std::lock_guard lock(_row_binlog_ttl_mutex);
@@ -153,6 +148,15 @@ Status BaseStorageEngine::_start_row_binlog_ttl_scanner() {
                         if (batch.empty() && it == _row_binlog_ttl_tablets.end()) {
                             cursor = 0;
                         }
+                    }
+                    if (!config::enable_feature_binlog || config::disable_auto_compaction ||
+                        ExecEnv::GetInstance()->cluster_info()->row_binlog_ttl_reference_tso() <=
+                                0) {
+                        // Keep sweeping weak registrations even while cleanup is paused.
+                        if (!batch.empty()) {
+                            cursor = batch.back();
+                        }
+                        continue;
                     }
                     for (auto tablet_id : batch) {
                         auto st = submit_row_binlog_ttl(tablet_id);

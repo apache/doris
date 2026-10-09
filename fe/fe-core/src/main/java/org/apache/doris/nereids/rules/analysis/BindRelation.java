@@ -518,6 +518,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
             return addCommitTsoFilter(scan, targetTso, olapTable);
         }
+        // Reconstructing a MoW snapshot needs every before-image since the target TSO.
+        // Reuse MIN_DELTA's explicit-start validation; clamping would silently lose rows.
+        applyRowBinlogTtl(Pair.of(targetTso, null), olapTable, StreamScanType.MIN_DELTA,
+                true, cascadesContext.getStatementContext());
         return buildMowTimeTravelUnion(scan, olapTable, targetTso, unboundRelation,
                 qualifier, partIds, tabletIds, cascadesContext);
     }

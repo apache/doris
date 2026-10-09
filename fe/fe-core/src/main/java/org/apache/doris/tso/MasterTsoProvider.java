@@ -22,9 +22,12 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.FrontendService;
-import org.apache.doris.thrift.TGetCurrentTsoResult;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceRequest;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
+
+import java.util.Collections;
 
 public final class MasterTsoProvider {
     private MasterTsoProvider() {
@@ -43,13 +46,16 @@ public final class MasterTsoProvider {
         try {
             int timeoutMs = context.getExecTimeoutS() * 1000;
             client = ClientPool.frontendPool.borrowObject(address, timeoutMs);
-            TGetCurrentTsoResult result = client.getCurrentTso();
+            // This RPC predates ROW TTL. With no tables and no transaction wait it returns
+            // the master's calibrated clock, including during follower-first upgrades.
+            TAcquireTimeBasedChangeReadFenceResult result = client.acquireTimeBasedChangeReadFence(
+                    new TAcquireTimeBasedChangeReadFenceRequest(Collections.emptyMap(), timeoutMs, false));
             reusable = true;
             if (result.getStatus().getStatusCode() != TStatusCode.OK) {
                 throw new AnalysisException("Failed to get current TSO from Master FE: "
                         + result.getStatus().getErrorMsgs());
             }
-            return result.getTso();
+            return result.getCurrentTso();
         } catch (AnalysisException e) {
             throw e;
         } catch (Exception e) {

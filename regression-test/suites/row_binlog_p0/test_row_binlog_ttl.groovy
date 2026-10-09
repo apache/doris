@@ -116,6 +116,14 @@ suite("test_row_binlog_ttl", "nonConcurrent") {
     }
 
     sql "CREATE DATABASE row_binlog_ttl_inherit_db"
+    for (ttl in ["-1", "0"]) {
+        sql """ALTER DATABASE row_binlog_ttl_inherit_db SET PROPERTIES (
+            "binlog.enable" = "false", "binlog.format" = "ROW", "binlog.ttl_seconds" = "${ttl}")"""
+        test {
+            sql """ALTER DATABASE row_binlog_ttl_inherit_db SET PROPERTIES ("binlog.enable" = "true")"""
+            exception "ROW binlog.ttl_seconds must be greater than 0"
+        }
+    }
     sql """
         ALTER DATABASE row_binlog_ttl_inherit_db SET PROPERTIES (
             "binlog.enable" = "true",

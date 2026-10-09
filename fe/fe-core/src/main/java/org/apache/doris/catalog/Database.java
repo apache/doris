@@ -1019,7 +1019,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             BinlogConfig effectiveConfig = new BinlogConfig(oldBinlogConfig);
             effectiveConfig.mergeFromProperties(properties);
             if (effectiveConfig.isEnableForStreaming()
-                    && properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
                     && effectiveConfig.getTtlSeconds() <= 0) {
                 throw new DdlException("ROW binlog.ttl_seconds must be greater than 0");
             }
