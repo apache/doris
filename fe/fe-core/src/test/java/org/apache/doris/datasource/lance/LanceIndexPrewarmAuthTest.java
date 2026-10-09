@@ -36,6 +36,8 @@ import mockit.Verifications;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Collections;
+
 public class LanceIndexPrewarmAuthTest {
     @Mocked
     private Env env;
@@ -68,7 +70,7 @@ public class LanceIndexPrewarmAuthTest {
         environment(false, true);
         TableNameInfo table = new TableNameInfo("lake", "db", "items");
         Assert.assertTrue(Assert.assertThrows(UserException.class,
-                () -> LanceIndexPrewarm.run(context, null, table, "idx", null, () -> false))
+                () -> LanceIndexPrewarm.run(context, null, table, Collections.emptyList(), () -> false))
                 .getMessage().contains("ADMIN"));
         new Verifications() {
             {
@@ -98,15 +100,14 @@ public class LanceIndexPrewarmAuthTest {
                     result = group;
                 }
             };
-            Assert.assertSame(group, LanceIndexPrewarm.resolveComputeGroup(context, null));
-            Assert.assertThrows(UserException.class, () -> LanceIndexPrewarm.resolveComputeGroup(context, "other"));
+            Assert.assertSame(group, LanceIndexPrewarm.resolveComputeGroup(context));
         } finally {
             Config.cloud_unique_id = old;
         }
     }
 
     @Test
-    public void checksUsageForDefaultAndExplicitCloudGroups() throws Exception {
+    public void checksUsageForSessionCloudGroup() throws Exception {
         String old = Config.cloud_unique_id;
         try {
             Config.cloud_unique_id = "test-cloud";
@@ -122,22 +123,21 @@ public class LanceIndexPrewarmAuthTest {
                     access.checkCloudPriv((UserIdentity) any, "session-group", PrivPredicate.USAGE,
                             ResourceTypeEnum.CLUSTER);
                     result = true;
-                    access.checkCloudPriv((UserIdentity) any, "target-group", PrivPredicate.USAGE,
-                            ResourceTypeEnum.CLUSTER);
-                    result = true;
-                    access.checkCloudPriv((UserIdentity) any, "denied-group", PrivPredicate.USAGE,
-                            ResourceTypeEnum.CLUSTER);
-                    result = false;
                     env.getComputeGroupMgr();
                     result = groups;
                     groups.getComputeGroupByName(anyString);
                     result = group;
                 }
             };
-            Assert.assertSame(group, LanceIndexPrewarm.resolveComputeGroup(context, null));
-            Assert.assertSame(group, LanceIndexPrewarm.resolveComputeGroup(context, "target-group"));
-            Assert.assertThrows(UserException.class,
-                    () -> LanceIndexPrewarm.resolveComputeGroup(context, "denied-group"));
+            Assert.assertSame(group, LanceIndexPrewarm.resolveComputeGroup(context));
+            new Expectations() {
+                {
+                    access.checkCloudPriv((UserIdentity) any, "session-group", PrivPredicate.USAGE,
+                            ResourceTypeEnum.CLUSTER);
+                    result = false;
+                }
+            };
+            Assert.assertThrows(UserException.class, () -> LanceIndexPrewarm.resolveComputeGroup(context));
         } finally {
             Config.cloud_unique_id = old;
         }

@@ -27,6 +27,10 @@ import org.apache.doris.proto.Types.PStatus;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 
+import com.google.common.collect.ImmutableMap;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -75,6 +79,39 @@ class LanceIndexPrewarmTest {
 
     private long deadline() {
         return System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    }
+
+    @Test
+    void selectsIndexesBySchemaFieldIdsAndDeduplicatesSegments() throws Exception {
+        Schema schema = new Schema(Arrays.asList(
+                new Field("vector", FieldType.nullable(new ArrowType.Int(32, true)), null),
+                new Field("id", FieldType.nullable(new ArrowType.Int(64, true)), null),
+                new Field("unindexed", FieldType.nullable(new ArrowType.Int(64, true)), null)));
+        LanceIndexSegmentInfo vector = new LanceIndexSegmentInfo(UUID.randomUUID(), INDEX,
+                Collections.singletonList(8), Collections.singletonList(0L), IndexType.IVF_PQ, "l2");
+        LanceIndexSegmentInfo scalar = new LanceIndexSegmentInfo(UUID.randomUUID(), "id_idx",
+                Collections.singletonList(3), Collections.singletonList(0L), IndexType.BTREE, null);
+        LanceTableMetadata snapshot = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://test-bucket/dataset.lance", Collections.emptyMap()),
+                9, schema, Collections.emptyList(), ImmutableMap.of("vector", 8, "id", 3, "unindexed", 12),
+                Arrays.asList(vector, scalar, vector));
+        Assertions.assertEquals(Arrays.asList(INDEX, "id_idx"),
+                LanceIndexPrewarm.selectIndexes(snapshot, Collections.emptyList()));
+        Assertions.assertEquals(Collections.singletonList(INDEX),
+                LanceIndexPrewarm.selectIndexes(snapshot, Arrays.asList("VECTOR", "vector")));
+        Assertions.assertEquals(Collections.singletonList("id_idx"),
+                LanceIndexPrewarm.selectIndexes(snapshot, Collections.singletonList("id")));
+        Assertions.assertThrows(UserException.class,
+                () -> LanceIndexPrewarm.selectIndexes(snapshot, Arrays.asList("vector", "missing")));
+        Assertions.assertThrows(UserException.class,
+                () -> LanceIndexPrewarm.selectIndexes(snapshot, Collections.singletonList("unindexed")));
+        LanceTableMetadata unavailable = LanceTableMetadata.createSnapshotWithUnavailableFieldIds(
+                new LanceTableAccess("s3://test-bucket/dataset.lance", Collections.emptyMap()),
+                9, schema, Collections.emptyList(), Collections.singletonList(vector));
+        Assertions.assertEquals(Collections.singletonList(INDEX),
+                LanceIndexPrewarm.selectIndexes(unavailable, Collections.emptyList()));
+        Assertions.assertThrows(UserException.class,
+                () -> LanceIndexPrewarm.selectIndexes(unavailable, Collections.singletonList("vector")));
     }
 
     @Test

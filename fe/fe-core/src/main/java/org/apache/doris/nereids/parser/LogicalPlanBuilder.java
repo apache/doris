@@ -924,7 +924,6 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCom
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
-import org.apache.doris.nereids.trees.plans.commands.WarmUpIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterRepositoryCommand;
@@ -9515,12 +9514,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitWarmUpIndex(DorisParser.WarmUpIndexContext ctx) {
-        return new WarmUpIndexCommand(new TableNameInfo(visitMultipartIdentifier(ctx.tableName)),
-                ctx.indexName.getText(), ctx.computeGroup == null ? null : ctx.computeGroup.getText());
-    }
-
-    @Override
     public LogicalPlan visitWarmUpCluster(DorisParser.WarmUpClusterContext ctx) {
         String dstCluster = ctx.destination.getText();
         String srcCluster = null;
@@ -9617,6 +9610,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         LogicalProject project = new LogicalProject(projectList, filter);
+        Map<String, String> settings = visitPropertyItemList(ctx.settings);
+        for (String key : settings.keySet()) {
+            if (!"read_index_only".equals(key)) {
+                throw new AnalysisException("Unknown WARM UP SELECT setting: " + key);
+            }
+        }
+        String indexOnly = settings.getOrDefault("read_index_only", "false");
+        if (!"true".equalsIgnoreCase(indexOnly) && !"false".equalsIgnoreCase(indexOnly)) {
+            throw new AnalysisException("read_index_only must be true or false");
+        }
+        if (Boolean.parseBoolean(indexOnly)) {
+            if (ctx.whereClause() != null || ctx.explain() != null) {
+                throw new AnalysisException("Index-only WARM UP SELECT does not support WHERE or EXPLAIN");
+            }
+            // Index cache fills must not execute the data scan or require the data-file cache.
+            List<String> columns = indexWarmupColumns(ctx, projectList);
+            UnboundBlackholeSink<?> sink = new UnboundBlackholeSink<>(project,
+                    new UnboundBlackholeSinkContext(true));
+            return new WarmupSelectCommand(sink,
+                    new TableNameInfo(visitMultipartIdentifier(ctx.warmUpSingleTableRef().multipartIdentifier())),
+                    columns);
+        }
 
         if (Config.isNotCloudMode() && (!ConnectContext.get().getSessionVariable().isEnableFileCache())) {
             throw new AnalysisException("WARM UP SELECT requires session variable"
@@ -9636,6 +9651,43 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 new UnboundBlackholeSinkContext(true));
         LogicalPlan command = new WarmupSelectCommand(sink);
         return withExplain(command, ctx.explain());
+    }
+
+    private List<String> indexWarmupColumns(DorisParser.WarmUpSelectContext ctx, List<Expression> projects) {
+        DorisParser.WarmUpSingleTableRefContext table = ctx.warmUpSingleTableRef();
+        List<String> qualifier = visitMultipartIdentifier(table.multipartIdentifier());
+        if (table.tableAlias() != null && table.tableAlias().strictIdentifier() != null) {
+            if (table.tableAlias().identifierList() != null) {
+                throw new AnalysisException("Index-only WARM UP SELECT does not support column aliases");
+            }
+            qualifier = ImmutableList.of(table.tableAlias().strictIdentifier().getText());
+        }
+        List<String> columns = new ArrayList<>();
+        for (Expression expression : projects) {
+            if (!(expression instanceof UnboundSlot) && !(expression instanceof UnboundStar)) {
+                throw new AnalysisException("Index-only WARM UP SELECT requires column names or *");
+            }
+            Slot slot = (Slot) expression;
+            List<String> actual = slot.getQualifier();
+            if (actual.size() > qualifier.size()) {
+                throw new AnalysisException("Unknown column qualifier in index-only WARM UP SELECT");
+            }
+            for (int i = 0; i < actual.size(); i++) {
+                if (!actual.get(i).equalsIgnoreCase(qualifier.get(qualifier.size() - actual.size() + i))) {
+                    throw new AnalysisException("Unknown column qualifier in index-only WARM UP SELECT");
+                }
+            }
+            if (slot instanceof UnboundStar) {
+                UnboundStar star = (UnboundStar) slot;
+                if (projects.size() != 1 || !star.getExceptedSlots().isEmpty() || !star.getReplacedAlias().isEmpty()) {
+                    throw new AnalysisException("Index-only WARM UP SELECT requires * alone without EXCEPT or REPLACE");
+                }
+            } else {
+                List<String> parts = ((UnboundSlot) slot).getNameParts();
+                columns.add(parts.get(parts.size() - 1));
+            }
+        }
+        return columns;
     }
 
     @Override

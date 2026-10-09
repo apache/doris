@@ -45,8 +45,7 @@ suite("test_lance_index_prewarm", "p0,external") {
     sql "SET enable_file_scanner_v2 = true"
     def entries = sql """SELECT IndexName, DatasetVersion FROM lance_index_entries("table"="${tableName}")"""
     assertFalse(entries.isEmpty())
-    String indexName = entries[0][0]
-    String statement = "WARM UP INDEX `${indexName}` ON ${tableName}"
+    String statement = """WARM UP SELECT embedding FROM ${tableName} SETTINGS ("read_index_only" = "true")"""
     String query = """
         SELECT row_id, _distance FROM vector_search(
             "table"="${tableName}", "column"="embedding",
@@ -57,9 +56,10 @@ suite("test_lance_index_prewarm", "p0,external") {
     def before = sql(query)
     def warm = sql(statement)
     assertEquals(1, warm.size())
-    assertEquals(indexName, warm[0][1])
+    String indexName = warm[0][1]
+    assertTrue(entries.any { it[0] == indexName })
     // Physical entries record the index build version; prewarm pins the current dataset snapshot.
-    assertTrue(warm[0][2].toLong() >= entries[0][1].toLong())
+    assertTrue(warm[0][2].toLong() >= entries.find { it[0] == indexName }[1].toLong())
     assertTrue(warm[0][3].toInteger() > 0)
     assertEquals(before, sql(query), "Prewarm must preserve query results")
     def retry = sql(statement)
@@ -85,31 +85,76 @@ suite("test_lance_index_prewarm", "p0,external") {
         prepared.close()
     }
 
+    // Selecting * must cover every logical index, even if physical segments repeat its name.
+    def allIndexes = sql """WARM UP SELECT * FROM ${tableName} SETTINGS ("read_index_only" = true)"""
+    assertEquals(entries.collect { it[0] }.toSet(), allIndexes.collect { it[1] }.toSet())
+    assertEquals(allIndexes.size(), allIndexes.collect { it[1] }.toSet().size())
+    assertTrue(allIndexes.every { it[2] == warm[0][2] && it[3] == warm[0][3] })
+    def qualified = sql """WARM UP SELECT t.embedding, t.embedding FROM ${tableName} t
+            SETTINGS ("read_index_only" = true)"""
+    assertEquals(1, qualified.size())
+    assertEquals(indexName, qualified[0][1])
     test {
-        sql "WARM UP INDEX missing_index ON ${tableName}"
-        exception "does not exist in dataset version"
+        sql """WARM UP SELECT missing_column FROM ${tableName} SETTINGS ("read_index_only" = true)"""
+        exception "Unknown or ambiguous index prewarm column"
     }
-    if (isCloudMode()) {
-        def groups = sql "SHOW CLUSTERS"
-        assertFalse(groups.isEmpty())
-        def explicit = sql "${statement} WITH COMPUTE GROUP `${groups[0][0]}`"
-        assertTrue(explicit[0][3].toInteger() > 0)
+    test {
+        sql """WARM UP SELECT * FROM ${tableName} WHERE row_id = 1 SETTINGS ("read_index_only" = true)"""
+        exception "does not support WHERE or EXPLAIN"
+    }
+    test {
+        sql """WARM UP SELECT * FROM ${tableName} SETTINGS ("read_index_only" = "invalid")"""
+        exception "read_index_only must be true or false"
+    }
+    test {
+        sql """WARM UP SELECT * FROM ${tableName} SETTINGS ("unknown_option" = true)"""
+        exception "Unknown WARM UP SELECT setting"
+    }
+    test {
+        sql """WARM UP SELECT * FROM internal.information_schema.tables SETTINGS ("read_index_only" = true)"""
+        exception "requires a Lance catalog table"
+    }
+    // Index mode uses the SDK cache independently of the data-file-cache session switch.
+    String cacheVariable = isCloudMode() ? "disable_file_cache" : "enable_file_cache"
+    def oldCache = sql "SELECT @@${cacheVariable}"
+    try {
+        sql "SET ${cacheVariable} = ${isCloudMode() ? 'true' : 'false'}"
+        assertEquals(indexName, sql(statement)[0][1])
+        test {
+            sql "WARM UP SELECT * FROM ${tableName}"
+            exception "requires session variable"
+        }
+    } finally {
+        sql "SET ${cacheVariable} = ${oldCache[0][0]}"
+    }
+    sql "SET ${cacheVariable} = ${isCloudMode() ? 'false' : 'true'}"
+    try {
+        for (String suffix : ["", ' SETTINGS ("read_index_only" = false)']) {
+            def dataWarm = sql "WARM UP SELECT row_id FROM ${tableName} WHERE row_id >= 0${suffix}"
+            assertTrue(dataWarm.every { it.size() == 6 })
+            assertEquals("TOTAL", dataWarm[-1][0])
+        }
+    } finally {
+        sql "SET ${cacheVariable} = ${oldCache[0][0]}"
     }
 
     // Fail one target only: successful prewarm on other BEs must not hide the failure.
+    String currentGroup = null
+    if (isCloudMode()) {
+        currentGroup = (sql_return_maparray "SHOW CLUSTERS").find { it.is_current == "TRUE" }?.cluster
+        assertNotNull(currentGroup)
+    }
     def backends = sql_return_maparray "SHOW BACKENDS"
     def target = backends.find {
         def status = new JsonSlurper().parseText(it.Status)
+        def tag = new JsonSlurper().parseText(it.Tag)
         it.Alive.toString().equalsIgnoreCase("true") &&
                 !it.SystemDecommissioned.toString().equalsIgnoreCase("true") &&
-                !status.isQueryDisabled && !status.isLoadDisabled
+                !status.isQueryDisabled && !status.isLoadDisabled &&
+                (currentGroup == null || (tag.compute_group_name ?: tag.cloud_cluster_name) == currentGroup)
     }
     assertNotNull(target)
     String failureStatement = statement
-    if (isCloudMode()) {
-        String targetGroup = new JsonSlurper().parseText(target.Tag).cloud_cluster_name
-        failureStatement += " WITH COMPUTE GROUP `${targetGroup}`"
-    }
     String point = "PInternalService.prewarm_lance_index.fail"
     try {
         DebugPoint.enableDebugPoint(target.Host, target.HttpPort.toInteger(), NodeType.BE, point)

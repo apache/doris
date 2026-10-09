@@ -538,15 +538,14 @@ supportedOtherStatement
     | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #restore
-    | WARM UP INDEX indexName=identifier ON tableName=multipartIdentifier
-        (WITH COMPUTE GROUP computeGroup=identifier)?                               #warmUpIndex
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?
             onTablesClause?
             properties=propertyClause?                                              #warmUpCluster
     | explain? WARM UP SELECT namedExpressionSeq
-      FROM warmUpSingleTableRef whereClause?                                        #warmUpSelect
+      FROM warmUpSingleTableRef whereClause?
+      (SETTINGS LEFT_PAREN settings=propertyItemList RIGHT_PAREN)?                   #warmUpSelect
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
@@ -2347,6 +2346,7 @@ nonReserved
     | SERIALIZABLE
     | SESSION
     | SESSION_USER
+    | SETTINGS
     | SHAPE
     | SKEW
     | SNAPSHOT

@@ -22,6 +22,8 @@ import org.apache.doris.datasource.lance.LanceIndexPrewarm;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.insert.WarmupSelectCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
@@ -32,16 +34,18 @@ import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
-public class WarmUpIndexExecutionTest {
-    private WarmUpIndexCommand command() {
-        return new WarmUpIndexCommand(new TableNameInfo("lake", "db", "items"), "idx", null);
+public class WarmupSelectIndexExecutionTest {
+    private WarmupSelectCommand command() {
+        return (WarmupSelectCommand) new NereidsParser().parseSingle(
+                "WARM UP SELECT * FROM lake.db.items SETTINGS (read_index_only=true)");
     }
 
-    private StmtExecutor executor(ConnectContext context, WarmUpIndexCommand command) {
-        OriginStatement sql = new OriginStatement("WARM UP INDEX idx ON lake.db.items", 0);
+    private StmtExecutor executor(ConnectContext context, WarmupSelectCommand command) {
+        OriginStatement sql = new OriginStatement("WARM UP SELECT * FROM lake.db.items SETTINGS (read_index_only=true)", 0);
         LogicalPlanAdapter adapter = new LogicalPlanAdapter(command, new StatementContext(context, sql));
         adapter.setOrigStmt(sql);
         return new StmtExecutor(context, adapter, true);
@@ -59,12 +63,12 @@ public class WarmUpIndexExecutionTest {
         new MockUp<LanceIndexPrewarm>() {
             @Mock
             public void run(ConnectContext ctx, StmtExecutor executor, TableNameInfo table,
-                    String index, String group, BooleanSupplier cancelled) {
+                    List<String> columns, BooleanSupplier cancelled) {
                 cancellation.set(cancelled);
             }
         };
         ConnectContext context = new ConnectContext();
-        WarmUpIndexCommand retained = command();
+        WarmupSelectCommand retained = command();
         StmtExecutor first = executor(context, retained);
         retained.run(context, first);
         Assertions.assertFalse(cancellation.get().getAsBoolean());

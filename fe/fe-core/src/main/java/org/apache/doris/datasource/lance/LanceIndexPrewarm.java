@@ -28,6 +28,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor;
+import org.apache.doris.datasource.lance.index.LanceIndexSegmentGroup;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -46,8 +47,10 @@ import org.apache.doris.thrift.TStatusCode;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -71,14 +74,14 @@ public final class LanceIndexPrewarm {
     }
 
     public static void run(ConnectContext ctx, StmtExecutor executor, TableNameInfo tableName,
-            String indexName, String computeGroup, BooleanSupplier cancelled) throws Exception {
+            List<String> columns, BooleanSupplier cancelled) throws Exception {
         long started = System.nanoTime();
         long elapsedMs = ctx.getStartTime() > 0 ? Math.max(0, System.currentTimeMillis() - ctx.getStartTime()) : 0;
         long remainingMs = TimeUnit.SECONDS.toMillis(ctx.getQueryTimeoutS()) - elapsedMs;
         long deadline = started + TimeUnit.MILLISECONDS.toNanos(Math.max(0, remainingMs));
         tableName.analyze(ctx);
         checkPrivileges(ctx, tableName);
-        List<Backend> targets = selectBackends(resolveComputeGroup(ctx, computeGroup));
+        List<Backend> targets = selectBackends(resolveComputeGroup(ctx));
         // Resolve catalog/table initialization and snapshot IO in the bounded metadata pool.
         // The worker owns native resources until it returns, even if this caller stops waiting.
         String catalogName = tableName.getCtl();
@@ -87,47 +90,82 @@ public final class LanceIndexPrewarm {
         LanceTableMetadata metadata = LanceIndexInspectionExecutor.execute(() -> {
             CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
             if (!(catalog instanceof LanceExternalCatalog)) {
-                throw new AnalysisException("WARM UP INDEX requires a Lance catalog table");
+                throw new AnalysisException("Index-only WARM UP SELECT requires a Lance catalog table");
             }
             TableIf table = catalog.getDbOrAnalysisException(databaseName).getTableOrAnalysisException(name);
             if (!(table instanceof LanceExternalTable)) {
-                throw new AnalysisException("WARM UP INDEX requires a Lance catalog table");
+                throw new AnalysisException("Index-only WARM UP SELECT requires a Lance catalog table");
             }
             checkActive(deadline, cancelled);
             // Use the query access path, including REST-vended credentials, exactly once.
             return ((LanceExternalTable) table).loadMetadata();
         }, deadline, cancelled);
-        PLanceIndexPrewarmRequest request = request(metadata, indexName);
-        execute(targets, request, deadline, cancelled, (backend, rpcRequest, timeoutMs) ->
-                BackendServiceProxy.getInstance().prewarmLanceIndexAsync(
-                        new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), rpcRequest, timeoutMs));
-        executor.sendResultSet(new ShowResultSet(RESULT_META, Collections.singletonList(Arrays.asList(
-                tableName.toSql(), indexName, Long.toString(metadata.getVersion()), Integer.toString(targets.size()),
-                Long.toString(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started))))));
+        List<String> indexes = selectIndexes(metadata, columns);
+        List<List<String>> rows = new ArrayList<>();
+        // All indexes share the resolved snapshot, target set and statement deadline.
+        for (String index : indexes) {
+            long indexStarted = System.nanoTime();
+            PLanceIndexPrewarmRequest request = request(metadata, index);
+            execute(targets, request, deadline, cancelled, (backend, rpcRequest, timeoutMs) ->
+                    BackendServiceProxy.getInstance().prewarmLanceIndexAsync(
+                            new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), rpcRequest, timeoutMs));
+            rows.add(Arrays.asList(tableName.toSql(), index, Long.toString(metadata.getVersion()),
+                    Integer.toString(targets.size()),
+                    Long.toString(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - indexStarted))));
+        }
+        executor.sendResultSet(new ShowResultSet(RESULT_META, rows));
+    }
+
+    static List<String> selectIndexes(LanceTableMetadata metadata, List<String> columns) throws AnalysisException {
+        Set<Integer> fields = new HashSet<>();
+        for (String column : columns) {
+            List<String> matches = new ArrayList<>();
+            metadata.getSchema().getFields().forEach(field -> {
+                if (field.getName().equalsIgnoreCase(column)) {
+                    matches.add(field.getName());
+                }
+            });
+            if (matches.size() != 1) {
+                throw new AnalysisException("Unknown or ambiguous index prewarm column: " + column);
+            }
+            OptionalInt field = metadata.getLanceFieldId(matches.get(0));
+            if (!field.isPresent()) {
+                throw new AnalysisException("Lance field ID is unavailable for index prewarm column: " + column);
+            }
+            fields.add(field.getAsInt());
+        }
+        List<String> indexes = new ArrayList<>();
+        for (LanceIndexSegmentGroup index : metadata.getIndexes()) {
+            if (columns.isEmpty() || index.getSegments().stream()
+                    .anyMatch(segment -> segment.getFieldIds().stream().anyMatch(fields::contains))) {
+                indexes.add(index.getName());
+            }
+        }
+        if (indexes.isEmpty()) {
+            throw new AnalysisException("No indexes match the WARM UP SELECT projection");
+        }
+        return indexes;
     }
 
     static void checkPrivileges(ConnectContext ctx, TableNameInfo table) throws AnalysisException {
         // Authorize before catalog lookup: resolving external metadata can perform remote IO.
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
-            throw new AnalysisException("ADMIN privilege is required for WARM UP INDEX");
+            throw new AnalysisException("ADMIN privilege is required for Index-only WARM UP SELECT");
         }
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
                 new TableName(table.getCtl(), table.getDb(), table.getTbl()), PrivPredicate.SELECT)) {
-            throw new AnalysisException("SELECT denied for WARM UP INDEX on " + table.toSql());
+            throw new AnalysisException("SELECT denied for Index-only WARM UP SELECT on " + table.toSql());
         }
     }
 
-    static ComputeGroup resolveComputeGroup(ConnectContext ctx, String name) throws UserException {
+    static ComputeGroup resolveComputeGroup(ConnectContext ctx) throws UserException {
         if (Config.isCloudMode()) {
-            String selected = name == null ? ctx.getCloudCluster() : name;
+            String selected = ctx.getCloudCluster();
             if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ctx.getCurrentUserIdentity(),
                     selected, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 throw new AnalysisException("USAGE denied for compute group '" + selected + "'");
             }
             return Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(selected);
-        }
-        if (name != null) {
-            throw new AnalysisException("WITH COMPUTE GROUP requires cloud mode");
         }
         return ctx.getComputeGroup();
     }
