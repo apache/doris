@@ -20,23 +20,65 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.proto.Types.PScalarType;
+import org.apache.doris.proto.Types.PStructField;
+import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 public class ExternalFileTableValuedFunctionTest {
+    @Test
+    public void testFileSchemaPreservesNestedFieldSpelling() throws Exception {
+        ExternalFileTableValuedFunction tvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        PTypeNode structNode = PTypeNode.newBuilder()
+                .setType(TTypeNodeType.STRUCT.getValue())
+                .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.STRUCT.getValue()))
+                .addStructFields(PStructField.newBuilder()
+                        .setName("CaseSensitive")
+                        .setComment("mixed-case child")
+                        .setContainsNull(true))
+                .build();
+        PTypeNode intNode = PTypeNode.newBuilder()
+                .setType(TTypeNodeType.SCALAR.getValue())
+                .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.INT.getValue()))
+                .build();
+
+        Method getColumnType = ExternalFileTableValuedFunction.class
+                .getDeclaredMethod("getColumnType", List.class, int.class);
+        getColumnType.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Pair<Type, Integer> parsed = (Pair<Type, Integer>) getColumnType.invoke(
+                tvf, Arrays.asList(structNode, intNode), 0);
+
+        StructField field = ((StructType) parsed.key()).getFields().get(0);
+        Assertions.assertEquals("casesensitive", field.getName());
+        Assertions.assertEquals("CaseSensitive", field.getOriginalName());
+        Assertions.assertEquals("mixed-case child", field.getComment());
+        Assertions.assertTrue(field.getContainsNull());
+    }
+
     @Test
     public void testHiveParquetTimeZoneIsCanonicalizedAndRemovedFromStorageProperties()
             throws AnalysisException {
@@ -48,8 +90,8 @@ public class ExternalFileTableValuedFunctionTest {
 
         Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
 
-        Assert.assertEquals("+08:00", tvf.getHiveParquetTimeZone());
-        Assert.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
+        Assertions.assertEquals("+08:00", tvf.getHiveParquetTimeZone());
+        Assertions.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
     }
 
     @Test
@@ -60,10 +102,25 @@ public class ExternalFileTableValuedFunctionTest {
         properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
         properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "CST");
 
-        AnalysisException exception = Assert.assertThrows(
+        AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class, () -> tvf.parseCommonProperties(properties));
 
-        Assert.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
+        Assertions.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
+    }
+
+    @Test
+    public void testCsvSchemaUuid() throws Exception {
+        List<Column> columns = Lists.newArrayList();
+        FileFormatUtils.parseCsvSchema(columns, "id:int;u: UUID ;v:uuid");
+        Assertions.assertEquals(3, columns.size());
+        Assertions.assertEquals(Type.UUID, columns.get(1).getType());
+        Assertions.assertEquals(Type.UUID, columns.get(2).getType());
+        Assertions.assertTrue(columns.get(1).isAllowNull());
+        Assertions.assertEquals("u", columns.get(1).getName());
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> FileFormatUtils.parseCsvSchema(Lists.newArrayList(), "u:uuid(16)"));
+        Assertions.assertTrue(exception.getMessage().contains("unsupported column type: uuid(16)"));
     }
 
     @Test
@@ -77,11 +134,11 @@ public class ExternalFileTableValuedFunctionTest {
         tvf.parseCommonProperties(properties);
 
         List<Column> columns = tvf.getTableColumns();
-        Assert.assertEquals(4, columns.size());
-        Assert.assertEquals("id", columns.get(0).getName());
-        Assert.assertEquals("name", columns.get(1).getName());
-        Assert.assertEquals("pt", columns.get(2).getName());
-        Assert.assertEquals("region", columns.get(3).getName());
+        Assertions.assertEquals(4, columns.size());
+        Assertions.assertEquals("id", columns.get(0).getName());
+        Assertions.assertEquals("name", columns.get(1).getName());
+        Assertions.assertEquals("pt", columns.get(2).getName());
+        Assertions.assertEquals("region", columns.get(3).getName());
     }
 
     @Test
@@ -94,9 +151,9 @@ public class ExternalFileTableValuedFunctionTest {
 
         tvf.parseCommonProperties(properties);
 
-        NotSupportedException exception = Assert.assertThrows(
+        NotSupportedException exception = Assertions.assertThrows(
                 NotSupportedException.class, tvf::getTableColumns);
-        Assert.assertTrue(exception.getMessage()
+        Assertions.assertTrue(exception.getMessage()
                 .contains("Path partition column conflicts with an existing column: ID"));
     }
 
@@ -110,10 +167,10 @@ public class ExternalFileTableValuedFunctionTest {
         List<Column> csvSchema = Lists.newArrayList();
         try {
             FileFormatUtils.parseCsvSchema(csvSchema, properties.get(FileFormatConstants.PROP_CSV_SCHEMA));
-            Assert.fail();
+            Assertions.fail();
         } catch (AnalysisException e) {
             e.printStackTrace();
-            Assert.assertTrue(e.getMessage().contains("unsupported column type: bool"));
+            Assertions.assertTrue(e.getMessage().contains("unsupported column type: bool"));
         }
 
         csvSchema.clear();
@@ -122,65 +179,65 @@ public class ExternalFileTableValuedFunctionTest {
                         + "k8:string;k9:date;k10:datetime;k11:decimal(10, 2);k12:decimal( 38,10); k13:datetime(5)");
         try {
             FileFormatUtils.parseCsvSchema(csvSchema, properties.get(FileFormatConstants.PROP_CSV_SCHEMA));
-            Assert.assertEquals(13, csvSchema.size());
+            Assertions.assertEquals(13, csvSchema.size());
             Column decimalCol = csvSchema.get(10);
-            Assert.assertEquals(10, decimalCol.getPrecision());
-            Assert.assertEquals(2, decimalCol.getScale());
+            Assertions.assertEquals(10, decimalCol.getPrecision());
+            Assertions.assertEquals(2, decimalCol.getScale());
             decimalCol = csvSchema.get(11);
-            Assert.assertEquals(38, decimalCol.getPrecision());
-            Assert.assertEquals(10, decimalCol.getScale());
+            Assertions.assertEquals(38, decimalCol.getPrecision());
+            Assertions.assertEquals(10, decimalCol.getScale());
             Column datetimeCol = csvSchema.get(12);
-            Assert.assertEquals(5, datetimeCol.getScale());
+            Assertions.assertEquals(5, datetimeCol.getScale());
 
             for (int i = 0; i < csvSchema.size(); i++) {
                 Column col = csvSchema.get(i);
                 switch (col.getName()) {
                     case "k1":
-                        Assert.assertEquals(PrimitiveType.INT, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.INT, col.getType().getPrimitiveType());
                         break;
                     case "k2":
-                        Assert.assertEquals(PrimitiveType.BIGINT, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.BIGINT, col.getType().getPrimitiveType());
                         break;
                     case "k3":
-                        Assert.assertEquals(PrimitiveType.FLOAT, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.FLOAT, col.getType().getPrimitiveType());
                         break;
                     case "k4":
-                        Assert.assertEquals(PrimitiveType.DOUBLE, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DOUBLE, col.getType().getPrimitiveType());
                         break;
                     case "k5":
-                        Assert.assertEquals(PrimitiveType.SMALLINT, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.SMALLINT, col.getType().getPrimitiveType());
                         break;
                     case "k6":
-                        Assert.assertEquals(PrimitiveType.TINYINT, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.TINYINT, col.getType().getPrimitiveType());
                         break;
                     case "k7":
-                        Assert.assertEquals(PrimitiveType.BOOLEAN, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.BOOLEAN, col.getType().getPrimitiveType());
                         break;
                     case "k8":
-                        Assert.assertEquals(PrimitiveType.STRING, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.STRING, col.getType().getPrimitiveType());
                         break;
                     case "k9":
-                        Assert.assertEquals(PrimitiveType.DATEV2, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DATEV2, col.getType().getPrimitiveType());
                         break;
                     case "k10":
-                        Assert.assertEquals(PrimitiveType.DATETIMEV2, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DATETIMEV2, col.getType().getPrimitiveType());
                         break;
                     case "k11":
-                        Assert.assertEquals(PrimitiveType.DECIMAL64, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DECIMAL64, col.getType().getPrimitiveType());
                         break;
                     case "k12":
-                        Assert.assertEquals(PrimitiveType.DECIMAL128, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DECIMAL128, col.getType().getPrimitiveType());
                         break;
                     case "k13":
-                        Assert.assertEquals(PrimitiveType.DATETIMEV2, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DATETIMEV2, col.getType().getPrimitiveType());
                         break;
                     default:
-                        Assert.fail("unknown column name: " + col.getName());
+                        Assertions.fail("unknown column name: " + col.getName());
                 }
             }
         } catch (AnalysisException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
     }
 

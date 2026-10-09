@@ -41,6 +41,7 @@ public final class ConnectorMvccSnapshot {
     private final long schemaId;
     private final Map<String, String> properties;
     private final boolean lastModifiedFreshness;
+    private final boolean retainSchema;
 
     private ConnectorMvccSnapshot(Builder b) {
         this.snapshotId = b.snapshotId;
@@ -49,6 +50,7 @@ public final class ConnectorMvccSnapshot {
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(new HashMap<>(b.properties));
         this.lastModifiedFreshness = b.lastModifiedFreshness;
+        this.retainSchema = b.retainSchema;
     }
 
     /** Connector-assigned snapshot identifier (e.g. Iceberg snapshot id). */
@@ -86,6 +88,15 @@ public final class ConnectorMvccSnapshot {
         return lastModifiedFreshness;
     }
 
+    /**
+     * Whether FE should materialize and publish this latest pin's schema. A schema ID alone is
+     * only a connector coordinate: opting in requires the complete published schema to describe
+     * that generation. False by default; explicit time travel retains its existing schema path.
+     */
+    public boolean isSchemaRetained() {
+        return retainSchema;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -97,19 +108,21 @@ public final class ConnectorMvccSnapshot {
         ConnectorMvccSnapshot that = (ConnectorMvccSnapshot) o;
         return snapshotId == that.snapshotId
                 && schemaId == that.schemaId
+                && retainSchema == that.retainSchema
                 && lastModifiedFreshness == that.lastModifiedFreshness
                 && properties.equals(that.properties);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(snapshotId, schemaId, lastModifiedFreshness, properties);
+        return Objects.hash(snapshotId, schemaId, lastModifiedFreshness, retainSchema, properties);
     }
 
     @Override
     public String toString() {
         return "ConnectorMvccSnapshot{snapshotId=" + snapshotId
                 + ", schemaId=" + schemaId
+                + ", retainSchema=" + retainSchema
                 + ", lastModifiedFreshness=" + lastModifiedFreshness
                 + ", properties=" + properties + "}";
     }
@@ -124,6 +137,7 @@ public final class ConnectorMvccSnapshot {
         private long schemaId = -1;
         private final Map<String, String> properties = new HashMap<>();
         private boolean lastModifiedFreshness;
+        private boolean retainSchema;
 
         public Builder snapshotId(long snapshotId) {
             this.snapshotId = snapshotId;
@@ -133,6 +147,12 @@ public final class ConnectorMvccSnapshot {
         /** Marks this table's MTMV freshness as last-modified (see {@link #isLastModifiedFreshness()}). */
         public Builder lastModifiedFreshness(boolean lastModifiedFreshness) {
             this.lastModifiedFreshness = lastModifiedFreshness;
+            return this;
+        }
+
+        /** Opts this latest pin into FE schema publication; see {@link ConnectorMvccSnapshot#isSchemaRetained()}. */
+        public Builder retainSchema(boolean retainSchema) {
+            this.retainSchema = retainSchema;
             return this;
         }
 

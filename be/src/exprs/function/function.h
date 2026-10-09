@@ -37,7 +37,6 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
@@ -73,7 +72,8 @@ struct FunctionAttr {
     for (auto it : arguments) {                                                                \
         is_nullable = is_nullable || it.type->is_nullable();                                   \
         is_datev2 = is_datev2 || it.type->get_primitive_type() == TYPE_DATEV2 ||               \
-                    it.type->get_primitive_type() == TYPE_DATETIMEV2;                          \
+                    it.type->get_primitive_type() == TYPE_DATETIMEV2 ||                        \
+                    it.type->get_primitive_type() == TYPE_TIMESTAMP_NS;                        \
     }                                                                                          \
     return is_nullable || !is_datev2                                                           \
                    ? make_nullable(                                                            \
@@ -216,6 +216,15 @@ public:
         }
     }
 
+    // True when this function's index push-down can only ever answer with an approximate
+    // (superset) candidate set instead of the exact row set. Such a result is usable in one
+    // place only -- narrowing the candidate rows of a conjunct that stays pushed down for
+    // row-level re-verification -- so VExpr skips the push-down entirely wherever it would be
+    // computed and then dropped, rather than paying for the index reads first.
+    virtual bool index_result_is_approximate() const { return false; }
+
+    // VExpr calls this after binding the indexed fields to storage-compatible types and
+    // iterators; the arguments carry the call's literals, in child order.
     virtual Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
@@ -505,6 +514,10 @@ public:
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return function->close(context, scope);
+    }
+
+    bool index_result_is_approximate() const override {
+        return function->index_result_is_approximate();
     }
 
     Status evaluate_inverted_index(

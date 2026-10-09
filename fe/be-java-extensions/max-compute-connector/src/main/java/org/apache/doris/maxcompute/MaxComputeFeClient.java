@@ -24,12 +24,13 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
-import org.apache.log4j.Logger;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
 import org.apache.thrift.transport.layered.TFramedTransport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.List;
@@ -45,7 +46,7 @@ class MaxComputeFeClient implements AutoCloseable {
     static final String FE_RPC_TIMEOUT_MS = "fe_rpc_timeout_ms";
     static final String FE_THRIFT_SERVER_TYPE = "fe_thrift_server_type";
 
-    private static final Logger LOG = Logger.getLogger(MaxComputeFeClient.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MaxComputeFeClient.class);
     private static final int FETCH_BLOCK_ID_MAX_RETRY_TIMES = 3;
     private static final long FETCH_BLOCK_ID_RETRY_SLEEP_MS = 10L;
     private static final long FETCH_BLOCK_ID_LENGTH = 1L;

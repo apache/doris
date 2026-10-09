@@ -29,7 +29,13 @@ suite("test_trino_hive_other", "p0,external") {
         qt_q32 """ select * from test_hive_doris order by id;"""
 
         qt_q33 """ select dt, k1, * from table_with_vertical_line order by dt desc, k1 desc limit 10;"""
-        order_qt_q34 """ select dt, k2 from table_with_vertical_line order by k2 desc limit 10;"""
+        // The highest k2 values are malformed integers. TRY_CAST makes them NULL, so both predicates are
+        // true. Incorrectly pushing either predicate as raw VARCHAR IS NULL would produce an empty result.
+        order_qt_q34 """
+            select dt, k2 from table_with_vertical_line
+            where try_cast(k2 as int) is null and try_cast(k2 as int) <=> null
+            order by k2 desc limit 10;
+        """
         qt_q35 """ select dt, k2 from table_with_vertical_line where dt='2022-11-24' order by k2 desc limit 10;"""
         qt_q36 """ select k2, k5 from table_with_vertical_line where dt='2022-11-25' order by k2 desc limit 10;"""
         order_qt_q37 """ select count(*) from table_with_vertical_line;"""
@@ -37,7 +43,15 @@ suite("test_trino_hive_other", "p0,external") {
         qt_q39 """ select k2, k5 from table_with_vertical_line where dt in ('2022-11-25', '2022-11-24') order by k2 desc limit 10;"""
         qt_q40 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-25') order by k2 desc limit 10;"""
         qt_q41 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') and dt in ('2022-11-24') order by k2 desc limit 10;"""
-        qt_q42 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""
+        // The datetime range is redundant with the string predicate, so q42 keeps its generated result.
+        // An incorrect VARCHAR range pushdown loses the 2022-11-24 rows and makes this query fail.
+        qt_q42 """
+            select dt, dt, k2, k5, dt from table_with_vertical_line
+            where (dt in ('2022-11-25') or dt in ('2022-11-24'))
+                and cast(dt as datetime) >= timestamp('2022-11-24 00:00:00')
+                and cast(dt as datetime) < timestamp('2022-11-26 00:00:00')
+            order by k2 desc limit 10;
+        """
 
         qt_q43 """ select dt, k1, * from table_with_x01 order by dt desc, k1 desc limit 10;"""
         qt_q44 """ select dt, k2 from table_with_x01 order by k2 desc limit 10;"""

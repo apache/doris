@@ -116,7 +116,10 @@ public class ConnectorPluginManager {
     //
     // NOTE: the intended end state is an FE kernel with no hadoop classes at all, every plugin
     // bringing its own. At that point the fallback above takes over on its own, and the plugin
-    // becomes responsible for shipping a patched FileSystem the same way the kernel does today.
+    // becomes responsible for shipping a patched FileSystem the same way the kernel does today -
+    // which is what the BE plugins already do, since their loader has no hadoop to delegate to:
+    // each declares hadoop-deps, and that jar's Doris-Shadows-Classes manifest entry puts it ahead
+    // of hadoop-common in the plugin directory (see be-java-extensions/jni-bootstrap PluginRuntime).
     //
     // Package-private so ConnectorPluginHadoopPatchTest asserts against this list, not a copy of it.
     static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
@@ -510,6 +513,24 @@ public class ConnectorPluginManager {
                         ? Collections.emptyMap() : currentProperties;
                 if (provider.supports(catalogType, matchProperties)) {
                     provider.validatePropertiesForUpdate(currentProperties, updatedProperties);
+                    return;
+                }
+            } finally {
+                thread.setContextClassLoader(previous);
+            }
+        }
+    }
+
+    /** Validates CREATE TABLE properties under the selected directory provider's classloader. */
+    public void validateCreateTable(String catalogType, Map<String, String> properties) {
+        for (ConnectorProvider provider : providers) {
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            try {
+                // Provider validation may resolve plugin-local helpers through TCCL, just like ALTER validation.
+                thread.setContextClassLoader(provider.getClass().getClassLoader());
+                if (provider.supports(catalogType, properties)) {
+                    provider.validateCreateTable(properties);
                     return;
                 }
             } finally {

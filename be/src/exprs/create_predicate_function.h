@@ -90,6 +90,7 @@ public:
     M(TYPE_DATETIME)          \
     M(TYPE_DATEV2)            \
     M(TYPE_DATETIMEV2)        \
+    M(TYPE_TIMESTAMP_NS)      \
     M(TYPE_TIMESTAMPTZ)       \
     M(TYPE_TIMEV2)            \
     M(TYPE_CHAR)              \
@@ -100,13 +101,17 @@ public:
     M(TYPE_DECIMAL128I)       \
     M(TYPE_DECIMAL256)        \
     M(TYPE_IPV4)              \
-    M(TYPE_IPV6)
+    M(TYPE_IPV6)              \
+    M(TYPE_UUID)
 
 template <class Traits, size_t N = 0>
 typename Traits::BasePtr create_predicate_function(PrimitiveType type, bool null_aware) {
     using Creator = PredicateFunctionCreator<Traits>;
 
     switch (type) {
+    case TYPE_VARBINARY:
+        // Binary read/write support does not provide storage or runtime predicate kernels.
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "VARBINARY predicates are not supported");
     case TYPE_BOOLEAN: {
         return Creator::template create<TYPE_BOOLEAN, N>(null_aware);
     }

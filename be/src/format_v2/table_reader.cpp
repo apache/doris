@@ -26,6 +26,7 @@
 #include <ranges>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -47,16 +48,35 @@
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
-#include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/table/schema_history_util.h" // get_field_ptr
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
+#include "util/hash_util.hpp"
 #include "util/string_util.h"
 
 namespace doris::format {
+
+std::optional<std::string> TableReader::_get_int96_timezone_override(
+        const TFileScanRangeParams* params) {
+    if (params == nullptr) {
+        return std::nullopt;
+    }
+    // The timezone field predates the version marker. Honor intermediate FEs that send it alone,
+    // including an explicit empty value selecting wall-clock semantics.
+    if (params->__isset.hive_parquet_time_zone) {
+        return params->hive_parquet_time_zone;
+    }
+    // Only a plan lacking both an explicit timezone and the new contract uses the legacy session.
+    if (!params->__isset.parquet_timestamp_semantics_version ||
+        params->parquet_timestamp_semantics_version < 1) {
+        return std::nullopt;
+    }
+    return std::string {};
+}
+
 namespace {
 
 template <typename T, typename Formatter>
@@ -87,8 +107,6 @@ std::string file_format_to_string(FileFormat format) {
         return "TEXT";
     case FileFormat::JNI:
         return "JNI";
-    case FileFormat::NATIVE:
-        return "NATIVE";
     case FileFormat::ARROW:
         return "ARROW";
     case FileFormat::WAL:
@@ -955,6 +973,14 @@ Status TableReader::init(TableReadOptions&& options) {
                                                                 TUnit::UNIT, table_profile, 1);
         _profile.parse_delete_file_time = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "ParseDeleteFileTime", table_profile, 1);
+        _profile.equality_delete_index_cache_hit_count =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "EqualityDeleteIndexCacheHitCount",
+                                             TUnit::UNIT, table_profile, 1);
+        _profile.equality_delete_index_cache_miss_count =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "EqualityDeleteIndexCacheMissCount",
+                                             TUnit::UNIT, table_profile, 1);
+        _profile.equality_delete_hash_index_memory = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _scanner_profile, "EqualityDeleteHashIndexMemory", TUnit::BYTES, table_profile, 1);
         _profile.decoded_dv_cache_hit_count =
                 ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "DeletionVectorDecodedCacheHitCount",
                                              TUnit::UNIT, table_profile, 1);
@@ -1153,6 +1179,7 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
             _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions,
             _file_scan_request == nullptr ? nullptr
                                           : &_file_scan_request->non_predicate_positions));
+    refreshed_request->row_ids = _row_ids;
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
@@ -1162,6 +1189,8 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
         }
     }
     RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
+    RETURN_IF_ERROR(
+            refreshed_mapper->reconcile_scan_request_after_customization(refreshed_request.get()));
     if (_file_scan_request == nullptr ||
         !same_physical_scan_layout(*refreshed_request, *_file_scan_request)) {
         // A reader cannot reinterpret columns already materialized with another block layout.
@@ -1211,6 +1240,16 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     if (file_request.conjuncts.empty()) {
         return false;
     }
+    // Localization may inject schema-evolution casts absent from the scanner's digest. Honor
+    // their uncacheable contract: an unchanged field ID can acquire different timestamp semantics,
+    // and reusing an old all-false granule would silently discard matching rows.
+    uint64_t localized_digest = 0xcbf29ce484222325ULL;
+    for (const auto& conjunct : file_request.conjuncts) {
+        localized_digest = conjunct->get_digest(localized_digest);
+        if (localized_digest == 0) {
+            return false;
+        }
+    }
     // Delete files/deletion vectors are table-format state. They may change independently of the
     // data file path/mtime/size used by the external cache key, so caching their result can become
     // stale. Keep delete filtering enabled, but do not read or write condition cache.
@@ -1237,8 +1276,22 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
         return Status::OK();
     }
     const auto& file = *_current_file_description;
+    auto cache_digest = _condition_cache_digest;
+    if (_format == FileFormat::PARQUET) {
+        const auto timezone = _get_int96_timezone_override(_scan_params);
+        if (timezone.has_value()) {
+            // A cached false granule is valid only under the same INT96 interpretation. The
+            // helper normalizes versioned omission to explicit empty; legacy absence keeps
+            // the session-based key. Do not mutate the predicate seed reused by later splits.
+            constexpr std::string_view contract_tag = "parquet-int96-timezone:";
+            cache_digest = HashUtil::xxHash64WithSeed(contract_tag.data(), contract_tag.size(),
+                                                      cache_digest);
+            cache_digest =
+                    HashUtil::xxHash64WithSeed(timezone->data(), timezone->size(), cache_digest);
+        }
+    }
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
-            file.path, file.mtime, file.file_size, _condition_cache_digest, file.range_start_offset,
+            file.path, file.mtime, file.file_size, cache_digest, file.range_start_offset,
             file.range_size,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
 
@@ -1347,10 +1400,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_varbinary = _scan_params != nullptr &&
                                           _scan_params->__isset.enable_mapping_varbinary &&
                                           _scan_params->enable_mapping_varbinary;
-    const std::string hive_parquet_time_zone =
-            _scan_params != nullptr && _scan_params->__isset.hive_parquet_time_zone
-                    ? _scan_params->hive_parquet_time_zone
-                    : "";
+    const std::optional<std::string> hive_parquet_time_zone =
+            _get_int96_timezone_override(_scan_params);
     if (_format == FileFormat::PARQUET) {
         // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
         // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer
@@ -1358,13 +1409,13 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                hive_parquet_time_zone);
+                hive_parquet_time_zone, preserve_binary_uuid());
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
         *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz);
+                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {
@@ -1401,11 +1452,6 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _scan_params, _current_file_range_desc, *_file_slot_descs,
                 _current_range_compress_type, _current_range_load_id);
-        return Status::OK();
-    }
-    if (_format == FileFormat::NATIVE) {
-        *reader = std::make_unique<format::native::NativeReader>(
-                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile);
         return Status::OK();
     }
     return Status::NotSupported("TableReader does not support file format {}",
@@ -1460,6 +1506,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
                                      ? std::make_optional(options.current_range.load_id)
                                      : std::nullopt;
     _global_rowid_context = options.global_rowid_context;
+    _row_ids = options.row_ids;
     _delete_rows = nullptr;
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
@@ -1484,9 +1531,10 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     // the NULL state of a COUNT argument. Require the new FE's explicit empty argument list, which
     // means COUNT(*)/COUNT(1). A non-empty list means COUNT(col), while nullopt comes from an old FE
     // whose COUNT semantics are unknown during a BE-first rolling upgrade.
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
-        _push_down_count_columns->empty() && options.all_runtime_filters_applied &&
-        _conjuncts.empty() && options.current_range.__isset.table_format_params &&
+    if (!_row_ids.has_value() && _push_down_agg_type == TPushAggOp::type::COUNT &&
+        _push_down_count_columns.has_value() && _push_down_count_columns->empty() &&
+        options.all_runtime_filters_applied && _conjuncts.empty() &&
+        options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
         _remaining_table_level_count =

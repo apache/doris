@@ -47,7 +47,7 @@ public class AdbcConnector implements Connector {
     private final AdbcSchemaStrategy schemaStrategy = new AdbcSchemaStrategy();
     private final AdbcPartitionedReadSupport partitionedRead = new AdbcPartitionedReadSupport();
     private final AdbcDialectSelector dialectSelector;
-    private final CatalogMetaCache metaCache = new CatalogMetaCache();
+    private final CatalogMetaCache metaCache;
     private final AdbcMetadataCache metadataCache;
 
     private volatile AdbcClient client;
@@ -67,7 +67,13 @@ public class AdbcConnector implements Connector {
         // The raw map, because the cache knobs are the shared framework's keys rather than this
         // connector's: CacheSpec owns their names, and mirroring them as fields here would give the
         // validator and the reader two things to drift apart.
-        this.metadataCache = new AdbcMetadataCache(metaCache, props.getRaw());
+        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "adbc", props.getRaw());
+        try {
+            this.metadataCache = new AdbcMetadataCache(metaCache, props.getRaw());
+        } catch (RuntimeException | Error e) {
+            metaCache.close();
+            throw e;
+        }
     }
 
     @Override

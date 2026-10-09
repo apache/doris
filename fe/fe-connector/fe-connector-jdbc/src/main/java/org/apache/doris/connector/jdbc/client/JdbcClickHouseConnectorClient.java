@@ -244,10 +244,11 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
             case "DateTime":
                 return ConnectorType.of("DATETIMEV2", 0, -1);
             case "String":
-            case "UUID":
             case "IPv4":
             case "IPv6":
                 return ConnectorType.of("STRING");
+            case "UUID":
+                return ConnectorType.of("UUID");
             default:
                 if (chType.startsWith("FixedString(") || chType.startsWith("Enum8(")
                         || chType.startsWith("Enum16(")) {

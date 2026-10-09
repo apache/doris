@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TField;
@@ -715,14 +716,33 @@ public class IcebergSchemaUtilsTest {
     }
 
     @Test
-    public void extractNameMappingFailsSoftOnMalformedProperty() {
-        // A malformed name-mapping property must not break the scan (legacy catches + warns). MUTATION: let the
-        // parse exception propagate -> the whole scan fails on a benign metadata quirk -> red.
+    public void malformedNameMappingFailsInsteadOfFallingBackToCurrentNames() {
+        // Iceberg refuses to read a table whose name mapping cannot be parsed (Spark's BaseReader parses the
+        // property while constructing the file reader), so the connector must surface the metadata fault.
+        // Rewriting the property into current-schema aliases would silently return NULL for the renamed
+        // columns of ID-less files instead of reporting it.
         Table table = createTable("t1", SCHEMA,
                 Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING, "{not valid json"));
-        // A malformed property yields Optional.empty() (absent, not a present-empty mapping) -> hasNameMapping
-        // false -> the scan proceeds on the legacy name fallback instead of breaking.
-        Assertions.assertFalse(IcebergSchemaUtils.extractNameMapping(table).isPresent());
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergSchemaUtils.extractNameMapping(table));
+        Assertions.assertTrue(exception.getMessage().contains(TableProperties.DEFAULT_NAME_MAPPING));
+        Assertions.assertTrue(exception.getMessage().contains("t1"));
+    }
+
+    @Test
+    public void validEmptyNameMappingStaysAuthoritative() {
+        // An explicitly empty mapping is NOT the same as an absent property: it stays authoritative, so an
+        // ID-less file's columns resolve to their defaults/NULLs instead of matching by current name.
+        Table table = createTable("t1", SCHEMA,
+                Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING, "[]"));
+
+        Map<Integer, List<String>> mapping = IcebergSchemaUtils.extractNameMapping(table).orElseThrow();
+        Assertions.assertTrue(mapping.isEmpty());
+
+        Map<String, TField> fields = topFields(dict(table, "id", "name"));
+        Assertions.assertTrue(fields.get("id").isNameMappingIsAuthoritative());
+        Assertions.assertTrue(fields.get("id").getNameMapping().isEmpty());
     }
 
     // --- round-trip through the prop transport (what the generic node does) ---

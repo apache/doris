@@ -24,8 +24,8 @@ import org.apache.doris.thrift.TColumn;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Set;
@@ -43,8 +43,8 @@ public class ColumnBloomFilterMaterializationTest {
         TColumn tColumn = ColumnToThrift.toThrift(shadowColumn);
         ColumnToThrift.setIndexFlag(tColumn, olapTable);
 
-        Assert.assertEquals("k1", tColumn.getColumnName());
-        Assert.assertTrue(tColumn.isIsBloomFilterColumn());
+        Assertions.assertEquals("k1", tColumn.getColumnName());
+        Assertions.assertTrue(tColumn.isIsBloomFilterColumn());
     }
 
     @Test
@@ -59,8 +59,8 @@ public class ColumnBloomFilterMaterializationTest {
         TColumn tColumn = ColumnToThrift.toThrift(shadowColumn);
         ColumnToThrift.setIndexFlag(tColumn, olapTable);
 
-        Assert.assertEquals("k1", tColumn.getColumnName());
-        Assert.assertTrue(tColumn.isIsBloomFilterColumn());
+        Assertions.assertEquals("k1", tColumn.getColumnName());
+        Assertions.assertTrue(tColumn.isIsBloomFilterColumn());
     }
 
     @Test
@@ -72,8 +72,8 @@ public class ColumnBloomFilterMaterializationTest {
                 Lists.newArrayList(new Index(1L, "bf_k1", Lists.newArrayList("k1"),
                         IndexType.BLOOMFILTER, null, "")));
 
-        Assert.assertEquals("k1", columnPb.getName());
-        Assert.assertTrue(columnPb.getIsBfColumn());
+        Assertions.assertEquals("k1", columnPb.getName());
+        Assertions.assertTrue(columnPb.getIsBfColumn());
     }
 
     @Test
@@ -86,8 +86,8 @@ public class ColumnBloomFilterMaterializationTest {
         OlapFile.ColumnPB columnPb = ColumnToProtobuf.toPb(shadowColumn, Sets.newHashSet("k1"),
                 Lists.newArrayList());
 
-        Assert.assertEquals("k1", columnPb.getName());
-        Assert.assertTrue(columnPb.getIsBfColumn());
+        Assertions.assertEquals("k1", columnPb.getName());
+        Assertions.assertTrue(columnPb.getIsBfColumn());
     }
 
     @Test
@@ -100,24 +100,24 @@ public class ColumnBloomFilterMaterializationTest {
         Set<String> bfColumns = olapTable.getCopiedBfColumns();
         Set<String> bfIndexColumns = Index.getBfIndexColumns(olapTable.getIndexes());
 
-        Assert.assertEquals(Sets.newHashSet("k1"), bfColumns);
-        Assert.assertEquals(Sets.newHashSet("v1"), bfIndexColumns);
+        Assertions.assertEquals(Sets.newHashSet("k1"), bfColumns);
+        Assertions.assertEquals(Sets.newHashSet("v1"), bfIndexColumns);
     }
 
     @Test
     public void testIndexBloomFilterHelpersIgnoreNonBloomFilterIndexesAndHandleNulls() {
         Set<String> emptyBfIndexColumns = Index.getBfIndexColumns(null);
-        Assert.assertTrue(emptyBfIndexColumns.isEmpty());
+        Assertions.assertTrue(emptyBfIndexColumns.isEmpty());
 
         Set<String> bfIndexColumns = Index.getBfIndexColumns(Lists.newArrayList(
                 new Index(1L, "bf_v1", Lists.newArrayList("v1"), IndexType.BLOOMFILTER, null, ""),
                 new Index(2L, "bitmap_k1", Lists.newArrayList("k1"), IndexType.BITMAP, null, ""),
                 new Index(3L, "bf_v2", Lists.newArrayList("V2"), IndexType.BLOOMFILTER, null, "")));
 
-        Assert.assertEquals(Sets.newHashSet("v1", "V2"), bfIndexColumns);
-        Assert.assertTrue(Index.getBfIndexColumns(Lists.newArrayList(
+        Assertions.assertEquals(Sets.newHashSet("v1", "V2"), bfIndexColumns);
+        Assertions.assertTrue(Index.getBfIndexColumns(Lists.newArrayList(
                 new Index(1L, "bf_v2", Lists.newArrayList("V2"), IndexType.BLOOMFILTER, null, ""))).contains("v2"));
-        Assert.assertFalse(Index.getBfIndexColumns(Lists.newArrayList(
+        Assertions.assertFalse(Index.getBfIndexColumns(Lists.newArrayList(
                 new Index(1L, "bitmap_k1", Lists.newArrayList("k1"), IndexType.BITMAP, null, ""))).contains("k1"));
     }
 

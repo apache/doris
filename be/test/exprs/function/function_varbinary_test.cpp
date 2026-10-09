@@ -19,10 +19,25 @@
 
 #include "core/data_type/data_type_varbinary.h"
 #include "exprs/function/function_test_util.h"
+#include "exprs/function/in.h"
 
 namespace doris {
 
 using namespace ut_type;
+
+TEST(function_binary_test, in_and_not_in_are_not_supported) {
+    RuntimeState state;
+    for (const auto& type : DataTypes {std::make_shared<DataTypeVarbinary>(),
+                                       make_nullable(std::make_shared<DataTypeVarbinary>())}) {
+        const DataTypes arguments {type, type};
+        auto context = FunctionContext::create_context(
+                &state, make_nullable(std::make_shared<DataTypeUInt8>()), arguments);
+        EXPECT_EQ(FunctionIn<false>().open(context.get(), FunctionContext::FRAGMENT_LOCAL).code(),
+                  ErrorCode::NOT_IMPLEMENTED_ERROR);
+        EXPECT_EQ(FunctionIn<true>().open(context.get(), FunctionContext::FRAGMENT_LOCAL).code(),
+                  ErrorCode::NOT_IMPLEMENTED_ERROR);
+    }
+}
 
 TEST(function_binary_test, function_binary_length_test) {
     std::string func_name = "length";

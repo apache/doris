@@ -20,21 +20,25 @@ package org.apache.doris.resource;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
 public class TagTest {
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testTagName1() throws AnalysisException {
-        Tag.create("location", "_tag1");
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Tag.create("location", "_tag1");
+        });
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testTagName2() throws AnalysisException {
-        Tag.create("location", "asdlajwdjdawhkjldjawlkdjawldjlkwasdasdsadasdd");
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Tag.create("location", "asdlajwdjdawhkjldjawlkdjawldjlkwasdasdsadasdd");
+        });
     }
 
     @Test
@@ -47,7 +51,7 @@ public class TagTest {
     @Test
     public void testTagName4() throws AnalysisException {
         Tag tag = Tag.create("location", "zone1");
-        Assert.assertEquals("{\"location\" : \"zone1\"}", tag.toString());
+        Assertions.assertEquals("{\"location\" : \"zone1\"}", tag.toString());
     }
 
     @Test
@@ -58,12 +62,14 @@ public class TagTest {
         TagSet.create(map);
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testTagSet2() throws AnalysisException {
-        Map<String, String> map = Maps.newHashMap();
-        map.put("location", "zone1, zone2");
-        map.put("type", "tag1, _tag2");
-        TagSet.create(map);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            Map<String, String> map = Maps.newHashMap();
+            map.put("location", "zone1, zone2");
+            map.put("type", "tag1, _tag2");
+            TagSet.create(map);
+        });
     }
 
     @Test
@@ -73,26 +79,26 @@ public class TagTest {
         map.put("type", "backend");
         map.put("function", "store,computation");
         TagSet tagSet = TagSet.create(map);
-        Assert.assertTrue(tagSet.containsTag(Tag.create("location", "zone1")));
-        Assert.assertTrue(tagSet.containsTag(Tag.create("location", "zone2")));
-        Assert.assertTrue(tagSet.containsTag(Tag.create("type", "backend")));
-        Assert.assertTrue(tagSet.containsTag(Tag.create("function", "store")));
-        Assert.assertTrue(tagSet.containsTag(Tag.create("function", "computation")));
-        Assert.assertFalse(tagSet.containsTag(Tag.create("function", "load")));
+        Assertions.assertTrue(tagSet.containsTag(Tag.create("location", "zone1")));
+        Assertions.assertTrue(tagSet.containsTag(Tag.create("location", "zone2")));
+        Assertions.assertTrue(tagSet.containsTag(Tag.create("type", "backend")));
+        Assertions.assertTrue(tagSet.containsTag(Tag.create("function", "store")));
+        Assertions.assertTrue(tagSet.containsTag(Tag.create("function", "computation")));
+        Assertions.assertFalse(tagSet.containsTag(Tag.create("function", "load")));
 
         // test union
         Map<String, String> map2 = Maps.newHashMap();
         map2.put("function", "load");
         TagSet tagSet2 = TagSet.create(map2);
         tagSet.union(tagSet2);
-        Assert.assertTrue(tagSet.containsTag(Tag.create("function", "store")));
-        Assert.assertTrue(tagSet.containsTag(Tag.create("function", "computation")));
-        Assert.assertTrue(tagSet.containsTag(Tag.create("function", "load")));
+        Assertions.assertTrue(tagSet.containsTag(Tag.create("function", "store")));
+        Assertions.assertTrue(tagSet.containsTag(Tag.create("function", "computation")));
+        Assertions.assertTrue(tagSet.containsTag(Tag.create("function", "load")));
 
         // test substitute merge
         tagSet.substituteMerge(tagSet2);
-        Assert.assertFalse(tagSet.containsTag(Tag.create("function", "store")));
-        Assert.assertFalse(tagSet.containsTag(Tag.create("function", "computation")));
-        Assert.assertTrue(tagSet.containsTag(Tag.create("function", "load")));
+        Assertions.assertFalse(tagSet.containsTag(Tag.create("function", "store")));
+        Assertions.assertFalse(tagSet.containsTag(Tag.create("function", "computation")));
+        Assertions.assertTrue(tagSet.containsTag(Tag.create("function", "load")));
     }
 }

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.DorisParser.IdentifierContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
+import org.apache.doris.nereids.DorisParser.PrimaryExpressionContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
@@ -145,9 +146,11 @@ public class LogicalPlanBuilderForCreateView extends LogicalPlanBuilder {
     }
 
     @Override
-    public Expression visitDereference(DereferenceContext ctx) {
-        UnboundSlot slot = (UnboundSlot) super.visitDereference(ctx);
-        return slot.withIndexInSql(Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex()));
+    protected Expression buildDereference(
+            Expression base, DereferenceContext ctx, PrimaryExpressionContext originContext) {
+        UnboundSlot slot = (UnboundSlot) super.buildDereference(base, ctx, originContext);
+        return slot.withIndexInSql(Pair.of(
+                originContext.start.getStartIndex(), ctx.stop.getStopIndex()));
     }
 
     @Override

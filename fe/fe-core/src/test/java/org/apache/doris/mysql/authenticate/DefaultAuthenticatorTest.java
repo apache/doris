@@ -25,10 +25,10 @@ import org.apache.doris.mysql.authenticate.password.NativePassword;
 import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -48,7 +48,7 @@ public class DefaultAuthenticatorTest {
     private AuthenticateRequest request = new AuthenticateRequest(USER_NAME,
             new NativePassword(new byte[2], new byte[2]), IP);
 
-    @Before
+    @BeforeEach
     public void setUp() throws DdlException, AuthenticationException, IOException {
         mockedEnvStatic = Mockito.mockStatic(Env.class);
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
@@ -62,7 +62,7 @@ public class DefaultAuthenticatorTest {
         }).when(auth).checkPassword(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(List.class));
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
     }
@@ -70,9 +70,9 @@ public class DefaultAuthenticatorTest {
     @Test
     public void testAuthenticate() throws IOException {
         AuthenticateResponse response = defaultAuthenticator.authenticate(request);
-        Assert.assertTrue(response.isSuccess());
-        Assert.assertFalse(response.isTemp());
-        Assert.assertEquals("'user'@'192.168.1.1'", response.getUserIdentity().toString());
+        Assertions.assertTrue(response.isSuccess());
+        Assertions.assertFalse(response.isTemp());
+        Assertions.assertEquals("'user'@'192.168.1.1'", response.getUserIdentity().toString());
     }
 
     @Test
@@ -80,16 +80,16 @@ public class DefaultAuthenticatorTest {
         Mockito.doThrow(new AuthenticationException("exception"))
                 .when(auth).checkPassword(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(byte[].class), ArgumentMatchers.any(List.class));
         AuthenticateResponse response = defaultAuthenticator.authenticate(request);
-        Assert.assertFalse(response.isSuccess());
+        Assertions.assertFalse(response.isSuccess());
     }
 
     @Test
     public void testCanDeal() {
-        Assert.assertTrue(defaultAuthenticator.canDeal("ss"));
+        Assertions.assertTrue(defaultAuthenticator.canDeal("ss"));
     }
 
     @Test
     public void testGetPasswordResolver() {
-        Assert.assertTrue(defaultAuthenticator.getPasswordResolver() instanceof NativePasswordResolver);
+        Assertions.assertTrue(defaultAuthenticator.getPasswordResolver() instanceof NativePasswordResolver);
     }
 }

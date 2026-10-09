@@ -88,28 +88,6 @@ endif()
 
 list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_tool.cpp)
 
-# todo: need fix those ut
-list(REMOVE_ITEM UT_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/agent/heartbeat_server_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/config_validator_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/service/http/metrics_action_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_plain_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_prefix_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/bitshuffle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/column_reader_writer_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/frame_of_reference_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/plain_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/rle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/segment_iterator_apply_index_expr_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/util/url_coding_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/remote_rowset_gc_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/jsonb_value_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
-)
-
 message(STATUS "Disable the metrics collection for orc")
 add_compile_definitions(ENABLE_METRICS=0)
 
@@ -167,9 +145,14 @@ endif()
 target_compile_definitions(doris_be_test PRIVATE
     KUROMOJI_SOURCE_DICT_DIR="${BASE_DIR}/dict/kuromoji")
 
+# -force_load takes a file path rather than a target, so unlike --whole-archive <target> below it
+# propagates no usage requirements. Link ann_index explicitly: it exports the faiss include
+# directories PUBLIC, and the test TUs that include faiss headers (function_array_distance.h and
+# what includes it) need them.
 if (APPLE)
     target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
-        -Wl,-force_load,$<TARGET_FILE:vector_search_test>)
+        -Wl,-force_load,$<TARGET_FILE:vector_search_test>
+        ann_index)
     # $<TARGET_FILE:...> inside a link flag does not create a target-level
     # dependency, so parallel ninja could link doris_be_test before the
     # archive exists.

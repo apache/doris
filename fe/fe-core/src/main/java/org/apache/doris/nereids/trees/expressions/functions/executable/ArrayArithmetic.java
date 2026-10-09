@@ -50,6 +50,22 @@ public class ArrayArithmetic {
         return new BigIntLiteral(map.getValue().size());
     }
 
+    /** Remove a number of elements from the end of an array. */
+    @ExecFunction(name = "trim_array")
+    public static Expression trimArray(ArrayLiteral array, BigIntLiteral size) {
+        long trimSize = size.getValue();
+        int cardinality = array.getValue().size();
+        if (trimSize < 0) {
+            throw new AnalysisException("size must not be negative: " + trimSize);
+        }
+        if (trimSize > cardinality) {
+            throw new AnalysisException("size must not exceed array cardinality "
+                    + cardinality + ": " + trimSize);
+        }
+        return new ArrayLiteral(array.getValue().subList(0, cardinality - (int) trimSize),
+                array.getDataType());
+    }
+
     /**
      * Compute the cross product between two 3D float arrays.
      */

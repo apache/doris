@@ -18,6 +18,7 @@
 #include "service/http/http_handler_with_auth.h"
 
 #include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/Status_types.h>
 
 #include "runtime/cluster_info.h"
 #include "service/http/http_channel.h"

@@ -29,14 +29,19 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.ImmutableList;
@@ -104,6 +109,16 @@ class SetPreAggStatusTest {
                 ImmutableList.of("t"), null, column, null, null);
     }
 
+    private static SlotReference aggStateSlot(AggregateFunction nested, AggregateType aggregateType) {
+        AggStateType type = (AggStateType) new StateCombinator(nested.children(), nested).getDataType();
+        Column column = new Column("s", type.toCatalogDataType(), false, aggregateType, null, "");
+        // Column construction normalizes AGG_STATE to GENERIC. Set the mode explicitly
+        // to exercise the checker's rejection of non-merging column metadata as well.
+        column.setAggregationType(aggregateType, false);
+        return new SlotReference(new ExprId(exprIdCounter++), "s", type, false,
+                ImmutableList.of("t"), null, column, null, null);
+    }
+
     private static PreAggStatus checkAggregateFunctions(
             Set<AggregateFunction> aggregateFuncs, Set<Slot> groupingExprsInputSlots, Set<Slot> outputSlots) {
         try {
@@ -137,6 +152,42 @@ class SetPreAggStatusTest {
 
     private static Expression ifGreaterThanZero(Slot key, Expression thenExpr, Expression elseExpr) {
         return new If(greaterThanZero(key), thenExpr, elseExpr);
+    }
+
+    @Test
+    void testAggStateCombinators() {
+        SlotReference value = new SlotReference("value", IntegerType.INSTANCE, false);
+        SlotReference order = new SlotReference("order", IntegerType.INSTANCE, true);
+        for (AggregateFunction nested : ImmutableList.of(new MaxBy(value, order), new Sum(order))) {
+            for (AggregateType aggregateType : ImmutableList.of(AggregateType.GENERIC, AggregateType.REPLACE,
+                    AggregateType.REPLACE_IF_NOT_NULL, AggregateType.NONE)) {
+                SlotReference state = aggStateSlot(nested, aggregateType);
+                for (AggregateFunction combinator : ImmutableList.of(
+                        new MergeCombinator(ImmutableList.of(state), nested),
+                        new UnionCombinator(ImmutableList.of(state), nested))) {
+                    PreAggStatus status = checkAggregateFunctions(Sets.newHashSet(combinator),
+                            Collections.emptySet(), Sets.newHashSet(state));
+                    Assertions.assertEquals(aggregateType == AggregateType.GENERIC, status.isOn(),
+                            combinator.toSql() + " over " + aggregateType);
+                }
+            }
+        }
+    }
+
+    @Test
+    void testAggStateCombinatorsRejectDifferentFunctionAndExpression() {
+        SlotReference value = new SlotReference("value", IntegerType.INSTANCE, true);
+        AggregateFunction sum = new Sum(value);
+        SlotReference state = aggStateSlot(sum, AggregateType.GENERIC);
+        Expression conditionalState = new If(greaterThanZero(keySlot("k")), state, state);
+        for (AggregateFunction combinator : ImmutableList.of(
+                new MergeCombinator(ImmutableList.of(state), new Max(value)),
+                new UnionCombinator(ImmutableList.of(state), new Max(value)),
+                new MergeCombinator(ImmutableList.of(conditionalState), sum),
+                new UnionCombinator(ImmutableList.of(conditionalState), sum))) {
+            Assertions.assertTrue(checkAggregateFunctions(Sets.newHashSet(combinator),
+                    Collections.emptySet(), Sets.newHashSet(state)).isOff(), combinator.toSql());
+        }
     }
 
     @Test

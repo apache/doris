@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -52,11 +53,18 @@ public class AvgDistinctToSumDivCount extends OneRewriteRuleFactory {
                             .stream()
                             .filter(function -> function instanceof Avg && function.isDistinct())
                             .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
+                                Expression argument = ((Avg) function).child();
+                                // AVG(BIGINT) accumulates in LARGEINT, while SUM(BIGINT) accumulates
+                                // in BIGINT. Preserve AVG's wider accumulator when decomposing it.
+                                if (argument.getDataType().isBigIntType()) {
+                                    argument = TypeCoercionUtils.castIfNotSameType(
+                                            argument, LargeIntType.INSTANCE);
+                                }
                                 Sum sum = (Sum) TypeCoercionUtils.processBoundFunction(
                                         new Sum(true, ((Avg) function).isAlwaysNullable(), false,
-                                                ((Avg) function).child()));
+                                                argument));
                                 Count count = (Count) TypeCoercionUtils.processBoundFunction(
-                                        new Count(true, ((Avg) function).child()));
+                                        new Count(true, argument));
                                 Expression divide = TypeCoercionUtils.castIfNotSameType(TypeCoercionUtils.processDivide(
                                         new Divide(sum, count)), function.getDataType());
                                 if (!function.nullable() && divide.nullable()) {

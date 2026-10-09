@@ -18,72 +18,44 @@
 #include "custom_aws_credentials_provider_chain.h"
 
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
-#include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/auth/SSOCredentialsProvider.h>
+#include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/platform/Environment.h>
-#include <aws/core/utils/memory/AWSMemory.h>
 #include <aws/core/utils/StringUtils.h>
 #include <aws/core/utils/logging/LogMacros.h>
+#include <aws/core/utils/memory/AWSMemory.h>
+
+#include "aws_common.h"
 
 namespace doris {
 
 using namespace Aws::Auth;
 using namespace Aws::Utils::Threading;
 
-static const char AWS_ECS_CONTAINER_CREDENTIALS_RELATIVE_URI[] =
-        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI";
-static const char AWS_ECS_CONTAINER_CREDENTIALS_FULL_URI[] = "AWS_CONTAINER_CREDENTIALS_FULL_URI";
-static const char AWS_ECS_CONTAINER_AUTHORIZATION_TOKEN[] = "AWS_CONTAINER_AUTHORIZATION_TOKEN";
 static const char AWS_EC2_METADATA_DISABLED[] = "AWS_EC2_METADATA_DISABLED";
 static const char DefaultCredentialsProviderChainTag[] = "DefaultAWSCredentialsProviderChain";
 
 CustomAwsCredentialsProviderChain::CustomAwsCredentialsProviderChain()
         : AWSCredentialsProviderChain() {
-
     AddProvider(Aws::MakeShared<STSAssumeRoleWebIdentityCredentialsProvider>(
             DefaultCredentialsProviderChainTag));
-
-    //ECS TaskRole Credentials only available when ENVIRONMENT VARIABLE is set
-    const auto relativeUri = Aws::Environment::GetEnv(AWS_ECS_CONTAINER_CREDENTIALS_RELATIVE_URI);
-    AWS_LOGSTREAM_DEBUG(DefaultCredentialsProviderChainTag,
-                        "The environment variable value "
-                                << AWS_ECS_CONTAINER_CREDENTIALS_RELATIVE_URI << " is "
-                                << relativeUri);
-
-    const auto absoluteUri = Aws::Environment::GetEnv(AWS_ECS_CONTAINER_CREDENTIALS_FULL_URI);
-    AWS_LOGSTREAM_DEBUG(DefaultCredentialsProviderChainTag,
-                        "The environment variable value " << AWS_ECS_CONTAINER_CREDENTIALS_FULL_URI
-                                                          << " is " << absoluteUri);
 
     const auto ec2MetadataDisabled = Aws::Environment::GetEnv(AWS_EC2_METADATA_DISABLED);
     AWS_LOGSTREAM_DEBUG(DefaultCredentialsProviderChainTag,
                         "The environment variable value " << AWS_EC2_METADATA_DISABLED << " is "
                                                           << ec2MetadataDisabled);
 
-    if (!relativeUri.empty()) {
-        AddProvider(Aws::MakeShared<TaskRoleCredentialsProvider>(DefaultCredentialsProviderChainTag,
-                                                                 relativeUri.c_str()));
-        AWS_LOGSTREAM_INFO(DefaultCredentialsProviderChainTag,
-                           "Added ECS metadata service credentials provider with relative path: ["
-                                   << relativeUri << "] to the provider chain.");
-    } else if (!absoluteUri.empty()) {
-        const auto token = Aws::Environment::GetEnv(AWS_ECS_CONTAINER_AUTHORIZATION_TOKEN);
-        AddProvider(Aws::MakeShared<TaskRoleCredentialsProvider>(
-                DefaultCredentialsProviderChainTag, absoluteUri.c_str(), token.c_str()));
-
-        //DO NOT log the value of the authorization token for security purposes.
-        AWS_LOGSTREAM_INFO(DefaultCredentialsProviderChainTag,
-                           "Added ECS credentials provider with URI: ["
-                                   << absoluteUri << "] to the provider chain with a"
-                                   << (token.empty() ? "n empty " : " non-empty ")
-                                   << "authorization token.");
+    // One provider serves both container platforms: create_container_credentials_provider() reads
+    // all four AWS_CONTAINER_* variables, applies the provider's own relative-then-absolute
+    // precedence, and logs which variable supplied the endpoint.
+    if (container_credentials_available()) {
+        AddProvider(create_container_credentials_provider());
     }
 
     AddProvider(Aws::MakeShared<InstanceProfileCredentialsProvider>(
             DefaultCredentialsProviderChainTag));
-    AWS_LOGSTREAM_INFO(
-            DefaultCredentialsProviderChainTag,
-            "Added EC2 metadata service credentials provider to the provider chain.");
+    AWS_LOGSTREAM_INFO(DefaultCredentialsProviderChainTag,
+                       "Added EC2 metadata service credentials provider to the provider chain.");
 
     AddProvider(
             Aws::MakeShared<EnvironmentAWSCredentialsProvider>(DefaultCredentialsProviderChainTag));

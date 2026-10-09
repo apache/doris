@@ -52,11 +52,13 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_canonical.h"
 #include "core/value/variant/variant_parquet_encoding.h"
@@ -912,7 +914,6 @@ TEST(ColumnVariantV2Test, FieldRoundTripOwnsEncodedAndTypedRows) {
     Field encoded_field_value = (*encoded)[0];
     ASSERT_EQ(encoded_field_value.get_type(), TYPE_VARIANT);
     const VariantField& owned = encoded_field_value.get<TYPE_VARIANT>();
-    EXPECT_FALSE(owned.is_legacy());
     EXPECT_EQ(as_view(owned.bytes()), raw);
 
     encoded->clear();
@@ -938,8 +939,6 @@ TEST(ColumnVariantV2Test, FieldRoundTripOwnsEncodedAndTypedRows) {
     ASSERT_EQ(sql_null_destination->size(), 1);
     EXPECT_TRUE(sql_null_destination->get_value_ref(0).is_null());
 
-    Field legacy = Field::create_field<TYPE_VARIANT>(VariantMap {});
-    EXPECT_THROW(typed_destination->insert(legacy), Exception);
     EXPECT_THROW(typed->get(typed->size(), encoded_field_value), Exception);
 }
 
@@ -2715,6 +2714,53 @@ TEST(ColumnVariantV2Test, TypedEncodedInsertMatrixKeepsConstSource) {
     expect_int32_rows(*source, SOURCE_VALUES, SOURCE_NULLS);
 }
 
+TEST(ColumnVariantV2Test, EmptyDestinationPreservesTypedBulkCopies) {
+    constexpr std::array<int32_t, 3> SOURCE_VALUES {1, 2, 3};
+    constexpr std::array<uint8_t, 3> SOURCE_NULLS {0, 1, 0};
+    auto source = typed_int32(SOURCE_VALUES, SOURCE_NULLS);
+
+    auto range = ColumnVariantV2::create();
+    range->insert_range_from(*source, 0, source->size());
+    EXPECT_TRUE(range->is_typed());
+    expect_int32_rows(*range, SOURCE_VALUES, SOURCE_NULLS);
+
+    auto repeated = ColumnVariantV2::create();
+    repeated->insert_many_from(*source, 2, 4);
+    EXPECT_TRUE(repeated->is_typed());
+    constexpr std::array<int32_t, 4> REPEATED_VALUES {3, 3, 3, 3};
+    constexpr std::array<uint8_t, 4> REPEATED_NULLS {0, 0, 0, 0};
+    expect_int32_rows(*repeated, REPEATED_VALUES, REPEATED_NULLS);
+
+    constexpr std::array<uint32_t, 4> SELECTED {2, 0, 1, 2};
+    auto gathered = ColumnVariantV2::create();
+    gathered->insert_indices_from(*source, SELECTED.data(), SELECTED.data() + SELECTED.size());
+    EXPECT_TRUE(gathered->is_typed());
+    constexpr std::array<int32_t, 4> GATHERED_VALUES {3, 1, 0, 3};
+    constexpr std::array<uint8_t, 4> GATHERED_NULLS {0, 0, 1, 0};
+    expect_int32_rows(*gathered, GATHERED_VALUES, GATHERED_NULLS);
+
+    auto nullable_source = ColumnNullable::create(std::move(source), ColumnUInt8::create(3, 0));
+    auto nullable_destination =
+            ColumnNullable::create(ColumnVariantV2::create(), ColumnUInt8::create());
+    nullable_destination->insert_many_from(*nullable_source, 0, 4);
+    const auto& nullable_variant =
+            assert_cast<const ColumnVariantV2&>(nullable_destination->get_nested_column());
+    EXPECT_TRUE(nullable_variant.is_typed());
+    constexpr std::array<int32_t, 4> NULLABLE_VALUES {1, 1, 1, 1};
+    constexpr std::array<uint8_t, 4> NULLABLE_NULLS {0, 0, 0, 0};
+    expect_int32_rows(nullable_variant, NULLABLE_VALUES, NULLABLE_NULLS);
+
+    const std::array<std::string_view, 1> STRING_VALUE {"x"};
+    constexpr std::array<uint8_t, 1> STRING_NULL {0};
+    auto strings = typed_strings(STRING_VALUE, STRING_NULL);
+    range->insert_range_from(*strings, 0, 1);
+    EXPECT_FALSE(range->is_typed());
+    EXPECT_EQ(range->get_value_ref(0).get_int(), 1);
+    EXPECT_TRUE(range->get_value_ref(1).is_null());
+    EXPECT_EQ(range->get_value_ref(2).get_int(), 3);
+    EXPECT_EQ(range->get_value_ref(3).get_string(), StringRef("x"));
+}
+
 TEST(ColumnVariantV2Test, MixedEncodedTypedFilterAndRangePreserveCanonicalRows) {
     constexpr std::array<int32_t, 4> VALUES {1, 2, 3, 4};
     constexpr std::array<uint8_t, 4> NULLS {0, 1, 0, 0};
@@ -2736,10 +2782,10 @@ TEST(ColumnVariantV2Test, MixedEncodedTypedFilterAndRangePreserveCanonicalRows) 
     EXPECT_EQ(encoded_inplace->filter(keep), 3);
     expect_canonical_rows_equal(*typed_inplace, *encoded_inplace);
 
-    auto encoded_range = ColumnVariantV2::create();
-    encoded_range->insert_range_from(*typed, 0, typed->size());
-    EXPECT_FALSE(encoded_range->is_typed());
-    expect_canonical_rows_equal(*encoded_range, *encoded);
+    auto selected_typed = ColumnVariantV2::create();
+    selected_typed->insert_range_from(*typed, 0, typed->size());
+    EXPECT_TRUE(selected_typed->is_typed());
+    expect_canonical_rows_equal(*selected_typed, *encoded);
 
     constexpr std::array<int32_t, 0> NO_VALUES {};
     constexpr std::array<uint8_t, 0> NO_NULLS {};
@@ -2791,6 +2837,43 @@ TEST(ColumnVariantV2Test, MixedEncodedTypedInsertAndGatherPreserveCanonicalRows)
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive E/T adapter matrix.
+TEST(ColumnVariantV2Test, TypedUuidMatchesNativeEncodingAndNulls) {
+    const std::array<uint8_t, 16> bytes {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    auto values = ColumnUUID::create();
+    values->insert_value(UUIDValue::from_big_endian(bytes.data()));
+    values->insert_default();
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(0);
+    nulls->insert_value(1);
+    auto typed = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), std::move(nulls)),
+            std::make_shared<DataTypeUUID>());
+    VariantBatchBuilder builder;
+    auto uuid_row = builder.begin_row();
+    uuid_row.add_uuid(bytes);
+    uuid_row.finish();
+    auto null_row = builder.begin_row();
+    null_row.add_null();
+    null_row.finish();
+    auto native = builder.finish_batch();
+    auto encoded = ColumnVariantV2::create();
+    insert_encoded_field(*encoded, VariantField::from_ref(native.value_at(0)));
+    insert_encoded_field(*encoded, VariantField::from_ref(native.value_at(1)));
+    for (size_t row = 0; row < 2; ++row) {
+        SipHash typed_hash;
+        SipHash encoded_hash;
+        typed->update_hash_with_value(row, typed_hash);
+        encoded->update_hash_with_value(row, encoded_hash);
+        EXPECT_EQ(typed_hash.get64(), encoded_hash.get64());
+        EXPECT_EQ(typed->serialize_size_at(row), encoded->serialize_size_at(row));
+    }
+    ensure_typed_fields_match_direct_encoding(*typed);
+    EXPECT_EQ(typed->get_value_ref(0).primitive_id(), VariantPrimitiveId::UUID);
+    EXPECT_EQ(typed->get_value_ref(0).get_uuid(), bytes);
+    EXPECT_EQ(typed->get_value_ref(1).primitive_id(), VariantPrimitiveId::NULL_VALUE);
+}
+
 TEST(ColumnVariantV2Test, TypedCanonicalHashCrcAndArenaMatchEncoded) {
     constexpr std::array<int32_t, 3> VALUES {42, 0, -7};
     constexpr std::array<uint8_t, 3> NULLS {0, 1, 0};

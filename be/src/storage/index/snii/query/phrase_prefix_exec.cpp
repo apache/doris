@@ -27,9 +27,7 @@
 #include <vector>
 
 #include "common/check.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_grams_query_cost.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
+#include "roaring/roaring.hh"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -209,7 +207,7 @@ Status collect_single_term_expected_tail_positions(std::vector<PosSource>& srcs,
 Status collect_expected_tail_positions(const LogicalIndexReader& idx,
                                        internal::ResolvedPhrasePlan exact_plan,
                                        uint32_t tail_position_offset, ExpectedTailPositionSet* out,
-                                       const std::vector<uint32_t>* candidate_prefilter,
+                                       CandidateRestriction candidates,
                                        format::PrxDecodeContext* observer_context,
                                        bool preserve_first_clause_multiplicity) {
     out->clear();
@@ -220,7 +218,7 @@ Status collect_expected_tail_positions(const LogicalIndexReader& idx,
                                                   /*need_positions=*/false));
 
     PhraseExecutionState state;
-    RETURN_IF_ERROR(build_phrase_execution_state(idx, &round1, &plans, &state, candidate_prefilter,
+    RETURN_IF_ERROR(build_phrase_execution_state(idx, &round1, &plans, &state, candidates,
                                                  observer_context,
                                                  PhraseCandidateMetric::kPrefixLeading));
     if (state.candidates.empty()) {
@@ -496,12 +494,58 @@ Status collect_merged_tail_matches(const LogicalIndexReader& idx,
     return Status::OK();
 }
 
+// Use the tail union when it bounds the leading scan or avoids more candidate probes.
+Status restrict_prefix_leading_phrase(const LogicalIndexReader& idx,
+                                      const internal::ResolvedPhrasePlan& exact_plan,
+                                      const std::vector<ResolvedQueryTerm>& tail_terms,
+                                      const roaring::Roaring* candidates,
+                                      std::vector<uint32_t>* storage,
+                                      CandidateRestriction* restriction) {
+    uint32_t min_lead_df = std::numeric_limits<uint32_t>::max();
+    for (const ResolvedQueryTerm& term : exact_plan.unique_terms) {
+        min_lead_df = std::min(min_lead_df, term.entry.df);
+    }
+    uint64_t tail_df_sum = 0;
+    for (const ResolvedQueryTerm& tail : tail_terms) {
+        tail_df_sum += tail.entry.df;
+    }
+    const bool union_pays_off_unrestricted =
+            min_lead_df >= prefix_leading_prefilter_min_df(
+                                   idx, exact_plan.phrase_plan_index.size() == 1) &&
+            tail_df_sum <= min_lead_df / kPrefixLeadingToTailDfRatio;
+    const uint64_t lead_bound =
+            candidates == nullptr ? 0 : std::min<uint64_t>(min_lead_df, candidates->cardinality());
+    const bool union_pays_off_restricted = lead_bound >= kMinPrefixLeadingPrefilterMinDf &&
+                                           tail_df_sum <= lead_bound / kPrefixLeadingToTailDfRatio;
+    const bool union_avoids_candidate_probes =
+            union_pays_off_unrestricted && candidates != nullptr &&
+            tail_df_sum <= lead_bound * exact_plan.phrase_plan_index.size();
+    const bool union_pays_off =
+            candidates == nullptr ? union_pays_off_unrestricted
+                                  : union_pays_off_restricted || union_avoids_candidate_probes;
+    if (!union_pays_off) {
+        *restriction = restrict_to_candidates(candidates, min_lead_df, storage);
+        return Status::OK();
+    }
+    std::vector<internal::ResolvedDocidPosting> tail_postings;
+    tail_postings.reserve(tail_terms.size());
+    for (const ResolvedQueryTerm& tail : tail_terms) {
+        tail_postings.push_back({tail.entry, tail.frq_base, tail.prx_base});
+    }
+    RETURN_IF_ERROR(internal::build_docid_union(idx, tail_postings, storage));
+    if (candidates != nullptr) {
+        retain_candidates(*candidates, storage);
+    }
+    *restriction = {.prefilter = storage};
+    return Status::OK();
+}
+
 } // namespace
 Status execute_resolved_phrase_prefix_terms(
         const LogicalIndexReader& idx, internal::ResolvedPhrasePlan exact_plan,
         std::vector<ResolvedQueryTerm> tail_terms, uint32_t tail_position_offset,
         std::vector<uint32_t>* docids, format::PrxDecodeContext* decode_context,
-        std::vector<PhraseMatch>* matches, const std::vector<uint32_t>* candidate_prefilter) {
+        std::vector<PhraseMatch>* matches, const roaring::Roaring* candidates) {
     DORIS_CHECK(docids != nullptr || matches != nullptr);
     if (tail_terms.empty()) {
         return Status::OK();
@@ -513,8 +557,8 @@ Status execute_resolved_phrase_prefix_terms(
             const auto& tail = tail_terms.front();
             RETURN_IF_ERROR(internal::read_docid_posting(idx, tail.entry, tail.frq_base,
                                                          tail.prx_base, docids));
-            if (candidate_prefilter != nullptr) {
-                *docids = internal::intersect_sorted(*docids, *candidate_prefilter);
+            if (candidates != nullptr) {
+                retain_candidates(*candidates, docids);
             }
             return Status::OK();
         }
@@ -524,8 +568,8 @@ Status execute_resolved_phrase_prefix_terms(
             tail_postings.push_back({tail.entry, tail.frq_base, tail.prx_base});
         }
         RETURN_IF_ERROR(internal::build_docid_union(idx, tail_postings, docids));
-        if (candidate_prefilter != nullptr) {
-            *docids = internal::intersect_sorted(*docids, *candidate_prefilter);
+        if (candidates != nullptr) {
+            retain_candidates(*candidates, docids);
         }
         return Status::OK();
     }
@@ -539,50 +583,21 @@ Status execute_resolved_phrase_prefix_terms(
         append_resolved_phrase_clause(std::move(tail_terms.front()), tail_position_offset,
                                       &exact_plan);
         return internal::execute_resolved_phrase_plan(
-                idx, std::move(exact_plan), docids, decode_context, matches, candidate_prefilter,
+                idx, std::move(exact_plan), docids, decode_context, matches, candidates,
                 internal::ExactPhrasePositionAccess::kMaterializedOnly);
     }
 
-    uint32_t min_lead_df = std::numeric_limits<uint32_t>::max();
-    for (const ResolvedQueryTerm& term : exact_plan.unique_terms) {
-        min_lead_df = std::min(min_lead_df, term.entry.df);
-    }
-    uint64_t tail_df_sum = 0;
-    for (const ResolvedQueryTerm& tail : tail_terms) {
-        tail_df_sum += tail.entry.df;
-    }
-    const std::vector<uint32_t>* prefilter = candidate_prefilter;
-    std::vector<uint32_t> tail_union;
-    std::vector<uint32_t> combined_prefilter;
-    const bool allow_segment_relative_prefilter =
-            candidate_prefilter == nullptr && exact_plan.phrase_plan_index.size() == 1;
-    const uint32_t leading_prefilter_min_df =
-            prefix_leading_prefilter_min_df(idx, allow_segment_relative_prefilter);
-    if (min_lead_df >= leading_prefilter_min_df &&
-        tail_df_sum <= static_cast<uint64_t>(min_lead_df) / kPrefixLeadingToTailDfRatio) {
-        std::vector<internal::ResolvedDocidPosting> tail_postings;
-        tail_postings.reserve(tail_terms.size());
-        for (const ResolvedQueryTerm& tail : tail_terms) {
-            tail_postings.push_back({tail.entry, tail.frq_base, tail.prx_base});
-        }
-        RETURN_IF_ERROR(internal::build_docid_union(idx, tail_postings, &tail_union));
-        if (tail_union.empty()) {
-            return Status::OK();
-        }
-        if (candidate_prefilter == nullptr) {
-            prefilter = &tail_union;
-        } else {
-            combined_prefilter = internal::intersect_sorted(*candidate_prefilter, tail_union);
-            if (combined_prefilter.empty()) {
-                return Status::OK();
-            }
-            prefilter = &combined_prefilter;
-        }
+    std::vector<uint32_t> prefilter_docids;
+    CandidateRestriction restriction;
+    RETURN_IF_ERROR(restrict_prefix_leading_phrase(idx, exact_plan, tail_terms, candidates,
+                                                   &prefilter_docids, &restriction));
+    if (restriction.prefilter != nullptr && restriction.prefilter->empty()) {
+        return Status::OK();
     }
 
     ExpectedTailPositionSet expected;
     RETURN_IF_ERROR(collect_expected_tail_positions(idx, std::move(exact_plan),
-                                                    tail_position_offset, &expected, prefilter,
+                                                    tail_position_offset, &expected, restriction,
                                                     decode_context, matches != nullptr));
     if (expected.docs.empty()) {
         return Status::OK();
@@ -625,95 +640,6 @@ Status execute_resolved_phrase_prefix_terms(
     if (docids != nullptr) {
         *docids = std::move(final_matches);
     }
-    return Status::OK();
-}
-
-namespace {
-template <typename Index>
-std::vector<ResolvedQueryTerm> copy_resolved_terms(const std::vector<ResolvedQueryTerm>& resolved,
-                                                   const std::vector<Index>& indices) {
-    std::vector<ResolvedQueryTerm> result;
-    result.reserve(indices.size());
-    for (size_t index : indices) {
-        DORIS_CHECK_LT(index, resolved.size());
-        result.push_back(resolved[index]);
-    }
-    return result;
-}
-
-} // namespace
-Status execute_hybrid_phrase_prefix_plan(
-        const LogicalIndexReader& idx, const HybridPrefixPlanArtifact& artifact,
-        const std::vector<std::string>& batch_terms, const std::vector<ResolvedQueryTerm>& resolved,
-        const std::vector<ResolvedQueryTerm>& plain_tail_terms, std::vector<uint32_t>* docids,
-        format::PrxDecodeContext* decode_context, CommonGramsPlanningTimer& planning_timer,
-        bool* candidate_intersection_empty) {
-    DORIS_CHECK(idx.common_grams_posting_policy() == format::CommonGramsPostingPolicy::kHybridV1);
-    DORIS_CHECK(docids != nullptr);
-    DORIS_CHECK(candidate_intersection_empty != nullptr);
-    docids->clear();
-    *candidate_intersection_empty = false;
-
-    const HybridPositionedCover& plain_tail_cover = artifact.plain_tail_cover;
-    const uint32_t plain_tail_position_offset = artifact.plain_tail_position_offset;
-    HybridPrefixCandidateSet leading_candidates;
-    RETURN_IF_ERROR(build_hybrid_leading_candidates(idx, plain_tail_cover.candidate_prefilter,
-                                                    batch_terms, resolved, &leading_candidates));
-    if (leading_candidates.active && leading_candidates.docs.empty()) {
-        planning_timer.finish();
-        *candidate_intersection_empty = true;
-        return Status::OK();
-    }
-
-    if (!artifact.maps_tail_to_gram) {
-        DORIS_CHECK(leading_candidates.active);
-        DORIS_CHECK(artifact.mapped_tail_split.positioned_indices.empty());
-        DORIS_CHECK(artifact.mapped_tail_split.docs_only_indices.empty());
-        planning_timer.finish();
-        RETURN_IF_ERROR(execute_resolved_phrase_prefix_terms(
-                idx,
-                copy_resolved_phrase_plan(plain_tail_cover.verification, batch_terms, resolved),
-                plain_tail_terms, plain_tail_position_offset, docids, decode_context, nullptr,
-                &leading_candidates.docs));
-        *candidate_intersection_empty = docids->empty();
-        return Status::OK();
-    }
-
-    const HybridPrefixMappedTails& split = artifact.mapped_tail_split;
-    DORIS_CHECK(!split.positioned_indices.empty() || !split.docs_only_indices.empty());
-    DORIS_CHECK(leading_candidates.active || !split.docs_only_indices.empty());
-    std::vector<uint32_t> docs_only_tail_candidates;
-    if (!split.docs_only_indices.empty()) {
-        RETURN_IF_ERROR(build_hybrid_docs_only_tail_candidates(
-                idx, resolved, split.docs_only_indices, leading_candidates,
-                &docs_only_tail_candidates));
-    }
-    planning_timer.finish();
-
-    if (!split.positioned_indices.empty()) {
-        DORIS_CHECK(artifact.positioned_tail_verification.has_value());
-        std::vector<uint32_t> positioned_docs;
-        RETURN_IF_ERROR(execute_resolved_phrase_prefix_terms(
-                idx,
-                copy_resolved_phrase_plan(*artifact.positioned_tail_verification, batch_terms,
-                                          resolved),
-                copy_resolved_terms(resolved, split.positioned_indices),
-                plain_tail_position_offset - 1, &positioned_docs, decode_context, nullptr,
-                leading_candidates.active ? &leading_candidates.docs : nullptr));
-        internal::union_sorted_into(docids, positioned_docs);
-    }
-
-    if (!split.docs_only_indices.empty() && !docs_only_tail_candidates.empty()) {
-        std::vector<uint32_t> docs_only_docs;
-        RETURN_IF_ERROR(execute_resolved_phrase_prefix_terms(
-                idx,
-                copy_resolved_phrase_plan(plain_tail_cover.verification, batch_terms, resolved),
-                copy_resolved_terms(plain_tail_terms, split.docs_only_ordinals),
-                plain_tail_position_offset, &docs_only_docs, decode_context, nullptr,
-                &docs_only_tail_candidates));
-        internal::union_sorted_into(docids, docs_only_docs);
-    }
-    *candidate_intersection_empty = docids->empty();
     return Status::OK();
 }
 

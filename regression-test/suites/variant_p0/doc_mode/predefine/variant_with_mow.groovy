@@ -16,7 +16,7 @@
 // under the License.
 
 suite("variant_predefine_with_mow_doc_value", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql """ set default_variant_enable_doc_mode = true """
     sql "DROP TABLE IF EXISTS var_mow"
     sql """

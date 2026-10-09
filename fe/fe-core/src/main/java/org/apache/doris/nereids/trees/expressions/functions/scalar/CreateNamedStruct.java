@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -70,7 +71,7 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
                 throw new AnalysisException("named_struct only allows"
                         + " constant string parameter in odd position: " + this);
             } else {
-                String name = ((StringLikeLiteral) child(i)).getStringValue().toLowerCase();
+                String name = ((StringLikeLiteral) child(i)).getStringValue().toLowerCase(Locale.ROOT);
                 if (names.contains(name)) {
                     throw new AnalysisException("The name of the struct field cannot be repeated."
                             + " same name fields are " + name);
@@ -78,9 +79,9 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
                     names.add(name);
                 }
             }
-            // i+1 is value, check if it is not jsonb/variant type
-            if (child(i + 1).getDataType().isJsonType() || child(i + 1).getDataType().isVariantType()) {
-                throw new AnalysisException("named_struct does not support jsonb/variant type");
+            DataType valueType = getArgument(i + 1).getDataType();
+            if (valueType.isJsonType()) {
+                throw new AnalysisException("named_struct does not support jsonb type");
             }
         }
     }

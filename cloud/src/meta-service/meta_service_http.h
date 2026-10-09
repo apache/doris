@@ -26,6 +26,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include "common/util.h"
 
@@ -47,6 +48,11 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri);
 HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* ctrl);
 
 HttpResponse process_http_encode_key(const brpc::URI& uri);
+
+// The order is unspecified. These lists let callers verify that tooling covers every registered
+// key type without duplicating the registry itself.
+std::vector<std::string_view> get_supported_http_key_types();
+std::vector<std::string_view> get_supported_http_versioned_key_types();
 
 /// Return the query value or an empty string if not exists.
 inline static std::string_view http_query(const brpc::URI& uri, const char* name) {

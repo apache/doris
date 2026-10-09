@@ -46,6 +46,7 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
+        Config.enable_feature_binlog = true;
 
         createDatabase("test_stream");
         connectContext.setDatabase("test_stream");

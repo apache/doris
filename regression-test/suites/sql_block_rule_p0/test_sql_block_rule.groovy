@@ -211,7 +211,7 @@ suite("test_sql_block_rule", "nonConcurrent") {
     """
 
     sql """
-        INSERT INTO a_partitioned_table_for_sql_block_rule VALUES(1, 5, 11),(6,1,5),(11,8,5);
+        INSERT INTO a_partitioned_table_for_sql_block_rule VALUES(1, 5, 11),(11,8,5);
     """
 
     sql """
@@ -256,6 +256,15 @@ suite("test_sql_block_rule", "nonConcurrent") {
         """
         assertEquals(1, filteredPartitionRows.size())
         assertEquals("1", filteredPartitionRows[0][0].toString())
+
+        def filteredRowsIncludingEmptyPartition = sql """
+            SELECT id
+            FROM a_partitioned_table_for_sql_block_rule
+            WHERE id < 10
+            ORDER BY id
+        """
+        assertEquals(1, filteredRowsIncludingEmptyPartition.size())
+        assertEquals("1", filteredRowsIncludingEmptyPartition[0][0].toString())
 
         def explicitlySelectedPartitionRows = sql """
             SELECT id

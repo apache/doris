@@ -27,4 +27,34 @@ suite("date_function_rewrite") {
     qt_test """
     select if (date(date_add(FROM_UNIXTIME(t1.test_time, '%Y-%m-%d'),2)) > '2023-07-25',1,0) from test_date_func t1;
     """
+
+    sql "drop table if exists test_date_func_boundary"
+    sql """
+        create table test_date_func_boundary(
+            id int,
+            dt datetime,
+            dtv2 datetimev2(6)
+        ) distributed by hash(id) buckets 1
+        properties("replication_num"="1")
+    """
+    sql """
+        insert into test_date_func_boundary values
+            (1, '9999-12-31 23:59:59', '9999-12-31 23:59:59.999999'),
+            (2, null, null),
+            (3, '9999-12-30 12:00:00', '9999-12-30 12:00:00.123456')
+    """
+
+    qt_date_v1_greater_than_max """
+        select id from test_date_func_boundary where date(dt) > '9999-12-31'
+    """
+
+    qt_date_v2_greater_than_max """
+        select id from test_date_func_boundary where date(dtv2) > '9999-12-31'
+    """
+
+    order_qt_date_greater_than_max_null_semantics """
+        select id, date(dt) > '9999-12-31', date(dtv2) > '9999-12-31'
+        from test_date_func_boundary
+        order by id
+    """
 }

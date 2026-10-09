@@ -29,6 +29,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.GlobalVariable;
@@ -50,6 +51,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -1075,6 +1077,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 recoverPartition.setName(newPartitionName);
             }
 
+            Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBaselineRebuildForPartitionChange(
+                    new BaseTableInfo(table, dbId),
+                    Collections.singletonMap(partitionName, recoverPartition.getId()),
+                    "Base table partition was recovered without row binlog");
             // recover partition
             table.addPartition(recoverPartition);
 

@@ -22,6 +22,7 @@
 
 #include <ctype.h>
 #include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <string.h>
 
@@ -192,6 +193,12 @@ FieldWithDataType DataTypeArray::get_field_with_data_type(const IColumn& column,
             .precision = precision,
             .scale = scale,
     };
+}
+
+void DataTypeArray::to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const {
+    node->set_type(TTypeNodeType::ARRAY);
+    node->set_contains_null(nested->is_nullable());
+    get_nested_type()->to_protobuf(ptype);
 }
 
 } // namespace doris

@@ -40,8 +40,10 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.UuidType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -66,9 +68,11 @@ public class ToJson extends ScalarFunction
             FunctionSignature.ret(JsonType.INSTANCE).args(DoubleType.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(DecimalV3Type.WILDCARD),
             FunctionSignature.ret(JsonType.INSTANCE).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(JsonType.INSTANCE).args(TimeStampNsType.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(IPv4Type.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(IPv6Type.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(UuidType.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(TimeV2Type.WILDCARD),
             FunctionSignature.ret(JsonType.INSTANCE).args(StringType.INSTANCE));
 

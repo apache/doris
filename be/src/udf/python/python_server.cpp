@@ -36,6 +36,7 @@
 #include "arrow/flight/client.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "runtime/thread_context.h"
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
@@ -91,16 +92,36 @@ std::vector<ProcessPtr> PythonServerManager::process_pool_snapshot_for_test(
     return versioned_pool->processes;
 }
 
-bool PythonServerManager::process_pool_is_initializing_for_test(const PythonVersion& version) {
-    auto versioned_pool = _get_or_create_process_pool(version).value();
-    std::lock_guard<std::mutex> lock(versioned_pool->mutex);
-    return versioned_pool->state == PoolState::INITIALIZING;
-}
-
 bool PythonServerManager::process_pool_is_initialized_for_test(const PythonVersion& version) {
     auto versioned_pool = _get_or_create_process_pool(version).value();
     std::lock_guard<std::mutex> lock(versioned_pool->mutex);
     return versioned_pool->state == PoolState::INITIALIZED;
+}
+
+bool PythonServerManager::wait_for_process_pool_initialized_for_test(
+        const PythonVersion& version, std::chrono::milliseconds timeout) {
+    auto versioned_pool_result = _get_or_create_process_pool(version);
+    if (!versioned_pool_result.has_value()) {
+        return false;
+    }
+    auto versioned_pool = versioned_pool_result.value();
+    std::unique_lock<std::mutex> lock(versioned_pool->mutex);
+    return versioned_pool->cv.wait_for(lock, timeout, [&versioned_pool]() {
+        return versioned_pool->state == PoolState::INITIALIZED;
+    });
+}
+
+bool PythonServerManager::wait_for_process_pool_initialization_finished_for_test(
+        const PythonVersion& version, std::chrono::milliseconds timeout) {
+    auto versioned_pool_result = _get_or_create_process_pool(version);
+    if (!versioned_pool_result.has_value()) {
+        return false;
+    }
+    auto versioned_pool = versioned_pool_result.value();
+    std::unique_lock<std::mutex> lock(versioned_pool->mutex);
+    return versioned_pool->cv.wait_for(lock, timeout, [&versioned_pool]() {
+        return versioned_pool->state != PoolState::INITIALIZING;
+    });
 }
 #endif
 
@@ -150,6 +171,10 @@ PythonServerManager::_ensure_pool_initialized(const PythonVersion& version) {
     auto versioned_pool = versioned_pool_result.value();
     const int max_pool_size = config::max_python_process_num > 0 ? config::max_python_process_num
                                                                  : CpuInfo::num_cores();
+    auto process_pool_init_timeout = PROCESS_POOL_INIT_TIMEOUT;
+    TEST_SYNC_POINT_CALLBACK(
+            "PythonServerManager::_ensure_pool_initialized:process_pool_init_timeout",
+            &process_pool_init_timeout);
 
     std::unique_lock<std::mutex> lock(versioned_pool->mutex);
     if (versioned_pool->state == PoolState::INITIALIZED) {
@@ -162,17 +187,21 @@ PythonServerManager::_ensure_pool_initialized(const PythonVersion& version) {
             versioned_pool->has_available_process = false;
             versioned_pool->processes.resize(max_pool_size);
             auto init_finished_count = std::make_shared<std::atomic<int>>(0);
+            TEST_SYNC_POINT_CALLBACK(
+                    "PythonServerManager::_ensure_pool_initialized:generation_started", &version,
+                    init_finished_count.get());
 
             LOG(INFO) << "Initializing Python process pool for version " << version.to_string()
                       << " with " << max_pool_size << " processes (config::max_python_process_num="
                       << config::max_python_process_num << ", CPU cores=" << CpuInfo::num_cores()
                       << ")";
 
-            std::thread([this, versioned_pool, init_finished_count, max_pool_size]() {
+            std::thread([this, versioned_pool, init_finished_count, max_pool_size,
+                         process_pool_init_timeout]() {
                 SCOPED_INIT_THREAD_CONTEXT();
                 std::unique_lock<std::mutex> lock(versioned_pool->mutex);
                 versioned_pool->cv.wait_for(
-                        lock, PROCESS_POOL_INIT_TIMEOUT,
+                        lock, process_pool_init_timeout,
                         [&versioned_pool, init_finished_count, max_pool_size]() {
                             return versioned_pool->state != PoolState::INITIALIZING ||
                                    init_finished_count->load(std::memory_order_acquire) >=
@@ -223,13 +252,16 @@ PythonServerManager::_ensure_pool_initialized(const PythonVersion& version) {
                     if (process_to_shutdown) {
                         process_to_shutdown->shutdown();
                     }
+                    TEST_SYNC_POINT_CALLBACK(
+                            "PythonServerManager::_ensure_pool_initialized:init_worker_finished",
+                            &version, init_finished_count.get());
                 }).detach();
             }
         }
 
         // Wait only for the first usable process. INITIALIZED is set later by the last init worker
         // after every slot has attempted initialization.
-        versioned_pool->cv.wait_for(lock, PROCESS_POOL_INIT_TIMEOUT, [&versioned_pool]() {
+        versioned_pool->cv.wait_for(lock, process_pool_init_timeout, [&versioned_pool]() {
             return versioned_pool->has_available_process ||
                    versioned_pool->state == PoolState::STOPPED ||
                    versioned_pool->state != PoolState::INITIALIZING;
@@ -243,7 +275,7 @@ PythonServerManager::_ensure_pool_initialized(const PythonVersion& version) {
     return ResultError(Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
             "Failed to initialize Python process pool for version {}: no process became available "
             "within {} ms",
-            version.to_string(), PROCESS_POOL_INIT_TIMEOUT.count()));
+            version.to_string(), process_pool_init_timeout.count()));
 }
 
 Status PythonServerManager::_get_process(
@@ -345,6 +377,9 @@ Status PythonServerManager::fork(const PythonVersion& version, ProcessPtr* proce
     std::vector<std::string> args = {"-u", fight_server_path, base_unix_socket_path};
     boost::process::environment env = boost::this_process::environment();
     boost::process::ipstream child_output;
+
+    // Test synchronization belongs before child creation so it cannot consume readiness timeout.
+    TEST_SYNC_POINT_CALLBACK("PythonServerManager::fork:before_process_start", &version);
 
     try {
         boost::process::child c(

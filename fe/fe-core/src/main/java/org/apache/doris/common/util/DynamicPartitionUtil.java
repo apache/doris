@@ -556,6 +556,9 @@ public class DynamicPartitionUtil {
     // ATTN, should not throw any exception when isReplay is true.
     public static Map<String, String> analyzeDynamicPartition(Map<String, String> properties,
             OlapTable olapTable, Database db, boolean isReplay) throws UserException {
+        if (!isReplay && checkDynamicPartitionPropertiesExist(properties)) {
+            getPartitionFormat(olapTable.getPartitionInfo().getPartitionColumns().get(0));
+        }
         // properties should not be empty, check properties before call this function
         Map<String, String> analyzedProperties = new HashMap<>();
         if (properties.containsKey(DynamicPartitionProperty.TIME_UNIT)) {
@@ -799,6 +802,7 @@ public class DynamicPartitionUtil {
             return DATE_FORMAT;
         } else if (column.getDataType().equals(PrimitiveType.DATETIME)
                 || column.getDataType().equals(PrimitiveType.DATETIMEV2)
+                || column.getDataType().equals(PrimitiveType.TIMESTAMP_NS)
                 || column.getDataType().equals(PrimitiveType.TIMESTAMPTZ)) {
             return DATETIME_FORMAT;
         } else if (PrimitiveType.getIntegerTypes().contains(column.getDataType())) {

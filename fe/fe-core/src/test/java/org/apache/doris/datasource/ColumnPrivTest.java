@@ -35,7 +35,6 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -134,13 +133,13 @@ public class ColumnPrivTest extends TestWithFeService {
     protected void runAfterAll() throws Exception {
         super.runAfterAll();
         rootCtx.setThreadLocalInfo();
-        Assert.assertTrue(env.getAccessManager().checkIfAccessControllerExist("test1"));
+        Assertions.assertTrue(env.getAccessManager().checkIfAccessControllerExist("test1"));
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle("drop catalog test1");
         if (logicalPlan instanceof DropCatalogCommand) {
             ((DropCatalogCommand) logicalPlan).run(rootCtx, null);
         }
-        Assert.assertFalse(env.getAccessManager().checkIfAccessControllerExist("test1"));
+        Assertions.assertFalse(env.getAccessManager().checkIfAccessControllerExist("test1"));
     }
 
     @Test
@@ -166,6 +165,6 @@ public class ColumnPrivTest extends TestWithFeService {
         ConnectContext userCtx = createCtx(user, "127.0.0.1");
         ShowTableStatusCommand command = new ShowTableStatusCommand("db1", "test2", "%tbl%", null);
         ShowResultSet resultSet = command.doRun(userCtx, new StmtExecutor(userCtx, ""));
-        Assert.assertEquals(2, resultSet.getResultRows().size());
+        Assertions.assertEquals(2, resultSet.getResultRows().size());
     }
 }

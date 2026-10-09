@@ -16,8 +16,6 @@
 // under the License.
 
 suite("double_write_schema_change_with_variant", "nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = "parse_to_variant"
     def set_be_config = { key, value ->
         String backend_id;
@@ -130,5 +128,5 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
     // restore configs
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "2147483648")
     set_be_config.call("write_buffer_size", "209715200")
-    }
+
 }

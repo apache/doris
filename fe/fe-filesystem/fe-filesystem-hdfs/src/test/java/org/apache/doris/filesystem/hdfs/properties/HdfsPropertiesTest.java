@@ -64,6 +64,27 @@ class HdfsPropertiesTest {
     }
 
     @Test
+    void emptyNameserviceListRemainsCompatibleAtRuntime() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("dfs.nameservices", ",");
+
+        Assertions.assertDoesNotThrow(() -> resolve(raw));
+    }
+
+    @Test
+    void nameserviceListWithTrailingEmptyEntryRemainsCompatible() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("dfs.nameservices", "ns1,");
+        raw.put("dfs.ha.namenodes.ns1", "nn1,nn2");
+        raw.put("dfs.namenode.rpc-address.ns1.nn1", "host1:8020");
+        raw.put("dfs.namenode.rpc-address.ns1.nn2", "host2:8020");
+        raw.put("dfs.client.failover.proxy.provider.ns1",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
+
+        Assertions.assertDoesNotThrow(() -> resolve(raw));
+    }
+
+    @Test
     void userOverriddenHadoopKeysArePreserved() {
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");
@@ -102,8 +123,8 @@ class HdfsPropertiesTest {
 
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");
-        // No _HADOOP_CONFIG_DIR_ injected: the resource is given as a full absolute path
-        // and must load as-is (configDir falls back to "").
+        // An absolute resource must remain absolute even when the configured Hadoop directory is set.
+        raw.put("_HADOOP_CONFIG_DIR_", tmp.resolve("configured").toString() + "/");
         raw.put("hadoop.config.resources", site.toString());
 
         Map<String, String> resolved = resolve(raw);

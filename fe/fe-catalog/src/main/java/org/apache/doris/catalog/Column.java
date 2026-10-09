@@ -56,6 +56,21 @@ public class Column implements GsonPostProcessable {
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     public static final String GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
+    public static final String IVM_HIDDEN_COLUMN_PREFIX = HIDDEN_COLUMN_PREFIX + "IVM_";
+    public static final String IVM_ROW_ID_COL = IVM_HIDDEN_COLUMN_PREFIX + "ROW_ID_COL__";
+    public static final String IVM_AGG_COUNT_COL = IVM_HIDDEN_COLUMN_PREFIX + "AGG_COUNT_COL__";
+    public static final String IVM_DML_FACTOR_COL = IVM_HIDDEN_COLUMN_PREFIX + "DML_FACTOR_COL__";
+    public static final String IVM_DELTA_GROUP_COUNT_COL = IVM_HIDDEN_COLUMN_PREFIX + "DELTA_GROUP_COUNT_COL__";
+    // Prefix for sink-level IVM identity key hidden columns (__DORIS_IVM_KEY_).
+    public static final String IVM_KEY_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "KEY_";
+    // Prefix for union arm-index columns (__DORIS_IVM_UNION_ARM_INDEX_).
+    public static final String IVM_UNION_ARM_INDEX_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "UNION_ARM_INDEX_";
+    // Prefix for union positional key columns (__DORIS_IVM_UNION_KEY_).
+    public static final String IVM_UNION_KEY_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "UNION_KEY_";
+    // Suffix for the renamed base-table row-id column (__DORIS_IVM_{n}_ROW_ID_COL__), using the
+    // standard IVM hidden-column prefix. Kept as an identity key when a cascading MV with only
+    // row-id keys is scanned under a join.
+    public static final String IVM_BASE_ROW_ID_COL_SUFFIX = "_ROW_ID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
@@ -544,13 +559,14 @@ public class Column implements GsonPostProcessable {
     // string/varchar/char/variant
     // date/datetime/datev2/datetimev2
     // decimal/decimal32/decimal64/decimal128I/decimal256
-    // ipv4/ipv6
+    // ipv4/ipv6/uuid
     public boolean isSupportBloomFilter() {
         PrimitiveType pType = getDataType();
         return (pType ==  PrimitiveType.SMALLINT || pType == PrimitiveType.INT
                 || pType == PrimitiveType.BIGINT || pType == PrimitiveType.LARGEINT)
                 || pType.isCharFamily() || pType.isDateLikeType() || pType.isVariantType()
-                || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType();
+                || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType()
+                || pType.isUuidType();
     }
 
     public PrimitiveType getDataType() {
@@ -869,6 +885,11 @@ public class Column implements GsonPostProcessable {
     }
 
     public String toSql(boolean isUniqueTable, boolean isCompatible) {
+        return toSql(isUniqueTable, isCompatible, false);
+    }
+
+    /** Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis. */
+    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
@@ -884,7 +905,8 @@ public class Column implements GsonPostProcessable {
             sb.append(" ").append(aggregationType.toSql());
         }
         if (generatedColumnInfo != null) {
-            sb.append(" AS (").append(generatedColumnInfo.getExprSql()).append(")");
+            sb.append(" AS (").append(useGeneratedColumnPlaceholder ? "NULL" : generatedColumnInfo.getExprSql())
+                    .append(")");
         }
         if (isAllowNull) {
             sb.append(" NULL");

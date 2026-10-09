@@ -44,8 +44,6 @@ DictEntry MakePodRef(std::string term, uint32_t df, uint64_t frq_off, uint64_t p
     e.kind = DictEntryKind::kPodRef;
     e.enc = DictEntryEnc::kSlim;
     e.df = df;
-    e.ttf_delta = df * 2; // written only when tier>=T2
-    e.max_freq = 9;       // written only when tier>=T2
     e.frq_off_delta = frq_off;
     e.frq_len = 128;
     e.prx_off_delta = prx_off; // written only when positions are enabled
@@ -328,7 +326,6 @@ TEST(SniiDictBlock, PositionsPrxRoundTrip) {
     ASSERT_TRUE(found);
     EXPECT_EQ(out.prx_off_delta, 80U);
     EXPECT_EQ(out.prx_len, 64U);
-    EXPECT_EQ(out.ttf_delta, 12U);
 }
 
 // estimated_bytes is monotonically non-decreasing: grows after each add_entry, and the actual byte
@@ -348,38 +345,13 @@ TEST(SniiDictBlock, EstimatedBytesMonotonic) {
     EXPECT_LE(sink.size(), builder.estimated_bytes());
 }
 
-TEST(SniiDictBlock, StatlessEstimateOmitsTermStatsUpperBound) {
-    DictBlockBuilder statful(IndexTier::kT2, /*has_positions=*/true, 0, 0, 16,
-                             /*term_stats=*/true);
-    DictBlockBuilder statless(IndexTier::kT2, /*has_positions=*/true, 0, 0, 16,
-                              /*term_stats=*/false);
-    for (const char* term : {"gram-a", "gram-b"}) {
-        const DictEntry entry = MakePodRef(term, 7, 0, 0);
-        statful.add_entry(entry);
-        statless.add_entry(entry);
-    }
-
-    EXPECT_EQ(statful.estimated_bytes() - statless.estimated_bytes(), 40U);
-
-    ByteSink statful_sink;
-    ByteSink statless_sink;
-    statful.finish(&statful_sink);
-    statless.finish(&statless_sink);
-    EXPECT_LE(statful_sink.size(), statful.estimated_bytes());
-    EXPECT_LE(statless_sink.size(), statless.estimated_bytes());
-    EXPECT_LT(statless_sink.size(), statful_sink.size());
-}
-
-TEST(SniiDictBlock, StatlessEstimateCoversInlineLocatorMetadata) {
+TEST(SniiDictBlock, EstimateCoversInlineLocatorMetadata) {
     DictEntry entry = MakeInline("gram", std::numeric_limits<uint32_t>::max());
     entry.frq_bytes.assign(128, 0);
-    entry.inline_dd_disk_len = entry.frq_bytes.size();
     entry.dd_meta.uncomp_len = std::numeric_limits<uint64_t>::max();
-    entry.freq_meta.uncomp_len = std::numeric_limits<uint64_t>::max();
     entry.prx_bytes = {0};
 
-    DictBlockBuilder builder(IndexTier::kT2, /*has_positions=*/true, 0, 0, 16,
-                             /*term_stats=*/false);
+    DictBlockBuilder builder(IndexTier::kT2, /*has_positions=*/true, 0, 0, 16);
     builder.add_entry(std::move(entry));
     ByteSink sink;
     builder.finish(&sink);
@@ -434,8 +406,6 @@ DictEntry MakeInlineWithPrx(std::string term, uint32_t df) {
     e.kind = DictEntryKind::kInline;
     e.enc = DictEntryEnc::kSlim;
     e.df = df;
-    e.ttf_delta = df * 3; // written only when tier>=T2
-    e.max_freq = 7;       // written only when tier>=T2
     e.frq_bytes = {0x01, 0x02, 0x03, 0x04, 0x05};
     e.prx_bytes = {0xAA, 0xBB, 0xCC}; // written only when positions are enabled
     return e;

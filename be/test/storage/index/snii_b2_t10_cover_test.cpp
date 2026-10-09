@@ -103,15 +103,13 @@ std::vector<uint32_t> run_cursor(const std::vector<uint32_t>& win_last_docid, ui
 }
 
 // Builds a real prelude from strictly-increasing absolute last docids (doc_count=1 and
-// contiguous 1-byte dd/freq regions satisfy the prelude width / layout validators).
+// contiguous 1-byte dd regions satisfy the prelude width / layout validators).
 void make_test_prelude(const std::vector<uint32_t>& last_docids, uint32_t group_size,
                        FrqPreludeReader* reader) {
     FrqPreludeColumns cols;
-    cols.has_freq = true;
     cols.has_prx = false;
     cols.group_size = group_size;
     uint64_t dd_running = 0;
-    uint64_t freq_running = 0;
     for (uint32_t v : last_docids) {
         WindowMeta m;
         m.last_docid = v;
@@ -121,11 +119,6 @@ void make_test_prelude(const std::vector<uint32_t>& last_docids, uint32_t group_
         m.dd_uncomp_len = 1;
         m.crc_dd = v;
         dd_running += 1;
-        m.freq_off = freq_running;
-        m.freq_disk_len = 1;
-        m.freq_uncomp_len = 1;
-        m.crc_freq = v + 1;
-        freq_running += 1;
         cols.windows.push_back(m);
     }
     ByteSink sink;

@@ -86,7 +86,7 @@ public:
                                 const io::IOContext* source_io_ctx = nullptr);
 
     // Write external ColumnMetaPB contiguous region + footer pointers + column_meta_entries.
-    // write_cb: a callback that appends slices to the underlying file (e.g., SegmentWriter::_write_raw_data).
+    // write_cb: a callback that appends slices to the underlying file (e.g., VerticalSegmentWriter::_write_raw_data).
     static Status write_external_column_meta(
             io::FileWriter* file_writer, SegmentFooterPB* footer,
             CompressionTypePB compression_type,

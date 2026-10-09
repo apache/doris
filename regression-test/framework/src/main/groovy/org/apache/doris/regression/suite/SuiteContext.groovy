@@ -30,6 +30,7 @@ import groovy.util.logging.Slf4j
 import java.lang.reflect.UndeclaredThrowableException
 import java.sql.Connection
 import java.sql.DriverManager
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.function.Function
 import org.apache.doris.regression.util.JdbcUtils
@@ -55,6 +56,13 @@ class SuiteContext implements Closeable {
     public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadSparkIcebergConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadDB2DockerConn = new ThreadLocal<>()
+    // Every Doris connection the thread-local accessors above opened, with the thread that opened it.
+    // Only the suite thread and the threads Suite.thread() runs end with closeThreadLocal(); a thread
+    // the suite created itself (a Thread, an Executors pool) never does, so its connection stayed open
+    // on the frontend until the client JVM garbage-collected it - seconds or minutes later, at the
+    // JVM's whim. Now the next connection the suite opens closes the connections of threads that have
+    // finished (closeConnectionsOfFinishedThreads), and close() closes whatever is left.
+    private final Map<Connection, Thread> openedDorisConnections = new ConcurrentHashMap<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
     public final File dataPath
@@ -148,10 +156,11 @@ class SuiteContext implements Closeable {
 
     // jdbc:mysql
     Connection getConnection() {
+        closeConnectionsOfFinishedThreads()
         def threadConnInfo = threadLocalConn.get()
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
-            threadConnInfo.conn = getConnectionByDbName(dbName)
+            threadConnInfo.conn = trackDorisConnection(getConnectionByDbName(dbName))
             threadConnInfo.username = config.jdbcUser
             threadConnInfo.password = config.jdbcPassword
             threadLocalConn.set(threadConnInfo)
@@ -159,8 +168,68 @@ class SuiteContext implements Closeable {
         return threadConnInfo.conn
     }
 
+    private Connection trackDorisConnection(Connection conn) {
+        openedDorisConnections.put(conn, Thread.currentThread())
+        return conn
+    }
+
+    // Closes a connection one of the thread-local accessors opened, and forgets it (see openedDorisConnections).
+    void closeDorisConnection(Connection conn, String what) {
+        openedDorisConnections.remove(conn)
+        closeQuietly(conn, what)
+    }
+
+    private static void closeQuietly(Connection conn, String what) {
+        try {
+            conn.close()
+        } catch (Throwable t) {
+            log.warn("Close ${what} failed".toString(), t)
+        }
+    }
+
+    // A thread the suite created itself took its thread-local connection to the grave: nothing on that
+    // thread runs closeThreadLocal() once it has finished. Called on every statement, this closes those
+    // connections, so a suite that starts a thread per step (Thread.start { streamLoad ... }; join) holds
+    // at most the connections of the threads still running, not one per step until the suite ends.
+    private void closeConnectionsOfFinishedThreads() {
+        int closed = 0
+        for (Map.Entry<Connection, Thread> entry : openedDorisConnections.entrySet()) {
+            if (!entry.value.isAlive() && openedDorisConnections.remove(entry.key, entry.value)) {
+                closeQuietly(entry.key, "connection of finished thread ${entry.value.name}".toString())
+                closed++
+            }
+        }
+        if (closed > 0) {
+            log.info("Closed ${closed} connection(s) opened on threads of suite ${suiteName} that have finished"
+                    .toString())
+        }
+    }
+
+    // The connections still open once the suite is over, whichever thread opened them (see
+    // openedDorisConnections). The warning names the suite: a `sql` on a thread the suite created
+    // itself and left running (an Executors pool it never shut down) is what leaves them behind.
+    private void closeLeftoverDorisConnections() {
+        List<Connection> leftover = new ArrayList<>(openedDorisConnections.keySet())
+        openedDorisConnections.clear()
+        if (leftover.isEmpty()) {
+            return
+        }
+        log.warn("Suite ${suiteName} left ${leftover.size()} connection(s) open on threads of its own, "
+                + "closing them now".toString())
+        for (Connection conn : leftover) {
+            closeQuietly(conn, "leftover connection")
+        }
+    }
+
     Connection getConnectionByDbName(String dbName) {
         def jdbcUrl = getJdbcUrl()
+        if (isTlsEnabled()) {
+            jdbcUrl = Config.buildTlsJdbcUrl(jdbcUrl,
+                    config.otherConfigs.get("keyStorePath")?.toString(),
+                    config.otherConfigs.get("keyStorePassword")?.toString(),
+                    config.otherConfigs.get("trustStorePath")?.toString(),
+                    config.otherConfigs.get("trustStorePassword")?.toString())
+        }
         def jdbcConn = DriverManager.getConnection(jdbcUrl, config.jdbcUser, config.jdbcPassword)
         try {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
@@ -171,7 +240,9 @@ class SuiteContext implements Closeable {
         } catch (Throwable t) {
             throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
         }
-        def dbUrl = Config.buildUrlWithDb(jdbcUrl, dbName)
+        def dbUrl = isTlsEnabled()
+                ? Config.buildUrlWithDbImpl(jdbcUrl, dbName)
+                : Config.buildUrlWithDb(jdbcUrl, dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, config.jdbcUser, config.jdbcPassword)
     }
@@ -192,7 +263,7 @@ class SuiteContext implements Closeable {
         def threadConnInfo = threadLocalMasterConn.get()
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
-            threadConnInfo.conn = getMasterConnectionByDbName(dbName)
+            threadConnInfo.conn = trackDorisConnection(getMasterConnectionByDbName(dbName))
             threadConnInfo.username = config.jdbcUser
             threadConnInfo.password = config.jdbcPassword
             threadLocalMasterConn.set(threadConnInfo)
@@ -204,7 +275,7 @@ class SuiteContext implements Closeable {
         def threadConnInfo = threadArrowFlightSqlConn.get()
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
-            threadConnInfo.conn = config.getConnectionByArrowFlightSqlDbName(dbName)
+            threadConnInfo.conn = trackDorisConnection(config.getConnectionByArrowFlightSqlDbName(dbName))
             threadConnInfo.username = config.jdbcUser
             threadConnInfo.password = config.jdbcPassword
             threadArrowFlightSqlConn.set(threadConnInfo)
@@ -366,6 +437,22 @@ class SuiteContext implements Closeable {
         }
     }
 
+    // Use this explicitly for Doris FE connections. Generic connect must also support external
+    // databases and TLS tests that intentionally supply their own (or no) certificates.
+    public <T> T connectToDoris(String user, String password, String url, Closure<T> actionSupplier) {
+        if (!url.startsWith("jdbc:mysql:")) {
+            throw new IllegalArgumentException("Doris FE connections require a MySQL JDBC URL")
+        }
+        if (isTlsEnabled()) {
+            url = Config.buildTlsJdbcUrl(url,
+                    config.otherConfigs.get("keyStorePath")?.toString(),
+                    config.otherConfigs.get("keyStorePassword")?.toString(),
+                    config.otherConfigs.get("trustStorePath")?.toString(),
+                    config.otherConfigs.get("trustStorePassword")?.toString())
+        }
+        return connect(user, password, url, actionSupplier)
+    }
+
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
         def originConnection = threadLocalConn.get()
         if ((config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
@@ -407,6 +494,10 @@ class SuiteContext implements Closeable {
         }
     }
 
+    private boolean isTlsEnabled() {
+        return (config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+    }
+
     Connection getMasterConnectionByDbName(String dbName) {
         def result = JdbcUtils.executeToMapArray(getConnection(), "SHOW FRONTENDS")
         def master = null
@@ -418,7 +509,16 @@ class SuiteContext implements Closeable {
         }
         if (master) {
             log.info("master found: ${master.Host}:${master.HttpPort}")
-            def url = Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
+            def url = isTlsEnabled()
+                    ? Config.buildUrlWithDb(
+                            master.Host as String,
+                            master.QueryPort as Integer,
+                            dbName,
+                            config.otherConfigs.get("keyStorePath")?.toString(),
+                            config.otherConfigs.get("keyStorePassword")?.toString(),
+                            config.otherConfigs.get("trustStorePath")?.toString(),
+                            config.otherConfigs.get("trustStorePassword")?.toString())
+                    : Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
             def username = config.jdbcUser
             def password = config.jdbcPassword
 
@@ -440,7 +540,16 @@ class SuiteContext implements Closeable {
         }
         if (master) {
             log.info("master found: ${master.Host}:${master.HttpPort}")
-            def url = Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
+            def url = isTlsEnabled()
+                    ? Config.buildUrlWithDb(
+                            master.Host as String,
+                            master.QueryPort as Integer,
+                            dbName,
+                            config.otherConfigs.get("keyStorePath")?.toString(),
+                            config.otherConfigs.get("keyStorePassword")?.toString(),
+                            config.otherConfigs.get("trustStorePath")?.toString(),
+                            config.otherConfigs.get("trustStorePassword")?.toString())
+                    : Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
             ConnectionInfo connInfo = threadLocalConn.get()
             def userName = null
             def userPass = null
@@ -451,7 +560,7 @@ class SuiteContext implements Closeable {
                 userName = config.jdbcUser
                 userPass = config.jdbcPassword
             }
-            connectTo(url, connInfo.username, connInfo.password)
+            connectTo(url, userName, userPass)
             log.info("Successfully reconnected to the master")
         } else {
             throw new Exception("No master found to reconnect")
@@ -482,15 +591,11 @@ class SuiteContext implements Closeable {
         ConnectionInfo oldConn = threadLocalConn.get()
         if (oldConn != null) {
             threadLocalConn.remove()
-            try {
-                oldConn.conn.close()
-            } catch (Throwable t) {
-                log.warn("Close connection failed", t)
-            }
+            closeDorisConnection(oldConn.conn, "connection")
         }
 
         def newConnInfo = new ConnectionInfo()
-        newConnInfo.conn = DriverManager.getConnection(url, username, password)
+        newConnInfo.conn = trackDorisConnection(DriverManager.getConnection(url, username, password))
         newConnInfo.username = username
         newConnInfo.password = password
         threadLocalConn.set(newConnInfo)
@@ -585,31 +690,19 @@ class SuiteContext implements Closeable {
         ConnectionInfo conn = threadLocalConn.get()
         if (conn != null) {
             threadLocalConn.remove()
-            try {
-                conn.conn.close()
-            } catch (Throwable t) {
-                log.warn("Close connection failed", t)
-            }
+            closeDorisConnection(conn.conn, "connection")
         }
 
         ConnectionInfo master_conn = threadLocalMasterConn.get()
         if (master_conn != null) {
             threadLocalMasterConn.remove()
-            try {
-                master_conn.conn.close()
-            } catch (Throwable t) {
-                log.warn("Close master connection failed", t)
-            }
+            closeDorisConnection(master_conn.conn, "master connection")
         }
 
         ConnectionInfo arrow_flight_sql_conn = threadArrowFlightSqlConn.get()
         if (arrow_flight_sql_conn != null) {
             threadArrowFlightSqlConn.remove()
-            try {
-                arrow_flight_sql_conn.conn.close()
-            } catch (Throwable t) {
-                log.warn("Close connection failed", t)
-            }
+            closeDorisConnection(arrow_flight_sql_conn.conn, "arrow flight sql connection")
         }
 
         Connection hive2_docker_conn = threadHive2DockerConn.get()
@@ -677,6 +770,7 @@ class SuiteContext implements Closeable {
     @Override
     void close() {
         closeThreadLocal()
+        closeLeftoverDorisConnections()
 
         if (outputBlocksWriter != null) {
             outputBlocksWriter.close()

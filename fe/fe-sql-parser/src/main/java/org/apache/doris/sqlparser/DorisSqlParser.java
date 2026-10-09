@@ -25,9 +25,7 @@ import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.parser.CaseInsensitiveStream;
 import org.apache.doris.nereids.parser.ParseErrorListener;
-import org.apache.doris.nereids.parser.PostProcessor;
 
-import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.atn.PredictionMode;
@@ -41,7 +39,6 @@ import java.util.function.Function;
  */
 public final class DorisSqlParser {
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
-    private static final PostProcessor POST_PROCESSOR = new PostProcessor();
 
     private final boolean noBackslashEscapes;
     private final boolean ansiSqlSyntax;
@@ -79,7 +76,7 @@ public final class DorisSqlParser {
 
     /** Build a freshly configured lexer for advanced callers that want to walk tokens directly. */
     public DorisLexer newLexer(String sql) {
-        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        DorisLexer lexer = new DorisLexer(CaseInsensitiveStream.fromString(sql));
         lexer.isNoBackslashEscapes = noBackslashEscapes;
         return lexer;
     }
@@ -116,7 +113,6 @@ public final class DorisSqlParser {
 
     private DorisParser configure(DorisParser parser) {
         parser.ansiSQLSyntax = ansiSqlSyntax;
-        parser.addParseListener(POST_PROCESSOR);
         parser.removeErrorListeners();
         parser.addErrorListener(PARSE_ERROR_LISTENER);
         return parser;

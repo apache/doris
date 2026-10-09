@@ -91,20 +91,27 @@ suite("test_ttl_random") {
 
     load_customer_once("customer_ttl")
 
-    Random random = new Random()
+    long maxFileCacheTtlSeconds = Long.MAX_VALUE / 2L
+    long randomSeed = 20260902L
+    Random random = new Random(randomSeed)
+    long lastAlterTtlSeconds = 180L
+    logger.info("Use deterministic random seed ${randomSeed} for TTL ALTER values")
     for (int j = 0; j < 40; j++) {
-        long number = random.nextLong() % 10l;
+        int number = j % 10
         if (number < 5) {
             sql """ select * from customer_ttl limit 10"""
         } else if (number >= 5 && number < 8) {
             load_customer_once("customer_ttl")
         } else {
-            def alterTtlSeconds = random.nextLong()
-            if (alterTtlSeconds < 0) {
-                alterTtlSeconds *= -1
-            }
-            sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="${alterTtlSeconds}") """
+            lastAlterTtlSeconds = Math.floorMod(
+                    random.nextLong(), maxFileCacheTtlSeconds + 1L)
+            sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="${lastAlterTtlSeconds}") """
             sleep(40000)
         }
     }
+
+    def showCreateTable = sql "show create table customer_ttl"
+    assertTrue(showCreateTable[0][1].toString().contains(
+            "\"file_cache_ttl_seconds\" = \"${lastAlterTtlSeconds}\""),
+            "file_cache_ttl_seconds should converge to the last ALTER value ${lastAlterTtlSeconds}")
 }

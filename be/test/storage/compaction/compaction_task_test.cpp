@@ -130,6 +130,46 @@ TEST_F(CompactionTaskTest, TestSubmitCompactionTask) {
     EXPECT_EQ(executing_task_num, 2);
 }
 
+TEST_F(CompactionTaskTest, BinlogCompactionProducerIgnoresCcrSwitch) {
+    const bool old_enable_feature_binlog = config::enable_feature_binlog;
+    const bool old_disable_auto_compaction = config::disable_auto_compaction;
+    const bool old_enable_compaction_pause_on_high_memory =
+            config::enable_compaction_pause_on_high_memory;
+    Defer restore_config {[&]() {
+        config::enable_feature_binlog = old_enable_feature_binlog;
+        config::disable_auto_compaction = old_disable_auto_compaction;
+        config::enable_compaction_pause_on_high_memory = old_enable_compaction_pause_on_high_memory;
+    }};
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    int generation_count = 0;
+    sp->set_call_back("StorageEngine::_adjust_compaction_thread_num.return_void",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->set_call_back("olap_server::_generate_compaction_tasks.return_empty",
+                      [&generation_count](auto&& values) {
+                          ++generation_count;
+                          auto* ret =
+                                  try_any_cast_ret<std::vector<TabletCompactionContext>>(values);
+                          ret->second = true;
+                      });
+    Defer clear_sync_points {[&]() {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    }};
+
+    config::enable_feature_binlog = false;
+    config::disable_auto_compaction = false;
+    config::enable_compaction_pause_on_high_memory = false;
+    _storage_engine->_stop_background_threads_latch.count_down();
+    _storage_engine->_binlog_compaction_tasks_producer_callback();
+    EXPECT_EQ(generation_count, 1);
+
+    config::disable_auto_compaction = true;
+    _storage_engine->_binlog_compaction_tasks_producer_callback();
+    EXPECT_EQ(generation_count, 1);
+}
+
 TEST_F(CompactionTaskTest, TestAutoSetCompactionIncreaseTaskNum) {
     auto st = ThreadPoolBuilder("BaseCompactionTaskThreadPool")
                       .set_min_threads(2)

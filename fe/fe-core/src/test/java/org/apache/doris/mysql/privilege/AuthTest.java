@@ -24,7 +24,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -49,7 +49,7 @@ public class AuthTest extends TestWithFeService {
                 .checkDbPriv(UserIdentity.createAnalyzedUserIdentWithIp("u1", "%"),
                         InternalCatalog.INTERNAL_CATALOG_NAME, "test",
                         PrivPredicate.of(PrivBitSet.of(Privilege.GRANT_PRIV, Privilege.LOAD_PRIV), Operator.AND));
-        Assert.assertTrue(hasPriv);
+        Assertions.assertTrue(hasPriv);
     }
 
     @Test
@@ -61,9 +61,9 @@ public class AuthTest extends TestWithFeService {
         grantRole("GRANT 'role3','role4' TO 'u2'@'%'");
         Set<String> roleNames = Env.getCurrentEnv().getAuth()
                 .getRoleNamesByUserWithLdap(new UserIdentity("u2", "%"), true);
-        Assert.assertEquals(3, roleNames.size());
+        Assertions.assertEquals(3, roleNames.size());
         roleNames = Env.getCurrentEnv().getAuth().getRoleNamesByUserWithLdap(new UserIdentity("u2", "%"), false);
-        Assert.assertEquals(2, roleNames.size());
+        Assertions.assertEquals(2, roleNames.size());
     }
 
     @Test
@@ -72,7 +72,7 @@ public class AuthTest extends TestWithFeService {
         grantPriv("GRANT SELECT_PRIV ON internal.test.* TO ROLE 'jit_role_auth_test';");
 
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp("jit_user", "%");
-        Assert.assertFalse(Env.getCurrentEnv().getAuth().checkDbPriv(tempUserIdentity,
+        Assertions.assertFalse(Env.getCurrentEnv().getAuth().checkDbPriv(tempUserIdentity,
                 InternalCatalog.INTERNAL_CATALOG_NAME, "test", PrivPredicate.SELECT));
 
         ConnectContext ctx = new ConnectContext();
@@ -80,7 +80,7 @@ public class AuthTest extends TestWithFeService {
         ctx.setThreadLocalInfo();
         try {
             ctx.setAuthenticatedRoles(Collections.singleton("jit_role_auth_test"));
-            Assert.assertTrue(Env.getCurrentEnv().getAccessManager()
+            Assertions.assertTrue(Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME, "test", PrivPredicate.SELECT));
         } finally {
             ConnectContext.remove();

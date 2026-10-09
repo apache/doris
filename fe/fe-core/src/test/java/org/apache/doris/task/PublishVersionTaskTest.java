@@ -18,8 +18,8 @@
 package org.apache.doris.task;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.Map;
@@ -45,11 +45,10 @@ public class PublishVersionTaskTest {
     @Test
     public void testDefaultSuccTabletsIsNotNull() {
         PublishVersionTask task = newTask();
-        Assert.assertNotNull("succTablets must be non-null right after construction",
-                task.getSuccTablets());
-        Assert.assertTrue("succTablets must start empty", task.getSuccTablets().isEmpty());
+        Assertions.assertNotNull(task.getSuccTablets(), "succTablets must be non-null right after construction");
+        Assertions.assertTrue(task.getSuccTablets().isEmpty(), "succTablets must start empty");
         // Should not NPE.
-        Assert.assertFalse(task.getSuccTablets().containsKey(1L));
+        Assertions.assertFalse(task.getSuccTablets().containsKey(1L));
     }
 
     /** setSuccTablets(null) must coerce to an empty map, not store null. */
@@ -57,9 +56,9 @@ public class PublishVersionTaskTest {
     public void testSetSuccTabletsNullCoercesToEmptyMap() {
         PublishVersionTask task = newTask();
         task.setSuccTablets(null);
-        Assert.assertNotNull(task.getSuccTablets());
-        Assert.assertTrue(task.getSuccTablets().isEmpty());
-        Assert.assertFalse(task.getSuccTablets().containsKey(123L));
+        Assertions.assertNotNull(task.getSuccTablets());
+        Assertions.assertTrue(task.getSuccTablets().isEmpty());
+        Assertions.assertFalse(task.getSuccTablets().containsKey(123L));
     }
 
     /** A populated map must be returned as-is by the getter. */
@@ -68,8 +67,8 @@ public class PublishVersionTaskTest {
         PublishVersionTask task = newTask();
         Map<Long, Long> populated = ImmutableMap.of(1L, 100L, 2L, 200L);
         task.setSuccTablets(populated);
-        Assert.assertEquals(populated, task.getSuccTablets());
-        Assert.assertTrue(task.getSuccTablets().containsKey(1L));
+        Assertions.assertEquals(populated, task.getSuccTablets());
+        Assertions.assertTrue(task.getSuccTablets().containsKey(1L));
     }
 
     /**
@@ -85,9 +84,9 @@ public class PublishVersionTaskTest {
         task.setFinished(true);
         // No setSuccTablets call — this is the AgentTaskCleanupDaemon code path.
         Map<Long, Long> succ = task.getSuccTablets();
-        Assert.assertNotNull("getSuccTablets() must not return null even when force-finished", succ);
-        Assert.assertTrue(task.isFinished());
-        Assert.assertFalse(succ.containsKey(42L));
+        Assertions.assertNotNull(succ, "getSuccTablets() must not return null even when force-finished");
+        Assertions.assertTrue(task.isFinished());
+        Assertions.assertFalse(succ.containsKey(42L));
     }
 
     /**
@@ -101,9 +100,9 @@ public class PublishVersionTaskTest {
         task.setSuccTablets(null);     // emulates request.isSetSuccTablets() == false
         task.setFinished(true);        // matches MasterImpl ordering
         Map<Long, Long> succ = task.getSuccTablets();
-        Assert.assertNotNull(succ);
-        Assert.assertEquals(Collections.emptyMap(), succ);
+        Assertions.assertNotNull(succ);
+        Assertions.assertEquals(Collections.emptyMap(), succ);
         // The exact line that crashed pre-fix at DatabaseTransactionMgr.java:1478.
-        Assert.assertFalse(succ.containsKey(7L));
+        Assertions.assertFalse(succ.containsKey(7L));
     }
 }
