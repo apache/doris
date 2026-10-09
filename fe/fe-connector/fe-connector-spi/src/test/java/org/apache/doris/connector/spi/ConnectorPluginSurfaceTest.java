@@ -87,9 +87,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 12 adds the SUPPORTS_FIELD_ID_ACCESS_PATH and SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE
-        // capabilities: a plugin naming either constant cannot link against an older FE.
-        Assertions.assertEquals("12.0", version.getProperty("api.version"));
+        // Major 13 adds ConnectorScanRange#getSplitIdentity: plugins compiled against the previous
+        // connector surface cannot link against an FE that exposes the new scheduling identity hook.
+        Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

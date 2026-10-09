@@ -444,6 +444,23 @@ public class FederationBackendPolicySpreadTest {
     }
 
     @Test
+    public void testRepeatedRemoteHostHintDoesNotMonopolizeSpreadMode() throws Exception {
+        FederationBackendPolicy policy = policy(3, bound -> 0);
+        List<Split> splits = new ArrayList<>();
+        String localHost = backends.get(0).getHost();
+        for (int i = 0; i < 30; i++) {
+            splits.add(new FileSplit(LocationPath.of("s3://bucket/file-" + i), 0, 1000, 1000,
+                    0, new String[] {localHost}, Collections.emptyList()));
+        }
+
+        Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
+
+        Assertions.assertTrue(assignment.keySet().size() > 1);
+        Assertions.assertTrue(assignment.containsKey(backends.get(0)),
+                "the first local preference should remain eligible in spread mode");
+    }
+
+    @Test
     public void testLegacyDefaultAndAutomaticExternalScanStrategy() {
         SessionVariable session = context.getSessionVariable();
         Assertions.assertEquals(1, session.getExternalScanConsistentHashSpreadNum());

@@ -89,6 +89,12 @@ public class AdbcScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public String getSplitIdentity() {
+        return properties.getOrDefault(PARAM_PARTITION_DESCRIPTOR,
+                properties.getOrDefault(PARAM_QUERY_SQL, TABLE_FORMAT_TYPE));
+    }
+
+    @Override
     public Map<String, String> getProperties() {
         return properties;
     }

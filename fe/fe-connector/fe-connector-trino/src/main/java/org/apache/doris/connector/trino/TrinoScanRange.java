@@ -80,6 +80,11 @@ public class TrinoScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public String getSplitIdentity() {
+        return properties.getOrDefault(KEY_SPLIT, "trino_connector");
+    }
+
+    @Override
     public Map<String, String> getProperties() {
         return properties;
     }

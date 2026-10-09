@@ -126,6 +126,11 @@ public class PaimonScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public String getSplitIdentity() {
+        return path != null ? path : properties.getOrDefault("paimon.split", "paimon");
+    }
+
+    @Override
     public long getStart() {
         return start;
     }

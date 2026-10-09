@@ -43,6 +43,11 @@ public class RemoteDorisSplit extends FileSplit {
         return location;
     }
 
+    @Override
+    public String getSplitIdentity() {
+        return location;
+    }
+
     public TableFormatType getTableFormatType() {
         return tableFormatType;
     }

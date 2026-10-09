@@ -107,6 +107,22 @@ class AdbcScanRangeTest {
     }
 
     @Test
+    void usesPartitionDescriptorAsSchedulingIdentity() {
+        AdbcScanRange first = new AdbcScanRange.Builder()
+                .driverPath("/opt/doris/plugins/adbc_drivers/libadbc_driver_flightsql.so")
+                .uri("grpc://remote:9090")
+                .partitionDescriptor("partition-1")
+                .build();
+        AdbcScanRange second = new AdbcScanRange.Builder()
+                .driverPath("/opt/doris/plugins/adbc_drivers/libadbc_driver_flightsql.so")
+                .uri("grpc://remote:9090")
+                .partitionDescriptor("partition-2")
+                .build();
+
+        Assertions.assertNotEquals(first.getSplitIdentity(), second.getSplitIdentity());
+    }
+
+    @Test
     void refusesToCarryBothKindsOfWorkOrNeither() {
         // The two are alternatives, and BE rejects a range that says both or neither. Failing while
         // planning names the bug; failing on BE reports it as one backend's problem, mid-query.

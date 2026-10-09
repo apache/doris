@@ -269,7 +269,15 @@ public class FederationBackendPolicy {
                     Optional<Backend> chosenNode = candidateNodes.stream()
                             .min(Comparator.comparingLong(ownerNode -> assignedWeightPerBackend.get(ownerNode)));
 
-                    if (chosenNode.isPresent()) {
+                    // A host hint is a local preference for remotely readable splits. In spread mode, do not
+                    // let a repeated hint monopolize one backend while other eligible backends are idle.
+                    boolean localNodeIsWithinGlobalMinimum = chosenNode.isPresent();
+                    if (localNodeIsWithinGlobalMinimum && isSpreadEnabled()) {
+                        long minimumAssignedWeight = Collections.min(assignedWeightPerBackend.values());
+                        localNodeIsWithinGlobalMinimum = assignedWeightPerBackend.get(chosenNode.get())
+                                <= minimumAssignedWeight;
+                    }
+                    if (localNodeIsWithinGlobalMinimum) {
                         Backend selectedBackend = chosenNode.get();
                         assignment.put(selectedBackend, split);
                         assignedWeightPerBackend.put(selectedBackend,
@@ -302,10 +310,13 @@ public class FederationBackendPolicy {
                         break;
                     }
                     case CONSISTENT_HASHING: {
-                        candidateNodes = consistentHash.getNode(split,
-                                consistentHashSpreadNum == 0 ? backends.size()
-                                        : isSpreadEnabled() ? Math.min(consistentHashSpreadNum, backends.size())
-                                        : Config.split_assigner_min_consistent_hash_candidate_num);
+                        if (consistentHashSpreadNum == 0) {
+                            candidateNodes = backends;
+                        } else {
+                            candidateNodes = consistentHash.getNode(split,
+                                    isSpreadEnabled() ? Math.min(consistentHashSpreadNum, backends.size())
+                                            : Config.split_assigner_min_consistent_hash_candidate_num);
+                        }
                         break;
                     }
                     default: {
@@ -551,7 +562,7 @@ public class FederationBackendPolicy {
     private static class SplitHash implements Funnel<Split> {
         @Override
         public void funnel(Split split, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(split.getConsistentHashString().getBytes(StandardCharsets.UTF_8));
+            primitiveSink.putBytes(split.getSplitIdentity().getBytes(StandardCharsets.UTF_8));
             primitiveSink.putLong(split.getStart());
             primitiveSink.putLong(split.getLength());
         }
