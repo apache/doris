@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_hll.h"
 #include "core/data_type/data_type_nothing.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/decimal12.h"
@@ -334,10 +335,13 @@ void test_read_default_value(string value, void* result) {
     // read and check
     {
         auto tablet_column = create_with_default_value<type>(value);
-        DefaultValueColumnIterator iter(
-                tablet_column->has_default_value(), tablet_column->default_value(),
-                tablet_column->is_nullable(), type, tablet_column->precision(),
-                tablet_column->frac(), tablet_column->length());
+        DataTypeSerDeSPtr serde;
+        if (tablet_column->has_default_value() && tablet_column->default_value() != "NULL") {
+            serde = remove_nullable(tablet_column->get_vec_type())->get_serde();
+        }
+        DefaultValueColumnIterator iter(tablet_column->has_default_value(),
+                                        tablet_column->default_value(),
+                                        tablet_column->is_nullable(), std::move(serde));
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());
