@@ -36,6 +36,14 @@ public class ExternalTablePreloadInfo {
      * consumer must read as "scan every partition".
      */
     private Optional<Map<String, PartitionItem>> scanPartitionView;
+    /**
+     * The complete latest partition view needed by async-MV partition mapping, or {@code null} when that view was
+     * not requested for this statement. It is intentionally independent from {@link #scanPartitionView}: a
+     * filtered scan must keep connector predicate pruning instead of being forced through this full view.
+     * {@link Optional#empty()} means the complete view is UNAVAILABLE, while an optional containing an empty map
+     * is the authoritative view of a table with no partitions.
+     */
+    private Optional<Map<String, PartitionItem>> mtmvPartitionView;
 
     public ExternalTablePreloadInfo(ExternalTable table) {
         this.table = table;
@@ -96,8 +104,26 @@ public class ExternalTablePreloadInfo {
         this.scanPartitionView = scanPartitionView;
     }
 
-    /** Drops the recorded view so a later execution of a reused statement does not read a stale one. */
-    public void clearScanPartitionView() {
+    /** Whether the pre-lock pass materialized the complete view required by async-MV partition mapping. */
+    public boolean hasMtmvPartitionView() {
+        return mtmvPartitionView != null;
+    }
+
+    /**
+     * The complete partition view materialized before internal table locks were taken. Only valid when
+     * {@link #hasMtmvPartitionView()} is true.
+     */
+    public Optional<Map<String, PartitionItem>> getMtmvPartitionView() {
+        return mtmvPartitionView;
+    }
+
+    public void setMtmvPartitionView(Optional<Map<String, PartitionItem>> mtmvPartitionView) {
+        this.mtmvPartitionView = mtmvPartitionView;
+    }
+
+    /** Drops per-execution views so a later execution of a reused statement does not read a stale generation. */
+    public void clearPartitionViews() {
         this.scanPartitionView = null;
+        this.mtmvPartitionView = null;
     }
 }
