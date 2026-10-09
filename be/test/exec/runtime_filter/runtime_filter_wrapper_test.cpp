@@ -1428,13 +1428,16 @@ TEST_F(RuntimeFilterWrapperTest, TestClone) {
         ASSERT_TRUE(in_wrapper->init(1).ok());
         ASSERT_TRUE(in_wrapper->insert(ColumnHelper::create_column<DataType>({1}), 0).ok());
         in_wrapper->set_state(RuntimeFilterWrapper::State::READY);
+        // `init()` leaves the bloom filter of an IN filter unallocated, so allocate it by hand:
+        // the copy must skip the unused bloom filter, not merely find none to copy.
+        ASSERT_TRUE(in_wrapper->bloom_filter_func()->init_with_fixed_length(1).ok());
+        ASSERT_GT(in_wrapper->bloom_filter_func()->get_size(), 0);
         std::shared_ptr<RuntimeFilterWrapper> cloned;
         ASSERT_TRUE(in_wrapper->clone(&cloned).ok());
         EXPECT_EQ(cloned->get_real_type(), RuntimeFilterType::IN_FILTER);
         EXPECT_EQ(cloned->hybrid_set()->size(), 1);
         EXPECT_NE(cloned->bloom_filter_func(), in_wrapper->bloom_filter_func());
         // The unused bloom filter of an IN filter is not copied.
-        EXPECT_GT(in_wrapper->bloom_filter_func()->get_size(), 0);
         EXPECT_EQ(cloned->bloom_filter_func()->get_size(), 0);
 
         auto bloom_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
