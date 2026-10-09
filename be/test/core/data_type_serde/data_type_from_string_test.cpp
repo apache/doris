@@ -193,6 +193,49 @@ TEST_F(DataTypeSerDeFromStringTest, structFromFeString) {
     EXPECT_TRUE(status.to_string().find("NULL default is not allowed") != std::string::npos);
 }
 
+// FE stores complex defaults in a canonical text: unquoted numbers (bool as 1/0), double quoted
+// strings/dates/ips and nested brackets. These cases pin down what BE must accept from that text.
+TEST_F(DataTypeSerDeFromStringTest, canonicalComplexDefaultFromFeString) {
+    auto check = [](const DataTypePtr& type, const std::string& text, const std::string& expected) {
+        Field field;
+        auto st = type->get_serde()->from_fe_string(text, field);
+        ASSERT_TRUE(st.ok()) << text << ": " << st.to_string();
+        auto column = type->create_column();
+        column->insert(field);
+        EXPECT_EQ(type->to_string(*column, 0), expected) << text;
+    };
+    auto nullable = [](DataTypePtr type) { return std::make_shared<DataTypeNullable>(type); };
+
+    check(std::make_shared<DataTypeArray>(nullable(std::make_shared<DataTypeString>())),
+          R"(["it's", "x,y", "[z]", "{k:v}", "null", "", NULL])",
+          R"(["it's", "x,y", "[z]", "{k:v}", "null", "", null])");
+    check(std::make_shared<DataTypeArray>(nullable(std::make_shared<DataTypeDateV2>())),
+          R"(["2024-01-01"])", R"(["2024-01-01"])");
+    check(std::make_shared<DataTypeArray>(nullable(std::make_shared<DataTypeDateTimeV2>(0))),
+          R"(["2024-01-01 10:20:30"])", R"(["2024-01-01 10:20:30"])");
+    check(std::make_shared<DataTypeArray>(nullable(std::make_shared<DataTypeDateTimeV2>(3))),
+          R"(["2024-01-01 10:20:30.123"])", R"(["2024-01-01 10:20:30.123"])");
+    check(std::make_shared<DataTypeArray>(nullable(std::make_shared<DataTypeBool>())), "[1, 0]",
+          "[1, 0]");
+    check(std::make_shared<DataTypeArray>(nullable(std::make_shared<DataTypeFloat64>())),
+          "[1.0E10, 1.5]", "[10000000000, 1.5]");
+    check(std::make_shared<DataTypeArray>(nullable(std::make_shared<DataTypeDecimal64>(10, 2))),
+          "[1.23, 1000]", "[1.23, 1000.00]");
+    check(std::make_shared<DataTypeArray>(nullable(std::make_shared<DataTypeIPv4>())),
+          R"(["127.0.0.1"])", R"(["127.0.0.1"])");
+    check(std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
+                                        nullable(std::make_shared<DataTypeArray>(
+                                                nullable(std::make_shared<DataTypeInt32>())))),
+          R"({"a":[1, 2], "b":[], "c":NULL})", R"({"a":[1, 2], "b":[], "c":null})");
+    check(std::make_shared<DataTypeStruct>(
+                  DataTypes {nullable(std::make_shared<DataTypeInt32>()),
+                             nullable(std::make_shared<DataTypeMap>(
+                                     std::make_shared<DataTypeString>(),
+                                     nullable(std::make_shared<DataTypeInt32>())))},
+                  Strings {"f1", "f2"}),
+          R"({7, {"x":1}})", R"({"f1":7, "f2":{"x":1}})");
+}
+
 TEST_F(DataTypeSerDeFromStringTest, bitmap) {
     auto type = std::make_shared<DataTypeBitMap>();
     auto serde = type->get_serde();

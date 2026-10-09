@@ -23,7 +23,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
@@ -163,23 +167,51 @@ public class ColumnDefinitionTest {
 
     @Test
     public void testComplexTypeLiteralDefaultValue() {
-        assertAllowsDefaultValue(ArrayType.of(IntegerType.INSTANCE), "[]");
-        assertAllowsDefaultValue(ArrayType.of(IntegerType.INSTANCE), "[1, 2]");
-        assertRejectsDefaultValue(ArrayType.of(IntegerType.INSTANCE), "{}",
-                "only supports array literals or DEFAULT NULL");
+        ArrayType intArray = ArrayType.of(IntegerType.INSTANCE);
+        assertCanonicalDefaultValue(intArray, "[]", "[]");
+        assertCanonicalDefaultValue(intArray, "[1, 2]", "[1, 2]");
+        assertCanonicalDefaultValue(intArray, "[NULL, nUlL, 5]", "[NULL, NULL, 5]");
+        assertCanonicalDefaultValue(intArray, "[\"7\", 1e3]", "[7, 1000]");
+        assertRejectsDefaultValue(intArray, "{}", "only supports array literals or DEFAULT NULL");
+        assertRejectsDefaultValue(intArray, "[1 + 1]", "only supports array literals or DEFAULT NULL");
+        assertRejectsDefaultValue(intArray, "[\"bad\"]", "Invalid default value '[\"bad\"]' for ARRAY<INT>");
+        assertRejectsDefaultValue(intArray, "[[1]]", "Invalid default value");
 
-        assertAllowsDefaultValue(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), "{}");
-        assertAllowsDefaultValue(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), "{\"a\": 1}");
-        assertRejectsDefaultValue(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE), "[]",
-                "only supports map literals or DEFAULT NULL");
+        assertCanonicalDefaultValue(ArrayType.of(DateV2Type.INSTANCE),
+                "[DATEV2 \"2024-01-01\", \"2024-02-02\"]", "[\"2024-01-01\", \"2024-02-02\"]");
+        assertCanonicalDefaultValue(ArrayType.of(BooleanType.INSTANCE), "[true, false]", "[1, 0]");
+        assertCanonicalDefaultValue(ArrayType.of(DoubleType.INSTANCE), "[1.5, 2]", "[1.5, 2.0]");
+        assertCanonicalDefaultValue(ArrayType.of(DecimalV3Type.createDecimalV3Type(10, 2)), "[1.234]", "[1.23]");
+        assertCanonicalDefaultValue(ArrayType.of(StringType.INSTANCE), "['x,y', \"[z]\", \"{k:v}\", '']",
+                "[\"x,y\", \"[z]\", \"{k:v}\", \"\"]");
+        assertRejectsDefaultValue(ArrayType.of(StringType.INSTANCE), "[\"a\"\"b\"]",
+                "must not contain quote or backslash");
+        assertRejectsDefaultValue(ArrayType.of(StringType.INSTANCE), "['it''s']",
+                "must not contain quote or backslash");
+        assertRejectsDefaultValue(ArrayType.of(StringType.INSTANCE), "['a\\\\b']",
+                "must not contain quote or backslash");
+        assertCanonicalDefaultValue(ArrayType.of(intArray), "[[1], [], NULL]", "[[1], [], NULL]");
+
+        MapType stringIntMap = MapType.of(StringType.INSTANCE, IntegerType.INSTANCE);
+        assertCanonicalDefaultValue(stringIntMap, "{}", "{}");
+        assertCanonicalDefaultValue(stringIntMap, "{\"a\": 1, \"b\": NULL}", "{\"a\":1, \"b\":NULL}");
+        assertCanonicalDefaultValue(stringIntMap, "{\"a\": 1, \"a\": 2}", "{\"a\":2}");
+        assertRejectsDefaultValue(stringIntMap, "[]", "only supports map literals or DEFAULT NULL");
+        assertRejectsDefaultValue(stringIntMap, "{\"a\": \"bad\"}", "Invalid default value");
+        assertRejectsDefaultValue(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), "{\"bad\": 1}",
+                "Invalid default value");
 
         StructType structType = new StructType(Arrays.asList(
                 new StructField("f1", IntegerType.INSTANCE, true, ""),
                 new StructField("f2", StringType.INSTANCE, true, "")));
-        assertAllowsDefaultValue(structType, "{}");
-        assertAllowsDefaultValue(structType, "{1, \"a\"}");
+        assertCanonicalDefaultValue(structType, "{}", "{}");
+        assertCanonicalDefaultValue(structType, "{1, \"a\"}", "{1, \"a\"}");
+        assertCanonicalDefaultValue(structType, "{NULL, 2}", "{NULL, \"2\"}");
         assertRejectsDefaultValue(structType, "{\"f1\": 1, \"f2\": \"a\"}",
                 "only supports struct literals or DEFAULT NULL");
+        assertRejectsDefaultValue(structType, "{1}", "struct literal has 1 fields but the column has 2");
+        assertRejectsDefaultValue(structType, "{\"bad\", \"a\"}", "Invalid default value");
+        assertRejectsDefaultValue(structType, "[]", "only supports struct literals or DEFAULT NULL");
 
         assertRejectsDefaultValue(JsonType.INSTANCE, "{}", "only supports DEFAULT NULL");
         assertRejectsDefaultValue(VariantType.INSTANCE, "{}", "only supports DEFAULT NULL");
@@ -193,17 +225,21 @@ public class ColumnDefinitionTest {
                         true, Collections.emptySet(), Collections.emptySet(), false, KeysType.DUP_KEYS));
     }
 
-    private void assertAllowsDefaultValue(DataType type, String defaultValue) {
-        Assertions.assertDoesNotThrow(() -> newColumnDefinition(
-                type, Optional.of(new DefaultValue(defaultValue))).validate(
-                        true, Collections.emptySet(), Collections.emptySet(), false, KeysType.DUP_KEYS));
+    private void assertCanonicalDefaultValue(DataType type, String defaultValue, String canonical) {
+        ColumnDefinition columnDefinition = newColumnDefinition(type, Optional.of(new DefaultValue(defaultValue)));
+        columnDefinition.validate(true, Collections.emptySet(), Collections.emptySet(), false, KeysType.DUP_KEYS);
+        Assertions.assertEquals(canonical, columnDefinition.getDefaultValueString());
+        // the canonical text is itself a valid default and is stable
+        ColumnDefinition canonicalDefinition = newColumnDefinition(type, Optional.of(new DefaultValue(canonical)));
+        canonicalDefinition.validate(true, Collections.emptySet(), Collections.emptySet(), false, KeysType.DUP_KEYS);
+        Assertions.assertEquals(canonical, canonicalDefinition.getDefaultValueString());
     }
 
     private void assertRejectsDefaultValue(DataType type, String defaultValue, String message) {
         ColumnDefinition columnDefinition = newColumnDefinition(type, Optional.of(new DefaultValue(defaultValue)));
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> columnDefinition.validate(
                 true, Collections.emptySet(), Collections.emptySet(), false, KeysType.DUP_KEYS));
-        Assertions.assertTrue(exception.getMessage().contains(message));
+        Assertions.assertTrue(exception.getMessage().contains(message), exception.getMessage());
     }
 
     private ColumnDefinition newColumnDefinition(DataType type, Optional<DefaultValue> defaultValue) {
