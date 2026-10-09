@@ -42,9 +42,12 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -216,7 +219,8 @@ public class CollectRelation implements AnalysisRuleFactory {
                 statementContext.registerExternalTableForPreload(table,
                         unboundRelation.get().getTableSnapshot(),
                         Optional.ofNullable(unboundRelation.get().getScanParams()),
-                        isUnderInitialFilter(cascadesContext.getRewritePlan(), unboundRelation.get()));
+                        isUnderInitialFilter(cascadesContext, cascadesContext.getRewritePlan(),
+                                unboundRelation.get()));
             }
             if (firstLevel) {
                 statementContext.getOneLevelTables().put(tableQualifier, table);
@@ -324,12 +328,20 @@ public class CollectRelation implements AnalysisRuleFactory {
         statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
     }
 
-    private boolean isUnderInitialFilter(Plan plan, UnboundRelation relation) {
+    private boolean isUnderInitialFilter(
+            CascadesContext cascadesContext, Plan plan, UnboundRelation relation) {
         if (plan instanceof LogicalFilter && isTransparentFilterChild(plan.child(0), relation)) {
-            return true;
+            // A filter that folds to TRUE is removed before partition pruning. Treating it as selective would
+            // skip the pre-lock full-view warmup, leave the bare scan DEFERRED and move connector enumeration
+            // into MV collection or physical finalization while table locks are held. Use the same constant
+            // folding rule as EliminateFilter so casts and other foldable tautologies follow the same decision.
+            ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, cascadesContext);
+            return ((LogicalFilter<?>) plan).getConjuncts().stream()
+                    .map(conjunct -> FoldConstantRule.evaluate(conjunct, rewriteContext))
+                    .anyMatch(conjunct -> !BooleanLiteral.TRUE.equals(conjunct));
         }
         for (Plan child : plan.children()) {
-            if (isUnderInitialFilter(child, relation)) {
+            if (isUnderInitialFilter(cascadesContext, child, relation)) {
                 return true;
             }
         }

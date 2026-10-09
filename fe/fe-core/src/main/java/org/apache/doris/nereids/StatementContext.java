@@ -652,7 +652,7 @@ public class StatementContext implements Closeable {
 
     /**
      * Register an external relation for pre-lock metadata preload. {@code hasInitialFilter} records whether
-     * this relation is below a LogicalFilter in the plan before locks are acquired.
+     * this relation is below an effective LogicalFilter that remains selective after constant folding.
      */
     public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, boolean hasInitialFilter) {

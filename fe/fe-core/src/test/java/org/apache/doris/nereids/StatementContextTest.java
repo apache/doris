@@ -29,6 +29,7 @@ import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.CollectRelation;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -675,8 +676,10 @@ public class StatementContextTest {
                     "select * from hive_catalog.db.hive_table where hive_table.p = 1");
             UnboundRelation relation = findUnboundRelation(plan);
             CollectRelation collectRelation = new CollectRelation(false);
+            CascadesContext cascadesContext = CascadesContext.initContext(
+                    statementContext, plan, PhysicalProperties.ANY);
             boolean hasInitialFilter = Deencapsulation.invoke(
-                    collectRelation, "isUnderInitialFilter", plan, relation);
+                    collectRelation, "isUnderInitialFilter", cascadesContext, plan, relation);
             org.junit.jupiter.api.Assertions.assertTrue(hasInitialFilter,
                     "the parsed mixed-plan Hive scan must be recognized as filtered");
 
@@ -689,6 +692,48 @@ public class StatementContextTest {
             org.junit.jupiter.api.Assertions.assertFalse(
                     statementContext.getExternalTablePreloadInfo(28L).get().hasScanPartitionView());
             Mockito.verify(hiveExternalTable, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testEliminatedFilterWarmsUnfilteredPartitionViewBeforeLock() {
+        LogicalPlan plan = new NereidsParser().parseSingle(
+                "select * from hive_catalog.db.hive_table where true = true or hive_table.p = 1");
+        UnboundRelation relation = findUnboundRelation(plan);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(31L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Optional<Map<String, PartitionItem>> scanView =
+                Optional.of(ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)));
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(scanView);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            CollectRelation collectRelation = new CollectRelation(false);
+            CascadesContext cascadesContext = CascadesContext.initContext(
+                    statementContext, plan, PhysicalProperties.ANY);
+            boolean hasInitialFilter = Deencapsulation.invoke(
+                    collectRelation, "isUnderInitialFilter", cascadesContext, plan, relation);
+            org.junit.jupiter.api.Assertions.assertFalse(hasInitialFilter,
+                    "a foldable tautology is removed before partition pruning and must warm as unfiltered");
+
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(
+                    hiveExternalTable, Optional.empty(), Optional.empty(), hasInitialFilter);
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
+
+            org.junit.jupiter.api.Assertions.assertEquals(scanView,
+                    statementContext.getExternalTablePreloadInfo(31L).get().getScanPartitionView());
+            Mockito.verify(hiveExternalTable, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
         } finally {
             statementContext.close();
         }
@@ -747,8 +792,10 @@ public class StatementContextTest {
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
             CollectRelation collectRelation = new CollectRelation(false);
+            CascadesContext cascadesContext = CascadesContext.initContext(
+                    statementContext, plan, PhysicalProperties.ANY);
             boolean hasInitialFilter = Deencapsulation.invoke(
-                    collectRelation, "isUnderInitialFilter", plan, relation);
+                    collectRelation, "isUnderInitialFilter", cascadesContext, plan, relation);
             org.junit.jupiter.api.Assertions.assertFalse(hasInitialFilter,
                     "a predicate on the internal join branch must not mark the Hive scan as filtered");
 

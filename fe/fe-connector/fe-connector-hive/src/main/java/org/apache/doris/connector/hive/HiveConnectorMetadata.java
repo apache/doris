@@ -2782,19 +2782,42 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Whether a rendered partition value matches one of the predicate literals for its key. Integral and
-     * decimal keys are compared NUMERICALLY, because this local prefilter's result is reused as the logical
-     * selected view: the typed Nereids pruner treats {@code 01} and {@code 1} as the same numeric value, so a
-     * raw text compare here would silently drop a partition the logical plan selected (and, in batch mode,
-     * omit it from the scan altogether). Every other key type - including STRING, where {@code 01} and
-     * {@code 1} are different partitions - keeps the exact text comparison.
+     * Whether a rendered partition value matches one of the predicate literals for its key. Numeric keys are
+     * compared with the same value domain as the typed Nereids pruner, because this local prefilter's result is
+     * reused as the logical selected view: a raw text compare would silently drop a type-equal partition (and,
+     * in batch mode, omit it from the scan altogether). STRING and the remaining key types keep exact text
+     * comparison.
      */
     private static boolean matchesAnyValue(String actualValue, List<String> allowedValues, String typeName) {
-        if (isHmsIntegralType(typeName) || isHmsDecimalType(typeName)) {
-            BigDecimal actual = parseNumericValue(actualValue);
+        if (typeName != null && "FLOAT".equals(typeName.toUpperCase(Locale.ROOT))) {
+            Float actual = parseFloatValue(actualValue);
             if (actual != null) {
                 for (String allowed : allowedValues) {
-                    BigDecimal candidate = parseNumericValue(allowed);
+                    Float candidate = parseFloatValue(allowed);
+                    if (candidate != null ? Float.compare(candidate, actual) == 0 : allowed.equals(actualValue)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+        if (typeName != null && "DOUBLE".equals(typeName.toUpperCase(Locale.ROOT))) {
+            Double actual = parseDoubleValue(actualValue);
+            if (actual != null) {
+                for (String allowed : allowedValues) {
+                    Double candidate = parseDoubleValue(allowed);
+                    if (candidate != null ? Double.compare(candidate, actual) == 0 : allowed.equals(actualValue)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+        if (isHmsIntegralType(typeName) || isHmsDecimalType(typeName)) {
+            BigDecimal actual = parseDecimalValue(actualValue);
+            if (actual != null) {
+                for (String allowed : allowedValues) {
+                    BigDecimal candidate = parseDecimalValue(allowed);
                     if (candidate != null ? candidate.compareTo(actual) == 0 : allowed.equals(actualValue)) {
                         return true;
                     }
@@ -2805,8 +2828,32 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return allowedValues.contains(actualValue);
     }
 
-    /** Parses a rendered numeric partition value, or {@code null} when it is not a numeric literal. */
-    private static BigDecimal parseNumericValue(String value) {
+    /** Parses a rendered FLOAT value with the same binary-floating semantics as the typed partition pruner. */
+    private static Float parseFloatValue(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return Float.parseFloat(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Parses a rendered DOUBLE value with the same binary-floating semantics as the typed partition pruner. */
+    private static Double parseDoubleValue(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Parses a rendered integral/decimal partition value, or {@code null} when it is not numeric. */
+    private static BigDecimal parseDecimalValue(String value) {
         if (value == null || value.isEmpty()) {
             return null;
         }
