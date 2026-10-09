@@ -550,7 +550,6 @@ Status check_after_upload(ObjStorageClient* client, const ObjStorageResponse& up
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::check_after_load", &head_res);
     if (head_res.resp.status.code != ErrorCode::OK && head_res.resp.http_code != 200) {
         LOG(WARNING) << "failed to issue head object after upload, " << err_msg();
-        DCHECK(false) << "failed to issue head object after upload, " << err_msg();
         // FIXME(gavin): we should retry if this HEAD fails?
         return Status::IOError(
                 "failed to issue head object after upload, status_code={}, http_code={}, err={}",
@@ -559,8 +558,6 @@ Status check_after_upload(ObjStorageClient* client, const ObjStorageResponse& up
     if (head_res.file_size != bytes_appended) {
         LOG(WARNING) << "failed to check size after upload, expected_size=" << bytes_appended
                      << " actual_size=" << head_res.file_size << err_msg();
-        DCHECK_EQ(bytes_appended, head_res.file_size)
-                << "failed to check size after upload," << err_msg();
         return Status::IOError(
                 "failed to check object size after upload, expected_size={} actual_size={}",
                 bytes_appended, head_res.file_size);

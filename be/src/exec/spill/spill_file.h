@@ -104,6 +104,10 @@ private:
     /// @param part_bytes  size of the part file including its footer
     void add_part(int64_t part_bytes);
 
+    /// A failed S3 close may still have published an object. It is not readable as a part,
+    /// but remains billable until cleanup; list the prefix to remove publication ambiguity.
+    void account_potential_part(int64_t part_bytes);
+
     SpillDataDir* _data_dir = nullptr;
     // Vault binding at file creation; never follow a later default-vault rotation.
     io::FileSystemSPtr _fs;

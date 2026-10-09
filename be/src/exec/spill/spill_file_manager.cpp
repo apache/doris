@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -42,6 +43,28 @@
 #include "util/uid_util.h"
 
 namespace doris {
+
+Status reconcile_remote_spill_bytes(SpillDataDir* data_dir, const io::FileSystemSPtr& fs,
+                                    const std::string& dir, int64_t* accounted_bytes) {
+    DORIS_CHECK(data_dir->is_remote());
+    std::vector<io::FileInfo> objects;
+    bool exists = false;
+    RETURN_IF_ERROR(fs->list(dir, true, &objects, &exists));
+    int64_t actual_bytes = 0;
+    for (const auto& object : objects) {
+        if (object.is_file) {
+            actual_bytes += object.file_size;
+        }
+    }
+    const int64_t delta = actual_bytes - *accounted_bytes;
+    if (delta > 0) {
+        data_dir->record_persisted_bytes(delta);
+    } else if (delta < 0) {
+        data_dir->release_persisted_bytes(-delta);
+    }
+    *accounted_bytes = actual_bytes;
+    return Status::OK();
+}
 
 // BE-wide object storage traffic of spill. The PerSecond windows give QPS and bytes/s directly.
 bvar::Adder<int64_t> g_spill_remote_read_bytes("spill_remote_read_bytes");
@@ -321,12 +344,18 @@ Status SpillFileManager::_init_spill_store_map() {
 std::vector<SpillDataDir*> SpillFileManager::_get_stores_for_spill(
         TStorageMedium::type storage_medium) {
     if (_remote_store != nullptr) {
-        // Object storage has no medium; a remote store is the only store of the BE.
+        // Query spill always uses object storage in S3 mode. Local roots are reserved for
+        // external writers that need native file paths.
         if (_remote_store->reach_capacity_limit(0)) {
             return {};
         }
         return {_remote_store};
     }
+    return _get_local_stores_for_spill(storage_medium);
+}
+
+std::vector<SpillDataDir*> SpillFileManager::_get_local_stores_for_spill(
+        TStorageMedium::type storage_medium) {
     std::vector<std::pair<SpillDataDir*, double>> stores_with_usage;
     for (auto* store : _local_stores) {
         if (store->storage_medium() == storage_medium && !store->reach_capacity_limit(0)) {
@@ -429,12 +458,9 @@ void SpillFileManager::_release_external_spill_session(ExternalSpillSession* spi
 
 SpillDataDir* SpillFileManager::_get_local_store_for_external_spill() {
     // External writers use native filesystem paths, not Doris FileSystem objects.
-    if (_remote_store != nullptr) {
-        return nullptr;
-    }
-    auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
+    auto data_dirs = _get_local_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
-        data_dirs = _get_stores_for_spill(TStorageMedium::type::HDD);
+        data_dirs = _get_local_stores_for_spill(TStorageMedium::type::HDD);
     }
     // Select the first available data dir (sorted by usage ascending).
     return data_dirs.empty() ? nullptr : data_dirs.front();
@@ -550,6 +576,17 @@ void SpillFileManager::_retry_pending_spill_directories() {
             pending_directory.data_dir->release(pending_directory.charged_bytes);
             pending_directory.data_dir->release_persisted_bytes(pending_directory.persisted_bytes);
             continue;
+        }
+
+        if (pending_directory.data_dir->is_remote()) {
+            auto reconcile_status = reconcile_remote_spill_bytes(
+                    pending_directory.data_dir, pending_directory.fs, pending_directory.dir,
+                    &pending_directory.persisted_bytes);
+            if (!reconcile_status.ok()) {
+                LOG_EVERY_T(WARNING, 60)
+                        << "failed to reconcile remote spill bytes after deletion: "
+                        << reconcile_status;
+            }
         }
 
         ++pending_directory.failed_count;

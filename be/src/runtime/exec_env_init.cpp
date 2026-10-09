@@ -238,13 +238,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         // One remote store, see RemoteSpillDataDir for the object layout.
         spill_store_map.emplace(
                 "s3", std::make_unique<RemoteSpillDataDir>(config::spill_s3_storage_vault));
-    } else {
-        for (const auto& spill_path : spill_store_paths) {
-            spill_store_map.emplace(
-                    spill_path.path,
-                    std::make_unique<LocalSpillDataDir>(spill_path.path, spill_path.capacity_bytes,
-                                                        spill_path.storage_medium));
-        }
+    }
+    // Paimon's external spill session needs native local paths even when Doris query spill uses
+    // object storage. Query spill selects the remote store; external sessions select these roots.
+    for (const auto& spill_path : spill_store_paths) {
+        spill_store_map.emplace(spill_path.path, std::make_unique<LocalSpillDataDir>(
+                                                         spill_path.path, spill_path.capacity_bytes,
+                                                         spill_path.storage_medium));
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;

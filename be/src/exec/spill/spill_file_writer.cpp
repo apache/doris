@@ -220,6 +220,12 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     if (!status.ok()) {
         LOG(WARNING) << "failed to close spill part " << _current_part_path << ": " << status;
         _abort_multipart_upload(upload);
+        // A failed append or close can still leave an object in S3. The writer has drained
+        // in-flight uploads above, so list the prefix after accounting a conservative upper
+        // bound rather than relying on the close status to prove whether PUT committed.
+        if (spill_file && _data_dir->is_remote()) {
+            spill_file->account_potential_part(_part_written_bytes);
+        }
     } else if (spill_file) {
         spill_file->add_part(_part_written_bytes);
     }

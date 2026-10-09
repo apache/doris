@@ -37,6 +37,10 @@ import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
+import org.apache.doris.thrift.TQueryStatistics;
+import org.apache.doris.thrift.TQueryStatisticsResult;
+import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -45,6 +49,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class AuditLogHelperBackendSelectionTest {
@@ -144,6 +150,76 @@ public class AuditLogHelperBackendSelectionTest {
         executor.setExternalDmlAuditCoordinator(externalCoordinator);
         Assertions.assertEquals(Set.of(10001L, 10002L, 10003L),
                 AuditLogHelper.getAuditStatisticsBackendIds(executor));
+    }
+
+    @Test
+    public void testPostDispatchErrorKeepsAuditBackendsAfterCoordinatorIsCleared() {
+        ConnectContext context = new ConnectContext();
+        context.setQueryId(new TUniqueId(1L, 2L));
+        StmtExecutor executor = new StmtExecutor(context, "select 1");
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(coordinator.getDispatchedBackendIdsForAudit()).thenReturn(Set.of(10001L, 10002L));
+        executor.setCoord(coordinator);
+
+        // executeAndSendResult's finally snapshots the dispatched BEs even when its exception
+        // handler has called setCoord(null) after getNext or result sending failed.
+        executor.setCoord(null);
+        Deencapsulation.invoke(executor, "rememberDispatchedAuditBackends", coordinator);
+        Assertions.assertEquals(Set.of(10001L, 10002L),
+                AuditLogHelper.getAuditStatisticsBackendIds(executor));
+
+        // A retry gets a new query id; its audit must not wait for the failed attempt's BEs.
+        context.setQueryId(new TUniqueId(3L, 4L));
+        Assertions.assertTrue(AuditLogHelper.getAuditStatisticsBackendIds(executor).isEmpty());
+    }
+
+    @Test
+    public void testPostDispatchErrorWaitsForDelayedFinalRemoteSpillReport() {
+        int oldAuditTimeout = Config.query_audit_log_timeout_ms;
+        int oldReportTimeout = Config.be_report_query_statistics_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            Config.be_report_query_statistics_timeout_ms = 1000;
+            ConnectContext context = new ConnectContext();
+            context.setQueryId(new TUniqueId(5L, 6L));
+            StmtExecutor executor = new StmtExecutor(context, "select 1");
+            Coordinator coordinator = Mockito.mock(Coordinator.class);
+            Mockito.when(coordinator.getDispatchedBackendIdsForAudit()).thenReturn(Set.of(10001L, 10002L));
+            executor.setCoord(coordinator);
+            executor.setCoord(null);
+            Deencapsulation.invoke(executor, "rememberDispatchedAuditBackends", coordinator);
+
+            WorkloadRuntimeStatusMgr mgr = new WorkloadRuntimeStatusMgr();
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("post-dispatch-error").build();
+            mgr.submitFinishQueryToAudit(event, AuditLogHelper.getAuditStatisticsBackendIds(executor));
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+            mgr.updateBeQueryStats(finalReport(10001L, event.queryId, 100));
+            Assertions.assertTrue(((List<?>) Deencapsulation.invoke(mgr, "getQueryNeedAudit"))
+                    .isEmpty());
+            mgr.updateBeQueryStats(finalReport(10002L, event.queryId, 200));
+            Assertions.assertEquals(List.of(event), Deencapsulation.invoke(mgr, "getQueryNeedAudit"));
+            Deencapsulation.invoke(mgr, "rebuildQueryStatisticsSnapshot");
+            Assertions.assertEquals(300,
+                    mgr.getQueryStatisticsMap().get(event.queryId).getSpillWriteBytesToRemoteStorage());
+        } finally {
+            Config.query_audit_log_timeout_ms = oldAuditTimeout;
+            Config.be_report_query_statistics_timeout_ms = oldReportTimeout;
+        }
+    }
+
+    private static TReportWorkloadRuntimeStatusParams finalReport(long backendId, String queryId,
+            long remoteWriteBytes) {
+        TQueryStatistics statistics = new TQueryStatistics();
+        statistics.setTotalTasksNum(1);
+        statistics.setFinishedTasksNum(1);
+        statistics.setSpillWriteBytesToRemoteStorage(remoteWriteBytes);
+        TQueryStatisticsResult result = new TQueryStatisticsResult();
+        result.setStatistics(statistics);
+        result.setQueryFinished(true);
+        TReportWorkloadRuntimeStatusParams params = new TReportWorkloadRuntimeStatusParams();
+        params.setBackendId(backendId);
+        params.setQueryStatisticsResultMap(Map.of(queryId, result));
+        return params;
     }
 
     private void assertExternalDmlWaitsForCoordinatorBackends(LogicalPlan command, boolean success)

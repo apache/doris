@@ -48,6 +48,11 @@ class ResourceContext;
 class RemoteSpillDataDir;
 class SpillFileManager;
 
+// Reconcile the byte counter for one remote spill prefix with the objects still listed there.
+// Used after uncertain publication or partial deletion, never on the normal write path.
+Status reconcile_remote_spill_bytes(SpillDataDir* data_dir, const io::FileSystemSPtr& fs,
+                                    const std::string& dir, int64_t* accounted_bytes);
+
 // Adapts one external writer to the same root selection, capacity accounting and query cleanup
 // used by Doris spill files.
 class ExternalSpillSession {
@@ -176,6 +181,7 @@ private:
     Status _initialize_external_spill_session(ExternalSpillSession* spill_session);
     void _release_external_spill_session(ExternalSpillSession* spill_session);
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
+    std::vector<SpillDataDir*> _get_local_stores_for_spill(TStorageMedium::type storage_medium);
     SpillDataDir* _get_local_store_for_external_spill();
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
