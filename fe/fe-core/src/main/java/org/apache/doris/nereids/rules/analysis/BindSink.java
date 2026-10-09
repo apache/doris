@@ -40,6 +40,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -431,7 +432,8 @@ public class BindSink implements AnalysisRuleFactory {
             if (materializedColumnValues.containsKey(column.getName())) {
                 Expression value = materializedColumnValues.get(column.getName());
                 Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        value, DataType.fromCatalogType(column.getType())), column.getName());
+                        ConnectorWriteValueConverter.convert(column, value),
+                        DataType.fromCatalogType(column.getType())), column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
                 replaceMap.put(output.toSlot(), output.child());
@@ -440,7 +442,8 @@ public class BindSink implements AnalysisRuleFactory {
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
                 Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
+                        ConnectorWriteValueConverter.convert(column, columnToChildOutput.get(column)),
+                        DataType.fromCatalogType(column.getType())),
                         column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
@@ -906,6 +909,15 @@ public class BindSink implements AnalysisRuleFactory {
         // silently swallowed by the materialize block below and surfaces as an unrelated planning error).
         // Deliberately fed the RAW (user-typed) names, so a connector message quotes what the user wrote.
         checkConnectorStaticPartitions(table, staticPartitions, staticPartitionColNames);
+        if (staticPartitions != null) {
+            Map<String, Expression> normalized = Maps.newLinkedHashMap();
+            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                Column column = findColumn(resolvedTargetSchema, entry.getKey());
+                normalized.put(entry.getKey(), column == null ? entry.getValue()
+                        : ConnectorWriteValueConverter.convert(column, entry.getValue()));
+            }
+            staticPartitions = normalized;
+        }
 
         // Resolve the user-typed static-partition names to their canonical schema names before they are used
         // to exclude / reject bound columns below. Runs AFTER the connector validated them.
@@ -1134,7 +1146,8 @@ public class BindSink implements AnalysisRuleFactory {
             Column column = bindColumns.get(i);
             NamedExpression outputExpr = child.getOutput().get(i);
             Alias output = new Alias(
-                    TypeCoercionUtils.castIfNotSameType(outputExpr, DataType.fromCatalogType(column.getType())),
+                    TypeCoercionUtils.castIfNotSameType(ConnectorWriteValueConverter.convert(column, outputExpr),
+                            DataType.fromCatalogType(column.getType())),
                     column.getName());
             columnToOutput.put(column.getName(), output);
         }

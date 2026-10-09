@@ -445,7 +445,8 @@ public class InsertOverwriteTableCommand extends Command
             // already rejected @branch for connectors without supportsWriteBranch().
             branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
             if (sink.hasStaticPartition()) {
-                pluginCtx.setStaticPartitionSpec(encodeStaticPartitionSpec(sink.getStaticPartitionKeyValues()));
+                pluginCtx.setStaticPartitionSpecFromExpressions(sink.getStaticPartitionKeyValues(),
+                        InsertUtils.connectorWriteSchema(InsertUtils.getTargetTable(logicalQuery, ctx), true));
             }
             insertCtx = pluginCtx;
         } else {

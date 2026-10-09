@@ -134,6 +134,30 @@ class JdbcTimestampProjectionTest {
     }
 
     @Test
+    void terminalDelimiterBeforeCommentsIsRemovedWithoutChangingQuotedText() {
+        for (JdbcDbType dialect : new JdbcDbType[] {JdbcDbType.MYSQL, JdbcDbType.OCEANBASE,
+                JdbcDbType.TRINO, JdbcDbType.PRESTO, JdbcDbType.CLICKHOUSE}) {
+            JdbcQueryBuilder builder = new JdbcQueryBuilder(dialect);
+            java.util.List<org.apache.doris.connector.spi.handle.ConnectorColumnHandle> columns =
+                    java.util.Collections.singletonList(new JdbcColumnHandle(
+                            "ts", "ts", ConnectorType.of("TIMESTAMPTZ", 6, 0)));
+            String body = "SELECT ts FROM tbl WHERE label = 'a;--b'';/*c*/'";
+            for (String suffix : new String[] {" -- label", " /* label; */", " /* first */ -- last",
+                    "\n-- label\r\n/* last */"}) {
+                String query = builder.wrapPassthroughQuery(body + ";" + suffix, columns);
+                Assertions.assertTrue(query.endsWith("FROM (" + body + suffix
+                        + "\n) doris_jdbc_query"), query);
+            }
+            if (dialect == JdbcDbType.MYSQL || dialect == JdbcDbType.OCEANBASE) {
+                String bodyWithIdentifier = "SELECT `semi;colon` AS ts FROM tbl";
+                String query = builder.wrapPassthroughQuery(bodyWithIdentifier + "; # label", columns);
+                Assertions.assertTrue(query.endsWith("FROM (" + bodyWithIdentifier
+                        + " # label\n) doris_jdbc_query"), query);
+            }
+        }
+    }
+
+    @Test
     void postgresTimestampNullPredicatesAndLimitStayLocal() {
         ConnectorType type = ConnectorType.of("TIMESTAMPTZ", 6, 0);
         org.apache.doris.connector.spi.pushdown.ConnectorIsNull filter =

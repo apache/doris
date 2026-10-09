@@ -33,7 +33,7 @@ suite("test_mysql_timestamp_utc_transport", "p0,external") {
                 sql "DROP CATALOG IF EXISTS ${catalog}"
                 sql """CREATE CATALOG ${catalog} PROPERTIES (
                     "type"="jdbc", "user"="root", "password"="123456",
-                    "jdbc_url"="jdbc:mysql://${host}:${port}/doris_test?useSSL=false&useInformationSchema=true&useTimezone=true&serverTimezone=Asia/Shanghai&useServerPrepStmts=${prepared}",
+                    "jdbc_url"="jdbc:mysql://${host}:${port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull&useInformationSchema=true&useTimezone=true&serverTimezone=Asia/Shanghai&useServerPrepStmts=${prepared}",
                     "driver_url"="https://${bucket}.${s3_endpoint}/regression/jdbc_driver/${driver[1]}",
                     "driver_class"="${driver[2]}"
                 )"""
@@ -50,6 +50,20 @@ suite("test_mysql_timestamp_utc_transport", "p0,external") {
                         "(2, FROM_UNIXTIME(1577944800.000001), " +
                         "'2020-01-02 04:00:00'), " +
                         "(3, NULL, NULL)")
+                executeRemote("DROP TABLE IF EXISTS zero_timestamp_transport")
+                executeRemote("CREATE TABLE zero_timestamp_transport (id INT, event_time TIMESTAMP(6) NULL)")
+                // IGNORE creates a real zero TIMESTAMP even when the fixture enables strict SQL mode.
+                executeRemote("INSERT IGNORE INTO zero_timestamp_transport VALUES " +
+                        "(1, '0000-00-00 00:00:00'), (2, NULL)")
+                "qt_zero_${driver[0]}_${prepared}" "SELECT id, CAST(event_time AS STRING) " +
+                        "FROM ${catalog}.doris_test.zero_timestamp_transport ORDER BY id"
+                def suffixes = ["; -- trailing comment", "; /* trailing comment */"]
+                suffixes.eachWithIndex { suffix, index ->
+                    "qt_zero_query_${driver[0]}_${prepared}_${index}" """SELECT id, CAST(event_time AS STRING)
+                        FROM query("catalog"="${catalog}",
+                        "query"="SELECT id, event_time FROM zero_timestamp_transport${suffix}")
+                        ORDER BY id"""
+                }
                 for (def zone : ["UTC", "Asia/Shanghai"]) {
                     sql "SET time_zone='${zone}'"
                     String tag = "${driver[0]}_${prepared}_${zone.replace('/', '_')}"

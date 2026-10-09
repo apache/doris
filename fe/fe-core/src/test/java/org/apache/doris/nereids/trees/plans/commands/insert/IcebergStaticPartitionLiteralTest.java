@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -26,9 +29,26 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.Map;
 
 public class IcebergStaticPartitionLiteralTest {
+    @Test
+    public void uuidTextAndBytesProduceIdenticalCommitValues() {
+        Column column = new Column("u", ScalarType.createVarbinaryType(16));
+        column.setConnectorStringWriteType(Type.UUID);
+        PluginDrivenInsertCommandContext context = new PluginDrivenInsertCommandContext();
+        for (Expression value : new Expression[] {
+                new StringLiteral("00112233-4455-6677-8899-aabbccddeeff"),
+                new StringLiteral("00112233445566778899aabbccddeeff"),
+                new VarBinaryLiteral("00112233445566778899AABBCCDDEEFF")}) {
+            context.setStaticPartitionSpecFromExpressions(ImmutableMap.of("U", value),
+                    Collections.singletonList(column));
+            Assertions.assertEquals("0x00112233445566778899AABBCCDDEEFF",
+                    context.getStaticPartitionSpec().get("U"));
+        }
+    }
+
     @Test
     public void preserveNullSeparatelyFromTextAndEmptyBytes() throws Exception {
         Map<String, Expression> literals = ImmutableMap.of(

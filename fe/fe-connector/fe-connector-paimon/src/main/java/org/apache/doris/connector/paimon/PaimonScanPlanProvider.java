@@ -1004,9 +1004,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
                 }
-                // A raw-file LTZ fallback retains physical file/row positions through Paimon's SDK iterator.
-                // Merge-only splits still cannot promise those metadata values.
-                if (requiresMetadataColumns && !legacyOrcTimestamp) {
+                // Raw convertibility alone does not select the SDK raw reader: historical primary-key
+                // files without delete counts require merging and lose physical file/row positions.
+                if (requiresMetadataColumns && (!legacyOrcTimestamp || !supportsJniPhysicalMetadata(
+                        legacyOrcSchemaTable.get(), dataSplit))) {
                     validateMetadataColumnReader(true, false);
                 }
                 ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
@@ -1024,6 +1025,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return ranges;
+    }
+
+    private static boolean supportsJniPhysicalMetadata(Table table, DataSplit split) {
+        if (!split.rawConvertible() || split.isStreaming()) {
+            return false;
+        }
+        // Match Paimon's PrimaryKeyTableRawFileSplitReadProvider eligibility, not convertToRawFiles().
+        return table.primaryKeys().isEmpty()
+                || split.dataFiles().stream().allMatch(file -> file.deleteRowCount().isPresent());
     }
 
     private static boolean usesFallbackRead(Table scanTable, PaimonTableHandle handle) {

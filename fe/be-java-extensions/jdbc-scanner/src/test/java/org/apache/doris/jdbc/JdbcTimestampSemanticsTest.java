@@ -298,6 +298,22 @@ class JdbcTimestampSemanticsTest {
     }
 
     @Test
+    void testMySqlZeroTimestampKeepsDriverConversionPolicy() throws Exception {
+        MySQLTypeHandler executor = new MySQLTypeHandler("MYSQL");
+        ResultSet resultSet = Mockito.mock(ResultSet.class);
+        Mockito.when(resultSet.getString(1)).thenReturn("0000-00-00 00:00:00.000000");
+        ColumnType type = ColumnType.parseType("event_time", "timestamptz(6)");
+        LocalDateTime rounded = LocalDateTime.of(1, 1, 1, 0, 0);
+        java.sql.SQLException rejected = new java.sql.SQLException("Zero date value prohibited");
+        Mockito.when(resultSet.getDate(1))
+                .thenReturn(null).thenReturn(java.sql.Date.valueOf(rounded.toLocalDate())).thenThrow(rejected);
+        Assertions.assertNull(executor.getColumnValue(resultSet, 1, type, null));
+        Assertions.assertEquals(rounded, executor.getColumnValue(resultSet, 1, type, null));
+        Assertions.assertSame(rejected, Assertions.assertThrows(java.sql.SQLException.class,
+                () -> executor.getColumnValue(resultSet, 1, type, null)));
+    }
+
+    @Test
     void testMySqlTimestampRetainsInstantAndNull() throws Exception {
         MySQLTypeHandler executor = new MySQLTypeHandler("MYSQL");
         ResultSet resultSet = Mockito.mock(ResultSet.class);

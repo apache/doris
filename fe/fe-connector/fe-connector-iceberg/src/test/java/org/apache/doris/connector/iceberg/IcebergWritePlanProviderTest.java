@@ -301,7 +301,8 @@ public class IcebergWritePlanProviderTest {
                         .withId(4).ofType(Types.BinaryType.get())
                         .withWriteDefault(ByteBuffer.wrap(new byte[] {0x00, 0x0f, (byte) 0xff})).build(),
                 Types.NestedField.optional(5, "nullable_value", Types.IntegerType.get()),
-                Types.NestedField.required(6, "required_value", Types.IntegerType.get()));
+                Types.NestedField.required(6, "required_value", Types.IntegerType.get()),
+                Types.NestedField.optional(8, "uuid_value", Types.UUIDType.get()));
         InMemoryCatalog catalog = freshCatalog();
         Table table = catalog.createTable(TableIdentifier.of("db1", "defaults"), writeSchema,
                 PartitionSpec.unpartitioned());
@@ -316,6 +317,9 @@ public class IcebergWritePlanProviderTest {
             columns.put(column.getName(), column);
         }
 
+        Assertions.assertEquals(ConnectorType.of("UUID"), columns.get("uuid_value").getStringWriteType());
+        Assertions.assertEquals(ConnectorType.of("VARBINARY", 16, 0), columns.get("uuid_value").getType());
+        Assertions.assertNull(columns.get("payload").getStringWriteType());
         Assertions.assertFalse(columns.get("id").isNullable());
         Assertions.assertEquals("42", columns.get("value").getDefaultValueSql());
         Assertions.assertEquals("'O''Reilly'", columns.get("text").getDefaultValueSql());

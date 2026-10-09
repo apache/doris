@@ -158,6 +158,10 @@ final class IcebergWriteSchemaContext {
             ConnectorColumn column = new ConnectorColumn(
                     field.name(), type, field.doc() == null ? "" : field.doc(),
                     field.isOptional(), null, true).withUniqueId(field.fieldId());
+            if (enableMappingVarbinary && field.type().typeId() == Type.TypeID.UUID) {
+                // UUID accepts canonical text on write, while scans and typed binary inputs retain bytes.
+                column = column.withStringWriteType(ConnectorType.of("UUID"));
+            }
             if (isTimestampWithZone(field.type())) {
                 column = column.withTimeZone();
             }

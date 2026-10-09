@@ -238,13 +238,74 @@ public final class JdbcQueryBuilder {
             String name = JdbcIdentifierQuoter.quoteRemoteIdentifier(dbType, jdbcColumn.getRemoteName());
             projections.add(timestampProjection(name, jdbcColumn.getType(), 0) + " AS " + name);
         }
-        String inner = query.trim().replaceAll(";+$", "");
+        String inner = stripTerminalDelimiter(query.trim());
         // WITH SESSION belongs to the Trino statement, not to a derived-table query.
         int queryStart = dbType == JdbcDbType.TRINO ? trinoSessionQueryStart(inner) : 0;
         String prefix = inner.substring(0, queryStart);
         // A trailing SQL line comment must end before the wrapper closes its derived table.
         return prefix + "SELECT " + projections + " FROM (" + inner.substring(queryStart)
                 + "\n) doris_jdbc_query";
+    }
+
+    private String stripTerminalDelimiter(String sql) {
+        List<Integer> delimiters = new java.util.ArrayList<>();
+        for (int i = 0; i < sql.length();) {
+            char c = sql.charAt(i);
+            if (Character.isWhitespace(c)) {
+                i++;
+            } else if (sql.startsWith("--", i) || (c == '#'
+                    && (dbType == JdbcDbType.MYSQL || dbType == JdbcDbType.OCEANBASE))) {
+                while (i < sql.length() && sql.charAt(i) != '\n' && sql.charAt(i) != '\r') {
+                    i++;
+                }
+            } else if (sql.startsWith("/*", i)) {
+                int depth = 1;
+                i += 2;
+                while (i < sql.length() && depth > 0) {
+                    if (sql.startsWith("/*", i)) {
+                        depth++;
+                        i += 2;
+                    } else if (sql.startsWith("*/", i)) {
+                        depth--;
+                        i += 2;
+                    } else {
+                        i++;
+                    }
+                }
+            } else if (c == '\'' || c == '"' || c == '`') {
+                char quote = c;
+                for (i++; i < sql.length(); i++) {
+                    if (sql.charAt(i) == '\\' && dbType != JdbcDbType.TRINO && dbType != JdbcDbType.PRESTO) {
+                        i++;
+                    } else if (sql.charAt(i) == quote) {
+                        if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
+                            i++;
+                        } else {
+                            i++;
+                            break;
+                        }
+                    }
+                }
+                delimiters.clear();
+            } else {
+                if (c == ';') {
+                    delimiters.add(i);
+                } else {
+                    delimiters.clear();
+                }
+                i++;
+            }
+        }
+        // A statement delimiter may precede trailing comments, which must stay outside SQL literals.
+        // Remove only the terminal delimiter run; interior delimiters still fail as multi-statements.
+        if (delimiters.isEmpty()) {
+            return sql;
+        }
+        StringBuilder result = new StringBuilder(sql);
+        for (int i = delimiters.size() - 1; i >= 0; i--) {
+            result.deleteCharAt(delimiters.get(i));
+        }
+        return result.toString();
     }
 
     private static int trinoSessionQueryStart(String sql) {

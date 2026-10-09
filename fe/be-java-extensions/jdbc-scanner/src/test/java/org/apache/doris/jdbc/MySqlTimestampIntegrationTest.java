@@ -33,6 +33,7 @@ import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -93,6 +94,46 @@ class MySqlTimestampIntegrationTest {
             }
         } finally {
             TimeZone.setDefault(original);
+        }
+    }
+
+    @Test
+    void testZeroTimestampRespectsDriverPolicy() throws Exception {
+        URL driverUrl = new File(System.getProperty("mysql.integration.driverJar")).toURI().toURL();
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {driverUrl}, getClass().getClassLoader())) {
+            Driver driver = (Driver) loader.loadClass(System.getProperty("mysql.integration.driverClass",
+                    "com.mysql.cj.jdbc.Driver")).getDeclaredConstructor().newInstance();
+            for (String policy : new String[] {"convertToNull", "round", "exception"}) {
+                for (boolean serverPrepared : new boolean[] {false, true}) {
+                    String baseUrl = System.getProperty("mysql.integration.url");
+                    String url = baseUrl + (baseUrl.contains("?") ? "&" : "?")
+                            + "zeroDateTimeBehavior=" + policy + "&useServerPrepStmts=" + serverPrepared;
+                    Properties properties = new Properties();
+                    properties.setProperty("user", System.getProperty("mysql.integration.user", "root"));
+                    properties.setProperty("password", System.getProperty("mysql.integration.password", ""));
+                    try (Connection connection = driver.connect(url, properties)) {
+                        try (Statement statement = connection.createStatement()) {
+                            statement.execute("SET SESSION sql_mode = ''");
+                            statement.execute("CREATE TEMPORARY TABLE zero_timestamp (ts TIMESTAMP(6) NULL)");
+                            statement.execute("INSERT INTO zero_timestamp VALUES ('0000-00-00 00:00:00')");
+                        }
+                        MySQLTypeHandler handler = handler();
+                        try (PreparedStatement statement = handler.initializeStatement(connection,
+                                "SELECT CAST(ts AS CHAR) FROM zero_timestamp", 100);
+                                ResultSet rows = statement.executeQuery()) {
+                            Assertions.assertTrue(rows.next());
+                            if (policy.equals("exception")) {
+                                Assertions.assertThrows(SQLException.class,
+                                        () -> handler.getColumnValue(rows, 1, INSTANT_TYPE, null));
+                            } else {
+                                Assertions.assertEquals(policy.equals("round")
+                                                ? LocalDateTime.of(1, 1, 1, 0, 0) : null,
+                                        handler.getColumnValue(rows, 1, INSTANT_TYPE, null));
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

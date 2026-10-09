@@ -132,6 +132,13 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
                     // The SQL session is UTC, but older drivers retain a cached server zone and
                     // can shift or truncate getTimestamp()/getObject(LocalDateTime.class) results.
                     String value = rs.getString(columnIndex);
+                    if (value != null && value.startsWith("0000-00-00 ")) {
+                        // The text projection bypasses zeroDateTimeBehavior. The date decoder honors
+                        // it even with Connector/J 5.1 binary-protocol VARCHAR timestamps, where the
+                        // timestamp decoder incorrectly normalizes zero fields into a nonzero year.
+                        java.sql.Date date = rs.getDate(columnIndex);
+                        return date == null ? null : date.toLocalDate().atStartOfDay();
+                    }
                     return value == null ? null : LocalDateTime.parse(value.replace(' ', 'T'));
                 }
                 Timestamp value = rs.getTimestamp(columnIndex);
