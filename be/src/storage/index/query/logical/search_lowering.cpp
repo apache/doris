@@ -134,11 +134,11 @@ void lower_phrase_edge(std::vector<Token> tokens, Node* out) {
     out->value = Phrase {.field = {}, .slots = std::move(slots), .prefix = true, .suffix = true};
 }
 
-// Moves the trailing " ~N" or " ~N+" of a MATCH_PHRASE value into `phrase`.
-void take_slop(std::string_view* value, Phrase* phrase) {
+// Removes a trailing " ~N" or " ~N+" and returns its slop and ordering rule.
+std::pair<int32_t, bool> take_slop(std::string_view* value) {
     const size_t space = value->find_last_of(' ');
     if (space == std::string_view::npos || value->substr(space + 1, 1) != "~") {
-        return;
+        return {};
     }
     std::string_view digits = value->substr(space + 2);
     const bool ordered = digits.size() > 1 && digits.back() == '+';
@@ -149,11 +149,10 @@ void take_slop(std::string_view* value, Phrase* phrase) {
     if (digits.empty() ||
         !std::ranges::all_of(digits, [](unsigned char c) { return std::isdigit(c) != 0; }) ||
         std::from_chars(digits.data(), digits.data() + digits.size(), slop).ec != std::errc()) {
-        return;
+        return {};
     }
-    phrase->slop = slop;
-    phrase->ordered = ordered;
     *value = value->substr(0, space);
+    return {slop, ordered};
 }
 
 NodePtr lower_direct_index_leaf(const std::string& clause_type, FieldRef field,
@@ -347,10 +346,9 @@ Status lower_match(InvertedIndexQueryType query_type, std::string_view value,
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "no index query lowers query type {}", query_type_to_string(query_type));
     }
-    Phrase phrase;
-    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-        take_slop(&value, &phrase);
-    }
+    const auto [slop, ordered] = query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY
+                                         ? take_slop(&value)
+                                         : std::pair<int32_t, bool> {};
     if (!analyze) {
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
@@ -367,29 +365,29 @@ Status lower_match(InvertedIndexQueryType query_type, std::string_view value,
     }
     std::vector<Token> tokens;
     RETURN_IF_ERROR(analyze(value, &tokens));
-    // MATCH places a phrase's tokens by their order, so tokens an analyzer stacks at one position
-    // run one after another.
-    for (size_t i = 0; i < tokens.size(); ++i) {
-        tokens[i].position = static_cast<int32_t>(i + 1);
+    if (is_phrase_query(query_type)) {
+        // MATCH runs a phrase's tokens in order, including tokens stacked at one position.
+        for (size_t i = 0; i < tokens.size(); ++i) {
+            tokens[i].position = static_cast<int32_t>(i + 1);
+        }
     }
     if (tokens.empty()) {
         out->value = Empty {};
     } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-        lower_phrase(std::move(phrase), std::move(tokens), out);
+        lower_phrase(Phrase {.field = {}, .slots = {}, .slop = slop, .ordered = ordered},
+                     std::move(tokens), out);
     } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
         lower_phrase_prefix(std::move(tokens), out);
     } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
         lower_phrase_edge(std::move(tokens), out);
     } else if (tokens.size() == 1 && tokens.front().is_single_term()) {
-        out->value =
-                Term {.field = {}, .term = std::move(std::get<std::string>(tokens.front().term))};
+        out->value.emplace<Term>().term = std::move(std::get<std::string>(tokens.front().term));
     } else {
         // A row equal to the value holds every one of its tokens.
-        out->value =
-                TermSet {.field = {},
-                         .terms = flatten(std::move(tokens)),
-                         .require_all = query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
-                                        query_type == InvertedIndexQueryType::EQUAL_QUERY};
+        auto& terms = out->value.emplace<TermSet>();
+        terms.terms = flatten(std::move(tokens));
+        terms.require_all = query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+                            query_type == InvertedIndexQueryType::EQUAL_QUERY;
     }
     return Status::OK();
 }

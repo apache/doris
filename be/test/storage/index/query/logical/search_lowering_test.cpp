@@ -576,6 +576,42 @@ TEST(SearchLoweringTest, MatchAnyAllAndEqualLowerToTermSets) {
     EXPECT_TRUE(equal.as<TermSet>()->require_all);
 }
 
+TEST(SearchLoweringTest, MatchReplacesThePreviousTermSetAndBinding) {
+    FakeCatalog catalog;
+    FieldProps props;
+    ASSERT_TRUE(catalog.resolve(kText, InvertedIndexQueryType::MATCH_ANY_QUERY, &props).ok());
+    const auto analyze = [&](std::string_view text, std::vector<Token>* tokens) {
+        return catalog.analyze(props, std::string(text), tokens);
+    };
+    Node node {.value = TermSet {.field = {.name = "old", .binding = "old#index"},
+                                 .terms = {"old"},
+                                 .require_all = true,
+                                 .min_should_match = 2}};
+    ASSERT_TRUE(
+            lower_match(InvertedIndexQueryType::MATCH_ANY_QUERY, "Quick fox", analyze, &node).ok());
+    ASSERT_NE(node.as<TermSet>(), nullptr);
+    EXPECT_EQ(node.as<TermSet>()->terms, (std::vector<std::string> {"quick", "fox"}));
+    EXPECT_FALSE(node.as<TermSet>()->require_all);
+    EXPECT_EQ(node.as<TermSet>()->min_should_match, 0);
+    EXPECT_TRUE(node.field()->name.empty());
+    EXPECT_TRUE(node.field()->binding.empty());
+}
+
+TEST(SearchLoweringTest, MatchReplacesThePreviousTermAndBinding) {
+    FakeCatalog catalog;
+    FieldProps props;
+    ASSERT_TRUE(catalog.resolve(kText, InvertedIndexQueryType::MATCH_ANY_QUERY, &props).ok());
+    const auto analyze = [&](std::string_view text, std::vector<Token>* tokens) {
+        return catalog.analyze(props, std::string(text), tokens);
+    };
+    Node node {.value = Term {.field = {.name = "old", .binding = "old#index"}, .term = "old"}};
+    ASSERT_TRUE(lower_match(InvertedIndexQueryType::MATCH_ANY_QUERY, "Fox", analyze, &node).ok());
+    ASSERT_NE(node.as<Term>(), nullptr);
+    EXPECT_EQ(node.as<Term>()->term, "fox");
+    EXPECT_TRUE(node.field()->name.empty());
+    EXPECT_TRUE(node.field()->binding.empty());
+}
+
 TEST(SearchLoweringTest, MatchPhraseTakesItsSlopFromTheValue) {
     FakeCatalog catalog;
     auto sloppy = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "Quick fox ~2", catalog);
