@@ -444,6 +444,7 @@ private:
     size_t retained_batch_scratch_bytes() const;
     size_t active_batch_scratch_bytes() const;
 
+    Status _get_page_read_ranges(int64_t* right_row, RowRanges* read_ranges);
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, const DataTypePtr& type,
                         FilterMap& filter_map, bool is_dict_filter);

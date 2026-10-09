@@ -1859,6 +1859,114 @@ void write_misdeclared_two_page_parquet_file(const std::string& file_path) {
     DORIS_CHECK(output.good());
 }
 
+void shorten_first_offset_index_page(const std::string& file_path) {
+    std::ifstream input(file_path, std::ios::binary | std::ios::ate);
+    ASSERT_TRUE(input.good());
+    const auto input_size = static_cast<std::streamoff>(input.tellg());
+    ASSERT_GE(input_size, 8);
+    std::vector<uint8_t> bytes(cast_set<size_t>(input_size));
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+    ASSERT_TRUE(input.good());
+    input.close();
+    const uint32_t footer_size = decode_fixed32_le(bytes.data() + bytes.size() - 8);
+    const size_t footer_offset = bytes.size() - 8 - footer_size;
+    uint32_t thrift_size = footer_size;
+    tparquet::FileMetaData metadata;
+    ASSERT_TRUE(deserialize_thrift_msg(bytes.data() + footer_offset, &thrift_size, true, &metadata)
+                        .ok());
+    auto& column = metadata.row_groups[0].columns[0];
+    ASSERT_TRUE(column.__isset.offset_index_offset);
+    tparquet::OffsetIndex index;
+    thrift_size = column.offset_index_length;
+    ASSERT_TRUE(deserialize_thrift_msg(bytes.data() + column.offset_index_offset, &thrift_size,
+                                       true, &index)
+                        .ok());
+    ASSERT_GE(index.page_locations.size(), 3);
+    // Keep the Arrow-written data intact; only the optional index's first page size is stale.
+    --index.page_locations[0].compressed_page_size;
+    std::vector<uint8_t> serialized_index;
+    ThriftSerializer serializer(true, 1024);
+    ASSERT_TRUE(serializer.serialize(&index, &serialized_index).ok());
+    bytes.resize(footer_offset);
+    column.__set_offset_index_offset(bytes.size());
+    column.__set_offset_index_length(serialized_index.size());
+    bytes.insert(bytes.end(), serialized_index.begin(), serialized_index.end());
+    std::vector<uint8_t> footer;
+    ASSERT_TRUE(serializer.serialize(&metadata, &footer).ok());
+    bytes.insert(bytes.end(), footer.begin(), footer.end());
+    std::array<uint8_t, 4> length {};
+    encode_fixed32_le(length.data(), cast_set<uint32_t>(footer.size()));
+    bytes.insert(bytes.end(), length.begin(), length.end());
+    bytes.insert(bytes.end(), {'P', 'A', 'R', '1'});
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    ASSERT_TRUE(output.good());
+}
+
+void omit_page_from_indexes(const std::string& file_path, int omitted, int32_t* matching_value) {
+    std::ifstream input(file_path, std::ios::binary | std::ios::ate);
+    ASSERT_TRUE(input.good());
+    std::vector<uint8_t> bytes(cast_set<size_t>(static_cast<std::streamoff>(input.tellg())));
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+    ASSERT_TRUE(input.good());
+    input.close();
+    ASSERT_GE(bytes.size(), 8);
+    const uint32_t footer_size = decode_fixed32_le(bytes.data() + bytes.size() - 8);
+    const size_t footer_offset = bytes.size() - 8 - footer_size;
+    uint32_t length = footer_size;
+    tparquet::FileMetaData metadata;
+    ASSERT_TRUE(
+            deserialize_thrift_msg(bytes.data() + footer_offset, &length, true, &metadata).ok());
+    auto& column = metadata.row_groups[0].columns[0];
+    tparquet::OffsetIndex offsets;
+    length = column.offset_index_length;
+    ASSERT_TRUE(deserialize_thrift_msg(bytes.data() + column.offset_index_offset, &length, true,
+                                       &offsets)
+                        .ok());
+    tparquet::ColumnIndex statistics;
+    length = column.column_index_length;
+    ASSERT_TRUE(deserialize_thrift_msg(bytes.data() + column.column_index_offset, &length, true,
+                                       &statistics)
+                        .ok());
+    ASSERT_GE(offsets.page_locations.size(), 3);
+    const size_t page = omitted < 0 ? offsets.page_locations.size() - 1 : omitted;
+    ASSERT_LT(page, offsets.page_locations.size());
+    ASSERT_EQ(statistics.min_values[page].size(), sizeof(int32_t));
+    *matching_value = cast_set<int32_t>(decode_fixed32_le(
+            reinterpret_cast<const uint8_t*>(statistics.min_values[page].data())));
+    // Keep the physical page containing the sole predicate match intact, but omit it from both
+    // indexes. Equal index cardinalities must not make an incomplete page list safe for pruning.
+    offsets.page_locations.erase(offsets.page_locations.begin() + page);
+    statistics.null_pages.erase(statistics.null_pages.begin() + page);
+    statistics.min_values.erase(statistics.min_values.begin() + page);
+    statistics.max_values.erase(statistics.max_values.begin() + page);
+    if (statistics.__isset.null_counts) {
+        statistics.null_counts.erase(statistics.null_counts.begin() + page);
+    }
+    bytes.resize(footer_offset);
+    ThriftSerializer serializer(true, 1024);
+    std::vector<uint8_t> serialized;
+    ASSERT_TRUE(serializer.serialize(&offsets, &serialized).ok());
+    column.__set_offset_index_offset(bytes.size());
+    column.__set_offset_index_length(serialized.size());
+    bytes.insert(bytes.end(), serialized.begin(), serialized.end());
+    ASSERT_TRUE(serializer.serialize(&statistics, &serialized).ok());
+    column.__set_column_index_offset(bytes.size());
+    column.__set_column_index_length(serialized.size());
+    bytes.insert(bytes.end(), serialized.begin(), serialized.end());
+    ASSERT_TRUE(serializer.serialize(&metadata, &serialized).ok());
+    bytes.insert(bytes.end(), serialized.begin(), serialized.end());
+    std::array<uint8_t, 4> footer_length {};
+    encode_fixed32_le(footer_length.data(), cast_set<uint32_t>(serialized.size()));
+    bytes.insert(bytes.end(), footer_length.begin(), footer_length.end());
+    bytes.insert(bytes.end(), {'P', 'A', 'R', '1'});
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    ASSERT_TRUE(output.good());
+}
+
 void write_long_prefix_parquet_file(const std::string& file_path, size_t rows) {
     std::vector<int32_t> ids(rows);
     std::vector<int32_t> first(rows);
@@ -4621,6 +4729,124 @@ TEST_F(ParquetScanTest, PredicateOnlyUint32UsesConvertedDecoderDirectPath) {
     EXPECT_EQ(counter_value(profile, "FixedWidthPredicateDirectBatches"), 1);
     EXPECT_EQ(counter_value(profile, "TypedRuntimeFilterDirectBatches"), 0);
     EXPECT_EQ(counter_value(profile, "PredicateCompactionCount"), 0);
+}
+
+TEST_F(ParquetScanTest, IncompletePageIndexesRetainTheOnlyPredicateMatch) {
+    const bool original = config::enable_parquet_page_index;
+    DEFER({ config::enable_parquet_page_index = original; });
+    for (const bool dictionary : {false, true}) {
+        for (const int omitted : {0, 1, -1}) {
+            std::vector<int32_t> ids(128);
+            std::iota(ids.begin(), ids.end(), 0);
+            auto table = arrow::Table::Make(
+                    arrow::schema({arrow::field("value", arrow::int32(), false)}),
+                    {build_int32_array(ids)});
+            write_table(_file_path, table, ids.size(), dictionary, true);
+            int32_t expected = -1;
+            omit_page_from_indexes(_file_path, omitted, &expected);
+            for (const bool enabled : {false, true}) {
+                SCOPED_TRACE(testing::Message() << "dictionary=" << dictionary << ", omitted="
+                                                << omitted << ", index=" << enabled);
+                config::enable_parquet_page_index = enabled;
+                RuntimeProfile profile("incomplete_index");
+                auto reader = create_reader(0, -1, &profile);
+                reader->set_batch_size(1);
+                RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                ASSERT_TRUE(reader->init(&state).ok());
+                std::vector<format::ColumnDefinition> schema;
+                ASSERT_TRUE(reader->get_schema(&schema).ok());
+                auto request = std::make_shared<format::FileScanRequest>();
+                format::FileScanRequestBuilder builder(request.get());
+                ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
+                auto conjunct =
+                        create_int32_function_conjunct(0, "eq", TExprOpcode::EQ, expected, false);
+                ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+                ASSERT_TRUE(conjunct->open(&state).ok());
+                DEFER({ conjunct->close(); });
+                request->conjuncts.push_back(conjunct);
+                ASSERT_TRUE(reader->open(request).ok());
+                std::vector<int32_t> actual;
+                bool eof = false;
+                while (!eof) {
+                    Block block = build_file_block(schema);
+                    size_t rows = 0;
+                    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                    for (size_t row = 0; row < rows; ++row) {
+                        actual.push_back(int32_data_column(*block.get_by_position(0).column)
+                                                 .get_element(row));
+                    }
+                }
+                EXPECT_EQ(actual, std::vector<int32_t> {expected});
+                EXPECT_EQ(counter_value(profile, "FilteredRowsByPage"), 0);
+                EXPECT_EQ(counter_value(profile, "PageIndexReadCalls"), 0);
+            }
+        }
+    }
+}
+
+TEST_F(ParquetScanTest, OffsetIndexFallbackPreservesFilteredRowsAcrossPages) {
+    std::vector<int32_t> values(24);
+    std::iota(values.begin(), values.end(), 0);
+    std::vector<int32_t> payloads(24);
+    std::iota(payloads.begin(), payloads.end(), 100);
+    auto arrow_schema = arrow::schema({arrow::field("value", arrow::int32(), false),
+                                       arrow::field("payload", arrow::int32(), false)});
+    auto table = arrow::Table::Make(arrow_schema,
+                                    {build_int32_array(values), build_int32_array(payloads)});
+    const bool original_page_index = config::enable_parquet_page_index;
+    DEFER({ config::enable_parquet_page_index = original_page_index; });
+    for (const bool dictionary : {false, true}) {
+        write_table(_file_path, table, 24, dictionary, true);
+        shorten_first_offset_index_page(_file_path);
+        for (const bool enable_index : {false, true}) {
+            for (const int batch_size : {5, 64}) {
+                SCOPED_TRACE(testing::Message() << "dictionary=" << dictionary << ", index="
+                                                << enable_index << ", batch=" << batch_size);
+                config::enable_parquet_page_index = enable_index;
+                RuntimeProfile profile("index_fallback");
+                auto reader = create_reader(0, -1, &profile);
+                reader->set_batch_size(batch_size);
+                RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                ASSERT_TRUE(reader->init(&state).ok());
+                std::vector<format::ColumnDefinition> schema;
+                ASSERT_TRUE(reader->get_schema(&schema).ok());
+                auto request = std::make_shared<format::FileScanRequest>();
+                format::FileScanRequestBuilder builder(request.get());
+                ASSERT_TRUE(builder.add_predicate_column(format::LocalColumnId(0)).ok());
+                ASSERT_TRUE(builder.add_non_predicate_column(format::LocalColumnId(1)).ok());
+                auto conjunct = create_int32_function_conjunct(0, "gt", TExprOpcode::GT, 0, false);
+                ASSERT_TRUE(conjunct->prepare(&state, RowDescriptor()).ok());
+                ASSERT_TRUE(conjunct->open(&state).ok());
+                DEFER({ conjunct->close(); });
+                ASSERT_TRUE(conjunct->root()->can_evaluate_zonemap_filter());
+                request->conjuncts.push_back(conjunct);
+                ASSERT_TRUE(reader->open(request).ok());
+                std::vector<int32_t> actual_values;
+                std::vector<int32_t> actual_payloads;
+                bool eof = false;
+                while (!eof) {
+                    Block block = build_file_block(schema);
+                    size_t rows = 0;
+                    const auto status = reader->get_block(&block, &rows, &eof);
+                    ASSERT_TRUE(status.ok()) << status;
+                    for (size_t row = 0; row < rows; ++row) {
+                        actual_values.push_back(int32_data_column(*block.get_by_position(0).column)
+                                                        .get_element(row));
+                        actual_payloads.push_back(
+                                int32_data_column(*block.get_by_position(1).column)
+                                        .get_element(row));
+                    }
+                }
+                EXPECT_EQ(actual_values, (std::vector<int32_t>(values.begin() + 1, values.end())));
+                EXPECT_EQ(actual_payloads,
+                          (std::vector<int32_t>(payloads.begin() + 1, payloads.end())));
+                EXPECT_GT(counter_value(profile, dictionary ? "DictionaryPredicateDirectBatches"
+                                                            : "FixedWidthPredicateDirectBatches"),
+                          0);
+                EXPECT_EQ(counter_value(profile, "PageIndexReadCalls") > 0, enable_index);
+            }
+        }
+    }
 }
 
 TEST_F(ParquetScanTest, FixedWidthPredicateReportsUnsupportedEncodingAfterProgress) {
