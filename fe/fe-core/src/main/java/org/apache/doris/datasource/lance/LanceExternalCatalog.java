@@ -224,11 +224,19 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName) {
-        return withClient(current -> current.loadTableMetadataForSearch(dbName, tableName));
+        return loadTableMetadataForSearch(dbName, tableName, LanceRefSelector.latest());
+    }
+
+    public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName, LanceRefSelector selector) {
+        return withClient(current -> current.loadTableMetadataForSearch(dbName, tableName, selector));
     }
 
     public LanceTableMetadata loadBasicTableMetadata(String dbName, String tableName) {
-        return withClient(current -> current.loadBasicTableMetadata(dbName, tableName));
+        return loadBasicTableMetadata(dbName, tableName, LanceRefSelector.latest());
+    }
+
+    public LanceTableMetadata loadBasicTableMetadata(String dbName, String tableName, LanceRefSelector selector) {
+        return withClient(current -> current.loadBasicTableMetadata(dbName, tableName, selector));
     }
 
     public Schema loadTableSchema(String dbName, String tableName) {

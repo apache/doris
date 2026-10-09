@@ -52,7 +52,10 @@ final class LanceScanPlan {
         }
     }
 
-    /** Explains FE segment selection, not whether the BE may automatically use a Lance index. */
+    /**
+     * Explains FE segment selection. The BE searches an index only through the segments the FE
+     * plans, so a vector search under any status other than USED is a flat search.
+     */
     enum VectorIndexStatus {
         /** No vector planning result exists yet (also used by ordinary and FTS scans). */
         NOT_PLANNED,
@@ -72,7 +75,6 @@ final class LanceScanPlan {
 
     final VectorIndexStatus vectorIndexStatus;
     private final List<Split> splits;
-    final long version;
     final int fragmentCount;
     final int fragmentsPerSplit;
     final int indexSegmentCount;
@@ -80,12 +82,11 @@ final class LanceScanPlan {
     final int unindexedFragmentCount;
     final String scalarIndexName;
 
-    LanceScanPlan(List<Split> splits, long version, int fragments, int fragmentsPerSplit,
+    LanceScanPlan(List<Split> splits, int fragments, int fragmentsPerSplit,
             int indexSegments, int indexFragments, int unindexedFragments, String scalarIndexName,
             VectorIndexStatus vectorIndexStatus) {
         this.vectorIndexStatus = vectorIndexStatus;
         this.splits = Collections.unmodifiableList(new ArrayList<>(splits));
-        this.version = version;
         this.fragmentCount = fragments;
         this.fragmentsPerSplit = fragmentsPerSplit;
         this.indexSegmentCount = indexSegments;
@@ -95,7 +96,7 @@ final class LanceScanPlan {
     }
 
     static LanceScanPlan empty() {
-        return new LanceScanPlan(Collections.emptyList(), -1, 0, 0, 0, 0, 0, null, VectorIndexStatus.NOT_PLANNED);
+        return new LanceScanPlan(Collections.emptyList(), 0, 0, 0, 0, 0, null, VectorIndexStatus.NOT_PLANNED);
     }
 
     /** Backend assignment shuffles its input list; keep that mutation outside the stored plan. */
