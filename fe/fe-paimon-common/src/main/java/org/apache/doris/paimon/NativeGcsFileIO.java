@@ -32,6 +32,10 @@ import java.io.IOException;
 public class NativeGcsFileIO extends HadoopFileIO {
     private static final long serialVersionUID = 1L;
 
+    public NativeGcsFileIO(Path path) {
+        super(normalize(path));
+    }
+
     public static Path normalize(Path path) {
         String scheme = path.toUri().getScheme();
         if ("s3".equalsIgnoreCase(scheme) || "s3a".equalsIgnoreCase(scheme)) {
@@ -111,7 +115,7 @@ public class NativeGcsFileIO extends HadoopFileIO {
         @Override
         public FileIO load(Path path) {
             return "gs".equalsIgnoreCase(normalize(path).toUri().getScheme())
-                    ? new NativeGcsFileIO() : new HadoopFileIO();
+                    ? new NativeGcsFileIO(path) : new HadoopFileIO(path);
         }
     }
 }

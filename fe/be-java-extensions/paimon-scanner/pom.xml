@@ -79,6 +79,28 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!--
+          Doris's copy of the paimon handler that would end BE when a pool thread dies
+          (FatalExitExceptionHandler; see that module). copy-dependencies puts its jar in this
+          plugin's directory, where its Doris-Shadows-Classes manifest entry makes PluginRuntime
+          search it ahead of paimon-common and of the copy paimon-hive-connector bundles. Declared
+          BEFORE the paimon artifacts because surefire's classpath follows declaration order, so the
+          tests run on the copy the deployed plugin runs on - PaimonThreadDeathTest depends on that.
+          Every transitive is excluded: the module's own dependency is provided, so all that could
+          come along are the logging artifacts the fe parent pom declares on every module.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>paimon-common-patch</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-core</artifactId>
@@ -103,6 +125,11 @@ under the License.
             <artifactId>paimon-format</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-arrow</artifactId>
+        </dependency>
+
         <!--
           Paimon's object-store FileIO plugins. They register org.apache.paimon.fs.FileIOLoader
           service providers (S3Loader for s3://, JindoLoader for oss://), and FileIO.get() runs
@@ -111,7 +138,10 @@ under the License.
           constraint - these two lived on the shared preload classpath while the interface did not,
           which is a NoClassDefFoundError - and it is now simply what a plugin directory is.
 
-          paimon-s3 is a fat jar and self-contained. paimon-jindo is 24KB of adapter: the
+          paimon-s3-shade is Paimon's self-contained fat jar with only the accidental OUTER
+          multi-release overlay removed. The actual embedded runtime under paimon-plugin-s3/ is
+          unchanged; see that module for why deploying the upstream jar beside Hadoop's current
+          Bouncy Castle dependency is unsafe. paimon-jindo is 24KB of adapter: the
           implementation it names, com.aliyun.jindodata.*, ships in the JindoFS jars, which are not
           maven artifacts - build.sh copies them into this plugin directory after post-build.sh has
           packaged them (a no-op unless the build asked for jindofs, i.e. DISABLE_BUILD_JINDOFS=OFF,
@@ -121,8 +151,9 @@ under the License.
           cannot both be used by one BE process.
         -->
         <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>paimon-s3-shade</artifactId>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.paimon</groupId>
@@ -368,6 +399,15 @@ under the License.
             <artifactId>log4j-1.2-api</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-c-data</artifactId>
+        </dependency>
+
     </dependencies>
 
     <!--

@@ -414,6 +414,80 @@ TEST_F(TestVTabletWriterV2, fail_one) {
     ASSERT_EQ(tablet_commit_infos.size(), 5);
 }
 
+TEST_F(TestVTabletWriterV2, commit_info_with_results_split_across_sources) {
+    UniqueId load_id;
+    auto first_source = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    auto second_source = std::make_shared<LoadStreamMap>(load_id, src_id + 1, 1, 1, nullptr);
+    add_stream(first_source, 1001, {1}, {});
+    add_stream(first_source, 1002, {1}, {});
+    add_stream(first_source, 1003, {}, {{1, Status::InternalError("write failed")}});
+    add_stream(second_source, 1001, {}, {});
+    add_stream(second_source, 1002, {}, {});
+    add_stream(second_source, 1003, {}, {{1, Status::InternalError("write failed")}});
+
+    auto first_writer = create_vtablet_writer();
+    auto second_writer = create_vtablet_writer();
+    std::vector<TTabletCommitInfo> first_commit_infos;
+    std::vector<TTabletCommitInfo> second_commit_infos;
+    ASSERT_TRUE(first_writer->_create_commit_info(first_commit_infos, first_source).ok());
+    // The second source received the failed replica's final result, but the two
+    // successful replicas reported to the first source. It must not reject the load.
+    ASSERT_TRUE(second_writer->_create_commit_info(second_commit_infos, second_source).ok());
+    ASSERT_EQ(first_commit_infos.size(), 2);
+    ASSERT_TRUE(second_commit_infos.empty());
+    for (const auto& info : first_commit_infos) {
+        EXPECT_EQ(info.tabletId, 1);
+        EXPECT_TRUE(info.backendId == 1001 || info.backendId == 1002);
+    }
+}
+
+TEST_F(TestVTabletWriterV2, write_failure_and_version_gap_exceed_failure_quorum) {
+    for (bool gap_replica_reported_success : {false, true}) {
+        SCOPED_TRACE(gap_replica_reported_success);
+        UniqueId load_id;
+        auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+        add_stream(load_stream_map, 1001, {1}, {});
+        add_stream(load_stream_map, 1002, {}, {{1, Status::InternalError("write failed")}});
+        add_stream(
+                load_stream_map, 1003,
+                gap_replica_reported_success ? std::vector<int64_t> {1} : std::vector<int64_t> {},
+                {});
+
+        auto writer = create_vtablet_writer();
+        writer->_tablet_version_gap_backends[1].insert(1003);
+        std::vector<TTabletCommitInfo> commit_infos;
+        auto st = writer->_create_commit_info(commit_infos, load_stream_map);
+        // A version-gap replica is unavailable regardless of where its result is
+        // reported. Together with the write failure, only one valid replica remains.
+        ASSERT_FALSE(st.ok());
+        EXPECT_NE(st.to_string().find("failed on majority backends"), std::string::npos);
+        EXPECT_NE(st.to_string().find("write failed"), std::string::npos);
+        EXPECT_EQ(commit_infos.size(), gap_replica_reported_success ? 2 : 1);
+    }
+}
+
+TEST_F(TestVTabletWriterV2, version_gap_and_duplicate_write_failure_count_once) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 2, 1, nullptr);
+    add_stream(load_stream_map, 1001, {1}, {});
+    auto failed_streams = load_stream_map->get_or_create(1002);
+    failed_streams->mark_open();
+    for (const auto& stream : failed_streams->streams()) {
+        stream->add_failed_tablet(1, Status::InternalError("write failed"));
+    }
+    add_stream(load_stream_map, 1003, {}, {});
+
+    auto writer = create_vtablet_writer();
+    writer->_tablet_version_gap_backends[1].insert(1002);
+    std::vector<TTabletCommitInfo> commit_infos;
+    // Only backend 1002 is unavailable. Backend 1003 may have reported success to
+    // another source, so a missing local success must not cause a quorum failure.
+    ASSERT_TRUE(writer->_create_commit_info(commit_infos, load_stream_map).ok());
+    ASSERT_EQ(commit_infos.size(), 1);
+    EXPECT_EQ(commit_infos[0].tabletId, 1);
+    EXPECT_EQ(commit_infos[0].backendId, 1001);
+}
+
 TEST_F(TestVTabletWriterV2, fail_one_duplicate) {
     UniqueId load_id;
     std::vector<TTabletCommitInfo> tablet_commit_infos;

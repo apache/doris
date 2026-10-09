@@ -44,7 +44,7 @@ public class NativeGcsFileIOTest {
         conf.setBoolean("fs.gs.impl.disable.cache", true);
         conf.set("test.gcs.root", directory.toString());
         conf.set("fs.gs.auth.type", "APPLICATION_DEFAULT");
-        NativeGcsFileIO original = new NativeGcsFileIO();
+        NativeGcsFileIO original = new NativeGcsFileIO(new Path("s3a://bucket/warehouse"));
         original.configure(CatalogContext.create(new Options(), conf));
         NativeGcsFileIO restored = InstantiationUtil.deserializeObject(
                 InstantiationUtil.serializeObject(original), getClass().getClassLoader());

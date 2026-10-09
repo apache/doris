@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.ConnectorWritePlanContext;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
@@ -70,6 +71,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     private final boolean isRewrite;
     private final DMLCommandType dmlCommandType;
     private final boolean hasRowOperationColumn;
+    private final WritePlanContextHolder writePlanContextHolder;
 
     /**
      * constructor
@@ -207,6 +209,28 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                                       DMLCommandType dmlCommandType,
                                       boolean hasRowOperationColumn,
                                       CHILD_TYPE child) {
+        this(database, targetTable, boundTargetSchema, boundPartitionColumns,
+                boundWriteMetadataIdentity, cols, outputExprs, groupExpression, logicalProperties,
+                physicalProperties, statistics, isRewrite, dmlCommandType, hasRowOperationColumn,
+                new WritePlanContextHolder(), child);
+    }
+
+    private PhysicalConnectorTableSink(ExternalDatabase database,
+                                      ExternalTable targetTable,
+                                      List<Column> boundTargetSchema,
+                                      List<Column> boundPartitionColumns,
+                                      String boundWriteMetadataIdentity,
+                                      List<Column> cols,
+                                      List<NamedExpression> outputExprs,
+                                      Optional<GroupExpression> groupExpression,
+                                      LogicalProperties logicalProperties,
+                                      PhysicalProperties physicalProperties,
+                                      Statistics statistics,
+                                      boolean isRewrite,
+                                      DMLCommandType dmlCommandType,
+                                      boolean hasRowOperationColumn,
+                                      WritePlanContextHolder writePlanContextHolder,
+                                      CHILD_TYPE child) {
         super(PlanType.PHYSICAL_CONNECTOR_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
         this.boundTargetSchema = ImmutableList.copyOf(boundTargetSchema);
@@ -215,6 +239,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
         this.isRewrite = isRewrite;
         this.dmlCommandType = dmlCommandType;
         this.hasRowOperationColumn = hasRowOperationColumn;
+        this.writePlanContextHolder = writePlanContextHolder;
     }
 
     @Override
@@ -223,7 +248,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                 (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema,
                 boundPartitionColumns, boundWriteMetadataIdentity, cols,
                 outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                isRewrite, dmlCommandType, hasRowOperationColumn, children.get(0)));
+                isRewrite, dmlCommandType, hasRowOperationColumn, writePlanContextHolder, children.get(0)));
     }
 
     @Override
@@ -237,7 +262,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                 (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, boundPartitionColumns,
                 boundWriteMetadataIdentity, cols,
                 outputExprs, groupExpression, getLogicalProperties(), PhysicalProperties.GATHER, null,
-                isRewrite, dmlCommandType, hasRowOperationColumn, child()));
+                isRewrite, dmlCommandType, hasRowOperationColumn, writePlanContextHolder, child()));
     }
 
     @Override
@@ -247,7 +272,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                 (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, boundPartitionColumns,
                 boundWriteMetadataIdentity, cols,
                 outputExprs, groupExpression, logicalProperties.get(), PhysicalProperties.GATHER, null,
-                isRewrite, dmlCommandType, hasRowOperationColumn, children.get(0)));
+                isRewrite, dmlCommandType, hasRowOperationColumn, writePlanContextHolder, children.get(0)));
     }
 
     @Override
@@ -256,7 +281,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                 (ExternalDatabase) database, (ExternalTable) targetTable, boundTargetSchema, boundPartitionColumns,
                 boundWriteMetadataIdentity, cols,
                 outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                isRewrite, dmlCommandType, hasRowOperationColumn, child()));
+                isRewrite, dmlCommandType, hasRowOperationColumn, writePlanContextHolder, child()));
     }
 
     public List<Column> getBoundTargetSchema() {
@@ -315,6 +340,12 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
         return hasRowOperationColumn;
     }
 
+    public ConnectorWritePlanContext getWritePlanContext() {
+        Preconditions.checkState(targetTable instanceof PluginDrivenExternalTable,
+                "Connector table sink requires a plugin-driven target table");
+        return writePlanContextHolder.get((PluginDrivenExternalTable) targetTable);
+    }
+
     /**
      * Get required physical properties for sink distribution. Generalizes the legacy
      * {@code PhysicalMaxComputeTableSink.getRequirePhysicalProperties()} 3-branch behavior, gated
@@ -355,12 +386,10 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
         if (!(targetTable instanceof PluginDrivenExternalTable)) {
             return PhysicalProperties.GATHER;
         }
-        PluginDrivenExternalTable table = (PluginDrivenExternalTable) targetTable;
+        ConnectorWritePlanContext writePlanContext = getWritePlanContext();
+        Optional<ConnectorWriteDistribution> connectorDistribution = writePlanContext.getDistribution();
 
-        Optional<ConnectorWriteDistribution> connectorDistribution
-                = table.getConnectorWriteDistribution();
-
-        if (table.requirePartitionLocalSortOnWrite()) {
+        if (writePlanContext.requiresPartitionLocalSort()) {
             Set<String> partitionNames = boundPartitionColumns.stream()
                     .map(Column::getName)
                     .collect(Collectors.toSet());
@@ -418,7 +447,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
             return toPhysicalProperties(connectorDistribution.get());
         }
 
-        if (table.requirePartitionHashOnWrite()) {
+        if (writePlanContext.requiresPartitionHashWrite()) {
             Set<String> partitionNames = boundPartitionColumns.stream()
                     .map(Column::getName)
                     .collect(Collectors.toSet());
@@ -447,7 +476,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
             }
         }
 
-        if (table.supportsParallelWrite()) {
+        if (writePlanContext.requiresParallelWrite()) {
             return PhysicalProperties.SINK_RANDOM_PARTITIONED;
         }
         return PhysicalProperties.GATHER;
@@ -488,8 +517,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     private List<ExprId> routeExprIds(List<String> routeColumns) {
         List<Slot> output = child().getOutput();
         int offset = hasRowOperationColumn() ? 1 : 0;
-        PluginDrivenExternalTable table = (PluginDrivenExternalTable) targetTable;
-        List<Column> outputColumns = table.requiresFullSchemaWriteOrder()
+        List<Column> outputColumns = getWritePlanContext().requiresFullSchemaWriteOrder()
                 ? boundTargetSchema : cols;
         Preconditions.checkState(outputColumns.size() + offset == output.size(),
                 "Connector sink schema must match child output for routed writes");
@@ -503,5 +531,16 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                     "Connector route column is missing from sink output: " + column));
         }
         return exprIds;
+    }
+
+    private static class WritePlanContextHolder {
+        private ConnectorWritePlanContext context;
+
+        synchronized ConnectorWritePlanContext get(PluginDrivenExternalTable table) {
+            if (context == null) {
+                context = table.resolveWritePlanContext();
+            }
+            return context;
+        }
     }
 }
