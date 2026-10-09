@@ -82,6 +82,7 @@ public class HiveScanBatchModeTest {
     private static final String PARQUET_SERDE =
             "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
     private static final String TEXT_INPUT_FORMAT = "org.apache.hadoop.mapred.TextInputFormat";
+    private static final String LZO_TEXT_INPUT_FORMAT = "com.hadoop.mapred.DeprecatedLzoTextInputFormat";
     private static final String LAZY_SIMPLE_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
     private static final String OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
 
@@ -496,6 +497,10 @@ public class HiveScanBatchModeTest {
                 .inputFormat(PARQUET_INPUT_FORMAT)
                 .serializationLib(PARQUET_SERDE)
                 .build()));
+        // Same serde as the plain text scan; only the input format differs, and an LZO text table reads *.lzo files.
+        List<ConnectorScanRange> lzo = provider.planScan(session,
+                scanOf(text.toBuilder().inputFormat(LZO_TEXT_INPUT_FORMAT).build()));
+        Assertions.assertTrue(lzo.isEmpty(), "an LZO text scan skips the non-.lzo file the plain text scan reads");
         List<ConnectorScanRange> otherCatalog = provider.planScan(
                 new ScopeSession(8L, "same-statement", scope), scanOf(text));
         HiveTableHandle unpartitioned = new HiveTableHandle.Builder("db", "u", HiveTableType.HIVE)
@@ -512,7 +517,7 @@ public class HiveScanBatchModeTest {
                 "an unpartitioned table is identified by its location");
 
         List<List<ConnectorScanRange>> plans = Arrays.asList(plain, otherPartition, otherTable, csv,
-                stringFirstColumn, parquet, otherCatalog, atLocation, moved);
+                stringFirstColumn, parquet, lzo, otherCatalog, atLocation, moved);
         Set<List<ConnectorScanRange>> distinct = Collections.newSetFromMap(new IdentityHashMap<>());
         distinct.addAll(plans);
         Assertions.assertEquals(plans.size(), distinct.size(), "scans with different inputs must not share a plan");
