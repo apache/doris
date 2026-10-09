@@ -123,6 +123,30 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
                 + "DUPLICATE KEY(`c1`)\n"
                 + "PARTITION BY List(c1,c2) (PARTITION t10_b1 VALUES IN (('2021-01-01', 5), ('2022-01-01', 5)))"
                 + " distributed by hash(c1) buckets 1 properties('replication_num' = '1');");
+
+        // Three partitions whose keys chain: 2020-2021, 2021-2022, 2022-2023.
+        createTable("CREATE TABLE `t11` (`c1` date, `c2` int)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION t11_a VALUES IN (('2020-01-01', 1), ('2021-01-01', 1)),"
+                + "PARTITION t11_b VALUES IN (('2021-01-01', 2), ('2022-01-01', 2)),"
+                + "PARTITION t11_c VALUES IN (('2022-01-01', 3), ('2023-01-01', 3))) distributed by hash(c1) "
+                + "buckets 1 properties('replication_num' = '1');");
+
+        // The same three keys in one partition, and then a partition whose key is one of them: the second
+        // table is what adding a partition over a key the first one already covers looks like.
+        createTable("CREATE TABLE `t12` (`c1` date, `c2` int)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION t12_all VALUES IN (('2020-01-01', 1), ('2021-01-01', 2),"
+                + " ('2022-01-01', 3))) distributed by hash(c1) "
+                + "buckets 1 properties('replication_num' = '1');");
+        createTable("CREATE TABLE `t13` (`c1` date, `c2` int)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION t13_all VALUES IN (('2020-01-01', 1), ('2021-01-01', 2),"
+                + " ('2022-01-01', 3)), PARTITION t13_first VALUES IN (('2020-01-01', 9))) distributed by hash(c1)"
+                + " buckets 1 properties('replication_num' = '1');");
     }
 
     @Test
@@ -164,6 +188,65 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
                 .getTableOrAnalysisException("t10");
         Assertions.assertEquals(Sets.newHashSet("t9_a1", "t9_a2"), onePartition.get(t9));
         Assertions.assertEquals(Sets.newHashSet("t10_b1"), onePartition.get(t10));
+    }
+
+    @Test
+    public void testAChainOfOverlappingDescsIsOnePartition() throws Exception {
+        // t11's partitions project to 2020-2021, 2021-2022 and 2022-2023: the second shares a key with the
+        // first and with the third, so all four keys are one MV partition. A group of three descs has to keep
+        // the whole of its keys -- taking the last desc that joined it would leave at least one key, and so
+        // one committed row, with no MV partition to be read into.
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t11"));
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column), Maps.newHashMap());
+        Assertions.assertEquals(1, partitionKeyDescMap.size());
+        Assertions.assertEquals(4, partitionKeyDescMap.keySet().iterator().next().getInValues().size());
+        OlapTable t11 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t11");
+        Assertions.assertEquals(Sets.newHashSet("t11_a", "t11_b", "t11_c"),
+                partitionKeyDescMap.values().iterator().next().get(t11));
+    }
+
+    @Test
+    public void testAMergedDescIsTheOneTheKeySetAlreadyHad() throws Exception {
+        // t12 holds the three keys in one partition; t13 holds them in one partition plus a partition whose
+        // key is one of them, which is what `ADD PARTITION` over an existing key leaves behind. The MV
+        // partition for those keys has to come out as the same desc either way: `PartitionKeyDesc.equals`
+        // compares the key list, so a desc whose keys are written out in another order is another desc, and an
+        // alignment would drop the partition the MV holds -- with its rows -- and add an empty one.
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> t12Descs
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(
+                        getMTMVPartitionInfo(Lists.newArrayList("t12")), Maps.newHashMap(),
+                        Lists.newArrayList(c1Column), Maps.newHashMap());
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> t13Descs
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(
+                        getMTMVPartitionInfo(Lists.newArrayList("t13")), Maps.newHashMap(),
+                        Lists.newArrayList(c1Column), Maps.newHashMap());
+        Assertions.assertEquals(1, t12Descs.size());
+        Assertions.assertEquals(1, t13Descs.size());
+        Assertions.assertEquals(t12Descs.keySet().iterator().next(), t13Descs.keySet().iterator().next());
+    }
+
+    @Test
+    public void testAPrunedQueryKeepsTheMergedDesc() throws Exception {
+        // A query pruned to t8's p_single passes only that partition in, but the MV partition that holds it
+        // also holds p_double's keys: the desc it is looked up by -- and therefore recorded and rewritten
+        // with -- is the merged one, not p_single's own key.
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t8"));
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Map<List<String>, Set<String>> queryUsed = Maps.newHashMap();
+        queryUsed.put(Lists.newArrayList("internal", "test", "t8"), Sets.newHashSet("p_single"));
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column), queryUsed);
+        Assertions.assertEquals(1, partitionKeyDescMap.size());
+        Assertions.assertEquals(2, partitionKeyDescMap.keySet().iterator().next().getInValues().size());
+        OlapTable t8 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t8");
+        Assertions.assertEquals(Sets.newHashSet("p_single"), partitionKeyDescMap.values().iterator().next().get(t8));
     }
 
     @Test
