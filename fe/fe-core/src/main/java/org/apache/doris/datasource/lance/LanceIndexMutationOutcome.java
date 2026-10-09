@@ -31,10 +31,11 @@ import org.apache.doris.common.ErrorCode;
  * <ul>
  * <li>{@link Kind#SUCCESS SUCCESS} — a complete trusted native success. The commit is a fact,
  *     and the required metadata refresh finished inside the statement.
- * <li>{@link Kind#CONFIRMED_FAILURE CONFIRMED_FAILURE} — a complete trusted result proves this
- *     invocation committed nothing: a clean rejection before the mutating native invocation
- *     (for example NOT_IMPLEMENTED from a BE that has not learned the dispatch RPC), the typed
- *     commit-conflict code, or a pre-dispatch rejection such as insufficient remaining budget.
+ * <li>{@link Kind#CONFIRMED_FAILURE CONFIRMED_FAILURE} — nothing was committed, proven either
+ *     before the send (nothing was sent: budget exhaustion, admission rejection, a backend
+ *     connection that could not be established) or by a complete trusted result: a clean
+ *     rejection before the mutating native invocation (for example NOT_IMPLEMENTED from a BE
+ *     that has not learned the dispatch RPC) or the typed commit-conflict code.
  * <li>{@link Kind#INDETERMINATE INDETERMINATE} — dispatched, but no complete trusted result
  *     arrived (timeout, disconnect, worker loss, protocol ambiguity). The mutation may or may
  *     not have committed.
@@ -99,7 +100,8 @@ public final class LanceIndexMutationOutcome {
     /**
      * A confirmed non-commit. {@code lanceResultCode} is the typed code of the trusted
      * rejecting result, or {@link #LANCE_RESULT_OK} when the failure predates dispatch and no
-     * provider result exists (budget exhaustion, admission rejection).
+     * provider result exists (budget exhaustion, no backend, a backend connection that could
+     * not be established, admission rejection).
      */
     public static LanceIndexMutationOutcome confirmedFailure(int lanceResultCode, String message) {
         return new LanceIndexMutationOutcome(Kind.CONFIRMED_FAILURE, lanceResultCode, message);
@@ -165,9 +167,9 @@ public final class LanceIndexMutationOutcome {
     }
 
     /**
-     * Builds the exception directly instead of going through ErrorReport: reportAnalysisException
-     * throws (and stamps ConnectContext state), while this method returns the exception for the
-     * caller to throw at the statement boundary.
+     * Builds the exception directly instead of going through ErrorReport:
+     * reportAnalysisException throws the exception from inside the helper, while this model
+     * returns the exception for the caller to throw at the statement boundary.
      */
     private AnalysisException userException(ErrorCode errorCode) {
         return new AnalysisException(errorCode.formatErrorMsg(detail()), errorCode);

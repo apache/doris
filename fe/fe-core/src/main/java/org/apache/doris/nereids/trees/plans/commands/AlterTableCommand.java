@@ -48,6 +48,7 @@ import org.apache.doris.datasource.lance.LanceIndexMutationOutcome;
 import org.apache.doris.datasource.lance.LanceIndexMutationPlan;
 import org.apache.doris.datasource.lance.LanceIndexMutationValidator;
 import org.apache.doris.datasource.lance.index.LanceIndexMutationExecutor;
+import org.apache.doris.datasource.lance.index.LanceIndexMutationRefresher;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -575,9 +576,21 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                         (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf,
                         dropIndexOp.getIndexName(), dropIndexOp.isSetIfExists());
             }
-            // An IF preflight no-op completes with the default OK packet, exactly as before the
-            // synchronous execution path existed.
+            // An IF preflight no-op completes with the default OK packet, exactly as before
+            // the synchronous execution path existed - but it still owes the same bounded
+            // local cache invalidation the entry-internal no-op completes (design v6
+            // section 2.3): the two no-op paths must behave identically. A residual failure
+            // is the typed no-op refresh error: nothing was mutated, so it is neither a
+            // build failure nor an ambiguity.
             if (plan == null) {
+                String refreshFailure = LanceIndexMutationRefresher
+                        .forTable((LanceExternalTable) tableIf).invalidateTableMetadata();
+                if (refreshFailure != null) {
+                    throw new AnalysisException(
+                            ErrorCode.ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED.formatErrorMsg(
+                                    "the admission no-op completed, but " + refreshFailure),
+                            ErrorCode.ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED);
+                }
                 return;
             }
             // Execute outside the admission critical section (capture -> bounded execution ->

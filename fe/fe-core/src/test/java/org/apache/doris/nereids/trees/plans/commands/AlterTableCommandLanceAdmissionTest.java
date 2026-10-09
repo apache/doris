@@ -31,6 +31,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalDatabase;
@@ -113,6 +114,7 @@ public class AlterTableCommandLanceAdmissionTest {
         private final MockedStatic<Env> mockedEnv;
         private final Env env;
         private final CatalogMgr catalogMgr;
+        private final ExternalMetaCacheMgr extMetaCacheMgr;
         private final LanceExternalCatalog catalog;
         private final LanceExternalDatabase database;
         private final LanceExternalTable table;
@@ -122,6 +124,7 @@ public class AlterTableCommandLanceAdmissionTest {
             mockedEnv = Mockito.mockStatic(Env.class);
             env = Mockito.mock(Env.class);
             catalogMgr = new CatalogMgr();
+            extMetaCacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
             AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
             catalog = Mockito.mock(LanceExternalCatalog.class);
             database = Mockito.mock(LanceExternalDatabase.class);
@@ -130,6 +133,9 @@ public class AlterTableCommandLanceAdmissionTest {
 
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            // The admission no-op's local cache invalidation goes through the production
+            // refresher, which reads the external metadata cache manager off the env.
+            Mockito.when(env.getExtMetaCacheMgr()).thenReturn(extMetaCacheMgr);
             Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class),
                     Mockito.eq(CTL), Mockito.eq(DB), Mockito.eq(TBL),
                     Mockito.eq(PrivPredicate.ALTER))).thenReturn(true);
@@ -409,7 +415,11 @@ public class AlterTableCommandLanceAdmissionTest {
             run(fixture.executor, "CREATE INDEX IF NOT EXISTS idx ON " + CTL + "." + DB + "." + TBL
                     + " (v) USING ANN " + VALID_ANN_PROPERTIES);
 
-            // The IF no-op completes as a plain success: no result set, no id, no alter path.
+            // The IF no-op completes as a plain success: no result set, no id, no alter path -
+            // and it still pays its bounded local cache invalidation, exactly as the
+            // entry-internal no-op does (the two no-op paths behave identically).
+            Mockito.verify(fixture.extMetaCacheMgr, Mockito.times(1))
+                    .invalidateTableCache(fixture.table);
             Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
             Mockito.verify(fixture.env, Mockito.never()).alterTable(Mockito.any());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
@@ -424,6 +434,44 @@ public class AlterTableCommandLanceAdmissionTest {
 
             run(fixture.executor, "DROP INDEX IF EXISTS idx ON " + CTL + "." + DB + "." + TBL);
 
+            // Same obligation as the CREATE IF no-op: the local cache invalidation runs.
+            Mockito.verify(fixture.extMetaCacheMgr, Mockito.times(1))
+                    .invalidateTableCache(fixture.table);
+            Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
+            Mockito.verify(fixture.env, Mockito.never()).getNextId();
+            Mockito.verify(fixture.env, Mockito.never()).alterTable(Mockito.any());
+        }
+    }
+
+    @Test
+    public void admissionNoOpWithFailedInvalidationReportsTheTypedRefreshError() throws Exception {
+        Config.enable_lance_index_mutation = true;
+        try (LanceFixture fixture = new LanceFixture(false)) {
+            fixture.respondWithSnapshot(
+                    Collections.singletonList(new LanceShowIndexInfo("idx",
+                            Collections.singletonList("v"), "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
+                    Collections.singletonList(
+                            new PhysicalIndexInfo("idx", "uuid-1", DATASET_VERSION, "VECTOR")));
+            Mockito.doThrow(new RuntimeException("cache manager exploded"))
+                    .when(fixture.extMetaCacheMgr).invalidateTableCache(fixture.table);
+
+            AnalysisException exception = runAndGetCommonAnalysisException(fixture.executor,
+                    "CREATE INDEX IF NOT EXISTS idx ON " + CTL + "." + DB + "." + TBL
+                            + " (v) USING ANN " + VALID_ANN_PROPERTIES);
+            // The no-op stands, its residual refresh failure is the typed no-op refresh error
+            // of the confirmed family - not an OK, not a build failure, not an ambiguity.
+            Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REFRESH_FAILED,
+                    exception.getMysqlErrorCode());
+            Assertions.assertTrue(exception.getDetailMessage().contains("no mutation was executed"),
+                    exception.getDetailMessage());
+            Assertions.assertTrue(exception.getDetailMessage().contains("the admission no-op"),
+                    exception.getDetailMessage());
+            // The bounded retry ran the invalidation the promised number of times (3 is
+            // LocalTableInvalidation.MAX_ATTEMPTS, package-private to the refresher's own
+            // suite), and the statement never reached the dispatch, the id allocation, or
+            // the generic path.
+            Mockito.verify(fixture.extMetaCacheMgr, Mockito.times(3))
+                    .invalidateTableCache(fixture.table);
             Mockito.verify(fixture.executor, Mockito.never()).sendResultSet(Mockito.any());
             Mockito.verify(fixture.env, Mockito.never()).getNextId();
             Mockito.verify(fixture.env, Mockito.never()).alterTable(Mockito.any());

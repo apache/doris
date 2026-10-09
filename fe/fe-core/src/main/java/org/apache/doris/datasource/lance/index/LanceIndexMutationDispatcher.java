@@ -42,17 +42,38 @@ import org.apache.doris.thrift.TLanceIndexMutationResult;
  *     a possibly-committed mutation. The executor honors its cancel signal only at phase
  *     boundaries before the dispatch; after the dispatch the timeout is the only way the call
  *     returns.
- * <li><b>Raw failures.</b> Every failure propagates unwrapped to the classifier
- *     ({@link LanceIndexMutationExecutor}), which decides the outcome; message text never
+ * <li><b>Raw failures, split at the borrow.</b> A failure that provably predates the send -
+ *     everything the borrow can throw, connection establishment (the pool factory's
+ *     {@code transport.open()}) and pool admission included - propagates wrapped in
+ *     {@link PreDispatchTransportException}: the invocation was never written to any socket,
+ *     so the classifier maps it to a confirmed failure. Every failure after the borrow
+ *     succeeded propagates unwrapped to the classifier ({@link LanceIndexMutationExecutor}),
+ *     which keeps it indeterminate because the send may have started; message text never
  *     participates in classification.
  * </ul>
  */
 public interface LanceIndexMutationDispatcher {
 
     /**
+     * Marks a failure the dispatcher can prove happened before any invocation byte was
+     * written: connection establishment or pool admission failed, so the payload was never
+     * sent. The classifier maps this to the confirmed-failure family ("nothing was sent");
+     * everything the send itself can throw stays unwrapped because it cannot prove a
+     * non-commit.
+     */
+    final class PreDispatchTransportException extends Exception {
+        private static final long serialVersionUID = 1L;
+
+        public PreDispatchTransportException(Throwable cause) {
+            super(cause);
+        }
+    }
+
+    /**
      * Sends one mutation request to {@code backend} and blocks for its answer, bounded by
      * {@code timeoutMillis}. Returns the backend's complete answer (whose own status decides
-     * the classification), or throws whatever transport or protocol failure occurred.
+     * the classification), or throws whatever transport or protocol failure occurred - the
+     * pre-send failures wrapped as {@link PreDispatchTransportException}, the rest raw.
      */
     TLanceIndexMutationResult dispatch(TLanceIndexMutationRequest request, Backend backend,
             long timeoutMillis) throws Exception;

@@ -1264,8 +1264,9 @@ public enum ErrorCode {
             + " invalidation failed (%s); no mutation was executed and this is not a build failure"),
 
     ERR_LANCE_INDEX_MUTATION_REJECTED(5108, new byte[]{'4', '2', '0', '0', '0'},
-            "Lance index mutation was rejected and nothing was committed (%s); the complete"
-            + " trusted result proves this invocation made no change"),
+            "Lance index mutation was rejected and nothing was committed (%s); either nothing"
+            + " was sent to the backend, or the complete trusted result proves this invocation"
+            + " made no change"),
 
     ERR_NOT_CLOUD_MODE(6000, new byte[]{'4', '2', '0', '0', '0'},
             "Command only support in cloud mode.");
