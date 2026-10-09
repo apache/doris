@@ -18,6 +18,8 @@
 #pragma once
 
 #include <map>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -55,6 +57,8 @@ public:
     Status abort_split() override;
     Status close() override;
     void set_batch_size(size_t batch_size) override;
+    // The JNI heap gate's admission, while a split that declared its heap waits for it.
+    std::optional<SharedListenableFuture<Void>> waiting_for() const override;
 
 #ifdef BE_TEST
     void TEST_set_split_state(bool scanner_opened, bool eof) {
@@ -100,9 +104,9 @@ private:
     void _reset_split_state(JNIEnv* env);
     void _prepare_jni_scanner_schema();
     void _apply_common_scanner_params();
-    // Waits at the JVM heap gate for the heap this split's range declares, if it declares any.
-    // False when the scan stopped meanwhile: then the split opens no Java scanner.
-    [[nodiscard]] bool _admit_by_declared_heap();
+    // Opens the Java scanner of a split that declared no heap, or whose wait for it is over: an
+    // admitted split opens, and one whose scan stopped first ends without opening.
+    Status _open_admitted_jni_scanner();
     Status _create_jni_scanner(JNIEnv* env, int batch_size);
     // get_next
     Status _fill_jni_block(JniDataBridge::TableMetaAddress& table_meta, size_t num_rows);
@@ -129,9 +133,10 @@ private:
     RuntimeProfile::Counter* _jvm_heap_declared_bytes = nullptr;
     RuntimeProfile::ConditionCounter* _max_time_split_weight_counter = nullptr;
 
-    // Admits this reader's Java scanner by the JVM heap its range declares
-    // (util/jni_scan_heap_gate.h). Held while the scanner is open.
-    JniScanHeapGate::Permit _heap_permit;
+    // The JVM heap the current split's range declares (util/jni_scan_heap_gate.h): in line until
+    // the gate admits it, then held while the Java scanner is open. Null for a split that declares
+    // none.
+    std::unique_ptr<JniScanHeapGate::Admission> _heap_admission;
 
     int64_t _jni_scanner_open_watcher = 0;
     int64_t _java_scan_watcher = 0;
