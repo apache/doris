@@ -253,19 +253,11 @@ TEST(AggregateFunctionUniqVariantTest, NullableFactorySkipsSqlNullButCountsVaria
     EXPECT_EQ(result(*function, state.place), 4);
 }
 
-TEST(AggregateFunctionUniqVariantTest, FactoryRejectsLegacyVariant) {
-    try {
-        static_cast<void>(AggregateFunctionSimpleFactory::instance().get(
-                "multi_distinct_count", {std::make_shared<DataTypeVariant>()},
-                std::make_shared<DataTypeInt64>(), false,
-                BeExecVersionManager::get_newest_version()));
-        FAIL() << "Expected legacy Variant to be rejected";
-    } catch (const Exception& exception) {
-        EXPECT_EQ(exception.code(), ErrorCode::INVALID_ARGUMENT);
-        EXPECT_NE(exception.message().find("legacy Variant"), std::string::npos)
-                << exception.message();
-        EXPECT_NE(exception.message().find("Variant V2"), std::string::npos) << exception.message();
-    }
+TEST(AggregateFunctionUniqVariantTest, FactoryAcceptsPublicVariantAlias) {
+    AggregateFunctionPtr function = AggregateFunctionSimpleFactory::instance().get(
+            "multi_distinct_count", {std::make_shared<DataTypeVariant>()},
+            std::make_shared<DataTypeInt64>(), false, BeExecVersionManager::get_newest_version());
+    ASSERT_NE(function, nullptr);
 }
 
 } // namespace

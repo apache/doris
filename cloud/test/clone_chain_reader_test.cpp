@@ -1929,6 +1929,58 @@ TEST_F(CloneChainReaderTest, GetRowsetMeta) {
     }
 }
 
+TEST_F(CloneChainReaderTest, GetRowsetMetasMinReadVersionstamp) {
+    constexpr int64_t tablet_id = 15001;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+    auto put_rowset = [&](const std::string& instance_id, const std::string& id, int64_t start,
+                          int64_t end, Versionstamp version, bool compact) {
+        doris::RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0);
+        rowset.set_rowset_id_v2(id);
+        rowset.set_tablet_id(tablet_id);
+        rowset.set_start_version(start);
+        rowset.set_end_version(end);
+        auto key = compact ? versioned::meta_rowset_compact_key({instance_id, tablet_id, end})
+                           : versioned::meta_rowset_load_key({instance_id, tablet_id, end});
+        ASSERT_TRUE(versioned::document_put(txn.get(), key, version, std::move(rowset)));
+    };
+    put_rowset("A", "L1", 1, 1, Versionstamp(70, 1), false);
+    put_rowset("A", "L2", 2, 2, Versionstamp(80, 1), false);
+    put_rowset("A", "L3", 3, 3, Versionstamp(90, 1), false);
+    put_rowset("A", "compact", 2, 3, Versionstamp(150, 2), true);
+    // This source rowset is newer than A's source snapshot (1000) and is invisible to C.
+    put_rowset("A", "too_new", 1, 3, Versionstamp(1000, 1), true);
+    put_rowset("C", "L4", 4, 4, Versionstamp(2170, 1), false);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    CloneChainReader reader(instance_ids_[2], Versionstamp(3000), txn_kv_.get(),
+                            resource_mgr_.get());
+    std::vector<doris::RowsetMetaCloudPB> rowsets;
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 2, 4, &rowsets), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(rowsets.size(), 2);
+    EXPECT_EQ(rowsets[0].rowset_id_v2(), "compact");
+    EXPECT_EQ(rowsets[0].start_version(), 2);
+    EXPECT_EQ(rowsets[0].end_version(), 3);
+    EXPECT_EQ(rowsets[0].reference_instance_id(), "A");
+    EXPECT_EQ(rowsets[1].rowset_id_v2(), "L4");
+    EXPECT_EQ(rowsets[1].start_version(), 4);
+    EXPECT_EQ(rowsets[1].end_version(), 4);
+    EXPECT_EQ(rowsets[1].reference_instance_id(), "C");
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(150, 2));
+
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 1, 1, &rowsets), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(rowsets.size(), 1);
+    EXPECT_EQ(rowsets[0].rowset_id_v2(), "L1");
+    EXPECT_EQ(rowsets[0].reference_instance_id(), "A");
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(70, 1));
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 2, 4, &rowsets), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(70, 1));
+    ASSERT_EQ(reader.get_rowset_metas(tablet_id, 5, 6, &rowsets), TxnErrorCode::TXN_OK);
+    EXPECT_TRUE(rowsets.empty());
+    EXPECT_EQ(reader.min_read_versionstamp(), Versionstamp(70, 1));
+}
+
 TEST_F(CloneChainReaderTest, GetRowsetMetas) {
     std::string instance_id = instance_ids_[2]; // C
     Versionstamp snapshot_version = snapshot_versions_[2];
@@ -2178,6 +2230,68 @@ TEST_F(CloneChainReaderTest, GetTabletMeta) {
         ASSERT_EQ(tablet_meta.partition_id(), 2003);
         ASSERT_EQ(tablet_meta.schema_version(), 3);
     }
+}
+
+TEST_F(CloneChainReaderTest, GetTabletMetaThroughDeletedIntermediateClone) {
+    ResourceManager resource_mgr(txn_kv_);
+
+    InstanceInfoPB instance_b;
+    instance_b.set_instance_id(instance_ids_[1]);
+    instance_b.set_status(InstanceInfoPB::NORMAL);
+    instance_b.set_source_instance_id(instance_ids_[0]);
+    instance_b.set_source_snapshot_id(Versionstamp(snapshot_versions_[0]).to_string());
+    resource_mgr.refresh_instance(instance_ids_[1], instance_b);
+
+    InstanceInfoPB instance_c;
+    instance_c.set_instance_id(instance_ids_[2]);
+    instance_c.set_status(InstanceInfoPB::NORMAL);
+    instance_c.set_source_instance_id(instance_ids_[1]);
+    instance_c.set_source_snapshot_id(Versionstamp(snapshot_versions_[1]).to_string());
+    resource_mgr.refresh_instance(instance_ids_[2], instance_c);
+
+    constexpr int64_t tablet_id = 16002;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string tablet_meta_key = versioned::meta_tablet_key({instance_ids_[0], tablet_id});
+        doris::TabletMetaCloudPB tablet_meta;
+        tablet_meta.set_tablet_id(tablet_id);
+        tablet_meta.set_table_id(1001);
+        ASSERT_TRUE(versioned::document_put(txn.get(), tablet_meta_key, std::move(tablet_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Single-level clone lookup remains unchanged.
+    {
+        CloneChainReader reader(instance_ids_[1], Versionstamp(snapshot_versions_[1]),
+                                txn_kv_.get(), &resource_mgr);
+        doris::TabletMetaCloudPB tablet_meta;
+        Versionstamp versionstamp;
+        ASSERT_EQ(reader.get_tablet_meta(tablet_id, &tablet_meta, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        EXPECT_EQ(tablet_meta.table_id(), 1001);
+    }
+
+    instance_b.set_status(InstanceInfoPB::DELETED);
+    resource_mgr.refresh_instance(instance_ids_[1], instance_b);
+
+    // B's tombstone still carries B -> A lineage, so C can continue to A.
+    CloneChainReader reader(instance_ids_[2], Versionstamp(snapshot_versions_[2]), txn_kv_.get(),
+                            &resource_mgr);
+    doris::TabletMetaCloudPB tablet_meta;
+    Versionstamp versionstamp;
+    ASSERT_EQ(reader.get_tablet_meta(tablet_id, &tablet_meta, &versionstamp), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(tablet_meta.table_id(), 1001);
+
+    // Decoupling the deleted intermediate clone clears both lineage fields and its mapping.
+    instance_b.clear_source_instance_id();
+    instance_b.clear_source_snapshot_id();
+    resource_mgr.refresh_instance(instance_ids_[1], instance_b);
+
+    std::string source_instance_id;
+    Versionstamp source_snapshot_version;
+    EXPECT_FALSE(resource_mgr.get_source_snapshot_info(instance_ids_[1], &source_instance_id,
+                                                       &source_snapshot_version));
 }
 
 TEST_F(CloneChainReaderTest, GetTabletSchema) {

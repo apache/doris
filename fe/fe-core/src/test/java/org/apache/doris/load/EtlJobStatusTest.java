@@ -19,8 +19,8 @@ package org.apache.doris.load;
 
 import org.apache.doris.thrift.TEtlState;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -70,18 +70,18 @@ public class EtlJobStatusTest {
         stats = etlJobStatus1.getStats();
         counters = etlJobStatus1.getCounters();
 
-        Assert.assertEquals(etlJobStatus1.getState().name(), "FINISHED");
+        Assertions.assertEquals(etlJobStatus1.getState().name(), "FINISHED");
         for (int count = 0; count < 5; ++count) {
             String statsKey = "statsKey" + count;
             String statsValue = "statsValue" + count;
             String countersKey = "countersKey" + count;
             String countersValue = "countersValue" + count;
-            Assert.assertEquals(stats.get(statsKey), statsValue);
-            Assert.assertEquals(counters.get(countersKey), countersValue);
+            Assertions.assertEquals(stats.get(statsKey), statsValue);
+            Assertions.assertEquals(counters.get(countersKey), countersValue);
         }
 
-        Assert.assertEquals(etlJobStatus, etlJobStatus1);
-        Assert.assertEquals(trackingUrl, etlJobStatus1.getTrackingUrl());
+        Assertions.assertEquals(etlJobStatus, etlJobStatus1);
+        Assertions.assertEquals(trackingUrl, etlJobStatus1.getTrackingUrl());
 
         dis.close();
         file.delete();

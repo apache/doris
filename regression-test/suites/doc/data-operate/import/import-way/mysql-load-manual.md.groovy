@@ -16,6 +16,7 @@
 // under the License.
 
 import org.junit.jupiter.api.Assertions
+import org.apache.doris.regression.util.MySqlClient
 
 suite("docs/data-operate/import/import-way/mysql-load-manual.md") {
     def is_linux = System.getProperty("os.name").toLowerCase().contains("linux")
@@ -51,13 +52,18 @@ suite("docs/data-operate/import/import-way/mysql-load-manual.md") {
     }
     def load_local = {String sql ->
         if (is_linux) {
-            var output = cmd """
-                cd ${context.file.parent} && \\ 
-                cat << EOF | mysql --local-infile -vvv -h ${getMasterIp()} -P ${getMasterPort("mysql")} -u ${context.config.jdbcUser} ${context.config.jdbcPassword.isEmpty() ? "" : "-p  ${context.config.jdbcPassword}"} -D testdb
-${sql}
-EOF
-            """
-            println(output)
+            def options = ['--local-infile', '-vvv', '-h', getMasterIp().toString(),
+                           '-P', getMasterPort('mysql').toString(), '-D', 'testdb']
+            if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+                options.addAll(['--ssl-mode=VERIFY_CA',
+                                "--ssl-ca=${context.config.otherConfigs.get('trustCACert')}",
+                                "--ssl-cert=${context.config.otherConfigs.get('trustCert')}",
+                                "--ssl-key=${context.config.otherConfigs.get('trustCAKey')}"])
+            }
+            def result = MySqlClient.execute(context.config.jdbcUser, context.config.jdbcPassword,
+                    options, sql, context.file.parentFile)
+            assert result.exitCode == 0: "mysql exited with ${result.exitCode}: ${result.stderr}"
+            println(result.stdout)
         }
     }
 

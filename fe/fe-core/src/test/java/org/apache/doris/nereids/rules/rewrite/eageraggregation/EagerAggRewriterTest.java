@@ -717,6 +717,43 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
+    void testNotPushConcatWsToNullableSideOfOuterJoin() {
+        // concat_ws(',', NULL) returns an empty string, so unmatched rows contribute to count.
+        // Pushing the aggregate to the nullable side would lose these contributions.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select count(concat_ws(',', t1.name)), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            sql = "select count(concat_ws(',', t2.name)), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+
+            // Inner joins do not introduce null-extended rows, so pushdown remains safe.
+            sql = "select count(concat_ws(',', t1.name)), t2.id2"
+                    + " from t1 join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalAggregate(logicalProject(logicalJoin(logicalAggregate(), any()))))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
     void testNotPushNvlToNullableSideOfOuterJoin() {
         // count(nvl(col, default)): NVL converts NULL input to default.
         connectContext.getSessionVariable().setEagerAggregationMode(1);

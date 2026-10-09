@@ -24,8 +24,8 @@ import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -36,7 +36,7 @@ public class StreamingInsertJobLagTest {
     @Test
     public void testLastSourceEventTimestampUsesOffsetProvider() {
         StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
-        Assert.assertEquals(0L, job.getLastSourceEventTimestampSeconds());
+        Assertions.assertEquals(0L, job.getLastSourceEventTimestampSeconds());
 
         JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
         Map<String, String> committedOffset = new HashMap<>();
@@ -46,9 +46,9 @@ public class StreamingInsertJobLagTest {
         provider.setCurrentOffset(new JdbcOffset(Collections.singletonList(new BinlogSplit(committedOffset))));
         Deencapsulation.setField(job, "offsetProvider", provider);
 
-        Assert.assertEquals(1787039821L, job.getLastSourceEventTimestampSeconds());
+        Assertions.assertEquals(1787039821L, job.getLastSourceEventTimestampSeconds());
         job.setLastTaskSuccessTime(1787039821123L);
-        Assert.assertEquals(1787039821L, job.getLastTaskSuccessTimeSeconds());
+        Assertions.assertEquals(1787039821L, job.getLastTaskSuccessTimeSeconds());
     }
 
     @Test
@@ -71,6 +71,6 @@ public class StreamingInsertJobLagTest {
         alterProperties.put(StreamingJobProperties.OFFSET_PROPERTY, "{\"lsn\":\"200\"}");
         Deencapsulation.invoke(job, "modifyPropertiesInternal", alterProperties);
 
-        Assert.assertEquals(-1, provider.getLagBytes());
+        Assertions.assertEquals(-1, provider.getLagBytes());
     }
 }

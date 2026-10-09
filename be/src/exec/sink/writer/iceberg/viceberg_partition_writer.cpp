@@ -23,8 +23,8 @@
 #include "core/block/materialize_block.h"
 #include "core/column/column_map.h"
 #include "format/table/iceberg/schema.h"
+#include "format/transformer/viceberg_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_transformer.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
 
@@ -52,6 +52,9 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
           _closed_file_callback(std::move(closed_file_callback)) {
     if (t_sink.iceberg_table_sink.__isset.collect_column_stats) {
         _collect_column_stats = t_sink.iceberg_table_sink.collect_column_stats;
+    }
+    if (t_sink.iceberg_table_sink.__isset.nan_count_field_ids) {
+        _nan_count_field_ids = t_sink.iceberg_table_sink.nan_count_field_ids;
     }
 }
 
@@ -105,16 +108,16 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
                                               .parquet_version = TParquetVersion::PARQUET_1_0,
                                               .parquet_disable_dictionary = false,
                                               .enable_int96_timestamps = false};
-        _file_format_transformer = std::make_unique<VParquetTransformer>(
+        _file_format_transformer = std::make_unique<VIcebergParquetWriter>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
-                parquet_options, _iceberg_schema_json, &_schema);
+                parquet_options, _iceberg_schema_json, _schema, _nan_count_field_ids);
         open_status = _file_format_transformer->open();
         break;
     }
     case TFileFormatType::FORMAT_ORC: {
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
-                _compress_type, &_schema, _fs);
+                _compress_type, &_schema, _fs, _nan_count_field_ids);
         open_status = _file_format_transformer->open();
         break;
     }
@@ -196,7 +199,7 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     }
     if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
         TIcebergColumnStats column_stats;
-        RETURN_IF_ERROR(static_cast<VParquetTransformer*>(_file_format_transformer.get())
+        RETURN_IF_ERROR(static_cast<VIcebergParquetWriter*>(_file_format_transformer.get())
                                 ->collect_file_statistics_after_close(&column_stats));
         commit_data->__set_column_stats(column_stats);
     } else if (_file_format_type == TFileFormatType::FORMAT_ORC) {

@@ -41,7 +41,6 @@
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/rowset/rowset_writer_context.h"
-#include "storage/segment/segment_writer.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
@@ -177,18 +176,19 @@ protected:
 
         RowsetWriterContext rowset_context;
         rowset_context.write_type = write_type;
-        SegmentWriterOptions options;
+        VerticalSegmentWriterOptions options;
         options.write_type = write_type;
         options.rowset_ctx = &rowset_context;
-        SegmentWriter writer(data_file_writer.get(), /*segment_id=*/0, schema, nullptr, nullptr,
-                             options, index_file_writer.get());
+        VerticalSegmentWriter writer(data_file_writer.get(), /*segment_id=*/0, schema, nullptr,
+                                     nullptr, options, index_file_writer.get());
         ASSERT_TRUE(writer.init().ok());
         Block block = create_block();
         ASSERT_TRUE(writer.append_block(&block, 0, block.rows()).ok());
 
         uint64_t segment_size = 0;
         uint64_t index_size = 0;
-        ASSERT_TRUE(writer.finalize(&segment_size, &index_size).ok());
+        ASSERT_TRUE(writer.finalize_columns(&index_size).ok());
+        ASSERT_TRUE(writer.finalize_footer(&segment_size).ok());
         ASSERT_TRUE(index_file_writer->begin_close().ok());
         ASSERT_TRUE(index_file_writer->finish_close().ok());
     }
@@ -210,14 +210,13 @@ protected:
         options.rowset_ctx = &rowset_context;
         VerticalSegmentWriter writer(data_file_writer.get(), /*segment_id=*/0, schema, nullptr,
                                      nullptr, options, index_file_writer.get());
-        ASSERT_TRUE(writer.init().ok());
         Block block = create_block();
-        ASSERT_TRUE(writer.batch_block(&block, 0, block.rows()).ok());
-        ASSERT_TRUE(writer.write_batch().ok());
+        ASSERT_TRUE(writer.write_block(&block, 0, block.rows()).ok());
 
         uint64_t segment_size = 0;
         uint64_t index_size = 0;
-        ASSERT_TRUE(writer.finalize(&segment_size, &index_size).ok());
+        ASSERT_TRUE(writer.finalize_columns(&index_size).ok());
+        ASSERT_TRUE(writer.finalize_footer(&segment_size).ok());
         ASSERT_TRUE(index_file_writer->begin_close().ok());
         ASSERT_TRUE(index_file_writer->finish_close().ok());
     }

@@ -116,6 +116,10 @@ public final class HiveCatalogProperties {
             description = "size of the metastore client pool")
     private int hmsClientPoolSize = DEFAULT_HMS_CLIENT_POOL_SIZE;
 
+    @ConnectorProperty(names = {HmsClientConfig.PARTITION_BATCH_SIZE_KEY}, required = false,
+            description = "maximum partition names sent in one Hive Metastore RPC")
+    private int hmsPartitionsBatchSizePerRpc = HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE;
+
     @ConnectorProperty(names = {ENABLE_HMS_EVENTS_INCREMENTAL_SYNC}, required = false,
             description = "poll HMS notification events for incremental metadata refresh")
     private boolean enableHmsEventsIncrementalSync;
@@ -166,6 +170,7 @@ public final class HiveCatalogProperties {
                 .require(p.metastoreUri, "HMS URI ('" + HIVE_METASTORE_URIS + "') is required")
                 .validate();
         p.hmsClientProperties = withCanonicalMetastoreUri(p.raw, p.metastoreUri);
+        new HmsClientConfig(p.hmsClientProperties, p.hmsClientPoolSize);
         return p;
     }
 
@@ -179,6 +184,14 @@ public final class HiveCatalogProperties {
      * @return this, so the provider's door reads as one statement
      */
     public HiveCatalogProperties checkCreateTimeOnlyRules() {
+        return checkCreateTimeOnlyRules(raw);
+    }
+
+    public HiveCatalogProperties checkCreateTimeOnlyRules(Map<String, String> submittedProperties) {
+        CacheSpec.checkWeightProperties(raw, submittedProperties, "hive",
+                "table", "partition_names", "partition", "column_stats", "file", "partition_view");
+        CacheSpec.checkWeightProperties(raw, submittedProperties, "iceberg",
+                "table", "partition", "manifest", "partition_view");
         // Restores the legacy HMSExternalCatalog.checkProperties fail-fast for the two meta-cache TTL
         // knobs: after the hms cutover an "hms" catalog is created via the SPI provider (not
         // HMSExternalCatalog), so the old per-property validation no longer ran and an invalid ttl (e.g.

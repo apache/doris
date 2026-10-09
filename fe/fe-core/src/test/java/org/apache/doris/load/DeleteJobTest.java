@@ -32,10 +32,10 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -86,7 +86,7 @@ public class DeleteJobTest {
         }
     };
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         invertedIndex.addTablet(TABLET_ID, new TabletMeta(DB_ID, TABLE_ID, PARTITION_ID, 5L, 6,
                 TStorageMedium.HDD, false /* isRowBinlog */));
@@ -99,7 +99,7 @@ public class DeleteJobTest {
         mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -120,7 +120,7 @@ public class DeleteJobTest {
 
         deleteJob.await();
 
-        Assert.assertEquals(DeleteJob.DeleteState.QUORUM_FINISHED, deleteJob.getState());
+        Assertions.assertEquals(DeleteJob.DeleteState.QUORUM_FINISHED, deleteJob.getState());
     }
 
     @Test
@@ -133,12 +133,12 @@ public class DeleteJobTest {
 
         try {
             deleteJob.await();
-            Assert.fail("delete job should fail when quorum is not reached");
+            Assertions.fail("delete job should fail when quorum is not reached");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("too many versions"));
-            Assert.assertEquals(DeleteJob.DeleteState.UN_QUORUM, deleteJob.getState());
+            Assertions.assertTrue(e.getMessage().contains("too many versions"));
+            Assertions.assertEquals(DeleteJob.DeleteState.UN_QUORUM, deleteJob.getState());
         } catch (Exception e) {
-            Assert.fail("unexpected exception: " + e.getMessage());
+            Assertions.fail("unexpected exception: " + e.getMessage());
         }
     }
 

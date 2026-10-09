@@ -52,6 +52,12 @@ under the License.
     <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="EmptyLineSeparator" id="forNereids" />
 
     <!-- exclude rules for special files -->
+    <!-- fluss-client-patch's replacements for fluss classes (FatalExitExceptionHandler, ShutdownableThread) have to
+         live in fluss's packages, which import-control.xml (rooted at org.apache.doris) does not cover; every other
+         check still applies -->
+    <suppress files="fluss-client-patch[\\/]src[\\/]main[\\/]java[\\/]org[\\/]apache[\\/]fluss[\\/]" checks="ImportControl" />
+    <!-- paimon-common-patch's replacement for paimon's FatalExitExceptionHandler, likewise in paimon's package -->
+    <suppress files="paimon-common-patch[\\/]src[\\/]main[\\/]java[\\/]org[\\/]apache[\\/]paimon[\\/]" checks="ImportControl" />
     <suppress files="org[\\/]apache[\\/]doris[\\/]load[\\/]loadv2[\\/]dpp[\\/]ColumnParser\.java" checks="OneTopLevelClass" />
     <suppress files="org[\\/]apache[\\/]doris[\\/]load[\\/]loadv2[\\/]dpp[\\/]SparkRDDAggregator\.java" checks="OneTopLevelClass" />
     <suppress files="org[\\/]apache[\\/]doris[\\/]catalog[\\/]FunctionSet\.java" checks="LineLength" />
@@ -71,6 +77,8 @@ under the License.
 
     <!-- ignore iceberg delete file index copied from iceberg/DeleteFileIndex.java -->
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]DeleteFileIndex\.java" checks="[a-zA-Z0-9]*"/>
+    <!-- Iceberg package access is required to preserve historical schema binding in DataTableScan. -->
+    <suppress files="org[\\/]apache[\\/]iceberg[\\/]SchemaAwareDataTableScan\.java" checks="[a-zA-Z0-9]*"/>
 
     <!-- ignore gensrc/thrift/ExternalTableSchema.thrift -->
     <suppress files=".*thrift/schema/external/.*" checks=".*"/>

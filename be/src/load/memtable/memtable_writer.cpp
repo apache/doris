@@ -165,7 +165,8 @@ Status MemTableWriter::write(const Block* block, const TabletAddRowsPayload& row
     }
 
     _total_received_rows += rows.row_idxs.size();
-    auto st = _mem_table->insert(block, rows);
+    Status st;
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(st = _mem_table->insert(block, rows), st);
 
     // Reset memtable immediately after insert failure to prevent potential flush operations.
     // This is a defensive measure because:
@@ -185,7 +186,13 @@ Status MemTableWriter::write(const Block* block, const TabletAddRowsPayload& row
     }
 
     if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
-        _mem_table->shrink_memtable_by_agg();
+        // Aggregation can replace the columns before row metadata allocation fails.
+        // Discard the failed memtable while _lock still excludes pressure flushing.
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(_mem_table->shrink_memtable_by_agg(), st);
+        if (!st.ok()) [[unlikely]] {
+            _reset_mem_table();
+            return st;
+        }
     }
     if (UNLIKELY(_mem_table->need_flush())) {
         RETURN_IF_ERROR(_flush_memtable());

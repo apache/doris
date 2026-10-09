@@ -19,8 +19,8 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.util.SymmetricEncryption;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -48,7 +48,7 @@ public class LdapInfoTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         LdapInfo ldapInfo2 = LdapInfo.read(dis);
-        Assert.assertEquals(passwd,
+        Assertions.assertEquals(passwd,
                 SymmetricEncryption.decrypt(ldapInfo2.getLdapPasswdEncrypted(),
                         ldapInfo2.getSecretKey(), ldapInfo2.getIv()));
 

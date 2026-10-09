@@ -314,7 +314,7 @@ public class IcebergStatementScopeTest {
     }
 
     /** Minimal {@link ConnectorSession} carrying a catalog id, queryId and scope for the key + memo assertions. */
-    private static final class ScopeSession implements ConnectorSession {
+    static final class ScopeSession implements ConnectorSession {
         private final long catalogId;
         private final String queryId;
         private final ConnectorStatementScope scope;

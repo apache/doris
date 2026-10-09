@@ -50,10 +50,10 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -66,7 +66,7 @@ public class RowBinlogTabletSchedulerTest {
     private LocalTabletInvertedIndex invertedIndex;
     private TabletScheduler tabletScheduler;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         infoService = new SystemInfoService();
         mockedEnvStatic = Mockito.mockStatic(Env.class);
@@ -82,7 +82,7 @@ public class RowBinlogTabletSchedulerTest {
                 new TabletSchedulerStat(), "");
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
     }
@@ -120,13 +120,13 @@ public class RowBinlogTabletSchedulerTest {
 
         Deencapsulation.invoke(tabletScheduler, "handleColocateMismatch", tabletCtx, batchTask);
 
-        Assert.assertEquals(1, batchTask.getTaskNum());
+        Assertions.assertEquals(1, batchTask.getTaskNum());
         CloneTask cloneTask = (CloneTask) batchTask.getAllTasks().get(0);
-        Assert.assertEquals(destBackendId, cloneTask.getBackendId());
-        Assert.assertEquals(TStorageMedium.HDD, cloneTask.getStorageMedium());
-        Assert.assertEquals(requiredPathHash, cloneTask.toThrift().getDestPathHash());
-        Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
-        Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
+        Assertions.assertEquals(destBackendId, cloneTask.getBackendId());
+        Assertions.assertEquals(TStorageMedium.HDD, cloneTask.getStorageMedium());
+        Assertions.assertEquals(requiredPathHash, cloneTask.toThrift().getDestPathHash());
+        Assertions.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
+        Assertions.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
     }
 
     @Test
@@ -141,10 +141,10 @@ public class RowBinlogTabletSchedulerTest {
         tabletCtx.setRowBinlogRequiredDestPathHashByBackend(ImmutableMap.of(backendId, 79999L));
         tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(backendId));
 
-        SchedException exception = Assert.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
+        SchedException exception = Assertions.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
                 tabletScheduler, "doChooseAvailableDestPath", tabletCtx, Tag.class, true));
 
-        Assert.assertEquals(Status.UNRECOVERABLE, exception.getStatus());
+        Assertions.assertEquals(Status.UNRECOVERABLE, exception.getStatus());
     }
 
     @Test
@@ -172,23 +172,23 @@ public class RowBinlogTabletSchedulerTest {
 
         Deencapsulation.invoke(tabletScheduler, "handleColocateMismatch", tabletCtx, batchTask);
 
-        Assert.assertEquals(TabletSchedCtx.State.RUNNING, tabletCtx.getState());
-        Assert.assertEquals(TabletSchedCtx.BalanceType.DISK_BALANCE, tabletCtx.getBalanceType());
-        Assert.assertEquals(backendId, tabletCtx.getSrcBackendId());
-        Assert.assertEquals(sourcePathHash, tabletCtx.getSrcPathHash());
-        Assert.assertEquals(backendId, tabletCtx.getDestBackendId());
-        Assert.assertEquals(requiredPathHash, tabletCtx.getDestPathHash());
-        Assert.assertEquals(TStorageMedium.HDD, tabletCtx.getStorageMedium());
-        Assert.assertEquals(1, batchTask.getTaskNum());
+        Assertions.assertEquals(TabletSchedCtx.State.RUNNING, tabletCtx.getState());
+        Assertions.assertEquals(TabletSchedCtx.BalanceType.DISK_BALANCE, tabletCtx.getBalanceType());
+        Assertions.assertEquals(backendId, tabletCtx.getSrcBackendId());
+        Assertions.assertEquals(sourcePathHash, tabletCtx.getSrcPathHash());
+        Assertions.assertEquals(backendId, tabletCtx.getDestBackendId());
+        Assertions.assertEquals(requiredPathHash, tabletCtx.getDestPathHash());
+        Assertions.assertEquals(TStorageMedium.HDD, tabletCtx.getStorageMedium());
+        Assertions.assertEquals(1, batchTask.getTaskNum());
         StorageMediaMigrationTask task = (StorageMediaMigrationTask) batchTask.getAllTasks().get(0);
-        Assert.assertEquals(backendId, task.getBackendId());
-        Assert.assertEquals("/required", task.getDataDir());
-        Assert.assertEquals(TStorageMedium.HDD, task.getToStorageMedium());
-        Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
-        Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
+        Assertions.assertEquals(backendId, task.getBackendId());
+        Assertions.assertEquals("/required", task.getDataDir());
+        Assertions.assertEquals(TStorageMedium.HDD, task.getToStorageMedium());
+        Assertions.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
+        Assertions.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
 
         tabletScheduler.updateDestPathHash(tabletCtx);
-        Assert.assertEquals(requiredPathHash, replica.getPathHash());
+        Assertions.assertEquals(requiredPathHash, replica.getPathHash());
     }
 
     @Test
@@ -223,16 +223,16 @@ public class RowBinlogTabletSchedulerTest {
         RowBinlogTabletLocality.RowBinlogHealthResult initialHealth =
                 RowBinlogTabletLocality.getRowBinlogHealth(
                         partition, rowBinlogTablet, new ReplicaAllocation((short) 1), 10L);
-        Assert.assertEquals(TabletStatus.HEALTHY, initialHealth.getTabletHealth().status);
+        Assertions.assertEquals(TabletStatus.HEALTHY, initialHealth.getTabletHealth().status);
 
         // Simulate the next BE report after the configured-medium migration moves the base replica first.
         baseReplica.setPathHash(newSsdPathHash);
         RowBinlogTabletLocality.RowBinlogHealthResult healthResult =
                 RowBinlogTabletLocality.getRowBinlogHealth(
                         partition, rowBinlogTablet, new ReplicaAllocation((short) 1), 10L);
-        Assert.assertEquals(TabletStatus.COLOCATE_MISMATCH, healthResult.getTabletHealth().status);
-        Assert.assertEquals(RowBinlogRepairReason.PATH_MISMATCH, healthResult.getRepairReason());
-        Assert.assertEquals(ImmutableMap.of(backendId, newSsdPathHash),
+        Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, healthResult.getTabletHealth().status);
+        Assertions.assertEquals(RowBinlogRepairReason.PATH_MISMATCH, healthResult.getRepairReason());
+        Assertions.assertEquals(ImmutableMap.of(backendId, newSsdPathHash),
                 healthResult.getRequiredDestPathHashByBackend());
 
         TabletSchedCtx tabletCtx = createTabletCtx(rowBinlogTablet, rowBinlogIndex.getId(), (short) 1);
@@ -242,18 +242,18 @@ public class RowBinlogTabletSchedulerTest {
 
         Deencapsulation.invoke(tabletScheduler, "handleColocateMismatch", tabletCtx, batchTask);
 
-        Assert.assertEquals(1, batchTask.getTaskNum());
+        Assertions.assertEquals(1, batchTask.getTaskNum());
         StorageMediaMigrationTask task = (StorageMediaMigrationTask) batchTask.getAllTasks().get(0);
-        Assert.assertEquals(backendId, task.getBackendId());
-        Assert.assertEquals("/base-ssd", task.getDataDir());
-        Assert.assertEquals(TStorageMedium.SSD, task.getToStorageMedium());
+        Assertions.assertEquals(backendId, task.getBackendId());
+        Assertions.assertEquals("/base-ssd", task.getDataDir());
+        Assertions.assertEquals(TStorageMedium.SSD, task.getToStorageMedium());
 
         tabletScheduler.updateDestPathHash(tabletCtx);
         RowBinlogTabletLocality.RowBinlogHealthResult repairedHealth =
                 RowBinlogTabletLocality.getRowBinlogHealth(
                         partition, rowBinlogTablet, new ReplicaAllocation((short) 1), 10L);
-        Assert.assertEquals(TabletStatus.HEALTHY, repairedHealth.getTabletHealth().status);
-        Assert.assertEquals(RowBinlogRepairReason.NONE, repairedHealth.getRepairReason());
+        Assertions.assertEquals(TabletStatus.HEALTHY, repairedHealth.getTabletHealth().status);
+        Assertions.assertEquals(RowBinlogRepairReason.NONE, repairedHealth.getRepairReason());
     }
 
     @Test
@@ -289,14 +289,14 @@ public class RowBinlogTabletSchedulerTest {
 
         Deencapsulation.invoke(tabletScheduler, "handleColocateMismatch", tabletCtx, batchTask);
 
-        Assert.assertEquals(1, batchTask.getTaskNum());
-        Assert.assertTrue(batchTask.getAllTasks().get(0) instanceof CloneTask);
+        Assertions.assertEquals(1, batchTask.getTaskNum());
+        Assertions.assertTrue(batchTask.getAllTasks().get(0) instanceof CloneTask);
         CloneTask cloneTask = (CloneTask) batchTask.getAllTasks().get(0);
-        Assert.assertEquals(missingBackendId, cloneTask.getBackendId());
-        Assert.assertEquals(missingRequiredPathHash, cloneTask.toThrift().getDestPathHash());
-        Assert.assertEquals(TStorageMedium.HDD, cloneTask.getStorageMedium());
-        Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
-        Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
+        Assertions.assertEquals(missingBackendId, cloneTask.getBackendId());
+        Assertions.assertEquals(missingRequiredPathHash, cloneTask.toThrift().getDestPathHash());
+        Assertions.assertEquals(TStorageMedium.HDD, cloneTask.getStorageMedium());
+        Assertions.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
+        Assertions.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
     }
 
     @Test
@@ -305,11 +305,11 @@ public class RowBinlogTabletSchedulerTest {
         TabletSchedCtx tabletCtx = createTabletCtx(new LocalTablet(5L), (short) 1);
         tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(requiredBackendId));
 
-        Assert.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
+        Assertions.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
                 tabletScheduler, "handleColocateMismatch", tabletCtx, new AgentBatchTask()));
 
-        Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
-        Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
+        Assertions.assertEquals(0L, tabletScheduler.getStat().counterReplicaRowBinlogMismatch.get());
+        Assertions.assertEquals(1L, tabletScheduler.getStat().counterReplicaColocateMismatch.get());
     }
 
     @Test
@@ -320,12 +320,12 @@ public class RowBinlogTabletSchedulerTest {
         TabletSchedCtx tabletCtx = createTabletCtx(tablet, (short) 1);
         tabletCtx.setColocateGroupBackendIds(ImmutableSet.of(backendId));
 
-        SchedException exception = Assert.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
+        SchedException exception = Assertions.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
                 tabletScheduler, "handleColocateRedundant", tabletCtx, new AgentBatchTask()));
 
-        Assert.assertEquals(Status.UNRECOVERABLE, exception.getStatus());
-        Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaRowBinlogRedundant.get());
-        Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaColocateRedundant.get());
+        Assertions.assertEquals(Status.UNRECOVERABLE, exception.getStatus());
+        Assertions.assertEquals(0L, tabletScheduler.getStat().counterReplicaRowBinlogRedundant.get());
+        Assertions.assertEquals(1L, tabletScheduler.getStat().counterReplicaColocateRedundant.get());
     }
 
     @Test
@@ -347,12 +347,12 @@ public class RowBinlogTabletSchedulerTest {
             Config.allow_replica_on_same_host = false;
             FeConstants.runningUnitTest = false;
 
-            Assert.assertTrue(tabletCtx.filterDestBE(requiredBackendId));
-            Assert.assertFalse(tabletCtx.filterRowBinlogRequiredDestBE(requiredBackendId));
+            Assertions.assertTrue(tabletCtx.filterDestBE(requiredBackendId));
+            Assertions.assertFalse(tabletCtx.filterRowBinlogRequiredDestBE(requiredBackendId));
 
             tabletCtx.setRowBinlogRequiredDestPathHashByBackend(
                     ImmutableMap.of(requiredBackendId, 70001L, unrelatedBackendId, 70002L));
-            Assert.assertTrue(tabletCtx.filterRowBinlogRequiredDestBE(requiredBackendId));
+            Assertions.assertTrue(tabletCtx.filterRowBinlogRequiredDestBE(requiredBackendId));
         } finally {
             Config.allow_replica_on_same_host = previousAllowReplicaOnSameHost;
             FeConstants.runningUnitTest = previousRunningUnitTest;
@@ -463,14 +463,14 @@ public class RowBinlogTabletSchedulerTest {
 
             Deencapsulation.invoke(tabletScheduler, "markBaseReplicaBinlogMissingIfNeeded",
                     tabletCtx, rowBinlogReplica);
-            Assert.assertTrue(baseReplica.isBinlogMissing());
+            Assertions.assertTrue(baseReplica.isBinlogMissing());
 
             baseReplica.setBinlogMissing(false);
             rowBinlogReplica.updateLastFailedVersion(11L);
-            SchedException exception = Assert.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
+            SchedException exception = Assertions.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
                     tabletScheduler, "markBaseReplicaBinlogMissingIfNeeded", tabletCtx, rowBinlogReplica));
-            Assert.assertEquals(Status.SCHEDULE_FAILED, exception.getStatus());
-            Assert.assertFalse(baseReplica.isBinlogMissing());
+            Assertions.assertEquals(Status.SCHEDULE_FAILED, exception.getStatus());
+            Assertions.assertFalse(baseReplica.isBinlogMissing());
 
             Replica otherRowBinlogReplica = replica(10L, backendId + 1, 10L, 70002L);
             infoService.addBackend(backend(backendId + 1, "127.0.0.2"));
@@ -481,14 +481,14 @@ public class RowBinlogTabletSchedulerTest {
             markRowBinlogRepair(tabletCtx, RowBinlogRepairReason.REDUNDANT);
             AgentBatchTask batchTask = new AgentBatchTask();
 
-            exception = Assert.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
+            exception = Assertions.assertThrows(SchedException.class, () -> Deencapsulation.invoke(
                     tabletScheduler, "handleColocateRedundant", tabletCtx, batchTask));
-            Assert.assertEquals(Status.SCHEDULE_FAILED, exception.getStatus());
-            Assert.assertEquals(2, rowBinlogTablet.getReplicas().size());
-            Assert.assertEquals(0, batchTask.getTaskNum());
-            Assert.assertFalse(baseReplica.isBinlogMissing());
-            Assert.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogRedundant.get());
-            Assert.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateRedundant.get());
+            Assertions.assertEquals(Status.SCHEDULE_FAILED, exception.getStatus());
+            Assertions.assertEquals(2, rowBinlogTablet.getReplicas().size());
+            Assertions.assertEquals(0, batchTask.getTaskNum());
+            Assertions.assertFalse(baseReplica.isBinlogMissing());
+            Assertions.assertEquals(1L, tabletScheduler.getStat().counterReplicaRowBinlogRedundant.get());
+            Assertions.assertEquals(0L, tabletScheduler.getStat().counterReplicaColocateRedundant.get());
         } finally {
             Config.tablet_binlog_missing_timeout_second = previousTimeout;
             Config.tablet_binlog_missing_max_times = previousMaxTimes;
@@ -565,11 +565,11 @@ public class RowBinlogTabletSchedulerTest {
     }
 
     private void assertCloneUsesPath(AgentBatchTask batchTask, long backendId, long pathHash) {
-        Assert.assertEquals(1, batchTask.getTaskNum());
-        Assert.assertTrue(batchTask.getAllTasks().get(0) instanceof CloneTask);
+        Assertions.assertEquals(1, batchTask.getTaskNum());
+        Assertions.assertTrue(batchTask.getAllTasks().get(0) instanceof CloneTask);
         CloneTask cloneTask = (CloneTask) batchTask.getAllTasks().get(0);
-        Assert.assertEquals(backendId, cloneTask.getBackendId());
-        Assert.assertEquals(pathHash, cloneTask.toThrift().getDestPathHash());
+        Assertions.assertEquals(backendId, cloneTask.getBackendId());
+        Assertions.assertEquals(pathHash, cloneTask.toThrift().getDestPathHash());
     }
 
     private void markRowBinlogRepair(TabletSchedCtx tabletCtx, RowBinlogRepairReason repairReason) {

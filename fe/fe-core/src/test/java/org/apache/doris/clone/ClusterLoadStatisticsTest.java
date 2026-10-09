@@ -32,9 +32,9 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
@@ -50,7 +50,7 @@ public class ClusterLoadStatisticsTest {
     private SystemInfoService systemInfoService;
     private TabletInvertedIndex invertedIndex;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         // be1
         // 50%, 95%, 2%
@@ -174,15 +174,15 @@ public class ClusterLoadStatisticsTest {
                 Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex, null);
         loadStatistic.init();
         List<List<String>> infos = loadStatistic.getStatistic(TStorageMedium.HDD);
-        Assert.assertEquals(3, infos.size());
+        Assertions.assertEquals(3, infos.size());
         BackendLoadStatistic beStat1 = loadStatistic.getBackendLoadStatistic(be1.getId());
-        Assert.assertNotNull(beStat1);
+        Assertions.assertNotNull(beStat1);
         RootPathLoadStatistic path2 = beStat1.getPathStatisticByPathHash(1002);
         RootPathLoadStatistic path3 = beStat1.getPathStatisticByPathHash(1003);
-        Assert.assertEquals(Classification.HIGH, path2.getLocalClazz());
-        Assert.assertEquals(Classification.HIGH, path2.getGlobalClazz());
-        Assert.assertEquals(Classification.LOW, path3.getLocalClazz());
-        Assert.assertEquals(Classification.LOW, path3.getGlobalClazz());
+        Assertions.assertEquals(Classification.HIGH, path2.getLocalClazz());
+        Assertions.assertEquals(Classification.HIGH, path2.getGlobalClazz());
+        Assertions.assertEquals(Classification.LOW, path3.getLocalClazz());
+        Assertions.assertEquals(Classification.LOW, path3.getGlobalClazz());
     }
 
 }

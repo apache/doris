@@ -114,26 +114,23 @@ public:
         for (int row = 0; row < input_rows_count; ++row) {
             unsigned long cur_src_element_num = src_offsets[row] - src_offsets[row - 1];
             unsigned long cur_key_element_num = key_offsets[row] - key_offsets[row - 1];
-            if (cur_src_element_num != cur_key_element_num) {
-                if (key_null_map_data != nullptr && (*key_null_map_data)[row]) {
-                    // deal with this case if one of row like: ([1,2,3], NULL) --->([1,2,3])
-                    for (unsigned long pos = src_offsets[row - 1]; pos < src_offsets[row]; ++pos) {
-                        src_selector.push_back(pos);
-                    }
-                    null_step = null_step + cur_src_element_num;
-                    continue;
-                } else if (src_null_map_data != nullptr && (*src_null_map_data)[row]) {
-                    // deal with this case if one of row like: (NULL, [1,2,3]) --->(NULL)
-                    null_step = null_step - cur_key_element_num;
-                    continue;
-                } else {
-                    return Status::InternalError(
-                            "in array sortby function, the input column nested column data rows "
-                            "are not equal, the first size is {}, but with second size is {} at "
-                            "row {}.",
-                            src_offsets[row] - src_offsets[row - 1],
-                            key_offsets[row] - key_offsets[row - 1], row);
+            const bool src_is_null = src_null_map_data != nullptr && (*src_null_map_data)[row];
+            const bool key_is_null = key_null_map_data != nullptr && (*key_null_map_data)[row];
+            if (src_is_null || key_is_null) {
+                // Preserve the source row and align later key indices across hidden NULL payloads.
+                for (unsigned long pos = src_offsets[row - 1]; pos < src_offsets[row]; ++pos) {
+                    src_selector.push_back(pos);
                 }
+                null_step = null_step + cur_src_element_num - cur_key_element_num;
+                continue;
+            }
+            if (cur_src_element_num != cur_key_element_num) {
+                return Status::InternalError(
+                        "in array sortby function, the input column nested column data rows "
+                        "are not equal, the first size is {}, but with second size is {} at "
+                        "row {}.",
+                        src_offsets[row] - src_offsets[row - 1],
+                        key_offsets[row] - key_offsets[row - 1], row);
             }
 
             auto start = key_offsets[row - 1];

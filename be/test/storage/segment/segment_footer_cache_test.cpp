@@ -24,7 +24,7 @@
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "storage/cache/page_cache.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema_helper.h"
 
@@ -38,9 +38,9 @@ TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns,
 
 using Generator = std::function<void(size_t rid, int cid, Field& field)>;
 
-void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
-                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
-                   std::shared_ptr<Segment>* res, std::string segment_dir);
+void build_segment(VerticalSegmentWriterOptions opts, TabletSchemaSPtr build_schema,
+                   size_t segment_id, TabletSchemaSPtr query_schema, size_t nrows,
+                   Generator generator, std::shared_ptr<Segment>* res, std::string segment_dir);
 
 static std::string segment_footer_cache_test_segment_dir = "./ut_dir/segment_footer_cache_test";
 
@@ -51,7 +51,7 @@ class SegmentFooterCacheTest : public ::testing::Test {
                     size_t const num_value_columns, int const random_seed, int const min_value,
                     int const max_value) {
         Segments segments(num_segments);
-        segment_v2::SegmentWriterOptions opts;
+        segment_v2::VerticalSegmentWriterOptions opts;
         opts.enable_unique_key_merge_on_write = true;
 
         size_t const num_columns = num_key_columns + has_sequence_col + num_value_columns;

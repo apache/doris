@@ -79,20 +79,16 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
             data.resize(old_data_size);
             return status;
         }
-        value.from_unixtime(orc_batch->data[source_row], timezone);
-        if (!value.is_valid_date()) {
+        const bool is_timestamp_instant =
+                orc_view.file_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT;
+        // Instant carry precedes timezone conversion; plain TIMESTAMP carry stays in civil time
+        // so rounding cannot jump across a daylight-saving gap or fold.
+        status = orc_serde_utils::orc_timestamp_to_datetime(
+                is_timestamp_instant ? timestamp.seconds : orc_batch->data[source_row],
+                timestamp.microseconds, timezone, !is_timestamp_instant && timestamp.carry, &value);
+        if (!status.ok()) {
             data.resize(old_data_size);
-            return Status::DataQualityError(
-                    "Decoded ORC timestamp is outside the target timezone range");
-        }
-        value.set_microsecond(timestamp.microseconds);
-        // Plain ORC TIMESTAMP is a civil value. Carry after timezone conversion so a fractional
-        // round does not jump backward or skip an hour at a daylight-saving transition.
-        if (timestamp.carry &&
-            !value.date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, 1, false})) {
-            data.resize(old_data_size);
-            return Status::DataQualityError(
-                    "Decoded ORC timestamp is outside the target timezone range");
+            return status;
         }
     }
     return Status::OK();
@@ -434,12 +430,16 @@ Status DataTypeDateTimeV2SerDe::from_int_batch(const typename IntDataType::Colum
 
 template <typename IntDataType>
 Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch(
-        const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
+        const typename IntDataType::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(target_col);
     col_data.resize(int_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         DateV2Value<DateTimeV2ValueType> val;
         CastToDatetimeV2::from_integer<DatelikeParseMode::STRICT>(int_col.get_element(i), val,
                                                                   params);
@@ -479,12 +479,16 @@ Status DataTypeDateTimeV2SerDe::from_float_batch(
 
 template <typename FloatDataType>
 Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch(
-        const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
+        const typename FloatDataType::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(target_col);
     col_data.resize(float_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         DateV2Value<DateTimeV2ValueType> val;
         CastToDatetimeV2::from_float<DatelikeParseMode::STRICT>(float_col.get_data()[i], val,
                                                                 _scale, params);
@@ -525,12 +529,16 @@ Status DataTypeDateTimeV2SerDe::from_decimal_batch(
 
 template <typename DecimalDataType>
 Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch(
-        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(target_col);
     col_data.resize(decimal_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         DateV2Value<DateTimeV2ValueType> val;
         CastToDatetimeV2::from_decimal<DatelikeParseMode::STRICT>(
                 decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
@@ -671,6 +679,12 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
+            // Nullable SerDe has already copied the validity bitmap. The payload of a null Arrow
+            // slot is unspecified, so keep only a default value in the nested column.
+            if (concrete_array->IsNull(value_i)) {
+                col_data.emplace_back();
+                continue;
+            }
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
             auto date_value = unaligned_load<int64_t>(raw_byte_ptr);
 
@@ -691,7 +705,13 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
             // "2022-01-01 11:11:11.111", timestamp = 1641035471111, divisor = 1000,
             // set_microsecond(111000)
             v.set_microsecond(remainder * DIVISOR_FOR_MICRO / divisor);
-            col_data.emplace_back(v);
+            DateV2Value<DateTimeV2ValueType> scaled_v;
+            if (!transform_date_scale(_scale, 6, scaled_v, v)) {
+                return Status::DataQualityError(
+                        "Arrow timestamp exceeds DATETIMEV2 range after rounding to scale {}",
+                        _scale);
+            }
+            col_data.emplace_back(scaled_v);
         }
     } else {
         LOG(WARNING) << "not support convert to datetimev2 from arrow type:"
@@ -857,6 +877,13 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
             return Status::InternalError("get unix timestamp error.");
         }
 
+        // ORC-645 aliases this pre-epoch fraction to a positive timestamp on disk.
+        // Keep the same fail-fast contract as TIMESTAMPTZ instead of writing a wrong value.
+        if (timestamp == -1 && datetime_val.microsecond() >= 1000) {
+            return Status::NotSupported(
+                    "ORC cannot represent pre-epoch timestamp fractions in [-0.999, 0) seconds "
+                    "without data loss; use Parquet for these values");
+        }
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micro_to_nano_second;
     }
@@ -939,23 +966,30 @@ template Status DataTypeDateTimeV2SerDe::from_int_batch<DataTypeInt64>(
 template Status DataTypeDateTimeV2SerDe::from_int_batch<DataTypeInt128>(
         const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt8>(
-        const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt8::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt16>(
-        const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt16::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt32>(
-        const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt32::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt64>(
-        const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt64::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt128>(
-        const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt128::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_float_batch<DataTypeFloat32>(
         const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_float_batch<DataTypeFloat64>(
         const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch<DataTypeFloat32>(
-        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
+        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch<DataTypeFloat64>(
-        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
+        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_batch<DataTypeDecimal32>(
         const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_batch<DataTypeDecimal64>(
@@ -967,15 +1001,20 @@ template Status DataTypeDateTimeV2SerDe::from_decimal_batch<DataTypeDecimal128>(
 template Status DataTypeDateTimeV2SerDe::from_decimal_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal32>(
-        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal64>(
-        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
-        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal128>(
-        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
-        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 
 Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
                                                      const OrcDecodedColumnView& view) const {

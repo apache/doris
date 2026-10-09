@@ -20,10 +20,10 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.InternalHttpsUtils;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -37,14 +37,14 @@ public class HttpUtilsTest {
     private boolean originalEnableHttps;
     private String originalKeyStorePath;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         originalEnableHttps = Config.enable_https;
         originalKeyStorePath = Config.key_store_path;
         resetCachedSslContext();
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         Config.enable_https = originalEnableHttps;
         Config.key_store_path = originalKeyStorePath;
@@ -65,9 +65,9 @@ public class HttpUtilsTest {
 
         try {
             HttpUtils.doGet(REFUSED_PORT_URL_HTTP, null);
-            Assert.fail("Expected a connection failure against the refused port");
+            Assertions.fail("Expected a connection failure against the refused port");
         } catch (RuntimeException e) {
-            Assert.fail("Should not have attempted to build the HTTPS client for an http:// URL: "
+            Assertions.fail("Should not have attempted to build the HTTPS client for an http:// URL: "
                     + e.getMessage());
         } catch (IOException expected) {
             // Plain client hit the network and failed there, never touching the broken keystore.
@@ -82,12 +82,11 @@ public class HttpUtilsTest {
 
         try {
             HttpUtils.doGet(REFUSED_PORT_URL_HTTPS, null);
-            Assert.fail("Expected SSLContext build failure before any connection attempt");
+            Assertions.fail("Expected SSLContext build failure before any connection attempt");
         } catch (RuntimeException e) {
-            Assert.assertTrue("Failure should come from the missing keystore, not an unrelated error",
-                    e.getMessage() != null && e.getMessage().contains("doris_ssl_certificate.keystore"));
+            Assertions.assertTrue(e.getMessage() != null && e.getMessage().contains("doris_ssl_certificate.keystore"), "Failure should come from the missing keystore, not an unrelated error");
         } catch (IOException e) {
-            Assert.fail("Expected the HTTPS client's keystore failure, not a network-level error: "
+            Assertions.fail("Expected the HTTPS client's keystore failure, not a network-level error: "
                     + e.getMessage());
         }
     }

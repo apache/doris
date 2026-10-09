@@ -87,6 +87,11 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
     }
 
     @Override
+    public String visitTimeStampNsLiteral(TimeStampNsLiteral expr, ToSqlParams context) {
+        return "'" + expr.getStringValue() + "'";
+    }
+
+    @Override
     public String visitTimeV2Literal(TimeV2Literal expr, ToSqlParams context) {
         return "\"" + expr.getStringValue() + "\"";
     }
@@ -113,6 +118,11 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
 
     @Override
     public String visitIPv6Literal(IPv6Literal expr, ToSqlParams context) {
+        return "\"" + expr.getStringValue() + "\"";
+    }
+
+    @Override
+    public String visitUuidLiteral(UuidLiteral expr, ToSqlParams context) {
         return "\"" + expr.getStringValue() + "\"";
     }
 

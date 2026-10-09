@@ -630,6 +630,85 @@ public:
                                    arena);
     }
 
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                   const IColumn** columns, Arena& arena, bool /*agg_many*/) const override {
+        add_batch_selected_impl(batch_size, columns, arena,
+                                [&](size_t row) { return places[row] + place_offset; });
+    }
+
+    void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                            const IColumn** columns, Arena& arena) const override {
+        add_batch_selected_impl(batch_size, columns, arena, [&](size_t row) {
+            return places[row] == nullptr ? nullptr : places[row] + place_offset;
+        });
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena& arena) const override {
+        add_batch_selected_impl(batch_size, columns, arena, [&](size_t) { return place; });
+    }
+
+    void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
+                                           size_t num_rows, Arena& arena) const override {
+        if constexpr (!requires(const NestFuction& function) {
+                          function.requires_batch_add_for_streaming();
+                      }) {
+            AggregateFunctionNullBaseInline<
+                    NestFuction, result_is_nullable,
+                    AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable>>::
+                    streaming_agg_serialize_to_column(columns, dst, num_rows, arena);
+        } else {
+            std::vector<const IColumn*> nested_columns(number_of_arguments);
+            std::array<const ColumnNullable*, MAX_ARGS> nullable_columns {};
+            for (size_t i = 0; i < number_of_arguments; ++i) {
+                if (is_nullable[i]) {
+                    nullable_columns[i] =
+                            &assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                    *columns[i]);
+                    nested_columns[i] = &nullable_columns[i]->get_nested_column();
+                } else {
+                    nested_columns[i] = columns[i];
+                }
+            }
+
+            const auto is_selected = [&](size_t row) {
+                for (size_t i = 0; i < number_of_arguments; ++i) {
+                    if (nullable_columns[i] != nullptr && nullable_columns[i]->is_null_at(row)) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            auto prepared_columns = this->nested_function->prepare_batch_columns_for_streaming(
+                    num_rows, nested_columns.data(), is_selected);
+            if (!prepared_columns.empty()) {
+                for (size_t i = 0; i < number_of_arguments; ++i) {
+                    nested_columns[i] = prepared_columns[i].get();
+                }
+            }
+
+            const size_t state_size = this->size_of_data();
+            std::vector<char> state(state_size);
+            VectorBufferWriter buf(assert_cast<ColumnString&>(*dst));
+            for (size_t row = 0; row < num_rows; ++row) {
+                this->create(state.data());
+                try {
+                    if (is_selected(row)) {
+                        this->set_flag(state.data());
+                        this->nested_function->add(this->nested_place(state.data()),
+                                                   nested_columns.data(), row, arena);
+                    }
+                    this->serialize(state.data(), buf);
+                    buf.commit();
+                } catch (...) {
+                    this->destroy(state.data());
+                    throw;
+                }
+                this->destroy(state.data());
+            }
+        }
+    }
+
     void check_input_columns_type(const IColumn** columns) const override {
         IAggregateFunction::check_input_columns_type(columns);
         std::vector<const IColumn*> nested_columns(number_of_arguments);
@@ -651,6 +730,41 @@ public:
     }
 
 private:
+    template <typename GetPlace>
+    void add_batch_selected_impl(size_t batch_size, const IColumn** columns, Arena& arena,
+                                 GetPlace&& get_place) const {
+        std::vector<const IColumn*> nested_columns(number_of_arguments);
+        std::array<const ColumnNullable*, MAX_ARGS> nullable_columns {};
+        for (size_t i = 0; i < number_of_arguments; ++i) {
+            if (is_nullable[i]) {
+                nullable_columns[i] =
+                        &assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                *columns[i]);
+                nested_columns[i] = &nullable_columns[i]->get_nested_column();
+            } else {
+                nested_columns[i] = columns[i];
+            }
+        }
+
+        std::vector<AggregateDataPtr> nested_places(batch_size, nullptr);
+        for (size_t row = 0; row < batch_size; ++row) {
+            AggregateDataPtr place = get_place(row);
+            if (place == nullptr) {
+                continue;
+            }
+            bool has_null = false;
+            for (size_t i = 0; i < number_of_arguments; ++i) {
+                has_null |= nullable_columns[i] != nullptr && nullable_columns[i]->is_null_at(row);
+            }
+            if (!has_null) {
+                this->set_flag(place);
+                nested_places[row] = this->nested_place(place);
+            }
+        }
+        this->nested_function->add_batch_selected(batch_size, nested_places.data(), 0,
+                                                  nested_columns.data(), arena);
+    }
+
     // The array length is fixed in the implementation of some aggregate functions.
     // Therefore we choose 256 as the appropriate maximum length limit.
     static const size_t MAX_ARGS = 256;

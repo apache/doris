@@ -212,20 +212,30 @@ using FunctionMonthNameV2 = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DA
 
 using FunctionDateTimeV2DayName = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATETIMEV2>>;
 using FunctionDateTimeV2MonthName = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DATETIMEV2>>;
-using FunctionYearMonth = FunctionDateOrDateTimeToString<YearMonthImpl>;
-using FunctionDayHour = FunctionDateOrDateTimeToString<DayHourImpl>;
-using FunctionDayMinute = FunctionDateOrDateTimeToString<DayMinuteImpl>;
-using FunctionDaySecond = FunctionDateOrDateTimeToString<DaySecondImpl>;
-using FunctionDayMicrosecond = FunctionDateOrDateTimeToString<DayMicrosecondImpl>;
-using FunctionHourMinute = FunctionDateOrDateTimeToString<HourMinuteImpl>;
-using FunctionHourSecond = FunctionDateOrDateTimeToString<HourSecondImpl>;
-using FunctionHourMicrosecond = FunctionDateOrDateTimeToString<HourMicrosecondImpl>;
-using FunctionMinuteSecond = FunctionDateOrDateTimeToString<MinuteSecondImpl>;
-using FunctionMinuteMicrosecond = FunctionDateOrDateTimeToString<MinuteMicrosecondImpl>;
-using FunctionSecondMicrosecond = FunctionDateOrDateTimeToString<SecondMicrosecondImpl>;
+using FunctionTimestampNsDayName = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_TIMESTAMP_NS>>;
+using FunctionTimestampNsMonthName =
+        FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_TIMESTAMP_NS>>;
+#define DEFINE_DATETIME_FORMAT_FUNCTION(NAME)                                           \
+    using Function##NAME = FunctionDateOrDateTimeToString<NAME##Impl<TYPE_DATETIMEV2>>; \
+    using FunctionTimestampNs##NAME = FunctionDateOrDateTimeToString<NAME##Impl<TYPE_TIMESTAMP_NS>>
+
+DEFINE_DATETIME_FORMAT_FUNCTION(YearMonth);
+DEFINE_DATETIME_FORMAT_FUNCTION(DayHour);
+DEFINE_DATETIME_FORMAT_FUNCTION(DayMinute);
+DEFINE_DATETIME_FORMAT_FUNCTION(DaySecond);
+DEFINE_DATETIME_FORMAT_FUNCTION(DayMicrosecond);
+DEFINE_DATETIME_FORMAT_FUNCTION(HourMinute);
+DEFINE_DATETIME_FORMAT_FUNCTION(HourSecond);
+DEFINE_DATETIME_FORMAT_FUNCTION(HourMicrosecond);
+DEFINE_DATETIME_FORMAT_FUNCTION(MinuteSecond);
+DEFINE_DATETIME_FORMAT_FUNCTION(MinuteMicrosecond);
+DEFINE_DATETIME_FORMAT_FUNCTION(SecondMicrosecond);
+
+#undef DEFINE_DATETIME_FORMAT_FUNCTION
 
 using FunctionDateIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATEV2>>;
 using FunctionDateTimeIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATETIMEV2>>;
+using FunctionTimeStampNsIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_TIMESTAMP_NS>>;
 using FunctionTimestampTzIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_TIMESTAMPTZ>>;
 
 void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
@@ -233,6 +243,8 @@ void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMonthNameV2>();
     factory.register_function<FunctionDateTimeV2DayName>();
     factory.register_function<FunctionDateTimeV2MonthName>();
+    factory.register_function<FunctionTimestampNsDayName>();
+    factory.register_function<FunctionTimestampNsMonthName>();
     factory.register_function<FunctionYearMonth>();
     factory.register_function<FunctionDayHour>();
     factory.register_function<FunctionDayMinute>();
@@ -244,8 +256,20 @@ void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMinuteSecond>();
     factory.register_function<FunctionMinuteMicrosecond>();
     factory.register_function<FunctionSecondMicrosecond>();
+    factory.register_function<FunctionTimestampNsYearMonth>();
+    factory.register_function<FunctionTimestampNsDayHour>();
+    factory.register_function<FunctionTimestampNsDayMinute>();
+    factory.register_function<FunctionTimestampNsDaySecond>();
+    factory.register_function<FunctionTimestampNsDayMicrosecond>();
+    factory.register_function<FunctionTimestampNsHourMinute>();
+    factory.register_function<FunctionTimestampNsHourSecond>();
+    factory.register_function<FunctionTimestampNsHourMicrosecond>();
+    factory.register_function<FunctionTimestampNsMinuteSecond>();
+    factory.register_function<FunctionTimestampNsMinuteMicrosecond>();
+    factory.register_function<FunctionTimestampNsSecondMicrosecond>();
     factory.register_function<FunctionDateIso8601>();
     factory.register_function<FunctionDateTimeIso8601>();
+    factory.register_function<FunctionTimeStampNsIso8601>();
     factory.register_function<FunctionTimestampTzIso8601>();
 }
 

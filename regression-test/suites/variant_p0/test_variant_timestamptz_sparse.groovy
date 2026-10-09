@@ -21,7 +21,7 @@
 //   the sparse path are read back as only the timezone suffix (e.g. "+00:00")
 //   instead of the full timestamp.
 suite("test_variant_timestamptz_sparse", "p0"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql " set time_zone = '+08:00' "
     sql " set default_variant_enable_doc_mode = false "
 

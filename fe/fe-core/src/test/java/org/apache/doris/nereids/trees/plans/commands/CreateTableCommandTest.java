@@ -60,6 +60,7 @@ class CreateTableCommandTest {
                     () -> command.run(context, executor));
 
             sinkMock.verifyNoInteractions();
+            Mockito.verify(command, Mockito.never()).validateCreateTableProperties(context);
             Mockito.verify(env).createTable(createTableInfo);
         }
     }
@@ -77,6 +78,7 @@ class CreateTableCommandTest {
         CreateTableCommand command = Mockito.spy(
                 new CreateTableCommand(Optional.of(query), createTableInfo));
         Mockito.doNothing().when(command).validateCreateTableAsSelect(context, query);
+        Mockito.doNothing().when(command).validateCreateTableProperties(context);
         Mockito.doReturn(false).when(command).targetTableExists(context);
 
         try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
@@ -99,7 +101,7 @@ class CreateTableCommandTest {
     }
 
     @Test
-    void existingCtasTargetPrecedesUnsupportedSinkValidation() throws Exception {
+    void ctasConfigurationPreflightPrecedesTargetLookup() throws Exception {
         LogicalPlan query = Mockito.mock(LogicalPlan.class);
         CreateTableInfo createTableInfo = Mockito.mock(CreateTableInfo.class);
         ConnectContext context = Mockito.mock(ConnectContext.class);
@@ -112,7 +114,8 @@ class CreateTableCommandTest {
         CreateTableCommand command = Mockito.spy(
                 new CreateTableCommand(Optional.of(query), createTableInfo));
         Mockito.doNothing().when(command).validateCreateTableAsSelect(context, query);
-        Mockito.doReturn(true).when(command).targetTableExists(context);
+        Mockito.doThrow(new UserException("unsupported catalog configuration"))
+                .when(command).validateCreateTableProperties(context);
 
         try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
                 MockedStatic<UnboundTableSinkCreator> sinkMock =
@@ -121,7 +124,9 @@ class CreateTableCommandTest {
             Exception exception = org.junit.jupiter.api.Assertions.assertThrows(
                     Exception.class, () -> command.run(context, executor));
 
-            org.junit.jupiter.api.Assertions.assertTrue(exception.getMessage().contains("already exists"));
+            org.junit.jupiter.api.Assertions.assertTrue(
+                    exception.getMessage().contains("unsupported catalog configuration"));
+            Mockito.verify(command, Mockito.never()).targetTableExists(context);
             sinkMock.verifyNoInteractions();
             Mockito.verify(env, Mockito.never()).createTable(createTableInfo);
             Mockito.verify(env, Mockito.never()).dropTable(

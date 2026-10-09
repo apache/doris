@@ -150,6 +150,36 @@ class RuntimeFilterTranslatorBucketPruneTest {
         Assertions.assertFalse(desc.isSetBucketPruningTargetIds());
     }
 
+    /**
+     * One merged legacy filter applies on every target of its group, so it may not wait when one of the
+     * filters it merges must not be waited for: the wait would come back to the target of the non-blocking
+     * filter, which is exactly the wait edge that filter removes.
+     */
+    @Test
+    void testGroupedFiltersDoNotWaitWhenOneOfThemIsNonBlocking() {
+        // the blocking filter is the head of the group
+        Assertions.assertEquals(0, translateGroupWithOneNonBlockingFilter(false).getWaitTimeMs());
+        // and it is not, so the group is not judged by the flag the head happens to carry
+        Assertions.assertEquals(0, translateGroupWithOneNonBlockingFilter(true).getWaitTimeMs());
+    }
+
+    /** Translate a group of two filters which only merge into one legacy filter: one of them non-blocking. */
+    private TRuntimeFilterDesc translateGroupWithOneNonBlockingFilter(boolean nonBlockingIsFirst) {
+        TranslatorHarness harness = new TranslatorHarness();
+        SlotReference blockingTarget = harness.addTargetSlot("dist_col", harness.distributionColumn,
+                IntegerType.INSTANCE);
+        Column valueColumn = new Column("value_col", PrimitiveType.INT);
+        SlotReference nonBlockingTarget = harness.addTargetSlot("value_col", valueColumn, IntegerType.INSTANCE);
+
+        RuntimeFilter blocking = harness.newFilter(blockingTarget, blockingTarget);
+        RuntimeFilter nonBlocking = harness.newFilter(nonBlockingTarget, nonBlockingTarget);
+        nonBlocking.setNonBlocking(true);
+
+        return harness.translate(nonBlockingIsFirst
+                ? ImmutableList.of(nonBlocking, blocking)
+                : ImmutableList.of(blocking, nonBlocking));
+    }
+
     private static int firstLegacySlotId(TranslatorHarness harness, SlotReference target) {
         return harness.translatorContext.findSlotRef(target.getExprId()).getSlotId().asInt();
     }

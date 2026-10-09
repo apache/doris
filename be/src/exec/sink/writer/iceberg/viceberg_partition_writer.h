@@ -101,6 +101,9 @@ private:
     const std::map<std::string, std::string>& _hadoop_conf;
     ClosedFileCallback _closed_file_callback;
     bool _collect_column_stats = true;
+    // FE's metrics policy for NaN counting; empty (including an older FE that sends nothing) means the
+    // parquet writer skips the extra pass entirely. See IcebergWriterHelper#nanCountFieldIds.
+    std::vector<int32_t> _nan_count_field_ids;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;
 
