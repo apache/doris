@@ -24,6 +24,7 @@ import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.filesystem.UploadPartResult;
+import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.filesystem.auth.GcsAuthResolver;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.ObjStorage;
@@ -288,10 +289,11 @@ public class S3Resource extends Resource {
         normalizeProperties(effectiveProperties, provider);
         S3ResourceCompat.convertToStdProperties(effectiveProperties);
         for (Map.Entry<String, String> update : properties.entrySet()) {
-            // Match persistence: empty updates are ignored, except when clearing a session token.
+            // Empty updates are ignored, except when clearing a session token or impersonation account.
             replaceIfEffectiveValue(effectiveProperties, update.getKey(), update.getValue());
             if (S3ResourceCompat.SESSION_TOKEN.equals(update.getKey())
-                    || S3ResourceCompat.Env.TOKEN.equals(update.getKey())) {
+                    || S3ResourceCompat.Env.TOKEN.equals(update.getKey())
+                    || GcpCredential.IMPERSONATION_SERVICE_ACCOUNT.equals(update.getKey())) {
                 effectiveProperties.put(update.getKey(), update.getValue());
             }
         }

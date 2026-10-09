@@ -33,6 +33,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TGcpCredential;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.google.common.base.Strings;
@@ -46,6 +47,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.lang.reflect.Field;
@@ -730,6 +733,99 @@ public class S3ResourceTest {
             Assertions.assertEquals(Integer.parseInt(s3ConnTimeoutMs), thrift.getConnTimeoutMs());
             Assertions.assertFalse(thrift.isUsePathStyle());
         }
+    }
+
+    @Test
+    public void testAlterClearsGcpImpersonation() throws Exception {
+        MetaContext previousContext = MetaContext.get();
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+        try {
+            for (String providerType : new String[] {"DEFAULT", "COMPUTE_ENGINE"}) {
+                try (MockedStatic<S3Resource> resourceMock = Mockito.mockStatic(
+                        S3Resource.class, Mockito.CALLS_REAL_METHODS)) {
+                    S3Resource resource = createGcpResourceWithImpersonation(providerType);
+                    resource.modifyProperties(ImmutableMap.of(S3ResourceCompat.CONNECTION_TIMEOUT_MS, "2000"));
+                    Assertions.assertEquals("reader@project.iam.gserviceaccount.com",
+                            resource.getProperty(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+                    AtomicBoolean pinged = new AtomicBoolean();
+                    resourceMock.when(() -> S3Resource.pingS3(Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
+                            .thenAnswer(invocation -> {
+                                Map<String, String> pingProperties = invocation.getArgument(2);
+                                Assertions.assertEquals("", pingProperties.get(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+                                TGcpCredential credential = S3ThriftAdapter.getS3TStorageParam(pingProperties)
+                                        .getCredential().getGcpCredential();
+                                Assertions.assertEquals(providerType, credential.getCredentialProviderType().name());
+                                Assertions.assertFalse(credential.isSetImpersonationServiceAccount());
+                                pinged.set(true);
+                                return null;
+                            });
+                    long previousVersion = resource.getVersion();
+                    resource.modifyProperties(ImmutableMap.of(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, "",
+                            S3ResourceCompat.VALIDITY_CHECK, "true"));
+                    Assertions.assertTrue(pinged.get());
+                    Assertions.assertEquals(previousVersion + 1, resource.getVersion());
+                    Assertions.assertEquals("", resource.getProperty(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+
+                    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                    try (DataOutputStream output = new DataOutputStream(bytes)) {
+                        resource.write(output);
+                    }
+                    try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+                        S3Resource restored = (S3Resource) Resource.read(input);
+                        Assertions.assertEquals(resource.getCopiedProperties(), restored.getCopiedProperties());
+                        TGcpCredential credential = S3ThriftAdapter.getS3TStorageParam(restored.getCopiedProperties())
+                                .getCredential().getGcpCredential();
+                        Assertions.assertEquals(providerType, credential.getCredentialProviderType().name());
+                        Assertions.assertFalse(credential.isSetImpersonationServiceAccount());
+                    }
+                }
+            }
+        } finally {
+            if (previousContext == null) {
+                MetaContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testFailedAlterPreservesGcpImpersonation() throws Exception {
+        try (MockedStatic<S3Resource> resourceMock = Mockito.mockStatic(S3Resource.class, Mockito.CALLS_REAL_METHODS)) {
+            resourceMock.when(() -> S3Resource.pingS3(Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
+                    .thenAnswer(invocation -> {
+                        Map<String, String> pingProperties = invocation.getArgument(2);
+                        Assertions.assertEquals("", pingProperties.get(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+                        throw new DdlException("source credential cannot access bucket");
+                    });
+            for (String providerType : new String[] {"DEFAULT", "COMPUTE_ENGINE"}) {
+                S3Resource resource = createGcpResourceWithImpersonation(providerType);
+                Map<String, String> previousProperties = resource.getCopiedProperties();
+                long previousVersion = resource.getVersion();
+                Assertions.assertThrows(DdlException.class, () -> resource.modifyProperties(
+                        ImmutableMap.of(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, "",
+                                S3ResourceCompat.VALIDITY_CHECK, "true")));
+                Assertions.assertEquals(previousProperties, resource.getCopiedProperties());
+                Assertions.assertEquals(previousVersion, resource.getVersion());
+            }
+        }
+    }
+
+    private S3Resource createGcpResourceWithImpersonation(String providerType) throws DdlException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("provider", "GCP");
+        properties.put(S3ResourceCompat.ENDPOINT, "https://storage.googleapis.com");
+        properties.put(S3ResourceCompat.REGION, "us-central1");
+        properties.put(S3ResourceCompat.BUCKET, "bucket");
+        properties.put(S3ResourceCompat.ROOT_PATH, "prefix");
+        properties.put(S3ResourceCompat.VALIDITY_CHECK, "false");
+        properties.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, providerType);
+        properties.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, "reader@project.iam.gserviceaccount.com");
+        S3Resource resource = new S3Resource("gcp_resource");
+        resource.setProperties(ImmutableMap.copyOf(properties));
+        return resource;
     }
 
     @Test
