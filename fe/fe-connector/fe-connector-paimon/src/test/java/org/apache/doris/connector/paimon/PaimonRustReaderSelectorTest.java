@@ -72,6 +72,16 @@ public class PaimonRustReaderSelectorTest {
     }
 
     @Test
+    public void nonDefaultScanModeUsesJni() throws Exception {
+        FileStoreTable table = table(fileLocation("latest-full"),
+                Collections.singletonMap(CoreOptions.SCAN_MODE.key(), "latest-full"), DataTypes.INT());
+        DataSplit split = split(file("data.parquet", table.schema().id(), null));
+
+        Assertions.assertFalse(selector(enabledSession(), true, table, columns(), Collections.emptyMap(),
+                false, false, false).canRead(split));
+    }
+
+    @Test
     public void locationSchemeAndCredentialsStayOnTheVerifiedAllowlist() {
         Assertions.assertTrue(PaimonRustReaderSelector.isRustVerifiedLocationScheme("file:///warehouse/t"));
         Assertions.assertTrue(PaimonRustReaderSelector.isRustVerifiedLocationScheme("s3://bucket/t"));
@@ -100,6 +110,16 @@ public class PaimonRustReaderSelectorTest {
 
         Map<String, String> conflicting = new HashMap<>(staticKeys);
         conflicting.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS");
+        Assertions.assertFalse(selector(enabledSession(), true, table, columns(), conflicting,
+                false, false, false).canRead(split));
+
+        conflicting = new HashMap<>(staticKeys);
+        conflicting.put("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/example");
+        Assertions.assertFalse(selector(enabledSession(), true, table, columns(), conflicting,
+                false, false, false).canRead(split));
+
+        conflicting = new HashMap<>(staticKeys);
+        conflicting.put("AWS_TOKEN", "session-token");
         Assertions.assertFalse(selector(enabledSession(), true, table, columns(), conflicting,
                 false, false, false).canRead(split));
     }
@@ -137,7 +157,7 @@ public class PaimonRustReaderSelectorTest {
         FileStoreTable table = table(fileLocation("nested-projection"), Collections.emptyMap(),
                 DataTypes.ROW(DataTypes.FIELD(1, "nested", DataTypes.INT())));
         ConnectorColumnHandle projected = new PaimonColumnHandle("v", 0)
-                .withProjectedFieldIds(Collections.singleton(1));
+                .withProjectedFieldIds(Collections.emptySet());
 
         Assertions.assertFalse(selector(enabledSession(), true, table, Collections.singletonList(projected),
                 Collections.emptyMap(), false, false, false)

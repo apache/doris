@@ -19,8 +19,6 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 
-import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
@@ -34,16 +32,16 @@ public class PaimonColumnHandle implements ConnectorColumnHandle {
 
     private final String name;
     private final int fieldIndex;
-    private final Set<Integer> projectedFieldIds;
+    private final boolean nestedProjection;
 
     public PaimonColumnHandle(String name, int fieldIndex) {
-        this(name, fieldIndex, Collections.emptySet());
+        this(name, fieldIndex, false);
     }
 
-    private PaimonColumnHandle(String name, int fieldIndex, Set<Integer> projectedFieldIds) {
+    private PaimonColumnHandle(String name, int fieldIndex, boolean nestedProjection) {
         this.name = Objects.requireNonNull(name, "name");
         this.fieldIndex = fieldIndex;
-        this.projectedFieldIds = Collections.unmodifiableSet(new LinkedHashSet<>(projectedFieldIds));
+        this.nestedProjection = nestedProjection;
     }
 
     public String getName() {
@@ -59,12 +57,12 @@ public class PaimonColumnHandle implements ConnectorColumnHandle {
     }
 
     public boolean hasNestedProjection() {
-        return !projectedFieldIds.isEmpty();
+        return nestedProjection;
     }
 
     @Override
     public ConnectorColumnHandle withProjectedFieldIds(Set<Integer> fieldIds) {
-        return new PaimonColumnHandle(name, fieldIndex, fieldIds);
+        return new PaimonColumnHandle(name, fieldIndex, true);
     }
 
     @Override
