@@ -39,6 +39,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_limit, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_avail_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_data_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_inode_total, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_inode_available, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_has_spill_data, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_has_spill_gc_data, MetricUnit::BYTES);
 
@@ -54,6 +56,8 @@ SpillDataDir::SpillDataDir(std::string path, std::string spill_root, const std::
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_limit);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_avail_capacity);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_data_size);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_inode_total);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_inode_available);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_data);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_gc_data);
 }
@@ -103,14 +107,30 @@ int64_t SpillDataDir::get_spill_data_limit() {
     return _spill_data_limit_bytes;
 }
 
+namespace {
+double inode_usage(size_t total, size_t available) {
+    return total == 0 ? 0 : (double)(total - available) / (double)total;
+}
+
+std::string inode_debug_string(size_t total, size_t available) {
+    if (total == 0) {
+        return "inodes: unknown";
+    }
+    return fmt::format("inodes: total: {}, used: {}, available: {}, used pct: {:.2f}%", total,
+                       total - available, available, inode_usage(total, available) * 100);
+}
+} // namespace
+
 std::string SpillDataDir::debug_string() {
+    std::lock_guard<std::mutex> l(_mutex);
     return fmt::format(
-            "path: {}, capacity: {}, limit: {}, used: {}, available: "
-            "{}",
-            _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
+            "path: {}, capacity: {}, limit: {}, used: {}, available: {}, {}", _path,
+            PrettyPrinter::print_bytes(_disk_capacity_bytes),
             PrettyPrinter::print_bytes(_spill_data_limit_bytes),
             PrettyPrinter::print_bytes(_spill_data_bytes),
-            PrettyPrinter::print_bytes(_available_bytes));
+            PrettyPrinter::print_bytes(_available_bytes),
+            inode_debug_string(static_cast<size_t>(spill_disk_inode_total->value()),
+                               static_cast<size_t>(spill_disk_inode_available->value())));
 }
 
 // ── LocalSpillDataDir ──
@@ -168,6 +188,7 @@ Status LocalSpillDataDir::update_capacity() {
                                                                   &_available_bytes));
     spill_disk_capacity->set_value(_disk_capacity_bytes);
     spill_disk_avail_capacity->set_value(_available_bytes);
+    _update_inode_usage();
     auto disk_use_max_bytes =
             (int64_t)(_disk_capacity_bytes * config::storage_flood_stage_usage_percent / 100);
     bool is_percent = true;
@@ -193,6 +214,30 @@ Status LocalSpillDataDir::update_capacity() {
     spill_disk_has_spill_gc_data->set_value(is_directory_empty(spill_gc_root_dir) ? 0 : 1);
 
     return Status::OK();
+}
+
+void LocalSpillDataDir::_update_inode_usage() {
+    size_t inode_total = 0;
+    size_t inode_available = 0;
+    auto st = io::global_local_filesystem()->get_inode_info(_path, &inode_total, &inode_available);
+    if (!st.ok()) {
+        LOG_EVERY_T(WARNING, 60) << fmt::format("failed to get inode info of spill path {}: {}",
+                                                _path, st.to_string());
+        return;
+    }
+    spill_disk_inode_total->set_value(inode_total);
+    spill_disk_inode_available->set_value(inode_available);
+
+    if (inode_total == 0) {
+        return;
+    }
+    if (inode_usage(inode_total, inode_available) >=
+        config::storage_flood_stage_usage_percent / 100.0) {
+        LOG_EVERY_T(WARNING, 60) << fmt::format(
+                "spill disk inode usage is high, path: {}, {}. Too many spill files or a "
+                "large spill gc backlog may exhaust inodes before disk space runs out",
+                _path, inode_debug_string(inode_total, inode_available));
+    }
 }
 
 bool LocalSpillDataDir::_reach_disk_capacity_limit(int64_t incoming_data_size) {

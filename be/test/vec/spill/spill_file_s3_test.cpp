@@ -62,6 +62,7 @@
 #include "runtime/workload_management/resource_context.h"
 #include "service/backend_options.h"
 #include "testutil/column_helper.h"
+#include "testutil/mock/mock_query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
 #include "util/defer_op.h"
@@ -684,6 +685,23 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
     ASSERT_EQ(_data_dir->get_spill_data_path("q1"), fmt::format("spill/{}/q1", kEndpoint));
     ASSERT_EQ(_data_dir->fs().get(), _s3_fs.get());
     ASSERT_FALSE(_data_dir->reach_capacity_limit(1LL << 40)); // unlimited by default
+}
+
+TEST_F(SpillFileS3Test, ExternalSpillSessionRequiresLocalRoot) {
+    _create_manager();
+    TUniqueId query_id;
+    query_id.hi = 41;
+    query_id.lo = 42;
+    auto query_ctx = MockQueryContext::create(query_id);
+    std::unique_ptr<ExternalSpillSession> spill_session;
+    auto st = _manager->create_external_spill_session("paimon", query_ctx.get(), &spill_session);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    std::vector<std::string> paths;
+    st = spill_session->get_paths(&paths);
+    ASSERT_FALSE(st.ok());
+    ASSERT_TRUE(paths.empty());
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
 TEST_F(SpillFileS3Test, NotReadyUntilVaultResolved) {
