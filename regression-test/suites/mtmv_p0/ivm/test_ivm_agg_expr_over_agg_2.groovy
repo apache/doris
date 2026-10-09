@@ -409,7 +409,22 @@ suite("test_ivm_agg_expr_over_agg_2") {
     qt_min_boundary_desc """DESC test_ivm_expr_over_agg_min_boundary"""
     sql """set show_hidden_columns=false"""
 
-    def latestTask = {
+    // CreateTime only has second granularity and TaskId carries a random component, so selecting the
+    // newest task by ordering can return the previous refresh when both start within one second. Capture
+    // the task ids that exist before submitting a refresh and wait for the one it adds instead.
+    def taskIdsOf = {
+        sql_return_maparray("""
+            SELECT TaskId FROM tasks('type'='mv')
+            WHERE MvDatabaseName = '${context.dbName}'
+              AND MvName = 'test_ivm_expr_over_agg_min_boundary'
+        """).collect { it.TaskId.toString() } as Set
+    }
+    def submittedTask = { Set<String> before ->
+        String taskId = null
+        Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until({
+            taskId = taskIdsOf().find { !before.contains(it) }
+            return taskId != null
+        })
         def taskResult
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             taskResult = sql_return_maparray("""
@@ -417,7 +432,7 @@ suite("test_ivm_agg_expr_over_agg_2") {
                 FROM tasks('type'='mv')
                 WHERE MvDatabaseName = '${context.dbName}'
                   AND MvName = 'test_ivm_expr_over_agg_min_boundary'
-                ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
+                  AND TaskId = '${taskId}'
             """)
             return !taskResult.isEmpty()
                     && taskResult[0].Status.toString() != 'PENDING'
@@ -434,15 +449,17 @@ suite("test_ivm_agg_expr_over_agg_2") {
     // stored state, so a strict incremental refresh must fail and name the reason.
     sql """DELETE FROM test_ivm_expr_over_agg_min_base WHERE id = 1;"""
     Thread.sleep(1000)
+    def beforeStrict = taskIdsOf()
     sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_min_boundary INCREMENTAL"""
-    def strictTask = latestTask()
+    def strictTask = submittedTask(beforeStrict)
     assertEquals("FAILED", strictTask.Status.toString())
     assertEquals("MIN_MAX_BOUNDARY_HIT", strictTask.IvmFallbackReason.toString())
     order_qt_min_boundary_after_strict_failure """SELECT k, m2 FROM test_ivm_expr_over_agg_min_boundary"""
 
     // With the fallback allowed, the refresh recomputes completely and matches the source query.
+    def beforeFallback = taskIdsOf()
     sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_min_boundary INCREMENTAL FALLBACK"""
-    def fallbackTask = latestTask()
+    def fallbackTask = submittedTask(beforeFallback)
     assertEquals("SUCCESS", fallbackTask.Status.toString())
     assertEquals("COMPLETE", fallbackTask.RefreshMode.toString())
     assertEquals("MIN_MAX_BOUNDARY_HIT", fallbackTask.IvmFallbackReason.toString())
@@ -453,8 +470,9 @@ suite("test_ivm_agg_expr_over_agg_2") {
     // non-boundary value and merge it incrementally. Reading a carrier left at the deleted extreme (10)
     // would report 20 here instead of the expected 40.
     sql """INSERT INTO test_ivm_expr_over_agg_min_base VALUES (4, 1, 25);"""
+    def beforePostFallback = taskIdsOf()
     sql """REFRESH MATERIALIZED VIEW test_ivm_expr_over_agg_min_boundary INCREMENTAL"""
-    def postFallbackTask = latestTask()
+    def postFallbackTask = submittedTask(beforePostFallback)
     assertEquals("SUCCESS", postFallbackTask.Status.toString())
     order_qt_min_boundary_after_fallback_incremental """SELECT k, m2 FROM test_ivm_expr_over_agg_min_boundary"""
     order_qt_min_boundary_after_fallback_incremental_source """
