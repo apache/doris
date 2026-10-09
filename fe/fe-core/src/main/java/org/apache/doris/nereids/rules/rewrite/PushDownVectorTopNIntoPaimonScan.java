@@ -17,8 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonVectorSearch;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -44,6 +49,7 @@ import org.apache.doris.thrift.TVectorMetric;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
 import java.util.List;
@@ -125,6 +131,17 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
             return null;
         }
 
+        // An incremental scan (t@incr / BETWEEN) must not be rewritten into a
+        // PK-vector search: the VectorScan builder has no incremental mode, so a
+        // vector payload would silently return snapshot rows for a query that asked
+        // for changes. Keeping the query un-rewritten runs it as the ordinary
+        // incremental scan the user requested, with the distance computed in Doris.
+        // (The scan node's vector gate keeps !isIncremental as the authoritative
+        // backstop for any path that produces a vector split regardless.)
+        if (scan.getScanParams().isPresent() && scan.getScanParams().get().incrementalRead()) {
+            return null;
+        }
+
         // The order key must be a SlotReference produced by a Project alias.
         Expression orderKey = topN.getOrderKeys().get(0).getExpr();
         if (!(orderKey instanceof SlotReference)) {
@@ -202,6 +219,40 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         // is the thrift enum that paimon-rust's "inner_product" score transform maps to
         // (see the BE reader's parse_score_transform).
         TVectorMetric expectedMetricEnum = l2Dist ? TVectorMetric.L2 : TVectorMetric.DOT_PRODUCT;
+
+        // Pre-flight the rust eligibility the scan node will gate on. The rewrite is
+        // one-way: a PK-vector split has no JNI fallback (the JNI reader ignores the
+        // vector payload and would return a non-ANN scan with an empty distance
+        // column), so the scan node can only fail loudly — a table whose gate would
+        // fail (credential provider shape, REST-token IO, query-auth, merge-option
+        // matrix, deletion-vector merge-on-read, scan-mode, storage scheme or HDFS
+        // credentials, no rust-capable backend) must not be rewritten at all. Without
+        // the rewrite the query still runs, computing the distance in Doris. The
+        // projection-dependent bounds (ORC LTZ, projected variant) need the final scan
+        // tuple and stay scan-node-side, and the scan node re-evaluates on the
+        // relation-option-processed table, so it stays authoritative for t@options
+        // overrides this raw-table pre-flight cannot see.
+        try {
+            Table baseTable = paimonTable.getPaimonTable(Optional.empty());
+            PaimonExternalCatalog catalog = (PaimonExternalCatalog) paimonTable.getCatalog();
+            Map<StorageProperties.Type, StorageProperties> storagePropertiesMap =
+                    VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                            catalog.getCatalogProperty().getMetastoreProperties(),
+                            catalog.getCatalogProperty().getStoragePropertiesMap(),
+                            baseTable);
+            Map<String, String> backendStorageProperties =
+                    CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
+            String tableLocation = baseTable instanceof FileStoreTable
+                    ? ((FileStoreTable) baseTable).location().toString()
+                    : baseTable.options().get("path");
+            if (!PaimonVectorSearch.vectorScanEligible(baseTable, tableLocation,
+                    backendStorageProperties,
+                    Env.getCurrentSystemInfo().getAllClusterBackends(true))) {
+                return null;
+            }
+        } catch (Throwable t) {
+            return null;
+        }
         // NOTE: the FE-side data-predicate interception is intentionally not done. The
         // data predicate is handed in full to the BE via the vector search builder's
         // residual filter, where the Rust candidate search stage applies it together

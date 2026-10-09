@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonVectorSearch;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
@@ -47,14 +52,19 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPart
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TVectorMetric;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.apache.paimon.table.Table;
+import mockit.MockUp;
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.table.FileStoreTable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,6 +92,7 @@ public class PushDownVectorTopNIntoPaimonScanTest {
     private static final List<Literal> QUERY_VECTOR =
             ImmutableList.of(new FloatLiteral(1.0f), new FloatLiteral(2.0f));
 
+    private static SystemInfoService systemInfo;
     private ConnectContext ctx;
     private CascadesContext cascadesContext;
 
@@ -98,6 +109,20 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         ctx.setThreadLocalInfo();
         // Rule.transform only stuffs the context into a MatchingContext; the rule body ignores it.
         cascadesContext = Mockito.mock(CascadesContext.class);
+        // The rewrite's pre-flight (PaimonVectorSearch.vectorScanEligible) requires a
+        // rust-capable BE via the all-backend capability negotiation, mirroring
+        // PaimonScanNodeTest's routing fixture.
+        Backend rustBackend = GsonUtils.GSON.fromJson(
+                "{\"supportsPaimonRustReader\":true}", Backend.class);
+        systemInfo = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfo.getAllClusterBackends(true))
+                .thenReturn(ImmutableList.of(rustBackend));
+        new MockUp<Env>() {
+            @mockit.Mock
+            public SystemInfoService getCurrentSystemInfo() {
+                return systemInfo;
+            }
+        };
     }
 
     @AfterEach
@@ -561,6 +586,23 @@ public class PushDownVectorTopNIntoPaimonScanTest {
                 ImmutableList.of(new OrderKey(id, true, true)), 10, 5, project));
     }
 
+    @Test
+    public void testIncrementalScanNotPushedDown() {
+        // t@incr(...): the PK-vector search path has no incremental semantics (the
+        // VectorScan builder has no incremental mode), so an incremental query must
+        // keep its ordinary scan and compute the distance in Doris — a rewritten
+        // vector split would silently return snapshot rows for a query that asked
+        // for changes.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"),
+                Optional.of(new TableScanParams("incr",
+                        ImmutableMap.of("start", "1"), ImmutableList.of())));
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private Plan applyRule(int ruleIndex, LogicalTopN<Plan> topN) {
@@ -595,6 +637,11 @@ public class PushDownVectorTopNIntoPaimonScanTest {
      * whose Paimon options are exactly {@code options}.
      */
     private LogicalFileScan paimonScan(Map<String, String> options) {
+        return paimonScan(options, Optional.empty());
+    }
+
+    private LogicalFileScan paimonScan(Map<String, String> options,
+            Optional<TableScanParams> scanParams) {
         List<Column> schema = ImmutableList.of(
                 new Column("id", Type.INT, true),
                 new Column("vec", new ArrayType(Type.FLOAT), true),
@@ -609,14 +656,34 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         Mockito.when(table.initSelectedPartitions(Mockito.any()))
                 .thenReturn(SelectedPartitions.NOT_PRUNED);
 
-        Table paimonTable = Mockito.mock(Table.class);
+        // A FileStoreTable (not a bare Table) with a file:// location, no REST FileIO and
+        // null CoreOptions/schema: the rewrite's pre-flight sees a plain local
+        // warehouse table whose option gates all skip, so the per-test options map is
+        // the only input that differs.
+        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
         Mockito.when(paimonTable.options()).thenReturn(options);
+        Mockito.when(paimonTable.location())
+                .thenReturn(new Path("file:///warehouse/wh/paimon_db.db/paimon_tbl"));
+        Mockito.when(paimonTable.fileIO()).thenReturn(null);
+        Mockito.when(paimonTable.coreOptions()).thenReturn(null);
+        Mockito.when(paimonTable.schema()).thenReturn(null);
         Mockito.when(table.getPaimonTable(Mockito.<Optional<org.apache.doris.datasource.mvcc.MvccSnapshot>>any()))
                 .thenReturn(paimonTable);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
+        // A filesystem metastore (empty properties, benign type): no vended-credential
+        // provider, so the factory returns the base (empty) storage map.
+        MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
+        Mockito.when(metastoreProperties.getType()).thenReturn(MetastoreProperties.Type.FILE_SYSTEM);
+        Mockito.when(catalogProperty.getMetastoreProperties()).thenReturn(metastoreProperties);
+        Mockito.when(catalogProperty.getStoragePropertiesMap())
+                .thenReturn(java.util.Collections.emptyMap());
 
         return new LogicalFileScan(StatementScopeIdGenerator.newRelationId(), table,
                 ImmutableList.of("paimon_ctl", "paimon_db"), ImmutableList.of(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), scanParams, Optional.empty());
     }
 
     private SlotReference idSlot(LogicalFileScan scan) {

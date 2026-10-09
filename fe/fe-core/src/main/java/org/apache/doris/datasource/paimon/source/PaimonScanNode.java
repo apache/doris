@@ -55,7 +55,6 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
@@ -75,7 +74,6 @@ import org.apache.doris.thrift.TVectorSearchParams;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
@@ -87,7 +85,6 @@ import org.apache.paimon.io.DataOutputSerializer;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.partition.PartitionPredicate;
 import org.apache.paimon.predicate.Predicate;
-import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
@@ -165,7 +162,8 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
     // Same key as the rust CoreOptions DELETION_VECTORS_MERGE_ON_READ_OPTION: paimon
     // 1.4 exposes no Java accessor for it, so the raw TableSchema option is read.
-    private static final String DELETION_VECTORS_MERGE_ON_READ = "deletion-vectors.merge-on-read";
+    // Package-private: PaimonVectorSearch.vectorScanEligible reads the same key.
+    static final String DELETION_VECTORS_MERGE_ON_READ = "deletion-vectors.merge-on-read";
     private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
             DORIS_ENABLE_JNI_IO_MANAGER,
             DORIS_JNI_IO_MANAGER_TMP_DIR,
@@ -594,7 +592,8 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     // Whether the location is an hdfs:// table (the only HDFS-family scheme in
     // RUST_VERIFIED_LOCATION_SCHEMES; viewfs / jfs never pass it).
-    private static boolean isHdfsLocationScheme(String location) {
+    // Package-private: PaimonVectorSearch.vectorScanEligible checks the same shape.
+    static boolean isHdfsLocationScheme(String location) {
         if (location == null) {
             return false;
         }
@@ -930,14 +929,11 @@ public class PaimonScanNode extends FileQueryScanNode {
             // pinned rust decoder rejects outright ("trailing bytes after
             // DataSplit" — it requires full-buffer consumption), and even a
             // permissive decode would still lack the second table identity
-            // needed to honor the fallback-side discriminator. Both sides of a
-            // FallbackReadFileStoreTable wrap their splits, so the table
-            // wrapper is gated as a whole (any split from it routes to JNI)
-            // until the rust ABI represents both sides; the FallbackSplit
-            // interface also catches a wrapper split regardless of how the
-            // table was resolved here.
-            boolean fallbackRead = split instanceof FallbackReadFileStoreTable.FallbackSplit
-                    || processedTable instanceof FallbackReadFileStoreTable;
+            // needed to honor the fallback-side discriminator. The table-half
+            // of the gate lives in PaimonRustEligibility.fallbackReadTable; the
+            // FallbackSplit interface here also catches a wrapper split
+            // regardless of how the table was resolved.
+            boolean fallbackSplit = split instanceof FallbackReadFileStoreTable.FallbackSplit;
             // Serialize the same effective table that planning and the JNI reader use.
             // Relation options such as t@options('read.batch-size'='1') are applied by
             // getProcessedTable() (doInitialize caches it in processedTable), and the
@@ -948,166 +944,23 @@ public class PaimonScanNode extends FileQueryScanNode {
             Table paimonTable = processedTable;
             FileStoreTable paimonFileStoreTable =
                     paimonTable instanceof FileStoreTable ? (FileStoreTable) paimonTable : null;
-            // query-auth.enabled tables stay on JNI: when catalog authorization
-            // succeeds with no row filter or column mask, Paimon still leaves an
-            // ordinary DataSplit (restricted results use QueryAuthSplit and are
-            // already handled by the nativeSplit gate above), so this table shape
-            // passes the compound gate — but the shipped schema keeps
-            // query-auth.enabled=true and the pinned rust ReadBuilder rejects
-            // every such table (its CoreOptions::ensure_read_authorized fails
-            // closed because the client cannot enforce the row filter / column
-            // masking), turning a valid authorized scan into a BE-open failure.
-            // Until the authorization result can be transported and enforced by
-            // the rust ABI, these tables route to JNI.
-            boolean queryAuthTable = false;
-            // REST-token tables stay on JNI: doInitialize snapshots
-            // RESTTokenFileIO.validToken().token() into the backend storage
-            // properties, discarding expireAtMillis and the REST refresh
-            // context, so the shipped credentials look static — but the
-            // pinned rust table reuses one option map with no refresh
-            // callback, while paimon 1.4.2's JNI RESTTokenFileIO checks
-            // expiry before each file operation and obtains a replacement
-            // token. A queued or long scan that crosses the token TTL would
-            // start on rust and later fail authentication. Gate until the
-            // rust ABI can refresh and atomically update credentials.
-            boolean restTokenTable = false;
-            // Partial-update / aggregation tables with deletion vectors only pass
-            // the rust reader in the fully materialized shape: the pinned rust
-            // read_pk rejects merge-engine=partial-update/aggregation with
-            // deletion-vectors.merge-on-read=true outright, and otherwise requires
-            // every split to be compacted and known free of retract rows
-            // (DataSplit::is_fully_materialized_pk_dv). Their ordinary DataSplits
-            // sail through the compound gate above, so without this check a valid
-            // Java/JNI scan reaches BE and the rust open fails. Deduplicate stays
-            // rust-eligible: its read_pk routes uncompacted splits to the KV
-            // reader, which applies the attached per-file DVs. merge-on-read=true
-            // is a table option, so the whole table routes to JNI;
-            // non-materialized splits are gated per split below.
-            boolean puAggDeletionVectors = false;
-            boolean dvMergeOnRead = false;
-            boolean deduplicateIgnoreDelete = false;
-            boolean rustUnsupportedMergeOption = false;
-            if (paimonFileStoreTable != null) {
-                // A renewable REST token reached the shipped properties as a
-                // plain value; only the table's FileIO type reveals it expires.
-                // Null-safe: a table handle whose FileIO is not resolved stays
-                // rust-eligible, mirroring the CoreOptions null-safety below.
-                restTokenTable = paimonFileStoreTable.fileIO() instanceof RESTTokenFileIO;
-                CoreOptions resolvedCoreOptions = paimonFileStoreTable.coreOptions();
-                // Null-safe: a table handle whose CoreOptions is not resolved
-                // (e.g. some wrapper shapes) stays rust-eligible rather than
-                // failing the scan here — the rust open itself rejects such a
-                // table if the option is really set.
-                if (resolvedCoreOptions != null) {
-                    queryAuthTable = resolvedCoreOptions.queryAuthEnabled();
-                    CoreOptions.MergeEngine mergeEngine = resolvedCoreOptions.mergeEngine();
-                    if (resolvedCoreOptions.deletionVectorsEnabled()
-                            && (mergeEngine == CoreOptions.MergeEngine.PARTIAL_UPDATE
-                                    || mergeEngine == CoreOptions.MergeEngine.AGGREGATE)) {
-                        puAggDeletionVectors = true;
-                        // The merge-engine and deletion-vectors.enabled checks
-                        // above resolve through the Java CoreOptions accessors,
-                        // which the table builds from this same schema options
-                        // map — the one the BE rust reader deserializes from
-                        // the shipped schema JSON — so they cannot diverge from
-                        // what BE sees. merge-on-read has no Java accessor in
-                        // paimon 1.4, so it is read raw from the map, with the
-                        // rust parsing semantics (any case-insensitive "true"
-                        // is on, default false).
-                        TableSchema dvSchema = paimonFileStoreTable.schema();
-                        Map<String, String> dvOptions = dvSchema == null ? null : dvSchema.options();
-                        String mergeOnRead = dvOptions == null
-                                ? null : dvOptions.get(DELETION_VECTORS_MERGE_ON_READ);
-                        dvMergeOnRead = "true".equalsIgnoreCase(mergeOnRead);
-                    }
-                    // deduplicate.ignore-delete=true tables stay on JNI:
-                    // Java's DeduplicateMergeFunction skips retract records
-                    // when the option is set — including old, uncompacted
-                    // files that still contain them — but the pinned rust
-                    // read_pk does not pass table options into its
-                    // deduplicate merge: it picks the latest row and omits
-                    // the key when that row is DELETE/UPDATE_BEFORE. An
-                    // uncompacted insert followed by a delete therefore
-                    // returns the insert through JNI but silently disappears
-                    // through rust. Gate the option until the rust merge
-                    // implements it.
-                    if (mergeEngine == CoreOptions.MergeEngine.DEDUPLICATE
-                            && resolvedCoreOptions.ignoreDelete()) {
-                        deduplicateIgnoreDelete = true;
-                    }
-                    // Non-DV merge options the pinned rust read rejects: Java
-                    // supports partial-update.remove-record-on-delete /
-                    // aggregation.remove-record-on-delete and the wider
-                    // per-field retract matrix, but the rust
-                    // PartialUpdateConfig / AggregationConfig validations
-                    // return Unsupported for them — and the DV-derived gates
-                    // above only cover deletion-vector tables, so an ordinary
-                    // non-DV DataSplit with one of these options would pass the
-                    // compound gate and fail during the rust merge
-                    // construction. Mirror the exact rust key matrix (presence,
-                    // not values) against the same schema options map BE
-                    // deserializes.
-                    if (mergeEngine == CoreOptions.MergeEngine.PARTIAL_UPDATE
-                            || mergeEngine == CoreOptions.MergeEngine.AGGREGATE) {
-                        TableSchema mergeSchema = paimonFileStoreTable.schema();
-                        Map<String, String> mergeOptions =
-                                mergeSchema == null ? null : mergeSchema.options();
-                        rustUnsupportedMergeOption = mergeOptions != null
-                                && hasRustUnsupportedMergeOption(mergeOptions, mergeEngine);
-                    }
-                }
-            }
-            // paimon-rust additionally requires (a) FileScannerV2: the V1 FileScanner
+            // The table-, storage- and backend-level rust gates are computed once in
+            // PaimonRustEligibility — the single definition the batch and PK-vector
+            // branches below share with the PushDownVectorTopNIntoPaimonScan rewrite's
+            // pre-flight (PaimonVectorSearch.vectorScanEligible) — so both sites agree
+            // on the same conditions by construction. It is built from processedTable,
+            // the same effective table serialized below, so relation options such as
+            // t@options('read.batch-size'='1') reach the gate too.
+            PaimonRustEligibility rustEligibility = PaimonRustEligibility.of(processedTable,
+                    source.getTableLocation(), backendStorageProperties,
+                    backendPolicy.getBackends());
+            // The fallback-read gate halves: the split shape here, the table
+            // wrapper in rustEligibility.fallbackReadTable. Either routes to JNI.
+            boolean fallbackRead = fallbackSplit || rustEligibility.fallbackReadTable;
+            // paimon-rust additionally requires FileScannerV2: the V1 FileScanner
             // explicitly rejects PAIMON_RUST, so with enable_file_scanner_v2 disabled
             // the split falls back to JNI instead of encoding a rust request that the
-            // selected scanner cannot consume, and (b) a FileStoreTable: BE opens the
-            // table via paimon_table_from_schema_json, which needs the resolved
-            // TableSchema that only FileStoreTable exposes via schema(). If the table
-            // is not a FileStoreTable (e.g. a sys table backed by DataSplit), we cannot
-            // ship a schema JSON, so fall back to CPP / JNI rather than sending an
-            // incomplete PAIMON_RUST request that BE would reject.
-            //
-            // The paimon-rust S3 bridge maps static credentials, anonymous
-            // access (AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS -> s3.anonymous)
-            // and assume-role (AWS_ROLE_ARN / AWS_EXTERNAL_ID ->
-            // s3.assumed.role.*), but the remaining credential-provider modes
-            // are ambient JVM provider chains (ENV, SYSTEM_PROPERTIES,
-            // WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) with no paimon-rust
-            // equivalent — rust would silently sign with whatever the ambient
-            // chain resolves to. Gate those modes away from the rust reader
-            // here so the configured provider is honored via the JNI path.
-            boolean providerModeTranslatable = true;
-            String providerType = backendStorageProperties == null
-                    ? null : backendStorageProperties.get("AWS_CREDENTIALS_PROVIDER_TYPE");
-            String mode = providerType == null ? "DEFAULT" : providerType.trim().toUpperCase(Locale.ROOT);
-            if (mode.isEmpty()) {
-                mode = "DEFAULT";
-            }
-            String location = source.getTableLocation();
-            if (location != null && (location.startsWith("s3://") || location.startsWith("s3a://"))) {
-                // Java DEFAULT may resolve JVM properties or anonymous credentials;
-                // Rust's ambient chain is different. Only explicit keys or explicit
-                // anonymous access can cross this boundary without changing identity.
-                String accessKey = backendStorageProperties == null
-                        ? null : backendStorageProperties.get("AWS_ACCESS_KEY");
-                String secretKey = backendStorageProperties == null
-                        ? null : backendStorageProperties.get("AWS_SECRET_KEY");
-                boolean staticKeys = accessKey != null && !accessKey.trim().isEmpty()
-                        && secretKey != null && !secretKey.trim().isEmpty();
-                // Hadoop's Simple provider gives static keys precedence over anonymous,
-                // role and token settings. Rust interprets those settings differently.
-                boolean conflictingStaticSettings = staticKeys && (mode.equals("ANONYMOUS")
-                        || StringUtils.isNotEmpty(backendStorageProperties.get("AWS_ROLE_ARN"))
-                        || StringUtils.isNotEmpty(backendStorageProperties.get("AWS_TOKEN")));
-                providerModeTranslatable = !conflictingStaticSettings
-                        && (mode.equals("ANONYMOUS") || (mode.equals("DEFAULT") && staticKeys));
-            } else if (providerType != null) {
-                providerModeTranslatable = mode.equals("DEFAULT") || mode.equals("ANONYMOUS");
-                // OSS has no anonymous FileIO mode in the pinned Rust dependency.
-                if (mode.equals("ANONYMOUS") && location != null && location.startsWith("oss://")) {
-                    providerModeTranslatable = false;
-                }
-            }
+            // selected scanner cannot consume.
             // Incremental scans (binlog / changelog / delta / diff) must stay
             // on the JNI path: this wire format carries only an ordinary
             // DataSplit and the rust reader invokes TableRead::to_arrow, but
@@ -1155,94 +1008,55 @@ public class PaimonScanNode extends FileQueryScanNode {
             // rust. Gate until the rust leaf has a Variant Arrow decoder.
             boolean projectedVariant = desc.getSlots().stream()
                     .anyMatch(slot -> PaimonUtil.containsVariant(slot.getType()));
-            // Scheme capability gate: the pinned paimon-rust storage
-            // dispatcher (io/storage.rs) selects the FileIO parser from the
-            // table location's URI scheme, and libpaimon_c.a compiles in
-            // separate COS, OBS, GCS and Azdls parsers besides the OSS and S3
-            // ones. Doris normalizes every object store's credentials into
-            // the AWS_* / use_path_style aliases (see the *Properties storage
-            // classes), which the BE rust bridge translates only into the
-            // fs.oss.* and s3.* key families — a cosn:// / obs:// / gs:// /
-            // abfs:// warehouse would reach its scheme's parser without the
-            // key family it reads (fs.cosn.userinfo.*, fs.obs.*, gcs.*,
-            // azure.*) and fail the open instead of using JNI. Only the
-            // schemes whose property translation is implemented and
-            // open-tested (s3 / s3a / oss, via RUST_VERIFIED_LOCATION_SCHEMES)
-            // plus the credential-free hdfs and local-filesystem parsers stay
-            // rust-eligible; every other scheme falls back to JNI. A null
-            // location also routes to JNI: the rust path needs the
-            // paimon_table that only a real location can provide (BE rejects
-            // a split without it).
-            boolean schemeCapabilityVerified = isRustVerifiedLocationScheme(source.getTableLocation());
-            // An hdfs:// location is scheme-verified only together with the credential-free
-            // backend shape: the backend storage properties that ship to BE also carry an
-            // HDFS catalog's authentication (kerberos principal / keytab, proxy user, HA
-            // nameservice config), none of which the pinned rust HDFS parser reads — the
-            // scan would open as the BE process's ambient identity instead of the
-            // catalog's configured one and fail the access JNI honors. See
-            // isRustVerifiedHdfsBackend.
-            boolean hdfsBackendVerified = !isHdfsLocationScheme(source.getTableLocation())
-                    || isRustVerifiedHdfsBackend(backendStorageProperties);
-            // With merge-on-read=true the whole table already routes to JNI (dvMergeOnRead);
-            // for the remaining partial-update/aggregation DV tables, a split that is
+            // With merge-on-read=true the whole table already routes to JNI
+            // (rustEligibility.dvMergeOnRead); for the remaining
+            // partial-update/aggregation DV tables, a split that is
             // not fully materialized (uncompacted level-0 data, or retractions not
             // known to be applied — even a split with no deletion file attached yet)
             // fails the rust is_fully_materialized_pk_dv guard, so it falls back per
             // split instead of turning into a BE-open failure. nativeSplit and
             // !fallbackRead only guard the cast — those splits already route to JNI.
-            boolean splitDvNotMaterialized = puAggDeletionVectors && !dvMergeOnRead
+            boolean splitDvNotMaterialized = rustEligibility.puAggDeletionVectors
+                    && !rustEligibility.dvMergeOnRead
                     && nativeSplit && !fallbackRead
                     && !isFullyMaterializedPkDvSplit((DataSplit) split);
             boolean vectorSearchSplit = paimonSplit.getVectorPayloadBytes() != null;
-            // Session, table and storage gates shared by both rust readers (the batch
-            // reader and the PK-vector search reader): both switches, the FallbackRead
-            // wrapper shape, incremental scans, provider-mode translation and the
-            // query-auth / REST-token shapes, the merge-option matrix and merge-on-read
-            // shape, the orc-ltz / projected-variant bounds on the returned columns, the
-            // table's storage scheme and credential shape, the scan-mode default the
-            // pinned Rust builder requires, the FileStoreTable schema json BE opens with,
-            // and the all-backend rust capability negotiation.
-            boolean allBackendsRustCapable = !backendPolicy.getBackends().isEmpty()
-                    && backendPolicy.getBackends().stream().allMatch(Backend::isPaimonRustReaderSupported);
+            // Session, shared table / storage / backend, and scan-shape gates. The
+            // shared PaimonRustEligibility computation is also the
+            // PushDownVectorTopNIntoPaimonScan rewrite's pre-flight
+            // (PaimonVectorSearch.vectorScanEligible): the rewrite is one-way, so both
+            // sites must agree on the same gates, and the scan node stays authoritative
+            // — it evaluates the relation-option-processed table, so a t@options
+            // override the raw-table pre-flight cannot see still rejects here (loudly,
+            // as the vector path has no JNI fallback). !isIncremental and the
+            // split-half of the fallback-read gate are the same backstops: an
+            // incremental scan has no PK-vector semantics (the VectorScan builder has
+            // no incremental mode), and a FallbackSplit shape cannot ride the vector
+            // payload either — both fail loudly here rather than silently returning
+            // snapshot rows for a query that asked for changes. Each gate's value is
+            // also what the fallback logging below reports.
             boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
                     && sessionVariable.enableFileScannerV2
-                    && !fallbackRead
-                    && !isIncremental && providerModeTranslatable
-                    && !queryAuthTable && !restTokenTable
-                    && !dvMergeOnRead
-                    && !orcLtzSchema && !projectedVariant
-                    && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
-                    && schemeCapabilityVerified && hdfsBackendVerified
-                    && allBackendsRustCapable
-                    && paimonFileStoreTable != null;
-            // Branch tables can retain persisted modes without a selector. Validate the
-            // transported options too: the pinned Rust builder only accepts default here.
-            // Kept lazy and null-safe: fallback-shaped tables can carry a null schema and
-            // the check is only meaningful once every other gate passed.
-            boolean scanModeNotDefault = false;
-            if (canUseRust && paimonFileStoreTable.schema() != null) {
-                String scanMode = PaimonScanParams.withoutTimeTravelSelectors(paimonFileStoreTable.schema())
-                        .options().get(CoreOptions.SCAN_MODE.key());
-                scanModeNotDefault = scanMode != null && !"default".equalsIgnoreCase(scanMode);
-                canUseRust = !scanModeNotDefault;
-            }
-            // The remaining gates judge the DataSplit the BATCH reader opens: the native
-            // DataSplit shape, unmaterialized partial-update / aggregation deletion
-            // vectors, external-path files, and the PaimonRustReaderCapabilities whitelist
-            // (single-file PK buckets, zero delete rows, schema-evolution whitelist). A
-            // PK-vector search split is never read as a DataSplit -- FE ships it serialized
-            // inside vector_payload (paimon_split is empty on the wire) and BE executes
-            // paimon-rust's eager Top-K chain, which applies deletion vectors and the merge
-            // inside the search itself -- so those gates must not judge it.
-            if (!vectorSearchSplit) {
+                    && rustEligibility.eligible()
+                    && !fallbackRead && !isIncremental
+                    && !orcLtzSchema && !projectedVariant;
+            // The remaining gates judge the DataSplit the BATCH reader opens: the
+            // native DataSplit shape, unmaterialized partial-update / aggregation
+            // deletion vectors, external-path files, and the
+            // PaimonRustReaderCapabilities whitelist. A PK-vector search split is
+            // never read as a DataSplit (it rides serialized in vector_payload and
+            // executes paimon-rust's eager Top-K chain, which applies deletion
+            // vectors and the merge inside the search itself), so it does not
+            // consult them.
+            if (!vectorSearchSplit && canUseRust) {
                 canUseRust = canUseRust && nativeSplit && !splitDvNotMaterialized
                         && !externalFileSplit;
-            }
-            if (canUseRust && !vectorSearchSplit) {
-                if (rustReaderCapabilities == null) {
-                    rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
+                if (canUseRust) {
+                    if (rustReaderCapabilities == null) {
+                        rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
+                    }
+                    canUseRust = rustReaderCapabilities.canRead((DataSplit) split);
                 }
-                canUseRust = rustReaderCapabilities.canRead((DataSplit) split);
             }
             // With the rust reader enabled, a logical split that still routes to JNI was
             // rejected by a gate above: make the reason visible instead of a silent
@@ -1260,16 +1074,16 @@ public class PaimonScanNode extends FileQueryScanNode {
                 if (isIncremental) {
                     reasons.add("incremental_scan");
                 }
-                if (!providerModeTranslatable) {
+                if (!rustEligibility.providerModeTranslatable) {
                     reasons.add("provider_mode_untranslatable");
                 }
-                if (queryAuthTable) {
+                if (rustEligibility.queryAuthTable) {
                     reasons.add("query_auth_table");
                 }
-                if (restTokenTable) {
+                if (rustEligibility.restTokenTable) {
                     reasons.add("rest_token_table");
                 }
-                if (dvMergeOnRead) {
+                if (rustEligibility.dvMergeOnRead) {
                     reasons.add("dv_merge_on_read");
                 }
                 if (!vectorSearchSplit && splitDvNotMaterialized) {
@@ -1284,25 +1098,25 @@ public class PaimonScanNode extends FileQueryScanNode {
                 if (!vectorSearchSplit && externalFileSplit) {
                     reasons.add("external_file_split");
                 }
-                if (deduplicateIgnoreDelete) {
+                if (rustEligibility.deduplicateIgnoreDelete) {
                     reasons.add("deduplicate_ignore_delete");
                 }
-                if (rustUnsupportedMergeOption) {
+                if (rustEligibility.rustUnsupportedMergeOption) {
                     reasons.add("unsupported_merge_option");
                 }
-                if (!schemeCapabilityVerified) {
+                if (!rustEligibility.schemeCapabilityVerified) {
                     reasons.add("unverified_location_scheme");
                 }
-                if (!hdfsBackendVerified) {
+                if (!rustEligibility.hdfsBackendVerified) {
                     reasons.add("hdfs_backend_credentials");
                 }
-                if (scanModeNotDefault) {
+                if (rustEligibility.scanModeNotDefault) {
                     reasons.add("scan_mode_not_default");
                 }
-                if (paimonFileStoreTable == null) {
+                if (!rustEligibility.isFileStoreTable) {
                     reasons.add("not_file_store_table");
                 }
-                if (!allBackendsRustCapable) {
+                if (!rustEligibility.allBackendsRustCapable) {
                     reasons.add("backend_without_rust_support");
                 }
                 if (reasons.isEmpty()) {
