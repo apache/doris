@@ -23,43 +23,68 @@ suite("test_build_index_read_time_hidden_column", "nonConcurrent") {
 
     def timeout = 60000
     def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
 
+    // SHOW ALTER TABLE COLUMN lists the job CREATE INDEX creates; it must exist and finish.
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for (int t = delta_time; t <= OpTimeout; t += delta_time) {
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if (alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
+        def finished = false
+        for (int t = 0; t < OpTimeout && !finished; t += delta_time) {
+            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            assertFalse(alter_res.any { it[9] == "CANCELLED" }, "alter job cancelled: ${alter_res}")
+            finished = !alter_res.isEmpty() && alter_res.every { it[9] == "FINISHED" }
+            if (!finished) {
+                sleep(delta_time)
             }
-            useTime = t
-            sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+        assertTrue(finished, "wait_for_latest_op_on_table_finish timeout")
+        sleep(3000) // wait change table state to normal
     }
 
-    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
-        for (int t = delta_time; t <= OpTimeout; t += delta_time) {
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            def expected_finished_num = alter_res.size()
-            def finished_num = 0
-            for (int i = 0; i < expected_finished_num; i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num
-                }
+    def build_index_job_ids = { table_name ->
+        sql("""SHOW BUILD INDEX WHERE TableName = "${table_name}";""").collect { it[0] }
+    }
+
+    // SHOW BUILD INDEX also lists the jobs of a dropped table with the same name, so the wait is
+    // keyed to the jobs BUILD INDEX adds on top of `jobs_before`. No new job is not success: the
+    // result queries below can be answered by a plain scan, so the index build itself has to be
+    // observed finishing before they prove anything.
+    def wait_for_build_index_finish = { table_name, jobs_before, OpTimeout ->
+        def finished = false
+        for (int t = 0; t < OpTimeout && !finished; t += delta_time) {
+            def jobs = sql("""SHOW BUILD INDEX WHERE TableName = "${table_name}";""")
+                    .findAll { !(it[0] in jobs_before) }
+            logger.info(table_name + " build index jobs: " + jobs)
+            assertFalse(jobs.any { it[7] == "CANCELLED" }, "build index job cancelled: ${jobs}")
+            finished = !jobs.isEmpty() && jobs.every { it[7] == "FINISHED" }
+            if (!finished) {
+                sleep(delta_time)
             }
-            if (finished_num == expected_finished_num) {
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_build_index_on_partition_finish timeout")
+        assertTrue(finished, "wait_for_build_index_finish timeout")
+    }
+
+    // The inverted index must be the thing answering the predicate: read the scan profile of the
+    // query and require RowsInvertedIndexFiltered to be reported with the expected count.
+    def assert_rows_filtered_by_inverted_index = { String query, int expectedFiltered ->
+        def profileId = null
+        for (int t = 0; t < timeout && profileId == null; t += delta_time) {
+            def profiles = new groovy.json.JsonSlurper().parseText(http_get("/rest/v1/query_profile/"))
+            assertEquals(0, profiles.code)
+            def profile = profiles.data.rows.find { it["Sql Statement"].contains(query) }
+            if (profile != null) {
+                profileId = profile["Profile ID"]
+            } else {
+                sleep(delta_time)
+            }
+        }
+        assertNotNull(profileId, "no profile found for: " + query)
+        def profileDetail = http_get("/rest/v1/query_profile/" + profileId)
+        def matcher = (profileDetail =~ /RowsInvertedIndexFiltered:&nbsp;&nbsp;(\d+)/)
+        def filtered = []
+        while (matcher.find()) {
+            filtered << Integer.parseInt(matcher.group(1))
+        }
+        assertFalse(filtered.isEmpty(), "RowsInvertedIndexFiltered missing from profile of: " + query)
+        filtered.each { assertEquals(expectedFiltered, it) }
     }
 
     sql "drop table if exists build_index_hidden_version"
@@ -106,21 +131,30 @@ suite("test_build_index_read_time_hidden_column", "nonConcurrent") {
     // read-time constant and queries consult the index as-is.
     sql "create index version_idx on build_index_hidden_version(__DORIS_VERSION_COL__) using inverted"
     wait_for_latest_op_on_table_finish("build_index_hidden_version", timeout)
+    def jobs_before_build = build_index_job_ids("build_index_hidden_version")
     sql "build index version_idx on build_index_hidden_version"
-    wait_for_build_index_on_partition_finish("build_index_hidden_version", timeout)
+    wait_for_build_index_finish("build_index_hidden_version", jobs_before_build, timeout)
 
     sql "set enable_inverted_index_query = true"
-    order_qt_index_version_3 """
-        select k, __DORIS_VERSION_COL__ from build_index_hidden_version where __DORIS_VERSION_COL__ = 3
-    """
-    order_qt_index_version_in """
-        select k, __DORIS_VERSION_COL__ from build_index_hidden_version where __DORIS_VERSION_COL__ in (2, 6)
-    """
+    // The BKD hit estimate of a five-row segment exceeds the default 50% skip threshold and would
+    // bypass the index; a threshold of 0 disables that bypass so the index answers the predicates.
+    sql "set inverted_index_skip_threshold = 0"
+    sql "set enable_profile = true"
+    def version_3 = "select k, __DORIS_VERSION_COL__ from build_index_hidden_version where __DORIS_VERSION_COL__ = 3"
+    order_qt_index_version_3 version_3
+    assert_rows_filtered_by_inverted_index(version_3, 4)
+    def version_in = "select k, __DORIS_VERSION_COL__ from build_index_hidden_version where __DORIS_VERSION_COL__ in (2, 6)"
+    order_qt_index_version_in version_in
+    assert_rows_filtered_by_inverted_index(version_in, 3)
+    // The materialized VERSION zone map of the compacted segment is [2, 6], so the segment-level
+    // statistics prune this predicate before the index is consulted; the index content itself is
+    // proven by the two filtered-row counts above, which an index of placeholder zeros fails.
     order_qt_index_version_0 """
         select k, __DORIS_VERSION_COL__ from build_index_hidden_version where __DORIS_VERSION_COL__ = 0
     """
     order_qt_versions_after_index """
         select k, __DORIS_VERSION_COL__ from build_index_hidden_version
     """
+    sql "set enable_profile = false"
     sql "set show_hidden_columns = false"
 }
