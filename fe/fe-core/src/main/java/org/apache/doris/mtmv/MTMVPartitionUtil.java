@@ -24,9 +24,11 @@ import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -302,6 +304,37 @@ public class MTMVPartitionUtil {
             }
         }
         return Optional.of(res);
+    }
+
+    /**
+     * Whether the table has a list partition's default partition, the partition that takes the rows no other
+     * partition of it claims.
+     *
+     * <p>Such a table cannot be represented completely by a materialized view partitioned on it: a key that
+     * only that partition holds has no MV partition to be read into -- the MV's partitions are the keys the
+     * explicit partitions project to -- so its rows are not in the MV, and no rewrite of a query that may
+     * read them can be answered from it. The partitions are walked under the table's read lock, so a
+     * concurrent ADD or DROP PARTITION cannot be seen half applied.
+     */
+    public static boolean hasDefaultListPartition(MTMVRelatedTableIf table) {
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        if (!(olapTable.getPartitionInfo() instanceof ListPartitionInfo)) {
+            return false;
+        }
+        olapTable.readLock();
+        try {
+            for (PartitionItem item : olapTable.getPartitionInfo().getIdToItem(false).values()) {
+                if (item.isDefaultPartition()) {
+                    return true;
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+        return false;
     }
 
     /**

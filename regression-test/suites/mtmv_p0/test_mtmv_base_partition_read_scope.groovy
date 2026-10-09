@@ -273,4 +273,33 @@ suite("test_mtmv_base_partition_read_scope") {
     """
     waitingMTMVTaskFinishedByMvName("fractional_key_mv")
     order_qt_fractional_key "SELECT ts, total FROM fractional_key_mv"
+    // A key that only the default partition holds has no MV partition to be read into -- the MV's partitions
+    // are the keys the explicit partitions project to -- so the MV does not hold its rows. A query that may
+    // read them is answered from the base table rather than from the MV: with the rewrite on, an MV over a
+    // base table whose list partitions have a default partition is not offered as a candidate at all, since
+    // which keys are in the default partition is not in the metadata. Without this the query below was
+    // rewritten to the view and lost the k = 2 row (2 is in p_default, and the view holds key 1 alone).
+    sql """drop materialized view if exists list_default_only_mv"""
+    sql """drop table if exists list_default_only_base"""
+    sql """
+        CREATE TABLE list_default_only_base (k INT NOT NULL, amount BIGINT)
+        DUPLICATE KEY(k)
+        PARTITION BY LIST(k) (PARTITION p1 VALUES IN ((1)), PARTITION p_default)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO list_default_only_base VALUES (1, 10), (2, 20)"""
+    sql """
+        CREATE MATERIALIZED VIEW list_default_only_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT k, SUM(amount) AS total FROM list_default_only_base GROUP BY k
+    """
+    waitingMTMVTaskFinishedByMvName("list_default_only_mv")
+    // What the view holds: key 1 alone, the key the default partition holds having no view partition.
+    order_qt_list_default_only_mv "SELECT k, total FROM list_default_only_mv ORDER BY k"
+
+    // And the query over the base table with the rewrite on is answered from the base table, whole.
+    sql """set enable_materialized_view_rewrite = true"""
+    order_qt_list_default_only_query "SELECT k, SUM(amount) AS total FROM list_default_only_base GROUP BY k"
 }

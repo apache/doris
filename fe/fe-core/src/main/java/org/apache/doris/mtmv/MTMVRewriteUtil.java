@@ -64,6 +64,23 @@ public class MTMVRewriteUtil {
         if (!mtmv.canBeCandidate()) {
             return res;
         }
+        // A base table whose list partitions have a default one cannot be represented completely by this MV: a
+        // key only that partition holds has no MV partition to be read into, so the MV does not hold its rows
+        // and a query that may read them cannot be answered from it (measured: `LIST(k)` with p1=(1) and
+        // p_default, a committed k=2 row, an MV partitioned by k -- the MV holds key 1 alone, and a query over
+        // the base table was rewritten to it and lost the k=2 row). Which keys those are is not in the
+        // metadata, so this is the whole MV rather than the partitions that read that table.
+        try {
+            for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+                if (MTMVPartitionUtil.hasDefaultListPartition(pctTable)) {
+                    return res;
+                }
+            }
+        } catch (AnalysisException e) {
+            // Cannot tell which keys the MV does not hold, so it is not offered as an answer.
+            LOG.warn("can not read the partition info of {}, no partition is offered", mtmv.getName(), e);
+            return res;
+        }
         Set<String> mtmvNeedComparePartitions = null;
         MTMVRefreshContext refreshContext = null;
         PreparedPartitionSnapshots partitionSnapshots = null;
