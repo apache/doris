@@ -2052,7 +2052,10 @@ public class BaselineManager {
     }
 
     /**
-     * Reads every durable row carrying the given id (DROP reconcile / identity delete).
+     * Reads every durable row carrying the given id (DROP reconcile / identity delete /
+     * the ambiguous-write probe of probeDurableRow): the id is the table's duplicate key,
+     * so this read is keyed, unlike the identity-filtered readPersistedByKey whose scan
+     * grows with the (uncapped) table.
      * A read FAILURE propagates: “no row” may only be reported from a successful read.
      *
      * @param id the baseline id
@@ -4835,22 +4838,24 @@ public class BaselineManager {
         if (reservation == null) {
             return null;
         }
-        if (idAllocatorStoreForTest == null) {
-            // ALWAYS reconcile against the history (not only for a dropped / expired
-            // compact state): the compact slot LAGS it - the tombstone's compact append is
-            // best effort - so a FRESH compact reservation can hide a NEWER completed DROP.
-            // Acting on the stale reservation then defers the immediate same-key CREATE for
-            // up to DURABLE_PENDING_CREATE_FENCE_MILLIS although the DROP already completed
-            // (the mirror image of the older compact-state reconcile below).
-            SeqReservation newest = pickNewerSeqState(reservation,
-                    readLegacySeqNewest(plan.getBindSqlDigest(), planSqlHash));
-            if (newest != null && !sameSeqState(newest, reservation)) {
-                LOG.warn("SPM durable pending create of baseline {}: the compact identity"
-                                + " state lagged the history (compact id {}, history state"
-                                + " id {}); continuing from the newer state",
-                        reservation.id, reservation.id, newest.id);
-                reservation = newest;
-            }
+        // Bounded reconciliation with a NEWER tombstone (see readDroppedIdentities): the
+        // compact slot's tombstone append is BEST EFFORT (appendCompactSeqState), so a
+        // FRESH plain reservation can hide a completed DROP / condemned write of the same
+        // incarnation, and acting on the stale reservation would defer the immediate
+        // same-key CREATE for up to DURABLE_PENDING_CREATE_FENCE_MILLIS - or condemn an
+        // identity that is already resolved. The tombstones are DURABLE and read BY THE
+        // RESERVATION'S OWN ID (a scoped, id-keyed lookup), so the CREATE no longer filters
+        // and sorts the append-only sequence history by digest / plan hash on EVERY create:
+        // that unbounded read grew with the table, and a read timeout blocked the CREATE
+        // before its row was even attempted.
+        Set<String> tombstones = readDroppedIdentities(Set.of(reservation.id));
+        if (tombstones.contains(droppedIdentityKey(reservation.id,
+                plan.getBindSqlDigest(), planSqlHash))
+                || tombstones.contains(droppedIdKey(reservation.id))) {
+            // resolved by a completed DROP / a condemned deserted write: the key may be
+            // created again under a fresh id, exactly like the compact tombstone branch
+            // below
+            return null;
         }
         if (reservation.dropped) {
             // The identity was RESOLVED by a tombstone (a completed DROP, or a deserted
@@ -5036,61 +5041,6 @@ public class BaselineManager {
                 ? 0 : fromTs(timeText.trim());
         return new SeqReservation(Long.parseLong(idText.trim()), reserveTime,
                 isFlagSet(row, 2), isFlagSet(row, 3));
-    }
-
-    /**
-     * The newest identity state in the HISTORY table (the legacy identity-scoped query,
-     * see SELECT_PENDING_SEQ_SQL); null when the table holds no row for the identity.
-     * Only the rare decision points call it (a resolved or expired compact state, see
-     * resolveDurablePendingCreate): the compact slot stays the bounded primary read.
-     * A failed read fails the caller retryably, like every other identity read.
-     */
-    private static SeqReservation readLegacySeqNewest(String bindSqlDigest, long planSqlHash) {
-        Map<String, String> params = new HashMap<>();
-        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
-        params.put("planSqlHash", String.valueOf(planSqlHash));
-        try {
-            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                    SELECT_PENDING_SEQ_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
-            return rows == null || rows.isEmpty() ? null : parseSeqReservation(rows.get(0));
-        } catch (Exception e) {
-            throw new RuntimeException("SPM baseline id sequence identity read failed (retry"
-                    + " the CREATE): " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * The newer of two identity states, by the identity read's own total order (see
-     * SELECT_PENDING_SEQ_SQL): last_id, then reserve_time, then the tombstone / marker
-     * flags.
-     */
-    private static SeqReservation pickNewerSeqState(SeqReservation first,
-            SeqReservation second) {
-        if (first == null) {
-            return second;
-        }
-        if (second == null) {
-            return first;
-        }
-        if (first.id != second.id) {
-            return first.id > second.id ? first : second;
-        }
-        if (first.reserveTimeMs != second.reserveTimeMs) {
-            return first.reserveTimeMs > second.reserveTimeMs ? first : second;
-        }
-        if (first.dropped != second.dropped) {
-            return first.dropped ? first : second;
-        }
-        if (first.unconfirmed != second.unconfirmed) {
-            return first.unconfirmed ? first : second;
-        }
-        return first;
-    }
-
-    /** Whether two identity states describe the same row state (see pickNewerSeqState). */
-    private static boolean sameSeqState(SeqReservation first, SeqReservation second) {
-        return first.id == second.id && first.reserveTimeMs == second.reserveTimeMs
-                && first.dropped == second.dropped && first.unconfirmed == second.unconfirmed;
     }
 
     /**
@@ -6261,8 +6211,16 @@ public class BaselineManager {
             }
         }
         try {
-            for (BaselinePlan row : readPersistedByKey(bindSqlDigest, planSql)) {
-                if (row.getId() == id && (status == null || row.getStatus() == status)
+            // The read is keyed BY THE KNOWN ID (the table's duplicate key): the probe
+            // used to filter bind_sql_digest / plan_sql, which scans every bucket and row
+            // of a table that grows without a cap, and the mandatory readback of every
+            // CREATE could exhaust the fixed probe budget on a large table - reporting an
+            // unconfirmed CREATE although its row had committed. The attempted identity /
+            // status / stored second are compared HERE, against the id-keyed rows.
+            for (BaselinePlan row : readPersistedById(id)) {
+                if (Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
+                        && Objects.equals(row.getPlanSql(), planSql)
+                        && (status == null || row.getStatus() == status)
                         && (schemaFingerprint == null || Objects.equals(
                                 row.getSchemaFingerprint(), schemaFingerprint))
                         && (requiredUpdateTimeMs == null || sameStoredSecond(

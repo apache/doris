@@ -241,6 +241,14 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     private static final int PUBLISH_PROBE_TIMEOUT_SECONDS = 10;
 
     /**
+     * The placeholder query id an audit row carries when its statement failed to parse
+     * before a query id existed (AuditLogHelper#setQueryId renders a null id as "NaN").
+     * The value is SHARED by every such row, so it is never batch-unique and can prove
+     * nothing about one specific batch (see confirmPublishFence).
+     */
+    static final String SHARED_AUDIT_QUERY_ID_PLACEHOLDER = "NaN";
+
+    /**
      * Test seam: whether a Publish-Timeout batch's rows are readable yet. One call is ONE
      * probe attempt. Null in production (the real probe reads the audit table).
      */
@@ -1148,12 +1156,32 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         }
         long now = publishFenceNow();
         for (PublishFence fence : pending) {
-            boolean visible = publishVisibilityProbeForTest != null
+            boolean probeable = publishFenceRowProbeable(fence);
+            boolean visible = probeable && (publishVisibilityProbeForTest != null
                     ? publishVisibilityProbeForTest.isVisible(fence.oldestEventTime, fence.queryId)
-                    : publishFenceRowVisible(fence);
+                    : publishFenceRowVisible(fence));
             if (visible) {
                 releasePublishFence(fence, "its rows are readable now");
                 continue;
+            }
+            if (!probeable) {
+                // The sample row carries the SHARED placeholder query id (a parse-failure
+                // event is audited after resetQueryId and receives "NaN"): a LATER
+                // batch's visible NaN row satisfies query_id = 'NaN' AND
+                // time >= sampleTime, so a row-probe "confirmation" proves nothing about
+                // THIS batch - it could release the fence while the batch is still
+                // COMMITTED and unreadable, and the capture would checkpoint past its
+                // later SELECT before the row ever publishes. The fence may therefore only
+                // be released by the batch's OWN outcome: the load label's terminal
+                // transaction state (VISIBLE = the rows are readable after all, ABORTED =
+                // they can never appear). Elapsed time alone stays insufficient, exactly
+                // like the resolvable-label branch below.
+                String status = transactionStatusForLabel(fence.label);
+                if (isTerminalTransactionStatus(status)) {
+                    releasePublishFence(fence, "its transaction is terminal (" + status
+                            + "): the rows can no longer appear");
+                    continue;
+                }
             }
             if (now - fence.since > PUBLISH_FENCE_MAX_MILLIS) {
                 String status = transactionStatusForLabel(fence.label);
@@ -1307,6 +1335,16 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     /**
+     * Whether the fence's sample row can PROVE this batch published: only a batch-unique
+     * query id can (see confirmPublishFence); an empty id - or the SHARED placeholder of
+     * a parse-failure event - leaves the fence to the load label's terminal state.
+     */
+    private static boolean publishFenceRowProbeable(PublishFence fence) {
+        return !fence.queryId.isEmpty()
+                && !SHARED_AUDIT_QUERY_ID_PLACEHOLDER.equals(fence.queryId);
+    }
+
+    /**
      * Real visibility probe of a fenced batch: is its sample audit row readable yet? The
      * bound is rendered in the zone the row was WRITTEN with: the audit
      * table stores the writer's local wall clock, so after a `SET GLOBAL time_zone` the
@@ -1314,8 +1352,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
      * probe could never confirm the (perfectly visible) row.
      */
     private static boolean publishFenceRowVisible(PublishFence fence) {
-        if (fence.queryId.isEmpty()) {
-            return false; // nothing to probe: only the terminal resolution releases the fence
+        if (!publishFenceRowProbeable(fence)) {
+            // no id at all, or the SHARED placeholder id of a parse-failure event: a row
+            // probe can never prove THIS batch's publication (see confirmPublishFence)
+            return false;
         }
         try {
             Map<String, String> params = new HashMap<>();

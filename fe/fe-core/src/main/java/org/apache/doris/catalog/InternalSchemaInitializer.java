@@ -756,6 +756,19 @@ public class InternalSchemaInitializer extends Thread {
             "last_scan_timestamp", "pending_window_start", "pending_window_end",
             "cursor_query_time", "min_query_time_ms", "min_scan_rows");
 
+    /**
+     * The payload columns whose ABSENT historical value is the -1 UNPINNED sentinel
+     * rather than the generic 0: min_query_time_ms / min_scan_rows describe the capture
+     * filter the pending window was opened with, and the reader treats 0 / 0 as a PINNED
+     * filter (see PlanCaptureManager#applyCheckpointRow) - a migrated pre-columns row
+     * would then capture / skip queries under a filter the old build never had, ignoring
+     * the configured global thresholds and patterns. -1 leaves the window unpinned, so
+     * the cycle re-derives the filter from the globals.
+     */
+    @VisibleForTesting
+    static final Set<String> SPM_CAPTURE_CHECKPOINT_UNPINNED_COLUMNS =
+            Set.of("min_query_time_ms", "min_scan_rows");
+
     /** Bound of the model-upgrade carry read (one bounded row of the old table). */
     private static final int SPM_CHECKPOINT_CARRY_TIMEOUT_SECONDS = 10;
 
@@ -1152,9 +1165,24 @@ public class InternalSchemaInitializer extends Thread {
             // carry 0, text cells the empty string: the values a row written by the
             // older build implicitly stands for (scan_zone empty = never scanned, the
             // reader then follows the current global zone).
+            //
+            // EXCEPTION - the THRESHOLD columns: a table predating min_query_time_ms /
+            // min_scan_rows carries NO value for them, and 0 / 0 reads back as a PINNED
+            // filter (see applyCheckpointRow: a non-negative pair pins the window), so
+            // the resumed pending window would capture / skip queries under a filter it
+            // never had - the CONFIGURED global thresholds and patterns would be ignored
+            // and its carried empty patterns would terminally filter rows the global
+            // filter admits. The absent threshold columns therefore carry the -1 UNPINNED
+            // sentinel: the reader leaves the window unpinned and the cycle uses the
+            // filters it refreshed from the globals, exactly like a row written before
+            // the columns existed.
             String value = state.get(column);
             if (value == null) {
-                value = SPM_CAPTURE_CHECKPOINT_NUMERIC_COLUMNS.contains(column) ? "0" : "";
+                if (SPM_CAPTURE_CHECKPOINT_UNPINNED_COLUMNS.contains(column)) {
+                    value = "-1";
+                } else {
+                    value = SPM_CAPTURE_CHECKPOINT_NUMERIC_COLUMNS.contains(column) ? "0" : "";
+                }
             }
             columns.append(", `").append(column).append('`');
             values.append(", ");

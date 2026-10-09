@@ -745,6 +745,38 @@ class InternalSchemaInitializerTest {
     }
 
     /**
+     * Comment-round #4: a checkpoint table that predates the capture-filter columns has
+     * NO value for min_query_time_ms / min_scan_rows, and filling them with the generic 0
+     * made applyCheckpointRow read the window as PINNED to 0 / 0 - the resumed window
+     * then captured / skipped queries under the carried empty patterns instead of the
+     * CONFIGURED global thresholds (a nondefault filter would have been ignored for the
+     * whole pending window). The absent threshold columns must carry the -1 UNPINNED
+     * sentinel so the cycle re-derives the filter from the globals; a table that HAS the
+     * columns keeps its carried (pinned) values.
+     */
+    @Test
+    public void testCarriedCheckpointInsertKeepsAbsentThresholdsUnpinned() {
+        Map<String, String> predatingRow = new LinkedHashMap<>();
+        predatingRow.put("last_scan_timestamp", "1000");
+        predatingRow.put("pending_window_start", "900");
+        predatingRow.put("pending_window_end", "1100");
+        predatingRow.put("cursor_time", "2026-01-01 00:00:00");
+        String insert = InternalSchemaInitializer.buildCarriedCheckpointInsert(predatingRow, 42L);
+        Assertions.assertTrue(insert.contains("1000, 900, 1100"), insert);
+        Assertions.assertTrue(insert.contains(", -1, -1, "),
+                "the absent threshold columns must carry the -1 unpinned sentinel so the"
+                        + " resumed window is judged by the configured (nondefault) global"
+                        + " filters instead of a pinned 0/0: " + insert);
+        // a table that carries the columns keeps its own (pinned) values
+        Map<String, String> withThresholds = new LinkedHashMap<>(predatingRow);
+        withThresholds.put("min_query_time_ms", "250");
+        withThresholds.put("min_scan_rows", "300");
+        String pinned = InternalSchemaInitializer.buildCarriedCheckpointInsert(withThresholds, 42L);
+        Assertions.assertTrue(pinned.contains(", 250, 300, "),
+                "carried threshold values must be preserved: " + pinned);
+    }
+
+    /**
      * SET GLOBAL accepts ANY compiling regex for
      * plan_capture_include_pattern / plan_capture_exclude_pattern, so a fixed
      * VARCHAR(4096) made a valid 4097-byte pattern fail the reservation INSERT - the

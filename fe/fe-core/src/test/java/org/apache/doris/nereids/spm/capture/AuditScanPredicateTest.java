@@ -157,9 +157,14 @@ public class AuditScanPredicateTest {
         // 2026-03-08 03:05 PDT (the spring-forward transition was that morning)
         long startMs = Instant.parse("2026-03-08T10:05:00Z").toEpochMilli();
         long endMs = startMs + 30 * 60_000L;
-        Assertions.assertEquals("2026-03-07 02:05:00.000",
+        // the CONSERVATIVE floor: 24 hours before 03:05 PDT is 02:05 PST, further
+        // widened by the zone's full offset swing (the civil floor must also admit the
+        // SECOND occurrence of a repeated hour, see
+        // testCompletionFloorSpansBothOccurrencesOfTheRepeatedHour)
+        Assertions.assertEquals("2026-03-07 01:05:00.000",
                 AuditLogScanner.lateCompletionFloor(startMs, zone),
-                "24 hours before 03:05 PDT is 02:05 PST, not 03:05 PST");
+                "the floor must subtract the lookback from the INSTANT and span the"
+                        + " zone's offset swing");
         List<String[]> ranges = AuditLogScanner.localTimeRanges(startMs, endMs, zone);
         long swing = AuditLogScanner.zoneOffsetSwingSeconds(zone);
         String sql = AuditLogScanner.buildScanSql(ranges, 500, 1000, 100000, "",
@@ -176,6 +181,40 @@ public class AuditScanPredicateTest {
                 "2026-03-07 03:05:00.000");
         Assertions.assertFalse(matches(stale, "2026-03-07 02:30:00", queryTimeMs),
                 "the civil floor excluded the row permanently");
+    }
+
+    /**
+     * The completion floor must also span the SECOND occurrence of a repeated hour (the
+     * reviewer's fall-back case): the window starts 2026-11-02 08:30Z (= 00:30 PST), so
+     * its 24h lookback instant renders 2026-11-01 01:30 PDT - AFTER the civil time of a
+     * legitimately admittable row, a query at 2026-11-01 09:05Z = 01:05 PST (the second
+     * 01:00 hour) whose 23h30m completion reaches the window. The zone-less
+     * `time >= floor` conjunct discarded that row before the completion branch, and later
+     * floors only move forward - the row was never revisited. Subtracting the zone's
+     * offset swing (01:30 -> 00:30) makes the bound hold for BOTH occurrences.
+     */
+    @Test
+    public void testCompletionFloorSpansBothOccurrencesOfTheRepeatedHour() {
+        ZoneId zone = ZoneId.of("America/Los_Angeles");
+        long startMs = Instant.parse("2026-11-02T08:30:00Z").toEpochMilli();
+        long endMs = startMs + 30 * 60_000L;
+        Assertions.assertEquals("2026-11-01 00:30:00.000",
+                AuditLogScanner.lateCompletionFloor(startMs, zone),
+                "the 24h lookback renders 01:30 PDT, which is AFTER 01:05 PST: the floor"
+                        + " must subtract the swing to span both occurrences");
+        List<String[]> ranges = AuditLogScanner.localTimeRanges(startMs, endMs, zone);
+        long swing = AuditLogScanner.zoneOffsetSwingSeconds(zone);
+        String sql = AuditLogScanner.buildScanSql(ranges, 500, 1000, 100000, "", swing,
+                AuditLogScanner.lateCompletionFloor(startMs, zone));
+        long queryTimeMs = 23 * 3600_000L + 30 * 60_000L;
+        Assertions.assertTrue(matches(sql, "2026-11-01 01:05:00.000", queryTimeMs),
+                "the second-occurrence row whose completion reaches the window must be"
+                        + " admitted: " + sql);
+        // the un-widened instant floor (01:30) discarded exactly that row
+        String stale = AuditLogScanner.buildScanSql(ranges, 500, 1000, 100000, "", swing,
+                "2026-11-01 01:30:00.000");
+        Assertions.assertFalse(matches(stale, "2026-11-01 01:05:00.000", queryTimeMs),
+                "the zone-less floor discarded the second-occurrence row");
     }
 
     /**

@@ -886,6 +886,18 @@ public class SPMPlanner {
         // authorizes) the view during its own analysis.
         boolean referencesView = SPMPlanTreeSupport.referencesView(ctx, bindPlan)
                 || SPMPlanTreeSupport.referencesView(ctx, planPlan);
+        // An inline VALUES cell / * REPLACE payload lives OUTSIDE the placeholder machinery
+        // (its literals are matched CONCRETELY), so the creator-context optimization FOLDS
+        // a constant-argument zone-sensitive call there (from_unixtime(0) -> the CREATOR's
+        // zone literal) into the decompiled text while the caller's identical query still
+        // matches the stored tree: a frozen replay would serve the creator's value in every
+        // other session zone. Decline the freeze for such a statement - the raw planSql is
+        // kept and the rewrite replays the parameterized tree, whose re-planning evaluates
+        // the expression in the CALLER's own session (the same degradation the view guard
+        // uses).
+        boolean foldedSessionSensitivePayload =
+                SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(bindPlan)
+                        || SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(planPlan);
 
         SPMOptimizer.OptimizeResult optimizeResult;
         DecompiledPlan frozen;
@@ -903,7 +915,8 @@ public class SPMPlanner {
             // for an ordinary query.
             optimizeResult = SPMOptimizer.optimize(ctx,
                     SPMPlanTreeSupport.stripCheckPolicy(parameterizedPlan), planSql);
-            frozen = decompileFrozenPlan(referencesView, optimizeResult, planSql);
+            frozen = decompileFrozenPlan(referencesView, foldedSessionSensitivePayload,
+                    optimizeResult, planSql);
         } catch (UserException | RuntimeException e) {
             // When the parameterized tree cannot be planned (e.g. a placeholder cannot
             // survive some analyzer path yet), fall back to optimizing the raw planSql -
@@ -1103,16 +1116,27 @@ public class SPMPlanner {
     /**
      * Decompiles the optimized physical plan into the frozen planSql. The user-supplied
      * planSql text is kept when the decompiler does not support the plan (recursive CTE,
-     * future operators, ...) or when the plan references a view: the frozen text is
+     * future operators, ...), when the plan references a view (the frozen text is
      * replayed ahead of authorization, and replaying a view's base-table expansion would
-     * authorize those base tables instead of the view.
+     * authorize those base tables instead of the view), or when an inline VALUES cell /
+     * * REPLACE payload folds a session-zone dependent call the CALLER's session must
+     * evaluate for itself (see
+     * SPMPlanTreeSupport#containsFoldedSessionSensitivePayload).
      */
     private static DecompiledPlan decompileFrozenPlan(boolean referencesView,
+            boolean foldedSessionSensitivePayload,
             SPMOptimizer.OptimizeResult optimizeResult, String planSql) {
         if (referencesView) {
             LOG.info("SPM freeze skipped: the plan references a view; keeping the user planSql"
                     + " so the rewrite replays the parameterized tree (view authorization"
                     + " preserved)");
+            return new DecompiledPlan(planSql, false);
+        }
+        if (foldedSessionSensitivePayload) {
+            LOG.info("SPM freeze skipped: an inline VALUES cell / * REPLACE payload folds a"
+                    + " session-time-zone dependent value; keeping the user planSql so the"
+                    + " rewrite replays the parameterized tree, where the caller's own"
+                    + " session evaluates the expression");
             return new DecompiledPlan(planSql, false);
         }
         try {

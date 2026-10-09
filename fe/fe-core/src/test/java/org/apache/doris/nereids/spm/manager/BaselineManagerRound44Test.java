@@ -139,6 +139,16 @@ public class BaselineManagerRound44Test {
             return new ArrayList<>(tombstones);
         }
 
+        /**
+         * Appends a tombstone for an id WITHOUT touching the compact record: the compact
+         * slot's tombstone append is best effort on the wire, so this is the state the
+         * bounded reconciliation must recover from (the record still shows a plain
+         * reservation while the durable tombstone already resolved the identity).
+         */
+        void appendLaggedTombstone(long id, String bindSqlDigest, long planSqlHash) {
+            tombstones.add(id + "|" + bindSqlDigest + "|" + planSqlHash);
+        }
+
         @Override
         public void insert(BaselinePlan plan) {
             if (failInsert) {
@@ -218,6 +228,47 @@ public class BaselineManagerRound44Test {
                     "the reserved id must survive as the single row");
             Assertions.assertEquals(1, store.rows.size(),
                     "exactly one row exists - a second id was never consumed");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    // ==================== comment round #2: bounded tombstone reconciliation ====================
+
+    /**
+     * The compact slot's tombstone append is best effort, so a completed DROP / condemned
+     * write can hide behind a FRESH-looking plain reservation. The CREATE must not defer
+     * (or condemn) on that stale reservation: the tombstone is reconciled through the
+     * bounded tombstone read BY THE RESERVATION'S OWN ID - the CREATE no longer scans the
+     * whole append-only sequence history by digest / plan hash on every create. This test
+     * simulates the lagged compact append by adding ONLY the durable tombstone.
+     */
+    @Test
+    public void testLaggedCompactTombstoneStillResolvesTheIdentity() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        Store store = new Store();
+        BaselineManager.idAllocatorStoreForTest = store;
+        try {
+            // the first attempt commits an unreadable reservation N
+            store.failInsert = true;
+            store.suppressMarkers = true;
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("d-53", "p-53")));
+            long reserved = store.reservedHighWater;
+            Assertions.assertTrue(reserved > 0, "the attempt reserved an id");
+
+            // a completed DROP / condemnation of that very incarnation becomes durable
+            // although the compact record still shows the plain reservation
+            store.appendLaggedTombstone(reserved, "d-53", SPMUtils.hashOf("p-53"));
+            manager.clearForTest();
+            BaselineManager.idAllocatorStoreForTest = store;
+            store.failInsert = false;
+            long created = manager.createBaseline(baseline("d-53", "p-53"));
+            Assertions.assertTrue(created > reserved,
+                    "the resolved identity must not defer on the stale reservation: "
+                            + created + " vs " + reserved);
         } finally {
             BaselineManager.idAllocatorStoreForTest = null;
             manager.clearForTest();

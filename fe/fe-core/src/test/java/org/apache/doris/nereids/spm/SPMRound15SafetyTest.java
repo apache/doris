@@ -89,6 +89,40 @@ public class SPMRound15SafetyTest {
         return sql.toString().toLowerCase(java.util.Locale.ROOT);
     }
 
+    // ==================== comment round #1/#8: folded zone-sensitive payloads decline the freeze ====================
+
+    /**
+     * The inline VALUES cell and the * REPLACE payload are the two positions the
+     * placeholder machinery never parameterizes (the cells live in a childless leaf whose
+     * cells the whole-tree transformer never visits; the payloads live outside the star's
+     * expression children) and the guards compare both CONCRETELY. The creator-context
+     * optimization therefore folds a constant-argument zone-sensitive call there into the
+     * CREATOR's zone literal, and a frozen replay would serve it to every later caller
+     * although the caller's own query evaluates the function in its own zone. Both
+     * positions must decline the freeze; a call over a COLUMN (or an ordinary projection,
+     * where the placeholder blocks the fold) stays freezable.
+     */
+    @Test
+    public void testFoldedZoneSensitivePayloadsDeclineTheFreeze() {
+        Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+                parse("SELECT * FROM (VALUES (from_unixtime(0))) t")),
+                "an inline VALUES cell folding from_unixtime(0) must decline the freeze");
+        Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+                parse("SELECT * REPLACE(from_unixtime(0) AS a) FROM t1")),
+                "a * REPLACE payload folding from_unixtime(0) must decline the freeze");
+
+        Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+                parse("SELECT * FROM (VALUES (1)) t")),
+                "a literal VALUES cell has nothing to fold");
+        Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+                parse("SELECT * REPLACE(a + 1 AS a) FROM t1")),
+                "a REPLACE payload over a column is evaluated per row, in the caller's zone");
+        Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+                parse("SELECT from_unixtime(0) AS v FROM t1")),
+                "an ordinary projection is parameterized, which blocks the fold: it stays"
+                        + " freezable");
+    }
+
     // ==================== #4: `* REPLACE` payloads join the function walk ====================
 
     /**

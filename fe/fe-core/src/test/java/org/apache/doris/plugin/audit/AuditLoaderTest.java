@@ -356,6 +356,46 @@ public class AuditLoaderTest {
         }
     }
 
+    // The comment-round fix: a parse-failure event is audited under the SHARED query id
+    // "NaN" (AuditLogHelper renders a null id as NaN). A LATER batch's visible NaN row
+    // satisfies the row probe (query_id = 'NaN' AND time >= sampleTime), so a "visible"
+    // answer proves NOTHING about the fenced batch - it could release the fence while the
+    // batch is still COMMITTED and unreadable, and the capture would checkpoint past a
+    // SELECT the batch still owes. The fence must survive until the batch's OWN
+    // transaction reaches a terminal state (VISIBLE = readable after all, ABORTED = can
+    // never appear).
+    @Test
+    public void testSharedNanQueryIdCannotProvePublication() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        String[] status = {"COMMITTED"};
+        List<Long> probes = new ArrayList<>();
+        AuditLoader.publishVisibilityProbeForTest = (eventTime, queryId) -> {
+            probes.add(eventTime);
+            return true; // a LATER batch's NaN row is visible - and proves nothing
+        };
+        AuditLoader.transactionStatusForTest = label -> status[0];
+        try {
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "NaN", "lbl-nan", "");
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(1, loader.pendingPublishFenceCountForTest(),
+                    "a probe that only sees the shared NaN id must not release the fence");
+            Assertions.assertEquals(0, probes.size(),
+                    "the NaN fence must not ask the row probe at all: " + probes);
+
+            // the transaction turns VISIBLE: the label's terminal state releases the fence
+            status[0] = "VISIBLE";
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(0, loader.pendingPublishFenceCountForTest(),
+                    "the batch's own terminal transaction state releases the fence");
+        } finally {
+            AuditLoader.publishVisibilityProbeForTest = null;
+            AuditLoader.transactionStatusForTest = null;
+            setRunningLoader(null);
+        }
+    }
+
     // /: the response is the only evidence of the load's real
     // outcome, and only a COMPLETE, parseable Success response proves publication. An
     // unreadable body says nothing - the earlier "does not contain 'publish timeout'"

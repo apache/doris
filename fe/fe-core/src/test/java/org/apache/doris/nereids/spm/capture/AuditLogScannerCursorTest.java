@@ -171,6 +171,46 @@ public class AuditLogScannerCursorTest {
         Assertions.assertEquals("qB", batch.getCursorQueryId());
     }
 
+    /**
+     * A fall-back makes the same wall clock occur twice and the wall-clock SQL ranges
+     * cannot tell the occurrences apart. The reviewer's row: the window [08:45Z, 09:15Z)
+     * renders [01:45, 02:00) + [01:00, 01:15), and a query at 09:50Z (= 01:50 PST, the
+     * SECOND occurrence, AFTER the window) stores the same civil 01:50 - consuming it
+     * here would terminally reject it under this window's pinned filter, after which the
+     * window containing 09:50Z skips its query id forever although its own filter admits
+     * it. toBatch keeps such a row only while the LATER possible instant is inside the
+     * window, so the later window owns it exactly once.
+     */
+    @Test
+    public void testRepeatedHourRowIsOwnedByTheWindowContainingItsLaterInstant() {
+        ZoneId zone = ZoneId.of("America/Los_Angeles");
+        long start = Instant.parse("2026-11-01T08:45:00Z").toEpochMilli();
+        long end = Instant.parse("2026-11-01T09:15:00Z").toEpochMilli();
+        List<ResultRow> repeated = List.of(row("select * from t", 60_000, "d1", "db1",
+                "internal", "qLate", "2026-11-01 01:50:00"));
+        Assertions.assertTrue(
+                AuditLogScanner.toBatch(repeated, 10, zone, start, end).getCandidates().isEmpty(),
+                "the repeated-hour row whose later instant (09:50Z) is outside the window"
+                        + " must be left to the later window");
+        long laterStart = Instant.parse("2026-11-01T09:45:00Z").toEpochMilli();
+        long laterEnd = Instant.parse("2026-11-01T10:15:00Z").toEpochMilli();
+        Assertions.assertEquals(1,
+                AuditLogScanner.toBatch(repeated, 10, zone, laterStart, laterEnd)
+                        .getCandidates().size(),
+                "the window truly containing the later instant owns the row");
+        // a repeated-hour row whose LATER instant IS inside this window stays here
+        List<ResultRow> inside = List.of(row("select * from t", 60_000, "d1", "db1",
+                "internal", "qInside", "2026-11-01 01:05:00"));
+        Assertions.assertEquals(1,
+                AuditLogScanner.toBatch(inside, 10, zone, start, end).getCandidates().size(),
+                "01:05 PST = 09:05Z lies inside the window: the row stays");
+        // a zone without a repeated hour keeps the previous behavior
+        Assertions.assertEquals(1,
+                AuditLogScanner.toBatch(repeated, 10, ZoneId.of("UTC"), start, end)
+                        .getCandidates().size(),
+                "an unambiguous zone keeps the exact SQL-range membership");
+    }
+
     @Test
     public void testWindowExhaustionSignal() {
         List<ResultRow> twoRows = List.of(

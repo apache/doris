@@ -6129,6 +6129,76 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
+     * Whether a frozen planSql would persist a value the CREATOR's session evaluated while
+     * the caller's own query evaluates it in its own session. The two OUT-OF-BAND payloads
+     * the placeholder machinery never parameterizes are checked:
+     *
+     * - an inline VALUES cell (UnboundInlineTable has no child plans, so the whole-tree
+     *   transformer never sees its cells; the cells are additionally compared CONCRETELY,
+     *   see the VALUES alignment guard): SELECT * FROM (VALUES (from_unixtime(0))) t
+     * - a * REPLACE payload (stored outside the star's expression children and compared
+     *   concretely, see SPMAstCheckVisitor): SELECT * REPLACE(from_unixtime(0) AS a) FROM t
+     *
+     * In both positions the creator-context optimization FOLDS a constant-argument
+     * zone-sensitive call into the CREATOR's zone literal (the placeholder that blocks the
+     * fold elsewhere is never created there), and the decompiled text would serve that
+     * value to every later caller although the caller's own query evaluates the function in
+     * its zone. The CREATE declines the freeze for such a statement instead: the raw
+     * planSql is stored and the rewrite replays the parameterized tree, which re-evaluates
+     * the expression under the CALLER's session. A call spelled over a COLUMN stays
+     * freezable - it is evaluated per row, in the caller's own session.
+     *
+     * @param plan the parsed (unbound) tree
+     * @return true when the freeze must be declined for such a payload
+     */
+    public static boolean containsFoldedSessionSensitivePayload(LogicalPlan plan) {
+        if (plan == null) {
+            return false;
+        }
+        final boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (found[0]) {
+                return;
+            }
+            if (node instanceof InlineTable) {
+                for (List<NamedExpression> row : ((InlineTable) node).getConstantExprsList()) {
+                    for (NamedExpression cell : row) {
+                        if (containsFoldedZoneSensitiveCall(cell)) {
+                            found[0] = true;
+                            return;
+                        }
+                    }
+                }
+            }
+            for (Expression expr : node.getExpressions()) {
+                if (containsFoldedZoneSensitiveStarPayload(expr)) {
+                    found[0] = true;
+                    return;
+                }
+            }
+        });
+        return found[0];
+    }
+
+    /** Whether an expression tree carries a star whose REPLACE payload folds a
+     * constant-argument zone-sensitive call (see containsFoldedSessionSensitivePayload). */
+    private static boolean containsFoldedZoneSensitiveStarPayload(Expression expression) {
+        if (expression instanceof UnboundStar) {
+            for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
+                if (containsFoldedZoneSensitiveCall(replaced)) {
+                    return true;
+                }
+            }
+        }
+        for (Expression child : expression.children()) {
+            if (containsFoldedZoneSensitiveStarPayload(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * The functions whose value depends on the SESSION time zone (and whose constant
      * arguments therefore must not be frozen): from_unixtime / unix_timestamp interpret
      * their input in the session zone, and the now-family reads the session's current

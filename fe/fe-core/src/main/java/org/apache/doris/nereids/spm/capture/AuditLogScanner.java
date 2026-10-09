@@ -553,7 +553,7 @@ public class AuditLogScanner {
         // overload would inherit the 12h analyze timeout)
         List<ResultRow> rows = StatisticsUtil.execStatisticQuery(sql, false,
                 AUDIT_SCAN_TIMEOUT_SECONDS);
-        return toBatch(rows, limit, auditZone);
+        return toBatch(rows, limit, auditZone, startTimeMs, endTimeMs);
     }
 
     /**
@@ -641,6 +641,34 @@ public class AuditLogScanner {
      * @return the scan batch
      */
     static ScanBatch toBatch(List<ResultRow> rows, int maxBatchSize, ZoneId auditZone) {
+        // Without explicit instant bounds the repeated-hour guard is inactive (see the
+        // 5-argument overload): the string-only callers keep the previous behavior.
+        return toBatch(rows, maxBatchSize, auditZone, Long.MIN_VALUE, Long.MAX_VALUE);
+    }
+
+    /**
+     * As the 3-argument toBatch with the window's own INSTANT bounds: a row whose civil
+     * timestamp falls in a REPEATED hour (a fall-back transition makes the same wall
+     * clock occur twice) may belong to EITHER occurrence, and the SQL range predicate
+     * deliberately renders monotone wall-clock ranges and cannot tell them apart. Such a
+     * row is kept as a candidate only while the LATER of its two possible instants is
+     * still inside [startTimeMs, endTimeMs); otherwise it cannot provably belong to this
+     * window, and consuming it here would either capture it under the wrong (older,
+     * pinned) window filter or - worse - terminally reject it as filtered, after which
+     * the window truly containing the later instant skips the query id forever although
+     * its own filter would admit it. Skipping the candidate (the cursor above has
+     * already moved past the raw row) leaves the row to that later window, which renders
+     * the same civil hour again and owns the row exactly once.
+     *
+     * @param rows         the raw rows of one page
+     * @param maxBatchSize the batch limit
+     * @param auditZone    the zone the window bounds were rendered in
+     * @param startTimeMs  the window start (epoch millis, inclusive)
+     * @param endTimeMs    the window end (epoch millis, exclusive)
+     * @return the scan batch
+     */
+    static ScanBatch toBatch(List<ResultRow> rows, int maxBatchSize, ZoneId auditZone,
+            long startTimeMs, long endTimeMs) {
         if (rows == null || rows.isEmpty()) {
             return new ScanBatch(List.of(), true, CURSOR_ABSENT, "", "");
         }
@@ -666,6 +694,10 @@ public class AuditLogScanner {
             lastTail = new CursorTail(valueAt(row, 12), valueAt(row, 5), valueAt(row, 2),
                     valueAt(row, 3), valueAt(row, 13), valueAt(row, 7), valueAt(row, 6),
                     valueAt(row, 11), auditZone == null ? null : auditZone.getId());
+            if (rowFallsOutsideAllOccurrences(row.getWithDefault(10, ""), auditZone,
+                    startTimeMs, endTimeMs)) {
+                continue;
+            }
             CapturedQuery candidate = rowToCapturedQuery(row);
             if (candidate == null || candidate.getStmt() == null || candidate.getStmt().isEmpty()) {
                 continue;
@@ -687,6 +719,35 @@ public class AuditLogScanner {
         }
         return new ScanBatch(new ArrayList<>(deduped.values()), rows.size() < maxBatchSize,
                 lastQueryTime, lastTime, lastQueryId, encodeCursorTail(lastTail));
+    }
+
+    /**
+     * Whether a raw audit row's wall-clock timestamp can PROVABLY not belong to the
+     * window [startTimeMs, endTimeMs) under either occurrence of a repeated hour (see
+     * toBatch): when the zone repeats that wall clock (a fall-back transition), the LATER
+     * of the two possible instants is the only one that can still make the row a member;
+     * if even that instant is outside the window, the row belongs to a LATER window.
+     * An unambiguous wall clock keeps the exact SQL-range membership (false).
+     */
+    private static boolean rowFallsOutsideAllOccurrences(String rawTime, ZoneId zone,
+            long startTimeMs, long endTimeMs) {
+        if (rawTime == null || rawTime.isEmpty() || zone == null) {
+            return false;
+        }
+        LocalDateTime civil;
+        try {
+            civil = LocalDateTime.parse(rawTime, DATETIME_PARSE_FORMAT);
+        } catch (RuntimeException e) {
+            return false;
+        }
+        java.util.List<ZoneOffset> offsets = zone.getRules().getValidOffsets(civil);
+        if (offsets == null || offsets.size() < 2) {
+            return false;
+        }
+        long firstInstant = civil.toInstant(offsets.get(0)).toEpochMilli();
+        long secondInstant = civil.toInstant(offsets.get(1)).toEpochMilli();
+        long laterInstant = Math.max(firstInstant, secondInstant);
+        return laterInstant < startTimeMs || laterInstant >= endTimeMs;
     }
 
     /**
@@ -1107,21 +1168,31 @@ public class AuditLogScanner {
 
     /**
      * The completion floor computed from the window-start INSTANT in the scan zone: the
-     * window start minus LATE_COMPLETION_LOOKBACK_MILLIS, rendered in the same
-     * zone the bounds are rendered in. Subtracting from the instant (not from the civil
-     * LocalDateTime) is what keeps the lookback exactly 24 hours across a DST
-     * transition: for a window starting 2026-03-08 03:05 PDT the civil subtraction yields
-     * 03:05 PST (25 hours earlier) while the instant subtraction yields the intended
-     * 02:05 PST - and a query started 02:30 PST that ran ~23h40m into the window was
-     * rejected by the too-late floor on every later scan, although it is inside the
-     * promised lookback.
+     * window start minus LATE_COMPLETION_LOOKBACK_MILLIS, then minus the zone's full
+     * offset swing, rendered in the zone the bounds are rendered in.
+     *
+     * The civil rendering of the lookback instant alone is NOT a safe lower bound: at a
+     * fall-back the civil clock moves BACKWARD although instants only move forward, so
+     * the rendered floor (2026-11-01 01:30 PDT for a window starting 24h later) can sit
+     * AFTER a legitimately admittable row's civil time (a query at 09:05Z = 01:05 PST,
+     * the second occurrence of the repeated hour, whose 23h30m completion reaches the
+     * window). The zone-less `time >= floor` conjunct then discarded that row before the
+     * completion branch could admit it, and later floors only move forward - the row was
+     * never revisited. Subtracting the swing makes the bound hold for BOTH occurrences:
+     * every instant >= start - lookback renders at or above it (civil(t) >=
+     * civil(lookback instant) - swing, see zoneOffsetSwingSeconds), so no admittable row
+     * is pruned away. The wider floor only scans extra rows; membership is still decided
+     * by the window / completion predicate, so the widening can never admit a wrong row.
      *
      * @param startTimeMs window start (epoch millis)
      * @param zone        the zone the bounds are rendered in
      * @return the rendered floor timestamp
      */
     static String lateCompletionFloor(long startTimeMs, ZoneId zone) {
-        return formatTimestamp(startTimeMs - LATE_COMPLETION_LOOKBACK_MILLIS, zone);
+        LocalDateTime civilFloor = LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(startTimeMs - LATE_COMPLETION_LOOKBACK_MILLIS), zone)
+                .minusSeconds(zoneOffsetSwingSeconds(zone));
+        return civilFloor.format(DATETIME_FORMAT);
     }
 
     /**
