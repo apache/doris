@@ -95,6 +95,16 @@ suite("test_composite_time_extract") {
                  "concat('invalid_', 'time')", "concat(null, '')"].eachWithIndex { argument, i ->
                     "order_qt_${tag}_wrapped_${i}"("select " + selections(argument).join(', '))
                 }
+                if (strictCast) {
+                    // Aggregate normalization deep-folds constant keys before ordinary
+                    // expression rewrites. A failed source CAST must remain an error.
+                    selections("cast(cast('bad' as int) as varchar(20))").each { expression ->
+                        test {
+                            sql "select count(*) from test_composite_time_extract group by ${expression}"
+                            exception "bad can't cast to"
+                        }
+                    }
+                }
             }
         }
     }

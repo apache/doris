@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
@@ -150,6 +151,24 @@ class CompositeTimeExtractTest extends ExpressionRewriteTestHelper {
                         Assertions.assertEquals(new VarcharLiteral(expected.get(i)),
                                 executor.rewrite(analyzed, context));
                     }
+                }
+            }
+        }
+    }
+
+    @Test
+    void testStrictErrorsInStringSourcesAreNotSwallowed() {
+        NereidsParser parser = new NereidsParser();
+        String argument = "cast(cast('bad' as int) as varchar(20))";
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
+            for (String name : ImmutableList.of("hour_minute", "hour_second", "minute_second", "second_microsecond")) {
+                for (String expression : ImmutableList.of(name + "(" + argument + ")",
+                        "extract(" + name + " from " + argument + ")")) {
+                    Expression analyzed = ExpressionAnalyzer.analyzeFunction(null, null,
+                            parser.parseExpression(expression));
+                    Assertions.assertThrows(CastException.class,
+                            () -> FoldConstantRuleOnFE.evaluate(analyzed, context), expression);
                 }
             }
         }
