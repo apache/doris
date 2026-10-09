@@ -109,6 +109,20 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
                 + "PARTITION BY List(c1,c2) (PARTITION p_single VALUES IN (('2020-01-01', 1)),"
                 + "PARTITION p_double VALUES IN (('2020-01-01', 2), ('2038-01-01', 2))) distributed by hash(c1) "
                 + "buckets 1 properties('replication_num' = '1');");
+
+        // Two tables of a multi-table MV whose keys meet at c1: t9's partitions cover 2020-2022, t10's
+        // 2021-2022, so the two tables describe the same MV partitions for 2021-2022.
+        createTable("CREATE TABLE `t9` (`c1` date, `c2` int)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION t9_a1 VALUES IN (('2020-01-01', 1), ('2021-01-01', 1)),"
+                + "PARTITION t9_a2 VALUES IN (('2021-01-01', 2), ('2022-01-01', 2))) distributed by hash(c1) "
+                + "buckets 1 properties('replication_num' = '1');");
+        createTable("CREATE TABLE `t10` (`c1` date, `c2` int)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION t10_b1 VALUES IN (('2021-01-01', 5), ('2022-01-01', 5)))"
+                + " distributed by hash(c1) buckets 1 properties('replication_num' = '1');");
     }
 
     @Test
@@ -128,6 +142,28 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
                 .getTableOrAnalysisException("t8");
         Assertions.assertEquals(Sets.newHashSet("p_single", "p_double"),
                 partitionKeyDescMap.values().iterator().next().get(t8));
+    }
+
+    @Test
+    public void testOverlappingListDescsAreMergedAcrossTables() throws Exception {
+        // Two tables of a multi-table MV describing keys that meet: at the MV's column t9 covers 2020-2022 and
+        // t10 covers 2021-2022. Merged within each table, t9 comes out as 2020-2022 and t10 as 2021-2022, and
+        // the MV's own partitions would repeat 2021-2022 -- which is what `checkIntersect` rejects, so the MV
+        // could not be created. The keys have to be grouped across the tables, with both tables' partitions
+        // named in the one partition that holds them.
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t9", "t10"));
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column), Maps.newHashMap());
+        Assertions.assertEquals(1, partitionKeyDescMap.size());
+        Map<MTMVRelatedTableIf, Set<String>> onePartition = partitionKeyDescMap.values().iterator().next();
+        OlapTable t9 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t9");
+        OlapTable t10 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t10");
+        Assertions.assertEquals(Sets.newHashSet("t9_a1", "t9_a2"), onePartition.get(t9));
+        Assertions.assertEquals(Sets.newHashSet("t10_b1"), onePartition.get(t10));
     }
 
     @Test
@@ -271,11 +307,35 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
 
     @Test
     public void testIntersectList() throws Exception {
+        // t6 describes the keys 1 and 2, t7 the keys 1, 3 and 2: the two tables' descs meet. They are one MV
+        // partition holding all three keys and naming each table's partitions, rather than a rejection -- the
+        // MV cannot have two partitions repeating a key, but it can have one that names both tables'.
         MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t6", "t7"));
         Column c1Column = new Column("c1", PrimitiveType.DATE);
-        Assertions.assertThrows(AnalysisException.class,
-                () -> MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
-                        Lists.newArrayList(c1Column), Maps.newHashMap()));
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column), Maps.newHashMap());
+        OlapTable t6 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t6");
+        OlapTable t7 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t7");
+        // The keys 1 and 3 meet through t7's p1_3 and are one partition; key 2 is its own, and each names the
+        // partitions of both tables that hold its keys.
+        Assertions.assertEquals(2, partitionKeyDescMap.size());
+        Map<MTMVRelatedTableIf, Set<String>> twoKeyPartition = null;
+        Map<MTMVRelatedTableIf, Set<String>> oneKeyPartition = null;
+        for (Map.Entry<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> entry
+                : partitionKeyDescMap.entrySet()) {
+            if (entry.getKey().getInValues().size() == 2) {
+                twoKeyPartition = entry.getValue();
+            } else {
+                oneKeyPartition = entry.getValue();
+            }
+        }
+        Assertions.assertEquals(Sets.newHashSet("p1"), twoKeyPartition.get(t6));
+        Assertions.assertEquals(Sets.newHashSet("p1_3"), twoKeyPartition.get(t7));
+        Assertions.assertEquals(Sets.newHashSet("p2"), oneKeyPartition.get(t6));
+        Assertions.assertEquals(Sets.newHashSet("p2"), oneKeyPartition.get(t7));
     }
 
     @Test

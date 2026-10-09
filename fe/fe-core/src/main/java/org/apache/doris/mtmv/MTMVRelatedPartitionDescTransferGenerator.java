@@ -25,13 +25,14 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.RangeUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,23 +48,8 @@ public class MTMVRelatedPartitionDescTransferGenerator implements MTMVRelatedPar
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
             RelatedPartitionDescResult lastResult, List<Column> partitionColumns,
                       Map<List<String>, Set<String>> queryUsedPartitionMap) throws AnalysisException {
-        Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> descs =
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res =
                 mergeOverlappingListDescs(lastResult.getDescs());
-        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
-        for (Entry<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> entry : descs.entrySet()) {
-            MTMVRelatedTableIf pctTable = entry.getKey();
-            Map<PartitionKeyDesc, Set<String>> onePctDescs = entry.getValue();
-            for (Entry<PartitionKeyDesc, Set<String>> onePctEntry : onePctDescs.entrySet()) {
-                PartitionKeyDesc partitionKeyDesc = onePctEntry.getKey();
-                Set<String> partitionNames = onePctEntry.getValue();
-                Map<MTMVRelatedTableIf, Set<String>> partitionKeyDescMap = res.computeIfAbsent(partitionKeyDesc,
-                        k -> new HashMap<>());
-                partitionKeyDescMap.merge(pctTable, partitionNames, (left, right) -> {
-                    left.addAll(right);
-                    return left;
-                });
-            }
-        }
         if (mvPartitionInfo.getPctInfos().size() > 1) {
             checkIntersect(res.keySet(), partitionColumns);
         }
@@ -71,64 +57,109 @@ public class MTMVRelatedPartitionDescTransferGenerator implements MTMVRelatedPar
     }
 
     /**
-     * One MV partition per set of keys, not one per way of writing a set down. A partition of a list
-     * partitioned base table can hold several keys of the MV's partition column, so two of them can describe
-     * keys that meet: an expired partition holding one key of a retained partition's key list, for instance.
-     * An MV's own partitions cannot overlap, so descs whose keys meet are one partition whose keys are the
-     * union of theirs. Without this an MV over such a table cannot be built at all -- its partition items
-     * would repeat a key -- which is the shape a default-partition table is left unwindowed into, and the
-     * one it is recorded with changes with it: the merged partition names every base partition of the keys
-     * it covers, which is what a refresh reads for it.
+     * One MV partition per set of keys that meet, whichever table wrote them down.
      *
-     * <p>Descs whose keys are disjoint, one desc per table, and every desc that is not a list of keys are
-     * left exactly as they were, so an MV whose base partitions do not meet keeps its partitions and their
-     * names.
+     * <p>A partition of a list partitioned base table can hold several keys of the MV's partition column, so
+     * two partitions -- of one table or of two -- can describe keys that meet: an expired partition holding a
+     * key a retained partition also holds, for instance. An MV's own partitions cannot overlap, so descs
+     * whose keys meet are one partition whose keys are the union of theirs, and it names the partitions of
+     * every table whose keys are in it, which is what a refresh reads and records for those keys.
+     *
+     * <p>Merging across tables, not within each of them, is what keeps the MV buildable: two tables of a
+     * multi-table MV have to come out with the same descs, or one table's merged desc repeats a key another
+     * table's desc holds and `checkIntersect` (or the partition creation itself) rejects the MV.
+     *
+     * <p>Descs whose keys are disjoint stay as they are, and so does a desc that is the only one in its
+     * group, so an MV whose base partitions do not meet keeps its partitions and their names.
      */
-    private Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> mergeOverlappingListDescs(
+    private Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> mergeOverlappingListDescs(
             Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> descs) {
-        Map<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> res = Maps.newHashMap();
+        // A union-find over the keys: two descs whose keys meet end up in one group, transitively, and each
+        // key is looked up once -- walking the groups per desc would be quadratic in the number of partitions.
+        Map<List<PartitionValue>, List<PartitionValue>> groupOfKey = Maps.newHashMap();
+        for (Map<PartitionKeyDesc, Set<String>> onePctDescs : descs.values()) {
+            for (PartitionKeyDesc desc : onePctDescs.keySet()) {
+                if (!desc.hasInValues()) {
+                    continue;
+                }
+                List<PartitionValue> first = desc.getInValues().iterator().next();
+                groupOfKey.putIfAbsent(first, first);
+                for (List<PartitionValue> key : desc.getInValues()) {
+                    groupOfKey.putIfAbsent(key, key);
+                    union(groupOfKey, first, key);
+                }
+            }
+        }
+        Map<List<PartitionValue>, Set<List<PartitionValue>>> keysOfGroup = Maps.newHashMap();
+        for (List<PartitionValue> key : groupOfKey.keySet()) {
+            keysOfGroup.computeIfAbsent(find(groupOfKey, key), k -> Sets.newHashSet()).add(key);
+        }
+        Map<PartitionKeyDesc, List<PartitionValue>> groupOfDesc = Maps.newHashMap();
+        Map<List<PartitionValue>, PartitionKeyDesc> onlyDescOfGroup = Maps.newHashMap();
+        for (Map<PartitionKeyDesc, Set<String>> onePctDescs : descs.values()) {
+            for (PartitionKeyDesc desc : onePctDescs.keySet()) {
+                if (!desc.hasInValues()) {
+                    continue;
+                }
+                List<PartitionValue> group = find(groupOfKey, desc.getInValues().iterator().next());
+                groupOfDesc.put(desc, group);
+                if (onlyDescOfGroup.put(group, desc) != null) {
+                    // A second desc in this group: its keys are the group's from here on.
+                    onlyDescOfGroup.put(group, null);
+                }
+            }
+        }
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
         for (Entry<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> entry : descs.entrySet()) {
-            res.put(entry.getKey(), mergeOverlappingListDescsOfOneTable(entry.getValue()));
+            for (Entry<PartitionKeyDesc, Set<String>> onePctEntry : entry.getValue().entrySet()) {
+                PartitionKeyDesc desc = onePctEntry.getKey();
+                if (desc.hasInValues()) {
+                    List<PartitionValue> group = groupOfDesc.get(desc);
+                    PartitionKeyDesc only = onlyDescOfGroup.get(group);
+                    desc = only == null
+                            ? PartitionKeyDesc.createIn(sortedKeys(keysOfGroup.get(group))) : only;
+                }
+                res.computeIfAbsent(desc, k -> new HashMap<>())
+                        .merge(entry.getKey(), Sets.newHashSet(onePctEntry.getValue()), (left, right) -> {
+                            left.addAll(right);
+                            return left;
+                        });
+            }
         }
         return res;
     }
 
-    private Map<PartitionKeyDesc, Set<String>> mergeOverlappingListDescsOfOneTable(
-            Map<PartitionKeyDesc, Set<String>> descs) {
-        Map<PartitionKeyDesc, Set<String>> res = Maps.newHashMap();
-        List<Set<List<PartitionValue>>> mergedKeys = Lists.newArrayList();
-        List<Set<String>> mergedNames = Lists.newArrayList();
-        List<PartitionKeyDesc> mergedDescs = Lists.newArrayList();
-        for (Entry<PartitionKeyDesc, Set<String>> entry : descs.entrySet()) {
-            if (!entry.getKey().hasInValues()) {
-                res.put(entry.getKey(), entry.getValue());
-                continue;
-            }
-            Set<List<PartitionValue>> keys = Sets.newHashSet(entry.getKey().getInValues());
-            Set<String> names = Sets.newHashSet(entry.getValue());
-            // The desc this group came from, kept while it is the only one, since a desc that was not
-            // merged is left as it is rather than written out again in another key order.
-            PartitionKeyDesc mergedDesc = entry.getKey();
-            for (int i = mergedKeys.size() - 1; i >= 0; i--) {
-                if (Collections.disjoint(mergedKeys.get(i), keys)) {
-                    continue;
-                }
-                keys.addAll(mergedKeys.get(i));
-                names.addAll(mergedNames.get(i));
-                mergedDesc = null;
-                mergedKeys.remove(i);
-                mergedNames.remove(i);
-                mergedDescs.remove(i);
-            }
-            mergedKeys.add(keys);
-            mergedNames.add(names);
-            mergedDescs.add(mergedDesc);
+    private void union(Map<List<PartitionValue>, List<PartitionValue>> groupOfKey, List<PartitionValue> left,
+            List<PartitionValue> right) {
+        List<PartitionValue> leftGroup = find(groupOfKey, left);
+        List<PartitionValue> rightGroup = find(groupOfKey, right);
+        if (leftGroup != rightGroup) {
+            groupOfKey.put(rightGroup, leftGroup);
         }
-        for (int i = 0; i < mergedKeys.size(); i++) {
-            PartitionKeyDesc desc = mergedDescs.get(i) == null
-                    ? PartitionKeyDesc.createIn(Lists.newArrayList(mergedKeys.get(i))) : mergedDescs.get(i);
-            res.put(desc, mergedNames.get(i));
+    }
+
+    private List<PartitionValue> find(Map<List<PartitionValue>, List<PartitionValue>> groupOfKey,
+            List<PartitionValue> key) {
+        List<PartitionValue> group = Preconditions.checkNotNull(groupOfKey.get(key),
+                "a key is registered before it is looked up: %s", key);
+        while (group != groupOfKey.get(group)) {
+            group = groupOfKey.get(group);
         }
+        List<PartitionValue> root = group;
+        // Path compression, so that the walk is not repeated for the rest of this group's keys.
+        group = groupOfKey.get(key);
+        while (group != root) {
+            List<PartitionValue> next = groupOfKey.get(group);
+            groupOfKey.put(group, root);
+            group = next;
+        }
+        return root;
+    }
+
+    /** The group's keys, in the order the base partition values sort in, so a partition name is stable. */
+    private List<List<PartitionValue>> sortedKeys(Set<List<PartitionValue>> keys) {
+        List<List<PartitionValue>> res = Lists.newArrayList(keys);
+        res.sort(Comparator.comparing(key -> key.get(0).getStringValue()));
         return res;
     }
 
