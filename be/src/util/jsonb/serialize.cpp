@@ -125,7 +125,18 @@ Status JsonbSerializeUtil::jsonb_to_columns(
     RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(data, size, &pdoc));
     const JsonbDocument& doc = *pdoc;
     DCHECK(!dst_columns.empty());
+    // Rows already appended before this one. A caller that names include_cids may leave the
+    // other columns out of the decode and fill them later for the whole batch (the rowset-derived
+    // hidden columns in RowIdStorageReader), so an excluded column can lag behind; count the rows
+    // from a column this call does fill.
     size_t num_rows = dst_columns[0]->size();
+    for (int cid : include_cids) {
+        auto col_it = col_id_to_idx.find(cid);
+        if (col_it != col_id_to_idx.end()) {
+            num_rows = dst_columns[col_it->second]->size();
+            break;
+        }
+    }
     size_t filled_columns = 0;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         auto col_it = col_id_to_idx.find(it->getKeyId());

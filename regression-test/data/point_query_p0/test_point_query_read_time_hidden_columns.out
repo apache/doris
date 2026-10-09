@@ -89,3 +89,9 @@ true	true
 2
 3
 
+-- !compacted_row_store_topn_hidden_first_added_column --
+2	1	first-1	\N
+3	2	second-2	\N
+2	3	first-3	\N
+3	4	second-4	\N
+

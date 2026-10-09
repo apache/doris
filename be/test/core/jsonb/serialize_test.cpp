@@ -663,6 +663,55 @@ TEST(BlockSerializeCowTest, JsonbToBlockMutatesDestinationOwnerColumn) {
               20);
 }
 
+// RowIdStorageReader decodes every JSONB row of a batch before it fills the rowset-derived
+// hidden columns it leaves out of include_cids, so an excluded first slot still holds no rows
+// while the decoded slots already hold one. The decoder must count rows from a decoded slot,
+// otherwise the second row re-pads a field absent from the JSONB as if it were the first row.
+TEST(BlockSerializeTest, JsonbToColumnsCountsRowsFromIncludedColumn) {
+    TabletSchema schema;
+    TabletColumn v1;
+    v1.set_name("v1");
+    v1.set_unique_id(2);
+    v1.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    schema.append_column(v1);
+
+    auto src_column = ColumnInt32::create();
+    src_column->insert_value(10);
+    src_column->insert_value(20);
+    auto int_type = std::make_shared<DataTypeInt32>();
+    Block src_block;
+    src_block.insert({std::move(src_column), int_type, "v1"});
+
+    // Two JSONB rows carrying only v1: v2 (uid 3) was added by a later schema change.
+    auto jsonb_column = ColumnString::create();
+    JsonbSerializeUtil::block_to_jsonb(schema, src_block, *jsonb_column, src_block.columns(),
+                                       create_data_type_serdes(src_block.get_data_types()), {});
+    ASSERT_EQ(jsonb_column->size(), 2);
+
+    // Slot 0 is the hidden column the caller fills itself after the batch is decoded.
+    Block dst_block;
+    dst_block.insert({ColumnInt64::create(), std::make_shared<DataTypeInt64>(), "hidden"});
+    dst_block.insert({ColumnInt32::create(), int_type, "v1"});
+    dst_block.insert({ColumnInt32::create(), int_type, "v2"});
+    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx {{100, 0}, {2, 1}, {3, 2}};
+    std::vector<std::string> default_values {"", "", "7"};
+    std::unordered_set<int> include_cids {2, 3};
+
+    THROW_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            create_data_type_serdes(dst_block.get_data_types()), *jsonb_column, col_uid_to_idx,
+            dst_block, default_values, include_cids));
+
+    EXPECT_EQ(dst_block.get_by_position(0).column->size(), 0);
+    const auto& decoded = assert_cast<const ColumnInt32&>(*dst_block.get_by_position(1).column);
+    ASSERT_EQ(decoded.size(), 2);
+    EXPECT_EQ(decoded.get_data()[0], 10);
+    EXPECT_EQ(decoded.get_data()[1], 20);
+    const auto& defaulted = assert_cast<const ColumnInt32&>(*dst_block.get_by_position(2).column);
+    ASSERT_EQ(defaulted.size(), 2);
+    EXPECT_EQ(defaulted.get_data()[0], 7);
+    EXPECT_EQ(defaulted.get_data()[1], 7);
+}
+
 TEST(BlockSerializeTest, Array) {
     TabletSchema schema;
     TabletColumn c1;

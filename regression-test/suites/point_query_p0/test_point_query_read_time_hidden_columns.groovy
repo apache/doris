@@ -260,5 +260,30 @@ suite("test_point_query_read_time_hidden_columns") {
         limit 4
     """
 
+    // A column added after the loads is absent from every stored JSONB row. The lazy fetch
+    // decodes the whole batch before it fills the hidden column, so the decoder must pad the
+    // absent column once per row even when the hidden slot in front of it is still empty.
+    sql """ alter table hidden_version_topn_row_store add column added_after_load int """
+    waitForSchemaChangeDone({
+        sql """ show alter table column where TableName = 'hidden_version_topn_row_store' order by CreateTime desc limit 1 """
+        time 600
+    })
+    explain {
+        sql """
+            shape plan
+            select __DORIS_VERSION_COL__, k, payload, added_after_load
+            from hidden_version_topn_row_store
+            order by sort_key
+            limit 4
+        """
+        contains("PhysicalLazyMaterialize")
+    }
+    qt_compacted_row_store_topn_hidden_first_added_column """
+        select __DORIS_VERSION_COL__, k, payload, added_after_load
+        from hidden_version_topn_row_store
+        order by sort_key
+        limit 4
+    """
+
     sql "set show_hidden_columns = false"
 }
