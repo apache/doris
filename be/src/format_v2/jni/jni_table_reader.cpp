@@ -17,6 +17,7 @@
 
 #include "format_v2/jni/jni_table_reader.h"
 
+#include <atomic>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -476,11 +477,14 @@ Status JniTableReader::_open_jni_scanner() {
     // reader will hold, and only for the readers that hold much; every other reader opens at once.
     if (_current_range.__isset.jni_heap_bytes && _current_range.jni_heap_bytes > 0) {
         // The scanner's try_stop() marks its IOContext: a cancelled query, a satisfied limit, a
-        // closing scan. The gate asks on a thread of its own, so the check owns what it reads.
+        // closing scan. The gate asks on a thread of its own, so the check owns what it reads, and
+        // reads it atomically, as try_stop() writes it.
         DORIS_CHECK(_io_ctx != nullptr);
         _heap_admission = JniScanHeapGate::instance()->request(
-                _current_range.jni_heap_bytes,
-                [io_ctx = _io_ctx]() { return io_ctx->should_stop; });
+                _current_range.jni_heap_bytes, [io_ctx = _io_ctx]() {
+                    return std::atomic_ref<bool>(io_ctx->should_stop)
+                            .load(std::memory_order_relaxed);
+                });
         if (_scanner_profile != nullptr) {
             COUNTER_UPDATE(_jvm_heap_declared_bytes, _current_range.jni_heap_bytes);
         }
