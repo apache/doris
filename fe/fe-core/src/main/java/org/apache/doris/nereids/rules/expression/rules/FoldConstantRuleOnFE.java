@@ -77,6 +77,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TypeOf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -199,6 +200,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Password.class, this::visitPassword),
                 matches(Array.class, this::visitArray),
                 matches(Date.class, this::visitDate),
+                matches(TypeOf.class, this::visitTypeOf),
                 matches(Version.class, this::visitVersion),
                 matches(SessionUser.class, this::visitSessionUser),
                 matches(LastQueryId.class, this::visitLastQueryId),
@@ -811,6 +813,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     @Override
     public Expression visitVersion(Version version, ExpressionRewriteContext context) {
         return new StringLiteral(GlobalVariable.version);
+    }
+
+    public Expression visitTypeOf(TypeOf typeOf, ExpressionRewriteContext context) {
+        return new StringLiteral(TypeOf.typeName(typeOf.child().getDataType()));
     }
 
     @Override
