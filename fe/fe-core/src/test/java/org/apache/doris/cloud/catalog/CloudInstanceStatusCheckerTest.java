@@ -28,6 +28,7 @@ import org.apache.doris.cloud.OnTablesFilter.TableFilterRule.RuleType;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.persist.EditLog;
@@ -110,6 +111,71 @@ public class CloudInstanceStatusCheckerTest {
                 virtualComputeGroup.getSubComputeGroups());
         Assertions.assertEquals("active_cg", virtualComputeGroup.getActiveComputeGroup());
         Assertions.assertEquals("standby_cg", virtualComputeGroup.getStandbyComputeGroup());
+    }
+
+    @Test
+    public void testVirtualComputeGroupKeepsFailureUntilAllSubGroupsExist() {
+        addComputeGroup("standby_cg_id", "standby_cg");
+        Mockito.doReturn(instanceResponseWithVirtualComputeGroup()).when(cloudSystemInfoService).getCloudInstance();
+
+        CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
+        checker.runAfterCatalogReady();
+
+        Assertions.assertTrue(failedSyncTimes(checker).containsKey("vcg"));
+    }
+
+    @Test
+    public void testExistingVirtualComputeGroupTracksMissingSubGroupUntilRecovery() {
+        addComputeGroup("active_cg_id", "active_cg");
+        addComputeGroup("standby_cg_id", "standby_cg");
+        Cloud.GetInstanceResponse missingActiveResponse =
+                instanceResponseWithVirtualComputeGroup("missing_active_cg", "standby_cg");
+        Mockito.doReturn(instanceResponseWithVirtualComputeGroup())
+                .doReturn(missingActiveResponse)
+                .doReturn(missingActiveResponse)
+                .when(cloudSystemInfoService).getCloudInstance();
+
+        CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
+        checker.runAfterCatalogReady();
+        Assertions.assertTrue(failedSyncTimes(checker).isEmpty());
+
+        checker.runAfterCatalogReady();
+        Assertions.assertTrue(failedSyncTimes(checker).containsKey("vcg"));
+
+        addComputeGroup("missing_active_cg_id", "missing_active_cg");
+        checker.runAfterCatalogReady();
+        Assertions.assertTrue(failedSyncTimes(checker).isEmpty());
+    }
+
+    @Test
+    public void testDropInvalidVirtualComputeGroupClearsFailure() {
+        Mockito.doReturn(instanceResponseWithVirtualComputeGroup())
+                .doReturn(instanceResponseWithoutVirtualComputeGroup())
+                .when(cloudSystemInfoService).getCloudInstance();
+
+        CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
+        checker.runAfterCatalogReady();
+        Assertions.assertTrue(failedSyncTimes(checker).containsKey("vcg"));
+
+        checker.runAfterCatalogReady();
+        Assertions.assertNull(cloudSystemInfoService.getComputeGroupById("vcg_id"));
+        Assertions.assertTrue(failedSyncTimes(checker).isEmpty());
+    }
+
+    @Test
+    public void testRenameVirtualComputeGroupClearsOldFailure() {
+        Mockito.doReturn(instanceResponseWithVirtualComputeGroup("old_vcg", "active_cg", "standby_cg"))
+                .doReturn(instanceResponseWithVirtualComputeGroup("new_vcg", "active_cg", "standby_cg"))
+                .when(cloudSystemInfoService).getCloudInstance();
+
+        CloudInstanceStatusChecker checker = new CloudInstanceStatusChecker(cloudSystemInfoService);
+        checker.runAfterCatalogReady();
+        Assertions.assertTrue(failedSyncTimes(checker).containsKey("old_vcg"));
+
+        addComputeGroup("active_cg_id", "active_cg");
+        addComputeGroup("standby_cg_id", "standby_cg");
+        checker.runAfterCatalogReady();
+        Assertions.assertTrue(failedSyncTimes(checker).isEmpty());
     }
 
     @Test
@@ -265,14 +331,19 @@ public class CloudInstanceStatusCheckerTest {
     }
 
     private Cloud.GetInstanceResponse instanceResponseWithVirtualComputeGroup(String active, String standby) {
+        return instanceResponseWithVirtualComputeGroup("vcg", active, standby);
+    }
+
+    private Cloud.GetInstanceResponse instanceResponseWithVirtualComputeGroup(
+            String virtualComputeGroupName, String active, String standby) {
         Cloud.ClusterPB activeComputeGroup = computeGroup("active_cg_id", "active_cg");
         Cloud.ClusterPB standbyComputeGroup = computeGroup("standby_cg_id", "standby_cg");
         Cloud.ClusterPB virtualComputeGroup = Cloud.ClusterPB.newBuilder()
                 .setClusterId("vcg_id")
-                .setClusterName("vcg")
+                .setClusterName(virtualComputeGroupName)
                 .setType(Cloud.ClusterPB.Type.VIRTUAL)
-                .addClusterNames("active_cg")
-                .addClusterNames("standby_cg")
+                .addClusterNames(active)
+                .addClusterNames(standby)
                 .setClusterPolicy(Cloud.ClusterPolicy.newBuilder()
                         .setType(Cloud.ClusterPolicy.PolicyType.ActiveStandby)
                         .setActiveClusterName(active)
@@ -291,6 +362,10 @@ public class CloudInstanceStatusCheckerTest {
                         .addClusters(virtualComputeGroup)
                         .build())
                 .build();
+    }
+
+    private Map<String, Long> failedSyncTimes(CloudInstanceStatusChecker checker) {
+        return Deencapsulation.getField(checker, "lastFailedSyncTimeMap");
     }
 
     private Cloud.GetInstanceResponse instanceResponseWithoutVirtualComputeGroup() {
