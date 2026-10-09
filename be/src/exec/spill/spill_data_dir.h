@@ -120,6 +120,9 @@ protected:
     IntGauge* spill_disk_limit = nullptr;
     IntGauge* spill_disk_avail_capacity = nullptr;
     IntGauge* spill_disk_data_size = nullptr;
+    // Inodes may run out before disk space; 0 total means the filesystem does not report them.
+    IntGauge* spill_disk_inode_total = nullptr;
+    IntGauge* spill_disk_inode_available = nullptr;
     // for test
     IntGauge* spill_disk_has_spill_data = nullptr;
     IntGauge* spill_disk_has_spill_gc_data = nullptr;
@@ -152,6 +155,7 @@ protected:
 
 private:
     bool _reach_disk_capacity_limit(int64_t incoming_data_size);
+    void _update_inode_usage();
 };
 
 } // namespace doris
