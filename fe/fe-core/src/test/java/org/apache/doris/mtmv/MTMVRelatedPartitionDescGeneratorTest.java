@@ -147,6 +147,46 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
                 + "PARTITION BY List(c1,c2) (PARTITION t13_all VALUES IN (('2020-01-01', 1), ('2021-01-01', 2),"
                 + " ('2022-01-01', 3)), PARTITION t13_first VALUES IN (('2020-01-01', 9))) distributed by hash(c1)"
                 + " buckets 1 properties('replication_num' = '1');");
+
+        // Two tables of a two-table MV whose keys meet across them: t14 covers 2020-2021, t15 covers 2020 and
+        // 2021-2022, so the MV partition holding those keys covers all three.
+        createTable("CREATE TABLE `t14` (`c1` date, `c2` int)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION t14_p12 VALUES IN (('2020-01-01', 1),"
+                + " ('2021-01-01', 1))) distributed by hash(c1)"
+                + " buckets 1 properties('replication_num' = '1');");
+        createTable("CREATE TABLE `t15` (`c1` date, `c2` int)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION t15_p1 VALUES IN (('2020-01-01', 5)),"
+                + " PARTITION t15_p23 VALUES IN (('2021-01-01', 5), ('2022-01-01', 5))) distributed by hash(c1)"
+                + " buckets 1 properties('replication_num' = '1');");
+    }
+
+    @Test
+    public void testAPrunedQueryOnOneTableKeepsTheCrossTableDesc() throws Exception {
+        // At CREATE these two tables make one MV partition covering 2020-2022. A query pruned to t14's p12 and
+        // t15's p1 names no partition of t15's 2021-2022 partition, but that partition's keys are still in the
+        // MV partition the query reads: the desc has to come out as the one the MV holds, or the mapping
+        // cannot match it and the rewrite is rejected.
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t14", "t15"));
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Map<List<String>, Set<String>> queryUsed = Maps.newHashMap();
+        queryUsed.put(Lists.newArrayList("internal", "test", "t14"), Sets.newHashSet("t14_p12"));
+        queryUsed.put(Lists.newArrayList("internal", "test", "t15"), Sets.newHashSet("t15_p1"));
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column), queryUsed);
+        Assertions.assertEquals(1, partitionKeyDescMap.size());
+        Assertions.assertEquals(3, partitionKeyDescMap.keySet().iterator().next().getInValues().size());
+        OlapTable t14 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t14");
+        OlapTable t15 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t15");
+        Map<MTMVRelatedTableIf, Set<String>> onePartition = partitionKeyDescMap.values().iterator().next();
+        Assertions.assertEquals(Sets.newHashSet("t14_p12"), onePartition.get(t14));
+        Assertions.assertEquals(Sets.newHashSet("t15_p1"), onePartition.get(t15));
     }
 
     @Test

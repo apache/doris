@@ -59,35 +59,15 @@ public class MTMVRelatedPartitionDescOnePartitionColGenerator implements MTMVRel
         Map<MTMVRelatedTableIf, Map<String, PartitionItem>> relatedPartitionItems = lastResult.getItems();
         for (Entry<MTMVRelatedTableIf, Map<String, PartitionItem>> entry : relatedPartitionItems.entrySet()) {
             int relatedColPos = mvPartitionInfo.getPctColPos(entry.getKey());
-            Map<PartitionKeyDesc, Set<String>> descsOfEveryPartition = Maps.newHashMap();
-            for (Entry<String, PartitionItem> onePctEntry : entry.getValue().entrySet()) {
-                descsOfEveryPartition
-                        .computeIfAbsent(onePctEntry.getValue().toPartitionKeyDesc(relatedColPos),
-                                k -> Sets.newHashSet())
-                        .add(onePctEntry.getKey());
-            }
-            // The keys are grouped before the query filter is applied: the MV's partition for a set of keys
-            // that meet is one partition of the whole set, and a query pruned to one of those partitions is
-            // still answered with the partition the MV holds. Filtering first would leave the desc of the
-            // queried partition's keys alone, and the mapping cannot match that to the partition that holds
-            // them -- `MTMV.calculatePartitionMappings` looks the MV partition up by its own desc.
-            Map<PartitionKeyDesc, PartitionKeyDesc> mergedOfDesc =
-                    MTMVPartitionUtil.mergedListDescs(descsOfEveryPartition.keySet());
-            Set<String> queryUsedPartitions = queryUsedPartitionMap.get(entry.getKey().getFullQualifiers());
             Map<PartitionKeyDesc, Set<String>> onePctRes = Maps.newHashMap();
-            for (Entry<PartitionKeyDesc, Set<String>> onePctEntry : descsOfEveryPartition.entrySet()) {
-                Set<String> names = Sets.newHashSet(onePctEntry.getValue());
-                if (queryUsedPartitions != null) {
-                    names.retainAll(queryUsedPartitions);
-                    if (names.isEmpty()) {
-                        // None of this desc's partitions is one the query reads, so the MV partition it
-                        // belongs to says nothing about the query.
-                        continue;
-                    }
-                }
-                onePctRes.computeIfAbsent(mergedOfDesc.get(onePctEntry.getKey()), k -> Sets.newHashSet())
-                        .addAll(names);
+            for (Entry<String, PartitionItem> onePctEntry : entry.getValue().entrySet()) {
+                PartitionKeyDesc partitionKeyDesc = onePctEntry.getValue().toPartitionKeyDesc(relatedColPos);
+                onePctRes.computeIfAbsent(partitionKeyDesc, k -> Sets.newHashSet()).add(onePctEntry.getKey());
             }
+            // Every partition is described, and the query's partitions are filtered out of the grouped descs
+            // in MTMVRelatedPartitionDescTransferGenerator instead: a partition whose keys meet another
+            // table's belongs to the MV partition this query is answered from even where the query does not
+            // read it, and dropping it here would leave that desc short of its keys.
             res.put(entry.getKey(), onePctRes);
         }
 
