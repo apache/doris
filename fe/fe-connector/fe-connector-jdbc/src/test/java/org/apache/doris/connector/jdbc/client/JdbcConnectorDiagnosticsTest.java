@@ -19,6 +19,7 @@ package org.apache.doris.connector.jdbc.client;
 
 import org.apache.doris.connector.jdbc.JdbcDbType;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DiagnosticException;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.junit.jupiter.api.Assertions;
@@ -68,6 +69,10 @@ class JdbcConnectorDiagnosticsTest {
         DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
                 () -> client.getJdbcColumnsInfo("remote", "diagnostics_table"));
         Assertions.assertSame(cause, error.getCause());
+        DiagnosticException diagnostic = (DiagnosticException) error;
+        String trace = diagnostic.getDiagnosticStackTrace(new RuntimeException("catalog failed", error));
+        Assertions.assertFalse(trace.contains("url-secret"), trace);
+        Assertions.assertTrue(trace.contains("catalog failed"), trace);
         Assertions.assertTrue(error.getMessage().contains("remote_sqlstate=42000"));
         Assertions.assertTrue(error.getMessage().contains("remote_vendor_error_code=1142"));
         Assertions.assertTrue(error.getMessage().contains("remote_sqlstate=08001"));

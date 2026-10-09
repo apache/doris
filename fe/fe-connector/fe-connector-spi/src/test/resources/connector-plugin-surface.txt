@@ -84,6 +84,8 @@ org.apache.doris.connector.spi.ConnectorTableSchema#getTableName():java.lang.Str
 org.apache.doris.connector.spi.ConnectorTableSchema#getWriteMetadataIdentity():java.lang.String
 org.apache.doris.connector.spi.ConnectorTableSchema#hashCode():int
 org.apache.doris.connector.spi.ConnectorTableSchema#toString():java.lang.String
+org.apache.doris.connector.spi.DiagnosticException#getDiagnosticMessage():java.lang.String
+org.apache.doris.connector.spi.DiagnosticException#getDiagnosticStackTrace(java.lang.Throwable):java.lang.String
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#hashCode():int
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#withProjectedFieldIds(java.util.Set):org.apache.doris.connector.spi.handle.ConnectorColumnHandle

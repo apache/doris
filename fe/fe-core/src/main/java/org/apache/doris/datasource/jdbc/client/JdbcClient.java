@@ -194,7 +194,7 @@ public abstract class JdbcClient {
             return JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
             throw new JdbcClientException(e,
-                    JdbcExceptionUtils.format("Failed to parse JDBC database type", e, jdbcUrl));
+                    JdbcExceptionUtils.format("Failed to parse JDBC database type", e, jdbcUrl), jdbcUrl);
         }
     }
 
@@ -592,7 +592,8 @@ public abstract class JdbcClient {
 
     protected JdbcClientException jdbcException(String context, Throwable cause, Object... args) {
         return new JdbcClientException(cause, JdbcExceptionUtils.format(
-                JdbcClientException.formatMessage(context, args), cause, jdbcPassword, diagnosticJdbcUrl));
+                JdbcClientException.formatMessage(context, args), cause, jdbcPassword, diagnosticJdbcUrl),
+                jdbcPassword, diagnosticJdbcUrl);
     }
 
     protected String jdbcDiagnosticMessage(Throwable cause) {

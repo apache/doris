@@ -87,13 +87,13 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 12 adds the SUPPORTS_FIELD_ID_ACCESS_PATH and SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE
-        // capabilities: a plugin naming either constant cannot link against an older FE.
-        Assertions.assertEquals("12.0", version.getProperty("api.version"));
+        // Major 13 adds the DiagnosticException opt-in, shared across engine and plugin loaders.
+        Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
+            DiagnosticException.class,
             ConnectorProvider.class,
             ConnectorContext.class,
             ConnectorSession.class,

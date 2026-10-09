@@ -79,6 +79,11 @@ class JdbcLegacyDiagnosticsTest {
         Assertions.assertTrue(error.getMessage().contains("remote_sqlstate=08001, remote_vendor_error_code=0"));
         Assertions.assertFalse(error.getMessage().contains("test-password"));
         Assertions.assertFalse(error.getMessage().contains("url-secret"));
+        String trace = error.getDiagnosticStackTrace(new RuntimeException("outer wrapper", error));
+        Assertions.assertTrue(trace.contains("outer wrapper"));
+        Assertions.assertTrue(trace.contains("remote_sqlstate=08001, remote_vendor_error_code=0"));
+        Assertions.assertFalse(trace.contains("test-password"));
+        Assertions.assertFalse(trace.contains("url-secret"));
     }
 
     private static void set(JdbcClient client, String name, String value) throws Exception {

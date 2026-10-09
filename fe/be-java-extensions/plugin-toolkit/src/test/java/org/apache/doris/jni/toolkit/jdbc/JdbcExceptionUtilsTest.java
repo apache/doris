@@ -138,4 +138,84 @@ class JdbcExceptionUtilsTest {
         Assertions.assertEquals("[redacted JDBC URL] password=***; user=*** token=***",
                 JdbcExceptionUtils.redact("jdbc:postgresql://host/db?password=p password='two words'; user=alice token=xyz"));
     }
+
+    @Test
+    void overlappingPasswordsCannotDisableStructuralRedaction() {
+        String url = "jdbc:oracle:thin:alice/url-secret@host:1521:db";
+        for (String password : new String[] {"jdbc", "oracle", "password", "*", "redacted"}) {
+            String text = url + " password=another-secret raw=" + password;
+            String safe = JdbcExceptionUtils.redact(text, password, url);
+            Assertions.assertFalse(safe.contains("url-secret"), safe);
+            Assertions.assertFalse(safe.contains("another-secret"), safe);
+            Assertions.assertEquals(safe, JdbcExceptionUtils.redact(safe, password, url));
+        }
+        Assertions.assertEquals("\"password\":***", JdbcExceptionUtils.redact("\"password\":\"another-secret\""));
+    }
+
+    @Test
+    void maskCharactersDoNotDuplicateDiagnosticsWhenRewrapped() {
+        for (String password : new String[] {"*", "**", "***", "a***b", "]", "[", "message", ",", "="}) {
+            SQLException cause = new SQLException("raw=" + password, "42000", 1142);
+            String once = JdbcExceptionUtils.format("connect", cause, password);
+            RuntimeException wrapper = new RuntimeException(once, cause);
+            String twice = JdbcExceptionUtils.format("schema", wrapper, password);
+            Assertions.assertEquals("schema: " + once, twice);
+            Assertions.assertEquals(once, JdbcExceptionUtils.appendSqlDiagnostics(once, cause, password));
+        }
+    }
+
+    @Test
+    void credentialLabelsAndDiagnosticBracketsStayStableWhenRewrapped() {
+        for (String message : new String[] {"password=remote-secret", "password='remote-secret'",
+                "password=abc,def", "password=abc]def"}) {
+            SQLException cause = new SQLException(message, "28000", 1045);
+            String once = JdbcExceptionUtils.format("connect", cause, "abc,def", "abc]def");
+            Assertions.assertEquals("schema: " + once, JdbcExceptionUtils.format("schema",
+                    new RuntimeException(once, cause), "abc,def", "abc]def"));
+            Assertions.assertFalse(once.contains("remote-secret"));
+            Assertions.assertFalse(once.contains("def"));
+        }
+    }
+
+    @Test
+    void nestedBracketsAndUrlsStayStableAcrossRepeatedFormatting() {
+        for (String password : new String[] {"redacted", "]", "[", "\\", "0"}) {
+            SQLException first = new SQLException("connect jdbc:mysql://host/db [unbalanced] ] | raw=" + password,
+                    "28000", 1045);
+            first.setNextException(new SQLException("other [message] \\ path", "08001", 0));
+            String once = JdbcExceptionUtils.format("connect", first, password);
+            Assertions.assertEquals(once, JdbcExceptionUtils.redact(once, password));
+            Assertions.assertEquals("schema: " + once, JdbcExceptionUtils.format("schema",
+                    new RuntimeException(once, first), password));
+            Assertions.assertEquals(once, JdbcExceptionUtils.appendSqlDiagnostics(once, first, password));
+            Assertions.assertTrue(once.contains("[redacted JDBC URL]"), once);
+        }
+    }
+
+    @Test
+    void longMessagesDoNotConsumeStackDuringRedactionAndRewrapping() {
+        String message = String.join("", java.util.Collections.nCopies(20000, "text ] \\ [redacted JDBC URL] "));
+        SQLException cause = new SQLException(message, "42000", 1064);
+        String once = JdbcExceptionUtils.format("connect", cause, "redacted");
+        Assertions.assertEquals(once, JdbcExceptionUtils.redact(once, "redacted"));
+        Assertions.assertEquals("schema: " + once, JdbcExceptionUtils.format("schema",
+                new RuntimeException(once, cause), "redacted"));
+        Assertions.assertTrue(JdbcExceptionUtils.stackTrace(new JdbcIOException("connect", cause, "redacted"),
+                "redacted").contains(once));
+    }
+
+    @Test
+    void escapedQuotedCredentialsAndUrlValuesAreRedactedStably() {
+        for (String text : new String[] {"password=\"first\\\"remaining-secret\"", "password='first\\'remaining-secret'",
+                "password=jdbc:mysql://host/db?password=url-secret", "password=[redacted JDBC URL]"}) {
+            String safe = JdbcExceptionUtils.redact(text);
+            Assertions.assertFalse(safe.contains("remaining-secret"), safe);
+            Assertions.assertFalse(safe.contains("url-secret"), safe);
+            Assertions.assertEquals(safe, JdbcExceptionUtils.redact(safe));
+            SQLException cause = new SQLException(text, "28000", 1045);
+            String once = JdbcExceptionUtils.format("connect", cause);
+            Assertions.assertEquals("schema: " + once, JdbcExceptionUtils.format("schema",
+                    new RuntimeException(once, cause)));
+        }
+    }
 }

@@ -17,19 +17,35 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.connector.spi.DiagnosticException;
 import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
 
-public class JdbcClientException extends RuntimeException {
+public class JdbcClientException extends RuntimeException implements DiagnosticException {
+    private final String[] sensitiveValues;
+
     public JdbcClientException(String format, Throwable cause, Object... msg) {
         super(JdbcExceptionUtils.appendSqlDiagnostics(formatMessage(format, msg), cause), cause);
+        sensitiveValues = new String[0];
     }
 
     public JdbcClientException(String format, Object... msg) {
-        super(formatMessage(format, msg));
+        super(JdbcExceptionUtils.redact(formatMessage(format, msg)));
+        sensitiveValues = new String[0];
     }
 
-    JdbcClientException(Throwable cause, String diagnosticMessage) {
+    JdbcClientException(Throwable cause, String diagnosticMessage, String... sensitiveValues) {
         super(diagnosticMessage, cause);
+        this.sensitiveValues = sensitiveValues.clone();
+    }
+
+    @Override
+    public String getDiagnosticMessage() {
+        return getMessage();
+    }
+
+    @Override
+    public String getDiagnosticStackTrace(Throwable error) {
+        return JdbcExceptionUtils.stackTrace(error, sensitiveValues);
     }
 
     static String formatMessage(String format, Object... msg) {

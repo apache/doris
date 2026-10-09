@@ -88,7 +88,7 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed to detect if remote MySQL is Doris: {}", e.getMessage());
+            LOG.warn("Failed to detect if remote MySQL is Doris: {}", jdbcDiagnosticMessage(e));
         } finally {
             closeResources(rs, stmt, conn);
         }
@@ -218,7 +218,7 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed to get row count for {}.{}: {}", dbName, tableName, e.getMessage());
+            LOG.warn("Failed to get row count for {}.{}: {}", dbName, tableName, jdbcDiagnosticMessage(e));
         }
         return -1;
     }

@@ -234,7 +234,7 @@ public abstract class JdbcConnectorClient implements Closeable {
             // driver_class is optional. When absent, let HikariCP resolve the driver from the JDBC URL via
             // DriverManager rather than passing null to setDriverClassName — a null there NPEs deep inside
             // HikariCP (loadClass(null) -> ClassLoader lock map -> ConcurrentHashMap null key), which this
-            // method's catch re-wraps into an opaque "Failed to initialize JDBC data sourcenull" that hides
+            // method's catch re-wraps into an opaque "Failed to initialize JDBC data source: null" that hides
             // the real "driver_class not provided" cause.
             if (driverClass != null && !driverClass.isEmpty()) {
                 dataSource.setDriverClassName(driverClass);
@@ -678,7 +678,18 @@ public abstract class JdbcConnectorClient implements Closeable {
         return map;
     }
 
+    /** Shares an existing pool without losing the owner's diagnostic credentials. */
+    protected void shareDataSourceWith(JdbcConnectorClient delegate) {
+        delegate.classLoader = classLoader;
+        delegate.dataSource = dataSource;
+        delegate.jdbcPassword = jdbcPassword;
+    }
+
+    protected String jdbcDiagnosticMessage(Throwable cause) {
+        return JdbcExceptionUtils.format("", cause, jdbcPassword, jdbcUrl);
+    }
+
     protected DorisConnectorException jdbcException(String context, Throwable cause) {
-        return new DorisConnectorException(JdbcExceptionUtils.format(context, cause, jdbcPassword, jdbcUrl), cause);
+        return new JdbcDiagnosticException(context, cause, jdbcPassword, jdbcUrl);
     }
 }

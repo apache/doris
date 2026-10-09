@@ -132,7 +132,7 @@ public class JdbcJniScanner extends JniScanner {
 
         // Select database-specific type handler
         String tableType = params.getOrDefault("table_type", "");
-        this.typeHandler = JdbcTypeHandlerFactory.create(tableType);
+        this.typeHandler = JdbcTypeHandlerFactory.create(tableType, jdbcPassword, jdbcUrl);
 
         String requiredFields = params.getOrDefault("required_fields", "");
         String columnsTypes = params.getOrDefault("columns_types", "");

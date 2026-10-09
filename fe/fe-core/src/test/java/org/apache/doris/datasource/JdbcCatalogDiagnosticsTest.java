@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.connector.spi.DiagnosticException;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
@@ -29,13 +30,13 @@ import java.sql.SQLException;
 class JdbcCatalogDiagnosticsTest {
     @Test
     void catalogStatusPreservesSafeConnectorAndLegacyDiagnosticsThroughCacheWrappers() {
-        SQLException raw = new SQLException("denied raw=test-password", "42000", 1142);
+        SQLException raw = new SQLException("denied password=test-password", "42000", 1142);
         String safe = JdbcExceptionUtils.format("load databases", raw, "test-password");
         JdbcClientException legacy = new JdbcClientException(safe);
         legacy.initCause(raw);
-        Throwable[] wrappers = {new DorisConnectorException(safe, raw), legacy};
+        Throwable[] wrappers = {new SafeConnectorException(safe, raw), legacy};
         for (Throwable wrapper : wrappers) {
-            String status = ExternalCatalog.initErrorMessage("jdbc", new RuntimeException("cache failed", wrapper));
+            String status = ExternalCatalog.initErrorMessage(new RuntimeException("cache failed", wrapper));
             Assertions.assertTrue(status.contains("remote_sqlstate=42000"));
             Assertions.assertTrue(status.contains("remote_vendor_error_code=1142"));
             Assertions.assertFalse(status.contains("test-password"));
@@ -44,29 +45,59 @@ class JdbcCatalogDiagnosticsTest {
 
     @Test
     void nonSqlJdbcFailuresKeepSanitizedContext() {
-        RuntimeException raw = new RuntimeException("driver failure raw=test-password");
+        RuntimeException raw = new RuntimeException("driver failure password=test-password");
         String safe = JdbcExceptionUtils.format("open JDBC client", raw, "test-password");
-        Assertions.assertEquals(safe, ExternalCatalog.initErrorMessage("jdbc", new DorisConnectorException(safe, raw)));
+        Assertions.assertEquals(safe, ExternalCatalog.initErrorMessage(new SafeConnectorException(safe, raw)));
         JdbcClientException legacy = new JdbcClientException(safe);
         legacy.initCause(raw);
-        Assertions.assertEquals(safe, ExternalCatalog.initErrorMessage("jdbc", legacy));
+        Assertions.assertEquals(safe, ExternalCatalog.initErrorMessage(legacy));
     }
 
     @Test
     void connectorWithoutMessageStillReportsItsRootCause() {
-        Assertions.assertEquals("IllegalStateException: root failure", ExternalCatalog.initErrorMessage("jdbc",
+        Assertions.assertEquals("IllegalStateException: root failure", ExternalCatalog.initErrorMessage(
                 new DorisConnectorException(null, new IllegalStateException("root failure"))));
     }
 
     @Test
     void nonJdbcConnectorStillReportsItsSpecificRootCause() {
-        Assertions.assertEquals("IllegalStateException: remote IO failure", ExternalCatalog.initErrorMessage("fluss",
+        Assertions.assertEquals("IllegalStateException: remote IO failure", ExternalCatalog.initErrorMessage(
                 new DorisConnectorException("listDatabases failed", new IllegalStateException("remote IO failure"))));
     }
 
     @Test
     void unrelatedCatalogErrorsKeepTheirExistingRootCauseMessage() {
-        Assertions.assertEquals("IllegalStateException: root failure", ExternalCatalog.initErrorMessage("jdbc",
+        Assertions.assertEquals("IllegalStateException: root failure", ExternalCatalog.initErrorMessage(
                 new RuntimeException("wrapper", new IllegalStateException("root failure"))));
     }
+
+    @Test
+    void diagnosticPolicySanitizesTheCompleteCatalogWrapperTrace() {
+        SQLException cause = new SQLException("raw=test-password", "08001", 0);
+        String safe = JdbcExceptionUtils.format("load databases", cause, "test-password");
+        Throwable outer = new RuntimeException("outer raw=test-password", new SafeConnectorException(safe, cause));
+        String trace = ExternalCatalog.initErrorStackTrace(outer);
+        Assertions.assertNotNull(trace);
+        Assertions.assertTrue(trace.contains("outer raw=***"));
+        Assertions.assertTrue(trace.contains("remote_sqlstate=08001"));
+        Assertions.assertFalse(trace.contains("test-password"));
+        Assertions.assertNull(ExternalCatalog.initErrorStackTrace(new IllegalStateException("ordinary failure")));
+    }
+
+    private static class SafeConnectorException extends DorisConnectorException implements DiagnosticException {
+        SafeConnectorException(String message, Throwable cause) {
+            super(message, cause);
+        }
+
+        @Override
+        public String getDiagnosticMessage() {
+            return getMessage();
+        }
+
+        @Override
+        public String getDiagnosticStackTrace(Throwable error) {
+            return JdbcExceptionUtils.stackTrace(error, "test-password");
+        }
+    }
+
 }
