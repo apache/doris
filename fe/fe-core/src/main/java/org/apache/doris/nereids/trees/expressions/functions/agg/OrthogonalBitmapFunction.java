@@ -36,7 +36,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** OrthogonalBitmapFunction */
-public interface OrthogonalBitmapFunction extends FunctionTrait, ExplicitlyCastableSignature {
+public interface OrthogonalBitmapFunction
+        extends FunctionTrait, ExplicitlyCastableSignature, NotSupportAggState {
 
     List<DataType> SUPPORTED_TYPES = ImmutableList.of(
             SmallIntType.INSTANCE, TinyIntType.INSTANCE, IntegerType.INSTANCE, BigIntType.INSTANCE,

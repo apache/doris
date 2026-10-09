@@ -64,7 +64,7 @@ suite("test_streaming_postgres_job_dup", "p0,external,pg,external_docker,externa
                   "table.create.properties.replication_num" = "1"
                 )
             """
-            exception "The following tables do not have primary key defined: ${table1}"
+            exception "Source tables require primary keys: ${table1}"
         }
 
         def jobInfo = sql """

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TBinlogScanType;
@@ -35,6 +36,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 public abstract class BaseTableStream extends Table {
     public enum StreamScanType {
@@ -151,9 +153,16 @@ public abstract class BaseTableStream extends Table {
     }
 
     public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {
-        showInitialRows = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS,
-                false);
+        showInitialRows = false;
+        String key = PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS;
+        if (properties != null && properties.containsKey(key)) {
+            try {
+                showInitialRows = Util.parseBooleanProperty(properties.get(key), key);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new org.apache.doris.common.AnalysisException(key + " must be `true` or `false`", e);
+            }
+            properties.remove(key);
+        }
         streamScanType = PropertyAnalyzer.analyzeStreamType(properties);
     }
 
@@ -212,7 +221,11 @@ public abstract class BaseTableStream extends Table {
     // fill table_stream_consumption info
     // @param dataBatch the data batch to fill
     // DB_NAME, STREAM_NAME, STREAM_ID, UNIT, CONSUMPTION_STATUS, LAG, LAST_CONSUMPTION_TIME
-    abstract void fillTableStreamConsumptionInfo(List<TRow> dataBatch);
+    void fillTableStreamConsumptionInfo(List<TRow> dataBatch) {
+        fillTableStreamConsumptionInfo(dataBatch, unit -> true);
+    }
+
+    abstract void fillTableStreamConsumptionInfo(List<TRow> dataBatch, Predicate<String> unitSelector);
 
     public <E extends Exception> TableIf getBaseTableOrException(java.util.function.Function<String, E> e)
             throws E {

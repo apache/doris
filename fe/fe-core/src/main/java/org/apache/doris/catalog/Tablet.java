@@ -126,12 +126,20 @@ public abstract class Tablet {
         return rowBinlogBaseTabletId;
     }
 
+    public boolean hasRowBinlogBaseTabletId() {
+        return rowBinlogBaseTabletId != null;
+    }
+
     public void setRowBinlogBaseTabletId(long rowBinlogBaseTabletId) {
         this.rowBinlogBaseTabletId = rowBinlogBaseTabletId;
     }
 
     public long getRowBinlogTabletId() {
         return rowBinlogTabletId;
+    }
+
+    public boolean hasRowBinlogTabletId() {
+        return rowBinlogTabletId != null;
     }
 
     public void setRowBinlogTabletId(long rowBinlogTabletId) {
@@ -211,6 +219,10 @@ public abstract class Tablet {
             }
 
             if (replica.isBad()) {
+                continue;
+            }
+
+            if (replica.isBinlogMissing()) {
                 continue;
             }
 

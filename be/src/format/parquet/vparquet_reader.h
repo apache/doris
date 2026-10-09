@@ -226,6 +226,7 @@ public:
     /// Disable row-group range filtering (needed when reading delete files
     /// whose TFileRangeDesc has size=-1).
     void set_filter_groups(bool v) { _filter_groups = v; }
+    void set_preserve_binary_uuid(bool value) { _preserve_binary_uuid = value; }
 
 protected:
     // ---- Unified init_reader(ReaderInitContext*) overrides ----
@@ -460,6 +461,7 @@ protected:
     // register synthesized columns in on_before_init_reader.
     RowGroupReader::LazyReadContext _lazy_read_ctx;
     bool _filter_groups = true;
+    bool _preserve_binary_uuid = false;
 
     std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()>
             _create_topn_row_id_column_iterator;

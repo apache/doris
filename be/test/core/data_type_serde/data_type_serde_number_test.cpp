@@ -39,6 +39,7 @@
 #include "core/data_type_serde/data_type_date_or_datetime_serde.h"
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
+#include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "testutil/test_util.h"
@@ -791,6 +792,19 @@ TEST_F(DataTypeNumberSerDeTest, OlapStringRoundTripFloatExtremes) {
     check_double(-1e308);
     check_float(3.14f);
     check_float(0.0f);
+}
+
+TEST_F(DataTypeNumberSerDeTest, NullableZonemapStringPropagatesParseError) {
+    DataTypeNullableSerDe nullable_serde(serde_float64);
+
+    Field field;
+    EXPECT_FALSE(nullable_serde.from_zonemap_string("1.797693134862316e+308", field).ok());
+    EXPECT_FALSE(nullable_serde.from_zonemap_string("-1.797693134862316e+308", field).ok());
+    EXPECT_FALSE(nullable_serde.from_zonemap_string("not-a-double", field).ok());
+
+    Field parsed;
+    ASSERT_TRUE(nullable_serde.from_zonemap_string("1.7976931348623157e+308", parsed).ok());
+    EXPECT_EQ(parsed.get<TYPE_DOUBLE>(), std::numeric_limits<double>::max());
 }
 
 } // namespace doris

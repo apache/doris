@@ -20,8 +20,8 @@ package org.apache.doris.datasource.doris;
 import org.apache.doris.connector.cache.MetaCache;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
@@ -43,11 +43,11 @@ public class DorisExternalMetaCacheTest {
                     String.class,
                     DorisExternalMetaCacheTestSupport.backendMapClass());
             backendsEntry.put("backends", ImmutableMap.of());
-            Assert.assertNotNull(backendsEntry.getIfPresent("backends"));
+            Assertions.assertNotNull(backendsEntry.getIfPresent("backends"));
 
             cache.invalidateBackendCache(catalogId);
 
-            Assert.assertNull(backendsEntry.getIfPresent("backends"));
+            Assertions.assertNull(backendsEntry.getIfPresent("backends"));
         } finally {
             executor.shutdownNow();
         }

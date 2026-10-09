@@ -58,7 +58,9 @@ suite("test_insert_statistic_after_fe_restart", "docker") {
         // insert into select — this creates the INSERT load job tracked by show load
         sql """INSERT INTO ${dstTbl} SELECT * FROM ${srcTbl}"""
 
-        def result = sql """SHOW LOAD FROM ${dbName}"""
+        // Both INSERT statements create load jobs. Select the second (target-table)
+        // INSERT deterministically instead of assuming this database has one job.
+        def result = sql """SHOW LOAD FROM ${dbName} ORDER BY JobId DESC LIMIT 1"""
         assertEquals(1, result.size())
         def jobDetailsBefore = parseJson(result[0][14])
         logger.info("JobDetails before restart: ${result[0][14]}")
@@ -75,7 +77,7 @@ suite("test_insert_statistic_after_fe_restart", "docker") {
 
         sql """USE ${dbName}"""
 
-        result = sql """SHOW LOAD FROM ${dbName}"""
+        result = sql """SHOW LOAD FROM ${dbName} ORDER BY JobId DESC LIMIT 1"""
         assertEquals(1, result.size())
         def jobDetailsAfter = parseJson(result[0][14])
         logger.info("JobDetails after restart: ${result[0][14]}")

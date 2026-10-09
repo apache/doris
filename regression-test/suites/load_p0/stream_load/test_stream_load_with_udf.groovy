@@ -31,6 +31,7 @@ suite("test_stream_load_with_udf", "p0") {
     """
     def jarPath = """${context.file.parent}/../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
     log.info("Jar path: ${jarPath}".toString())
 
     sql """ ADMIN SET FRONTEND CONFIG ("enable_udf_in_load" = "true"); """

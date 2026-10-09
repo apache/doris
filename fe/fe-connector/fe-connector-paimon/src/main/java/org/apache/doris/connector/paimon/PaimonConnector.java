@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
@@ -30,15 +31,19 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.AuthType;
 import org.apache.doris.kerberos.AuthenticationConfig;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
+import org.apache.doris.thrift.TStorageBackendType;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -46,7 +51,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.catalog.CachingCatalog;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -56,7 +60,6 @@ import org.apache.paimon.hive.HiveCatalog;
 import org.apache.paimon.hive.HiveCatalogOptions;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
-import org.apache.paimon.privilege.PrivilegedCatalog;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -136,14 +139,13 @@ public class PaimonConnector implements Connector {
     // returns a fresh metadata per query, so this lives on the connector and is injected into the metadata so
     // beginQuerySnapshot pins a stable id across queries. Cleared wholesale on REFRESH CATALOG (connector rebuilt).
     private final PaimonLatestSnapshotCache latestSnapshotCache;
-    private final CatalogMetaCache metaCache = new CatalogMetaCache();
+    private final CatalogMetaCache metaCache;
 
     // FIX-B-MC2: connector-level (per-catalog, long-lived) second-level memo for the time-travel
     // schema-at-snapshot read. getMetadata() returns a FRESH metadata per query, so this must live on the
     // connector (not the metadata) to give the cross-query hit the legacy PaimonExternalMetaCache provided.
     // Cleared wholesale on REFRESH CATALOG (the connector is rebuilt). See PaimonSchemaAtMemo.
-    private final PaimonSchemaAtMemo schemaAtMemo =
-            new PaimonSchemaAtMemo(metaCache, PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
+    private final PaimonSchemaAtMemo schemaAtMemo;
 
     // PERF-06: cross-query DERIVED partition-view cache ("cache A", the generic ConnectorMetadataCache from
     // fe-connector-cache), layered ABOVE the raw remote catalog.listPartitions call (PaimonCatalogOps#listPartitions):
@@ -176,13 +178,17 @@ public class PaimonConnector implements Connector {
         // this a DDL/read against secured HDFS negotiates SIMPLE auth. See TcclPinningConnectorContext.
         this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
                 this::pluginAuthenticator);
+        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "paimon", properties);
+        this.schemaAtMemo = new PaimonSchemaAtMemo(metaCache, PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
         this.latestSnapshotCache =
                 new PaimonLatestSnapshotCache(
                         metaCache, resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
         // Reads its own meta.cache.paimon.partition_view.(enable|ttl-second|capacity) from the catalog
         // properties via the framework's CacheSpec (default ON / 24h / 1000).
         this.partitionViewCache = new ConnectorMetadataCache<>(
-                metaCache, "paimon.partition-view", "paimon", "partition_view", properties);
+                metaCache, "paimon.partition-view", "paimon", "partition_view", properties,
+                key -> org.apache.doris.connector.cache.ScopePath.table(key.getDb(), key.getTable()),
+                PaimonPartitionViewSizeEstimator::estimateEntry);
     }
 
     /**
@@ -350,11 +356,18 @@ public class PaimonConnector implements Connector {
                 context, schemaAtMemo);
     }
 
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider() {
+        return new PaimonWritePlanProvider(catalogProps,
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
+                context);
+    }
+
     /**
      * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning. The B5 fe-core
      * MvccTable wiring keys off this to call {@link PaimonConnectorMetadata#beginQuerySnapshot} /
      * {@code resolveTimeTravel}.
-     * No write capability is declared: paimon write is not migrated.
+     * Write support is declared by {@link #getWritePlanProvider()}.
      */
     @Override
     public Set<ConnectorCapability> getCapabilities() {
@@ -384,7 +397,13 @@ public class PaimonConnector implements Connector {
                 // connector-wide: it holds for every paimon DATA table. The narrower question of which
                 // SYSTEM table can honor the clause is answered per table by
                 // PaimonScanPlanProvider.supportsSystemTableOptions.
-                ConnectorCapability.SUPPORTS_SCAN_PARAM_OPTIONS);
+                ConnectorCapability.SUPPORTS_SCAN_PARAM_OPTIONS,
+                // SUPPORTS_NESTED_COLUMN_PRUNE: the paimon JNI scanner mirrors a pruned nested type onto
+                // paimon's own types and pushes it down (ReadBuilder.withReadType), and the native
+                // parquet/orc split path resolves the access paths by name. NOT
+                // SUPPORTS_FIELD_ID_ACCESS_PATH: paimon carries no field id on the Doris column tree, so
+                // rewriting the paths to ids would make every segment "-1".
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
     }
 
     /** Test-only: the derived listPartitions view cache (PERF-06). Never null (paimon has no session=user gate). */
@@ -404,7 +423,7 @@ public class PaimonConnector implements Connector {
     }
 
     private Catalog createCatalog() {
-        Options options = PaimonCatalogFactory.buildCatalogOptions(catalogProps);
+        Options options = buildCatalogOptions();
         String flavor = catalogProps.getFlavor();
         // Canonical storage config from the FE-bound fe-filesystem StorageProperties (P1-T03), replacing
         // the legacy buildObjectStorageHadoopConfig path: object stores contribute their fs.s3a.*/fs.oss.*
@@ -465,9 +484,34 @@ public class PaimonConnector implements Connector {
                         hmsAuth, storageHadoopConfig,
                         "Failed to create Paimon catalog with HMS metastore");
             }
+            case PaimonCatalogProperties.DLF: {
+                // Legacy DLF catalogs often expose OSS only through dlf.* aliases and an oss:// warehouse.
+                // Check the resolved storage bindings here so those catalogs remain valid while non-OSS
+                // backends cannot be passed to Paimon's DLF Hive catalog.
+                if (!hasDlfCompatibleStorage(storage().getStorageProperties())) {
+                    throw new IllegalStateException("Paimon DLF metastore requires OSS storage properties.");
+                }
+                DlfMetaStoreProperties dlf = (DlfMetaStoreProperties)
+                        MetaStoreProviders.bind(catalogProps.getRaw(), storageHadoopConfig);
+                Map<String, String> dlfConf = new HashMap<>(dlf.toDlfCatalogConf());
+                dlfConf.put(PaimonCatalogFactory.DLF_CLIENT_POOL_IDENTITY,
+                        PaimonCatalogFactory.dlfClientPoolIdentity(dlfConf));
+                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, dlfConf);
+                return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
+                        "Failed to create Paimon catalog with DLF metastore");
+            }
             default:
                 throw new IllegalArgumentException("Unknown paimon.catalog.type value: " + flavor);
         }
+    }
+
+    static boolean hasDlfCompatibleStorage(List<StorageProperties> storageProperties) {
+        return storageProperties.stream().anyMatch(storage -> "OSS".equals(storage.providerName())
+                || "OSS_HDFS".equals(storage.providerName()));
+    }
+
+    Options buildCatalogOptions() {
+        return PaimonCatalogFactory.buildCatalogOptions(catalogProps);
     }
 
     /**
@@ -511,11 +555,15 @@ public class PaimonConnector implements Connector {
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             return context.executeAuthenticated(() -> {
+                // PaimonMetaCacheCatalog installs PrivilegedCatalog after the raw metadata cache.
                 Catalog catalog = PaimonCatalogProperties.HMS.equals(flavor)
                         ? createHmsCatalog(catalogContext, hmsAuth, catalogProps.getRaw(),
                                 storageHadoopConfig)
-                        : CatalogFactory.createCatalog(catalogContext);
-                return catalog;
+                        : CatalogFactory.createUnwrappedCatalog(catalogContext, getClass().getClassLoader());
+                return PaimonMetaCacheCatalog.tryToCreate(catalog, metaCache,
+                        DEFAULT_TABLE_CACHE_CAPACITY, resolveTableCacheTtlSecond(catalogProps.getRaw()),
+                        catalogContext.options(), PaimonCatalogFactory.isCatalogCacheEnabled(catalogProps),
+                        metaCache.hasEnclosingWeightLimit());
             });
         } catch (Exception e) {
             throw new RuntimeException(failureMessage + " (flavor=" + flavor + "): " + e.getMessage(), e);
@@ -542,13 +590,14 @@ public class PaimonConnector implements Connector {
             fileIO.checkOrMkdirs(warehousePath);
             String clientClass = options.get(HiveCatalogOptions.METASTORE_CLIENT_CLASS);
             Catalog catalog = hmsAuth == null
-                    ? new HiveCatalog(fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString())
+                    ? new HiveCatalog(fileIO, hiveConf, clientClass, catalogContext,
+                            warehousePath.toUri().toString())
                     : hmsAuth.doAs(() -> new HiveCatalog(
-                            fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString()));
+                            fileIO, hiveConf, clientClass, catalogContext,
+                            warehousePath.toUri().toString()));
             catalog = PaimonHmsClientPool.install(catalog, hmsAuth);
             catalog = PaimonHmsCatalog.install(catalog, properties, storageHadoopConfig);
-            catalog = CachingCatalog.tryToCreate(catalog, options);
-            return PrivilegedCatalog.tryToCreate(catalog, options);
+            return catalog;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -739,6 +788,56 @@ public class PaimonConnector implements Connector {
                 LOG.warn("Failed to close Paimon catalog", e);
             }
         }
+    }
+
+    @Override
+    public ConnectorTestResult testConnection(ConnectorSession session) {
+        if (!PaimonCatalogProperties.DLF.equals(catalogProps.getFlavor())) {
+            return ConnectorTestResult.success();
+        }
+        try {
+            // Listing databases forces lazy DLF catalog creation and an authenticated metastore round-trip.
+            getMetadata(session).listDatabaseNames(session);
+        } catch (Exception e) {
+            LOG.warn("Paimon DLF connectivity test failed for catalog '{}'", context.getCatalogName(), e);
+            return ConnectorTestResult.failure(
+                    "Paimon DLF connectivity test failed: " + rootCauseMessage(e));
+        }
+
+        String warehouse = catalogProps.getRaw().get("warehouse");
+        try {
+            context.executeAuthenticated(() -> {
+                org.apache.doris.filesystem.FileSystem fileSystem = storage().getFileSystem(session);
+                if (fileSystem != null) {
+                    // A missing path is acceptable; endpoint and credential failures surface as exceptions.
+                    fileSystem.exists(Location.of(warehouse));
+                }
+                return null;
+            });
+            Map<String, String> backendProperties = new HashMap<>(storage().getBackendStorageProperties());
+            if (!backendProperties.isEmpty()) {
+                String normalizedWarehouse = storage().normalizeStorageUri(warehouse);
+                backendProperties.put("test_location", normalizedWarehouse);
+                boolean ossHdfs = storage().getStorageProperties().stream()
+                        .anyMatch(properties -> "OSS_HDFS".equals(properties.providerName()));
+                int backendType = ossHdfs
+                        ? TStorageBackendType.HDFS.getValue() : TStorageBackendType.S3.getValue();
+                storage().testBackendStorageConnectivity(backendType, backendProperties);
+            }
+        } catch (Exception e) {
+            LOG.warn("Paimon DLF storage connectivity test failed for catalog '{}'", context.getCatalogName(), e);
+            return ConnectorTestResult.failure(
+                    "Paimon DLF storage connectivity test failed: " + rootCauseMessage(e));
+        }
+        return ConnectorTestResult.success();
+    }
+
+    private static String rootCauseMessage(Throwable throwable) {
+        Throwable root = throwable;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return StringUtils.defaultIfBlank(root.getMessage(), root.getClass().getSimpleName());
     }
 
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */

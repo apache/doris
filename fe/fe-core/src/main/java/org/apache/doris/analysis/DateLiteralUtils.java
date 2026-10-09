@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
 
@@ -37,28 +38,46 @@ import java.util.Collections;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
-/**
- * Utility class providing a static factory method for creating {@link DateLiteral} instances
- * from string representations. This replicates the parsing logic of the
- * {@code DateLiteral(String, Type)} constructor and its {@code init()} method.
- */
+/** Utility methods for parsing legacy date-like literals from strings. */
 public class DateLiteralUtils {
 
     private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
+    private static final long NANOSECONDS_PER_SECOND = 1_000_000_000L;
+    private static final long[] NANOSECOND_SCALE_FACTORS = {
+            1_000_000_000L, 100_000_000L, 10_000_000L, 1_000_000L, 100_000L,
+            10_000L, 1_000L, 100L, 10L, 1L
+    };
 
     private DateLiteralUtils() {
     }
 
     /**
-     * Creates a {@link DateLiteral} by parsing the given string, replicating the exact behavior
-     * of the {@code DateLiteral(String, Type)} constructor and its internal {@code init()} method.
+     * Parse a legacy date-like literal.
      *
-     * @param s    the date/datetime string to parse
-     * @param type the target date type, or {@code null} for auto-detection
-     * @return a new {@link DateLiteral} instance
-     * @throws AnalysisException if the string cannot be parsed or the resulting value is out of range
+     * <p>TIMESTAMP_NS has a dedicated {@link TimeStampNsLiteral} because its signed epoch-nanosecond
+     * representation and range differ from {@link DateLiteral}. Callers that can receive any
+     * date-like type must therefore use this method and retain the {@link LiteralExpr} result.</p>
+     */
+    public static LiteralExpr createLiteral(String s, @Nullable Type type) throws AnalysisException {
+        return createDateTimeLiteral(s, type);
+    }
+
+    /**
+     * Parse a literal backed by {@link DateLiteral}.
+     *
+     * <p>This compatibility entry point deliberately rejects TIMESTAMP_NS instead of hiding it in
+     * DateLiteral's microsecond fields. New date-generic callers should use {@link #createLiteral}.</p>
      */
     public static DateLiteral createDateLiteral(String s, @Nullable Type type) throws AnalysisException {
+        LiteralExpr literal = createDateTimeLiteral(s, type);
+        if (!(literal instanceof DateLiteral)) {
+            throw new AnalysisException("date literal [" + s
+                    + "] resolves to TIMESTAMP_NS; use DateLiteralUtils.createLiteral instead");
+        }
+        return (DateLiteral) literal;
+    }
+
+    private static LiteralExpr createDateTimeLiteral(String s, @Nullable Type type) throws AnalysisException {
         try {
             if (type != null) {
                 Preconditions.checkArgument(type.isDateType());
@@ -66,10 +85,14 @@ public class DateLiteralUtils {
             TemporalAccessor dateTime = null;
             boolean parsed = false;
             ZoneId sourceZone = null;
+            // Every pre-existing date type retains its six-digit parsing contract. A null type is
+            // used when decoding an untyped DATE_LITERAL thrift node, where 7-9 digits are the only
+            // information available to infer TIMESTAMP_NS.
+            boolean parseNanoseconds = type == null || type.isTimeStampNs();
 
             // parse timezone
             if (haveTimeZoneOffset(s) || haveTimeZoneName(s)) {
-                String tzString = new String();
+                String tzString;
                 if (haveTimeZoneName(s)) { // GMT, UTC+8, Z[, CN, Asia/Shanghai]
                     int split = getTimeZoneSplitPos(s);
                     Preconditions.checkArgument(split > 0);
@@ -82,6 +105,14 @@ public class DateLiteralUtils {
                     s = s.substring(0, s.length() - 6);
                 }
                 sourceZone = ZoneId.of(tzString);
+            }
+
+            int nanosecondGuardDigit = -1;
+            if (parseNanoseconds) {
+                // java.time parses at most nine fractional digits. Keep the tenth digit separately
+                // so fixed-scale TIMESTAMP_NS can still implement the same half-up rounding as BE.
+                nanosecondGuardDigit = DateUtils.getNanosecondGuardDigit(s);
+                s = DateUtils.truncateFractionalSecondForJavaParser(s);
             }
 
             if (!s.contains("-")) {
@@ -140,7 +171,8 @@ public class DateLiteralUtils {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
                 if (timePart.length == 0 && type != null
-                        && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
+                        && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2)
+                        || type.equals(Type.TIMESTAMP_NS))) {
                     throw new AnalysisException("Invalid datetime value: " + s);
                 }
                 for (int i = 0; i < timePart.length; i++) {
@@ -159,7 +191,10 @@ public class DateLiteralUtils {
                                             ? timePart[i].split("\\.")[0].length()
                                             : timePart[i].length(), "s")));
                             if (timePart[i].contains(".")) {
-                                builder.appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true);
+                                builder.appendFraction(parseNanoseconds
+                                                ? ChronoField.NANO_OF_SECOND : ChronoField.MICRO_OF_SECOND,
+                                        0, parseNanoseconds ? ScalarType.TIMESTAMP_NS_SCALE
+                                                : ScalarType.MAX_DATETIMEV2_SCALE, true);
                             }
                             break;
                         default:
@@ -183,31 +218,55 @@ public class DateLiteralUtils {
             long hour = getOrDefault(dateTime, ChronoField.HOUR_OF_DAY, 0);
             long minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
             long second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
-            long microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
+            long nanosecond = parseNanoseconds
+                    ? getOrDefault(dateTime, ChronoField.NANO_OF_SECOND, 0)
+                    : getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0) * 1000L;
 
             if (type != null) {
-                if (microsecond != 0 && type.isDatetime()) {
+                if (nanosecond != 0 && type.isDatetime()) {
                     int dotIndex = s.lastIndexOf(".");
                     int scale = s.length() - dotIndex - 1;
                     type = ScalarType.createDatetimeV2Type(scale);
                 }
             } else {
-                if (hour == 0 && minute == 0 && second == 0 && microsecond == 0) {
+                // Type inference must observe the scale-9 rounded fraction. For example,
+                // .1234560005 rounds to .123456001 and therefore requires TIMESTAMP_NS rather
+                // than DATETIMEV2(6). A carry is also time-bearing even when its rounded fraction
+                // becomes zero, as in 00:00:00.9999999995 -> 00:00:01.000000000.
+                long inferredNanosecond = nanosecond + (nanosecondGuardDigit >= 5 ? 1 : 0);
+                boolean fractionalCarry = inferredNanosecond == NANOSECONDS_PER_SECOND;
+                if (fractionalCarry) {
+                    inferredNanosecond = 0;
+                }
+                if (hour == 0 && minute == 0 && second == 0
+                        && inferredNanosecond == 0 && !fractionalCarry) {
                     type = ScalarType.getDefaultDateType(Type.DATE);
                 } else {
                     type = ScalarType.getDefaultDateType(Type.DATETIME);
-                    if (type.isDatetimeV2() && microsecond != 0) {
-                        int scale = 6;
-                        for (int i = 0; i < 6; i++) {
-                            if (microsecond % Math.pow(10.0, i + 1) > 0) {
-                                break;
-                            } else {
-                                scale -= 1;
-                            }
+                    if (type.isDatetimeV2() && inferredNanosecond != 0) {
+                        int scale = ScalarType.TIMESTAMP_NS_SCALE;
+                        long fractionalSecond = inferredNanosecond;
+                        while (fractionalSecond % 10 == 0) {
+                            fractionalSecond /= 10;
+                            scale--;
                         }
-                        type = ScalarType.createDatetimeV2Type(scale);
+                        type = scale > ScalarType.MAX_DATETIMEV2_SCALE
+                                ? ScalarType.createTimeStampNsType()
+                                : ScalarType.createDatetimeV2Type(scale);
                     }
                 }
+            }
+
+            LocalDateTime literalDateTime = LocalDateTime.of(
+                    (int) year, (int) month, (int) day,
+                    (int) hour, (int) minute, (int) second, (int) nanosecond);
+
+            // TIMESTAMP_NS must round on the source timeline. In particular, an explicit-zone
+            // value that carries across a DST transition must be converted only after the carry.
+            // Keep all pre-existing temporal types on their original conversion path.
+            if (type.isTimeStampNs()) {
+                literalDateTime = roundFractionalSecond(
+                        literalDateTime, ScalarType.TIMESTAMP_NS_SCALE, nanosecondGuardDigit);
             }
 
             // Recompute the timezone offset using the target date rather than
@@ -228,29 +287,34 @@ public class DateLiteralUtils {
                 if (type != null && type.isTimeStampTz()) {
                     dorisZone = ZoneId.of("UTC");
                 }
-                LocalDateTime parsedLdt = LocalDateTime.of(
-                        (int) year, (int) month, (int) day,
-                        (int) hour, (int) minute, (int) second);
-                Instant targetInstant = parsedLdt.atZone(sourceZone).toInstant();
-                LocalDateTime destLdt = LocalDateTime.ofInstant(targetInstant, dorisZone);
-                year = destLdt.getYear();
-                month = destLdt.getMonthValue();
-                day = destLdt.getDayOfMonth();
-                hour = destLdt.getHour();
-                minute = destLdt.getMinute();
-                second = destLdt.getSecond();
-                // microsecond is preserved from the original parse, matching
-                // the original init() behavior (not affected by zone conversion)
+                Instant targetInstant = literalDateTime.atZone(sourceZone).toInstant();
+                literalDateTime = LocalDateTime.ofInstant(targetInstant, dorisZone);
             }
 
-            // Construct DateLiteral using the appropriate constructor based on the determined type
+            if (type.isTimeStampNs()) {
+                TimeStampNsLiteral result = new TimeStampNsLiteral(
+                        literalDateTime.getYear(), literalDateTime.getMonthValue(),
+                        literalDateTime.getDayOfMonth(), literalDateTime.getHour(),
+                        literalDateTime.getMinute(), literalDateTime.getSecond(),
+                        literalDateTime.getNano());
+                result.checkValueValid();
+                return result;
+            }
+
             DateLiteral result;
             if (type.isDate() || type.isDateV2()) {
-                result = new DateLiteral(year, month, day, type);
-            } else if (microsecond != 0 && (type.isDatetimeV2() || type.isTimeStampTz())) {
-                result = new DateLiteral(year, month, day, hour, minute, second, microsecond, type);
+                result = new DateLiteral(literalDateTime.getYear(), literalDateTime.getMonthValue(),
+                        literalDateTime.getDayOfMonth(), type);
+            } else if (literalDateTime.getNano() != 0
+                    && (type.isDatetimeV2() || type.isTimeStampTz())) {
+                result = new DateLiteral(literalDateTime.getYear(), literalDateTime.getMonthValue(),
+                        literalDateTime.getDayOfMonth(), literalDateTime.getHour(),
+                        literalDateTime.getMinute(), literalDateTime.getSecond(),
+                        literalDateTime.getNano() / 1000L, type);
             } else {
-                result = new DateLiteral(year, month, day, hour, minute, second, type);
+                result = new DateLiteral(literalDateTime.getYear(), literalDateTime.getMonthValue(),
+                        literalDateTime.getDayOfMonth(), literalDateTime.getHour(),
+                        literalDateTime.getMinute(), literalDateTime.getSecond(), type);
             }
 
             if (result.checkRange() || result.checkDate()) {
@@ -264,6 +328,25 @@ public class DateLiteralUtils {
 
     private static int getOrDefault(TemporalAccessor accessor, ChronoField field, int defaultValue) {
         return accessor.isSupported(field) ? accessor.get(field) : defaultValue;
+    }
+
+    /**
+     * Round a fractional second half-up to the target scale.
+     *
+     * <p>At TIMESTAMP_NS scale 9 there is no discarded digit inside the parsed value, so the
+     * separately retained tenth digit decides whether to add one nanosecond. A rounded value of one
+     * billion nanoseconds is carried into the next civil second, including date rollover.</p>
+     */
+    private static LocalDateTime roundFractionalSecond(
+            LocalDateTime value, int scale, int nanosecondGuardDigit) {
+        long factor = NANOSECOND_SCALE_FACTORS[scale];
+        long roundingOffset = factor == 1
+                ? (nanosecondGuardDigit >= 5 ? 1 : 0) : factor / 2;
+        long roundedNanosecond = (value.getNano() + roundingOffset) / factor * factor;
+        if (roundedNanosecond == NANOSECONDS_PER_SECOND) {
+            return value.withNano(0).plusSeconds(1);
+        }
+        return value.withNano((int) roundedNanosecond);
     }
 
     private static boolean haveTimeZoneOffset(String arg) {

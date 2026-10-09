@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <chrono> // IWYU pragma: keep
@@ -775,7 +776,7 @@ void StorageEngine::_binlog_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
         int64_t cur_time = UnixMillis();
-        if (config::enable_feature_binlog && !config::disable_auto_compaction &&
+        if (!config::disable_auto_compaction &&
             (!config::enable_compaction_pause_on_high_memory ||
              !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
             _adjust_compaction_thread_num();

@@ -35,7 +35,7 @@ fe-sql-parser/
     ├── org/apache/doris/nereids/
     │   ├── parser/                 # Parser support: CaseInsensitiveStream,
     │   │                           # Origin, OriginAware, ParserUtils,
-    │   │                           # ParseErrorListener, PostProcessor
+    │   │                           # ParseErrorListener
     │   ├── exceptions/             # ParseException, SyntaxParseException
     │   └── errors/QueryParsingErrors.java
     └── org/apache/doris/sqlparser/
@@ -67,6 +67,10 @@ The optional `benchmark` profile builds a self-contained JMH jar without adding 
 mvn -Pbenchmark -pl fe-sql-parser-benchmark -am package -DskipTests
 java -jar fe-sql-parser-benchmark/target/doris-fe-sql-parser-benchmarks.jar \
   '.*StringLiteralBenchmark.*' -prof gc -rf json -rff /tmp/string-literal-benchmark.json
+
+# Run the primary-expression end-to-end and pre-tokenized parser benchmarks
+java -jar fe-sql-parser-benchmark/target/doris-fe-sql-parser-benchmarks.jar \
+  '.*PrimaryExpressionBenchmark.*' -prof gc -rf json -rff /tmp/primary-expression-benchmark.json
 ```
 
 Use the same JDK, corpus parameters, JMH arguments, and machine state for baseline and candidate runs. Run the same baseline artifact twice before comparing a change; the raw JSON and artifact hash should be retained with the result summary.
@@ -86,11 +90,11 @@ The `flatten` profile is required so the installed POM has `${revision}` resolve
 mvn -pl fe-sql-parser -Pcli package -DskipTests
 ```
 
-Output: `fe/fe-sql-parser/target/fe-sql-parser-1.2-SNAPSHOT-cli.jar` (~1.7 MB).
+Output: `fe/fe-sql-parser/target/doris-fe-sql-parser-cli.jar` (~1.7 MB).
 
 This is a self-contained executable jar produced by `maven-shade-plugin`:
 
-- Bundles `antlr4-runtime` so the jar runs anywhere with a JRE 8+
+- Bundles `antlr4-runtime` so the jar runs anywhere with a JRE 17+
 - Manifest sets `Main-Class: org.apache.doris.sqlparser.DorisSqlParserCli`
 - `<minimizeJar>true</minimizeJar>` strips unused classes (transitively-inherited logging, test utilities, etc.) so the final jar contains only the parser plus its actual reachable dependencies
 
@@ -99,7 +103,7 @@ The CLI profile is gated so default Doris builds do not pay the shading cost. Th
 ## CLI Usage
 
 ```
-java -jar fe-sql-parser-1.2-SNAPSHOT-cli.jar [OPTIONS] [SQL]
+java -jar doris-fe-sql-parser-cli.jar [OPTIONS] [SQL]
 ```
 
 ### Input sources (mutually exclusive)
@@ -216,7 +220,7 @@ For frequent use, drop a wrapper on your `PATH`:
 ```bash
 # ~/bin/doris-sql-parse
 #!/usr/bin/env bash
-exec java -jar /path/to/fe-sql-parser-1.2-SNAPSHOT-cli.jar "$@"
+exec java -jar /path/to/doris-fe-sql-parser-cli.jar "$@"
 ```
 
 ```bash
@@ -419,7 +423,7 @@ public class AuditListener extends DorisParserBaseListener {
 
 ### Example 3: Live `ParseTreeListener` — fire during parsing
 
-Most cases are covered by Examples 1 and 2. If you need to intervene **while the parser is building each node** (mutating tokens, injecting metadata, streaming work), attach a listener with `parser.addParseListener(...)`. This is exactly how `fe-sql-parser`'s internal `PostProcessor` rewrites identifier case at parse time.
+Most cases are covered by Examples 1 and 2. If you need to intervene **while the parser is building each node** (mutating tokens, injecting metadata, streaming work), attach a listener with `parser.addParseListener(...)`.
 
 `DorisSqlParser.parseStatement` does not expose the parser instance; use `newLexer` + `newParser` to take ownership:
 
@@ -449,7 +453,7 @@ DorisParser.SingleStatementContext tree = parser.singleStatement();
 System.out.println(hintListener.hints);
 ```
 
-`newParser` already attaches `PostProcessor` and `ParseErrorListener`; your listener is added on top.
+`newParser` already attaches `ParseErrorListener`; your listener is added on top. Identifier normalization is handled locally by the grammar.
 
 ### Example 4: Wrap the facade — metrics, caching, rewriting
 

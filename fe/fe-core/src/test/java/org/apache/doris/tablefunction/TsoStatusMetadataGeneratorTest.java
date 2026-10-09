@@ -74,6 +74,7 @@ public class TsoStatusMetadataGeneratorTest {
         Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
         Assertions.assertEquals(1, result.getDataBatchSize());
         TRow row = result.getDataBatch().get(0);
+        Assertions.assertEquals(4, row.getColumnValueSize()); // Legacy BE request.
         Assertions.assertEquals(windowEndPhysicalTime, row.getColumnValue().get(0).getLongVal());
         Assertions.assertEquals(currentTso, row.getColumnValue().get(1).getLongVal());
         Assertions.assertEquals(physicalTime, row.getColumnValue().get(2).getLongVal());
@@ -121,6 +122,25 @@ public class TsoStatusMetadataGeneratorTest {
         Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
         Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("not calibrated"));
         Mockito.verify(tsoService).getStatusSnapshot();
+    }
+
+    @Test
+    public void testCommittedTsoProjectionAndUnknownPrefix() throws Exception {
+        long committed = TSOTimestamp.composeTimestamp(1700000000000L, 17);
+        TFetchSchemaTableDataRequest request = newRequest();
+        request.getSchemaTableParams().setColumnsName(
+                ImmutableList.of("committed_tso_physical_time", "committed_tso"));
+        Mockito.when(tsoService.getStatusSnapshot()).thenReturn(
+                new TSOService.TSOStatusSnapshot(true, committed + 100, 1700000001000L, committed),
+                new TSOService.TSOStatusSnapshot(true, committed + 100, 1700000001000L, 0));
+        TRow row = MetadataGenerator.getSchemaTableData(request).getDataBatch().get(0);
+        Assertions.assertEquals(2, row.getColumnValueSize());
+        Assertions.assertEquals(1700000000000L, row.getColumnValue().get(0).getLongVal());
+        Assertions.assertEquals(committed, row.getColumnValue().get(1).getLongVal());
+        TRow unknown = MetadataGenerator.getSchemaTableData(request).getDataBatch().get(0);
+        Assertions.assertTrue(unknown.getColumnValue().get(0).isIsNull());
+        Assertions.assertTrue(unknown.getColumnValue().get(1).isIsNull());
+        Mockito.verify(tsoService, Mockito.never()).getTSO();
     }
 
     private TFetchSchemaTableDataRequest newRequest() {

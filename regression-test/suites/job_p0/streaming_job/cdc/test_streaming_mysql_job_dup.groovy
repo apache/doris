@@ -61,7 +61,7 @@ suite("test_streaming_mysql_job_dup", "p0,external,mysql,external_docker,externa
                   "table.create.properties.replication_num" = "1"
                 )
             """
-            exception "The following tables do not have primary key defined: ${table1}"
+            exception "Source tables require primary keys: ${table1}"
         }
 
         def jobInfo = sql """

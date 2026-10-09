@@ -277,6 +277,14 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
 
         try {
             writeLock();
+            // The transaction callback or another terminal path may finish the job while tasks drain.
+            if (state != JobState.RETRY) {
+                LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("state", state)
+                        .add("msg", "skip retry because the load job is no longer retrying")
+                        .build());
+                return;
+            }
             this.state = JobState.PENDING;
             this.idToTasks.clear();
             this.failMsg = null;

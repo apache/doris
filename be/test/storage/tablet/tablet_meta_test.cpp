@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,6 +30,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock_rowset.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -79,6 +81,56 @@ TEST(TabletMetaTest, SaveAsBufferAndParse) {
         TabletMeta dst_tablet_meta;
         ASSERT_FALSE(dst_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
     }
+}
+
+TEST(TabletMetaTest, TopLevelInvertedIndexFormatOverridesSharedSchemaFormat) {
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_table_id(1);
+    tablet_meta_pb.set_index_id(2);
+    tablet_meta_pb.set_partition_id(3);
+    tablet_meta_pb.set_tablet_id(4);
+    tablet_meta_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    tablet_meta_pb.mutable_schema()->set_schema_version(7);
+    tablet_meta_pb.mutable_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    TabletMeta tablet_meta;
+    tablet_meta.init_from_pb(tablet_meta_pb);
+
+    ASSERT_TRUE(tablet_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, tablet_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              tablet_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    TabletMetaPB serialized;
+    tablet_meta.to_meta_pb(&serialized, false);
+    ASSERT_TRUE(serialized.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              serialized.schema().inverted_index_storage_format());
+}
+
+TEST(TabletMetaTest, LegacySchemaInvertedIndexFormatIsFallback) {
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_table_id(1);
+    tablet_meta_pb.set_index_id(2);
+    tablet_meta_pb.set_partition_id(3);
+    tablet_meta_pb.set_tablet_id(4);
+    tablet_meta_pb.mutable_schema()->set_schema_version(7);
+    tablet_meta_pb.mutable_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    TabletMeta tablet_meta;
+    tablet_meta.init_from_pb(tablet_meta_pb);
+
+    EXPECT_FALSE(tablet_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3, tablet_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              tablet_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    TabletMetaPB serialized;
+    tablet_meta.to_meta_pb(&serialized, false);
+    EXPECT_FALSE(serialized.has_inverted_index_storage_format());
 }
 
 TEST(TabletMetaTest, SerializeToMemoryWithSmallBuffer) {
@@ -426,6 +478,43 @@ TEST(TabletMetaTest, TestDeleteBitmapSubsetAndAggWithSegmentList) {
     EXPECT_EQ(segment_delete_bitmap.cardinality(), 1);
     EXPECT_TRUE(segment_delete_bitmap.contains(103));
     EXPECT_NE(subset_delete_map.get({rowset_id, 0, 9}, &segment_delete_bitmap), 0);
+}
+
+TEST(TabletMetaTest, FileCacheTtlExpirationTime) {
+    TabletMeta meta;
+
+    // No TTL configured: nothing to protect.
+    meta.set_creation_time(UnixSeconds() - 10);
+    meta.set_ttl_seconds(0);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // Unknown creation time cannot anchor a deadline.
+    meta.set_creation_time(0);
+    meta.set_ttl_seconds(3600);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // Live tablet: the deadline is creation time + ttl, an absolute timestamp.
+    int64_t ctime = UnixSeconds() - 10;
+    meta.set_creation_time(ctime);
+    meta.set_ttl_seconds(3600);
+    EXPECT_EQ(ctime + 3600, meta.file_cache_ttl_expiration_time());
+
+    // Past the deadline: report no TTL, so callers stamp new blocks as NORMAL instead of
+    // putting them in the TTL queue for the expiration sweep to take back out.
+    meta.set_creation_time(UnixSeconds() - 3600);
+    meta.set_ttl_seconds(60);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // Exactly at the deadline counts as expired.
+    int64_t now = UnixSeconds();
+    meta.set_creation_time(now - 60);
+    meta.set_ttl_seconds(60);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // A ttl large enough to overflow must not wrap into a past deadline.
+    meta.set_creation_time(UnixSeconds());
+    meta.set_ttl_seconds(std::numeric_limits<int64_t>::max());
+    EXPECT_EQ(std::numeric_limits<int64_t>::max(), meta.file_cache_ttl_expiration_time());
 }
 
 } // namespace doris

@@ -24,6 +24,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
+#include "core/value/timestamp_ns_value.h"
 #include "exec/pipeline/thrift_builder.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr_context.h"
@@ -83,6 +84,52 @@ VExprContextSPtr create_prepared_topn_expr(MockRuntimeState* state, const DataTy
     DORIS_CHECK(context->prepare(state, RowDescriptor()).ok());
     DORIS_CHECK(context->open(state).ok());
     return context;
+}
+
+void check_topn_uuid_scanner_predicate(bool is_asc, bool nulls_first) {
+    constexpr UUIDValueType boundary = static_cast<UUIDValueType>(1) << 127;
+    const std::array<UUIDValueType, 5> values {0, boundary - 1, boundary, boundary + 1,
+                                               static_cast<UUIDValueType>(-1)};
+    const auto type = DataTypeFactory::instance().create_data_type(TYPE_UUID, true);
+    auto column = type->create_column();
+    for (const auto value : values) {
+        column->insert(Field::create_field<TYPE_UUID>(value));
+    }
+    column->insert_default(); // NULL
+
+    SCOPED_TRACE(is_asc);
+    SCOPED_TRACE(nulls_first);
+    RuntimePredicate predicate(create_topn_filter_desc(TYPE_UUID, is_asc, nulls_first));
+    predicate.set_detected_source();
+    SlotDescriptor slot_desc;
+    slot_desc._id = SLOT_ID;
+    slot_desc._col_name = "u";
+    slot_desc._type = type;
+    ASSERT_TRUE(predicate.init_target(TARGET_NODE_ID, {{SLOT_ID, &slot_desc}}, 0).ok());
+    ASSERT_TRUE(predicate.enable());
+    const auto scanner_predicate = predicate.get_predicate(TARGET_NODE_ID);
+    ASSERT_NE(scanner_predicate, nullptr);
+
+    // A scanner that runs before the sorter publishes its first bound must pass all
+    // rows, including NULLs. It can legitimately report zero filtered rows.
+    std::array<bool, 6> matches {};
+    EXPECT_FALSE(predicate.has_value());
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches, (std::array<bool, 6> {true, true, true, true, true, true}));
+
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_UUID>(boundary)).ok());
+    EXPECT_TRUE(predicate.has_value());
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches,
+              is_asc ? (std::array<bool, 6> {true, true, true, false, false, nulls_first})
+                     : (std::array<bool, 6> {false, false, true, true, true, nulls_first}));
+
+    const auto tighter_bound = is_asc ? boundary - 1 : boundary + 1;
+    ASSERT_TRUE(predicate.update(Field::create_field<TYPE_UUID>(tighter_bound)).ok());
+    scanner_predicate->evaluate_vec(*column, matches.size(), matches.data());
+    EXPECT_EQ(matches,
+              is_asc ? (std::array<bool, 6> {true, true, false, false, false, nulls_first})
+                     : (std::array<bool, 6> {false, false, false, true, true, nulls_first}));
 }
 
 } // namespace
@@ -229,6 +276,25 @@ TEST(RuntimePredicateTest, TopNPredicateKeepsDirectCapabilityBeforeFirstBound) {
     context->close();
 }
 
+TEST(RuntimePredicateTest, TopNPredicateFiltersTimestampNsRawValues) {
+    MockRuntimeState state;
+    const auto type = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMP_NS, false);
+    auto context = create_prepared_topn_expr(
+            &state, type, Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(0)));
+    const std::array<TimeStampNsValue, 3> values {TimeStampNsValue(-1), TimeStampNsValue(0),
+                                                  TimeStampNsValue(1)};
+    IColumn::Filter matches(values.size(), 1);
+
+    ASSERT_TRUE(context->root()->can_execute_on_raw_fixed_values(type, 0));
+    ASSERT_TRUE(context->root()
+                        ->execute_on_raw_fixed_values(
+                                reinterpret_cast<const uint8_t*>(values.data()), values.size(),
+                                sizeof(TimeStampNsValue), type, 0, matches.data())
+                        .ok());
+    EXPECT_EQ(matches, (IColumn::Filter {1, 1, 0}));
+    context->close();
+}
+
 TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySupportedType) {
     struct TypeSpec {
         PrimitiveType type;
@@ -236,7 +302,7 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
         int scale = 0;
         bool binary = false;
     };
-    const std::array<TypeSpec, 23> supported_types {{
+    const std::array<TypeSpec, 25> supported_types {{
             {TYPE_BOOLEAN},
             {TYPE_TINYINT},
             {TYPE_SMALLINT},
@@ -247,6 +313,7 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
             {TYPE_DATETIME},
             {TYPE_DATEV2},
             {TYPE_DATETIMEV2},
+            {TYPE_TIMESTAMP_NS},
             {TYPE_TIMESTAMPTZ},
             {TYPE_TIMEV2},
             {TYPE_DECIMAL32, 9, 2},
@@ -256,6 +323,7 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
             {TYPE_DECIMAL256, 76, 2},
             {TYPE_IPV4},
             {TYPE_IPV6},
+            {TYPE_UUID},
             {TYPE_CHAR, 0, 0, true},
             {TYPE_STRING, 0, 0, true},
             {TYPE_VARCHAR, 0, 0, true},
@@ -275,6 +343,42 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
         }
         EXPECT_TRUE(context->root()->can_evaluate_dictionary_filter());
         context->close();
+    }
+}
+
+TEST(RuntimePredicateTest, TopNScannerPredicateFiltersUuidAfterBoundIsPublished) {
+    for (const bool is_asc : {false, true}) {
+        for (const bool nulls_first : {false, true}) {
+            check_topn_uuid_scanner_predicate(is_asc, nulls_first);
+        }
+    }
+}
+
+TEST(RuntimePredicateTest, TopNPredicateFiltersUuidUnsignedBoundariesAndNulls) {
+    constexpr UUIDValueType boundary = static_cast<UUIDValueType>(1) << 127;
+    const std::array<UUIDValueType, 5> values {0, boundary - 1, boundary, boundary + 1,
+                                               static_cast<UUIDValueType>(-1)};
+    for (const bool is_asc : {false, true}) {
+        for (const bool nulls_first : {false, true}) {
+            SCOPED_TRACE(is_asc);
+            SCOPED_TRACE(nulls_first);
+            MockRuntimeState state;
+            const auto type = DataTypeFactory::instance().create_data_type(TYPE_UUID, true);
+            auto context = create_prepared_topn_expr(
+                    &state, type, Field::create_field<TYPE_UUID>(boundary), is_asc, nulls_first);
+            IColumn::Filter matches(values.size(), 1);
+            ASSERT_TRUE(context->root()->can_execute_on_raw_fixed_values(type, 0));
+            ASSERT_TRUE(context->root()
+                                ->execute_on_raw_fixed_values(
+                                        reinterpret_cast<const uint8_t*>(values.data()),
+                                        values.size(), sizeof(UUIDValueType), type, 0,
+                                        matches.data())
+                                .ok());
+            EXPECT_EQ(matches, is_asc ? (IColumn::Filter {1, 1, 1, 0, 0})
+                                      : (IColumn::Filter {0, 0, 1, 1, 1}));
+            EXPECT_EQ(context->root()->raw_predicate_result_for_null(), nulls_first);
+            context->close();
+        }
     }
 }
 

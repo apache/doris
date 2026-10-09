@@ -22,8 +22,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -130,44 +130,44 @@ public class CopyUtilTest {
         Parent parent = new Parent("Alice", 30);
         Child child = CopyUtil.copyToChild(parent, Child.class);
 
-        Assert.assertNotNull(child);
-        Assert.assertEquals("Alice", child.name);
-        Assert.assertEquals(30, child.age);
-        Assert.assertEquals(10000.50, child.salary, 0.001);
-        Assert.assertTrue(child.isActive);
+        Assertions.assertNotNull(child);
+        Assertions.assertEquals("Alice", child.name);
+        Assertions.assertEquals(30, child.age);
+        Assertions.assertEquals(10000.50, child.salary, 0.001);
+        Assertions.assertTrue(child.isActive);
 
-        Assert.assertEquals(Status.ACTIVE, child.status);
-        Assert.assertEquals("Beijing", child.address.city);
-        Assert.assertEquals("XiErQi", child.address.street);
+        Assertions.assertEquals(Status.ACTIVE, child.status);
+        Assertions.assertEquals("Beijing", child.address.city);
+        Assertions.assertEquals("XiErQi", child.address.street);
 
-        Assert.assertEquals(3, child.hobbies.size());
-        Assert.assertTrue(child.hobbies.contains("Reading"));
-        Assert.assertEquals(3, child.scores.size());
-        Assert.assertTrue(child.scores.contains(90));
+        Assertions.assertEquals(3, child.hobbies.size());
+        Assertions.assertTrue(child.hobbies.contains("Reading"));
+        Assertions.assertEquals(3, child.scores.size());
+        Assertions.assertTrue(child.scores.contains(90));
 
-        Assert.assertEquals(2, child.attributes.size());
-        Assert.assertEquals("dev", child.attributes.get("Department"));
-        Assert.assertEquals(3L, child.attributes.get("Level"));
+        Assertions.assertEquals(2, child.attributes.size());
+        Assertions.assertEquals("dev", child.attributes.get("Department"));
+        Assertions.assertEquals(3L, child.attributes.get("Level"));
 
-        Assert.assertNull(child.tag);
-        Assert.assertEquals(0, child.scr);
-        Assert.assertNull(child.workAddresses);
-        Assert.assertNull(child.statusDescriptions);
+        Assertions.assertNull(child.tag);
+        Assertions.assertEquals(0, child.scr);
+        Assertions.assertNull(child.workAddresses);
+        Assertions.assertNull(child.statusDescriptions);
 
-        Assert.assertEquals("Child", child.getClass().getSimpleName());
+        Assertions.assertEquals("Child", child.getClass().getSimpleName());
     }
 
     @Test
     public void testCopyToChildWithNullParent() {
         Child child = CopyUtil.copyToChild(null, Child.class);
-        Assert.assertNull(child);
+        Assertions.assertNull(child);
     }
 
     @Test
     public void testCopyToChildWithNullChildClass() {
         Parent parent = new Parent("Mike", 30);
         Child child = CopyUtil.copyToChild(parent, null);
-        Assert.assertNull(child);
+        Assertions.assertNull(child);
     }
 
     @Test
@@ -178,10 +178,10 @@ public class CopyUtilTest {
         parent.attributes = new HashMap<>();
 
         Child child = CopyUtil.copyToChild(parent, Child.class);
-        Assert.assertNotNull(child);
-        Assert.assertTrue(child.hobbies.isEmpty());
-        Assert.assertTrue(child.scores.isEmpty());
-        Assert.assertTrue(child.attributes.isEmpty());
+        Assertions.assertNotNull(child);
+        Assertions.assertTrue(child.hobbies.isEmpty());
+        Assertions.assertTrue(child.scores.isEmpty());
+        Assertions.assertTrue(child.attributes.isEmpty());
     }
 }
 

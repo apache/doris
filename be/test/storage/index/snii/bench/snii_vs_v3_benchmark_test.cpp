@@ -346,11 +346,6 @@ private:
                 a.phrase_prefix_leading_candidate_docs - b.phrase_prefix_leading_candidate_docs;
         snii.phrase_prefix_tail_candidate_visits +=
                 a.phrase_prefix_tail_candidate_visits - b.phrase_prefix_tail_candidate_visits;
-        snii.common_grams_candidate_queries +=
-                a.common_grams_candidate_queries - b.common_grams_candidate_queries;
-        snii.common_grams_plain_plans += a.common_grams_plain_plans - b.common_grams_plain_plans;
-        snii.common_grams_gram_plans += a.common_grams_gram_plans - b.common_grams_gram_plans;
-        snii.common_grams_planning_ns += a.common_grams_planning_ns - b.common_grams_planning_ns;
     }
 };
 
@@ -1032,6 +1027,13 @@ protected:
     // Pages of `path` still resident in the OS page cache. Used to prove the eviction below
     // actually worked instead of assuming it did.
     static std::pair<size_t, size_t> _resident_pages(const std::string& path) {
+        // mincore(2) takes char* on Darwin and unsigned char* on Linux; only the low bit of
+        // each entry is read, so one element type keeps a single call for both.
+#if defined(__APPLE__)
+        using mincore_vec_t = char;
+#else
+        using mincore_vec_t = unsigned char;
+#endif
         const int fd = ::open(path.c_str(), O_RDONLY);
         if (fd < 0) {
             return {0, 0};
@@ -1048,10 +1050,10 @@ protected:
         }
         const size_t page_size = static_cast<size_t>(::sysconf(_SC_PAGESIZE));
         const size_t pages = (static_cast<size_t>(st.st_size) + page_size - 1) / page_size;
-        std::vector<unsigned char> vec(pages, 0);
+        std::vector<mincore_vec_t> vec(pages, 0);
         size_t resident = 0;
         if (::mincore(addr, static_cast<size_t>(st.st_size), vec.data()) == 0) {
-            for (unsigned char v : vec) {
+            for (mincore_vec_t v : vec) {
                 resident += (v & 1u);
             }
         }
@@ -1085,7 +1087,10 @@ protected:
                 continue;
             }
             ::fsync(fd);
+            // posix_fadvise is Linux-only; elsewhere the fsync above is all this can do.
+#if defined(POSIX_FADV_DONTNEED)
             ::posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+#endif
             ::close(fd);
         }
     }
@@ -1840,7 +1845,7 @@ protected:
         int64_t any = 0;
         for (const auto& p : snii) {
             any += p.snii.prx_fetch_ns + p.snii.prx_decode_ns + p.snii.prx_total_docs +
-                   p.snii.phrase_candidate_docs + p.snii.common_grams_candidate_queries;
+                   p.snii.phrase_candidate_docs;
         }
         if (any == 0) {
             std::cout << "\n(SNII " << phase
@@ -1868,8 +1873,7 @@ protected:
                       << per(s.prx_total_positions, snii_n) << std::setw(12)
                       << per(s.prx_selected_positions, snii_n) << std::setw(10)
                       << per(s.prx_streaming_frames, snii_n) << std::setw(10)
-                      << per(s.phrase_candidate_docs, snii_n) << std::setw(10)
-                      << per(s.common_grams_gram_plans, snii_n) << std::endl;
+                      << per(s.phrase_candidate_docs, snii_n) << std::endl;
         }
     }
 

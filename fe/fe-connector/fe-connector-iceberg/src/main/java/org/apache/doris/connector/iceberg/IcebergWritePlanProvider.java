@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
@@ -74,7 +75,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -105,6 +105,11 @@ import java.util.stream.Collectors;
  */
 public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
+    @Override
+    public ConnectorRowChangeStyle getRowChangeStyle() {
+        return ConnectorRowChangeStyle.POSITION_DELETE;
+    }
+
     private static final int SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION = 12;
 
     // Legacy IcebergUtils compression-codec property keys (connector-local copies; iceberg SDK has no
@@ -118,6 +123,11 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     // Doris hidden row-id column fe-core's getFullSchema appends (name / STRUCT / invisible / not-null), so a
     // drift on either side turns one of the two tests red.
     private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
+
+    private static final Set<String> ROW_LEVEL_WRITE_CONSTRAINT_EXCLUDED_COLUMNS =
+            Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+                    DORIS_ICEBERG_ROWID_COL, "$file_path", "$row_position",
+                    "$partition_spec_id", "$partition_data")));
 
     // The single request-scoped synthetic write column iceberg declares: the row-id STRUCT carrying the
     // per-row write metadata (file_path / row_position / partition_spec_id / partition_data). Same for
@@ -300,21 +310,15 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             ConnectorColumn bound = boundColumns.get(i);
             ConnectorType currentType = IcebergTypeMapping.fromIcebergType(
                     current.type(), enableVarbinary, enableTimestampTz);
-            String boundDefaultSql = bound.getDefaultValueSql();
-            if ("NULL".equalsIgnoreCase(boundDefaultSql)) {
-                boundDefaultSql = null;
-            }
-            String currentDefaultSql = current.writeDefault() == null ? null
-                    : IcebergWriteSchemaContext.toDorisSql(current.type(), current.writeDefault(),
-                            enableVarbinary, enableTimestampTz);
             // Do not compare top-level nullability: Doris widens Iceberg required columns in its read schema
             // so evolution default-fill may yield NULL. Nested requiredness remains authoritative in
             // sameBoundType, while current schema JSON enforces writes at the root.
+            // Do not compare write defaults either. A default change always commits a new schema id, which the
+            // schema-generation fences reject for every write that pins a schema context. REWRITE materializes
+            // no default and binds the cached read schema, which carries none, so a comparison only rejects it.
             if (!current.name().equalsIgnoreCase(bound.getName())
                     || !sameBoundType(currentType, bound.getType())
-                    || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())
-                    // Omitted columns and DEFAULT expressions were already materialized from this value at bind.
-                    || !Objects.equals(boundDefaultSql, currentDefaultSql)) {
+                    || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())) {
                 // BE maps write expressions to schema-json by ordinal, so accepting a reordered live
                 // schema here could silently place values under the wrong Iceberg field names.
                 throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry "
@@ -644,9 +648,28 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     @Override
+    public Set<String> getRowLevelWriteConstraintExcludedColumns() {
+        return ROW_LEVEL_WRITE_CONSTRAINT_EXCLUDED_COLUMNS;
+    }
+
+    @Override
+    public String getRowLevelDmlLabelPrefix(WriteOperation operation) {
+        switch (operation) {
+            case DELETE:
+                return "iceberg_delete";
+            case UPDATE:
+                return "iceberg_update_merge";
+            case MERGE:
+                return "iceberg_merge_into";
+            default:
+                throw new DorisConnectorException("Unsupported Iceberg row-level operation: " + operation);
+        }
+    }
+
+    @Override
     public Set<WriteOperation> supportedOperations() {
         return EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE,
-                WriteOperation.DELETE, WriteOperation.MERGE, WriteOperation.REWRITE);
+                WriteOperation.DELETE, WriteOperation.UPDATE, WriteOperation.MERGE, WriteOperation.REWRITE);
     }
 
     @Override
@@ -718,6 +741,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // table (all columns metrics=none) skips BE collection entirely. Same schema the sink advertises.
         tSink.setCollectColumnStats(
                 IcebergWriterHelper.shouldCollectColumnStats(schemaContext, schemaContext.getSchema()));
+        // A NaN count is the one statistic the parquet footer does not carry, so BE pays an extra pass for it.
+        // The table-wide flag above is too coarse to gate that pass -- see IcebergWriterHelper#nanCountFieldIds.
+        tSink.setNanCountFieldIds(
+                IcebergWriterHelper.nanCountFieldIds(schemaContext, schemaContext.getSchema()));
 
         // Partition spec (only for a partitioned table, mirroring legacy spec().isPartitioned()).
         PartitionSpec partitionSpec = schemaContext.getPartitionSpec();
@@ -789,6 +816,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             tSink.setSchemaJson(SchemaParser.toJson(rewriteSchema));
             // #65782: the collect flag must reflect the same (v3-appended) schema the sink advertises.
             tSink.setCollectColumnStats(IcebergWriterHelper.shouldCollectColumnStats(table, rewriteSchema));
+            tSink.setNanCountFieldIds(IcebergWriterHelper.nanCountFieldIds(table, rewriteSchema));
         }
         return tSink;
     }
@@ -860,6 +888,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // #65782: gate BE-side column-stats collection on the table's iceberg metrics policy (v3-appended schema).
         tSink.setCollectColumnStats(
                 IcebergWriterHelper.shouldCollectColumnStats(schemaContext, schema));
+        // The replacement data files UPDATE / SQL MERGE write reach the same iceberg parquet writer as an
+        // INSERT, so they need the same NaN-count policy (against the MERGE schema) to stay prunable.
+        tSink.setNanCountFieldIds(IcebergWriterHelper.nanCountFieldIds(schemaContext, schema));
         // #66112: UPDATE and SQL MERGE share this sink, but only SQL MERGE has the one-source-row invariant.
         tSink.setRequireMergeCardinalityCheck(requireMergeCardinalityCheck);
         tSink.setWritesDataFiles(writesDataFiles);

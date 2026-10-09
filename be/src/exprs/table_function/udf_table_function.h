@@ -54,7 +54,6 @@ private:
         // JniContext's lifecycle should same with function context, not related with expr
 
         Jni::GlobalClass executor_cl;
-        Jni::MethodId executor_ctor_id;
         Jni::MethodId executor_evaluate_id;
         Jni::MethodId executor_close_id;
         Jni::GlobalObject executor;
@@ -64,11 +63,18 @@ private:
         JniContext() = default;
 
         Status close() {
-            if (!open_successes) {
-                LOG_WARNING("maybe open failed, need check the reason");
-                return Status::OK(); //maybe open failed, so can't call some jni
-            }
             if (is_closed) {
+                return Status::OK();
+            }
+            // Not gated on open_successes: _open_udf() creates the Java executor before it
+            // resolves any method id, so a failure in between leaves an executor that only this
+            // can close. What has to be bound is the close id itself, which _open_udf() resolves
+            // first for exactly this reason.
+            if (executor.uninitialized() || executor_cl.uninitialized() ||
+                executor_close_id.uninitialized()) {
+                if (!open_successes) {
+                    LOG_WARNING("maybe open failed, need check the reason");
+                }
                 return Status::OK();
             }
             JNIEnv* env = nullptr;
@@ -77,12 +83,11 @@ private:
                 LOG(WARNING) << "errors while get jni env " << status;
                 return status;
             }
-            RETURN_IF_ERROR(
-                    executor.call_nonvirtual_void_method(env, executor_cl, executor_close_id)
-                            .call());
-
+            // Before the call, not after: a close that threw halfway is still a close, and the
+            // executor it was closing must not be handed to a second one. Same order as the
+            // scalar path in function_java_udf.h and the UDAF path.
             is_closed = true;
-            return Status::OK();
+            return executor.call_nonvirtual_void_method(env, executor_cl, executor_close_id).call();
         }
     };
 

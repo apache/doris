@@ -2059,8 +2059,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 // loop to keep copy-on-write O(n). TabletInvertedIndex registration stays
                 // per-iteration because Tablet.addReplica(...) below needs the tablet present
                 // in the inverted index.
+                // Row-binlog tables permit only light schema changes, so this shadow index is ordinary.
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                        newSchemaHash, medium);
+                        newSchemaHash, medium, false /* isRowBinlog */);
                 List<Tablet> shadowTabletsForPartition = Lists.newArrayListWithCapacity(
                         originIndex.getTablets().size());
                 TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -3313,6 +3314,12 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        // CreateIndexOp#validate materializes the IndexDefinition into alterIndex before
+        // checkColumn runs, so the property defaults that are only filled in during checkColumn
+        // (currently the gram family's support_phrase=false) have to be written back here, or the
+        // index that is persisted and shipped to BE would lose them.
+        indexDef.applyPropertiesTo(alterIndex);
+
         // the column name in CreateIndexClause is not check case sensitivity,
         // when send index description to BE, there maybe cannot find column by name,
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
@@ -3343,6 +3350,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     Column column = olapTable.getColumn(columnName);
                     if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
                         if (index.getIndexType() == IndexType.INVERTED) {
+                            if (InvertedIndexUtil.hasSameNonIkAnalyzerSelector(
+                                    index.getProperties(), indexDef.getProperties())) {
+                                throw new DdlException(indexDef.getIndexType()
+                                        + " index for column (" + columnName
+                                        + ") with the same analyzer selector already exists.");
+                            }
                             String existingIdentity = InvertedIndexUtil.getAnalyzerIdentity(index);
                             String newIdentity = indexDef.getAnalyzerIdentity();
                             if (Objects.equals(existingIdentity, newIdentity)) {

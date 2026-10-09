@@ -29,7 +29,8 @@
 //   B12 required column missing on new key         B13 stats counters
 //   B14 row-store table fill via the row store read path
 //
-// Oracle values are ported from the deleted writer implementations
+// Oracle values are ported from the writer implementations that used to fill
+// partial updates, before the two segment writers were merged
 // (SegmentWriter::append_block_with_partial_content and
 // VerticalSegmentWriter::_append_block_with_partial_content), with weak
 // `cardinality() >= N` style assertions upgraded to exact delete-bitmap
@@ -729,15 +730,12 @@ TEST_F(FixedPartialUpdateTest, VerticalWriterPersistsFilledRows) {
         }
     }
 
-    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
     const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
-    config::enable_vertical_segment_writer = true;
     config::enable_merge_on_write_correctness_check = false;
     RowsetSharedPtr output;
     PartialUpdateStats flushed_stats;
     const auto flush_status = flush_partial_rowset(schema, 3702, 3, tablet, mow, pui, &block,
                                                    &output, &flushed_stats);
-    config::enable_vertical_segment_writer = saved_vertical_writer;
     config::enable_merge_on_write_correctness_check = saved_correctness_check;
     ASSERT_TRUE(flush_status.ok()) << flush_status;
     ASSERT_NE(output, nullptr);
@@ -798,14 +796,11 @@ TEST_F(FixedPartialUpdateTest, VerticalWriterPersistsRebuiltRowStore) {
         keys->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
     }
 
-    const bool saved_vertical_writer = config::enable_vertical_segment_writer;
     const bool saved_correctness_check = config::enable_merge_on_write_correctness_check;
-    config::enable_vertical_segment_writer = true;
     config::enable_merge_on_write_correctness_check = false;
     RowsetSharedPtr output;
     const auto flush_status =
             flush_partial_rowset(schema, 3732, 3, tablet, mow, pui, &block, &output);
-    config::enable_vertical_segment_writer = saved_vertical_writer;
     config::enable_merge_on_write_correctness_check = saved_correctness_check;
     ASSERT_TRUE(flush_status.ok()) << flush_status;
     ASSERT_NE(output, nullptr);

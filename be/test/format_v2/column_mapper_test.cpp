@@ -232,7 +232,7 @@ TEST(ColumnMapperDebugTest, CoversDebugStringEnumAndNestedBranches) {
         mapping.is_trivial = idx % 2 == 0;
         mapping.filter_conversion = conversions[idx];
         mapping.virtual_column_type = static_cast<TableVirtualColumnType>(
-                idx % (TableVirtualColumnType::ICEBERG_ROWID + 1));
+                idx % (TableVirtualColumnType::ICEBERG_ROW_POSITION + 1));
         mapping.default_expr = column.default_expr;
 
         ColumnMapping child_mapping;
@@ -562,7 +562,10 @@ protected:
 class Int64ChildGreaterThanExpr final : public VExpr {
 public:
     explicit Int64ChildGreaterThanExpr(int64_t value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {}
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {
+        // A synthetic predicate must not inherit VExpr's default SLOT_REF discriminator.
+        set_node_type(TExprNodeType::FUNCTION_CALL);
+    }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
@@ -1848,6 +1851,74 @@ TEST(ColumnMapperConstantTest, PartitionDefaultAndVirtualColumnsUseDedicatedBran
     EXPECT_EQ(mapper.mappings()[4].virtual_column_type, TableVirtualColumnType::ICEBERG_ROWID);
 }
 
+TEST(ColumnMapperConstantTest, IcebergFileMetadataColumnsAreNeverMappedToPhysicalFields) {
+    auto file_path = name_col("_file", str());
+    file_path.is_synthesized = true;
+    auto row_position = name_col("_pos", i64());
+    row_position.is_synthesized = true;
+    const std::vector<ColumnDefinition> table_schema = {file_path, row_position};
+    const std::vector<ColumnDefinition> file_schema = {name_col("_file", str(), 0),
+                                                       name_col("_pos", i64(), 1)};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME,
+                              .enable_iceberg_metadata_virtual_columns = true});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    EXPECT_EQ(mapper.mappings()[0].virtual_column_type, TableVirtualColumnType::ICEBERG_FILE_PATH);
+    EXPECT_EQ(mapper.mappings()[1].virtual_column_type,
+              TableVirtualColumnType::ICEBERG_ROW_POSITION);
+    EXPECT_FALSE(mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_FALSE(mapper.mappings()[1].file_local_id.has_value());
+}
+
+TEST(ColumnMapperConstantTest, PaimonFileMetadataColumnsAreNeverMappedToPhysicalFields) {
+    auto file_path = name_col("__paimon_file_path", str());
+    file_path.is_synthesized = true;
+    auto row_position = name_col("__paimon_row_index", i64());
+    row_position.is_synthesized = true;
+    const std::vector<ColumnDefinition> table_schema = {file_path, row_position};
+    const std::vector<ColumnDefinition> file_schema = {name_col("__paimon_file_path", str(), 0),
+                                                       name_col("__paimon_row_index", i64(), 1)};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME,
+                              .enable_paimon_metadata_virtual_columns = true});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    EXPECT_EQ(mapper.mappings()[0].virtual_column_type, TableVirtualColumnType::PAIMON_FILE_PATH);
+    EXPECT_EQ(mapper.mappings()[1].virtual_column_type,
+              TableVirtualColumnType::PAIMON_ROW_POSITION);
+    EXPECT_FALSE(mapper.mappings()[0].file_local_id.has_value());
+    EXPECT_FALSE(mapper.mappings()[1].file_local_id.has_value());
+}
+
+TEST(ColumnMapperConstantTest, PhysicalMetadataSpellingsRemainFileColumns) {
+    const std::vector<ColumnDefinition> iceberg_table_schema = {name_col("_file", str()),
+                                                                name_col("_pos", i64())};
+    const std::vector<ColumnDefinition> iceberg_file_schema = {name_col("_file", str(), 0),
+                                                               name_col("_pos", i64(), 1)};
+    TableColumnMapper iceberg_mapper({.mode = TableColumnMappingMode::BY_NAME,
+                                      .enable_iceberg_metadata_virtual_columns = true});
+    ASSERT_TRUE(iceberg_mapper.create_mapping(iceberg_table_schema, {}, iceberg_file_schema).ok());
+    ASSERT_EQ(iceberg_mapper.mappings().size(), 2);
+    expect_mapping(iceberg_mapper.mappings()[0], 0, "_file", 0, "_file", str(), str());
+    expect_mapping(iceberg_mapper.mappings()[1], 1, "_pos", 1, "_pos", i64(), i64());
+
+    const std::vector<ColumnDefinition> paimon_table_schema = {
+            name_col("__paimon_file_path", str()), name_col("__paimon_row_index", i64())};
+    const std::vector<ColumnDefinition> paimon_file_schema = {
+            name_col("__paimon_file_path", str(), 0), name_col("__paimon_row_index", i64(), 1)};
+    TableColumnMapper paimon_mapper({.mode = TableColumnMappingMode::BY_NAME,
+                                     .enable_paimon_metadata_virtual_columns = true});
+    ASSERT_TRUE(paimon_mapper.create_mapping(paimon_table_schema, {}, paimon_file_schema).ok());
+    ASSERT_EQ(paimon_mapper.mappings().size(), 2);
+    expect_mapping(paimon_mapper.mappings()[0], 0, "__paimon_file_path", 0, "__paimon_file_path",
+                   str(), str());
+    expect_mapping(paimon_mapper.mappings()[1], 1, "__paimon_row_index", 1, "__paimon_row_index",
+                   i64(), i64());
+}
+
 TEST(ColumnMapperConstantTest, PhysicalRowLineageFiltersStayFinalizeOnly) {
     auto row_id_column = name_col("_row_id", make_nullable(i64()));
     auto sequence_column = name_col("_last_updated_sequence_number", make_nullable(i64()));
@@ -2768,6 +2839,37 @@ TEST(ColumnMapperScanRequestTest, FilterOnlyNestedTimestampRetainsTableFormatSem
     ASSERT_NE(ltz_projection, nullptr);
     ASSERT_TRUE(ltz_projection->timestamp_is_adjusted_to_utc.has_value());
     EXPECT_TRUE(*ltz_projection->timestamp_is_adjusted_to_utc);
+}
+
+// A hidden slot can use a full struct type without explicit child mappings. Its physical
+// timestamp overrides must survive even though the parent has no timestamp annotation.
+TEST(ColumnMapperScanRequestTest, HiddenFullStructRetainsNestedTimestampSemantics) {
+    const auto instant_type = timestamptz(6);
+    auto table_id = field_id_col("id", 1, i32());
+    auto file_id = field_id_col("id", 1, i32(), 0);
+    auto file_instant = field_id_col("instant", 3, instant_type, 0);
+    file_instant.timestamp_is_adjusted_to_utc = true;
+    auto file_struct = struct_col("s", 2, {file_instant}, 1);
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_id}, {}, {file_id, file_struct}).ok());
+    auto expr = null_predicate(
+            struct_element(table_slot(1, 1, file_struct.type, "s"), instant_type, "instant"),
+            false);
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({{.conjunct = VExprContext::create_shared(expr),
+                                             .global_indices = {GlobalIndex(1)}}},
+                                           {table_id}, &request)
+                        .ok());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& root = request.predicate_columns[0];
+    ASSERT_TRUE(root.project_all_children);
+    // These children carry metadata; the normal partial-projection accessor intentionally
+    // ignores them for a full projection.
+    ASSERT_EQ(root.children.size(), 1);
+    const auto& child = root.children.front();
+    EXPECT_EQ(child.local_id(), 0);
+    ASSERT_TRUE(child.timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*child.timestamp_is_adjusted_to_utc);
 }
 
 // Scenario: a filter references a top-level column that is not projected by the query; the mapper
@@ -4332,6 +4434,42 @@ TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredStructOutputProjection)
     EXPECT_EQ(request.local_positions.at(LocalColumnId(0)), LocalIndex(0));
     EXPECT_EQ(request.non_predicate_position(LocalColumnId(0)), LocalIndex(1));
     EXPECT_TRUE(request.is_predicate_only(LocalColumnId(0)));
+}
+
+TEST(ColumnMapperTest, RejectedMissingStructPredicateRestoresFullOutputMapping) {
+    auto table_renamed = field_id_col("renamed", 2, i64());
+    auto table_keep = field_id_col("keep", 3, i64());
+    auto table_added = field_id_col("added", 6, i64());
+    auto table_struct = struct_col("s", 1, {table_renamed, table_keep});
+    auto full_table_struct = struct_col("s", 1, {table_renamed, table_keep, table_added});
+    table_struct.type = full_table_struct.type;
+    table_struct.has_predicate_access_paths = true;
+    table_struct.predicate_children = {table_added};
+
+    auto file_removed = field_id_col("removed", 7, i64(), 0);
+    auto file_renamed = field_id_col("rename_me", 2, i64(), 1);
+    auto file_keep = field_id_col("keep", 3, i64(), 2);
+    auto file_struct = struct_col("s", 1, {file_removed, file_renamed, file_keep}, 0);
+
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    auto added = struct_element(table_slot(0, 0, table_struct.type, "s"), i64(), "added");
+    TableFilter filter {.conjunct = VExprContext::create_shared(null_predicate(added, true)),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1) << request.debug_string();
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    const auto& mapping = mapper.mappings()[0];
+    ASSERT_EQ(mapping.projected_file_children.size(), 3);
+    EXPECT_EQ(mapping.projected_file_children[0].name, "removed");
+    EXPECT_EQ(mapping.projected_file_children[1].name, "rename_me");
+    EXPECT_EQ(mapping.projected_file_children[2].name, "keep");
 }
 
 TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredVariantRootProjection) {

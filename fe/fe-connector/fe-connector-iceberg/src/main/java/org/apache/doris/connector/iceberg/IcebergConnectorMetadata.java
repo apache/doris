@@ -123,6 +123,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // loud, flagging that these duplicates must change too.
     private static final String ICEBERG_ROW_ID_COL = "_row_id";
     private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
+    private static final String ICEBERG_FILE_PATH_COL = "_file";
+    private static final String ICEBERG_ROW_POSITION_COL = "_pos";
     private static final int ICEBERG_ROW_ID_FIELD_ID = 2147483540;
     private static final int ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID = 2147483539;
     private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
@@ -451,12 +453,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // IcebergSysExternalTable.getSysIcebergTable + getOrCreateSchemaCacheValue; the enable.mapping.*
             // flags are threaded by the shared buildTableSchema -> parseSchema (deviation 5).
             Table sysTable = loadSysTable(session, iceHandle);
-            return buildTableSchema(iceHandle.getTableName(), sysTable, sysTable.schema());
+            return buildTableSchema(iceHandle.getTableName(), sysTable, sysTable.schema(), false);
         }
         // Mirror legacy IcebergMetadataOps.loadTable: wrap the remote load in the auth context. The schema
         // + table-property assembly is pure (operates on the already-loaded Table).
         Table table = loadTable(session, iceHandle);
-        return buildTableSchema(iceHandle.getTableName(), table, table.schema());
+        return buildTableSchema(iceHandle.getTableName(), table, table.schema(), true);
     }
 
     /**
@@ -497,7 +499,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 schema = table.schema();
             }
         }
-        return buildTableSchema(iceHandle.getTableName(), table, schema);
+        return buildTableSchema(iceHandle.getTableName(), table, schema, true);
     }
 
     /**
@@ -506,8 +508,20 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * {@code iceberg.partition-spec} properties are table-level (not schema-versioned). Factored out so the
      * latest and at-snapshot paths share ONE assembly.
      */
-    private ConnectorTableSchema buildTableSchema(String tableName, Table table, Schema schema) {
+    private ConnectorTableSchema buildTableSchema(String tableName, Table table, Schema schema,
+            boolean appendDataFileMetadataColumns) {
         List<ConnectorColumn> columns = parseSchema(schema);
+
+        // Iceberg file metadata columns are always available for data tables, but are hidden from
+        // SELECT * / DESCRIBE unless explicitly requested. They are synthesized by the native BE
+        // reader and are not part of the Iceberg schema or physical file projection.
+        if (appendDataFileMetadataColumns) {
+            rejectReservedMetadataColumns(schema);
+            columns.add(new ConnectorColumn(ICEBERG_FILE_PATH_COL, ConnectorType.of("STRING"),
+                    "Iceberg data file path", false, null, false).invisible());
+            columns.add(new ConnectorColumn(ICEBERG_ROW_POSITION_COL, ConnectorType.of("BIGINT"),
+                    "Iceberg physical row position", false, null, false).invisible());
+        }
 
         // Append the iceberg v3 row-lineage hidden columns (_row_id / _last_updated_sequence_number) for
         // format-version >= 3 tables, mirroring legacy IcebergUtils.appendRowLineageColumnsForV3 — invoked
@@ -739,7 +753,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // metadata-table columns (t$snapshots -> committed_at/...) so the generic scan node can look up
         // its pruned sys-table slots by name; a data handle resolves the base table's columns.
         Table table = iceHandle.isSystemTable() ? loadSysTable(session, iceHandle) : loadTable(session, iceHandle);
-        return buildColumnHandles(table.schema());
+        return buildColumnHandles(table.schema(), !iceHandle.isSystemTable());
     }
 
     @Override
@@ -754,7 +768,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         Schema schema = table.currentSnapshot() == null
                 ? table.schema() : table.schemas().get((int) snapshot.getSchemaId());
         // Keep the handle-schema fallback identical to getTableSchema so slots and handles cannot diverge.
-        return buildColumnHandles(schema == null ? table.schema() : schema);
+        return buildColumnHandles(schema == null ? table.schema() : schema, true);
     }
 
     @Override
@@ -762,12 +776,21 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return true;
     }
 
-    private static Map<String, ConnectorColumnHandle> buildColumnHandles(Schema schema) {
+    private static Map<String, ConnectorColumnHandle> buildColumnHandles(
+            Schema schema, boolean appendDataFileMetadataColumns) {
         List<Types.NestedField> fields = schema.columns();
-        Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
+        if (appendDataFileMetadataColumns) {
+            rejectReservedMetadataColumns(schema);
+        }
+        Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(
+                fields.size() + (appendDataFileMetadataColumns ? 2 : 0));
         for (Types.NestedField field : fields) {
             String name = field.name();
             handles.put(name, new IcebergColumnHandle(name, field.fieldId()));
+        }
+        if (appendDataFileMetadataColumns) {
+            handles.put(ICEBERG_FILE_PATH_COL, new IcebergColumnHandle(ICEBERG_FILE_PATH_COL, -1));
+            handles.put(ICEBERG_ROW_POSITION_COL, new IcebergColumnHandle(ICEBERG_ROW_POSITION_COL, -1));
         }
         return handles;
     }
@@ -1004,6 +1027,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void createTable(ConnectorSession session, ConnectorCreateTableRequest request) {
+        // Reject DLF before any namespace lookup: the DLF adapter is read-only and a remote lookup could
+        // otherwise hide that invariant behind an unrelated missing-namespace or connectivity failure.
+        if (IcebergCatalogProperties.TYPE_DLF.equals(catalogProps.getFlavor())) {
+            throw new DorisConnectorException("CREATE TABLE is not supported for Iceberg DLF catalogs");
+        }
         rejectDistribution(request);
         rejectReservedRowLineageColumns(request);
         validateSortOrder(request);
@@ -1061,8 +1089,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Rejects a user-defined column whose name collides with an iceberg v3 reserved row-lineage column
-     * ({@code _row_id} / {@code _last_updated_sequence_number}) on a format-version &ge; 3 table. Moved off
+     * Rejects a user-defined column whose name collides with an Iceberg reserved metadata column. The file path
+     * and row position columns are reserved for every table version; v3 row-lineage names are reserved only on
+     * format-version &ge; 3 tables. Moved off
      * fe-core {@code CreateTableInfo.validateIcebergRowLineageColumns} — the connector owns the iceberg
      * column-name convention. Uses the full effective-format-version precedence (catalog
      * {@code table-override} &gt; table request &gt; catalog {@code table-default}). Behavior differs from the
@@ -1072,16 +1101,28 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     private void rejectReservedRowLineageColumns(ConnectorCreateTableRequest request) {
         int formatVersion = IcebergSchemaBuilder.getEffectiveFormatVersion(request.getProperties(), properties);
-        if (formatVersion < ICEBERG_ROW_LINEAGE_MIN_VERSION) {
-            return;
-        }
         for (ConnectorColumn column : request.getColumns()) {
             String name = column.getName();
-            if (ICEBERG_ROW_ID_COL.equalsIgnoreCase(name)
-                    || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(name)) {
+            rejectReservedMetadataColumn(name);
+            if (formatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION
+                    && (ICEBERG_ROW_ID_COL.equalsIgnoreCase(name)
+                    || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(name))) {
                 throw new DorisConnectorException("Cannot create Iceberg v" + formatVersion
                         + " table with reserved row lineage column: " + name);
             }
+        }
+    }
+
+    private static void rejectReservedMetadataColumn(String name) {
+        if (ICEBERG_FILE_PATH_COL.equalsIgnoreCase(name)
+                || ICEBERG_ROW_POSITION_COL.equalsIgnoreCase(name)) {
+            throw new DorisConnectorException("Cannot create Iceberg table with reserved metadata column: " + name);
+        }
+    }
+
+    private static void rejectReservedMetadataColumns(Schema schema) {
+        for (Types.NestedField field : schema.columns()) {
+            rejectReservedMetadataColumn(field.name());
         }
     }
 
@@ -1210,6 +1251,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void addColumn(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorColumn column, ConnectorColumnPosition position) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        rejectReservedMetadataColumn(column.getName());
         IcebergColumnChange change = toAddColumnChange(column);
         try {
             executeAuthenticated(() -> {
@@ -1229,6 +1271,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         List<IcebergColumnChange> changes = new ArrayList<>(columns.size());
         for (ConnectorColumn column : columns) {
+            rejectReservedMetadataColumn(column.getName());
             changes.add(toAddColumnChange(column));
         }
         try {
@@ -1264,6 +1307,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public void renameColumn(ConnectorSession session, ConnectorTableHandle handle, String oldName,
             String newName) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        rejectReservedMetadataColumn(newName);
         try {
             executeAuthenticated(() -> {
                 catalogOps.renameColumn(iceHandle.getDbName(), iceHandle.getTableName(), oldName, newName);
@@ -1303,7 +1347,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // generic "Unsupported type for Iceberg: SMALLINT" here. Restore the legacy parity message ("Cannot
             // change int to smallint in nested types") by validating the requested nested type against the
             // CURRENT type — legacy validated in Doris type space, where the narrow target still exists.
-            throw upgradeNestedModifyError(iceHandle, column, buildError);
+            throw upgradeNestedModifyError(iceHandle, ConnectorColumnPath.of(column.getName()), column, buildError);
         }
         // Carry the neutral source type so a complex-type diff can read each STRUCT field's commentSpecified.
         IcebergColumnChange change = new IcebergColumnChange(column.getName(), icebergType,
@@ -1328,15 +1372,15 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * against the CURRENT column type. Best-effort: a scalar modify, a load failure, or no offending nested leaf
      * keeps the original build error — so no other modify path changes.
      */
-    private DorisConnectorException upgradeNestedModifyError(IcebergTableHandle handle, ConnectorColumn column,
-            DorisConnectorException buildError) {
+    private DorisConnectorException upgradeNestedModifyError(IcebergTableHandle handle, ConnectorColumnPath path,
+            ConnectorColumn column, DorisConnectorException buildError) {
         if (!isComplexType(column.getType())) {
             return buildError;
         }
         try {
             Types.NestedField current = executeAuthenticated(() ->
                     catalogOps.withTable(handle.getDbName(), handle.getTableName(),
-                            table -> table.schema().findField(column.getName())));
+                            table -> IcebergNestedColumnEvolution.findFieldForErrorUpgrade(table.schema(), path)));
             if (current != null && !current.type().isPrimitiveType()) {
                 IcebergComplexTypeDiff.validateNestedModifyRepresentable(current.type(), column.getType());
             }
@@ -1487,7 +1531,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
         } catch (DorisConnectorException buildError) {
-            throw upgradeNestedModifyError(iceHandle, column, buildError);
+            // Preserve the complete target identity so error parity cannot bind a same-named top-level field.
+            throw upgradeNestedModifyError(iceHandle, path, column, buildError);
         }
         // Carry the neutral source type so the nested complex-type diff can read each STRUCT field's
         // commentSpecified (an omitted COMMENT on a sub-field must keep its current doc, not clear it).
@@ -1931,21 +1976,24 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
-            // PERF-06 cache A: memoize the BUILT derived view keyed by (db, table, snapshotId, schemaId) -- pure
-            // function of the pinned MVCC coordinate (a new snapshot/schema yields a new key, never a stale hit).
-            // The lookup sits INSIDE executeAuthenticated so a miss runs the loader (resolveTableForRead + the
-            // remote PARTITIONS build) under the FE-injected auth scope; a hit returns without any remote call. A
-            // null cache (session=user / no-cache catalog) computes directly every call. A resolved-empty -1
+            // PERF-06 cache A: memoize the BUILT derived view keyed by snapshot/schema/spec generation.
+            // The lookup sits INSIDE executeAuthenticated: every lookup resolves the live spec generation, while
+            // a miss additionally runs the remote PARTITIONS build under the FE-injected auth scope. A null cache
+            // (session=user / no-cache catalog) computes directly every call. A resolved-empty -1
             // bypasses cache A because its numeric key is otherwise indistinguishable from an unresolved latest
             // read, even though only the former is a query-begin MVCC boundary.
             return executeAuthenticated(() -> {
                 if (mvccPartitionViewCache == null || iceHandle.isResolvedEmptySnapshot()) {
                     return Optional.of(buildMvccPartitionViewUncached(session, iceHandle));
                 }
+                Table table = resolveTableForRead(session, iceHandle);
+                // A partition-spec commit does not create a snapshot or schema, so the spec id is a separate
+                // cache generation; omitting it can retain a stale derived view for the full cache TTL.
                 ConnectorTableKey key = new ConnectorTableKey(iceHandle.getDbName(),
-                        iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId());
+                        iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId(),
+                        table.spec().specId());
                 return Optional.of(mvccPartitionViewCache.get(key,
-                        () -> buildMvccPartitionViewUncached(session, iceHandle)));
+                        () -> buildMvccPartitionView(table, iceHandle)));
             });
         } catch (Exception e) {
             throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
@@ -1968,6 +2016,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     iceHandle.getResolvedEmptyPartitionStyle());
         }
         Table table = resolveTableForRead(session, iceHandle);
+        return buildMvccPartitionView(table, iceHandle);
+    }
+
+    private ConnectorMvccPartitionView buildMvccPartitionView(Table table, IcebergTableHandle iceHandle) {
         return IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId(),
                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
     }
@@ -2019,18 +2071,29 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return Collections.emptyList();
         }
         try {
-            // PERF-06 cache A: memoize the BUILT partition-info list keyed by (db, table, snapshotId, schemaId).
-            // The lookup sits INSIDE executeAuthenticated (a miss runs the remote build under the auth scope; a hit
-            // returns without a remote call). BYPASS the cache when the filter is present -- that is not the
+            // PERF-06 cache A: memoize the BUILT partition-info list keyed by snapshot/schema/spec generation.
+            // The lookup sits INSIDE executeAuthenticated (each lookup resolves the current spec, and a miss runs
+            // the remote build under the auth scope). BYPASS the cache when the filter is present -- that is not the
             // pruning path (which always passes Optional.empty()) and is not keyed by (snapshot, schema) alone -- or
             // when the cache is null (session=user / no-cache catalog): compute directly every call.
             return executeAuthenticated(() -> {
                 if (listPartitionsViewCache == null || filter.isPresent()) {
                     return listPartitionsUncached(session, iceHandle);
                 }
+                Table table;
+                try {
+                    table = resolveTableForRead(session, iceHandle);
+                } catch (NoSuchTableException e) {
+                    LOG.warn("Iceberg table not found while listing partitions: {}.{}",
+                            iceHandle.getDbName(), iceHandle.getTableName(), e);
+                    return Collections.<ConnectorPartitionInfo>emptyList();
+                }
                 ConnectorTableKey key = new ConnectorTableKey(iceHandle.getDbName(),
-                        iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId());
-                return listPartitionsViewCache.get(key, () -> listPartitionsUncached(session, iceHandle));
+                        iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId(),
+                        table.spec().specId());
+                // A partition-spec commit does not create a snapshot or schema, so the spec id is a separate
+                // cache generation; omitting it can retain a stale derived view for the full cache TTL.
+                return listPartitionsViewCache.get(key, () -> listPartitions(table, iceHandle));
             });
         } catch (Exception e) {
             throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
@@ -2054,6 +2117,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     iceHandle.getDbName(), iceHandle.getTableName(), e);
             return Collections.<ConnectorPartitionInfo>emptyList();
         }
+        return listPartitions(table, iceHandle);
+    }
+
+    private List<ConnectorPartitionInfo> listPartitions(Table table, IcebergTableHandle iceHandle) {
         return IcebergPartitionUtils.listPartitions(table,
                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
     }

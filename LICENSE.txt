@@ -369,6 +369,14 @@ be/src/olap/skiplist.h : BSD-style license
 
 --------------------------------------------------------------------------------
 
+be/src/storage/index/inverted/analyzer/kuromoji/dict/darts.h : 2-Clause BSD license (darts-clone)
+
+  Copyright (c) 2008-2014 Susumu Yata. All rights reserved.
+  Vendored from https://github.com/s-yata/darts-clone
+  Full text: dist/licenses/LICENSE-darts-clone.txt
+
+--------------------------------------------------------------------------------
+
 be/src/util/murmur_hash3.h
 be/src/util/murmur_hash3.cpp
 
@@ -403,32 +411,6 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 -------------------------------------------------------------------------------
-
-be/src/util/utf8_check.cpp: MIT license
-
-  MIT License
-  
-  Copyright (c) 2019 Yibo Cai
-  
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-  
-  The above copyright notice and this permission notice shall be included in all
-  copies or substantial portions of the Software.
-  
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-  SOFTWARE.
-
---------------------------------------------------------------------------------
 
 be/src/util/condition_variable* : BSD-style license
 

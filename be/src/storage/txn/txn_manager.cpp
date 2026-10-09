@@ -187,6 +187,49 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     return Status::OK();
 }
 
+Status TxnManager::attach_row_binlog_tablet_to_txn(TPartitionId partition_id,
+                                                   TTransactionId transaction_id,
+                                                   const TabletInfo& base_tablet_info,
+                                                   const BaseTabletSPtr& row_binlog_tablet) {
+    DCHECK(row_binlog_tablet != nullptr);
+    TxnKey key(partition_id, transaction_id);
+    std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
+    std::lock_guard<std::shared_mutex> txn_map_lock(_get_txn_map_lock(transaction_id));
+    txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
+
+    auto txn_it = txn_tablet_map.find(key);
+    if (txn_it == txn_tablet_map.end()) {
+        return Status::Error<TRANSACTION_NOT_EXIST>(
+                "failed to attach row-binlog tablet because transaction does not exist. "
+                "partition_id: {}, transaction_id: {}, base tablet: {}",
+                partition_id, transaction_id, base_tablet_info.to_string());
+    }
+    auto base_tablet_it = txn_it->second.find(base_tablet_info);
+    if (base_tablet_it == txn_it->second.end()) {
+        return Status::Error<TRANSACTION_NOT_EXIST>(
+                "failed to attach row-binlog tablet because base tablet transaction does not "
+                "exist. partition_id: {}, transaction_id: {}, base tablet: {}",
+                partition_id, transaction_id, base_tablet_info.to_string());
+    }
+
+    auto& attached_tablet = base_tablet_it->second->attach_row_binlog.tablet;
+    if (attached_tablet == nullptr) {
+        attached_tablet = row_binlog_tablet;
+        return Status::OK();
+    }
+    if (attached_tablet->tablet_id() != row_binlog_tablet->tablet_id() ||
+        attached_tablet->tablet_uid() != row_binlog_tablet->tablet_uid()) {
+        return Status::Error<PUSH_TRANSACTION_ALREADY_EXIST>(
+                "base tablet transaction already attaches a different row-binlog tablet. "
+                "partition_id: {}, transaction_id: {}, base tablet: {}, existing row-binlog "
+                "tablet: {}, new row-binlog tablet: {}",
+                partition_id, transaction_id, base_tablet_info.to_string(),
+                attached_tablet->get_tablet_info().to_string(),
+                row_binlog_tablet->get_tablet_info().to_string());
+    }
+    return Status::OK();
+}
+
 Status TxnManager::commit_txn(TPartitionId partition_id, const Tablet& tablet,
                               TTransactionId transaction_id, const PUniqueId& load_id,
                               const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard,
@@ -824,7 +867,19 @@ void TxnManager::get_tablet_related_txns(TTabletId tablet_id, TabletUid tablet_u
         std::shared_lock txn_rdlock(_txn_map_locks[i]);
         txn_tablet_map_t& txn_tablet_map = _txn_tablet_maps[i];
         for (auto& it : txn_tablet_map) {
-            if (it.second.find(tablet_info) != it.second.end()) {
+            bool is_related = it.second.find(tablet_info) != it.second.end();
+            if (!is_related) {
+                for (const auto& tablet_txn : it.second) {
+                    const auto& attached_tablet = tablet_txn.second->attach_row_binlog.tablet;
+                    if (attached_tablet != nullptr &&
+                        attached_tablet->tablet_id() == tablet_info.tablet_id &&
+                        attached_tablet->tablet_uid() == tablet_info.tablet_uid) {
+                        is_related = true;
+                        break;
+                    }
+                }
+            }
+            if (is_related) {
                 *partition_id = it.first.first;
                 transaction_ids->insert(it.first.second);
                 VLOG_NOTICE << "find transaction on tablet."

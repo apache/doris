@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/BackendService.h>
+#include <gen_cpp/Status_types.h>
 
 #include <memory>
 #include <string>

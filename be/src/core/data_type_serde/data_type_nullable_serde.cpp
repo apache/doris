@@ -31,6 +31,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
@@ -382,6 +383,28 @@ Status DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const
                                                start, end, ctz);
 }
 
+Status DataTypeNullableSerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column, const NullMap*,
+        const std::shared_ptr<arrow::Field>& field, arrow::ArrayBuilder* array_builder,
+        int64_t start, int64_t end, const cctz::time_zone& ctz) const {
+    const auto& nullable_type = assert_cast<const DataTypeNullable&>(*type);
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    return nested_serde->write_column_to_paimon_arrow(
+            nullable_type.get_nested_type(), column_nullable.get_nested_column(),
+            &column_nullable.get_null_map_data(), field, array_builder, start, end, ctz);
+}
+
+Status DataTypeNullableSerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column, const NullMap*,
+        const std::shared_ptr<arrow::Field>& field, arrow::ArrayBuilder* array_builder,
+        int64_t start, int64_t end, const cctz::time_zone& ctz) const {
+    const auto& nullable_type = assert_cast<const DataTypeNullable&>(*type);
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    return nested_serde->write_column_to_iceberg_arrow(
+            nullable_type.get_nested_type(), column_nullable.get_nested_column(),
+            &column_nullable.get_null_map_data(), field, array_builder, start, end, ctz);
+}
+
 Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int64_t start,
                                                      int64_t end,
@@ -585,13 +608,10 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// A zone map bound is never a null Field -- nullness lives in has_null/has_not_null, not in
+// min/max -- so there is no null to fall back to here: defer to the nested serde as is.
 Status DataTypeNullableSerDe::from_zonemap_string(const std::string& str, Field& field) const {
-    if (!nested_serde->from_zonemap_string(str, field).ok()) {
-        // fill null if fail
-        field = Field();
-        return Status::OK();
-    }
-    return Status::OK();
+    return nested_serde->from_zonemap_string(str, field);
 }
 
 Status DataTypeNullableSerDe::from_fe_string(const std::string& str, Field& field) const {

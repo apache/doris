@@ -308,7 +308,8 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         TabletInvertedIndex invertIndex = Env.getCurrentInvertedIndex();
         long fakeTabletId =  123123123L;
-        TabletMeta fakeTabletMeta = new TabletMeta(1234567L, 1234568L, 1234569L, 1234570L, 0, TStorageMedium.HDD);
+        TabletMeta fakeTabletMeta = new TabletMeta(1234567L, 1234568L, 1234569L, 1234570L, 0,
+                TStorageMedium.HDD, false /* isRowBinlog */);
         Replica fakeReplica = new LocalReplica(1234571L, srcBackend.getId(), 0, Replica.ReplicaState.NORMAL);
 
         Supplier<List<Long>> getNotInRecycleBinTablets = () -> {

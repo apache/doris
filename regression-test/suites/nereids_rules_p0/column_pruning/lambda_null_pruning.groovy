@@ -197,7 +197,7 @@ suite("lambda_null_pruning") {
             WHERE indexes IS NOT NULL
         """
         contains "nested columns"
-        contains "all access paths: [indexes]"
+        contains "all access paths: [indexes.*, indexes.NULL]"
     }
 
     order_qt_case8 """

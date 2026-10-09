@@ -32,9 +32,8 @@ import java.util.Map;
  * {@code MetaStoreProviders.bind(props, {}).validate()}. The shared parsers restore the TRUE-legacy
  * rules the paimon hand-copy had dropped, so CREATE CATALOG is now STRICTER (user decision Q1 =
  * adopt the legacy-faithful validate): HMS {@code forbidIf(simple)}/{@code requireIf(kerberos)} on
- * client principal+keytab, the DLF OSS-storage requirement enforced at CREATE (not catalog build),
- * and REST case-sensitive {@code "dlf".equals(token.provider)}. These three are the net-new RED tests
- * here; the rest pin the required-key rules that already existed.
+ * client principal+keytab and REST case-sensitive {@code "dlf".equals(token.provider)}. The rest pin
+ * the required-key rules that already existed.
  */
 public class PaimonConnectorValidatePropertiesTest {
 
@@ -206,18 +205,14 @@ public class PaimonConnectorValidatePropertiesTest {
 
 
     @Test
-    public void removedDlfCatalogTypeNoLongerValidates() {
-        // WHY: paimon.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed. It
-        // must now fail at CREATE CATALOG like any unknown type — never fall through to a backend whose client
-        // no longer ships. MUTATION: re-registering the dlf provider -> this passes validate -> red.
-        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> validate(props(
-                        "paimon.catalog.type", "dlf",
-                        "warehouse", "/wh",
-                        "dlf.access_key", "ak",
-                        "dlf.secret_key", "sk",
-                        "dlf.endpoint", "dlf.cn.aliyuncs.com")));
-        Assertions.assertTrue(ex.getMessage().contains("No MetaStoreProvider supports"),
-                "removed dlf must be unsupported, got: " + ex.getMessage());
+    public void dlfCatalogTypeValidatesLegacyAliasOnlyProperties() {
+        // Existing DLF catalogs use dlf.* credentials and an oss:// warehouse without explicit oss.* keys.
+        // The filesystem provider resolves that combination to OSS after CREATE-time validation.
+        validate(props(
+                "paimon.catalog.type", "dlf",
+                "warehouse", "oss://bucket/wh",
+                "dlf.access_key", "ak",
+                "dlf.secret_key", "sk",
+                "dlf.region", "cn-hangzhou"));
     }
 }

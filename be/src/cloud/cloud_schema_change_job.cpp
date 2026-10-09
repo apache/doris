@@ -244,6 +244,9 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     _new_tablet_schema = _new_tablet->tablet_schema();
 
     ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(_base_tablet_schema->columns());
+    RETURN_IF_ERROR(read_schema->init_from_tablet_schema(*_base_tablet_schema,
+                                                         /*merge_by_sequence_mapping=*/false,
+                                                         /*map_row_binlog_columns=*/false));
 
     // delete handlers to filter out deleted rows
     DeleteHandler delete_handler;
@@ -262,7 +265,6 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     // reader_context is stack variables, it's lifetime MUST keep the same with rs_readers
     RowsetReaderContext reader_context;
     reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
-    reader_context.tablet_schema = _base_tablet_schema;
     reader_context.need_ordered_result = true;
     reader_context.delete_handler = &delete_handler;
     reader_context.read_schema = read_schema;
@@ -389,12 +391,23 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.txn_expiration = _expiration;
         context.version = rs_reader->version();
         context.rowset_state = VISIBLE;
-        context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
+        const auto input_segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
+        // Cloud schema change rewrites remote rowsets, so the input group layout is no longer
+        // applicable. Fall back to the conservative overlap state without assuming that the
+        // rewritten segments are globally ordered.
+        context.segments_overlap = input_segments_overlap == NONOVERLAPPING_WITHIN_GROUP
+                                           ? OVERLAPPING
+                                           : input_segments_overlap;
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);
         context.job_id = _job_id;
         context.write_file_cache = sc_params.output_to_file_cache;
+        // Schema change output belongs to the new tablet, so it must carry the tablet TTL
+        // like the load and compaction output does. Otherwise it is cached in the
+        // NORMAL/INDEX queues here, while every warm-up path downloads it into the TTL
+        // queue on the destination cluster.
+        context.file_cache_expiration_time = _new_tablet->file_cache_ttl_expiration_time();
         context.tablet = _new_tablet;
         if (!context.storage_resource) {
             return Status::InternalError("vault id not found, maybe not sync, vault id {}",
@@ -402,7 +415,6 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         }
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
-        // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
         bool vertical = false;
         if (sc_sorting && !_new_tablet->tablet_schema()->cluster_key_uids().empty()) {
             // see VBaseSchemaChangeWithSorting::_external_sorting
@@ -579,6 +591,9 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             .tag("alter_version", alter_version);
     RETURN_IF_ERROR(_cloud_storage_engine.register_compaction_stop_token(_new_tablet, initiator));
     TabletMetaSharedPtr tmp_meta = std::make_shared<TabletMeta>(*(_new_tablet->tablet_meta()));
+    // The temporary tablet must build its version graph only from active rowsets. Stale
+    // rowsets copied from the real tablet are not present in its active rowset map.
+    tmp_meta->clear_stale_rs_metas();
     tmp_meta->delete_bitmap().delete_bitmap.clear();
     // Keep only version [0-1] rowset, other rowsets will be added in _output_rowsets
     auto& rs_metas = tmp_meta->all_mutable_rs_metas();

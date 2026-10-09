@@ -54,11 +54,4 @@ double ScorerContext::score(double tf, uint8_t encoded_norm, double avgdl,
     return idf_ * (tf * (params.k1 + 1.0)) / denom;
 }
 
-double ScorerContext::max_score(uint32_t max_freq, uint8_t min_norm, double avgdl,
-                                const Bm25Params& params) const {
-    // The score grows monotonically with tf and shrinks with dl, so the per-window
-    // upper bound uses the window's largest tf and smallest dl (min encoded norm).
-    return score(max_freq, min_norm, avgdl, params);
-}
-
 } // namespace doris::snii::query

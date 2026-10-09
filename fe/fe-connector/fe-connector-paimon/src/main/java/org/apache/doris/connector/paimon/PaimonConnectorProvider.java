@@ -66,8 +66,8 @@ public class PaimonConnectorProvider implements ConnectorProvider {
      * statement -- the meta-cache knobs, the dead-knob warning, the paimon table options, and the
      * backend's own fail-fast rules -- which is why none of them run on the connector build path.
      *
-     * <p>This also serves ALTER through the SPI default {@code validatePropertiesForUpdate}, which
-     * merges and calls back here. Throws {@link IllegalArgumentException}, which the caller
+     * <p>ALTER validates the merged candidate separately to tolerate persisted unknown cache entries and
+     * legacy reader options. Throws {@link IllegalArgumentException}, which the caller
      * ({@code PluginDrivenExternalCatalog.checkProperties}) wraps into a DdlException.
      */
     @Override
@@ -94,7 +94,7 @@ public class PaimonConnectorProvider implements ConnectorProvider {
                 candidate.put(key, value);
             }
         });
-        validateProperties(candidate);
+        PaimonCatalogProperties.of(candidate).checkCreateTimeOnlyRules(updatedProperties);
     }
 
 }

@@ -55,7 +55,7 @@ template <typename DateValueType>
 // Throw for operations with a datelike and an integer (e.g. period)
 template <typename DateValueType>
 [[noreturn]] inline void throw_out_of_bound_date_int(const char* op, DateValueType arg0,
-                                                     Int32 delta) {
+                                                     Int64 delta) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {}, {} out of range", op,
                     datelike_to_string<DateValueType>(arg0), delta);
 }

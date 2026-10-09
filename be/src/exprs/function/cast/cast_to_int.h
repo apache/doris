@@ -72,6 +72,11 @@ public:
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
         for (size_t i = 0; i < input_rows_count; ++i) {
+            // The source value of a row marked as null by the input null map is a hidden
+            // payload and has no SQL semantics, so it must not be checked.
+            if (null_map && null_map[i]) {
+                continue;
+            }
             if constexpr (IsDataTypeInt<FromDataType>) {
                 // although always nullable output, but only set null when overflow in non-strict mode.
                 // in strict mode, just raise error on overflow.
@@ -178,6 +183,10 @@ public:
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
         for (size_t i = 0; i < size; i++) {
+            // Skip hidden payload of rows marked as null by the input null map.
+            if (null_map && null_map[i]) {
+                continue;
+            }
             if (!CastToInt::from_decimal<typename FromDataType::FieldType,
                                          typename ToDataType::FieldType>(
                         vec_from_data[i], from_precision, from_scale, vec_to_data[i], params)) {
@@ -212,8 +221,9 @@ constexpr static bool int_allow_cast_from_datetime =
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(((IsDateType<FromDataType> ||
                IsDateV2Type<FromDataType>)&&int_allow_cast_from_date<ToDataType>) ||
-             ((IsDateTimeType<FromDataType> ||
-               IsDateTimeV2Type<FromDataType>)&&int_allow_cast_from_datetime<ToDataType>))
+             ((IsDateTimeType<FromDataType> || IsDateTimeV2Type<FromDataType> ||
+               std::is_same_v<FromDataType,
+                              DataTypeTimeStampNs>)&&int_allow_cast_from_datetime<ToDataType>))
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
