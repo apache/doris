@@ -84,22 +84,32 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
     return Status::OK();
 }
 
-Status RuntimeState::add_connector_commit_data(std::string commit_data) {
+Status RuntimeState::add_paimon_commit_messages(std::vector<TPaimonCommitMessage> commit_messages) {
+    size_t serialized_bytes = 0;
+    ThriftSerializer serializer(false, 256);
+    for (auto& commit_message : commit_messages) {
+        uint32_t serialized_size = 0;
+        uint8_t* buffer = nullptr;
+        RETURN_IF_ERROR(serializer.serialize(&commit_message, &serialized_size, &buffer));
+        serialized_bytes += serialized_size + sizeof(uint32_t);
+    }
+
     constexpr size_t report_envelope_headroom = 1024 * 1024;
     const size_t thrift_limit = coordinator_thrift_message_limit();
     const size_t commit_data_limit =
             thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
     std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
-    if (_external_file_report_state->serialized_commit_bytes + commit_data.size() +
-                sizeof(uint32_t) >
+    if (_external_file_report_state->serialized_commit_bytes + serialized_bytes >
         commit_data_limit) {
         return Status::InternalError(
-                "Connector commit metadata exceeds the Thrift report limit; reduce commit "
-                "metadata size");
+                "Paimon commit metadata exceeds the Thrift report limit; reduce output file "
+                "count");
     }
-    std::lock_guard<std::mutex> data_lock(_connector_commit_data_mutex);
-    _external_file_report_state->serialized_commit_bytes += commit_data.size() + sizeof(uint32_t);
-    _connector_commit_data.emplace_back(std::move(commit_data));
+    std::lock_guard<std::mutex> data_lock(_paimon_commit_messages_mutex);
+    _external_file_report_state->serialized_commit_bytes += serialized_bytes;
+    for (auto& commit_message : commit_messages) {
+        _paimon_commit_messages.emplace_back(std::move(commit_message));
+    }
     return Status::OK();
 }
 
@@ -134,9 +144,9 @@ void RuntimeState::append_external_file_commit_data(TReportExecStatusParams* par
         params->mc_commit_datas.insert(params->mc_commit_datas.end(), commit_datas.begin(),
                                        commit_datas.end());
     }
-    append_connector_commit_data(&params->connector_commit_data);
-    if (!params->connector_commit_data.empty()) {
-        params->__isset.connector_commit_data = true;
+    append_paimon_commit_messages(&params->paimon_commit_messages);
+    if (!params->paimon_commit_messages.empty()) {
+        params->__isset.paimon_commit_messages = true;
     }
 }
 

@@ -547,11 +547,12 @@ public:
 
     Status add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data);
 
-    Status add_connector_commit_data(std::string commit_data);
+    Status add_paimon_commit_messages(std::vector<TPaimonCommitMessage> commit_messages);
 
-    void append_connector_commit_data(std::vector<std::string>* output) const {
-        std::lock_guard<std::mutex> lock(_connector_commit_data_mutex);
-        output->insert(output->end(), _connector_commit_data.begin(), _connector_commit_data.end());
+    void append_paimon_commit_messages(std::vector<TPaimonCommitMessage>* output) const {
+        std::lock_guard<std::mutex> lock(_paimon_commit_messages_mutex);
+        output->insert(output->end(), _paimon_commit_messages.begin(),
+                       _paimon_commit_messages.end());
     }
 
     size_t coordinator_thrift_message_limit() const;
@@ -1019,8 +1020,8 @@ private:
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
 
-    mutable std::mutex _connector_commit_data_mutex;
-    std::vector<std::string> _connector_commit_data;
+    mutable std::mutex _paimon_commit_messages_mutex;
+    std::vector<TPaimonCommitMessage> _paimon_commit_messages;
 
     std::vector<std::unique_ptr<doris::PipelineXLocalStateBase>> _op_id_to_local_state;
 
