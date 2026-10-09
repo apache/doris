@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -540,17 +541,33 @@ public class MTMVRelationManager implements MTMVHookService {
         return reachesAnyColumn(ImmutableList.of(expression), names, baseTableInfo);
     }
 
-    /** Whether any of these expressions reads a column of one of these names from this table. */
+    /**
+     * Whether any of these expressions reads a column of one of these names from this table.
+     *
+     * <p>The name is the one the table gives the column, not the one the slot is called: an alias renames
+     * what a slot is known by without moving the column it comes from, so a slot named after a column it
+     * does not read is not reading that column, and a slot renamed to something else is still reading its
+     * own. A change is a change to the column under the name the table gives it, so this is the name the
+     * change is held against.
+     */
     private static boolean reachesAnyColumn(Collection<? extends Expression> expressions, Set<String> names,
             BaseTableInfo baseTableInfo) {
         for (Expression expression : expressions) {
             for (Slot slot : expression.getInputSlots()) {
-                if (names.contains(slot.getName()) && isColumnOf(slot, baseTableInfo)) {
+                if (isColumnOf(slot, baseTableInfo) && names.contains(nameOfTheColumnItReads(slot))) {
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    /** The name the table gives the column this slot reads, whatever the slot itself is called. */
+    private static String nameOfTheColumnItReads(Slot slot) {
+        if (!(slot instanceof SlotReference)) {
+            return slot.getName();
+        }
+        return ((SlotReference) slot).getOriginalColumn().map(Column::getName).orElseGet(slot::getName);
     }
 
     /**

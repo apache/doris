@@ -105,3 +105,21 @@ test_drop_unreferenced_column_mtmv_nested_mv	NORMAL	SUCCESS	true
 -- !qualify_state --
 test_drop_unreferenced_column_mtmv_qualify_mv	SCHEMA_CHANGE	SUCCESS	false
 
+-- !alias_of_another_column_baseline --
+1
+
+-- !alias_of_another_column_state --
+test_drop_unreferenced_column_mtmv_alias_of_mv	NORMAL	SUCCESS	true
+
+-- !alias_of_another_column_rows --
+1
+
+-- !alias_in_subquery_baseline --
+1
+
+-- !alias_in_subquery_state --
+test_drop_unreferenced_column_mtmv_alias_in_mv	NORMAL	SUCCESS	true
+
+-- !alias_in_subquery_rows --
+1
+

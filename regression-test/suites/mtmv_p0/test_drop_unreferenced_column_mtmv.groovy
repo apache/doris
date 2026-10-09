@@ -597,4 +597,63 @@ suite("test_drop_unreferenced_column_mtmv") {
     order_qt_qualify_baseline "SELECT COUNT(*) FROM ${qualifyMv}"
     sql """ALTER TABLE ${qualifyTable} DROP COLUMN flag"""
     order_qt_qualify_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${qualifyMv}'"
+
+    // ---- a name an alias gave to a column of another name ----
+    // The projection below is called `flag` and reads the column `x`: an alias renames what a slot is known
+    // by without moving the column it comes from, so a change to a column named `flag` is a change to
+    // something this view's rows are not computed from -- the column it reads keeps its own name. Holding
+    // the change against the name the slot is called invalidated the view for the name it answers to
+    // rather than the column it reads.
+    String aliasOfAColumnTable = "${suiteName}_alias_of_table"
+    String aliasOfAColumnMv = "${suiteName}_alias_of_mv"
+    sql """drop materialized view if exists ${aliasOfAColumnMv}"""
+    sql """drop table if exists ${aliasOfAColumnTable}"""
+    sql """
+        CREATE TABLE ${aliasOfAColumnTable} (id INT, x INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${aliasOfAColumnTable} VALUES (1, 5)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${aliasOfAColumnMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT d.id FROM (SELECT c.id, c.x AS flag FROM ${aliasOfAColumnTable} c) d WHERE d.flag = 5
+    """
+    waitingMTMVTaskFinishedByMvName(aliasOfAColumnMv)
+    order_qt_alias_of_another_column_baseline "SELECT id FROM ${aliasOfAColumnMv}"
+    sql """ALTER TABLE ${aliasOfAColumnTable} ADD COLUMN flag INT DEFAULT 0"""
+    order_qt_alias_of_another_column_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${aliasOfAColumnMv}'"
+    order_qt_alias_of_another_column_rows "SELECT id FROM ${aliasOfAColumnMv}"
+
+    // ---- the same, read from the subquery a comparison takes its rows from ----
+    // `d.flag` below is the alias over `c.x` again, read by the IN rather than by a filter. The same
+    // question is asked of it -- which column does this name read -- and the same name is not the change's.
+    String aliasInTable = "${suiteName}_alias_in_table"
+    String aliasInOuter = "${suiteName}_alias_in_outer"
+    String aliasInMv = "${suiteName}_alias_in_mv"
+    sql """drop materialized view if exists ${aliasInMv}"""
+    sql """drop table if exists ${aliasInTable}"""
+    sql """drop table if exists ${aliasInOuter}"""
+    sql """
+        CREATE TABLE ${aliasInTable} (id INT, x INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE ${aliasInOuter} (id INT, k INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${aliasInTable} VALUES (1, 5)"""
+    sql """INSERT INTO ${aliasInOuter} VALUES (1, 5)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${aliasInMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT o.id FROM ${aliasInOuter} o
+        WHERE o.k IN (SELECT d.flag FROM (SELECT c.x AS flag FROM ${aliasInTable} c) d)
+    """
+    waitingMTMVTaskFinishedByMvName(aliasInMv)
+    order_qt_alias_in_subquery_baseline "SELECT id FROM ${aliasInMv}"
+    sql """ALTER TABLE ${aliasInTable} ADD COLUMN flag INT DEFAULT 0"""
+    order_qt_alias_in_subquery_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${aliasInMv}'"
+    order_qt_alias_in_subquery_rows "SELECT id FROM ${aliasInMv}"
 }
