@@ -43,6 +43,14 @@
 #include "exec/common/endian.h"
 
 namespace doris::format::lance {
+
+RuntimeProfile::Counter* add_lance_counter(RuntimeProfile* profile, const char* name,
+                                           TUnit::type unit, const char* group) {
+    // These counters label sections; they do not represent time or a sum of their children.
+    ADD_CHILD_COUNTER_WITH_LEVEL(profile, group, TUnit::NONE, LANCE_READER_PROFILE, 1);
+    return ADD_CHILD_COUNTER_WITH_LEVEL(profile, name, unit, group, 1);
+}
+
 namespace {
 
 constexpr std::string_view ARROW_EXTENSION_NAME = "ARROW:extension:name";

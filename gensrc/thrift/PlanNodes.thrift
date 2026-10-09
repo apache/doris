@@ -541,8 +541,9 @@ enum TSearchFilterFormat {
     SUBSTRAIT
 }
 
-// A search filter is evaluated before candidate selection. A normal SQL predicate above the search
-// relation remains a post-search filter and is not serialized here.
+// A TVF search filter is evaluated by the search provider. TExternalSearchRequest.prefilter
+// controls whether Lance applies it before or after vector/FTS candidate selection. A normal SQL
+// predicate above the search relation remains a Doris residual.
 struct TSearchFilter {
     1: optional TSearchFilterFormat format
     2: optional binary payload
@@ -573,6 +574,9 @@ struct TExternalSearchRequest {
     2: optional TExternalSearchQuery search_query
     3: optional TSearchFilter search_filter
     4: optional TVectorSearchOptions vector_search_options
+    // Applies only to search_filter. Defaults to false (postfilter); Doris WHERE predicates remain
+    // residuals regardless of this setting.
+    5: optional bool prefilter
 }
 
 // A catalog/S3 range reads fragments from a fixed snapshot. A local TVF range uses version zero

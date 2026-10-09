@@ -32,17 +32,17 @@ vectors use a different loader and are not included in these counters.
 
 | Counter | Meaning |
 | --- | --- |
-| `LancePrefilterLoads` | Number of row-ID prefilter loader executions started. |
-| `LancePrefilterInputBatches` | Successfully consumed input batches. |
-| `LancePrefilterInputRows` | Non-null input row IDs, including duplicates. |
-| `LancePrefilterRowIds` | Sum of distinct row IDs in successfully completed allow sets. |
-| `LancePrefilterLoadTime` | Total loader wall time, including input polling and set construction. |
-| `LancePrefilterInputTime` | Wall time polling input batches, including upstream execution, I/O, decoding and scheduling. |
-| `LancePrefilterBuildTime` | Wall time inserting row IDs into the allow set, measured once per batch. |
+| `RowIdPrefilterLoads` | Number of row-ID prefilter loader executions started. |
+| `RowIdPrefilterInputBatches` | Successfully consumed input batches. |
+| `RowIdPrefilterInputRows` | Non-null input row IDs, including duplicates. |
+| `RowIdPrefilterIds` | Sum of distinct row IDs in successfully completed allow sets. |
+| `RowIdPrefilterLoadTime` | Total loader wall time, including input polling and set construction. |
+| `RowIdPrefilterInputTime` | Wall time polling input batches, including upstream execution, I/O, decoding and scheduling. |
+| `RowIdPrefilterBuildTime` | Wall time inserting row IDs into the allow set, measured once per batch. |
 
 The timers overlap: do not add LoadTime to InputTime or BuildTime. They are not CPU
 timers. Across multiple loaders or scanners they accumulate and can exceed query
-wall time. RowIds is not peak resident memory and can count the same ID again when
+wall time. PrefilterIds is not peak resident memory and can count the same ID again when
 separate loaders build separate sets. An interrupted or failed load may contribute
 partial input counts without a completed set cardinality.
 

@@ -944,15 +944,15 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                     }
                     // Read metrics after close: lance-c publishes its final execution summary
                     // when the stream is released, including for an early top-k stop.
-                    for (const char* name : {"LancePrefilterLoads", "LancePrefilterInputRows",
-                                             "LancePrefilterInputBatches", "LancePrefilterRowIds",
-                                             "LancePrefilterLoadTime", "LancePrefilterInputTime",
-                                             "LancePrefilterBuildTime"}) {
+                    for (const char* name : {"RowIdPrefilterLoads", "RowIdPrefilterInputRows",
+                                             "RowIdPrefilterInputBatches", "RowIdPrefilterIds",
+                                             "RowIdPrefilterLoadTime", "RowIdPrefilterInputTime",
+                                             "RowIdPrefilterBuildTime"}) {
                         auto* counter = profile.get_counter(name);
-                        ASSERT_NE(nullptr, counter) << name;
                         if (filtered) {
+                            ASSERT_NE(nullptr, counter) << name;
                             EXPECT_GT(counter->value(), 0) << name;
-                        } else {
+                        } else if (counter != nullptr) {
                             EXPECT_EQ(counter->value(), 0) << name;
                         }
                     }

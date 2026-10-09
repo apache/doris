@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/runtime_profile.h"
 
 struct LanceBatch;
 struct LanceDataset;
@@ -46,6 +47,202 @@ inline constexpr std::string_view LANCE_DISTANCE_COLUMN = "_distance";
 inline constexpr std::string_view LANCE_SCORE_COLUMN = "_score";
 inline constexpr std::string_view LANCE_ROW_ID_COLUMN = "_rowid";
 inline constexpr const char* LANCE_READER_PROFILE = "LanceReader";
+inline constexpr const char* LANCE_TIMING_PROFILE = "LanceTiming";
+inline constexpr const char* LANCE_IO_PROFILE = "LanceIO";
+inline constexpr const char* LANCE_INDEX_PROFILE = "LanceIndex";
+inline constexpr const char* LANCE_VECTOR_INDEX_PROFILE = "LanceVectorIndex";
+inline constexpr const char* LANCE_SCALAR_INDEX_PROFILE = "LanceScalarIndex";
+inline constexpr const char* LANCE_EXECUTION_PLAN_PROFILE = "LanceExecutionPlan";
+inline constexpr const char* LANCE_SCAN_PROFILE = "LanceScan";
+inline constexpr const char* LANCE_SEARCH_PLAN_PROFILE = "LanceSearchPlan";
+inline constexpr const char* LANCE_DATA_CACHE_PROFILE = "LanceDataCache";
+
+struct LanceProfileMetric {
+    std::string_view native_name;
+    const char* profile_name;
+    const char* group;
+    TUnit::type unit;
+};
+
+// Lance invokes the statistics callback from its execution streams. Keep metric definitions
+// immutable and register each optional counter when Lance reports it, including reported zeros.
+inline constexpr LanceProfileMetric LANCE_SCAN_METRICS[] = {
+        {.native_name = "index_cache_hits",
+         .profile_name = "LanceIndexCacheHits",
+         .group = LANCE_INDEX_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "index_cache_misses",
+         .profile_name = "LanceIndexCacheMisses",
+         .group = LANCE_INDEX_PROFILE,
+         .unit = TUnit::UNIT},
+        // Row-ID prefilter loader metrics are separate from ANN/FTS result counts.
+        {.native_name = "prefilter_loads",
+         .profile_name = "RowIdPrefilterLoads",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "prefilter_input_rows",
+         .profile_name = "RowIdPrefilterInputRows",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "prefilter_input_batches",
+         .profile_name = "RowIdPrefilterInputBatches",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "prefilter_row_ids",
+         .profile_name = "RowIdPrefilterIds",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::UNIT},
+        // LoadTime includes input polling and set construction, so it overlaps component timers.
+        {.native_name = "prefilter_load_time",
+         .profile_name = "RowIdPrefilterLoadTime",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "prefilter_input_time",
+         .profile_name = "RowIdPrefilterInputTime",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "prefilter_build_time",
+         .profile_name = "RowIdPrefilterBuildTime",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "fragments_scanned",
+         .profile_name = "LanceFragmentsScanned",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "ranges_scanned",
+         .profile_name = "LanceRowOffsetRangesScanned",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "rows_scanned",
+         .profile_name = "LanceRowsScanned",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::UNIT},
+        // This is Lance scan execution wait time, not Doris scanner scheduling wait time.
+        {.native_name = "task_wait_time",
+         .profile_name = "LanceScanTaskWaitTime",
+         .group = LANCE_SCAN_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "partitions_ranked",
+         .profile_name = "LanceIVFPartitionsConsidered",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::UNIT},
+        // Lance also reports partitions_searched for FTS, so keep it in the generic index group.
+        {.native_name = "partitions_searched",
+         .profile_name = "LanceIndexPartitionsSearched",
+         .group = LANCE_INDEX_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "deltas_searched",
+         .profile_name = "LanceVectorIndexDeltasSearched",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::UNIT},
+        // These partition stages accumulate across concurrent work and can overlap each other.
+        {.native_name = "find_partitions_elapsed",
+         .profile_name = "LanceIVFPartitionSelectionTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "scalar_segments_requested",
+         .profile_name = "LanceScalarIndexSegmentsRequested",
+         .group = LANCE_SCALAR_INDEX_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "scalar_segments_searched",
+         .profile_name = "LanceScalarIndexSegmentsSearched",
+         .group = LANCE_SCALAR_INDEX_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "scalar_segment_fallbacks",
+         .profile_name = "LanceScalarIndexSegmentFallbacks",
+         .group = LANCE_SCALAR_INDEX_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "scalar_segment_candidate_rows",
+         .profile_name = "LanceScalarIndexCandidateRows",
+         .group = LANCE_SCALAR_INDEX_PROFILE,
+         .unit = TUnit::UNIT},
+        {.native_name = "scalar_segment_prepare_time",
+         .profile_name = "LanceScalarIndexCandidateEvaluationTime",
+         .group = LANCE_SCALAR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "scalar_segment_search_time",
+         .profile_name = "LanceScalarIndexSegmentSearchTime",
+         .group = LANCE_SCALAR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "search_time",
+         .profile_name = "LanceScalarIndexQueryTime",
+         .group = LANCE_SCALAR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "serialization_time",
+         .profile_name = "LanceScalarIndexResultSerializationTime",
+         .group = LANCE_SCALAR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        // Index partition times overlap; DistanceTopK includes candidate filtering, scoring,
+        // and heap updates.
+        {.native_name = "index_open_time",
+         .profile_name = "LanceIndexOpenTime",
+         .group = LANCE_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "index_partition_load_time",
+         .profile_name = "LanceIndexPartitionLoadTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "index_partition_prepare_time",
+         .profile_name = "LanceIndexPartitionPrepareTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "index_prefilter_wait_time",
+         .profile_name = "LanceIndexPrefilterWaitTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "index_cpu_queue_wait_time",
+         .profile_name = "LanceIndexCpuQueueWaitTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "index_search_time",
+         .profile_name = "LanceIndexSearchTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "index_query_prepare_time",
+         .profile_name = "LanceIndexQueryPrepareTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "index_distance_topk_time",
+         .profile_name = "LanceIndexDistanceTopKTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "index_result_materialize_time",
+         .profile_name = "LanceIndexResultMaterializeTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        // These execution-plan stage timers are also cumulative across concurrent tasks.
+        {.native_name = "ANNIVFPartitionExec_elapsed_compute",
+         .profile_name = "LanceANNPartitionExecTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "ANNSubIndexExec_elapsed_compute",
+         .profile_name = "LanceANNSubIndexExecTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "ANNIvfBatchExec_elapsed_compute",
+         .profile_name = "LanceANNBatchExecTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "SortExec_elapsed_compute",
+         .profile_name = "LanceSortComputeTime",
+         .group = LANCE_EXECUTION_PLAN_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "SortPreservingMergeExec_elapsed_compute",
+         .profile_name = "LanceSortMergeComputeTime",
+         .group = LANCE_EXECUTION_PLAN_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "TakeExec_elapsed_compute",
+         .profile_name = "LanceTakeExecTime",
+         .group = LANCE_EXECUTION_PLAN_PROFILE,
+         .unit = TUnit::TIME_NS},
+        {.native_name = "KNNVectorDistanceExec_elapsed_compute",
+         .profile_name = "LanceVectorDistanceComputeTime",
+         .group = LANCE_VECTOR_INDEX_PROFILE,
+         .unit = TUnit::TIME_NS},
+};
+
+RuntimeProfile::Counter* add_lance_counter(RuntimeProfile* profile, const char* name,
+                                           TUnit::type unit, const char* group);
 
 struct LanceDatasetDeleter {
     void operator()(LanceDataset* dataset) const;
