@@ -71,9 +71,9 @@ Set each suite's `conf/doris-cluster.conf`, or pass a separate connection file:
 ../ssb-tools/bin/run-ssb.sh -s 1 -d ssb_sf1 -c /path/to/cluster.conf
 ```
 
-TPCH/TPCDS generation defaults to `max(10, SCALE)` splits per table:
+Parallel TPCH/TPCDS tables default to `max(10, SCALE)` generator splits:
 
-| Scale factor | Default generator splits |
+| Scale factor | Default splits for parallel tables |
 | --- | --- |
 | 1 | 10 |
 | 100 | 100 |
@@ -86,10 +86,26 @@ Use `--splits COUNT` to override this count during preparation, for example:
 ../tpch-tools/bin/run-tpch.sh -s 1000 -d tpch_sf1000 --splits 256
 ```
 
-`COUNT` must be an integer from 1 to 2147483647. The selected count is recorded
-in `prepare.log`; the number of tasks actually executing at once depends on
-cluster resources. `--queries-only` does not recreate or change the generator
-catalog. SSB does not accept `--splits`: it retains the original generator's ten
+`COUNT` must be an integer from 1 to 2147483647. Small tables always use one split,
+even when `--splits` is supplied:
+
+- TPCH: `region` and `nation`.
+- TPCDS at every supported scale: `call_center`, `catalog_page`, `date_dim`,
+  `household_demographics`, `income_band`, `item`, `promotion`, `reason`,
+  `ship_mode`, `store`, `time_dim`, `warehouse`, `web_page`, and `web_site`.
+- TPCDS at SF1 also uses one split for `customer`, `customer_address`, and all
+  six sales/returns tables.
+
+The TPCDS choices follow the pinned generator's
+[`Parallel.splitWork`](https://github.com/trinodb/tpcds/blob/1.4/src/main/java/io/trino/tpcds/Parallel.java)
+rule: tables with fewer than one million generator records produce rows only in
+the first chunk. Sales generator records expand into multiple output rows.
+The runner creates a `${suite}_gen_${database}` catalog for parallel tables and,
+when the selected count exceeds one, a `${suite}_one_${database}` catalog for
+small tables. Both use the same plugin, scale, and column options. Each table's
+effective split count is recorded in `prepare.log`; actual concurrent execution
+depends on cluster resources. `--queries-only` does not recreate or change these
+catalogs. SSB does not accept `--splits`: it retains the original generator's ten
 lineorder partitions because changing the partition count changes its random
 data streams. SSB dimension tables use one split each.
 
@@ -121,7 +137,8 @@ result directories are rejected rather than overwritten.
   the minimum repeated-run time.
 - `<suite>/q*.cold.out`, `q*.hot1.out`, `q*.hot2.out`: query results, with matching
   `.err` files for diagnostics. TPCDS variants have distinct names such as `q14_1`.
-- `prepare.log`: DDL, import, and statistics diagnostics.
+- `prepare.log`: per-table split counts, DDL, import, and statistics diagnostics,
+  including preparation errors from stderr.
 - `environment.txt`: Doris version, session variables, and table status.
 
 Timing includes mysql client startup, connection, execution, and result transfer.

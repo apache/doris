@@ -42,7 +42,8 @@ Existing table DDL and query SQL are preserved.
 
 SCALE: 1, 100, 1000 (also 10000 for TPCH/TPCDS). Default: 1.
 --mode is only supported by SSB; its default is both.
---splits is only supported by TPCH/TPCDS; its default is max(10, SCALE).
+--splits controls parallel TPCH/TPCDS tables; its default is max(10, SCALE).
+Small tables use one split, including when --splits is supplied.
 COUNT must be an integer from 1 to 2147483647 and applies during preparation.
 Requires mysql and the generator plugin installed on every Doris FE and BE.
 The default connection configuration is conf/doris-cluster.conf.
@@ -119,6 +120,7 @@ fi
 mode=${mode:-both}
 generator_splits=${generator_splits:-$((scale > 10 ? scale : 10))}
 ddl="${SUITE_ROOT}/ddl/create-${benchmark}-tables-sf${scale}.sql"
+single_split_tables=()
 # Each list is the base tables in the existing DDL; TPCH's revenue0 is a view.
 # The benchmark name is validated above.
 # shellcheck disable=SC2249
@@ -131,19 +133,29 @@ case "${benchmark}" in
         ;;
     tpch)
         tables=(region nation supplier customer part partsupp orders lineitem)
+        single_split_tables=(region nation)
         suites=(tpch)
         mapfile -t query_ids < <(seq 1 22)
         # Match the existing Doris DDL, including exact two-decimal monetary values.
         generator_properties="'trino.connector.name'='tpch',
             'trino.tpch.column-naming'='STANDARD',
-            'trino.tpch.double-type-mapping'='DECIMAL',
-            'trino.tpch.splits-per-node'='${generator_splits}'"
+            'trino.tpch.double-type-mapping'='DECIMAL'"
+        split_property='trino.tpch.splits-per-node'
         ;;
     tpcds)
         tables=(call_center catalog_page catalog_returns catalog_sales customer_address
             customer_demographics customer date_dim household_demographics income_band
             inventory item promotion reason ship_mode store_returns store_sales store
             time_dim warehouse web_page web_returns web_sales web_site)
+        # Trino 435 uses tpcds 1.4: Parallel.splitWork emits rows only in chunk 1
+        # when Scaling.getRowCount is below one million. These tables stay below
+        # that threshold at every supported scale; SF1 has additional such tables.
+        single_split_tables=(call_center catalog_page date_dim household_demographics
+            income_band item promotion reason ship_mode store time_dim warehouse web_page web_site)
+        if [[ ${scale} -eq 1 ]]; then
+            single_split_tables+=(catalog_returns catalog_sales customer_address customer
+                store_returns store_sales web_returns web_sales)
+        fi
         suites=(tpcds)
         query_ids=()
         for ((query = 1; query <= 99; query++)); do
@@ -154,7 +166,8 @@ case "${benchmark}" in
                 *) ;;
             esac
         done
-        generator_properties="'trino.connector.name'='tpcds', 'trino.tpcds.split-count'='${generator_splits}'"
+        generator_properties="'trino.connector.name'='tpcds'"
+        split_property='trino.tpcds.split-count'
         ;;
 esac
 
@@ -190,12 +203,23 @@ mkdir -p "$(dirname "${result_dir}")"
 # Refuse to overwrite an earlier run's measurements or query results.
 mkdir "${result_dir}"
 result_dir=$(cd "${result_dir}" && pwd)
-trap 'echo "${benchmark_name} failed at line ${LINENO}. Logs: ${result_dir}. Prepared tables are preserved." >&2' ERR
+# Keep the log location visible even when the failing command redirects stderr.
+exec {error_fd}>&2
+trap 'echo "${benchmark_name} failed at line ${LINENO}. Logs: ${result_dir}. Prepared tables are preserved." >&"${error_fd}"' ERR
 
 run_sql() {
     local sql=$1
     shift
     mysql "${mysql_args[@]}" "$@" --execute "${sql}"
+}
+
+create_generator_catalog() {
+    local properties=${generator_properties}
+    if [[ ${benchmark} != ssb ]]; then
+        properties+=", '${split_property}'='$2'"
+    fi
+    run_sql "CREATE CATALOG \`$1\` PROPERTIES (
+        'type'='trino-connector', ${properties});" >>"${result_dir}/prepare.log" 2>&1
 }
 
 insert_sql() {
@@ -232,26 +256,46 @@ insert_sql() {
 echo "${benchmark_name} SF${scale}: ${FE_HOST}:${FE_QUERY_PORT}/${database}; results: ${result_dir}"
 if [[ ${queries_only} -eq 0 ]]; then
     if [[ ${benchmark} != ssb ]]; then
-        echo "Generator splits per table: ${generator_splits}" | tee -a "${result_dir}/prepare.log"
+        echo "Generator splits for parallel tables: ${generator_splits}; small tables: 1" |
+            tee -a "${result_dir}/prepare.log"
     fi
     echo "Creating database and Trino ${benchmark_name} catalog"
     # CREATE DATABASE is deliberately not IF NOT EXISTS: a retry must never append
     # the same generated data to these DUPLICATE KEY tables, even after a partial run.
-    run_sql "CREATE DATABASE \`${database}\`;" >>"${result_dir}/prepare.log"
-    run_sql "CREATE CATALOG \`${benchmark}_gen_${database}\` PROPERTIES (
-        'type'='trino-connector', ${generator_properties});" >>"${result_dir}/prepare.log"
+    run_sql "CREATE DATABASE \`${database}\`;" >>"${result_dir}/prepare.log" 2>&1
+    generator_catalog="${benchmark}_gen_${database}"
+    create_generator_catalog "${generator_catalog}" "${generator_splits}"
+    single_split_catalog=${generator_catalog}
+    if [[ ${benchmark} != ssb && ${generator_splits} -gt 1 ]]; then
+        # Connector split properties belong to a catalog, not an individual scan.
+        # Reuse one single-split catalog for all small tables.
+        single_split_catalog="${benchmark}_one_${database}"
+        create_generator_catalog "${single_split_catalog}" 1
+    fi
     mysql_args+=(--database="${database}")
     mysql "${mysql_args[@]}" <"${ddl}" \
-        >>"${result_dir}/prepare.log"
+        >>"${result_dir}/prepare.log" 2>&1
 
     for table in "${tables[@]}"; do
-        echo "Generating and importing ${table}"
+        source_catalog=${generator_catalog}
+        if [[ ${benchmark} != ssb ]]; then
+            table_splits=${generator_splits}
+            if [[ " ${single_split_tables[*]} " == *" ${table} "* ]]; then
+                source_catalog=${single_split_catalog}
+                table_splits=1
+            fi
+            echo "Generating and importing ${table} (${table_splits} generator splits)" |
+                tee -a "${result_dir}/prepare.log"
+        else
+            echo "Generating and importing ${table}"
+        fi
         # Use target column names explicitly: source column order must not affect the import.
         # The backticks in sed quote SQL identifiers, not shell commands.
         # shellcheck disable=SC2016
         columns=$(
             set -e
-            run_sql "DESC \`${table}\`;" | cut -f1 | sed 's/.*/`&`/' | paste -sd,
+            run_sql "DESC \`${table}\`;" 2>>"${result_dir}/prepare.log" |
+                cut -f1 | sed 's/.*/`&`/' | paste -sd,
         )
         source_columns=${columns}
         if [[ ${benchmark} == tpcds && ${table} == promotion ]]; then
@@ -260,13 +304,13 @@ if [[ ${queries_only} -eq 0 ]]; then
             source_columns=${columns//p_response_target/p_response_targe}
         fi
         insert_sql "INSERT INTO \`${table}\` (${columns})
-            SELECT ${source_columns} FROM \`${benchmark}_gen_${database}\`.\`sf${scale}\`.\`${table}\`;"
+            SELECT ${source_columns} FROM \`${source_catalog}\`.\`sf${scale}\`.\`${table}\`;"
     done
 
     if [[ ${benchmark} == ssb && ${mode} != ssb ]]; then
         echo 'Building lineorder_flat'
         mysql "${mysql_args[@]}" <"${SUITE_ROOT}/ddl/create-ssb-flat-tables-sf${scale}.sql" \
-            >>"${result_dir}/prepare.log"
+            >>"${result_dir}/prepare.log" 2>&1
         # Keep the existing loader's year-sized joins to bound each INSERT's memory use.
         for year in 1992 1993 1994 1995 1996 1997 1998; do
             flat_sql=$(sed "s/@YEAR@/${year}/g; s/@NEXT_YEAR@/$((year + 1))/g" \
@@ -275,7 +319,7 @@ if [[ ${queries_only} -eq 0 ]]; then
         done
     fi
     echo 'Collecting statistics'
-    run_sql "ANALYZE DATABASE \`${database}\` WITH FULL WITH SYNC;" >>"${result_dir}/prepare.log"
+    run_sql "ANALYZE DATABASE \`${database}\` WITH FULL WITH SYNC;" >>"${result_dir}/prepare.log" 2>&1
 else
     mysql_args+=(--database="${database}")
 fi

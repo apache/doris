@@ -22,6 +22,7 @@ import csv
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -38,7 +39,16 @@ with open(os.environ['BENCHMARK_TEST_CALLS'], 'a') as log:
 scenario = os.environ.get('BENCHMARK_TEST_SCENARIO', '')
 if sql.startswith('CREATE DATABASE') and scenario == 'existing_database':
     sys.exit('Database already exists')
+if sql.startswith('CREATE CATALOG'):
+    if scenario == 'catalog_error' or (scenario == 'single_catalog_error' and '_one_' in sql):
+        sys.exit('Generator plugin is unavailable')
+if 'create table' in sql.lower() and scenario == 'ddl_error':
+    sys.exit('Table creation failed')
+if sql.startswith('ANALYZE') and scenario == 'analyze_error':
+    sys.exit('Statistics collection failed')
 if sql.startswith('DESC'):
+    if scenario == 'desc_error':
+        sys.exit('Cannot describe target table')
     if '`promotion`' in sql:
         print('p_promo_sk\tINT\np_response_target\tINT')
     else:
@@ -136,9 +146,14 @@ class RunBenchmarkTest(unittest.TestCase):
         self.assertFalse((self.results / "result.csv").exists())
 
     def test_generator_splits_scale_with_data_and_allow_override(self):
+        tpcds_small = {"call_center", "catalog_page", "date_dim", "household_demographics",
+                       "income_band", "item", "promotion", "reason", "ship_mode", "store",
+                       "time_dim", "warehouse", "web_page", "web_site"}
+        tpcds_sf1_small = {"catalog_returns", "catalog_sales", "customer_address", "customer",
+                           "store_returns", "store_sales", "web_returns", "web_sales"}
         for benchmark, property_name in (("tpch", "splits-per-node"), ("tpcds", "split-count")):
             for scale, splits in ((1, 10), (100, 100), (1000, 1000), (10000, 10000)):
-                for override in (None, 7):
+                for override in (None, 7, 1):
                     with self.subTest(benchmark=benchmark, scale=scale, override=override):
                         name = f"{benchmark}-{scale}-{override}"
                         self.results = self.root / name
@@ -146,17 +161,69 @@ class RunBenchmarkTest(unittest.TestCase):
                         options = ("-s", str(scale))
                         if override is not None:
                             options += ("--splits", str(override))
-                        # Stop at the first data import: this test checks catalog configuration.
-                        result = self.run_benchmark("insert_error", *options, benchmark=benchmark)
+                        # Complete every import, then stop before running benchmark queries.
+                        result = self.run_benchmark("analyze_error", *options, benchmark=benchmark)
                         self.assertNotEqual(0, result.returncode)
-                        self.assertIn("Generator exited with 23", result.stderr)
                         expected = override if override is not None else splits
-                        catalog = self.statements()[1]
-                        self.assertIn(f"'trino.{benchmark}.{property_name}'='{expected}'", catalog)
+                        calls = self.statements()
+                        catalogs = {}
+                        for sql in calls:
+                            if sql.startswith("CREATE CATALOG"):
+                                name = re.search(r"CREATE CATALOG `([^`]+)`", sql).group(1)
+                                count = re.search(rf"'trino\.{benchmark}\.{property_name}'='(\d+)'", sql)
+                                catalogs[name] = int(count.group(1))
+                                if benchmark == "tpch":
+                                    self.assertIn("'trino.tpch.column-naming'='STANDARD'", sql)
+                                    self.assertIn("'trino.tpch.double-type-mapping'='DECIMAL'", sql)
+                        self.assertEqual(1 if expected == 1 else 2, len(catalogs))
+                        small = {"region", "nation"} if benchmark == "tpch" else tpcds_small
+                        if benchmark == "tpcds" and scale == 1:
+                            small = small | tpcds_sf1_small
+                        inserts = [sql for sql in calls if "INSERT INTO" in sql]
+                        self.assertEqual(8 if benchmark == "tpch" else 24, len(inserts))
+                        log = (self.results / "prepare.log").read_text()
+                        for sql in inserts:
+                            table = re.search(r"INSERT INTO `([^`]+)`", sql).group(1)
+                            source = re.search(r"FROM `([^`]+)`\.`sf(\d+)`\.`([^`]+)`", sql)
+                            self.assertEqual((str(scale), table), source.group(2, 3))
+                            table_splits = 1 if table in small else expected
+                            self.assertEqual(table_splits, catalogs[source.group(1)], table)
+                            self.assertIn(f"{table} ({table_splits} generator splits)", log)
+                        self.assertIn("Statistics collection failed", log)
+                        self.assertFalse((self.results / "result.csv").exists())
                         ddl = TOOLS_ROOT / f"{benchmark}-tools/ddl/create-{benchmark}-tables-sf{scale}.sql"
                         expected_ddl = "\n".join(line for line in ddl.read_text().splitlines()
                                                  if not line.lstrip().startswith("--")).strip()
-                        self.assertEqual(expected_ddl, self.statements()[2])
+                        self.assertEqual(expected_ddl, next(sql for sql in calls if "create table" in sql.lower()))
+
+    def test_preparation_errors_are_saved_in_log(self):
+        scenarios = {"existing_database": "Database already exists",
+                     "catalog_error": "Generator plugin is unavailable",
+                     "ddl_error": "Table creation failed",
+                     "desc_error": "Cannot describe target table",
+                     "analyze_error": "Statistics collection failed"}
+        for benchmark in ("ssb", "tpch", "tpcds"):
+            for scenario, error in scenarios.items():
+                with self.subTest(benchmark=benchmark, scenario=scenario):
+                    self.results = self.root / f"{benchmark}-{scenario}"
+                    self.calls = self.root / f"{benchmark}-{scenario}.jsonl"
+                    result = self.run_benchmark(scenario, benchmark=benchmark)
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn(error, (self.results / "prepare.log").read_text())
+                    self.assertIn(str(self.results), result.stderr)
+                    self.assertFalse((self.results / "result.csv").exists())
+                    self.assertFalse(any("VERSION()" in sql for sql in self.statements()))
+
+    def test_single_split_catalog_error_prevents_imports(self):
+        for benchmark in ("tpch", "tpcds"):
+            with self.subTest(benchmark=benchmark):
+                self.results = self.root / benchmark
+                self.calls = self.root / f"{benchmark}.jsonl"
+                result = self.run_benchmark("single_catalog_error", benchmark=benchmark)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("Generator plugin is unavailable", (self.results / "prepare.log").read_text())
+                self.assertFalse(any("INSERT INTO" in sql for sql in self.statements()))
+                self.assertFalse((self.results / "result.csv").exists())
 
     def test_invalid_splits_are_rejected_before_connecting(self):
         for benchmark in ("tpch", "tpcds"):
@@ -200,7 +267,8 @@ class RunBenchmarkTest(unittest.TestCase):
                 self.assertEqual(table_count, len(inserts))
                 self.assertFalse(any("_flat" in sql for sql in calls))
                 self.assertFalse((self.results / "flat-row-counts.tsv").exists())
-                self.assertTrue(all(f"`{benchmark}_gen_benchmark_test`.`sf1`." in sql for sql in inserts))
+                self.assertTrue(all(f"`{benchmark}_gen_benchmark_test`.`sf1`." in sql or
+                                    f"`{benchmark}_one_benchmark_test`.`sf1`." in sql for sql in inserts))
                 # Target columns and source projections must use the same explicit names.
                 ordinary_inserts = [sql for sql in inserts if "INSERT INTO `promotion`" not in sql]
                 self.assertTrue(all("(`lo_orderkey`,`lo_linenumber`)" in sql for sql in ordinary_inserts))
@@ -224,7 +292,7 @@ class RunBenchmarkTest(unittest.TestCase):
                 if benchmark == "tpch":
                     self.assertIn("'trino.tpch.column-naming'='STANDARD'", calls[1])
                     self.assertIn("'trino.tpch.double-type-mapping'='DECIMAL'", calls[1])
-                    self.assertIn("create view revenue0", calls[2])
+                    self.assertTrue(any("create view revenue0" in sql for sql in calls))
                 else:
                     self.assertIn("'trino.tpcds.split-count'='10'", calls[1])
                     promotion = next(sql for sql in inserts if "INSERT INTO `promotion`" in sql)
@@ -274,6 +342,8 @@ class RunBenchmarkTest(unittest.TestCase):
                 base_inserts = [sql for sql in self.statements()
                                 if "INSERT INTO" in sql and "lineorder_flat" not in sql]
                 self.assertEqual(5, len(base_inserts))
+                if scenario == "flat_ddl_error":
+                    self.assertIn("Wide table creation failed", (self.results / "prepare.log").read_text())
 
     def test_tpc_query_error_is_not_recorded_as_success(self):
         for benchmark in ("tpch", "tpcds"):
