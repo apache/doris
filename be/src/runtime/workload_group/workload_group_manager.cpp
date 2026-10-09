@@ -605,7 +605,27 @@ void WorkloadGroupMgr::handle_paused_queries() {
 
                 // If workload group's memory usage > min memory, then it means the workload group use too much memory
                 // in memory contention state. Should just spill
-                if (wg->total_mem_used() > wg->min_memory_limit()) {
+                bool handle_query_now = wg->total_mem_used() > wg->min_memory_limit();
+                if (!handle_query_now) {
+                    // Other workload groups many use a lot of memory, should revoke memory from other workload groups
+                    // by cancelling their queries.
+                    int64_t revoked_size = revoke_memory_from_other_groups_();
+                    if (revoked_size > 0) {
+                        // Revoke memory from other workload groups will cancel some queries, wait them cancel finished
+                        // and then check it again.
+                        revoking_memory_from_other_query_ = true;
+                        return;
+                    }
+
+                    // TODO revoke from memtable
+
+                    // Fallback: the query has waited too long and memory cannot be revoked from
+                    // anywhere, let handle_single_query_ spill or cancel it to protect the system.
+                    handle_query_now =
+                            query_it->elapsed_time() > config::spill_in_paused_queue_timeout_ms;
+                }
+
+                if (handle_query_now) {
                     bool spill_res = handle_single_query_(
                             resource_ctx, query_it->reserve_size_, query_it->elapsed_time(),
                             resource_ctx->task_controller()->paused_reason());
@@ -625,18 +645,6 @@ void WorkloadGroupMgr::handle_paused_queries() {
                         return;
                     }
                 }
-
-                // Other workload groups many use a lot of memory, should revoke memory from other workload groups
-                // by cancelling their queries.
-                int64_t revoked_size = revoke_memory_from_other_groups_();
-                if (revoked_size > 0) {
-                    // Revoke memory from other workload groups will cancel some queries, wait them cancel finished
-                    // and then check it again.
-                    revoking_memory_from_other_query_ = true;
-                    return;
-                }
-
-                // TODO revoke from memtable
 
                 ++query_it;
             }
@@ -814,9 +822,9 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
             return true;
         }
     } else {
-        // PROCESS_MEMORY_EXCEEDED. The caller (handle_process_memory_exceeded_) has already
-        // resumed the query if the process is no longer above the soft memory limit, so the
-        // process memory is still exceeded here.
+        // PROCESS_MEMORY_EXCEEDED. The caller (handle_paused_queries) has already resumed
+        // the query if the process is no longer above the soft memory limit, so the process
+        // memory is still exceeded here.
         const bool exceed_hard_mem_limit = GlobalMemoryArbitrator::is_exceed_hard_mem_limit();
         if (time_in_queue < config::spill_in_paused_queue_timeout_ms && !exceed_hard_mem_limit) {
             // The query has no revocable memory, cancelling it will not release much memory.
