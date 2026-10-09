@@ -18,6 +18,8 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
+import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
 
 import org.junit.jupiter.api.Assertions;
@@ -62,5 +64,58 @@ public class StreamingInsertJobStatusTransitionTest {
 
         Assertions.assertFalse(job.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING));
         Assertions.assertEquals(JobStatus.STOPPED, job.getJobStatus());
+    }
+
+    @Test
+    public void testManualResumeToleratesSchemaChangesUntilSuccess() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.PAUSED);
+        job.setFailureReason(new FailureReason(TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED + " INT -> BIGINT"));
+
+        Assertions.assertFalse(job.isTolerateSchemaChange());
+        job.updateJobStatus(JobStatus.PENDING);
+        job.onManualStatusAltered(JobStatus.PENDING, null);
+        Assertions.assertTrue(job.isTolerateSchemaChange());
+        Assertions.assertNull(job.getFailureReason());
+        Assertions.assertEquals(JobStatus.PENDING, job.getJobStatus());
+
+        // A failed recovery attempt keeps the acceptance until a task succeeds.
+        job.updateJobStatus(JobStatus.PAUSED);
+        job.setFailureReason(new FailureReason("Connection reset"));
+        job.updateJobStatus(JobStatus.PENDING);
+        job.onManualStatusAltered(JobStatus.PENDING, null);
+        Assertions.assertTrue(job.isTolerateSchemaChange());
+    }
+
+    @Test
+    public void testOtherFailuresAndAutomaticResumeDoNotAcceptSchemaChanges() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.PAUSED);
+        job.setFailureReason(new FailureReason("Replication slot invalidated"));
+        job.updateJobStatus(JobStatus.PENDING);
+        job.onManualStatusAltered(JobStatus.PENDING, null);
+        Assertions.assertFalse(job.isTolerateSchemaChange());
+
+        job.updateJobStatus(JobStatus.PAUSED);
+        job.setFailureReason(new FailureReason("Failed to execute schema change: injected DDL failure"));
+        job.updateJobStatus(JobStatus.PENDING);
+        job.onManualStatusAltered(JobStatus.PENDING, null);
+        Assertions.assertFalse(job.isTolerateSchemaChange());
+
+        job.updateJobStatus(JobStatus.PAUSED);
+        job.setFailureReason(new FailureReason(TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED + " RENAME"));
+        new StreamingJobSchedulerTask(job).run();
+        Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+        Assertions.assertFalse(job.isTolerateSchemaChange());
+    }
+
+    @Test
+    public void testTvfResumeDoesNotAcceptSchemaChanges() throws Exception {
+        StreamingInsertJob job = newJob(JobStatus.PAUSED);
+        Deencapsulation.setField(job, "tvfType", "cdc_stream");
+        job.setFailureReason(new FailureReason(TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED + " RENAME"));
+
+        job.updateJobStatus(JobStatus.PENDING);
+
+        Assertions.assertEquals(JobStatus.PENDING, job.getJobStatus());
+        Assertions.assertFalse(job.isTolerateSchemaChange());
     }
 }

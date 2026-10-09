@@ -59,6 +59,7 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
             DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
             DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL,
+            DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR,
             DataSourceConfigKeys.SSL_MODE,
             DataSourceConfigKeys.SSL_ROOTCERT,
             DataSourceConfigKeys.SLOT_NAME,
@@ -286,6 +287,9 @@ public class DataSourceConfigValidator {
         }
         if (key.equals(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)) {
             return isValidBoolean(value);
+        }
+        if (key.equals(DataSourceConfigKeys.SCHEMA_CHANGE_BEHAVIOR)) {
+            return "evolve".equalsIgnoreCase(value) || "ignore".equalsIgnoreCase(value);
         }
         if (key.equals(DataSourceConfigKeys.SERVER_ID)) {
             return parseServerIdRange(value) != null;

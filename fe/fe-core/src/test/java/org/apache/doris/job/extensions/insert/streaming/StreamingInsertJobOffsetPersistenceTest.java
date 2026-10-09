@@ -154,12 +154,42 @@ public class StreamingInsertJobOffsetPersistenceTest {
             Mockito.when(transactionMgr.getCallbackFactory()).thenReturn(callbackFactory);
 
             long beforeFinish = System.currentTimeMillis();
+            Deencapsulation.setField(job, "tolerateSchemaChange", true);
             job.onStreamTaskSuccess(task);
 
+            Assertions.assertFalse(job.isTolerateSchemaChange());
             Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
             Assertions.assertTrue(job.getFinishTimeMs() >= beforeFinish);
             Assertions.assertEquals(1, job.journalCount);
             Mockito.verify(callbackFactory).removeCallback(9001L);
+        }
+    }
+
+    @Test
+    public void testSuccessfulTaskClearsSchemaChangeToleranceBeforeNextTask() throws Exception {
+        TestStreamingInsertJob job = Mockito.spy(newJob(new JdbcSourceOffsetProvider(), 1017L));
+        NoopStreamingMultiTblTask task = Deencapsulation.getField(job, "runningStreamTask");
+        NoopStreamingMultiTblTask nextTask = new NoopStreamingMultiTblTask(1018L);
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertFalse(job.isTolerateSchemaChange());
+            return nextTask;
+        }).when(job).createStreamingTask();
+        Deencapsulation.setField(job, "tolerateSchemaChange", true);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            JobManager<?, ?> jobManager = Mockito.mock(JobManager.class);
+            StreamingTaskManager streamingTaskManager = Mockito.mock(StreamingTaskManager.class);
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getJobManager()).thenReturn(jobManager);
+            Mockito.when(jobManager.getStreamingTaskManager()).thenReturn(streamingTaskManager);
+
+            job.onStreamTaskSuccess(task);
+
+            Assertions.assertFalse(job.isTolerateSchemaChange());
+            Assertions.assertEquals(JobStatus.RUNNING, job.getJobStatus());
+            Assertions.assertSame(nextTask, Deencapsulation.getField(job, "runningStreamTask"));
+            Mockito.verify(streamingTaskManager).removeRunningTask(task);
         }
     }
 

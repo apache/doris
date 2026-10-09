@@ -7,14 +7,14 @@ C1	30	\N	\N
 D1	40	hello	42
 
 -- !rename_guard --
-C1	30	\N	\N
-D1	40	hello	42
-E1	50	\N	10
+C1	30	\N	\N	\N
+D1	40	hello	42	\N
+E1	50	\N	10	99
 
 -- !rename_guard_update --
-C1	30	\N	\N
-D1	99	\N	42
-E1	50	\N	10
+C1	30	\N	\N	\N
+D1	99	\N	42	88
+E1	50	\N	10	99
 
 -- !default_col --
 C1	30	\N

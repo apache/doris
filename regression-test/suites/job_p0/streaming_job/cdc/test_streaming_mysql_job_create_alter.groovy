@@ -37,6 +37,24 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
+        test {
+            sql """CREATE JOB ${jobName}
+                ON STREAMING
+                FROM MYSQL (
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "user" = "root",
+                    "password" = "123456",
+                    "database" = "${mysqlDb}",
+                    "include_tables" = "${table1}",
+                    "schema_change_behavior" = "pause"
+                )
+                TO DATABASE ${currentDb}
+            """
+            exception "Invalid value for key 'schema_change_behavior': pause"
+        }
+
         // unexcepted source properties
         test {
             sql """CREATE JOB ${jobName}
@@ -231,7 +249,8 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                     "password" = "123456",
                     "database" = "${mysqlDb}",
                     "include_tables" = "${table1}",
-                    "offset" = "initial"
+                    "offset" = "initial",
+                    "schema_change_behavior" = "evolve"
                 )
                 TO DATABASE ${currentDb} (
                   "table.create.properties.replication_num" = "1"
@@ -263,6 +282,12 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "RUNNING"
 
+        test {
+            sql """ALTER JOB ${jobName} FROM MYSQL ("schema_change_behavior" = "ignore")
+                TO DATABASE ${currentDb}"""
+            exception "Only PAUSED job can be altered"
+        }
+
         // alter job
         test {
             sql """ALTER JOB ${jobName}
@@ -289,6 +314,18 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         """
         log.info("jobInfo: " + jobInfo2)
         assert jobInfo2.get(0).get(0) == "PAUSED"
+
+        test {
+            sql """ALTER JOB ${jobName} FROM MYSQL ("schema_change_behavior" = "pause")
+                TO DATABASE ${currentDb}"""
+            exception "Invalid value for key 'schema_change_behavior': pause"
+        }
+        for (String behavior : ["ignore", "evolve"]) {
+            sql """ALTER JOB ${jobName} FROM MYSQL ("schema_change_behavior" = "${behavior}")
+                TO DATABASE ${currentDb}"""
+            def executeSql = (sql """SELECT ExecuteSql FROM jobs("type"="insert") WHERE Name='${jobName}'""")[0][0]
+            assert executeSql.contains("'schema_change_behavior'='${behavior}'")
+        }
 
         // alter jdbc url
         test {
@@ -364,29 +401,20 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
             exception "The schema property cannot be modified in ALTER JOB"
         }
 
-        // snapshot_parallelism is cached in BE reader's pollExecutor on first initialize;
-        // reject to avoid silent staleness
-        test {
-            sql """ALTER JOB ${jobName}
-                FROM MYSQL (
-                    "snapshot_parallelism" = "4"
-                )
-                TO DATABASE ${currentDb}
-            """
-            exception "The snapshot_parallelism property cannot be modified in ALTER JOB"
-        }
-
-        // snapshot_split_size only affects the initial splitChunks; subsequent restarts
-        // restore persisted splits, so ALTER would be a silent no-op; reject
-        test {
-            sql """ALTER JOB ${jobName}
-                FROM MYSQL (
-                    "snapshot_split_size" = "2048"
-                )
-                TO DATABASE ${currentDb}
-            """
-            exception "The snapshot_split_size property cannot be modified in ALTER JOB"
-        }
+        // New parallelism applies to subsequent task dispatch, while the new split size applies
+        // only to splits generated after ALTER. Existing persisted split boundaries stay unchanged.
+        sql """ALTER JOB ${jobName}
+            FROM MYSQL (
+                "snapshot_parallelism" = "4",
+                "snapshot_split_size" = "2048"
+            )
+            TO DATABASE ${currentDb}
+        """
+        def alteredSnapshotProperties = sql """
+            select ExecuteSql from jobs("type"="insert") where Name='${jobName}'
+        """
+        assert alteredSnapshotProperties.get(0).get(0).contains("'snapshot_parallelism'='4'")
+        assert alteredSnapshotProperties.get(0).get(0).contains("'snapshot_split_size'='2048'")
 
         // table.<tbl>.exclude_columns is cached in DebeziumJsonDeserializer; reject
         test {
