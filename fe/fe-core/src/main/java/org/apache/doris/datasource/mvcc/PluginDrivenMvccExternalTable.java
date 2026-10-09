@@ -720,6 +720,13 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     // ──────────────────── partition view (snapshot-aware) ────────────────────
 
     @Override
+    public boolean supportInternalPartitionPruned(Optional<MvccSnapshot> snapshot) {
+        // Non-range connector views enumerate raw transforms and historical specs for counts.
+        // Those values are not source-column LIST keys, even when their types happen to match.
+        return getOrMaterialize(snapshot).getPartitionType() != PartitionType.UNPARTITIONED;
+    }
+
+    @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         return getOrMaterialize(snapshot).getNameToPartitionItem();
     }

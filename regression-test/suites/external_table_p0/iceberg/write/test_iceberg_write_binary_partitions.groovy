@@ -64,6 +64,15 @@ suite("test_iceberg_write_binary_partitions", "p0,external,iceberg,external_dock
                             contains "partition=${partitionCount}/${partitionCount}"
                         }
                     }
+                    // A source-column predicate must not prune raw transform keys as source values.
+                    for (String projection : ["id", "count(*)"]) {
+                        explain {
+                            sql "SELECT ${projection} FROM ${table} WHERE binary_key IS NOT NULL"
+                            contains "partition=${partitionCount}/${partitionCount}"
+                        }
+                    }
+                    "order_qt_${tag}_non_null" "SELECT id FROM ${table} WHERE binary_key IS NOT NULL ORDER BY id"
+                    "qt_${tag}_non_null_count" "SELECT count(*) FROM ${table} WHERE binary_key IS NOT NULL"
                     "order_qt_${tag}_bytes" "SELECT id, HEX(binary_key) FROM ${table} ORDER BY id"
                     "order_qt_${tag}_null" "SELECT id FROM ${table} WHERE binary_key IS NULL ORDER BY id"
                     def actual = sql("SELECT id, HEX(binary_key) FROM ${table} ORDER BY id")
