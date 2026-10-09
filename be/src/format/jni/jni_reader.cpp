@@ -19,6 +19,7 @@
 
 #include <glog/logging.h>
 
+#include <atomic>
 #include <map>
 #include <ostream>
 #include <tuple>
@@ -153,10 +154,14 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
     // Only a reader whose range declared the heap it will hold asks for it; see the constructor.
     if (_jni_heap_bytes > 0) {
         // FileScanner's try_stop() marks its IOContext: a cancelled query, a satisfied limit, a
-        // closing scan. The gate asks on a thread of its own, so the check owns what it reads.
+        // closing scan. The gate asks on a thread of its own, so the check owns what it reads, and
+        // reads it atomically, as try_stop() writes it.
         DORIS_CHECK(_io_ctx != nullptr);
-        _heap_admission = JniScanHeapGate::instance()->request(
-                _jni_heap_bytes, [io_ctx = _io_ctx]() { return io_ctx->should_stop; });
+        _heap_admission =
+                JniScanHeapGate::instance()->request(_jni_heap_bytes, [io_ctx = _io_ctx]() {
+                    return std::atomic_ref<bool>(io_ctx->should_stop)
+                            .load(std::memory_order_relaxed);
+                });
         if (_profile != nullptr) {
             COUNTER_UPDATE(_jvm_heap_declared_bytes, _jni_heap_bytes);
         }
