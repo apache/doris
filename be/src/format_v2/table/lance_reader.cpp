@@ -768,6 +768,12 @@ void LanceTableReader::_init_scanner_profile() {
     _index_comparisons = add_lance_counter(_scanner_profile, "LanceIndexComparisons", TUnit::UNIT,
                                            LANCE_INDEX_PROFILE);
 
+    _scan_metric_counters.reserve(sizeof(LANCE_SCAN_METRICS) / sizeof(LANCE_SCAN_METRICS[0]));
+    for (const auto& definition : LANCE_SCAN_METRICS) {
+        _scan_metric_counters.emplace_back(add_lance_counter(
+                _scanner_profile, definition.profile_name, definition.unit, definition.group));
+    }
+
     if (_search_kind != SearchKind::NORMAL) {
         _planned_index_segment_count =
                 add_lance_counter(_scanner_profile, "LancePlannedIndexSegmentCount", TUnit::UNIT,
@@ -829,8 +835,12 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     }
     std::unique_ptr<LanceScanner, LanceScannerDeleter> scanner_guard(scanner);
     const auto collect_scan_statistics = [](void* callback_ctx,
-                                            const LanceScanStatistics* statistics) {
-        LanceTableReader::_collect_scan_statistics(callback_ctx, statistics);
+                                            const LanceScanStatistics* statistics) noexcept {
+        try {
+            LanceTableReader::_collect_scan_statistics(callback_ctx, statistics);
+        } catch (...) {
+            // Lance statistics are best-effort; never unwind through the callback ABI.
+        }
     };
     if (lance_scanner_set_statistics_callback(scanner, collect_scan_statistics, this) != 0) {
         return lance_error("set Lance scanner statistics callback");
@@ -1219,17 +1229,18 @@ void LanceTableReader::_collect_scan_statistics(void* callback_ctx, const void* 
             continue;
         }
         const std::string_view name(metric.name == nullptr ? "" : metric.name, metric.name_len);
+        size_t metric_index = 0;
         for (const auto& definition : LANCE_SCAN_METRICS) {
             if (definition.native_name != name) {
+                ++metric_index;
                 continue;
             }
             const auto expected_kind = definition.unit == TUnit::TIME_NS
                                                ? LANCE_SCAN_METRIC_TIME_NANOSECONDS
                                                : LANCE_SCAN_METRIC_COUNT;
-            if (metric.kind == expected_kind) {
-                auto* counter = add_lance_counter(reader->_scanner_profile, definition.profile_name,
-                                                  definition.unit, definition.group);
-                update_counter(counter, metric.value, name);
+            if (metric.kind == expected_kind &&
+                metric_index < reader->_scan_metric_counters.size()) {
+                update_counter(reader->_scan_metric_counters[metric_index], metric.value, name);
             }
             break;
         }

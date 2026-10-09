@@ -64,8 +64,9 @@ struct LanceProfileMetric {
     TUnit::type unit;
 };
 
-// Lance invokes the statistics callback from its execution streams. Keep metric definitions
-// immutable and register each optional counter when Lance reports it, including reported zeros.
+// Lance invokes the statistics callback from its execution streams. Keep the metric definitions
+// immutable and pre-register their counters before installing the callback. The callback then
+// updates only metrics reported by Lance without changing the profile counter tree.
 inline constexpr LanceProfileMetric LANCE_SCAN_METRICS[] = {
         {.native_name = "index_cache_hits",
          .profile_name = "LanceIndexCacheHits",

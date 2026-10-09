@@ -124,6 +124,8 @@ private:
     RuntimeProfile::Counter* _execution_iops = nullptr;
     RuntimeProfile::Counter* _execution_requests = nullptr;
     RuntimeProfile::Counter* _execution_bytes_read = nullptr;
+    // Pre-registered before installing Lance's callback so it only updates existing counters.
+    std::vector<RuntimeProfile::Counter*> _scan_metric_counters;
     RuntimeProfile::Counter* _data_cache_bytes_read_from_cache = nullptr;
     RuntimeProfile::Counter* _data_cache_bytes_read_from_remote = nullptr;
     RuntimeProfile::Counter* _index_object_loads = nullptr;

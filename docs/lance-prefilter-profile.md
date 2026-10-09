@@ -23,8 +23,12 @@ An explicit fragment list that covers every fragment in a fixed dataset snapshot
 not restrict an unfiltered vector query. Lance can omit the row-ID prefilter scan in
 this case. The fragment selection remains attached to the scanner: indexed segment
 selection, unindexed-fragment fallback, snapshot visibility, deletion masks and overlay
-handling keep their existing semantics. A strict fragment subset or an actual filter
-continues to use the normal prefilter path.
+handling keep their existing semantics. The `prefilter` option controls only the
+external-search TVF `filter`; it does not change fragment selection. The `filter` uses
+the row-ID prefilter path only when the request sets `prefilter=true`. The default is
+`prefilter=false`: Lance applies the `filter` after vector candidate selection, and the
+row-ID prefilter counters can remain zero. A Doris `WHERE` predicate remains a residual
+and does not use this row-ID prefilter path.
 
 The following Doris counters describe Lance's ANN **row-ID prefilter loader**, not
 returned TopK rows, HNSW comparisons, or the deletion mask. Scalar-index selection
