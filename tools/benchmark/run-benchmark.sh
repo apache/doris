@@ -37,8 +37,8 @@ Usage: run-${benchmark}.sh [-s SCALE] [-c CONFIG] [-d DATABASE] [--queries-only]
 
 Create tables, generate and import data through the Trino ${benchmark} connector,
 collect statistics, and run every existing query three times. No data files or
-separate Trino server are needed. Prepare lineorder_flat (SSB), lineitem_flat
-(TPCH), or store/catalog/web_sales_flat (TPCDS). Existing query SQL is preserved.
+separate Trino server are needed. SSB can also prepare lineorder_flat.
+Existing table DDL and query SQL are preserved.
 
 SCALE: 1, 100, 1000 (also 10000 for TPCH/TPCDS). Default: 1.
 --mode is only supported by SSB; its default is both.
@@ -119,8 +119,6 @@ fi
 mode=${mode:-both}
 generator_splits=${generator_splits:-$((scale > 10 ? scale : 10))}
 ddl="${SUITE_ROOT}/ddl/create-${benchmark}-tables-sf${scale}.sql"
-flat_tables=()
-flat_keys=()
 # Each list is the base tables in the existing DDL; TPCH's revenue0 is a view.
 # The benchmark name is validated above.
 # shellcheck disable=SC2249
@@ -133,8 +131,6 @@ case "${benchmark}" in
         ;;
     tpch)
         tables=(region nation supplier customer part partsupp orders lineitem)
-        flat_tables=(lineitem)
-        flat_keys=(l_orderkey)
         suites=(tpch)
         mapfile -t query_ids < <(seq 1 22)
         # Match the existing Doris DDL, including exact two-decimal monetary values.
@@ -148,8 +144,6 @@ case "${benchmark}" in
             customer_demographics customer date_dim household_demographics income_band
             inventory item promotion reason ship_mode store_returns store_sales store
             time_dim warehouse web_page web_returns web_sales web_site)
-        flat_tables=(store_sales catalog_sales web_sales)
-        flat_keys=(ss_ticket_number cs_order_number ws_order_number)
         suites=(tpcds)
         query_ids=()
         for ((query = 1; query <= 99; query++)); do
@@ -181,9 +175,6 @@ for suite in "${suites[@]}"; do
     done
 done
 test -r "${ddl}"
-for table in "${flat_tables[@]}"; do
-    test -r "${SUITE_ROOT}/ddl/select-${table//_/-}-flat.sql"
-done
 # shellcheck disable=SC1090
 source "${config}"
 database=${database:-${DB}}
@@ -285,35 +276,6 @@ if [[ ${queries_only} -eq 0 ]]; then
     fi
     echo 'Collecting statistics'
     run_sql "ANALYZE DATABASE \`${database}\` WITH FULL WITH SYNC;" >>"${result_dir}/prepare.log"
-
-    if [[ ${benchmark} != ssb ]]; then
-        # Each LEFT JOIN is many-to-one, preserving facts with NULL dimension keys.
-        # Create the empty schema separately so every data write uses insert_sql's
-        # strict loading and VISIBLE check, including wide-table preparation.
-        printf 'table\trows\n' >"${result_dir}/flat-row-counts.tsv"
-        for index in "${!flat_tables[@]}"; do
-            table=${flat_tables[index]}
-            echo "Building ${table}_flat"
-            flat_sql=$(cat "${SUITE_ROOT}/ddl/select-${table//_/-}-flat.sql")
-            run_sql "CREATE TABLE \`${table}_flat\`
-                DISTRIBUTED BY HASH(\`${flat_keys[index]}\`) BUCKETS AUTO
-                PROPERTIES ('replication_num'='1') AS ${flat_sql} WHERE 1=0;" \
-                >>"${result_dir}/prepare.log"
-            insert_sql "INSERT INTO \`${table}_flat\` ${flat_sql};"
-            counts=$(run_sql "SELECT (SELECT COUNT(*) FROM \`${table}\`),
-                (SELECT COUNT(*) FROM \`${table}_flat\`);")
-            IFS=$'\t' read -r fact_count flat_count <<<"${counts}"
-            if [[ ${fact_count} != "${flat_count}" ]]; then
-                echo "${table}_flat has ${flat_count} rows; expected ${fact_count}." >&2
-                exit 1
-            fi
-            printf '%s\t%s\n' "${table}_flat" "${flat_count}" >>"${result_dir}/flat-row-counts.tsv"
-            # Wide tables repeat dimension attributes on every fact. Sample them
-            # instead of rescanning all denormalized rows for every column.
-            run_sql "ANALYZE TABLE \`${table}_flat\` WITH SAMPLE ROWS 100000 WITH SYNC;" \
-                >>"${result_dir}/prepare.log"
-        done
-    fi
 else
     mysql_args+=(--database="${database}")
 fi

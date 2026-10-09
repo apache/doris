@@ -28,15 +28,13 @@ then configure `conf/doris-cluster.conf` and run:
 ```
 
 This streams generated rows directly into Doris, creates the existing benchmark
-tables, builds `store_sales_flat`, `catalog_sales_flat`, and `web_sales_flat`,
-collects statistics, and records three executions per query. It supports
+tables, collects statistics, and records three executions per query. It supports
 SF1, SF100, SF1000, and SF10000. Preparation requires a new database.
 Use `--queries-only` to measure existing data again, with the same scale factor.
 
 See [shared workflow options, result files, and timing semantics](../benchmark/README.md).
-TPCDS timings use the existing normalized-table queries. The additional wide tables
-are prepared and checked for matching fact-row counts; their joins and column roles
-are documented in the shared README. Install the plugin before running the command.
+TPCDS uses the original scale-specific table DDL and multi-table queries.
+Install the plugin before running the command.
 
 # Original file-based workflow
 

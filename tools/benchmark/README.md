@@ -27,40 +27,13 @@ No intermediate data files or separate Trino server are needed.
 | Entry point | Scale factors | Tables | Query files |
 | --- | --- | --- | --- |
 | `../ssb-tools/bin/run-ssb.sh` | 1, 100, 1000 | Five SSB tables and `lineorder_flat` | 13 SSB + 13 SSB Flat |
-| `../tpch-tools/bin/run-tpch.sh` | 1, 100, 1000, 10000 | Eight TPCH tables, `revenue0` view, and `lineitem_flat` | 22 |
-| `../tpcds-tools/bin/run-tpcds.sh` | 1, 100, 1000, 10000 | 24 TPCDS tables and three sales flat tables | 103, including the second statements of 14, 23, 24, and 39 |
+| `../tpch-tools/bin/run-tpch.sh` | 1, 100, 1000, 10000 | Eight TPCH tables and the `revenue0` view | 22 |
+| `../tpcds-tools/bin/run-tpcds.sh` | 1, 100, 1000, 10000 | 24 TPCDS tables | 103, including the second statements of 14, 23, 24, and 39 |
 
-TPCH and TPCDS retain their existing normalized schemas and query SQL. Their
-wide tables are additional prepared datasets; the measured query suites still
-read the normalized tables. SSB measures both its original and flat-table queries.
-
-## Wide tables
-
-Preparation automatically builds the following tables after loading the base data:
-
-- TPCH `lineitem_flat`: one row per line item, joined to orders, part, partsupp,
-  customer, supplier, and both customer/supplier nation and region. Nation/region
-  columns use `c_n_`/`c_r_` and `s_n_`/`s_r_` prefixes to distinguish the roles.
-- TPCDS `store_sales_flat`, `catalog_sales_flat`, and `web_sales_flat`: one row per
-  sale, joined to sold date/time, item, customer, customer demographics, household
-  demographics, customer address, and promotion. Store sales also join store;
-  catalog sales join call center, catalog page, ship mode, and warehouse; web
-  sales join web site, web page, ship mode, and warehouse. Catalog/web customer
-  attributes refer to the **bill-to** keys. Other date/customer roles and returns
-  remain in the base tables and are not joined into these wide tables.
-
-All these joins are LEFT JOINs on dimension keys, including the composite
-partsupp key, so NULL foreign keys retain their fact rows. The runner verifies
-that every wide table has exactly as many rows as its fact table and writes
-`flat-row-counts.tsv`; a mismatch aborts the run. Base-table statistics are
-collected in full before the joins. Wide-table statistics use synchronous
-100,000-row sampling before query timing: repeatedly scanning every denormalized
-column in full can dominate preparation even at SF1. Sampling affects optimizer
-statistics only; imports and row-count checks still cover every row. For an
-exhaustive wide-table analysis, run `ANALYZE TABLE <table> WITH FULL WITH SYNC`
-after preparation.
-Wide tables use one replica and automatic bucket counts. They require extra disk
-space; the original query suite does not measure wide-table query performance.
+TPCH and TPCDS use the existing multi-table DDL for the requested scale factor
+and run their original query SQL. SSB supports its original and flat-table query
+suites, using the existing `lineorder_flat` DDL and joins. All suites collect
+full statistics synchronously before query timing.
 
 ## Install the generators once
 
@@ -149,7 +122,6 @@ result directories are rejected rather than overwritten.
 - `<suite>/q*.cold.out`, `q*.hot1.out`, `q*.hot2.out`: query results, with matching
   `.err` files for diagnostics. TPCDS variants have distinct names such as `q14_1`.
 - `prepare.log`: DDL, import, and statistics diagnostics.
-- `flat-row-counts.tsv`: validated TPCH/TPCDS wide-table row counts.
 - `environment.txt`: Doris version, session variables, and table status.
 
 Timing includes mysql client startup, connection, execution, and result transfer.
@@ -167,6 +139,9 @@ From the repository root:
 python3 -m unittest discover -s tools/benchmark/tests -v
 ```
 
-The tests use a fake mysql client to exercise complete suite selection, split
-queries, explicit column projection, scale-specific SQL, cache settings, result
-isolation, wide-table preparation, row-count checks, and failure paths. They do not replace a real Doris import/query run.
+The tests use a fake mysql client to exercise complete suite selection, TPCDS
+split queries, explicit column projection, scale-specific DDL and queries,
+generator split defaults and overrides, cache settings, result isolation, INSERT
+status checks, and failure paths. They verify that TPCH/TPCDS prepare only their
+original tables and that SSB retains its flat-table workflow. They do not replace
+a real Doris import/query run.

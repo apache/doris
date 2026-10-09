@@ -43,24 +43,20 @@ if sql.startswith('DESC'):
         print('p_promo_sk\tINT\np_response_target\tINT')
     else:
         print('lo_orderkey\tBIGINT\nlo_linenumber\tINT')
-elif sql.startswith('CREATE TABLE') and scenario == 'flat_ddl_error':
+elif sql.startswith('CREATE TABLE') and 'lineorder_flat' in sql and scenario == 'flat_ddl_error':
     sys.exit('Wide table creation failed')
 elif 'INSERT INTO' in sql:
     if '-vvv' in args:
         print('--------------\n' + sql + '\n--------------')
-    if scenario == 'insert_error' or (scenario == 'flat_insert_error' and '_flat`' in sql):
+    if scenario == 'insert_error' or (scenario == 'flat_insert_error' and 'lineorder_flat' in sql):
         sys.exit('Generator exited with 23')
     print('Query OK, 10 rows affected')
     if scenario != 'missing_status':
         status = ('COMMITTED' if scenario == 'unpublished' or
-                  (scenario == 'flat_unpublished' and '_flat`' in sql) else
+                  (scenario == 'flat_unpublished' and 'lineorder_flat' in sql) else
                   'PREPARE' if scenario == 'unexpected_status' else 'VISIBLE')
         label = 'COMMITTED_label' if scenario == 'committed_label' else 'insert_label'
         print("{'label':'%s', 'status':'%s', 'txnId':'123'}" % (label, status))
-elif sql.startswith('SELECT (SELECT COUNT(*)'):
-    print('10\t9' if scenario == 'flat_row_loss' else '10\t10')
-elif sql.startswith('ANALYZE TABLE') and scenario == 'flat_statistics_error':
-    sys.exit('Wide table statistics failed')
 elif sql.lower().startswith(('select', 'with')) and 'VERSION()' not in sql:
     if scenario == 'query_error':
         sys.exit('Query execution failed')
@@ -157,6 +153,10 @@ class RunBenchmarkTest(unittest.TestCase):
                         expected = override if override is not None else splits
                         catalog = self.statements()[1]
                         self.assertIn(f"'trino.{benchmark}.{property_name}'='{expected}'", catalog)
+                        ddl = TOOLS_ROOT / f"{benchmark}-tools/ddl/create-{benchmark}-tables-sf{scale}.sql"
+                        expected_ddl = "\n".join(line for line in ddl.read_text().splitlines()
+                                                 if not line.lstrip().startswith("--")).strip()
+                        self.assertEqual(expected_ddl, self.statements()[2])
 
     def test_invalid_splits_are_rejected_before_connecting(self):
         for benchmark in ("tpch", "tpcds"):
@@ -197,25 +197,19 @@ class RunBenchmarkTest(unittest.TestCase):
                 self.assertEqual(0, result.returncode, result.stdout + result.stderr)
                 calls = self.statements()
                 inserts = [sql for sql in calls if "INSERT INTO" in sql]
-                flat_count = 1 if benchmark == "tpch" else 3
-                self.assertEqual(table_count + flat_count, len(inserts))
-                flat_inserts = [sql for sql in inserts if "_flat`" in sql]
-                self.assertEqual(flat_count, len(flat_inserts))
-                self.assertTrue(all("LEFT JOIN" in sql for sql in flat_inserts))
-                self.assertEqual(flat_count + 1, len((self.results / "flat-row-counts.tsv").read_text().splitlines()))
-                inserts = [sql for sql in inserts if "_flat`" not in sql]
+                self.assertEqual(table_count, len(inserts))
+                self.assertFalse(any("_flat" in sql for sql in calls))
+                self.assertFalse((self.results / "flat-row-counts.tsv").exists())
                 self.assertTrue(all(f"`{benchmark}_gen_benchmark_test`.`sf1`." in sql for sql in inserts))
                 # Target columns and source projections must use the same explicit names.
                 ordinary_inserts = [sql for sql in inserts if "INSERT INTO `promotion`" not in sql]
                 self.assertTrue(all("(`lo_orderkey`,`lo_linenumber`)" in sql for sql in ordinary_inserts))
                 self.assertTrue(all("SELECT `lo_orderkey`,`lo_linenumber`" in sql for sql in ordinary_inserts))
                 analyses = [sql for sql in calls if sql.startswith("ANALYZE")]
-                self.assertEqual(1 + flat_count, len(analyses))
+                self.assertEqual(1, len(analyses))
                 self.assertIn("WITH FULL WITH SYNC", analyses[0])
-                self.assertTrue(all("WITH SAMPLE ROWS 100000 WITH SYNC" in sql for sql in analyses[1:]))
                 self.assertGreater(max(i for i, sql in enumerate(calls) if sql.startswith("ANALYZE")),
                                    max(i for i, sql in enumerate(calls) if "INSERT INTO" in sql))
-                self.assertFalse(any("lineorder_flat" in sql for sql in calls))
                 with (self.results / "result.csv").open() as file:
                     rows = list(csv.DictReader(file))
                 self.assertEqual(query_count, len(rows))
@@ -268,17 +262,18 @@ class RunBenchmarkTest(unittest.TestCase):
                     expected_inserts = 0 if scenario == "existing_database" else 1
                     self.assertEqual(expected_inserts, sum("INSERT INTO" in sql for sql in self.statements()))
 
-    def test_flat_failures_abort_before_measuring_queries(self):
-        for benchmark in ("tpch", "tpcds"):
-            for scenario in ("flat_ddl_error", "flat_insert_error", "flat_unpublished",
-                             "flat_row_loss", "flat_statistics_error"):
-                with self.subTest(benchmark=benchmark, scenario=scenario):
-                    self.results = self.root / f"{benchmark}-{scenario}"
-                    self.calls = self.root / f"{benchmark}-{scenario}.jsonl"
-                    result = self.run_benchmark(scenario, benchmark=benchmark)
-                    self.assertNotEqual(0, result.returncode)
-                    self.assertFalse((self.results / "result.csv").exists())
-                    self.assertNotIn("completed", result.stdout)
+    def test_ssb_flat_failures_abort_before_measuring_queries(self):
+        for scenario in ("flat_ddl_error", "flat_insert_error", "flat_unpublished"):
+            with self.subTest(scenario=scenario):
+                self.results = self.root / scenario
+                self.calls = self.root / f"{scenario}.jsonl"
+                result = self.run_benchmark(scenario)
+                self.assertNotEqual(0, result.returncode)
+                self.assertFalse((self.results / "result.csv").exists())
+                self.assertNotIn("completed", result.stdout)
+                base_inserts = [sql for sql in self.statements()
+                                if "INSERT INTO" in sql and "lineorder_flat" not in sql]
+                self.assertEqual(5, len(base_inserts))
 
     def test_tpc_query_error_is_not_recorded_as_success(self):
         for benchmark in ("tpch", "tpcds"):
