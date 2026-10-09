@@ -157,12 +157,12 @@ Status WalTable::replay_wals() {
 }
 
 bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
-    if (config::group_commit_wait_replay_wal_finish) {
-        return true;
-    }
 #ifdef BE_TEST
     return true;
 #endif
+    if (config::group_commit_wait_replay_wal_finish) {
+        return true;
+    }
     int64_t replay_interval = 0;
     if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
         replay_interval = int64_t(
