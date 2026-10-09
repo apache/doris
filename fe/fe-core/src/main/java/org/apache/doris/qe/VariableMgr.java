@@ -177,6 +177,36 @@ public class VariableMgr {
         return defaultSessionVariable;
     }
 
+    public static boolean isDynamicPartitionDropProtectionEnabled() {
+        rlock.lock();
+        try {
+            return defaultSessionVariable.isEnableDynamicPartitionDropProtection();
+        } finally {
+            rlock.unlock();
+        }
+    }
+
+    /**
+     * Sets a persistent global-only session variable while constructing an image.
+     *
+     * <p>The caller is responsible for persisting the resulting image. This method intentionally does not write an
+     * edit log because image construction may happen without a running edit log.</p>
+     */
+    public static void setGlobalSessionVariableForImage(String name, String value) throws DdlException {
+        wlock.lock();
+        try {
+            VarContext ctx = getVarContext(name);
+            Preconditions.checkArgument(ctx != null, "Unknown session variable: %s", name);
+            Preconditions.checkArgument(ctx.getObj() == defaultSessionVariable,
+                    "Not a session variable: %s", name);
+            Preconditions.checkArgument((ctx.getFlag() & VarAttrDef.GLOBAL) != 0,
+                    "Session variable is not global-only: %s", name);
+            setValue(defaultSessionVariable, new SessionVariableField(ctx.getField()), value);
+        } finally {
+            wlock.unlock();
+        }
+    }
+
     // Set value to a variable
     private static boolean setValue(Object obj, SessionVariableField sessionVariableField, String value)
             throws DdlException {
