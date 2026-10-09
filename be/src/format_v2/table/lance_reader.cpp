@@ -119,12 +119,12 @@ Status LanceTableReader::init(TableReadOptions&& options) {
                                            LANCE_TIMING_PROFILE);
     _arrow_to_doris_block_time = add_lance_counter(_scanner_profile, "LanceArrowToDorisBlockTime",
                                                    TUnit::TIME_NS, LANCE_TIMING_PROFILE);
-    _data_cache_bytes_read_from_cache = add_lance_counter(
-            _scanner_profile, "LanceDataCacheBytesReadFromCache", TUnit::BYTES,
-            LANCE_DATA_CACHE_PROFILE);
-    _data_cache_bytes_read_from_remote = add_lance_counter(
-            _scanner_profile, "LanceDataCacheBytesReadFromRemote", TUnit::BYTES,
-            LANCE_DATA_CACHE_PROFILE);
+    _data_cache_bytes_read_from_cache =
+            add_lance_counter(_scanner_profile, "LanceDataCacheBytesReadFromCache", TUnit::BYTES,
+                              LANCE_DATA_CACHE_PROFILE);
+    _data_cache_bytes_read_from_remote =
+            add_lance_counter(_scanner_profile, "LanceDataCacheBytesReadFromRemote", TUnit::BYTES,
+                              LANCE_DATA_CACHE_PROFILE);
     if (_search_kind != SearchKind::NORMAL) {
         RETURN_IF_ERROR(_validate_external_search_request());
         const auto& request = lance_scan_params.external_search_request;
@@ -750,11 +750,11 @@ void LanceTableReader::_init_scanner_profile() {
 
     _scanner_configure_time = add_lance_counter(_scanner_profile, "LanceScannerConfigureTime",
                                                 TUnit::TIME_NS, LANCE_TIMING_PROFILE);
-    _runtime_filter_sql_translation_time = add_lance_counter(
-            _scanner_profile, "LanceRuntimeFilterSqlTranslationTime", TUnit::TIME_NS,
-            LANCE_TIMING_PROFILE);
+    _runtime_filter_sql_translation_time =
+            add_lance_counter(_scanner_profile, "LanceRuntimeFilterSqlTranslationTime",
+                              TUnit::TIME_NS, LANCE_TIMING_PROFILE);
     _scanner_next_time = add_lance_counter(_scanner_profile, "LanceScannerNextTime", TUnit::TIME_NS,
-                                          LANCE_TIMING_PROFILE);
+                                           LANCE_TIMING_PROFILE);
     _execution_iops =
             add_lance_counter(_scanner_profile, "LanceIOReadOps", TUnit::UNIT, LANCE_IO_PROFILE);
     _execution_requests = add_lance_counter(_scanner_profile, "LanceIOReadRequests", TUnit::UNIT,
@@ -763,9 +763,8 @@ void LanceTableReader::_init_scanner_profile() {
             add_lance_counter(_scanner_profile, "LanceIOReadBytes", TUnit::BYTES, LANCE_IO_PROFILE);
     _index_object_loads = add_lance_counter(_scanner_profile, "LanceIndexObjectLoads", TUnit::UNIT,
                                             LANCE_INDEX_PROFILE);
-    _index_components_loaded =
-            add_lance_counter(_scanner_profile, "LanceIndexComponentsLoaded", TUnit::UNIT,
-                              LANCE_INDEX_PROFILE);
+    _index_components_loaded = add_lance_counter(_scanner_profile, "LanceIndexComponentsLoaded",
+                                                 TUnit::UNIT, LANCE_INDEX_PROFILE);
     _index_comparisons = add_lance_counter(_scanner_profile, "LanceIndexComparisons", TUnit::UNIT,
                                            LANCE_INDEX_PROFILE);
 
