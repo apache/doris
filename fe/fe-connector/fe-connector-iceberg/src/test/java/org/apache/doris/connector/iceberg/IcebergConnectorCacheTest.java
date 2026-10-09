@@ -17,8 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 
 import org.apache.iceberg.DataFiles;
@@ -36,6 +38,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -224,6 +227,43 @@ public class IcebergConnectorCacheTest {
         return new FakeIcebergTable(name,
                 new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get())),
                 PartitionSpec.unpartitioned(), "s3://b/" + name, Collections.emptyMap());
+    }
+
+    @Test
+    public void weightLimitsReachEveryConnectorOwnedCache() throws Exception {
+        long oneMb = 1024L * 1024L;
+        Map<String, Long> catalogLimited = maxWeightsOf(props("meta.cache.max-weight", "1MB"));
+        for (String cache : new String[] {"iceberg-table", "iceberg-latest-snapshot", "iceberg-partition",
+                "iceberg-format", "iceberg-manifest", "iceberg-equality-delete-field-ids",
+                "iceberg.mvcc-partition-view", "iceberg.list-partitions-view"}) {
+            Assertions.assertEquals(Long.valueOf(oneMb), catalogLimited.get(cache),
+                    "a catalog limit must bound " + cache);
+        }
+
+        Map<String, Long> manifestLimited = maxWeightsOf(props("meta.cache.iceberg.manifest.max-weight", "1MB"));
+        Assertions.assertEquals(Long.valueOf(oneMb), manifestLimited.get("iceberg-manifest"));
+        Assertions.assertEquals(Long.valueOf(-1L), manifestLimited.get("iceberg-table"),
+                "an entry limit must bound only its own entry");
+
+        Map<String, Long> viewLimited = maxWeightsOf(props("meta.cache.iceberg.partition_view.max-weight", "1MB"));
+        Assertions.assertEquals(Long.valueOf(oneMb), viewLimited.get("iceberg.mvcc-partition-view"));
+        Assertions.assertEquals(Long.valueOf(oneMb), viewLimited.get("iceberg.list-partitions-view"),
+                "both physical partition views belong to the partition_view entry");
+        Assertions.assertEquals(Long.valueOf(-1L), viewLimited.get("iceberg-partition"));
+    }
+
+    /** MAX_WEIGHT of every cache one connector registers: its effective limit, or -1 when only count-bounded. */
+    private static Map<String, Long> maxWeightsOf(Map<String, String> properties) throws Exception {
+        // RecordingConnectorContext always reports catalog id 0, so tell this connector's owner apart by identity.
+        List<CatalogMetaCache> before = MetaCacheGovernance.catalogCaches(0L);
+        try (IcebergConnector connector = new IcebergConnector(properties, new RecordingConnectorContext())) {
+            List<CatalogMetaCache> owners = new ArrayList<>(MetaCacheGovernance.catalogCaches(0L));
+            owners.removeIf(owner -> before.stream().anyMatch(existing -> existing == owner));
+            Assertions.assertEquals(1, owners.size());
+            Map<String, Long> maxWeights = new HashMap<>();
+            owners.get(0).entries().forEach((name, cache) -> maxWeights.put(name, cache.metrics().getMaxWeight()));
+            return maxWeights;
+        }
     }
 
     @Test

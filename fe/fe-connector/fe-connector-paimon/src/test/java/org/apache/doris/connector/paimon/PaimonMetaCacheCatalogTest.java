@@ -423,6 +423,39 @@ class PaimonMetaCacheCatalogTest {
     }
 
     @Test
+    void tableInvalidationReleasesTheReservationAndTheReloadIsReadmitted(@TempDir java.nio.file.Path warehouse)
+            throws Exception {
+        LocalFileIO fileIO = LocalFileIO.create();
+        org.apache.paimon.fs.Path tablePath =
+                createFileStoreTable(fileIO, warehouse.resolve("refreshed-table"), "payload").location();
+        RecordingCatalog recording = new RecordingCatalog();
+        recording.tableSupplier = () -> FileStoreTableFactory.create(fileIO, tablePath);
+        MetaCacheBudgetManager budgetManager = new MetaCacheBudgetManager(OptionalLong.of(1024L * 1024L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                budgetManager, 66717L, "paimon", Collections.emptyMap())) {
+            PaimonMetaCacheCatalog catalog = new PaimonMetaCacheCatalog(recording.catalog(), owner,
+                    100, 100, cacheOptions(Duration.ofDays(1), Duration.ofDays(1)),
+                    true, System::nanoTime);
+
+            Table first = catalog.getTable(TABLE);
+            long admittedWeight = budgetManager.getGlobalUsedWeight();
+            Assertions.assertTrue(admittedWeight > 0L);
+
+            // REFRESH TABLE reaches the connector as a table-scoped invalidation of its cache owner.
+            owner.invalidateTable("db", "t");
+            Assertions.assertEquals(0L, budgetManager.getGlobalUsedWeight(),
+                    "the invalidated table must give its reservation back");
+
+            Table reloaded = catalog.getTable(TABLE);
+            Assertions.assertNotSame(first, reloaded);
+            Assertions.assertSame(reloaded, catalog.getTable(TABLE), "the reload must be admitted again");
+            Assertions.assertEquals(2, recording.tableLoads.get());
+            Assertions.assertEquals(admittedWeight, budgetManager.getGlobalUsedWeight());
+        }
+        Assertions.assertEquals(0L, budgetManager.getGlobalUsedWeight());
+    }
+
+    @Test
     void allTableOptionsIsNotAdmittedWithoutACompleteRetainedSizeEstimate() throws Exception {
         Map<Identifier, Map<String, String>> allOptions = new HashMap<>();
         for (int i = 0; i < 100; i++) {
