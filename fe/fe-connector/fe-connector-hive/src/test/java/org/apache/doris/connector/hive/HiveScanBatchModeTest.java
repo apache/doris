@@ -26,6 +26,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
@@ -44,9 +45,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -78,6 +81,9 @@ public class HiveScanBatchModeTest {
             "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
     private static final String PARQUET_SERDE =
             "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe";
+    private static final String TEXT_INPUT_FORMAT = "org.apache.hadoop.mapred.TextInputFormat";
+    private static final String LAZY_SIMPLE_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+    private static final String OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
 
     @Test
     public void scanReuseNamespaceUsesConnectorType() {
@@ -460,6 +466,124 @@ public class HiveScanBatchModeTest {
 
         Assertions.assertNotSame(first, second,
                 "an older planning FE's missing property must not enable reuse in a newer connector");
+    }
+
+    @Test
+    public void statementReuseKeepsScansWithDifferentInputsApart() {
+        // Separately built but equal handles share one plan; a scan that differs in any input the planned ranges
+        // depend on plans on its own (the ranges carry the partition files and the BE file format).
+        // MUTATION: dropping a fact from HiveScanReuseKey (or the catalog id from the memo key) makes that scan
+        // return an earlier plan -> red.
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = new ScopeSession(7L, "same-statement", scope);
+        HiveTableHandle text = textHandle("t", LAZY_SIMPLE_SERDE, part("year=2024/month=01"));
+
+        List<ConnectorScanRange> plain = provider.planScan(session, scanOf(text));
+        Assertions.assertEquals(1, plain.size());
+        Assertions.assertSame(plain, provider.planScan(session,
+                scanOf(textHandle("t", LAZY_SIMPLE_SERDE, part("year=2024/month=01")))),
+                "separately built but equal handles must share one plan");
+        List<ConnectorScanRange> otherPartition = provider.planScan(session,
+                scanOf(textHandle("t", LAZY_SIMPLE_SERDE, part("year=2024/month=02"))));
+        List<ConnectorScanRange> otherTable = provider.planScan(session,
+                scanOf(textHandle("t2", LAZY_SIMPLE_SERDE, part("year=2024/month=01"))));
+        List<ConnectorScanRange> csv = provider.planScan(session,
+                scanOf(textHandle("t", OPEN_CSV_SERDE, part("year=2024/month=01"))));
+        List<ConnectorScanRange> stringFirstColumn = provider.planScan(session,
+                scanOf(text.toBuilder().firstColumnIsString(true).build()));
+        List<ConnectorScanRange> parquet = provider.planScan(session, scanOf(text.toBuilder()
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .build()));
+        List<ConnectorScanRange> otherCatalog = provider.planScan(
+                new ScopeSession(8L, "same-statement", scope), scanOf(text));
+        HiveTableHandle unpartitioned = new HiveTableHandle.Builder("db", "u", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(Collections.emptyList())
+                .location("hdfs://nn/warehouse/u")
+                .build();
+        List<ConnectorScanRange> atLocation = provider.planScan(session, scanOf(unpartitioned));
+        List<ConnectorScanRange> moved = provider.planScan(session,
+                scanOf(unpartitioned.toBuilder().location("hdfs://nn/warehouse/u_moved").build()));
+        Assertions.assertEquals("hdfs://nn/warehouse/u_moved/000000_0",
+                ((HiveScanRange) moved.get(0)).getPath().orElse(null),
+                "an unpartitioned table is identified by its location");
+
+        List<List<ConnectorScanRange>> plans = Arrays.asList(plain, otherPartition, otherTable, csv,
+                stringFirstColumn, parquet, otherCatalog, atLocation, moved);
+        Set<List<ConnectorScanRange>> distinct = Collections.newSetFromMap(new IdentityHashMap<>());
+        distinct.addAll(plans);
+        Assertions.assertEquals(plans.size(), distinct.size(), "scans with different inputs must not share a plan");
+    }
+
+    @Test
+    public void partitionBatchPlanningNeverUsesStatementReuse() {
+        // Large partitioned scans stream their splits per batch on background threads; the batch path must not
+        // retain plans in the statement memo. MUTATION: routing planScanForPartitionBatch through the memo ->
+        // the second batch reuses the first plan -> red.
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), new CountingLister());
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = new ScopeSession(7L, "same-statement", scope);
+        HiveTableHandle handle = textHandle("t", LAZY_SIMPLE_SERDE, part("year=2024/month=01"));
+        List<String> batch = Collections.singletonList("year=2024/month=01");
+
+        List<ConnectorScanRange> first = provider.planScanForPartitionBatch(session, scanOf(handle), batch);
+        List<ConnectorScanRange> second = provider.planScanForPartitionBatch(session, scanOf(handle), batch);
+
+        Assertions.assertEquals(1, first.size());
+        Assertions.assertNotSame(first, second);
+        Assertions.assertFalse(scope.contains(HiveScanPlanProvider.SCAN_REUSE_NAMESPACE + ":7:same-statement"),
+                "partition batches must not be planned through the statement reuse memo");
+    }
+
+    @Test
+    public void transactionalScanNeverUsesStatementReuse() {
+        // Each transactional scan opens its own read transaction pinning a write-id snapshot; a reused plan would
+        // skip it. The fake metastore refuses the transaction, so planning stops right after asking for it.
+        // MUTATION: dropping the transactional bypass in planScan -> the scan installs the statement reuse memo
+        // before planning -> red.
+        int[] requestedTransactions = new int[1];
+        HmsClient hmsClient = new FakeHmsClient() {
+            @Override
+            public long openTxn(String user) {
+                requestedTransactions[0]++;
+                throw new UnsupportedOperationException("no read transactions in this test");
+            }
+        };
+        HiveScanPlanProvider provider = provider(hmsClient, new CountingLister());
+        Map<String, String> insertOnly = new HashMap<>();
+        insertOnly.put("transactional", "true");
+        insertOnly.put("transactional_properties", "insert_only");
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .tableParameters(insertOnly)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = new ScopeSession(7L, "same-statement", scope);
+
+        Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(session, scanOf(handle)));
+
+        Assertions.assertEquals(1, requestedTransactions[0], "a transactional scan asks for its read transaction");
+        Assertions.assertFalse(scope.contains(HiveScanPlanProvider.SCAN_REUSE_NAMESPACE + ":7:same-statement"),
+                "a transactional scan must not be planned through the statement reuse memo");
+    }
+
+    private static HiveTableHandle textHandle(String tableName, String serde, HmsPartitionInfo partition) {
+        return new HiveTableHandle.Builder("db", tableName, HiveTableType.HIVE)
+                .inputFormat(TEXT_INPUT_FORMAT)
+                .serializationLib(serde)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(partition))
+                .build();
+    }
+
+    private static ConnectorScanRequest scanOf(HiveTableHandle handle) {
+        return ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList()).build();
     }
 
     // ===== object-store native read (FIX-hive-s3a: scheme normalization + canonical creds) =====
