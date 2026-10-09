@@ -25,6 +25,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/network_util.h"
 
 namespace doris {
@@ -57,6 +58,9 @@ inline bool enable_http_send_block(const PTransmitDataParams& request) {
     if (!request.has_block() || !request.block().has_column_values()) {
         return false;
     }
+    // Force the http attachment path in tests without needing an actual >= 2G request,
+    // so regression tests can exercise transmit_block_httpv2/transmit_block_httpv2_with_attachment_data.
+    DBUG_EXECUTE_IF("proto_util.enable_http_send_block.always_http", { return true; });
     if (request.ByteSizeLong() < MIN_HTTP_BRPC_SIZE) {
         return false;
     }
