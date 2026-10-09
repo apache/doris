@@ -73,6 +73,19 @@ public:
         _agent_server->submit_tasks(return_value, tasks);
     }
 
+    // Synchronous Lance index mutation. The real worker lands in a later slice;
+    // until then the invocation is answered as definitively not executed, so
+    // the FE classifies a complete trusted pre-invocation rejection (terminal
+    // confirmed failure, never retried within the same statement) instead of
+    // an ambiguous result.
+    void lance_index_mutate(TLanceIndexMutationResult& _return,
+                            const TLanceIndexMutationRequest& request) override {
+        TStatus status;
+        status.__set_status_code(TStatusCode::NOT_IMPLEMENTED_ERROR);
+        status.__set_error_msgs({"lance index worker is not available in this build"});
+        _return.__set_status(status);
+    }
+
     void publish_cluster_state(TAgentResult& result, const TAgentPublishRequest& request) override {
         _agent_server->publish_cluster_state(result, request);
     }
