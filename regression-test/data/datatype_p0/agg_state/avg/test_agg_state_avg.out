@@ -12,3 +12,15 @@
 -- !select --
 3999.5
 
+-- !avg_combine --
+3999.5
+
+-- !avg_combine_nullable --
+3999
+
+-- !avg_combine_all_null --
+\N
+
+-- !avg_combine_state_compatibility --
+3999.5
+

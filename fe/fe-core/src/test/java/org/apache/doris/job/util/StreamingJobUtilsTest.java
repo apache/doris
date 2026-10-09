@@ -18,16 +18,22 @@
 package org.apache.doris.job.util;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.qe.GlobalVariable;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
@@ -45,7 +51,7 @@ public class StreamingJobUtilsTest {
     @Mock
     private JdbcClient jdbcClient;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         MockitoAnnotations.initMocks(this);
     }
@@ -69,21 +75,21 @@ public class StreamingJobUtilsTest {
         List<Column> result = StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
 
         // Verify primary keys are at the front in correct order
-        Assert.assertEquals(5, result.size());
-        Assert.assertEquals("id", result.get(0).getName());
-        Assert.assertEquals("name", result.get(1).getName());
+        Assertions.assertEquals(5, result.size());
+        Assertions.assertEquals("id", result.get(0).getName());
+        Assertions.assertEquals("name", result.get(1).getName());
         // Verify varchar primary key columns have their length multiplied by 3
         Column nameColumn = result.get(1);
-        Assert.assertEquals(150, nameColumn.getType().getLength()); // 50 * 3
+        Assertions.assertEquals(150, nameColumn.getType().getLength()); // 50 * 3
         // Verify non-primary key columns follow
-        Assert.assertEquals("age", result.get(2).getName());
-        Assert.assertEquals("email", result.get(3).getName());
-        Assert.assertEquals("address", result.get(4).getName());
+        Assertions.assertEquals("age", result.get(2).getName());
+        Assertions.assertEquals("email", result.get(3).getName());
+        Assertions.assertEquals("address", result.get(4).getName());
         // Verify non-primary key varchar columns also have their length multiplied by 3
         Column emailColumn = result.get(3);
-        Assert.assertEquals(300, emailColumn.getType().getLength()); // 100 * 3
+        Assertions.assertEquals(300, emailColumn.getType().getLength()); // 100 * 3
         Column addressColumn = result.get(4);
-        Assert.assertEquals(600, addressColumn.getType().getLength()); // 200 * 3
+        Assertions.assertEquals(600, addressColumn.getType().getLength()); // 200 * 3
     }
 
     @Test
@@ -105,16 +111,16 @@ public class StreamingJobUtilsTest {
                 .filter(col -> col.getName().equals("short_name"))
                 .findFirst()
                 .orElse(null);
-        Assert.assertNotNull(shortName);
-        Assert.assertEquals(150, shortName.getType().getLength()); // 50 * 3
+        Assertions.assertNotNull(shortName);
+        Assertions.assertEquals(150, shortName.getType().getLength()); // 50 * 3
 
         // Verify long varchar becomes STRING type
         Column longName = result.stream()
                 .filter(col -> col.getName().equals("long_name"))
                 .findFirst()
                 .orElse(null);
-        Assert.assertNotNull(longName);
-        Assert.assertTrue(longName.getType().isStringType());
+        Assertions.assertNotNull(longName);
+        Assertions.assertTrue(longName.getType().isStringType());
     }
 
     @Test
@@ -135,9 +141,9 @@ public class StreamingJobUtilsTest {
                 .filter(col -> col.getName().equals("id"))
                 .findFirst()
                 .orElse(null);
-        Assert.assertNotNull(idColumn);
-        Assert.assertTrue(idColumn.getType().isVarchar());
-        Assert.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, idColumn.getType().getLength());
+        Assertions.assertNotNull(idColumn);
+        Assertions.assertTrue(idColumn.getType().isVarchar());
+        Assertions.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, idColumn.getType().getLength());
     }
 
     @Test
@@ -155,10 +161,10 @@ public class StreamingJobUtilsTest {
         List<Column> result = StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
 
         // Verify columns maintain original order when no primary keys
-        Assert.assertEquals(3, result.size());
-        Assert.assertEquals("col1", result.get(0).getName());
-        Assert.assertEquals("col2", result.get(1).getName());
-        Assert.assertEquals("col3", result.get(2).getName());
+        Assertions.assertEquals(3, result.size());
+        Assertions.assertEquals("col1", result.get(0).getName());
+        Assertions.assertEquals("col2", result.get(1).getName());
+        Assertions.assertEquals("col3", result.get(2).getName());
     }
 
     @Test
@@ -179,14 +185,14 @@ public class StreamingJobUtilsTest {
         List<Column> result = StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
 
         // Verify primary keys are sorted in the order defined in primaryKeys list
-        Assert.assertEquals(6, result.size());
-        Assert.assertEquals("pk3", result.get(0).getName());
-        Assert.assertEquals("pk1", result.get(1).getName());
-        Assert.assertEquals("pk2", result.get(2).getName());
+        Assertions.assertEquals(6, result.size());
+        Assertions.assertEquals("pk3", result.get(0).getName());
+        Assertions.assertEquals("pk1", result.get(1).getName());
+        Assertions.assertEquals("pk2", result.get(2).getName());
         // Verify non-primary keys follow
-        Assert.assertEquals("data1", result.get(3).getName());
-        Assert.assertEquals("data2", result.get(4).getName());
-        Assert.assertEquals("data3", result.get(5).getName());
+        Assertions.assertEquals("data1", result.get(3).getName());
+        Assertions.assertEquals("data2", result.get(4).getName());
+        Assertions.assertEquals("data3", result.get(5).getName());
     }
 
     @Test
@@ -203,13 +209,13 @@ public class StreamingJobUtilsTest {
         // This should throw IllegalArgumentException due to unsupported column type
         try {
             StreamingJobUtils.getColumns(jdbcClient, database, table, primaryKeys);
-            Assert.fail("Expected IllegalArgumentException to be thrown");
+            Assertions.fail("Expected IllegalArgumentException to be thrown");
         } catch (IllegalArgumentException e) {
             // Verify the exception message contains expected information
             String message = e.getMessage();
-            Assert.assertTrue(message.contains("Unsupported column type"));
-            Assert.assertTrue(message.contains("test_table"));
-            Assert.assertTrue(message.contains("unsupported_col"));
+            Assertions.assertTrue(message.contains("Unsupported column type"));
+            Assertions.assertTrue(message.contains("test_table"));
+            Assertions.assertTrue(message.contains("unsupported_col"));
         }
     }
 
@@ -232,16 +238,16 @@ public class StreamingJobUtilsTest {
                 .filter(col -> col.getName().equals("pk_varchar"))
                 .findFirst()
                 .orElse(null);
-        Assert.assertNotNull(pkVarcharColumn);
-        Assert.assertEquals(300, pkVarcharColumn.getType().getLength()); // 100 * 3
+        Assertions.assertNotNull(pkVarcharColumn);
+        Assertions.assertEquals(300, pkVarcharColumn.getType().getLength()); // 100 * 3
 
         // Verify normal varchar column also has length multiplied by 3
         Column normalVarcharColumn = result.stream()
                 .filter(col -> col.getName().equals("normal_varchar"))
                 .findFirst()
                 .orElse(null);
-        Assert.assertNotNull(normalVarcharColumn);
-        Assert.assertEquals(150, normalVarcharColumn.getType().getLength()); // 50 * 3
+        Assertions.assertNotNull(normalVarcharColumn);
+        Assertions.assertEquals(150, normalVarcharColumn.getType().getLength()); // 50 * 3
     }
 
     @Test
@@ -249,7 +255,7 @@ public class StreamingJobUtilsTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(DataSourceConfigKeys.DATABASE, "test_db");
 
-        Assert.assertEquals("test_db",
+        Assertions.assertEquals("test_db",
                 StreamingJobUtils.getRemoteDbName(DataSourceType.OCEANBASE, properties));
     }
 
@@ -264,10 +270,50 @@ public class StreamingJobUtilsTest {
                     .thenReturn("test_db");
             Mockito.when(jdbcClient.getTablesNameList("test_db")).thenReturn(new ArrayList<>());
 
-            Assert.assertThrows(JobException.class, () -> StreamingJobUtils.generateCreateTableCmds(
+            Assertions.assertThrows(JobException.class, () -> StreamingJobUtils.generateCreateTableCmds(
                     "target_db", DataSourceType.OCEANBASE, properties, new HashMap<>()));
 
             Mockito.verify(jdbcClient).closeClient();
+        }
+    }
+
+    @Test
+    public void testGenerateCreateTableCmdsFindsMixedCasePrecreatedTargetWhenStoredLowerCase() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DataSourceConfigKeys.SCHEMA, "source_db");
+        properties.put(DataSourceConfigKeys.TABLE + ".source_table."
+                + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX, "MixedTarget");
+
+        Database targetDatabase = new Database(1L, "target_db");
+        targetDatabase.registerTable(new OlapTable(2L, "mixedtarget", new ArrayList<>(), KeysType.UNIQUE_KEYS,
+                null, null));
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getDbNullable("target_db")).thenReturn(targetDatabase);
+        Mockito.when(jdbcClient.getTablesNameList("source_db"))
+                .thenReturn(Arrays.asList("source_table"));
+        Mockito.when(jdbcClient.getPrimaryKeys("source_db", "source_table"))
+                .thenReturn(Arrays.asList("id"));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table"))
+                .thenReturn(Arrays.asList(
+                        new Column("id", ScalarType.createType(PrimitiveType.INT)),
+                        new Column("unsupported_col", new ScalarType(PrimitiveType.UNSUPPORTED))));
+
+        int originalLowerCaseTableNames = GlobalVariable.lowerCaseTableNames;
+        GlobalVariable.lowerCaseTableNames = 1;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class,
+                        Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            utils.when(() -> StreamingJobUtils.getJdbcClient(DataSourceType.POSTGRES, properties))
+                    .thenReturn(jdbcClient);
+
+            Assertions.assertFalse(StreamingJobUtils.generateCreateTableCmds(
+                    "target_db", DataSourceType.POSTGRES, properties, new HashMap<>())
+                    .get("source_table").isPresent());
+        } finally {
+            GlobalVariable.lowerCaseTableNames = originalLowerCaseTableNames;
         }
     }
 }

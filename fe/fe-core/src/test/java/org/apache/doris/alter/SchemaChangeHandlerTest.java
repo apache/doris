@@ -33,6 +33,10 @@ import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.indexpolicy.DropIndexPolicyLog;
+import org.apache.doris.indexpolicy.IndexPolicy;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
+import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -46,7 +50,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -131,7 +134,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 Thread.sleep(1000);
             }
             LOG.info("alter job {} is done. state: {}", alterJobV2.getJobId(), alterJobV2.getJobState());
-            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Assertions.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
 
             Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
             OlapTable tbl = (OlapTable) db.getTableOrMetaException(alterJobV2.getTableId(), Table.TableType.OLAP);
@@ -186,14 +189,14 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='false');";
-        createTable(create);
+        createTableWithRowBinlog(create);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
 
         List<String> cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
                 .collect(Collectors.toList());
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v1")));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v1")));
 
         // single add column
         alterTable("ALTER TABLE test." + tableName + " ADD COLUMN v2 INT AFTER v1", connectContext);
@@ -201,10 +204,10 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(2, cols.indexOf("v2"));
-        Assert.assertEquals(3, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(4, cols.indexOf(Column.BINLOG_LSN_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v2")));
+        Assertions.assertEquals(2, cols.indexOf("v2"));
+        Assertions.assertEquals(3, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(4, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v2")));
 
         // multiple add column clauses in one ALTER
         alterTable("ALTER TABLE test." + tableName
@@ -213,12 +216,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(3, cols.indexOf("v3"));
-        Assert.assertEquals(4, cols.indexOf("v4"));
-        Assert.assertEquals(5, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(6, cols.indexOf(Column.BINLOG_LSN_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v3")));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v4")));
+        Assertions.assertEquals(3, cols.indexOf("v3"));
+        Assertions.assertEquals(4, cols.indexOf("v4"));
+        Assertions.assertEquals(5, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(6, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v3")));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v4")));
 
         // AddColumnsOp: ADD COLUMN (colDef1, colDef2)
         alterTable("ALTER TABLE test." + tableName + " ADD COLUMN (v5 INT, v6 INT)", connectContext);
@@ -226,12 +229,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(5, cols.indexOf("v5"));
-        Assert.assertEquals(6, cols.indexOf("v6"));
-        Assert.assertEquals(7, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(8, cols.indexOf(Column.BINLOG_LSN_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v5")));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
+        Assertions.assertEquals(5, cols.indexOf("v5"));
+        Assertions.assertEquals(6, cols.indexOf("v6"));
+        Assertions.assertEquals(7, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(8, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v5")));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
 
         // drop column
         alterTable("ALTER TABLE test." + tableName + " DROP COLUMN v6", connectContext);
@@ -239,9 +242,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertFalse(cols.contains("v6"));
-        Assert.assertEquals(6, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assert.assertEquals(7, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertFalse(cols.contains("v6"));
+        Assertions.assertEquals(6, cols.indexOf(Column.BINLOG_TSO_COL));
+        Assertions.assertEquals(7, cols.indexOf(Column.BINLOG_LSN_COL));
     }
 
     @Test
@@ -256,14 +259,14 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='true');";
-        createTable(create);
+        createTableWithRowBinlog(create);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
 
         List<String> cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
                 .collect(Collectors.toList());
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v1")));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v1")));
 
         // single add column
         alterTable("ALTER TABLE test." + tableName + " ADD COLUMN v2 INT AFTER v1", connectContext);
@@ -271,9 +274,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(2, cols.indexOf("v2"));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v2")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v1")) + 1,
+        Assertions.assertEquals(2, cols.indexOf("v2"));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v2")));
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v1")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v2")));
 
         // multiple add column clauses in one ALTER
@@ -283,13 +286,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(3, cols.indexOf("v3"));
-        Assert.assertEquals(4, cols.indexOf("v4"));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v3")));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v4")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v2")) + 1,
+        Assertions.assertEquals(3, cols.indexOf("v3"));
+        Assertions.assertEquals(4, cols.indexOf("v4"));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v3")));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v4")));
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v2")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v3")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v3")) + 1,
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v3")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v4")));
 
         // AddColumnsOp: ADD COLUMN (colDef1, colDef2)
@@ -298,13 +301,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertEquals(5, cols.indexOf("v5"));
-        Assert.assertEquals(6, cols.indexOf("v6"));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v5")));
-        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v6")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v4")) + 1,
+        Assertions.assertEquals(5, cols.indexOf("v5"));
+        Assertions.assertEquals(6, cols.indexOf("v6"));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v5")));
+        Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v6")));
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v4")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v5")));
-        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v5")) + 1,
+        Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v5")) + 1,
                 cols.indexOf(Column.generateBeforeColName("v6")));
 
         // drop column
@@ -312,8 +315,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertFalse(cols.contains("v6"));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
+        Assertions.assertFalse(cols.contains("v6"));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
 
         // enable hidden sequence column should not pollute row binlog schema
         alterTable("ALTER TABLE test." + tableName
@@ -322,10 +325,10 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
-        Assert.assertTrue(tbl.getBaseSchema(true).stream().anyMatch(Column::isSequenceColumn));
+        Assertions.assertTrue(tbl.getBaseSchema(true).stream().anyMatch(Column::isSequenceColumn));
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
-        Assert.assertFalse(cols.contains(Column.SEQUENCE_COL));
-        Assert.assertFalse(cols.contains(Column.generateBeforeColName(Column.SEQUENCE_COL)));
+        Assertions.assertFalse(cols.contains(Column.SEQUENCE_COL));
+        Assertions.assertFalse(cols.contains(Column.generateBeforeColName(Column.SEQUENCE_COL)));
     }
 
     @Test
@@ -420,8 +423,16 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='false');";
-        createTable(create);
+        createTableWithRowBinlog(create);
         expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v1 BIGINT", "Table With binlog<row>");
+
+        // 1b) RENAME COLUMN / REORDER COLUMNS are not allowed on row binlog tables either.
+        // This matters for IVM: dropping a column an MV references invalidates the IVM baseline, so
+        // every other way of changing a referenced column has to be rejected here. If one of them
+        // were ever allowed, it would become a new way to leave an MV stale without being noticed.
+        expectException("ALTER TABLE test." + tableName + " RENAME COLUMN v1 TO v1_renamed",
+                "Table With binlog<row>");
+        expectException("ALTER TABLE test." + tableName + " ORDER BY (k1, v1)", "Table With binlog<row>");
 
         // 2) VARIANT not supported
         String createVariant = "CREATE TABLE test.binlog_variant (k1 INT NOT NULL, v1 VARIANT) "
@@ -430,10 +441,10 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW');";
         try {
-            createTable(createVariant);
+            createTableWithRowBinlog(createVariant);
             Assertions.fail("Expected exception for VARIANT column");
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().toLowerCase().contains("variant"));
+            Assertions.assertTrue(e.getMessage().toLowerCase().contains("variant"));
         }
 
         String tableName2 = "binlog_add_variant";
@@ -442,7 +453,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW');";
-        createTable(create2);
+        createTableWithRowBinlog(create2);
         expectException("ALTER TABLE test." + tableName2 + " ADD COLUMN v2 VARIANT", "VARIANT");
 
         // 3) AUTO_INCREMENT not supported
@@ -452,10 +463,10 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW');";
         try {
-            createTable(createAutoinc);
+            createTableWithRowBinlog(createAutoinc);
             Assertions.fail("Expected exception for AUTO_INCREMENT column");
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().toLowerCase().contains("auto"));
+            Assertions.assertTrue(e.getMessage().toLowerCase().contains("auto"));
         }
     }
 
@@ -472,7 +483,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
-        createTable(create);
+        createTableWithRowBinlog(create);
 
         alterTable("ALTER TABLE test." + tableName + " ADD PARTITION p3 VALUES LESS THAN (\"30\")",
                 connectContext);
@@ -493,7 +504,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         String source = "CREATE TABLE test.row_binlog_replace_source (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1');";
-        createTable(target);
+        createTableWithRowBinlog(target);
         createTable(source);
         String alterStmt = "ALTER TABLE test.row_binlog_replace_target REPLACE WITH TABLE "
                 + "row_binlog_replace_source PROPERTIES('swap' = 'true')";
@@ -782,7 +793,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             // process agg drop key column with replace schema change, expect exception.
             String dropKeyColStmtStr = "alter table test.sc_agg drop column new_k1";
             alterTable(dropKeyColStmtStr, connectContext);
-            Assert.fail();
+            Assertions.fail();
         } catch (Exception e) {
             LOG.info(e.getMessage());
         }
@@ -969,7 +980,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         try {
             Deencapsulation.invoke(schemaChangeHandler, "addColumnInternal", olapTable, newColumn, columnPosition,
                     Long.valueOf(2), Long.valueOf(1), Maps.newHashMap(), Sets.newHashSet(), false, Maps.newHashMap());
-            Assert.fail();
+            Assertions.fail();
         } catch (Exception e) {
             System.out.println(e.getMessage());
         }
@@ -1210,7 +1221,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         } catch (Exception e) {
             // Verify the error message contains relevant info
             Assertions.assertTrue(e.getMessage().contains("INVERTED index for column (error_msg) "
-                    + "with analyzer default analyzer already exists"));
+                    + "with the same analyzer selector already exists"));
         }
         addInvertedIndexStmtStr = "alter table test.sc_dup add index idx_error_msg(error_msg), "
                 + "add index idx_error_msg(error_msg)";
@@ -1220,6 +1231,541 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             // Verify the error message contains relevant info
             Assertions.assertTrue(e.getMessage().contains("index `idx_error_msg` already exist."));
         }
+    }
+
+    @Test
+    public void testAddInvertedIndexStoresCanonicalBuiltinAnalyzer() throws Exception {
+        createAnalyzerAliasTable("sc_ik_alias");
+        alterTable("alter table test.sc_ik_alias add index idx_upper(c1) using inverted "
+                + "properties(\"analyzer\"=\"IK\")", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        OlapTable tbl = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException("sc_ik_alias", Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            Assertions.assertEquals(1, tbl.getIndexes().size());
+            Assertions.assertEquals("ik", tbl.getIndexes().get(0).getProperties().get("analyzer"));
+        } finally {
+            tbl.readUnlock();
+        }
+        expectException("alter table test.sc_ik_alias add index idx_lower(c1) using inverted "
+                + "properties(\"analyzer\"=\"ik\")", "already exists");
+        expectException("alter table test.sc_ik_alias add index idx_c2_lower(c2) using inverted "
+                + "properties(\"analyzer\"=\"ik\"), add index idx_c2_upper(c2) using inverted "
+                + "properties(\"analyzer\"=\"IK\")", "already exists");
+
+        IllegalStateException createError = Assertions.assertThrows(IllegalStateException.class,
+                () -> executeNereidsSql("CREATE TABLE test.sc_ik_alias_create (k INT, c1 VARCHAR(100),\n"
+                        + "INDEX idx_lower(c1) USING INVERTED PROPERTIES('analyzer' = 'ik'),\n"
+                        + "INDEX idx_upper(c1) USING INVERTED PROPERTIES('analyzer' = 'IK'))\n"
+                        + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                        + "PROPERTIES ('replication_num' = '1')"));
+        Assertions.assertTrue(createError.getMessage().contains("cannot have multiple inverted indexes"),
+                createError.getMessage());
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsEquivalentComponentAliases() throws Exception {
+        createAnalyzerAliasTable("sc_component_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_ngram_ld", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "ngram", "token_chars", "letter,digit"));
+        replayAliasPolicy(policyMgr, "alter_ngram_dll", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "ngram", "token_chars", "digit,letter,letter"));
+        replayAliasPolicy(policyMgr, "alter_ngram_ld_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "alter_ngram_ld"));
+        replayAliasPolicy(policyMgr, "alter_ngram_dll_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "alter_ngram_dll"));
+        replayAliasPolicy(policyMgr, "alter_nfd", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfd"));
+        replayAliasPolicy(policyMgr, "alter_nfd_decompose", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfd", "mode", "decompose"));
+        replayAliasPolicy(policyMgr, "alter_nfd_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "standard", "char_filter", "alter_nfd"));
+        replayAliasPolicy(policyMgr, "alter_nfd_decompose_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "standard", "char_filter", "alter_nfd_decompose"));
+
+        expectException("alter table test.sc_component_alias add index idx_ld(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_ngram_ld_analyzer\"), add index idx_dll(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_ngram_dll_analyzer\")", "already exists");
+        expectException("alter table test.sc_component_alias add index idx_nfd(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_nfd_analyzer\"), add index idx_nfd_decompose(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_nfd_decompose_analyzer\")", "already exists");
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsBufferSizeAndCaseFoldAliases() throws Exception {
+        createAnalyzerAliasTable("sc_fold_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_keyword_256", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword", "buffer_size", "256"));
+        replayAliasPolicy(policyMgr, "alter_keyword_512", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword", "buffer_size", "512"));
+        replayAliasPolicy(policyMgr, "alter_keyword_256_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "alter_keyword_256"));
+        replayAliasPolicy(policyMgr, "alter_keyword_512_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "alter_keyword_512"));
+        replayAliasPolicy(policyMgr, "alter_lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        replayAliasPolicy(policyMgr, "alter_x_to_y", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "x", "replacement", "y"));
+        replayAliasPolicy(policyMgr, "alter_fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer"));
+        replayAliasPolicy(policyMgr, "alter_x_fold_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_x_to_y,alter_fold"));
+        replayAliasPolicy(policyMgr, "alter_lower_x_fold_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_lower_a,alter_x_to_y,alter_fold"));
+        replayAliasPolicy(policyMgr, "alter_keyword_lower_1", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "lowercase"));
+        replayAliasPolicy(policyMgr, "alter_keyword_lower_2", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "lowercase"));
+
+        expectException("alter table test.sc_fold_alias add index idx_keyword_256(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_keyword_256_analyzer\"), add index idx_keyword_512(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_keyword_512_analyzer\")", "already exists");
+        expectException("alter table test.sc_fold_alias add index idx_x_fold(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_x_fold_analyzer\"), add index idx_lower_x_fold(c2) "
+                + "using inverted properties(\"analyzer\"=\"alter_lower_x_fold_analyzer\")", "already exists");
+        expectException("alter table test.sc_fold_alias add index idx_outer_lower(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_keyword_lower_1\", \"char_filter_type\"=\"char_replace\", "
+                + "\"char_filter_pattern\"=\"A\", \"char_filter_replacement\"=\"a\"), "
+                + "add index idx_plain_lower(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_keyword_lower_2\")", "already exists");
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsBuiltinAnalyzerPipelineAliases() throws Exception {
+        createAnalyzerAliasTable("sc_builtin_pipeline_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_basic_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic", "token_filter", "lowercase"));
+        replayAliasPolicy(policyMgr, "alter_icu_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "icu", "token_filter", "lowercase"));
+        replayAliasPolicy(policyMgr, "alter_basic_plain", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic"));
+
+        expectException("alter table test.sc_builtin_pipeline_alias add index idx_builtin_basic(c1) "
+                + "using inverted properties(\"analyzer\"=\"basic\"), add index idx_custom_basic(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_basic_lower\")", "already exists");
+        expectException("alter table test.sc_builtin_pipeline_alias add index idx_builtin_icu(c2) "
+                + "using inverted properties(\"parser\"=\"icu\"), add index idx_custom_icu(c2) "
+                + "using inverted properties(\"analyzer\"=\"alter_icu_lower\")", "already exists");
+        expectException("alter table test.sc_builtin_pipeline_alias add index idx_cased_basic(c1) "
+                + "using inverted properties(\"analyzer\"=\"basic\", \"lower_case\"=\"false\"), "
+                + "add index idx_custom_plain(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_basic_plain\")", "already exists");
+        expectException("alter table test.sc_builtin_pipeline_alias add index idx_standard(c2) "
+                + "using inverted properties(\"parser\"=\"standard\"), add index idx_unicode(c2) "
+                + "using inverted properties(\"parser\"=\"unicode\")", "already exists");
+        expectException("alter table test.sc_builtin_pipeline_alias add index idx_analyzer_standard(c1) "
+                + "using inverted properties(\"analyzer\"=\"standard\"), add index idx_analyzer_unicode(c1) "
+                + "using inverted properties(\"analyzer\"=\"unicode\")", "already exists");
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsPinyinSettingsBehindDisabledGates() throws Exception {
+        createAnalyzerAliasTable("sc_pinyin_gate_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_py_tf_plain", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin"));
+        replayAliasPolicy(policyMgr, "alter_py_tf_ascii_in_joined", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_none_chinese_in_joined_full_pinyin", "true"));
+        replayAliasPolicy(policyMgr, "alter_py_tf_separate", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false"));
+        replayAliasPolicy(policyMgr, "alter_py_tf_separate_untokenized", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false",
+                        "none_chinese_pinyin_tokenize", "false"));
+        replayAliasPolicy(policyMgr, "alter_py_tk_plain", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin"));
+        replayAliasPolicy(policyMgr, "alter_py_tk_ascii_in_joined", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_none_chinese_in_joined_full_pinyin", "true"));
+        replayAliasPolicy(policyMgr, "alter_py_tk_separate", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false"));
+        replayAliasPolicy(policyMgr, "alter_py_tk_separate_untokenized", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false",
+                        "none_chinese_pinyin_tokenize", "false"));
+        for (String filter : new String[] {"alter_py_tf_plain", "alter_py_tf_ascii_in_joined",
+                "alter_py_tf_separate", "alter_py_tf_separate_untokenized"}) {
+            replayAliasPolicy(policyMgr, filter + "_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "token_filter", filter));
+        }
+        for (String tokenizer : new String[] {"alter_py_tk_plain", "alter_py_tk_ascii_in_joined",
+                "alter_py_tk_separate", "alter_py_tk_separate_untokenized"}) {
+            replayAliasPolicy(policyMgr, tokenizer + "_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", tokenizer));
+        }
+
+        expectException("alter table test.sc_pinyin_gate_alias add index idx_tf_plain(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tf_plain_analyzer\"), add index idx_tf_ascii(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_py_tf_ascii_in_joined_analyzer\")",
+                "already exists");
+        expectException("alter table test.sc_pinyin_gate_alias add index idx_tf_separate(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tf_separate_analyzer\"), "
+                + "add index idx_tf_separate_untokenized(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tf_separate_untokenized_analyzer\")", "already exists");
+        expectException("alter table test.sc_pinyin_gate_alias add index idx_tk_plain(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tk_plain_analyzer\"), add index idx_tk_ascii(c2) "
+                + "using inverted properties(\"analyzer\"=\"alter_py_tk_ascii_in_joined_analyzer\")",
+                "already exists");
+        expectException("alter table test.sc_pinyin_gate_alias add index idx_tk_separate(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tk_separate_analyzer\"), "
+                + "add index idx_tk_separate_untokenized(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tk_separate_untokenized_analyzer\")", "already exists");
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsFoldAliasesThroughEmptySetNormalizerAndTransparentFilters()
+            throws Exception {
+        createAnalyzerAliasTable("sc_fold2_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_fold2_lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        replayAliasPolicy(policyMgr, "alter_fold2_empty_set", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[]"));
+        replayAliasPolicy(policyMgr, "alter_fold2_empty_only", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_fold2_empty_set"));
+        replayAliasPolicy(policyMgr, "alter_fold2_lower_empty", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_fold2_lower_a,alter_fold2_empty_set"));
+        replayAliasPolicy(policyMgr, "alter_fold2_norm_lower_1", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase"));
+        replayAliasPolicy(policyMgr, "alter_fold2_norm_lower_2", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase"));
+        replayAliasPolicy(policyMgr, "alter_fold2_ascii", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "asciifolding"));
+        replayAliasPolicy(policyMgr, "alter_fold2_ascii_lower_1", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "alter_fold2_ascii,lowercase"));
+        replayAliasPolicy(policyMgr, "alter_fold2_ascii_lower_2", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "alter_fold2_ascii,lowercase"));
+
+        expectException("alter table test.sc_fold2_alias add index idx_empty_only(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold2_empty_only\"), add index idx_lower_empty(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_fold2_lower_empty\")", "already exists");
+        expectException("alter table test.sc_fold2_alias add index idx_outer_norm_lower(c1) using inverted "
+                + "properties(\"normalizer\"=\"alter_fold2_norm_lower_1\", \"char_filter_type\"=\"char_replace\", "
+                + "\"char_filter_pattern\"=\"A\", \"char_filter_replacement\"=\"a\"), "
+                + "add index idx_norm_lower(c1) using inverted "
+                + "properties(\"normalizer\"=\"alter_fold2_norm_lower_2\")", "already exists");
+        expectException("alter table test.sc_fold2_alias add index idx_outer_ascii_lower(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold2_ascii_lower_1\", \"char_filter_type\"=\"char_replace\", "
+                + "\"char_filter_pattern\"=\"A\", \"char_filter_replacement\"=\"a\"), "
+                + "add index idx_ascii_lower(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold2_ascii_lower_2\")", "already exists");
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsReplacementByteFilteredFoldAndBuiltinNormalizerAliases()
+            throws Exception {
+        createAnalyzerAliasTable("sc_fold3_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_fold3_lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        replayAliasPolicy(policyMgr, "alter_fold3_x_to_upper_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "Ax", "replacement", "A"));
+        replayAliasPolicy(policyMgr, "alter_fold3_fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer"));
+        replayAliasPolicy(policyMgr, "alter_fold3_fold_upper_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[A]"));
+        replayAliasPolicy(policyMgr, "alter_fold3_x_upper_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_fold3_x_to_upper_a,alter_fold3_fold"));
+        replayAliasPolicy(policyMgr, "alter_fold3_lower_x_upper_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword",
+                        "char_filter", "alter_fold3_lower_a,alter_fold3_x_to_upper_a,alter_fold3_fold"));
+        replayAliasPolicy(policyMgr, "alter_fold3_fold_upper_a_only", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_fold3_fold_upper_a"));
+        replayAliasPolicy(policyMgr, "alter_fold3_wd_b_digit", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "type_table", "[b => DIGIT]"));
+        replayAliasPolicy(policyMgr, "alter_fold3_wd_a_lower_b_digit", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "type_table", "[a => LOWER],[b => DIGIT]"));
+        replayAliasPolicy(policyMgr, "alter_fold3_wd_b_digit_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "alter_fold3_wd_b_digit"));
+        replayAliasPolicy(policyMgr, "alter_fold3_wd_a_lower_b_digit_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "alter_fold3_wd_a_lower_b_digit"));
+        replayAliasPolicy(policyMgr, "alter_fold3_norm_lower", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase"));
+
+        expectException("alter table test.sc_fold3_alias add index idx_x_upper_fold(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold3_x_upper_fold\"), add index idx_lower_x_upper_fold(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_fold3_lower_x_upper_fold\")", "already exists");
+        expectException("alter table test.sc_fold3_alias add index idx_outer_fold_upper_a(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold3_fold_upper_a_only\", \"char_filter_type\"=\"char_replace\", "
+                + "\"char_filter_pattern\"=\"A\", \"char_filter_replacement\"=\"a\"), "
+                + "add index idx_fold_upper_a(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold3_fold_upper_a_only\")", "already exists");
+        expectException("alter table test.sc_fold3_alias add index idx_wd_b_digit(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold3_wd_b_digit_analyzer\"), add index idx_wd_a_lower_b_digit(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_fold3_wd_a_lower_b_digit_analyzer\")",
+                "already exists");
+        expectException("alter table test.sc_fold3_alias add index idx_builtin_lowercase(c2) using inverted "
+                + "properties(\"normalizer\"=\"lowercase\"), add index idx_custom_lowercase(c2) using inverted "
+                + "properties(\"normalizer\"=\"alter_fold3_norm_lower\")", "already exists");
+    }
+
+    @Test
+    public void testMixedCaseBuiltinNormalizerIgnoresNormalizedLegacyPolicyInDdl() throws Exception {
+        createAnalyzerAliasTable("sc_mixed_lowercase");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        IndexPolicy legacy = replayAliasPolicy(policyMgr, "LOWERCASE", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "asciifolding"));
+        try {
+            alterTable("alter table test.sc_mixed_lowercase add index idx_mixed(c1) using inverted "
+                    + "properties(\"normalizer\"=\"LowerCase\")", connectContext);
+            jobSize++;
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            Assertions.assertEquals("lowercase", storedIndexProperty("sc_mixed_lowercase", "idx_mixed", "normalizer"));
+            expectException("alter table test.sc_mixed_lowercase add index idx_builtin(c1) using inverted "
+                    + "properties(\"normalizer\"=\"lowercase\")", "already exists");
+
+            executeNereidsSql("CREATE TABLE test.sc_mixed_lowercase_create (k INT, c1 VARCHAR(100),\n"
+                    + "INDEX idx_mixed(c1) USING INVERTED PROPERTIES('normalizer' = 'LowerCase'))\n"
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                    + "PROPERTIES ('replication_num' = '1')");
+            Assertions.assertEquals("lowercase",
+                    storedIndexProperty("sc_mixed_lowercase_create", "idx_mixed", "normalizer"));
+        } finally {
+            policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(legacy.getId()));
+        }
+    }
+
+    @Test
+    public void testCanonicalBuiltinAnalyzerIgnoresExactLegacyPolicyInDdl() throws Exception {
+        createAnalyzerAliasTable("sc_exact_ik_policy");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        IndexPolicy legacy = replayAliasPolicy(policyMgr, "ik", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword"));
+        try {
+            alterTable("alter table test.sc_exact_ik_policy add index idx_ik(c1) using inverted "
+                    + "properties(\"analyzer\"=\"ik\")", connectContext);
+            jobSize++;
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            Assertions.assertEquals("ik", storedIndexProperty("sc_exact_ik_policy", "idx_ik", "analyzer"));
+
+            executeNereidsSql("CREATE TABLE test.sc_exact_ik_policy_create (k INT, c1 VARCHAR(100),\n"
+                    + "INDEX idx_ik(c1) USING INVERTED PROPERTIES('analyzer' = 'ik'))\n"
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                    + "PROPERTIES ('replication_num' = '1')");
+            Assertions.assertEquals("ik", storedIndexProperty("sc_exact_ik_policy_create", "idx_ik", "analyzer"));
+        } finally {
+            policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(legacy.getId()));
+        }
+    }
+
+    @Test
+    public void testAddInvertedIndexUsesExactLegacyLowercaseNormalizerIdentity() throws Exception {
+        createAnalyzerAliasTable("sc_exact_lowercase");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        List<IndexPolicy> replayed = List.of(
+                replayAliasPolicy(policyMgr, "lowercase", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "asciifolding")),
+                replayAliasPolicy(policyMgr, "alter_exact_norm_ascii", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "asciifolding")));
+        try {
+            expectException("alter table test.sc_exact_lowercase add index idx_legacy_lowercase(c1) "
+                    + "using inverted properties(\"normalizer\"=\"lowercase\"), add index idx_ascii(c1) "
+                    + "using inverted properties(\"normalizer\"=\"alter_exact_norm_ascii\")", "already exists");
+        } finally {
+            for (IndexPolicy policy : replayed) {
+                policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(policy.getId()));
+            }
+        }
+    }
+
+    @Test
+    public void testMixedCaseNormalizerKeepsBuiltinBindingWhenExactPolicyShadowsIt() throws Exception {
+        createAnalyzerAliasTable("sc_shadowed_lowercase");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        List<IndexPolicy> replayed = List.of(
+                replayAliasPolicy(policyMgr, "lowercase", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "asciifolding")),
+                replayAliasPolicy(policyMgr, "alter_shadow_norm_lower", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "lowercase")));
+        try {
+            alterTable("alter table test.sc_shadowed_lowercase add index idx_mixed(c1) using inverted "
+                    + "properties(\"normalizer\"=\"LowerCase\")", connectContext);
+            jobSize++;
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            // Canonicalizing to "lowercase" would make BE pick the shadowing policy instead.
+            Assertions.assertEquals("LowerCase",
+                    storedIndexProperty("sc_shadowed_lowercase", "idx_mixed", "normalizer"));
+            expectException("alter table test.sc_shadowed_lowercase add index idx_equivalent(c1) "
+                    + "using inverted properties(\"normalizer\"=\"alter_shadow_norm_lower\")", "already exists");
+
+            executeNereidsSql("CREATE TABLE test.sc_shadowed_lowercase_create (k INT, c1 VARCHAR(100),\n"
+                    + "INDEX idx_mixed(c1) USING INVERTED PROPERTIES('normalizer' = 'LowerCase'),\n"
+                    + "INDEX idx_legacy(c1) USING INVERTED PROPERTIES('normalizer' = 'lowercase'))\n"
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                    + "PROPERTIES ('replication_num' = '1')");
+            Assertions.assertEquals("LowerCase",
+                    storedIndexProperty("sc_shadowed_lowercase_create", "idx_mixed", "normalizer"));
+            Assertions.assertEquals("lowercase",
+                    storedIndexProperty("sc_shadowed_lowercase_create", "idx_legacy", "normalizer"));
+        } finally {
+            for (IndexPolicy policy : replayed) {
+                policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(policy.getId()));
+            }
+        }
+    }
+
+    @Test
+    public void testNormalizerNamedAfterBuiltinAnalyzerIsRejectedInDdl() throws Exception {
+        createAnalyzerAliasTable("sc_unreachable_normalizer");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        List<IndexPolicy> replayed = List.of(
+                replayAliasPolicy(policyMgr, "ik", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "asciifolding")),
+                replayAliasPolicy(policyMgr, "alter_unreachable_norm_ascii", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "asciifolding")));
+        try {
+            expectException("alter table test.sc_unreachable_normalizer add index idx_ik(c1) using inverted "
+                    + "properties(\"normalizer\"=\"ik\")", "built-in analyzer");
+            Exception createError = Assertions.assertThrows(Exception.class,
+                    () -> executeNereidsSql("CREATE TABLE test.sc_unreachable_normalizer_create "
+                            + "(k INT, c1 VARCHAR(100),\n"
+                            + "INDEX idx_ik(c1) USING INVERTED PROPERTIES('normalizer' = 'ik'))\n"
+                            + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                            + "PROPERTIES ('replication_num' = '1')"));
+            Assertions.assertTrue(createError.getMessage().contains("built-in analyzer"), createError.getMessage());
+
+            alterTable("alter table test.sc_unreachable_normalizer add index idx_ascii(c1) using inverted "
+                    + "properties(\"normalizer\"=\"alter_unreachable_norm_ascii\")", connectContext);
+            jobSize++;
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            Assertions.assertEquals("alter_unreachable_norm_ascii",
+                    storedIndexProperty("sc_unreachable_normalizer", "idx_ascii", "normalizer"));
+
+            executeNereidsSql("CREATE TABLE test.sc_unreachable_normalizer_create (k INT, c1 VARCHAR(100),\n"
+                    + "INDEX idx_ascii(c1) USING INVERTED "
+                    + "PROPERTIES('normalizer' = 'alter_unreachable_norm_ascii'))\n"
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                    + "PROPERTIES ('replication_num' = '1')");
+            Assertions.assertEquals("alter_unreachable_norm_ascii",
+                    storedIndexProperty("sc_unreachable_normalizer_create", "idx_ascii", "normalizer"));
+        } finally {
+            for (IndexPolicy policy : replayed) {
+                policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(policy.getId()));
+            }
+        }
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsRedundantTokenCharAndReverseCaseAliases() throws Exception {
+        createAnalyzerAliasTable("sc_fold4_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        List<IndexPolicy> replayed = Lists.newArrayList(
+                replayAliasPolicy(policyMgr, "alter_fold4_lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                        Map.of("type", "char_replace", "pattern", "A", "replacement", "a")),
+                replayAliasPolicy(policyMgr, "alter_fold4_upper_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                        Map.of("type", "char_replace", "pattern", "a", "replacement", "A")),
+                replayAliasPolicy(policyMgr, "alter_fold4_ngram_letter", IndexPolicyTypeEnum.TOKENIZER,
+                        Map.of("type", "ngram", "token_chars", "letter")),
+                replayAliasPolicy(policyMgr, "alter_fold4_ngram_letter_a", IndexPolicyTypeEnum.TOKENIZER,
+                        Map.of("type", "ngram", "token_chars", "letter,custom", "custom_token_chars", "A")),
+                replayAliasPolicy(policyMgr, "alter_fold4_group_letter", IndexPolicyTypeEnum.TOKENIZER,
+                        Map.of("type", "char_group", "tokenize_on_chars", "[letter]")),
+                replayAliasPolicy(policyMgr, "alter_fold4_group_letter_a", IndexPolicyTypeEnum.TOKENIZER,
+                        Map.of("type", "char_group", "tokenize_on_chars", "[letter],[A]")));
+        String[][] analyzers = {
+                {"alter_fold4_ngram_plain", "alter_fold4_ngram_letter", "alter_fold4_lower_a"},
+                {"alter_fold4_ngram_custom_a", "alter_fold4_ngram_letter_a", "alter_fold4_lower_a"},
+                {"alter_fold4_group_plain", "alter_fold4_group_letter", "alter_fold4_lower_a"},
+                {"alter_fold4_group_literal_a", "alter_fold4_group_letter_a", "alter_fold4_lower_a"},
+                {"alter_fold4_keyword_lower", "keyword", null},
+                {"alter_fold4_upper_keyword_lower", "keyword", "alter_fold4_upper_a"}};
+        for (String[] analyzer : analyzers) {
+            Map<String, String> properties = Maps.newHashMap(
+                    Map.of("tokenizer", analyzer[1], "token_filter", "lowercase"));
+            if (analyzer[2] != null) {
+                properties.put("char_filter", analyzer[2]);
+            }
+            replayed.add(replayAliasPolicy(policyMgr, analyzer[0], IndexPolicyTypeEnum.ANALYZER, properties));
+        }
+        try {
+            Assertions.assertAll(
+                    () -> expectException("alter table test.sc_fold4_alias add index idx_ngram_plain(c1) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_ngram_plain\"), "
+                            + "add index idx_ngram_custom_a(c1) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_ngram_custom_a\")",
+                            "already exists"),
+                    () -> expectException("alter table test.sc_fold4_alias add index idx_group_plain(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_group_plain\"), "
+                            + "add index idx_group_literal_a(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_group_literal_a\")",
+                            "already exists"),
+                    () -> expectException("alter table test.sc_fold4_alias add index idx_keyword_lower(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_keyword_lower\"), "
+                            + "add index idx_upper_keyword_lower(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_upper_keyword_lower\")",
+                            "already exists"));
+        } finally {
+            for (IndexPolicy policy : replayed) {
+                policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(policy.getId()));
+            }
+        }
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsAdjacentDuplicateIdempotentFilterAliases() throws Exception {
+        createAnalyzerAliasTable("sc_dup_filter_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        List<IndexPolicy> replayed = Lists.newArrayList(
+                replayAliasPolicy(policyMgr, "alter_dup_dash", IndexPolicyTypeEnum.CHAR_FILTER,
+                        Map.of("type", "char_replace", "pattern", "-", "replacement", " ")),
+                replayAliasPolicy(policyMgr, "alter_dup_icu_once", IndexPolicyTypeEnum.ANALYZER,
+                        Map.of("tokenizer", "keyword", "token_filter", "icu_normalizer")),
+                replayAliasPolicy(policyMgr, "alter_dup_icu_twice", IndexPolicyTypeEnum.ANALYZER,
+                        Map.of("tokenizer", "keyword", "token_filter", "icu_normalizer,icu_normalizer")),
+                replayAliasPolicy(policyMgr, "alter_dup_dash_once", IndexPolicyTypeEnum.ANALYZER,
+                        Map.of("tokenizer", "keyword", "char_filter", "alter_dup_dash")),
+                replayAliasPolicy(policyMgr, "alter_dup_dash_twice", IndexPolicyTypeEnum.ANALYZER,
+                        Map.of("tokenizer", "keyword", "char_filter", "alter_dup_dash,alter_dup_dash")));
+        try {
+            Assertions.assertAll(
+                    () -> expectException("alter table test.sc_dup_filter_alias add index idx_icu_once(c1) "
+                            + "using inverted properties(\"analyzer\"=\"alter_dup_icu_once\"), "
+                            + "add index idx_icu_twice(c1) "
+                            + "using inverted properties(\"analyzer\"=\"alter_dup_icu_twice\")",
+                            "already exists"),
+                    () -> expectException("alter table test.sc_dup_filter_alias add index idx_dash_once(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_dup_dash_once\"), "
+                            + "add index idx_dash_twice(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_dup_dash_twice\")",
+                            "already exists"));
+        } finally {
+            for (IndexPolicy policy : replayed) {
+                policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(policy.getId()));
+            }
+        }
+    }
+
+    private static String storedIndexProperty(String tableName, String indexName, String key) throws Exception {
+        OlapTable tbl = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException(tableName, Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            return tbl.getIndexes().stream()
+                    .filter(index -> index.getIndexName().equals(indexName))
+                    .findFirst()
+                    .orElseThrow()
+                    .getProperties()
+                    .get(key);
+        } finally {
+            tbl.readUnlock();
+        }
+    }
+
+    private void createAnalyzerAliasTable(String tableName) throws Exception {
+        createTable("CREATE TABLE IF NOT EXISTS test." + tableName
+                + " (k INT, c1 VARCHAR(100), c2 VARCHAR(100))\n"
+                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+    }
+
+    private static IndexPolicy replayAliasPolicy(IndexPolicyMgr policyMgr, String name, IndexPolicyTypeEnum type,
+            Map<String, String> properties) {
+        IndexPolicy policy = new IndexPolicy(Env.getCurrentEnv().getNextId(), name, type, properties);
+        policyMgr.replayCreateIndexPolicy(policy);
+        return policy;
     }
 
     private void alterTable(String sql, ConnectContext connectContext) throws Exception {

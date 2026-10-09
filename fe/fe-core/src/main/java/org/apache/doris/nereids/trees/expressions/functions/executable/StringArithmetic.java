@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
@@ -45,10 +46,14 @@ import org.apache.doris.nereids.types.ArrayType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -559,6 +564,15 @@ public class StringArithmetic {
         return 0;
     }
 
+    private static int compareTimeStampNsLiteral(TimeStampNsLiteral first, TimeStampNsLiteral... second) {
+        for (int i = 0; i < second.length; i++) {
+            if (second[i].equals(first)) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
     private static int compareFloatLiteral(FloatLiteral first, FloatLiteral... second) {
         float firstValue = first.getValue();
         for (int i = 0; i < second.length; i++) {
@@ -667,6 +681,11 @@ public class StringArithmetic {
     @ExecFunction(name = "field")
     public static Expression fieldDateTimeV2(DateTimeV2Literal first, DateTimeV2Literal... second) {
         return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    @ExecFunction(name = "field")
+    public static Expression fieldTimeStampNs(TimeStampNsLiteral first, TimeStampNsLiteral... second) {
+        return new IntegerLiteral(compareTimeStampNsLiteral(first, second));
     }
 
     /**
@@ -973,17 +992,39 @@ public class StringArithmetic {
         return Math.min(firstIndex, secondIndex);
     }
 
+    private static int firstIndexOf(String value, char first, char second, char third) {
+        return firstIndexOf(value, firstIndexOf(value, first, second), third);
+    }
+
+    private static int firstIndexOf(String value, int firstIndex, char second) {
+        int secondIndex = value.indexOf(second);
+        if (firstIndex < 0) {
+            return secondIndex;
+        }
+        if (secondIndex < 0) {
+            return firstIndex;
+        }
+        return Math.min(firstIndex, secondIndex);
+    }
+
     private static String substringEnd(String value, int end) {
         return end < 0 ? value : value.substring(0, end);
     }
 
     private static String parseUrlAuthority(String protocolEnd) {
-        return substringEnd(protocolEnd, protocolEnd.indexOf('/'));
+        // The authority component runs from the end of "://" up to the first '/', '?' or '#',
+        // whichever comes first.
+        int endPos = firstIndexOf(protocolEnd, '?', '#');
+        int slashPos = protocolEnd.indexOf('/');
+        if (slashPos >= 0 && (endPos < 0 || slashPos < endPos)) {
+            endPos = slashPos;
+        }
+        return substringEnd(protocolEnd, endPos);
     }
 
     private static String parseUrlPath(String protocolEnd) {
-        int startPos = protocolEnd.indexOf('/');
-        if (startPos < 0) {
+        int startPos = firstIndexOf(protocolEnd, '/', '?', '#');
+        if (startPos < 0 || protocolEnd.charAt(startPos) != '/') {
             return "";
         }
         String pathStart = protocolEnd.substring(startPos);
@@ -992,7 +1033,12 @@ public class StringArithmetic {
 
     private static String parseUrlFile(String protocolEnd) {
         int startPos = protocolEnd.indexOf('/');
-        if (startPos < 0) {
+        int queryPos = protocolEnd.indexOf('?');
+        int fragmentPos = protocolEnd.indexOf('#');
+        if (startPos < 0 || (queryPos >= 0 && queryPos < startPos)) {
+            startPos = queryPos;
+        }
+        if (startPos < 0 || (fragmentPos >= 0 && fragmentPos < startPos)) {
             return "";
         }
         String pathStart = protocolEnd.substring(startPos);
@@ -1000,18 +1046,15 @@ public class StringArithmetic {
     }
 
     private static String parseUrlHost(String protocolEnd) {
-        int startPos = protocolEnd.indexOf('@');
+        String authority = parseUrlAuthority(protocolEnd);
+        int startPos = authority.lastIndexOf('@');
         startPos = startPos < 0 ? 0 : startPos + 1;
-        String hostStart = protocolEnd.substring(startPos);
-        int queryStartPos = hostStart.indexOf('?');
-        if (queryStartPos > 0) {
-            hostStart = hostStart.substring(0, queryStartPos);
+        String hostStart = authority.substring(startPos);
+        if (hostStart.startsWith("[")) {
+            int closeBracket = hostStart.indexOf(']');
+            return closeBracket < 0 ? hostStart : hostStart.substring(0, closeBracket + 1);
         }
-        int endPos = hostStart.indexOf(':');
-        if (endPos < 0) {
-            endPos = hostStart.indexOf('/');
-        }
-        return substringEnd(hostStart, endPos);
+        return substringEnd(hostStart, hostStart.indexOf(':'));
     }
 
     private static String parseUrlQuery(String protocolEnd) {
@@ -1019,8 +1062,14 @@ public class StringArithmetic {
         if (startPos < 0) {
             return null;
         }
-        String queryStart = protocolEnd.substring(startPos + 1);
-        return substringEnd(queryStart, queryStart.indexOf('#'));
+        int fragmentPos = protocolEnd.indexOf('#');
+        if (fragmentPos >= 0 && fragmentPos < startPos) {
+            // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+            // fragment and the url has no query component.
+            return null;
+        }
+        return protocolEnd.substring(startPos + 1,
+                fragmentPos >= 0 ? fragmentPos : protocolEnd.length());
     }
 
     private static String parseUrlRef(String protocolEnd) {
@@ -1032,27 +1081,35 @@ public class StringArithmetic {
     }
 
     private static String parseUrlUserInfo(String protocolEnd) {
-        int endPos = protocolEnd.indexOf('@');
+        String authority = parseUrlAuthority(protocolEnd);
+        int endPos = authority.lastIndexOf('@');
         if (endPos < 0) {
             return null;
         }
-        return protocolEnd.substring(0, endPos);
+        return authority.substring(0, endPos);
     }
 
     private static String parseUrlPort(String protocolEnd) {
-        int startPos = protocolEnd.indexOf('@');
+        String authority = parseUrlAuthority(protocolEnd);
+        int startPos = authority.lastIndexOf('@');
         startPos = startPos < 0 ? 0 : startPos + 1;
-        String hostStart = protocolEnd.substring(startPos);
-        int endPos = hostStart.indexOf(':');
-        if (endPos < 0) {
-            return null;
+        String hostStart = authority.substring(startPos);
+        int portStart;
+        if (hostStart.startsWith("[")) {
+            int closeBracket = hostStart.indexOf(']');
+            if (closeBracket < 0 || closeBracket + 1 >= hostStart.length()
+                    || hostStart.charAt(closeBracket + 1) != ':') {
+                return null;
+            }
+            portStart = closeBracket + 2;
+        } else {
+            int colonPos = hostStart.indexOf(':');
+            if (colonPos < 0) {
+                return null;
+            }
+            portStart = colonPos + 1;
         }
-        String portStart = hostStart.substring(endPos + 1);
-        int portEndPos = portStart.indexOf('/');
-        if (portEndPos < 0) {
-            portEndPos = portStart.indexOf('?');
-        }
-        return substringEnd(portStart, portEndPos);
+        return hostStart.substring(portStart);
     }
 
     /**
@@ -1060,10 +1117,57 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "url_decode")
     public static Expression urlDecode(StringLikeLiteral first) {
+        if (!isValidUtf8AfterUrlDecode(first.getValue())) {
+            // String literals cannot preserve an invalid UTF-8 byte sequence. Let BE evaluate it
+            // instead of folding the replacement characters produced by java.net.URLDecoder.
+            throw new IllegalArgumentException("URL-decoded value is not valid UTF-8");
+        }
         try {
             return castStringLikeLiteral(first, URLDecoder.decode(first.getValue(), StandardCharsets.UTF_8.name()));
         } catch (UnsupportedEncodingException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private static boolean isValidUtf8AfterUrlDecode(String value) {
+        ByteArrayOutputStream decodedBytes = new ByteArrayOutputStream(value.length());
+        int index = 0;
+        while (index < value.length()) {
+            char current = value.charAt(index);
+            if (current == '%') {
+                if (index + 2 >= value.length()) {
+                    // Preserve URLDecoder's existing malformed-escape handling.
+                    return true;
+                }
+                int high = Character.digit(value.charAt(index + 1), 16);
+                int low = Character.digit(value.charAt(index + 2), 16);
+                if (high < 0 || low < 0) {
+                    // Preserve URLDecoder's existing malformed-escape handling.
+                    return true;
+                }
+                decodedBytes.write((high << 4) + low);
+                index += 3;
+            } else if (current == '+') {
+                decodedBytes.write(' ');
+                index++;
+            } else {
+                int start = index;
+                while (index < value.length() && value.charAt(index) != '%' && value.charAt(index) != '+') {
+                    index++;
+                }
+                byte[] originalBytes = value.substring(start, index).getBytes(StandardCharsets.UTF_8);
+                decodedBytes.write(originalBytes, 0, originalBytes.length);
+            }
+        }
+
+        try {
+            StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(decodedBytes.toByteArray()));
+            return true;
+        } catch (CharacterCodingException e) {
+            return false;
         }
     }
 
@@ -1120,6 +1224,11 @@ public class StringArithmetic {
             return castStringLikeLiteral(first, "");
         }
         int hashPos = trimmedUrl.indexOf('#');
+        if (hashPos >= 0 && hashPos < questionPos) {
+            // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+            // fragment and the url has no query parameters.
+            return castStringLikeLiteral(first, "");
+        }
         String subUrl = hashPos < 0
                 ? trimmedUrl.substring(questionPos + 1)
                 : trimmedUrl.substring(questionPos + 1, hashPos);

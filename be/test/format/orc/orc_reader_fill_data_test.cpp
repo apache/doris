@@ -28,7 +28,9 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/types.h"
+#include "core/value/uuid_value.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/orc/vorc_reader.h"
 #include "orc/ColumnPrinter.hh"
@@ -110,6 +112,32 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumn) {
     for (size_t i = 0; i < values.size(); ++i) {
         ASSERT_EQ(column->get_int(i), values[i]);
     }
+}
+
+TEST_F(OrcReaderFillDataTest, NativeUuidBinaryAttributeAndDecode) {
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
+    auto file_type = orc::createPrimitiveType(orc::BINARY);
+    EXPECT_EQ(remove_nullable(reader->convert_to_doris_type(file_type.get()))->get_primitive_type(),
+              TYPE_STRING);
+    file_type->setAttribute("doris.logical_type", "uuid");
+    EXPECT_EQ(remove_nullable(reader->convert_to_doris_type(file_type.get()))->get_primitive_type(),
+              TYPE_UUID);
+    UUIDValueType value;
+    ASSERT_TRUE(UUIDValue::from_string(value, "00112233-4455-6677-8899-aabbccddeeff"));
+    auto bytes = UUIDValue::to_big_endian(value);
+    orc::StringVectorBatch batch(1, *orc::getDefaultPool());
+    batch.numElements = 1;
+    batch.hasNulls = false;
+    batch.data[0] = reinterpret_cast<char*>(bytes.data());
+    batch.length[0] = bytes.size();
+    auto data_type = std::make_shared<DataTypeUUID>();
+    auto column = data_type->create_column();
+    ASSERT_TRUE(reader->_fill_doris_data_column<false>("uuid", column, data_type, nullptr,
+                                                       file_type.get(), &batch, 1)
+                        .ok());
+    EXPECT_EQ(assert_cast<const ColumnUUID&>(*column).get_element(0), value);
 }
 
 TEST_F(OrcReaderFillDataTest, TestFillLongColumnWithNull) {

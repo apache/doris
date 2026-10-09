@@ -194,7 +194,8 @@ public class CatalogTestUtil {
 
         // index
         MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0, TStorageMedium.HDD,
+                false /* isRowBinlog */);
         index.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);
@@ -259,7 +260,7 @@ public class CatalogTestUtil {
         // index
         MaterializedIndex index = new MaterializedIndex(testIndexId2, IndexState.NORMAL);
         TabletMeta tabletMeta = new TabletMeta(testDbId1, testTableId2, testPartitionId2, testIndexId2, 0,
-                TStorageMedium.HDD);
+                TStorageMedium.HDD, false /* isRowBinlog */);
         index.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica);

@@ -35,7 +35,10 @@ struct PrxFrameView {
     Slice payload;
 };
 
-Status read_prx_frame(ByteSource* source, PrxFrameView* frame);
+// With verify_crc=false, parse only the header and extract the payload without checking its CRC.
+// Metadata-only paths, such as position-work estimation, avoid an extra crc32c pass over the PRX
+// window. Decoding still checks the CRC and rejects corrupt frames.
+Status read_prx_frame(ByteSource* source, PrxFrameView* frame, bool verify_crc = true);
 
 } // namespace format
 } // namespace doris::snii

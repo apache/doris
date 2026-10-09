@@ -50,7 +50,10 @@ struct AggregateFunctionHistogramData {
 
     void set_parameters(size_t input_max_num_buckets) { max_num_buckets = input_max_num_buckets; }
 
-    void reset() { ordered_map.clear(); }
+    void reset() {
+        ordered_map.clear();
+        max_num_buckets = BUCKET_NUM_INIT_VALUE;
+    }
 
     void add(const StringRef& value, const UInt64& number = 1) {
         std::string data = value.to_string();
@@ -78,7 +81,13 @@ struct AggregateFunctionHistogramData {
             return;
         }
 
-        max_num_buckets = rhs.max_num_buckets;
+        if (!max_num_buckets) {
+            max_num_buckets = rhs.max_num_buckets;
+        } else if (UNLIKELY(max_num_buckets != rhs.max_num_buckets)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "histogram aggregate states have incompatible bucket counts: {} vs {}",
+                            max_num_buckets, rhs.max_num_buckets);
+        }
 
         for (auto rhs_it : rhs.ordered_map) {
             auto lhs_it = ordered_map.find(rhs_it.first);

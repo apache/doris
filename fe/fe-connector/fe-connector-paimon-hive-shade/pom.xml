@@ -51,6 +51,21 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- Paimon uses Hive 2.3.x, so bundle the matching DLF client into this same private shade.
+             Its thrift references are relocated together with Paimon's Hive client below. -->
+        <dependency>
+            <groupId>com.aliyun.datalake</groupId>
+            <artifactId>metastore-client-hive2</artifactId>
+            <version>0.2.14</version>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>com.aliyun</groupId><artifactId>tea</artifactId></exclusion>
+                <exclusion><groupId>com.aliyun</groupId><artifactId>tea-openapi</artifactId></exclusion>
+                <exclusion><groupId>com.aliyun</groupId><artifactId>tea-util</artifactId></exclusion>
+                <exclusion><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk15on</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
         <!-- paimon-hive-connector-3.1 supplies org.apache.paimon.hive.{HiveCatalogFactory,
              HiveCatalog, RetryingMetaStoreClientFactory, pool.CachedClientPool}. CachedClientPool
              references original-package org.apache.thrift.TException; the relocation below rewrites
@@ -330,6 +345,10 @@ under the License.
                                 <relocation>
                                     <pattern>org.apache.thrift</pattern>
                                     <shadedPattern>org.apache.doris.paimon.shaded.thrift</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.aliyun.tea</pattern>
+                                    <shadedPattern>org.apache.doris.paimon.shaded.aliyun.tea</shadedPattern>
                                 </relocation>
                                 <!-- defensive: hive-metastore 2.3.x drags an ancient fastutil; relocate
                                      it so it cannot shadow the modern it.unimi.dsi:fastutil(-core) on the

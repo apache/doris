@@ -30,8 +30,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -52,10 +52,10 @@ public class IndexSchemaProcNodeTest {
         columnList.add(column2);
         IndexSchemaProcNode indexSchemaProcNode = new IndexSchemaProcNode(columnList, null);
         ProcResult procResult = indexSchemaProcNode.fetchResult();
-        Assert.assertEquals(2, procResult.getRows().size());
-        Assert.assertTrue(procResult.getRows().get(1).contains(column2.getDisplayName()));
-        Assert.assertEquals("The column size should be 6", 6, procResult.getColumnNames().size());
-        Assert.assertEquals("The row size should be 6", 6, procResult.getRows().get(1).size());
+        Assertions.assertEquals(2, procResult.getRows().size());
+        Assertions.assertTrue(procResult.getRows().get(1).contains(column2.getDisplayName()));
+        Assertions.assertEquals(6, procResult.getColumnNames().size(), "The column size should be 6");
+        Assertions.assertEquals(6, procResult.getRows().get(1).size(), "The row size should be 6");
 
     }
 
@@ -69,8 +69,8 @@ public class IndexSchemaProcNodeTest {
                 Lists.newArrayList(column), null,
                 Lists.newArrayList(IndexSchemaProcNode.COMMENT_COLUMN_TITLE));
 
-        Assert.assertTrue(result.getRows().get(0).get(1).contains("nested-comment"));
-        Assert.assertEquals("top-level-comment", result.getRows().get(0).get(6));
+        Assertions.assertTrue(result.getRows().get(0).get(1).contains("nested-comment"));
+        Assertions.assertEquals("top-level-comment", result.getRows().get(0).get(6));
     }
 
     @Test
@@ -84,17 +84,17 @@ public class IndexSchemaProcNodeTest {
                 Lists.newArrayList(column), null,
                 Lists.newArrayList(IndexSchemaProcNode.COMMENT_COLUMN_TITLE))
                 .getRows().get(0).get(1);
-        Assert.assertTrue(typeWithComments.contains(
+        Assertions.assertTrue(typeWithComments.contains(
                 "required_value:int not null comment \"required-comment\""));
-        Assert.assertTrue(typeWithComments.contains(
+        Assertions.assertTrue(typeWithComments.contains(
                 "optional_value:int comment \"optional-comment\""));
 
         String typeWithoutComments = IndexSchemaProcNode.createResult(
                 Lists.newArrayList(column), null, Lists.newArrayList())
                 .getRows().get(0).get(1);
-        Assert.assertTrue(typeWithoutComments.contains("required_value:int not null"));
-        Assert.assertFalse(typeWithoutComments.contains("required-comment"));
-        Assert.assertFalse(typeWithoutComments.contains("optional-comment"));
+        Assertions.assertTrue(typeWithoutComments.contains("required_value:int not null"));
+        Assertions.assertFalse(typeWithoutComments.contains("required-comment"));
+        Assertions.assertFalse(typeWithoutComments.contains("optional-comment"));
     }
 
     @Test
@@ -110,7 +110,7 @@ public class IndexSchemaProcNodeTest {
                     Lists.newArrayList(IndexSchemaProcNode.COMMENT_COLUMN_TITLE))
                     .getRows().get(0).get(1);
 
-            Assert.assertTrue(displayedType.contains("comment \"owner's \\\\path\""));
+            Assertions.assertTrue(displayedType.contains("comment \"owner's \\\\path\""));
         }
     }
 }

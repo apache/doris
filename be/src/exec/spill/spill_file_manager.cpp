@@ -22,22 +22,115 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "exec/spill/spill_file.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/query_context.h"
 #include "storage/olap_define.h"
 #include "util/debug_points.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/time.h"
+#include "util/uid_util.h"
 
 namespace doris {
+
+ExternalSpillSession::ExternalSpillSession(SpillFileManager* manager, QueryContext* query_context,
+                                           std::string relative_path)
+        : _manager(manager),
+          _query_context(query_context->weak_from_this()),
+          _resource_context(query_context->resource_ctx()),
+          _query_id(print_id(query_context->query_id())),
+          _relative_path(std::move(relative_path)) {
+    DCHECK(_manager != nullptr);
+    DCHECK(!_query_context.expired());
+    DCHECK(_resource_context != nullptr);
+}
+
+ExternalSpillSession::~ExternalSpillSession() {
+    _manager->_release_external_spill_session(this);
+}
+
+Status ExternalSpillSession::get_paths(std::vector<std::string>* paths) {
+    if (paths == nullptr) {
+        return Status::InvalidArgument("External spill paths output must not be null");
+    }
+    std::lock_guard lock(_mutex);
+    if (_data_dir == nullptr) {
+        RETURN_IF_ERROR(_manager->_initialize_external_spill_session(this));
+    }
+    *paths = {_path};
+    return Status::OK();
+}
+
+bool ExternalSpillSession::_contains(const std::string& path) const {
+    return path == _path ||
+           (path.size() > _path.size() && path.starts_with(_path) && path[_path.size()] == '/');
+}
+
+Status ExternalSpillSession::reserve(const std::string& path, int64_t bytes) {
+    if (bytes <= 0) {
+        return Status::InvalidArgument("External spill reservation must be positive: {}", bytes);
+    }
+
+    std::lock_guard lock(_mutex);
+    if (_data_dir == nullptr || !_contains(path)) {
+        return Status::InvalidArgument("External spill path is not managed by Doris: {}", path);
+    }
+    if (bytes > std::numeric_limits<int64_t>::max() - _accounted_bytes) {
+        return Status::InvalidArgument("External spill reservation overflows: bytes={}", bytes);
+    }
+    if (_data_dir->reach_capacity_limit(bytes)) {
+        return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
+                "External spill write exceeds the Doris spill storage limit: path={}, bytes={}",
+                path, bytes);
+    }
+    // Match SpillFileWriter: check capacity before the write, then account the accepted bytes.
+    _data_dir->update_spill_data_usage(bytes);
+    _accounted_bytes += bytes;
+    return Status::OK();
+}
+
+void ExternalSpillSession::update_accounting(const std::string& path, int64_t current_bytes_delta,
+                                             int64_t write_bytes, int64_t read_bytes) {
+    int64_t released_bytes = 0;
+    SpillDataDir* data_dir = nullptr;
+    {
+        std::lock_guard lock(_mutex);
+        if (_data_dir == nullptr || !_contains(path)) {
+            LOG(WARNING) << "Ignoring accounting for unmanaged external spill path: " << path;
+            return;
+        }
+        data_dir = _data_dir;
+        if (current_bytes_delta < 0) {
+            const int64_t requested_release =
+                    current_bytes_delta == std::numeric_limits<int64_t>::min()
+                            ? std::numeric_limits<int64_t>::max()
+                            : -current_bytes_delta;
+            released_bytes = std::min(requested_release, _accounted_bytes);
+            _accounted_bytes -= released_bytes;
+        }
+    }
+    if (released_bytes > 0) {
+        data_dir->update_spill_data_usage(-released_bytes);
+    }
+    if (write_bytes > 0) {
+        _resource_context->io_context()->update_spill_write_bytes_to_local_storage(write_bytes);
+        _manager->update_spill_write_bytes(write_bytes);
+    }
+    if (read_bytes > 0) {
+        _resource_context->io_context()->update_spill_read_bytes_from_local_storage(read_bytes);
+        _manager->update_spill_read_bytes(read_bytes);
+    }
+}
 
 SpillFileManager::~SpillFileManager() {
     // QueryContext destruction can still queue failed deletions after stop(), for example while
@@ -172,6 +265,76 @@ Status SpillFileManager::create_spill_file(const std::string& relative_path,
     return Status::OK();
 }
 
+Status SpillFileManager::create_external_spill_session(
+        const std::string& relative_path, QueryContext* query_context,
+        std::unique_ptr<ExternalSpillSession>* spill_session) {
+    if (query_context == nullptr || spill_session == nullptr) {
+        return Status::InvalidArgument(
+                "External spill session requires QueryContext and output session");
+    }
+
+    spill_session->reset(new ExternalSpillSession(this, query_context, relative_path));
+    return Status::OK();
+}
+
+Status SpillFileManager::_initialize_external_spill_session(ExternalSpillSession* spill_session) {
+    auto query_context = spill_session->_query_context.lock();
+    if (query_context == nullptr) {
+        return Status::Cancelled("Query ended before the external spill session was initialized");
+    }
+    auto* data_dir = _get_store_for_spill();
+    if (data_dir == nullptr) {
+        return Status::Error<ErrorCode::NO_AVAILABLE_ROOT_PATH>(
+                "no available disk can be used for spill.");
+    }
+
+    const auto query_dir = data_dir->get_spill_data_path(spill_session->_query_id);
+    {
+        // QueryContext teardown uses the regular pending-deletion path while this lease is live.
+        std::lock_guard lock(_pending_query_spill_directories_mutex);
+        ++_external_spill_directory_leases[query_dir];
+    }
+    query_context->record_spill_data_dir(data_dir);
+    spill_session->_data_dir = data_dir;
+    spill_session->_path = query_dir + "/" + spill_session->_relative_path;
+    return Status::OK();
+}
+
+void SpillFileManager::_release_external_spill_session(ExternalSpillSession* spill_session) {
+    std::lock_guard session_lock(spill_session->_mutex);
+    if (spill_session->_data_dir == nullptr) {
+        return;
+    }
+
+    if (spill_session->_accounted_bytes > 0) {
+        // Match SpillFile::gc(): QueryContext owns physical cleanup and its retry path, while the
+        // writer releases logical usage when its lifetime ends.
+        spill_session->_data_dir->update_spill_data_usage(-spill_session->_accounted_bytes);
+        spill_session->_accounted_bytes = 0;
+    }
+
+    const auto query_dir = spill_session->_data_dir->get_spill_data_path(spill_session->_query_id);
+    std::lock_guard directory_lock(_pending_query_spill_directories_mutex);
+    auto it = _external_spill_directory_leases.find(query_dir);
+    DCHECK(it != _external_spill_directory_leases.end());
+    if (it == _external_spill_directory_leases.end()) {
+        return;
+    }
+    DCHECK_GT(it->second, 0);
+    if (--it->second == 0) {
+        _external_spill_directory_leases.erase(it);
+    }
+}
+
+SpillDataDir* SpillFileManager::_get_store_for_spill() {
+    auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
+    if (data_dirs.empty()) {
+        data_dirs = _get_stores_for_spill(TStorageMedium::type::HDD);
+    }
+    // Select the first available data dir (sorted by usage ascending).
+    return data_dirs.empty() ? nullptr : data_dirs.front();
+}
+
 void SpillFileManager::delete_spill_file(SpillFileSPtr spill_file) {
     if (!spill_file) {
         LOG(WARNING) << "[spill][delete] null spill_file";
@@ -196,6 +359,13 @@ void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
 
 Status SpillFileManager::_try_delete_query_spill_directory(
         const PendingQuerySpillDirectory& pending_directory) {
+    {
+        std::lock_guard lock(_pending_query_spill_directories_mutex);
+        if (_external_spill_directory_leases.contains(pending_directory.query_dir)) {
+            return Status::InternalError("external spill directory is still in use: {}",
+                                         pending_directory.query_dir);
+        }
+    }
     DBUG_EXECUTE_IF("fault_inject::spill_file_manager::delete_query_spill_directory", {
         return Status::Error<INTERNAL_ERROR>("injected query spill directory deletion failure");
     });
@@ -241,19 +411,21 @@ void SpillFileManager::_retry_pending_query_spill_directories() {
 }
 
 void SpillFileManager::gc(int32_t max_work_time_ms) {
-    bool exists = true;
     bool has_work = false;
     int64_t max_work_time_ns = max_work_time_ms * 1000L * 1000L;
     MonotonicStopWatch watch;
     watch.start();
+    // One summary line per spill store, printed together with the inode usage of each store so
+    // that an inode leak or a growing gc backlog can be diagnosed from the BE log alone.
+    std::vector<std::string> store_summaries;
     Defer defer {[&]() {
         if (has_work) {
             std::string msg(
                     fmt::format("spill gc time: {}",
                                 PrettyPrinter::print(watch.elapsed_time(), TUnit::TIME_NS)));
             msg += ", spill storage:\n";
-            for (const auto& [path, store_dir] : _spill_store_map) {
-                msg += "    " + store_dir->debug_string();
+            for (const auto& summary : store_summaries) {
+                msg += "    " + summary;
                 msg += "\n";
             }
             LOG(INFO) << msg;
@@ -261,48 +433,74 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
     }};
     _retry_pending_query_spill_directories();
     for (const auto& [path, store_dir] : _spill_store_map) {
-        std::string gc_root_dir = store_dir->get_spill_data_gc_path();
+        SpillGcStats stats;
+        _gc_spill_store(store_dir.get(), watch, max_work_time_ns, &stats);
+        has_work |= stats.has_work;
+        store_summaries.emplace_back(fmt::format(
+                "{}, gc backlog: {} query dirs, deleted this round: {} dirs, {} files, failed: {}",
+                store_dir->debug_string(), stats.backlog_dirs, stats.deleted_dirs,
+                stats.deleted_files, stats.failed_deletes));
+    }
+}
 
-        std::error_code ec;
-        exists = std::filesystem::exists(gc_root_dir, ec);
-        if (ec || !exists) {
+void SpillFileManager::_gc_spill_store(SpillDataDir* store_dir, const MonotonicStopWatch& watch,
+                                       int64_t max_work_time_ns, SpillGcStats* stats) {
+    std::string gc_root_dir = store_dir->get_spill_data_gc_path();
+
+    std::error_code ec;
+    bool exists = std::filesystem::exists(gc_root_dir, ec);
+    if (ec || !exists) {
+        return;
+    }
+    // dirs of queries
+    std::vector<io::FileInfo> dirs;
+    auto st = io::global_local_filesystem()->list(gc_root_dir, false, &dirs, &exists);
+    if (!st.ok()) {
+        return;
+    }
+
+    auto delete_entry = [&](const std::string& abs_path, bool is_file) {
+        Status delete_st = is_file ? io::global_local_filesystem()->delete_file(abs_path)
+                                   : io::global_local_filesystem()->delete_directory(abs_path);
+        if (!delete_st.ok()) {
+            ++stats->failed_deletes;
+            LOG_EVERY_T(WARNING, 60) << fmt::format("failed to delete spill gc entry {}: {}",
+                                                    abs_path, delete_st.to_string());
+            return false;
+        }
+        if (is_file) {
+            ++stats->deleted_files;
+        } else {
+            ++stats->deleted_dirs;
+        }
+        return true;
+    };
+
+    for (const auto& dir : dirs) {
+        stats->has_work = true;
+        if (dir.is_file) {
             continue;
         }
-        // dirs of queries
-        std::vector<io::FileInfo> dirs;
-        auto st = io::global_local_filesystem()->list(gc_root_dir, false, &dirs, &exists);
+        ++stats->backlog_dirs;
+        std::string abs_dir = fmt::format("{}/{}", gc_root_dir, dir.file_name);
+        // operator spill sub dirs of a query
+        std::vector<io::FileInfo> files;
+        st = io::global_local_filesystem()->list(abs_dir, false, &files, &exists);
         if (!st.ok()) {
             continue;
         }
+        if (files.empty()) {
+            if (delete_entry(abs_dir, false)) {
+                --stats->backlog_dirs;
+            }
+            continue;
+        }
 
-        for (const auto& dir : dirs) {
-            has_work = true;
-            if (dir.is_file) {
-                continue;
-            }
-            std::string abs_dir = fmt::format("{}/{}", gc_root_dir, dir.file_name);
-            // operator spill sub dirs of a query
-            std::vector<io::FileInfo> files;
-            st = io::global_local_filesystem()->list(abs_dir, false, &files, &exists);
-            if (!st.ok()) {
-                continue;
-            }
-            if (files.empty()) {
-                static_cast<void>(io::global_local_filesystem()->delete_directory(abs_dir));
-                continue;
-            }
-
-            for (const auto& file : files) {
-                auto abs_file_path = fmt::format("{}/{}", abs_dir, file.file_name);
-                if (file.is_file) {
-                    static_cast<void>(io::global_local_filesystem()->delete_file(abs_file_path));
-                } else {
-                    static_cast<void>(
-                            io::global_local_filesystem()->delete_directory(abs_file_path));
-                }
-                if (watch.elapsed_time() > max_work_time_ns) {
-                    break;
-                }
+        for (const auto& file : files) {
+            auto abs_file_path = fmt::format("{}/{}", abs_dir, file.file_name);
+            delete_entry(abs_file_path, file.is_file);
+            if (watch.elapsed_time() > max_work_time_ns) {
+                break;
             }
         }
     }
@@ -312,6 +510,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_limit, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_avail_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_data_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_inode_total, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_inode_available, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_has_spill_data, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_has_spill_gc_data, MetricUnit::BYTES);
 
@@ -326,9 +526,26 @@ SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_limit);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_avail_capacity);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_data_size);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_inode_total);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_inode_available);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_data);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_gc_data);
 }
+
+namespace {
+// Fraction of inodes in use, 0 when the file system does not report a fixed inode count.
+double inode_usage(size_t total, size_t available) {
+    return total == 0 ? 0 : (double)(total - available) / (double)total;
+}
+
+std::string inode_debug_string(size_t total, size_t available) {
+    if (total == 0) {
+        return "inodes: unknown";
+    }
+    return fmt::format("inodes: total: {}, used: {}, available: {}, used pct: {:.2f}%", total,
+                       total - available, available, inode_usage(total, available) * 100);
+}
+} // namespace
 
 bool is_directory_empty(const std::filesystem::path& dir) {
     // Spill cleanup may delete the directory while the iterator is constructed or advanced. Treat
@@ -381,6 +598,7 @@ Status SpillDataDir::update_capacity() {
                                                                   &_available_bytes));
     spill_disk_capacity->set_value(_disk_capacity_bytes);
     spill_disk_avail_capacity->set_value(_available_bytes);
+    _update_inode_usage();
     auto disk_use_max_bytes =
             (int64_t)(_disk_capacity_bytes * config::storage_flood_stage_usage_percent / 100);
     bool is_percent = true;
@@ -406,6 +624,32 @@ Status SpillDataDir::update_capacity() {
     spill_disk_has_spill_gc_data->set_value(is_directory_empty(spill_gc_root_dir) ? 0 : 1);
 
     return Status::OK();
+}
+
+// Inode statistics are for monitoring only, so a failure to read them never fails
+// update_capacity(); the previous gauge values are kept and a throttled warning is logged.
+void SpillDataDir::_update_inode_usage() {
+    size_t inode_total = 0;
+    size_t inode_available = 0;
+    auto st = io::global_local_filesystem()->get_inode_info(_path, &inode_total, &inode_available);
+    if (!st.ok()) {
+        LOG_EVERY_T(WARNING, 60) << fmt::format("failed to get inode info of spill path {}: {}",
+                                                _path, st.to_string());
+        return;
+    }
+    spill_disk_inode_total->set_value(inode_total);
+    spill_disk_inode_available->set_value(inode_available);
+
+    if (inode_total == 0) {
+        return;
+    }
+    if (inode_usage(inode_total, inode_available) >=
+        config::storage_flood_stage_usage_percent / 100.0) {
+        LOG_EVERY_T(WARNING, 60) << fmt::format(
+                "spill disk inode usage is high, path: {}, {}. Too many spill files or a "
+                "large spill gc backlog may exhaust inodes before disk space runs out",
+                _path, inode_debug_string(inode_total, inode_available));
+    }
 }
 
 bool SpillDataDir::_reach_disk_capacity_limit(int64_t incoming_data_size) {
@@ -441,12 +685,14 @@ bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
     return false;
 }
 std::string SpillDataDir::debug_string() {
+    std::lock_guard<std::mutex> l(_mutex);
     return fmt::format(
-            "path: {}, capacity: {}, limit: {}, used: {}, available: "
-            "{}",
-            _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
+            "path: {}, capacity: {}, limit: {}, used: {}, available: {}, {}", _path,
+            PrettyPrinter::print_bytes(_disk_capacity_bytes),
             PrettyPrinter::print_bytes(_spill_data_limit_bytes),
             PrettyPrinter::print_bytes(_spill_data_bytes),
-            PrettyPrinter::print_bytes(_available_bytes));
+            PrettyPrinter::print_bytes(_available_bytes),
+            inode_debug_string(static_cast<size_t>(spill_disk_inode_total->value()),
+                               static_cast<size_t>(spill_disk_inode_available->value())));
 }
 } // namespace doris

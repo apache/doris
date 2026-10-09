@@ -106,6 +106,14 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
     }
 
     @Override
+    public String visitTimeStampNsLiteral(TimeStampNsLiteral expr, StringValueContext ctx) {
+        if (ctx.isInComplexType()) {
+            return wrapWithQuotes(expr.getStringValue(), ctx);
+        }
+        return expr.getStringValue();
+    }
+
+    @Override
     public String visitFloatLiteral(FloatLiteral expr, StringValueContext ctx) {
         String value;
         if (expr.getType() == Type.TIMEV2) {
@@ -231,6 +239,14 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
 
     @Override
     public String visitIPv6Literal(IPv6Literal expr, StringValueContext ctx) {
+        if (ctx.isInComplexType()) {
+            return wrapWithQuotes(expr.getStringValue(), ctx);
+        }
+        return expr.getStringValue();
+    }
+
+    @Override
+    public String visitUuidLiteral(UuidLiteral expr, StringValueContext ctx) {
         if (ctx.isInComplexType()) {
             return wrapWithQuotes(expr.getStringValue(), ctx);
         }

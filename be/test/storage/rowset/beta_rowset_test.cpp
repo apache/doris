@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -51,6 +52,7 @@
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
+#include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
@@ -59,6 +61,7 @@
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 #include "util/s3_util.h"
 
 namespace Aws {
@@ -232,6 +235,13 @@ private:
     std::unique_ptr<DataDir> _data_dir;
 };
 
+class BetaRowsetWriterForTest : public BetaRowsetWriter {
+public:
+    explicit BetaRowsetWriterForTest(StorageEngine& engine) : BetaRowsetWriter(engine) {}
+
+    Status build_tmp(RowsetSharedPtr& rowset) { return _build_tmp(rowset); }
+};
+
 class S3ClientMock : public Aws::S3::S3Client {
     S3ClientMock() {}
     S3ClientMock(const Aws::Auth::AWSCredentials& credentials,
@@ -282,6 +292,11 @@ class S3ClientMockGetErrorData : public S3ClientMock {
         response.success = true;
         return response;
     }
+};
+
+class TestBetaRowsetWriter final : public BaseBetaRowsetWriter {
+public:
+    Status build(RowsetSharedPtr& rowset) override { return Status::OK(); }
 };
 
 TEST_F(BetaRowsetTest, ReadTest) {
@@ -364,6 +379,32 @@ TEST_F(BetaRowsetTest, AddToBinlogTest) {
     ASSERT_TRUE(s.ok()) << "second add_to_binlog(): " << s;
 }
 
+TEST_F(BetaRowsetTest, PersistInvertedIndexStorageFormatInRowsetMeta) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    RowsetWriterContext context;
+    create_rowset_writer_context(tablet_schema, &context);
+    context.inverted_index_storage_format = InvertedIndexStorageFormatPB::SNII;
+
+    context.persist_inverted_index_storage_format = false;
+    TestBetaRowsetWriter disabled_writer;
+    ASSERT_TRUE(disabled_writer.init(context).ok());
+    EXPECT_FALSE(disabled_writer.rowset_meta()->has_inverted_index_storage_format());
+
+    context.persist_inverted_index_storage_format = true;
+    TestBetaRowsetWriter enabled_writer;
+    ASSERT_TRUE(enabled_writer.init(context).ok());
+    ASSERT_TRUE(enabled_writer.rowset_meta()->has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              enabled_writer.rowset_meta()->inverted_index_storage_format());
+
+    context.inverted_index_storage_format.reset();
+    TestBetaRowsetWriter missing_format_writer;
+    ASSERT_TRUE(missing_format_writer.init(context).ok());
+    EXPECT_FALSE(missing_format_writer.rowset_meta()->has_inverted_index_storage_format());
+}
+
 TEST_F(BetaRowsetTest, GetIndexFileNames) {
     // v1
     {
@@ -411,6 +452,101 @@ TEST_F(BetaRowsetTest, GetIndexFileNames) {
         auto file_names = rowset.get_index_file_names();
         ASSERT_EQ(file_names[0], "540085_0.idx");
         ASSERT_EQ(file_names[1], "540085_1.idx");
+    }
+}
+
+TEST_F(BetaRowsetTest, SegmentViewUsesRealSegmentId) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "key_index", 0, "INT",
+                     "key");
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    rowset_meta->set_segment_ids({100, 102, 105});
+
+    BetaRowset rowset(tablet_schema, rowset_meta, kTestDir);
+    auto first_seg_path = rowset.segment(0).path();
+    ASSERT_TRUE(first_seg_path.has_value()) << first_seg_path.error();
+    EXPECT_EQ(first_seg_path.value(), kTestDir + "/540085_100.dat");
+
+    auto seg = rowset.segment(1);
+    EXPECT_EQ(seg.pos(), 1);
+    EXPECT_EQ(seg.id(), 102);
+    EXPECT_EQ(seg.file_name(), "540085_102.dat");
+
+    auto seg_path = seg.path();
+    ASSERT_TRUE(seg_path.has_value()) << seg_path.error();
+    EXPECT_EQ(seg_path.value(), kTestDir + "/540085_102.dat");
+    EXPECT_EQ(seg.file_cache_key(), segment_v2::Segment::file_cache_key("540085", 102));
+
+    auto delete_bitmap_key = seg.delete_bitmap_key(7);
+    EXPECT_EQ(std::get<0>(delete_bitmap_key), rowset.rowset_id());
+    EXPECT_EQ(std::get<1>(delete_bitmap_key), 102);
+    EXPECT_EQ(std::get<2>(delete_bitmap_key), 7);
+
+    auto row_location = seg.row_location(10);
+    EXPECT_EQ(row_location.rowset_id, rowset.rowset_id());
+    EXPECT_EQ(row_location.segment_id, 102);
+    EXPECT_EQ(row_location.row_id, 10);
+
+    auto index_file_names = seg.index_file_names();
+    ASSERT_EQ(index_file_names.size(), 1);
+    EXPECT_EQ(index_file_names[0], "540085_102_10000.idx");
+
+    auto index_file_cache_key = seg.index_file_cache_key(*tablet_schema->inverted_indexes()[0]);
+    ASSERT_TRUE(index_file_cache_key.has_value()) << index_file_cache_key.error();
+    EXPECT_EQ(index_file_cache_key.value(), kTestDir + "/540085_102_10000");
+}
+
+TEST_F(BetaRowsetTest, RowsetInfoShowsExplicitSegmentIds) {
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    rowset_meta->set_num_segments(3);
+    rowset_meta->set_segments_overlap(NONOVERLAPPING);
+
+    BetaRowset rowset(nullptr, rowset_meta, "");
+    std::string legacy_rowset_info = rowset.get_rowset_info_str();
+    EXPECT_EQ(legacy_rowset_info.find(" []"), std::string::npos);
+
+    rowset_meta->set_segment_ids({100, 101, 200});
+    EXPECT_EQ(rowset.get_rowset_info_str(), legacy_rowset_info + " [100,101,200]");
+}
+
+TEST_F(BetaRowsetTest, TmpRowsetUsesCompletedSegmentIds) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+    RowsetWriterContext writer_context;
+    create_rowset_writer_context(tablet_schema, &writer_context);
+
+    EngineOptions options;
+    StorageEngine engine(options);
+    BetaRowsetWriterForTest writer(engine);
+    ASSERT_TRUE(writer.init(writer_context).ok());
+
+    SegmentStatistics segment_statistics;
+    segment_statistics.row_num = 10;
+    ASSERT_TRUE(writer.add_segment(6, segment_statistics).ok());
+    ASSERT_TRUE(writer.add_segment(2, segment_statistics).ok());
+
+    RowsetSharedPtr tmp_rowset;
+    ASSERT_TRUE(writer.build_tmp(tmp_rowset).ok());
+    ASSERT_NE(tmp_rowset, nullptr);
+    EXPECT_EQ(tmp_rowset->num_segments(), 2);
+    EXPECT_EQ(TEST_TRY(tmp_rowset->rowset_meta()->position_of(2)), 0);
+    EXPECT_EQ(TEST_TRY(tmp_rowset->rowset_meta()->position_of(6)), 1);
+    EXPECT_EQ(tmp_rowset->rowset_meta()->segment_id(0), 2);
+    EXPECT_EQ(tmp_rowset->rowset_meta()->segment_id(1), 6);
+
+    auto* beta_rowset = static_cast<BetaRowset*>(tmp_rowset.get());
+    segment_v2::SegmentSharedPtr segment;
+    for (int64_t seg_id : {3, 7}) {
+        auto status = beta_rowset->load_segment(seg_id, nullptr, &segment);
+        EXPECT_TRUE(status.is<NOT_FOUND>()) << status;
+        EXPECT_EQ(segment, nullptr);
     }
 }
 
@@ -549,6 +685,60 @@ TEST_F(BetaRowsetTest, GetSegmentNumRowsCorruptedMeta) {
     // When segment_rows size doesn't match, it should fall back to loading from footer
     ASSERT_FALSE(used_meta_path);
     ASSERT_TRUE(used_footer_path);
+
+    sp->clear_all_call_backs();
+    sp->disable_processing();
+    sp->clear_trace();
+}
+
+TEST_F(BetaRowsetTest, GetSegmentNumRowsRetryAfterFailure) {
+    // A failed load must not be cached. The rowset lives as long as its tablet version, so a
+    // cached transient error (e.g. S3 SlowDown) would fail every later caller, such as compaction.
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    // Use a dedicated rowset id so that no segment of other tests can be hit in segment cache.
+    RowsetId rowset_id;
+    rowset_id.init(540099);
+    rowset_meta->set_rowset_id(rowset_id);
+    rowset_meta->set_num_segments(2);
+    // No segment rows in meta and no segment files, so loading from segment footer fails.
+
+    auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
+
+    auto sp = SyncPoint::get_instance();
+    int meta_path_count = 0;
+    int footer_path_count = 0;
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:use_segment_rows_from_meta",
+                      [&](auto&& args) { meta_path_count++; });
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:load_from_segment_footer",
+                      [&](auto&& args) { footer_path_count++; });
+
+    sp->enable_processing();
+
+    std::vector<uint32_t> segment_rows;
+    Status st = rowset->get_segment_num_rows(&segment_rows, false, &_stats);
+    ASSERT_FALSE(st.ok());
+    ASSERT_EQ(footer_path_count, 1);
+
+    // The failure is not cached, so the next call loads again and succeeds.
+    rowset_meta->set_num_segment_rows({100, 200});
+    st = rowset->get_segment_num_rows(&segment_rows, false, &_stats);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(segment_rows, (std::vector<uint32_t> {100, 200}));
+    ASSERT_EQ(meta_path_count, 1);
+
+    // The success is cached, so the following call does not load again.
+    std::vector<uint32_t> segment_rows_2;
+    st = rowset->get_segment_num_rows(&segment_rows_2, false, &_stats);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(segment_rows_2, (std::vector<uint32_t> {100, 200}));
+    ASSERT_EQ(meta_path_count, 1);
+    ASSERT_EQ(footer_path_count, 1);
 
     sp->clear_all_call_backs();
     sp->disable_processing();

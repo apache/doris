@@ -20,8 +20,10 @@
 
 #include <stddef.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -75,10 +77,11 @@ public:
 
     Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
-    Status load_segments(int64_t seg_id_begin, int64_t seg_id_end,
-                         std::vector<segment_v2::SegmentSharedPtr>* segments);
-
     Status load_segment(int64_t seg_id, OlapReaderStatistics* read_stats,
+                        segment_v2::SegmentSharedPtr* segment,
+                        const io::IOContext* io_ctx = nullptr);
+
+    Status load_segment(RowsetSegmentRef seg, OlapReaderStatistics* read_stats,
                         segment_v2::SegmentSharedPtr* segment,
                         const io::IOContext* io_ctx = nullptr);
 
@@ -114,7 +117,8 @@ private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
 
-    DorisCallOnce<Status> _load_segment_rows_once;
+    std::mutex _segment_rows_mutex;
+    std::atomic<bool> _segment_rows_loaded {false};
     std::vector<uint32_t> _segments_rows;
 };
 

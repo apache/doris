@@ -33,9 +33,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -43,7 +43,7 @@ import java.util.List;
 
 public class CacheManagerTest {
 
-    @BeforeClass
+    @BeforeAll
     public static void setUpClass() {
         MetricRepo.init();
     }
@@ -76,11 +76,11 @@ public class CacheManagerTest {
         // inconsistent, so building the cache table must fail and the cache is bypassed.
         // Assert on the controlled message (not just RuntimeException) so a regression to the
         // old bare NullPointerException path is caught rather than silently satisfying the test.
-        RuntimeException ex = Assert.assertThrows(RuntimeException.class,
+        RuntimeException ex = Assertions.assertThrows(RuntimeException.class,
                 () -> analyzer.buildCacheTableForOlapScanNode(node));
-        Assert.assertFalse(ex instanceof NullPointerException);
-        Assert.assertTrue(ex.getMessage(), ex.getMessage().contains("Partition 2"));
-        Assert.assertTrue(ex.getMessage(), ex.getMessage().contains("dropped"));
+        Assertions.assertFalse(ex instanceof NullPointerException);
+        Assertions.assertTrue(ex.getMessage().contains("Partition 2"), ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("dropped"), ex.getMessage());
 
         // partition3, ordered after the dropped partition2, must never be visited.
         Mockito.verify(olapTable, Mockito.never()).getPartition(3L);
@@ -112,11 +112,11 @@ public class CacheManagerTest {
         Mockito.doThrow(new NullPointerException("simulated cloud batch lookup NPE on dropped partition"))
                 .when(olapTable).getVersionInBatchForCloudMode(Mockito.anyCollection());
 
-        RuntimeException ex = Assert.assertThrows(RuntimeException.class,
+        RuntimeException ex = Assertions.assertThrows(RuntimeException.class,
                 () -> analyzer.buildCacheTableForOlapScanNode(node));
-        Assert.assertFalse(ex instanceof NullPointerException);
-        Assert.assertTrue(ex.getMessage(), ex.getMessage().contains("Partition 2"));
-        Assert.assertTrue(ex.getMessage(), ex.getMessage().contains("dropped"));
+        Assertions.assertFalse(ex instanceof NullPointerException);
+        Assertions.assertTrue(ex.getMessage().contains("Partition 2"), ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("dropped"), ex.getMessage());
     }
 
     @Test
@@ -150,7 +150,7 @@ public class CacheManagerTest {
 
         analyzer.checkCacheModeForNereids(0);
 
-        Assert.assertEquals(CacheAnalyzer.CacheMode.None, analyzer.getCacheMode());
+        Assertions.assertEquals(CacheAnalyzer.CacheMode.None, analyzer.getCacheMode());
     }
 
     @Test
@@ -186,18 +186,18 @@ public class CacheManagerTest {
                 .when(olapTable).getVersionInBatchForCloudMode(Mockito.anyCollection());
 
         CacheAnalyzer.CacheTable cacheTable = analyzer.buildCacheTableForOlapScanNode(node);
-        Assert.assertEquals(2L, cacheTable.partitionNum);
-        Assert.assertSame(olapTable, cacheTable.table);
-        Assert.assertEquals(20L, cacheTable.latestPartitionId);
-        Assert.assertEquals(4000L, cacheTable.latestPartitionTime);
-        Assert.assertEquals(200L, cacheTable.latestPartitionVersion);
+        Assertions.assertEquals(2L, cacheTable.partitionNum);
+        Assertions.assertSame(olapTable, cacheTable.table);
+        Assertions.assertEquals(20L, cacheTable.latestPartitionId);
+        Assertions.assertEquals(4000L, cacheTable.latestPartitionTime);
+        Assertions.assertEquals(200L, cacheTable.latestPartitionVersion);
 
         List<Pair<ScanTable, TableIf>> scanTables = analyzer.getScanTables();
-        Assert.assertEquals(1, scanTables.size());
+        Assertions.assertEquals(1, scanTables.size());
         Pair<ScanTable, TableIf> pair = scanTables.get(0);
-        Assert.assertSame(olapTable, pair.second);
-        Assert.assertEquals("internal.testDb.test_tbl2", pair.first.getFullTableName().toString());
-        Assert.assertEquals(selectedPartitionIds, pair.first.getScanPartitions());
+        Assertions.assertSame(olapTable, pair.second);
+        Assertions.assertEquals("internal.testDb.test_tbl2", pair.first.getFullTableName().toString());
+        Assertions.assertEquals(selectedPartitionIds, pair.first.getScanPartitions());
     }
 
     @Test
@@ -232,18 +232,18 @@ public class CacheManagerTest {
         Mockito.when(partition300.getCachedVisibleVersion()).thenReturn(3000L);
 
         CacheAnalyzer.CacheTable cacheTable = analyzer.buildCacheTableForOlapScanNode(node);
-        Assert.assertEquals(3L, cacheTable.partitionNum);
-        Assert.assertSame(olapTable, cacheTable.table);
+        Assertions.assertEquals(3L, cacheTable.partitionNum);
+        Assertions.assertSame(olapTable, cacheTable.table);
         // partition100 (5000L) is visited first, then partition300 (also 5000L) overrides because of >=.
-        Assert.assertEquals(300L, cacheTable.latestPartitionId);
-        Assert.assertEquals(5000L, cacheTable.latestPartitionTime);
-        Assert.assertEquals(3000L, cacheTable.latestPartitionVersion);
+        Assertions.assertEquals(300L, cacheTable.latestPartitionId);
+        Assertions.assertEquals(5000L, cacheTable.latestPartitionTime);
+        Assertions.assertEquals(3000L, cacheTable.latestPartitionVersion);
 
         List<Pair<ScanTable, TableIf>> scanTables = analyzer.getScanTables();
-        Assert.assertEquals(1, scanTables.size());
+        Assertions.assertEquals(1, scanTables.size());
         Pair<ScanTable, TableIf> pair = scanTables.get(0);
-        Assert.assertSame(olapTable, pair.second);
-        Assert.assertEquals("internal.testDb.test_tbl3", pair.first.getFullTableName().toString());
-        Assert.assertEquals(selectedPartitionIds, pair.first.getScanPartitions());
+        Assertions.assertSame(olapTable, pair.second);
+        Assertions.assertEquals("internal.testDb.test_tbl3", pair.first.getFullTableName().toString());
+        Assertions.assertEquals(selectedPartitionIds, pair.first.getScanPartitions());
     }
 }

@@ -25,9 +25,9 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ExternalAnalysisTask;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.analysis.ExternalAnalysisTask;
 import org.apache.doris.thrift.TRemoteDorisTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -51,11 +51,6 @@ public class RemoteDorisExternalTable extends ExternalTable {
     public RemoteDorisExternalTable(long id, String name, String remoteName,
             RemoteDorisExternalCatalog catalog, ExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.DORIS_EXTERNAL_TABLE);
-    }
-
-    @Override
-    public String getMetaCacheEngine() {
-        return DorisExternalMetaCache.ENGINE;
     }
 
     @Override

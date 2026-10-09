@@ -161,7 +161,7 @@ public class ConnectorExecuteAction implements ExecuteAction {
                     : null;
             ConnectorRewriteDriver driver = new ConnectorRewriteDriver(ConnectContext.get(), table, catalog,
                     metadata, procedureOps, session, tableHandle, actionType, properties, partitionNames,
-                    loweredWhere);
+                    loweredWhere, ConnectContext.get() == null ? null : ConnectContext.get().getExecutor());
             try {
                 ConnectorProcedureResult result = driver.run();
                 return wrapResult(result);

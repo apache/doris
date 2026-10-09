@@ -21,13 +21,14 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
@@ -43,7 +44,8 @@ public class Month extends ScalarFunction
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.WILDCARD)
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(TimeStampNsType.INSTANCE)
     );
 
     /**
@@ -94,9 +96,6 @@ public class Month extends ScalarFunction
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        if (lower instanceof DateLiteral && upper instanceof DateLiteral) {
-            return ((DateLiteral) lower).getYear() == ((DateLiteral) upper).getYear();
-        }
-        return false;
+        return MonotonicityUtils.isWithinSameYear(lower, upper);
     }
 }

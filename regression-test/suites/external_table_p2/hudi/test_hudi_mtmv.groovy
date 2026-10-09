@@ -260,14 +260,20 @@ suite("test_hudi_mtmv", "p2,external") {
         """
     def showNullPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showNullPartitionsResult: " + showNullPartitionsResult.toString())
-    // assertTrue(showNullPartitionsResult.toString().contains("p_null"))
-    assertTrue(showNullPartitionsResult.toString().contains("p_NULL"))
+    // pn_, not p_: a genuine-NULL partition value is named with MTMVPartitionUtil's null prefix so it cannot
+    // collide with a literal 'NULL' string partition. Same expectation as every other connector's null-partition
+    // MTMV test (mtmv_p0/test_null_partition_mtmv, test_hive_default_mtmv, test_paimon_mtmv). Hudi reached it
+    // only once its connector started reporting __HIVE_DEFAULT_PARTITION__ as a SQL NULL; before that this
+    // asserted a name the engine never produced for a hudi table (it built p_HIVEDEFAULTPARTITION instead).
+    assertTrue(showNullPartitionsResult.toString().contains("pn_NULL"))
     assertTrue(showNullPartitionsResult.toString().contains("p_bj"))
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto;
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    // Will lose null data
+    // Including the null-region rows: they live in the pn_NULL partition above, which the MV refreshes like any
+    // other. They used to be lost because the connector reported __HIVE_DEFAULT_PARTITION__ as a literal string
+    // rather than a SQL NULL, so the partition was named after the sentinel and its rows never matched.
     order_qt_null_partition "SELECT id, name, value, region FROM ${mvName} "
     sql """drop materialized view if exists ${mvName};"""
 

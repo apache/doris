@@ -20,16 +20,16 @@ package org.apache.doris.common.proc;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class PartitionsProcDirTest {
     private String originDeployMode;
     private String originCloudUniqueId;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originDeployMode = Config.deploy_mode;
         originCloudUniqueId = Config.cloud_unique_id;
@@ -37,7 +37,7 @@ public class PartitionsProcDirTest {
         Config.cloud_unique_id = "";
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.deploy_mode = originDeployMode;
         Config.cloud_unique_id = originCloudUniqueId;
@@ -45,17 +45,17 @@ public class PartitionsProcDirTest {
 
     @Test
     public void testDisplayInNonCloudMode() {
-        Assert.assertEquals("HDD", PartitionsProcDir.getStorageMediumDisplay("HDD"));
-        Assert.assertEquals("tag.location.default: 1",
+        Assertions.assertEquals("HDD", PartitionsProcDir.getStorageMediumDisplay("HDD"));
+        Assertions.assertEquals("tag.location.default: 1",
                 PartitionsProcDir.getReplicaAllocationDisplay("tag.location.default: 1"));
     }
 
     @Test
     public void testDisplayInCloudMode() {
         Config.deploy_mode = "cloud";
-        Assert.assertEquals(PartitionsProcDir.CLOUD_STORAGE_MEDIUM_DISPLAY,
+        Assertions.assertEquals(PartitionsProcDir.CLOUD_STORAGE_MEDIUM_DISPLAY,
                 PartitionsProcDir.getStorageMediumDisplay("HDD"));
-        Assert.assertEquals(FeConstants.null_string,
+        Assertions.assertEquals(FeConstants.null_string,
                 PartitionsProcDir.getReplicaAllocationDisplay("tag.location.default: 1"));
     }
 }

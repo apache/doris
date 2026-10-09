@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.collect.Range;
 import com.google.gson.annotations.SerializedName;
@@ -55,6 +56,8 @@ public class PartitionPersistInfo implements Writable {
     private boolean isTempPartition = false;
     @SerializedName(value = "isMutable")
     private boolean isMutable = true;
+    @SerializedName(value = "invertedIndexFileStorageFormat")
+    private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
 
     public PartitionPersistInfo() {
     }
@@ -62,6 +65,14 @@ public class PartitionPersistInfo implements Writable {
     public PartitionPersistInfo(long dbId, long tableId, Partition partition, Range<PartitionKey> range,
             PartitionItem listPartitionItem, DataProperty dataProperty, ReplicaAllocation replicaAlloc,
             boolean isInMemory, boolean isTempPartition, boolean isMutable) {
+        this(dbId, tableId, partition, range, listPartitionItem, dataProperty, replicaAlloc, isInMemory,
+                isTempPartition, isMutable, null);
+    }
+
+    public PartitionPersistInfo(long dbId, long tableId, Partition partition, Range<PartitionKey> range,
+            PartitionItem listPartitionItem, DataProperty dataProperty, ReplicaAllocation replicaAlloc,
+            boolean isInMemory, boolean isTempPartition, boolean isMutable,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partition = partition;
@@ -74,6 +85,7 @@ public class PartitionPersistInfo implements Writable {
         this.isInMemory = isInMemory;
         this.isTempPartition = isTempPartition;
         this.isMutable = isMutable;
+        this.invertedIndexFileStorageFormat = invertedIndexFileStorageFormat;
     }
 
     public Long getDbId() {
@@ -114,6 +126,10 @@ public class PartitionPersistInfo implements Writable {
 
     public boolean isTempPartition() {
         return isTempPartition;
+    }
+
+    public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat() {
+        return invertedIndexFileStorageFormat;
     }
 
     public void write(DataOutput out) throws IOException {

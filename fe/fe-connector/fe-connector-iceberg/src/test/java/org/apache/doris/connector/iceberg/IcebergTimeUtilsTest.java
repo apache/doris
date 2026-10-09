@@ -53,6 +53,15 @@ public class IcebergTimeUtilsTest {
     }
 
     @Test
+    public void datetimeToMillisAcceptsFractionalSeconds() {
+        long expected = Instant.parse("2023-06-15T10:30:00.526Z").toEpochMilli();
+        Assertions.assertEquals(expected,
+                IcebergTimeUtils.datetimeToMillis("2023-06-15 10:30:00.526", ZoneOffset.UTC));
+        Assertions.assertEquals(expected,
+                IcebergTimeUtils.datetimeToMillis("2023-06-15 10:30:00.526000", ZoneOffset.UTC));
+    }
+
+    @Test
     public void datetimeToMillisFailsLoudOnMalformedString() {
         // WHY: a malformed datetime is a user mistake; legacy returned -1 and the caller threw
         // DateTimeException("can't parse time"). Fail loud (never silently degrade to a wrong/0 snapshot).

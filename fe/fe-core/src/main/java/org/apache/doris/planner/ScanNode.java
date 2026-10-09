@@ -134,6 +134,35 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return desc;
     }
 
+    /**
+     * Whether the BE still depends on something this scan node holds on the FE while it is
+     * scanning, so that the coordinator - closing it releases what the node holds, through
+     * {@link #stop()} - has to stay alive until the BE has finished scanning, even after the FE is
+     * done dispatching the query. Here: a batch {@link SplitSource} the BE fetches its splits from
+     * lazily (external-table batch mode, see {@link SplitGenerator#isBatchMode()}); the BE's next
+     * split fetch fails once the source is released. A subclass holding another such resource
+     * adds its own reason, e.g. the Flight SQL session a remote Doris scan keeps open on the other
+     * frontend for the query the BE reads (RemoteDorisScanNode).
+     */
+    public boolean coordinatorMustOutliveDispatch() {
+        return splitAssignment != null;
+    }
+
+    /**
+     * Whether this node's scan ranges cannot be read again by the same plan, so that a query whose
+     * attempt failed must not be retried by dispatching that plan once more
+     * (StmtExecutor.handleQueryWithRetry re-dispatches the plan of a failed attempt whose coordinator
+     * was cancelled, and cancel() stops the scan nodes). Either {@link #stop()} released what the
+     * ranges point at -- a remote Doris scan's ranges are the endpoints of the query its Flight SQL
+     * session ran on the other frontend, gone with the session -- or reading them consumed it -- a
+     * connector range that can be read only once (ConnectorScanRange#isSingleUse), such as an ADBC
+     * partition, the failed attempt may have drained. A batch split source has the same property but
+     * is left as it is here.
+     */
+    public boolean cannotBeRedispatched() {
+        return false;
+    }
+
     protected abstract void createScanRangeLocations() throws UserException;
 
     /**
@@ -649,6 +678,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
         List<CloudPartition> partitions = new ArrayList<>();
         Set<Long> partitionSet = new HashSet<>();
+        boolean hasIncrementalRead = false;
         for (ScanNode node : scanNodes) {
             if (!(node instanceof OlapScanNode)) {
                 continue;
@@ -659,6 +689,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             if (table instanceof OlapTableWrapper
                     && ((OlapTableWrapper) table).hasFixedVisibleVersions()) {
                 continue;
+            }
+            if (scanNode.getScanParams() != null && scanNode.getScanParams().incrementalRead()) {
+                hasIncrementalRead = true;
             }
             for (Long id : scanNode.getSelectedPartitionIds()) {
                 if (!partitionSet.contains(id)) {
@@ -672,7 +705,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         if (!partitions.isEmpty()) {
             List<Long> versions;
             try {
-                versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+                // A time-based change read may have just waited for an old transaction to finish.
+                // Bypass the FE cache so the scan uses the version made visible by that transaction.
+                versions = hasIncrementalRead
+                        ? CloudPartition.getSnapshotVisibleVersionFromMs(partitions, true)
+                        : CloudPartition.getSnapshotVisibleVersion(partitions);
             } catch (RpcException e) {
                 throw new UserException("get visible version for OlapScanNode failed", e);
             }

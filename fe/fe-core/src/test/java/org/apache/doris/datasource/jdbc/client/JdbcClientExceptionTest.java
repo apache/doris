@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
-import  org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class JdbcClientExceptionTest {
 
@@ -27,8 +27,8 @@ public class JdbcClientExceptionTest {
         String message = "An error occurred.";
         JdbcClientException exception = new JdbcClientException(message);
 
-        Assert.assertEquals(message, exception.getMessage());
-        Assert.assertNull(exception.getCause());
+        Assertions.assertEquals(message, exception.getMessage());
+        Assertions.assertNull(exception.getCause());
     }
 
     @Test
@@ -39,8 +39,8 @@ public class JdbcClientExceptionTest {
         JdbcClientException exception = new JdbcClientException(format, errorCode, errorMsg);
 
         String expectedMessage = String.format(format, errorCode, errorMsg);
-        Assert.assertEquals(expectedMessage, exception.getMessage());
-        Assert.assertNull(exception.getCause());
+        Assertions.assertEquals(expectedMessage, exception.getMessage());
+        Assertions.assertNull(exception.getCause());
     }
 
     @Test
@@ -50,8 +50,8 @@ public class JdbcClientExceptionTest {
         JdbcClientException exception = new JdbcClientException(format, threshold);
 
         String expectedMessage = String.format(format, threshold);
-        Assert.assertEquals(expectedMessage, exception.getMessage());
-        Assert.assertNull(exception.getCause());
+        Assertions.assertEquals(expectedMessage, exception.getMessage());
+        Assertions.assertNull(exception.getCause());
     }
 
     @Test
@@ -61,8 +61,8 @@ public class JdbcClientExceptionTest {
         JdbcClientException exception = new JdbcClientException(format, input);
 
         String expectedMessage = String.format(format, input.replace("%", "%%"));
-        Assert.assertEquals(expectedMessage, exception.getMessage());
-        Assert.assertNull(exception.getCause());
+        Assertions.assertEquals(expectedMessage, exception.getMessage());
+        Assertions.assertNull(exception.getCause());
     }
 
     @Test
@@ -71,8 +71,8 @@ public class JdbcClientExceptionTest {
         Exception cause = new Exception("Timeout occurred");
         JdbcClientException exception = new JdbcClientException(message, cause);
 
-        Assert.assertEquals(message, exception.getMessage());
-        Assert.assertEquals(cause, exception.getCause());
+        Assertions.assertEquals(message, exception.getMessage());
+        Assertions.assertEquals(cause, exception.getCause());
     }
 
     @Test
@@ -83,8 +83,8 @@ public class JdbcClientExceptionTest {
         JdbcClientException exception = new JdbcClientException(format, cause, query);
 
         String expectedMessage = String.format(format, query);
-        Assert.assertEquals(expectedMessage, exception.getMessage());
-        Assert.assertEquals(cause, exception.getCause());
+        Assertions.assertEquals(expectedMessage, exception.getMessage());
+        Assertions.assertEquals(cause, exception.getCause());
     }
 
     @Test
@@ -95,8 +95,8 @@ public class JdbcClientExceptionTest {
         JdbcClientException exception = new JdbcClientException(format, cause, filePath);
 
         String expectedMessage = String.format(format, filePath.replace("%", "%%"));
-        Assert.assertEquals(expectedMessage, exception.getMessage());
-        Assert.assertEquals(cause, exception.getCause());
+        Assertions.assertEquals(expectedMessage, exception.getMessage());
+        Assertions.assertEquals(cause, exception.getCause());
     }
 
     @Test
@@ -104,8 +104,8 @@ public class JdbcClientExceptionTest {
         String message = "Simple error message.";
         JdbcClientException exception = new JdbcClientException(message, (Object[]) null);
 
-        Assert.assertEquals(message, exception.getMessage());
-        Assert.assertNull(exception.getCause());
+        Assertions.assertEquals(message, exception.getMessage());
+        Assertions.assertNull(exception.getCause());
     }
 
     @Test
@@ -114,8 +114,8 @@ public class JdbcClientExceptionTest {
         JdbcClientException exception = new JdbcClientException(format, (Object[]) null);
 
         // Since args are null, message should remain unformatted
-        Assert.assertEquals(format, exception.getMessage());
-        Assert.assertNull(exception.getCause());
+        Assertions.assertEquals(format, exception.getMessage());
+        Assertions.assertNull(exception.getCause());
     }
 
     @Test
@@ -124,7 +124,7 @@ public class JdbcClientExceptionTest {
         JdbcClientException exception = new JdbcClientException(format, new Object[]{});
 
         // Since args are empty, message should remain unformatted
-        Assert.assertEquals(format, exception.getMessage());
-        Assert.assertNull(exception.getCause());
+        Assertions.assertEquals(format, exception.getMessage());
+        Assertions.assertNull(exception.getCause());
     }
 }

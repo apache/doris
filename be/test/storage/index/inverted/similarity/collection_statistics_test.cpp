@@ -31,21 +31,25 @@
 
 #include "common/exception.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/primitive_type.h"
 #include "exec/common/variant_util.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
+#include "exprs/vmatch_predicate.h"
 #include "exprs/vsearch.h"
 #include "exprs/vslot_ref.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/similarity/predicate_collector.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
@@ -56,6 +60,7 @@
 #include "storage/rowset/rowset_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -125,22 +130,23 @@ private:
     InvertedIndexAnalyzerCtxSPtr _analyzer_ctx;
 };
 
-class FixedFingerprintAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
+class FixedAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
 public:
-    FixedFingerprintAnalyzerProvider(std::shared_ptr<lucene::analysis::Analyzer> analyzer,
-                                     std::string fingerprint)
-            : _analyzer(std::move(analyzer)), _fingerprint(std::move(fingerprint)) {}
+    explicit FixedAnalyzerProvider(std::shared_ptr<lucene::analysis::Analyzer> analyzer)
+            : _analyzer(std::move(analyzer)) {}
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
-            segment_v2::inverted_index::AnalysisPurpose) const override {
-        return _analyzer;
-    }
-
-    std::string_view base_analyzer_fingerprint() const override { return _fingerprint; }
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override { return _analyzer; }
 
 private:
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
-    std::string _fingerprint;
+};
+
+class FailingAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
+public:
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced missing dictionary failure");
+    }
 };
 
 class MockVSlotRef : public VSlotRef {
@@ -186,9 +192,7 @@ private:
 class MockRowset : public Rowset {
 public:
     MockRowset(TabletSchemaSPtr schema, RowsetMetaSharedPtr rowset_meta)
-            : Rowset(schema, rowset_meta, "/mock/tablet/path") {
-        _num_segments = 0;
-    }
+            : Rowset(schema, rowset_meta, "/mock/tablet/path") {}
 
     Status create_reader(std::shared_ptr<RowsetReader>* result) override {
         return Status::NotSupported("MockRowset::create_reader not implemented");
@@ -228,8 +232,6 @@ public:
 
     Status check_current_rowset_segment() override { return Status::OK(); }
 
-    int64_t num_segments() const override { return _num_segments; }
-
     Result<std::string> segment_path(int64_t seg_id) override {
         _segment_path_requests.push_back(seg_id);
         if (_segment_paths.find(seg_id) != _segment_paths.end()) {
@@ -242,12 +244,11 @@ public:
         _segment_paths[seg_id] = path;
     }
 
-    void set_num_segments(int64_t num) { _num_segments = num; }
+    void set_num_segments(int64_t num) { rowset_meta()->set_num_segments(num); }
 
     const std::vector<int64_t>& segment_path_requests() const { return _segment_path_requests; }
 
 private:
-    int64_t _num_segments;
     std::map<int64_t, std::string> _segment_paths;
     std::vector<int64_t> _segment_path_requests;
 };
@@ -350,23 +351,11 @@ protected:
         return tablet_schema;
     }
 
-    VExprContextSPtrs create_match_expr_contexts(
-            const std::string& search_term = "search term",
-            const std::string& base_analyzer_fingerprint = "") {
+    VExprContextSPtrs create_match_expr_contexts(const std::string& search_term = "search term") {
         VExprContextSPtrs contexts;
 
         auto match_expr =
                 std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
-        if (!base_analyzer_fingerprint.empty()) {
-            auto analyzer = match_expr->query_analyzer_ctx()->analyzer_provider->get_analyzer(
-                    segment_v2::inverted_index::AnalysisPurpose::kPlainQuery);
-            auto provider =
-                    std::make_shared<collection_statistics::FixedFingerprintAnalyzerProvider>(
-                            std::move(analyzer), base_analyzer_fingerprint);
-            auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
-            analyzer_ctx->analyzer_provider = std::move(provider);
-            match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
-        }
         auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
         auto literal = std::make_shared<collection_statistics::MockVLiteral>(search_term);
 
@@ -399,7 +388,9 @@ protected:
         return splits;
     }
 
-    TabletSchemaSPtr create_legacy_v3_schema() {
+    TabletSchemaSPtr create_legacy_v3_schema(std::map<std::string, std::string> properties = {
+                                                     {"parser", "standard"},
+                                                     {"support_phrase", "true"}}) {
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(DUP_KEYS);
         schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
@@ -416,8 +407,7 @@ protected:
         index._index_id = 1;
         index._index_type = IndexType::INVERTED;
         index._col_unique_ids.push_back(1);
-        index._properties["parser"] = "standard";
-        index._properties["support_phrase"] = "true";
+        index._properties = std::move(properties);
         tablet_schema->append_index(std::move(index));
         return tablet_schema;
     }
@@ -477,60 +467,8 @@ protected:
         return file_writer.finish_close();
     }
 
-    Status write_snii_common_grams_segment(const std::string& segment_path,
-                                           std::string base_analyzer_fingerprint,
-                                           uint64_t scoring_token_count = 3) {
-        const std::string index_path_prefix {
-                segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
-        io::FileWriterPtr file_writer;
-        io::FileWriterOptions options;
-        auto fs = io::global_local_filesystem();
-        RETURN_IF_ERROR(fs->create_file(
-                segment_v2::InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix),
-                &file_writer, &options));
-
-        segment_v2::snii_doris::DorisSniiFileWriter adapter(file_writer.get());
-        snii::writer::SniiCompoundWriter writer(&adapter);
-        auto metadata = segment_v2::inverted_index::make_common_grams_segment_metadata(
-                {.common_grams_dictionary_identity = "test-stopwords-v1",
-                 .base_analyzer_fingerprint = std::move(base_analyzer_fingerprint),
-                 .common_grams_fingerprint = "test-common-grams-v1"});
-        metadata.scoring_doc_count = 2;
-        metadata.scoring_token_count = scoring_token_count;
-
-        snii::writer::TermPostings alpha;
-        alpha.term = "alpha";
-        alpha.docids = {0, 1};
-        alpha.freqs = {1, 1};
-        alpha.positions_flat = {0, 0};
-
-        snii::writer::TermPostings beta;
-        beta.term = "beta";
-        beta.docids = {0};
-        beta.freqs = {1};
-        beta.positions_flat = {1};
-
-        snii::writer::TermPostings gram;
-        gram.term = DORIS_TRY(segment_v2::inverted_index::encode_common_gram("alpha", "beta"));
-        gram.docids = {0};
-        gram.freqs = {1};
-        gram.positions_flat = {0};
-
-        snii::writer::SniiIndexInput input;
-        input.index_id = 1;
-        input.config = snii::format::IndexConfig::kDocsPositionsScoring;
-        input.doc_count = 2;
-        input.encoded_norms = {snii::query::encode_norm(2), snii::query::encode_norm(1)};
-        input.terms = {std::move(gram), std::move(alpha), std::move(beta)};
-        std::ranges::sort(input.terms, {}, &snii::writer::TermPostings::term);
-        input.common_grams_metadata = std::move(metadata);
-
-        RETURN_IF_ERROR(writer.add_logical_index(input));
-        RETURN_IF_ERROR(writer.finish());
-        return file_writer->close(false);
-    }
-
-    Status write_plain_snii_scoring_segment(const std::string& segment_path) {
+    // A normal analyzed SNII segment with positions and norms, as emitted for scoring indexes.
+    Status write_snii_scoring_segment(const std::string& segment_path) {
         const std::string index_path_prefix {
                 segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
         io::FileWriterPtr file_writer;
@@ -557,7 +495,7 @@ protected:
 
         snii::writer::SniiIndexInput input;
         input.index_id = 1;
-        input.config = snii::format::IndexConfig::kDocsPositionsScoring;
+        input.config = snii::format::IndexConfig::kDocsPositions;
         input.doc_count = 2;
         input.encoded_norms = {snii::query::encode_norm(2), snii::query::encode_norm(1)};
         input.terms = {std::move(alpha), std::move(beta)};
@@ -679,9 +617,10 @@ protected:
         return tablet_schema;
     }
 
+    // Terms in SNII's internal namespace (starting with \x1f) are ordinary bytes in V3 (CLucene).
     VExprContextSPtrs create_reserved_exact_search_contexts() {
-        return create_search_contexts(
-                "EXACT", std::string(segment_v2::inverted_index::CG_V1_MARKER) + "user");
+        return create_search_contexts("EXACT",
+                                      std::string(snii::format::kPhraseBigramTermMarker) + "user");
     }
 
     void expect_no_collected_tokens(const std::wstring& field_name) {
@@ -702,46 +641,27 @@ protected:
     }
 
     struct SniiScoringFieldInput {
-        SniiScoringFieldInput(
-                std::wstring field_name,
-                std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata> metadata,
-                uint64_t index_doc_count, bool has_semantic_norms,
-                std::optional<std::string> expected_base_analyzer_fingerprint = std::nullopt)
+        SniiScoringFieldInput(std::wstring field_name, uint64_t index_doc_count,
+                              uint64_t sum_total_term_freq, bool has_norms = true)
                 : field_name(std::move(field_name)),
-                  metadata(std::move(metadata)),
                   index_doc_count(index_doc_count),
-                  physical_sum_total_term_freq(this->metadata ? this->metadata->scoring_token_count
-                                                              : 0),
-                  has_semantic_norms(has_semantic_norms),
-                  expected_base_analyzer_fingerprint(
-                          std::move(expected_base_analyzer_fingerprint)) {}
+                  sum_total_term_freq(sum_total_term_freq),
+                  has_norms(has_norms) {}
 
         std::wstring field_name;
-        std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata> metadata;
         uint64_t index_doc_count = 0;
-        uint64_t physical_sum_total_term_freq = 0;
-        bool has_scoring_tier = true;
+        uint64_t sum_total_term_freq = 0;
         bool has_positions = true;
-        bool has_semantic_norms = false;
-        std::optional<std::string> expected_base_analyzer_fingerprint;
+        bool has_norms = true;
     };
 
     Status stage_snii_fields_for_test(
             CollectionStatistics* statistics, const std::vector<SniiScoringFieldInput>& fields,
             CollectionStatistics::SniiScoringSegmentAccumulator* segment_accumulator) {
         for (const auto& field : fields) {
-            segment_v2::inverted_index::PlainTermKeyVersion key_version;
-            const std::string_view expected_base_analyzer_fingerprint =
-                    field.expected_base_analyzer_fingerprint.has_value()
-                            ? *field.expected_base_analyzer_fingerprint
-                    : field.metadata.has_value()
-                            ? std::string_view(field.metadata->base_analyzer_fingerprint)
-                            : std::string_view();
             RETURN_IF_ERROR(statistics->admit_snii_scoring_segment(
-                    field.field_name, field.metadata, expected_base_analyzer_fingerprint,
-                    field.index_doc_count, field.physical_sum_total_term_freq,
-                    field.has_scoring_tier, field.has_positions, field.has_semantic_norms,
-                    &key_version, segment_accumulator));
+                    field.field_name, field.index_doc_count, field.sum_total_term_freq,
+                    field.has_positions, field.has_norms, segment_accumulator));
         }
         return Status::OK();
     }
@@ -754,12 +674,11 @@ protected:
         return Status::OK();
     }
 
-    Status admit_snii_segment_for_test(
-            CollectionStatistics* statistics, const std::wstring& field_name,
-            const std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>& metadata,
-            uint64_t index_doc_count, bool has_semantic_norms) {
+    Status admit_snii_segment_for_test(CollectionStatistics* statistics,
+                                       const std::wstring& field_name, uint64_t index_doc_count,
+                                       uint64_t sum_total_term_freq, bool has_norms = true) {
         return admit_snii_fields_for_test(
-                statistics, {{field_name, metadata, index_doc_count, has_semantic_norms}});
+                statistics, {{field_name, index_doc_count, sum_total_term_freq, has_norms}});
     }
 
     Status stage_snii_fields_then_file_not_found_for_test(
@@ -924,7 +843,7 @@ TEST_F(CollectionStatisticsTest, LegacyReservedTermUsesRawV3Namespace) {
     expect_collected_stats(L"1", 1, 2);
     expect_collected_term(L"1",
                           segment_v2::inverted_index::StringHelper::to_wstring(
-                                  std::string(segment_v2::inverted_index::CG_V1_MARKER) + "user"),
+                                  std::string(snii::format::kPhraseBigramTermMarker) + "user"),
                           0);
 }
 
@@ -1005,17 +924,69 @@ TEST_F(CollectionStatisticsTest, LegacyV3SkipsEmptySegmentAfterCollectingAvailab
     expect_collected_term(L"1", L"alpha", 1);
 }
 
-TEST_F(CollectionStatisticsTest, SniiCommonGramsUsesSemanticScoringStatistics) {
-    auto tablet_schema = create_snii_schema();
-    auto expr_contexts = create_match_expr_contexts("alpha", "test-base-v1");
-    const auto* analyzer_ctx = expr_contexts.front()->root()->query_analyzer_ctx();
-    ASSERT_NE(analyzer_ctx, nullptr);
-    ASSERT_NE(analyzer_ctx->analyzer_provider, nullptr);
+// BM25 needs norms from every segment of an analyzed index: a segment written without them makes
+// the whole collection refuse to score, on its own or next to segments that have norms.
+TEST_F(CollectionStatisticsTest, LegacyV3RejectsSegmentWrittenWithoutNorms) {
+    auto with_norms_schema = create_legacy_v3_schema();
+    auto without_norms_schema = create_legacy_v3_schema(
+            {{"parser", "standard"}, {"support_phrase", "true"}, {"norms", "false"}});
+    const std::string with_norms_path = test_dir_ + "/legacy_v3_with_norms_0.dat";
+    const std::string without_norms_path = test_dir_ + "/legacy_v3_without_norms_1.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(with_norms_schema, with_norms_path).ok());
+    ASSERT_TRUE(write_legacy_v3_segment(without_norms_schema, without_norms_path).ok());
 
-    const std::string segment_path = test_dir_ + "/snii_common_grams_0.dat";
-    auto write_status = write_snii_common_grams_segment(
-            segment_path,
-            std::string(analyzer_ctx->analyzer_provider->base_analyzer_fingerprint()));
+    auto collect = [&](const std::vector<std::string>& segment_paths) {
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset = std::make_shared<collection_statistics::MockRowset>(without_norms_schema,
+                                                                          rowset_meta);
+        rowset->set_num_segments(static_cast<int>(segment_paths.size()));
+        for (size_t i = 0; i < segment_paths.size(); ++i) {
+            rowset->set_segment_path(static_cast<int>(i), segment_paths[i]);
+        }
+        auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+        std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+        return stats_->collect(runtime_state_.get(), splits, without_norms_schema,
+                               create_match_expr_contexts("alpha"), nullptr);
+    };
+
+    Status status = collect({without_norms_path});
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
+    EXPECT_NE(status.to_string().find("written without norms"), std::string::npos) << status;
+    expect_no_collected_tokens(L"1");
+
+    status = collect({with_norms_path, without_norms_path});
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
+    expect_no_collected_tokens(L"1");
+}
+
+// An index that is not analyzed never writes norms, and its scoring statistics are collected as
+// before.
+TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsIsStillCollected) {
+    auto tablet_schema = create_legacy_v3_schema({});
+    const std::string segment_path = test_dir_ + "/legacy_v3_keyword_0.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path).ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                          create_search_contexts("TERM", "alpha beta"), nullptr);
+
+    ASSERT_TRUE(status.ok()) << status;
+    expect_collected_stats(L"1", 1, 0);
+    expect_collected_term(L"1", L"alpha beta", 1);
+}
+
+TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
+    auto tablet_schema = create_snii_schema();
+    auto expr_contexts = create_match_expr_contexts("alpha");
+
+    const std::string segment_path = test_dir_ + "/snii_scoring_0.dat";
+    auto write_status = write_snii_scoring_segment(segment_path);
     ASSERT_TRUE(write_status.ok()) << write_status;
 
     auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
@@ -1036,16 +1007,10 @@ TEST_F(CollectionStatisticsTest, SniiCommonGramsUsesSemanticScoringStatistics) {
 TEST_F(CollectionStatisticsTest, SniiScoringLookupUsesCallerIoContext) {
     snii::snii_test::ScopedEnv force_nonresident_dict("SNII_DICT_RESIDENT_MAX", "0");
     auto tablet_schema = create_snii_schema();
-    auto expr_contexts = create_match_expr_contexts("alpha", "test-base-v1");
-    const auto* analyzer_ctx = expr_contexts.front()->root()->query_analyzer_ctx();
-    ASSERT_NE(analyzer_ctx, nullptr);
-    ASSERT_NE(analyzer_ctx->analyzer_provider, nullptr);
+    auto expr_contexts = create_match_expr_contexts("alpha");
 
     const std::string segment_path = test_dir_ + "/snii_io_context_0.dat";
-    ASSERT_TRUE(write_snii_common_grams_segment(
-                        segment_path,
-                        std::string(analyzer_ctx->analyzer_provider->base_analyzer_fingerprint()))
-                        .ok());
+    ASSERT_TRUE(write_snii_scoring_segment(segment_path).ok());
 
     auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
     auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
@@ -1079,17 +1044,12 @@ TEST_F(CollectionStatisticsTest, SniiScoringLookupUsesCallerIoContext) {
               open_stats.inverted_index_range_read_count);
 }
 
-TEST_F(CollectionStatisticsTest, SniiStatsProviderUsesSemanticCommonGramsTokenCount) {
+TEST_F(CollectionStatisticsTest, SniiStatsProviderUsesPhysicalTokenCount) {
     auto tablet_schema = create_snii_schema();
-    auto expr_contexts = create_match_expr_contexts("alpha", "test-base-v1");
-    const auto* analyzer_ctx = expr_contexts.front()->root()->query_analyzer_ctx();
-    ASSERT_NE(analyzer_ctx, nullptr);
-    ASSERT_NE(analyzer_ctx->analyzer_provider, nullptr);
+    auto expr_contexts = create_match_expr_contexts("alpha");
 
-    const std::string segment_path = test_dir_ + "/snii_semantic_stats_0.dat";
-    auto write_status = write_snii_common_grams_segment(
-            segment_path,
-            std::string(analyzer_ctx->analyzer_provider->base_analyzer_fingerprint()));
+    const std::string segment_path = test_dir_ + "/snii_physical_stats_0.dat";
+    auto write_status = write_snii_scoring_segment(segment_path);
     ASSERT_TRUE(write_status.ok()) << write_status;
 
     const std::string index_path_prefix {
@@ -1111,23 +1071,12 @@ TEST_F(CollectionStatisticsTest, SniiStatsProviderUsesSemanticCommonGramsTokenCo
     EXPECT_TRUE(provider.has_norms());
 }
 
-TEST_F(CollectionStatisticsTest, SniiWriterRejectsMissingSemanticScoringMetadata) {
-    const std::string segment_path = test_dir_ + "/snii_missing_scoring_metadata_0.dat";
-    auto write_status = write_plain_snii_scoring_segment(segment_path);
-    EXPECT_EQ(write_status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-}
-
 TEST_F(CollectionStatisticsTest, SniiScoringRejectsMissingSegmentForWholeCollection) {
     auto tablet_schema = create_snii_schema();
-    auto expr_contexts = create_match_expr_contexts("alpha", "test-base-v1");
-    const auto* analyzer_ctx = expr_contexts.front()->root()->query_analyzer_ctx();
-    ASSERT_NE(analyzer_ctx, nullptr);
-    ASSERT_NE(analyzer_ctx->analyzer_provider, nullptr);
+    auto expr_contexts = create_match_expr_contexts("alpha");
 
     const std::string first_segment_path = test_dir_ + "/snii_complete_0.dat";
-    auto write_status = write_snii_common_grams_segment(
-            first_segment_path,
-            std::string(analyzer_ctx->analyzer_provider->base_analyzer_fingerprint()));
+    auto write_status = write_snii_scoring_segment(first_segment_path);
     ASSERT_TRUE(write_status.ok()) << write_status;
 
     auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
@@ -1146,15 +1095,10 @@ TEST_F(CollectionStatisticsTest, SniiScoringRejectsMissingSegmentForWholeCollect
 
 TEST_F(CollectionStatisticsTest, SniiScoringRejectsMissingLogicalIndexForWholeCollection) {
     auto tablet_schema = create_snii_schema(/*index_id=*/2);
-    auto expr_contexts = create_match_expr_contexts("alpha", "test-base-v1");
-    const auto* analyzer_ctx = expr_contexts.front()->root()->query_analyzer_ctx();
-    ASSERT_NE(analyzer_ctx, nullptr);
-    ASSERT_NE(analyzer_ctx->analyzer_provider, nullptr);
+    auto expr_contexts = create_match_expr_contexts("alpha");
 
     const std::string segment_path = test_dir_ + "/snii_missing_logical_index_0.dat";
-    auto write_status = write_snii_common_grams_segment(
-            segment_path,
-            std::string(analyzer_ctx->analyzer_provider->base_analyzer_fingerprint()));
+    auto write_status = write_snii_scoring_segment(segment_path);
     ASSERT_TRUE(write_status.ok()) << write_status;
 
     auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
@@ -1169,15 +1113,6 @@ TEST_F(CollectionStatisticsTest, SniiScoringRejectsMissingLogicalIndexForWholeCo
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     expect_no_collected_tokens(L"1");
-}
-
-TEST_F(CollectionStatisticsTest, SniiWriterRejectsZeroSemanticTokensForNonemptyPostings) {
-    auto status = write_snii_common_grams_segment(test_dir_ + "/snii_zero_semantic_tokens_0.dat",
-                                                  "test-base-v1",
-                                                  /*scoring_token_count=*/0);
-
-    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
-    EXPECT_THAT(status.msg(), ::testing::HasSubstr("zero semantic scoring tokens"));
 }
 
 TEST_F(CollectionStatisticsTest, CollectWithMultipleRowsetSplits) {
@@ -1226,307 +1161,70 @@ protected:
     std::unique_ptr<TestableCollectionStatistics> stats_;
 };
 
-segment_v2::inverted_index::CommonGramsSegmentMetadata complete_snii_scoring_metadata(
-        std::string base_analyzer_fingerprint = "base-v1", uint64_t doc_count = 3,
-        uint64_t token_count = 7) {
-    using namespace segment_v2::inverted_index;
-    segment_v2::inverted_index::CommonGramsSegmentMetadata metadata;
-    metadata.plain_term_key_version = PlainTermKeyVersion::kEscapedV1;
-    metadata.common_grams_coverage = CommonGramsCoverage::kComplete;
-    metadata.common_grams_semantics_version = COMMON_GRAMS_SEMANTICS_VERSION_V1;
-    metadata.common_grams_key_version = COMMON_GRAMS_KEY_VERSION_V1;
-    metadata.common_grams_dictionary_identity = "builtin-stopwords:v1";
-    metadata.base_analyzer_fingerprint = std::move(base_analyzer_fingerprint);
-    metadata.common_grams_fingerprint = "common-grams-v1";
-    metadata.scoring_coverage = ScoringCoverage::kComplete;
-    metadata.scoring_stats_version = COMMON_GRAMS_SCORING_STATS_VERSION_V1;
-    metadata.norm_semantics_version = COMMON_GRAMS_NORM_SEMANTICS_VERSION_V1;
-    metadata.scoring_doc_count = doc_count;
-    metadata.scoring_token_count = token_count;
-    return metadata;
-}
-
-Result<SniiScoringSegmentStats> resolve_snii_scoring_segment_for_test(
-        std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata> metadata,
-        uint64_t physical_doc_count, bool has_norms) {
-    const uint64_t physical_sum_total_term_freq = metadata ? metadata->scoring_token_count : 0;
-    return resolve_snii_scoring_segment(metadata, physical_doc_count, physical_sum_total_term_freq,
-                                        /*has_scoring_tier=*/true,
-                                        /*has_positions=*/true, has_norms);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, MissingMetadataWithoutPersistedProofRejectsScoring) {
-    auto result = resolve_snii_scoring_segment_for_test(std::nullopt, 3, true);
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, RawNoInternalMetadataWithoutScoringProofIsRejected) {
-    segment_v2::inverted_index::CommonGramsSegmentMetadata metadata;
-    metadata.plain_term_key_version =
-            segment_v2::inverted_index::PlainTermKeyVersion::kRawNoInternal;
-    metadata.common_grams_coverage = segment_v2::inverted_index::CommonGramsCoverage::kNone;
-    metadata.base_analyzer_fingerprint = "base-v1";
-
-    auto result = resolve_snii_scoring_segment_for_test(metadata, 3, true);
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, ScoringCoverageNoneRejectsScoringAdmission) {
-    auto metadata = complete_snii_scoring_metadata();
-    metadata.scoring_coverage = segment_v2::inverted_index::ScoringCoverage::kNone;
-    metadata.scoring_stats_version = 0;
-    metadata.norm_semantics_version = 0;
-
-    auto result = resolve_snii_scoring_segment_for_test(metadata, 3, true);
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, IncompatibleScoringVersionsRejectScoringAdmission) {
-    auto metadata = complete_snii_scoring_metadata();
-
-    ++metadata.scoring_stats_version;
-    auto scoring_version_result = resolve_snii_scoring_segment_for_test(metadata, 3, true);
-    ASSERT_FALSE(scoring_version_result.has_value());
-    EXPECT_EQ(scoring_version_result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-
-    --metadata.scoring_stats_version;
-    ++metadata.norm_semantics_version;
-    auto norm_version_result = resolve_snii_scoring_segment_for_test(metadata, 3, true);
-    ASSERT_FALSE(norm_version_result.has_value());
-    EXPECT_EQ(norm_version_result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, ScoringDocCountMismatchRejectsScoringAdmission) {
-    auto result = resolve_snii_scoring_segment_for_test(complete_snii_scoring_metadata(), 4, true);
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, MissingSemanticNormsRejectScoringAdmission) {
-    auto result = resolve_snii_scoring_segment_for_test(complete_snii_scoring_metadata(), 3, false);
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, CompleteMetadataOnNonScoringTierIsCorruption) {
-    auto metadata = complete_snii_scoring_metadata();
-    auto result = resolve_snii_scoring_segment(metadata, 3, 7,
-                                               /*has_scoring_tier=*/false,
-                                               /*has_positions=*/true,
-                                               /*has_semantic_norms=*/true);
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, ZeroSemanticTokensWithPhysicalTermsIsCorruption) {
-    auto metadata = complete_snii_scoring_metadata("base-v1", 3, 0);
-    auto result = resolve_snii_scoring_segment(metadata, 3, 1,
-                                               /*has_scoring_tier=*/true,
-                                               /*has_positions=*/true,
-                                               /*has_semantic_norms=*/true);
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, EmptyPhysicalAndSemanticTokenCountsAreValid) {
-    auto metadata = complete_snii_scoring_metadata("base-v1", 3, 0);
-    auto result = resolve_snii_scoring_segment(metadata, 3, 0,
-                                               /*has_scoring_tier=*/true,
-                                               /*has_positions=*/true,
-                                               /*has_semantic_norms=*/true);
+// SNII scoring requires only positions and norms; statistics come directly from the stats block.
+TEST(CollectionStatisticsSniiScoringTest, ResolveUsesPhysicalDocAndTokenCounts) {
+    auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true, /*has_norms=*/true);
 
     ASSERT_TRUE(result.has_value()) << result.error();
-    EXPECT_EQ(result->token_count, 0);
+    EXPECT_EQ(result->doc_count, 3U);
+    EXPECT_EQ(result->token_count, 7U);
 }
 
-TEST(CollectionStatisticsCommonGramsTest, LegacyPhysicalScoringRequiresDocumentLengthNorms) {
-    auto result = resolve_snii_scoring_segment_for_test(std::nullopt, 3, false);
+TEST(CollectionStatisticsSniiScoringTest, ResolveAcceptsEmptySegment) {
+    auto result = resolve_snii_scoring_segment(0, 0, /*has_positions=*/true, /*has_norms=*/true);
+
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_EQ(result->doc_count, 0U);
+    EXPECT_EQ(result->token_count, 0U);
+}
+
+TEST(CollectionStatisticsSniiScoringTest, ResolveRejectsSegmentWithoutNorms) {
+    auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true, /*has_norms=*/false);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
 }
 
-TEST(CollectionStatisticsCommonGramsTest, CompleteMetadataUsesSemanticDocAndTokenCounts) {
-    auto result = resolve_snii_scoring_segment_for_test(complete_snii_scoring_metadata(), 3, true);
-
-    ASSERT_TRUE(result.has_value()) << result.error();
-    EXPECT_EQ(result->doc_count, 3);
-    EXPECT_EQ(result->token_count, 7);
-    EXPECT_EQ(result->plain_term_key_version,
-              segment_v2::inverted_index::PlainTermKeyVersion::kEscapedV1);
-    EXPECT_EQ(result->base_analyzer_fingerprint, "base-v1");
-}
-
-TEST(CollectionStatisticsCommonGramsTest, CompletePlainMetadataIsExplicitSemanticProof) {
-    auto metadata = complete_snii_scoring_metadata();
-    metadata.plain_term_key_version =
-            segment_v2::inverted_index::PlainTermKeyVersion::kRawNoInternal;
-    metadata.common_grams_coverage = segment_v2::inverted_index::CommonGramsCoverage::kNone;
-    metadata.common_grams_semantics_version = 0;
-    metadata.common_grams_key_version = 0;
-    metadata.common_grams_dictionary_identity.clear();
-    metadata.common_grams_fingerprint.clear();
-
-    auto result = resolve_snii_scoring_segment_for_test(metadata, 3, true);
-
-    ASSERT_TRUE(result.has_value()) << result.error();
-    EXPECT_EQ(result->doc_count, 3);
-    EXPECT_EQ(result->token_count, 7);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, PlainSemanticTokenCountMustEqualPhysicalCount) {
-    auto metadata = complete_snii_scoring_metadata();
-    metadata.plain_term_key_version =
-            segment_v2::inverted_index::PlainTermKeyVersion::kRawNoInternal;
-    metadata.common_grams_coverage = segment_v2::inverted_index::CommonGramsCoverage::kNone;
-    metadata.common_grams_semantics_version = 0;
-    metadata.common_grams_key_version = 0;
-    metadata.common_grams_dictionary_identity.clear();
-    metadata.common_grams_fingerprint.clear();
-
-    auto result = resolve_snii_scoring_segment(metadata, 3, 8,
-                                               /*has_scoring_tier=*/true,
-                                               /*has_positions=*/true,
-                                               /*has_semantic_norms=*/true);
+TEST(CollectionStatisticsSniiScoringTest, ResolveRejectsSegmentWithoutPositions) {
+    auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/false, /*has_norms=*/true);
 
     ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, EmptySemanticFingerprintIsNotScoringProof) {
-    auto metadata = complete_snii_scoring_metadata();
-    metadata.base_analyzer_fingerprint.clear();
-
-    auto result = resolve_snii_scoring_segment_for_test(metadata, 3, true);
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED);
-}
-
-TEST_F(CollectionStatisticsTest, MixedBaseFingerprintRejectsAndClearsWholeCollection) {
-    auto first = complete_snii_scoring_metadata("base-v1", 3, 7);
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", first, 3, true).ok());
-    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 7.0F / 3.0F);
-
-    auto second = complete_snii_scoring_metadata("base-v2", 3, 5);
-    auto status = admit_snii_segment_for_test(stats_.get(), L"1", second, 3, true);
-
-    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-    expect_no_collected_tokens(L"1");
-    EXPECT_THROW(stats_->get_or_calculate_avg_dl(L"1"), Exception);
-}
-
-TEST_F(CollectionStatisticsTest, PersistedFingerprintMustMatchRequestAnalyzer) {
-    auto metadata = complete_snii_scoring_metadata("persisted-base", 3, 7);
-    auto status = admit_snii_fields_for_test(
-            stats_.get(), {{L"1", metadata, 3, true, std::string("request-base")}});
-
-    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-    expect_no_collected_tokens(L"1");
-    EXPECT_THROW(stats_->get_doc_num(), Exception);
+    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
 }
 
 TEST_F(CollectionStatisticsTest, CollectionStatisticsInstancesKeepAdmissionStateIsolated) {
     CollectionStatistics first;
     CollectionStatistics second;
 
-    ASSERT_TRUE(admit_snii_segment_for_test(&first, L"1",
-                                            complete_snii_scoring_metadata("base-a", 2, 6), 2, true)
-                        .ok());
-    ASSERT_TRUE(admit_snii_segment_for_test(
-                        &second, L"1", complete_snii_scoring_metadata("base-b", 5, 25), 5, true)
-                        .ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(&first, L"1", 2, 6).ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(&second, L"1", 5, 25).ok());
 
     EXPECT_FLOAT_EQ(first.get_or_calculate_avg_dl(L"1"), 3.0F);
     EXPECT_FLOAT_EQ(second.get_or_calculate_avg_dl(L"1"), 5.0F);
 }
 
-TEST_F(CollectionStatisticsTest, LegacyAndUnprovedRawNoInternalRejectWholeCollection) {
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1",
-                                            complete_snii_scoring_metadata("base-v1", 2, 6), 2,
-                                            true)
-                        .ok());
+// An older segment without norms disables scoring for the whole collection and clears its stats.
+TEST_F(CollectionStatisticsTest, SegmentWithoutNormsRejectsWholeCollection) {
+    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 2, 6).ok());
 
-    segment_v2::inverted_index::CommonGramsSegmentMetadata plain_metadata;
-    plain_metadata.plain_term_key_version =
-            segment_v2::inverted_index::PlainTermKeyVersion::kRawNoInternal;
-    plain_metadata.common_grams_coverage = segment_v2::inverted_index::CommonGramsCoverage::kNone;
-    plain_metadata.base_analyzer_fingerprint = "base-v1";
-    auto status = admit_snii_segment_for_test(stats_.get(), L"1", plain_metadata, 3, true);
+    auto status = admit_snii_segment_for_test(stats_.get(), L"1", 3, 7, /*has_norms=*/false);
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     expect_no_collected_tokens(L"1");
     EXPECT_THROW(stats_->get_doc_num(), Exception);
 }
 
-TEST_F(CollectionStatisticsTest, LegacyAndCommonGramsMixRejectsWholeCollection) {
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1",
-                                            complete_snii_scoring_metadata("base-v1", 2, 6), 2,
-                                            true)
-                        .ok());
-
-    auto status = admit_snii_segment_for_test(stats_.get(), L"1", std::nullopt, 3, true);
-
-    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-    expect_no_collected_tokens(L"1");
-    EXPECT_THROW(stats_->get_or_calculate_avg_dl(L"1"), Exception);
-}
-
-TEST_F(CollectionStatisticsTest, ExplicitSemanticPlainAndCommonGramsSegmentsAccumulate) {
-    auto plain_metadata = complete_snii_scoring_metadata("base-v1", 2, 6);
-    plain_metadata.plain_term_key_version =
-            segment_v2::inverted_index::PlainTermKeyVersion::kRawNoInternal;
-    plain_metadata.common_grams_coverage = segment_v2::inverted_index::CommonGramsCoverage::kNone;
-    plain_metadata.common_grams_semantics_version = 0;
-    plain_metadata.common_grams_key_version = 0;
-    plain_metadata.common_grams_dictionary_identity.clear();
-    plain_metadata.common_grams_fingerprint.clear();
-
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", plain_metadata, 2, true).ok());
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1",
-                                            complete_snii_scoring_metadata("base-v1", 3, 7), 3,
-                                            true)
-                        .ok());
-
-    expect_collected_stats(L"1", 5, 13);
-    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 13.0F / 5.0F);
-}
-
-TEST_F(CollectionStatisticsTest, CommonGramsSegmentsAccumulateSemanticStatistics) {
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1",
-                                            complete_snii_scoring_metadata("base-v1", 2, 6), 2,
-                                            true)
-                        .ok());
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1",
-                                            complete_snii_scoring_metadata("base-v1", 3, 9), 3,
-                                            true)
-                        .ok());
+TEST_F(CollectionStatisticsTest, SegmentsAccumulatePhysicalStatistics) {
+    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 2, 6).ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 3, 9).ok());
 
     expect_collected_stats(L"1", 5, 15);
     EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 3.0F);
 }
 
 TEST_F(CollectionStatisticsTest, MultiFieldSegmentsCommitAndAccumulateAtomically) {
-    ASSERT_TRUE(admit_snii_fields_for_test(
-                        stats_.get(),
-                        {{L"1", complete_snii_scoring_metadata("field-1", 3, 7), 3, true},
-                         {L"2", complete_snii_scoring_metadata("field-2", 3, 12), 3, true}})
-                        .ok());
-    ASSERT_TRUE(admit_snii_fields_for_test(
-                        stats_.get(),
-                        {{L"1", complete_snii_scoring_metadata("field-1", 2, 5), 2, true},
-                         {L"2", complete_snii_scoring_metadata("field-2", 2, 8), 2, true}})
-                        .ok());
+    ASSERT_TRUE(admit_snii_fields_for_test(stats_.get(), {{L"1", 3, 7}, {L"2", 3, 12}}).ok());
+    ASSERT_TRUE(admit_snii_fields_for_test(stats_.get(), {{L"1", 2, 5}, {L"2", 2, 8}}).ok());
 
     expect_collected_stats(L"1", 5, 12);
     expect_collected_tokens(L"2", 20);
@@ -1535,9 +1233,7 @@ TEST_F(CollectionStatisticsTest, MultiFieldSegmentsCommitAndAccumulateAtomically
 }
 
 TEST_F(CollectionStatisticsTest, MultiFieldSegmentDocCountsMustAgree) {
-    auto status = admit_snii_fields_for_test(
-            stats_.get(), {{L"1", complete_snii_scoring_metadata("field-1", 3, 7), 3, true},
-                           {L"2", complete_snii_scoring_metadata("field-2", 4, 12), 4, true}});
+    auto status = admit_snii_fields_for_test(stats_.get(), {{L"1", 3, 7}, {L"2", 4, 12}});
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     expect_no_collected_tokens(L"1");
@@ -1546,28 +1242,20 @@ TEST_F(CollectionStatisticsTest, MultiFieldSegmentDocCountsMustAgree) {
 }
 
 TEST_F(CollectionStatisticsTest, LaterFieldFileNotFoundDoesNotPublishPartialSegment) {
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1",
-                                            complete_snii_scoring_metadata("field-1", 2, 6), 2,
-                                            true)
-                        .ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 2, 6).ok());
 
-    auto status = stage_snii_fields_then_file_not_found_for_test(
-            stats_.get(),
-            {{L"2", complete_snii_scoring_metadata("staged-field-2", 3, 12), 3, true}});
+    auto status = stage_snii_fields_then_file_not_found_for_test(stats_.get(), {{L"2", 3, 12}});
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
     expect_collected_stats(L"1", 2, 6);
     expect_no_collected_tokens(L"2");
     expect_no_collected_term(L"2", L"staged");
 
-    ASSERT_TRUE(admit_snii_segment_for_test(
-                        stats_.get(), L"2",
-                        complete_snii_scoring_metadata("different-field-2", 1, 4), 1, true)
-                        .ok());
+    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"2", 1, 4).ok());
     expect_collected_tokens(L"2", 4);
 }
 
-TEST(CollectionStatisticsCommonGramsTest, DocFrequencySupportsLogicalAndPhysicalTermKeys) {
+TEST(CollectionStatisticsSniiScoringTest, DocFrequencyAccumulatesPerTerm) {
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>>
             logical_frequencies;
 
@@ -1578,19 +1266,7 @@ TEST(CollectionStatisticsCommonGramsTest, DocFrequencySupportsLogicalAndPhysical
     EXPECT_EQ(logical_frequencies[L"field"][L"same"], 5);
 }
 
-TEST(CollectionStatisticsCommonGramsTest, PhysicalAliasesCannotMergeLogicalDocFrequencies) {
-    using Frequencies =
-            std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>>;
-    Frequencies logical_frequencies;
-
-    const std::wstring alias = std::wstring(1, wchar_t {0x1e}) + L"G00000001:";
-    add_term_doc_frequency(&logical_frequencies, L"field", L"\x1f", 3);
-    add_term_doc_frequency(&logical_frequencies, L"field", alias, 5);
-
-    EXPECT_EQ(logical_frequencies[L"field"][alias], 5);
-}
-
-TEST(CollectionStatisticsCommonGramsTest, UnrepresentablePlainTermRegistersZeroDocFrequency) {
+TEST(CollectionStatisticsSniiScoringTest, ZeroDocFrequencyStillRegistersTerm) {
     using Frequencies =
             std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>>;
     Frequencies logical_frequencies;
@@ -1736,10 +1412,9 @@ TEST_F(CollectionStatisticsTest, CollectWithDoubleCastWrappedSlotRef) {
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
-// Regression for AIR-36: match score collection must resolve indexes for
-// variant sub-columns whose indexes live in _path_set_info_map (typed paths or
-// inherited sub-column indexes). The previous simple lookup using
-// inverted_indexs(col_unique_id, suffix_path) missed those indexes.
+// Regression for AIR-36: match score collection must resolve the index of a variant sub-column,
+// which is registered on the parent column's unique id under the sub-column's suffix path rather
+// than on a unique id of its own.
 TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
@@ -1770,15 +1445,8 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
     (*props)["parser"] = "standard";
     (*props)["support_phrase"] = "true";
     sub_index->init_from_pb(index_pb);
-
-    TabletSchema::PathsSetInfo path_set_info;
-    TabletIndexes sub_indexes = {sub_index};
-    path_set_info.subcolumn_indexes["host"] = sub_indexes;
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_set_info_map;
-    path_set_info_map[kVariantUid] = std::move(path_set_info);
-    tablet_schema->set_path_set_info(std::move(path_set_info_map));
-
-    EXPECT_TRUE(tablet_schema->inverted_indexs(kVariantUid, "host").empty());
+    sub_index->set_escaped_escaped_index_suffix_path(sub_col.suffix_path());
+    tablet_schema->append_index(std::move(*sub_index));
 
     auto found = tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1));
     ASSERT_EQ(found.size(), 1u);
@@ -2398,13 +2066,13 @@ TEST_F(CollectionStatisticsTest, CollectPreservesLogicalClauseShapesForSameField
     EXPECT_EQ(it->second.logical_scoring_leaves[1].clauses[2].position, 3);
 }
 
-TEST_F(CollectionStatisticsTest, CollectUsesMatchRequestAnalyzerProviderAndFingerprint) {
+TEST_F(CollectionStatisticsTest, CollectUsesMatchRequestAnalyzerProvider) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
 
     auto analyzer = segment_v2::inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
             InvertedIndexParserType::PARSER_ENGLISH, "", INVERTED_INDEX_PARSER_FALSE, "none");
-    auto provider = std::make_shared<collection_statistics::FixedFingerprintAnalyzerProvider>(
-            std::move(analyzer), "request-base-v1");
+    auto provider =
+            std::make_shared<collection_statistics::FixedAnalyzerProvider>(std::move(analyzer));
     auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
     analyzer_ctx->analyzer_provider = provider;
 
@@ -2423,12 +2091,33 @@ TEST_F(CollectionStatisticsTest, CollectUsesMatchRequestAnalyzerProviderAndFinge
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
     const auto& collect_info = collect_infos.begin()->second;
-    EXPECT_EQ(collect_info.expected_base_analyzer_fingerprint, "request-base-v1");
     ASSERT_EQ(collect_info.unique_terms, std::vector<std::string>({"Alpha", "ALPHA"}));
     ASSERT_EQ(collect_info.logical_scoring_leaves.size(), 1u);
     ASSERT_EQ(collect_info.logical_scoring_leaves[0].clauses.size(), 2u);
     EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses[0].df_slot, 0u);
     EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses[1].df_slot, 1u);
+}
+
+TEST_F(CollectionStatisticsTest, CollectConvertsAnalyzerFailureToStatus) {
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+    analyzer_ctx->analyzer_provider =
+            std::make_shared<collection_statistics::FailingAnalyzerProvider>();
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("query"));
+
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    Status status;
+    EXPECT_NO_THROW(status = collector.collect(runtime_state_.get(), tablet_schema, match_expr,
+                                               &collect_infos));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+    EXPECT_NE(status.msg().find("forced missing dictionary failure"), std::string::npos);
+    EXPECT_TRUE(collect_infos.empty());
 }
 
 TEST_F(CollectionStatisticsTest, CollectPhrasePrefixExcludesScoringTail) {
@@ -2523,6 +2212,69 @@ TEST_F(CollectionStatisticsTest, MatchSelectsOnlyTheRuntimeAnalyzerIndex) {
     ASSERT_NE(collect_info.index_meta, nullptr);
     EXPECT_EQ(collect_info.index_meta->index_id(), 20);
     EXPECT_EQ(collect_info.logical_scoring_leaves.size(), 1u);
+}
+
+TEST_F(CollectionStatisticsTest, MatchScoresLegacyMetadataUsingTheResolvedPolicy) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+    TIndexPolicy policy;
+    policy.id = 100;
+    policy.name = "Foo";
+    policy.type = TIndexPolicyType::ANALYZER;
+    policy.properties["tokenizer"] = "keyword";
+    policy_mgr.apply_policy_changes({policy}, {});
+
+    TMatchPredicate match;
+    match.__set_analyzer_name("foo");
+    match.__set_parser_type("english");
+    match.__set_parser_lowercase(true);
+    match.__set_parser_stopwords("none");
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::MATCH_PRED);
+    node.__set_opcode(TExprOpcode::MATCH_PHRASE);
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_num_children(2);
+    node.__set_match_predicate(match);
+    auto predicate = VMatchPredicate::create_shared(node);
+    predicate->add_child(
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+    predicate->add_child(std::make_shared<collection_statistics::MockVLiteral>("one two"));
+
+    auto tablet_schema = create_tablet_schema_with_two_fulltext_indexes();
+    TabletIndex legacy_index;
+    legacy_index._index_id = 30;
+    legacy_index._index_type = IndexType::INVERTED;
+    legacy_index._col_unique_ids.push_back(1);
+    legacy_index._properties = {{"analyzer", "foo"}, {"support_phrase", "true"}};
+    tablet_schema->append_index(std::move(legacy_index));
+
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    auto status = collector.collect(runtime_state_.get(), tablet_schema, predicate, &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1U);
+    const auto& collect_info = collect_infos.begin()->second;
+    ASSERT_NE(collect_info.index_meta, nullptr);
+    EXPECT_EQ(collect_info.index_meta->index_id(), 30);
+    EXPECT_EQ(collect_info.unique_terms, std::vector<std::string>({"one two"}));
+    ASSERT_EQ(collect_info.logical_scoring_leaves.size(), 1U);
+    EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses.size(), 1U);
+
+    TabletIndex exact_index;
+    exact_index._index_id = 40;
+    exact_index._index_type = IndexType::INVERTED;
+    exact_index._col_unique_ids.push_back(1);
+    exact_index._properties = {{"analyzer", "Foo"}, {"support_phrase", "true"}};
+    tablet_schema->append_index(std::move(exact_index));
+    collect_infos.clear();
+    status = collector.collect(runtime_state_.get(), tablet_schema, predicate, &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1U);
+    ASSERT_NE(collect_infos.begin()->second.index_meta, nullptr);
+    EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 40);
 }
 
 TEST_F(CollectionStatisticsTest, MatchArrayStringSelectsFulltextLeafIndex) {
@@ -2655,9 +2407,6 @@ TEST_F(CollectionStatisticsTest, SearchTypedVariantBindingSelectsItsAnalyzerInde
     subcolumn.set_path_info(PathInData("v.host", true));
     tablet_schema->append_column(subcolumn);
 
-    TabletSchema::PathsSetInfo path_set_info;
-    TabletSchema::SubColumnInfo typed_path_info;
-    typed_path_info.column = subcolumn;
     for (const auto& [index_id, parser] : {std::pair<int64_t, std::string> {3010, "standard"},
                                            std::pair<int64_t, std::string> {3020, "english"}}) {
         auto index = std::make_shared<TabletIndex>();
@@ -2669,12 +2418,9 @@ TEST_F(CollectionStatisticsTest, SearchTypedVariantBindingSelectsItsAnalyzerInde
         (*index_pb.mutable_properties())["parser"] = parser;
         (*index_pb.mutable_properties())["support_phrase"] = "true";
         index->init_from_pb(index_pb);
-        typed_path_info.indexes.push_back(std::move(index));
+        index->set_escaped_escaped_index_suffix_path(subcolumn.suffix_path());
+        tablet_schema->append_index(std::move(*index));
     }
-    path_set_info.typed_path_set.emplace("host", std::move(typed_path_info));
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_set_info_map;
-    path_set_info_map.emplace(kVariantUid, std::move(path_set_info));
-    tablet_schema->set_path_set_info(std::move(path_set_info_map));
 
     TSearchClause clause;
     clause.clause_type = "TERM";
@@ -2948,6 +2694,36 @@ TEST_F(CollectionStatisticsTest, BuildFieldNameWithSuffix) {
 TEST_F(CollectionStatisticsTest, BuildFieldNameWithoutSuffix) {
     TestablePredicateCollector collector;
     EXPECT_EQ(collector.build_field_name(42, ""), "42");
+}
+
+TEST_F(CollectionStatisticsTest, ScoringAnalyzerContextReportsWrongFamilyComponentAsStatus) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    // Replay can keep a component whose family no longer matches how the analyzer uses it.
+    TIndexPolicy char_filter;
+    char_filter.id = 200;
+    char_filter.name = "Wrong";
+    char_filter.type = TIndexPolicyType::CHAR_FILTER;
+    char_filter.properties["type"] = "char_replace";
+    TIndexPolicy analyzer;
+    analyzer.id = 201;
+    analyzer.name = "wrong_family_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "keyword";
+    analyzer.properties["token_filter"] = "Wrong";
+    policy_mgr.apply_policy_changes({char_filter, analyzer}, {});
+
+    const std::map<std::string, std::string> properties = {{"analyzer", "wrong_family_analyzer"}};
+    auto analyzer_ctx = analyzer_context_from_properties(properties);
+    ASSERT_FALSE(analyzer_ctx.has_value());
+    EXPECT_EQ(analyzer_ctx.error().code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+
+    const std::map<std::string, std::string> valid = {{"parser", "english"}};
+    EXPECT_TRUE(analyzer_context_from_properties(valid).has_value());
 }
 
 } // namespace doris

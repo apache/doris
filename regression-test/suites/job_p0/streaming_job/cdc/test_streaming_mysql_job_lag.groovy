@@ -74,14 +74,41 @@ suite("test_streaming_mysql_job_lag",
             // wait for binlog data consumed and lag is available
             Awaitility.await().atMost(300, SECONDS)
                     .pollInterval(1, SECONDS).until({
-                        def jobInfo = sql """ select SucceedTaskCount, Lag from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        def jobInfo = sql """ select SucceedTaskCount, LagBytes, LastSourceEventTimestamp from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobInfo: " + jobInfo)
-                        if (jobInfo.size() != 1 || Integer.parseInt(jobInfo[0][0] as String) < 1) {
+                        if (jobInfo.size() == 1 && Integer.parseInt(jobInfo[0][0] as String) >= 1) {
+                            def lagValue = jobInfo[0][1] as String
+                            def sourceEventTime = jobInfo[0][2] as String
+                            log.info("lag value: " + lagValue)
+                            if (lagValue != null && lagValue != ""
+                                    && lagValue.isLong() && Long.parseLong(lagValue) >= 0
+                                    && sourceEventTime != null && sourceEventTime.isLong()
+                                    && Long.parseLong(sourceEventTime) > 0) {
+                                return true
+                            }
+                        }
+                        // Keep generating binlog events until the latest-offset reader is ready.
+                        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+                            sql """UPDATE ${mysqlDb}.${mysqlTable} SET age = age + 1
+                                    WHERE name = 'Alice'"""
+                        }
+                        return false
+                    })
+
+            sql "PAUSE JOB where jobname = '${jobName}'"
+            Awaitility.await().atMost(30, SECONDS)
+                    .pollInterval(1, SECONDS).until({
+                        def jobInfo = sql """ select Status, LagBytes, LastSourceEventTimestamp from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        if (jobInfo.size() != 1 || jobInfo[0][0] != "PAUSED") {
                             return false
                         }
                         def lagValue = jobInfo[0][1] as String
-                        log.info("lag value: " + lagValue)
-                        return lagValue != null && lagValue != "" && lagValue.isNumber()
+                        def sourceEventTime = jobInfo[0][2] as String
+                        log.info("paused lag value: " + lagValue)
+                        return lagValue != null && lagValue != ""
+                                && lagValue.isLong() && Long.parseLong(lagValue) >= 0
+                                && sourceEventTime != null && sourceEventTime.isLong()
+                                && Long.parseLong(sourceEventTime) > 0
                     })
         } catch (Exception ex) {
             def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""

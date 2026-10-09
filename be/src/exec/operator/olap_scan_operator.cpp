@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -130,6 +131,8 @@ Status OlapScanLocalState::_init_profile() {
     _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
     _tablets_pruned_by_rf_counter =
             ADD_COUNTER(custom_profile(), "TabletsPrunedByRuntimeFilter", TUnit::UNIT);
+    _buckets_pruned_by_rf_counter =
+            ADD_COUNTER(custom_profile(), "BucketsPrunedByRuntimeFilter", TUnit::UNIT);
 
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
@@ -138,6 +141,13 @@ Status OlapScanLocalState::_init_profile() {
     // 2. init timer and counters
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
     _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
+    _rowset_tso_prune_timer = ADD_TIMER(custom_profile(), "RowsetTsoPruneTime");
+    _rowsets_pruned_by_tso_counter =
+            ADD_COUNTER(custom_profile(), "RowsetsPrunedByTso", TUnit::UNIT);
+    _segments_pruned_by_tso_counter =
+            ADD_COUNTER(custom_profile(), "SegmentsPrunedByTso", TUnit::UNIT);
+    _tablets_pruned_by_tso_counter =
+            ADD_COUNTER(custom_profile(), "TabletsPrunedByTso", TUnit::UNIT);
     _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
@@ -288,6 +298,14 @@ Status OlapScanLocalState::_init_profile() {
             _segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT, 1);
     _inverted_index_downgrade_count_counter =
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT, 1);
+    _inverted_index_conjuncts_short_circuited_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexConjunctsShortCircuited", TUnit::UNIT, 1);
+    _gram_index_filter_counter =
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "RowsGramIndexFiltered", TUnit::UNIT, 1);
+    _gram_index_candidate_counter =
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "GramIndexCandidateRows", TUnit::UNIT, 1);
+    _gram_index_gate_gave_up_counter =
+            ADD_COUNTER_WITH_LEVEL(_segment_profile, "GramIndexGateGaveUp", TUnit::UNIT, 1);
     _inverted_index_analyzer_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexAnalyzerTime", 1);
     _inverted_index_lookup_timer =
@@ -537,7 +555,6 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     const auto& children = fn_call->children();
     doris::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
     DCHECK(func_cxt != nullptr);
-    DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
         if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
@@ -631,6 +648,32 @@ bool OlapScanLocalState::_is_binlog_merge_scan() const {
     return scan_type == TBinlogScanType::MIN_DELTA || scan_type == TBinlogScanType::DETAIL;
 }
 
+void OlapScanLocalState::_prune_rowsets_by_tso(const TPaloScanRange& scan_range,
+                                               TabletReadSource& read_source) {
+    SCOPED_TIMER(_rowset_tso_prune_timer);
+    int64_t pruned_segments = 0;
+    const auto pruned_rowsets = std::erase_if(read_source.rs_splits, [&](const auto& split) {
+        const auto& rowset = split.rs_reader->rowset();
+        const auto tso = rowset->commit_tso();
+        // Old rowsets can lack commit TSO metadata, including compaction inputs with an
+        // unknown endpoint. Keep them for the existing segment/row-level predicates.
+        if (tso.start_tso() < 0 || tso.end_tso() < 0) {
+            return false;
+        }
+        DCHECK_LE(tso.start_tso(), tso.end_tso());
+        // Rowset metadata is inclusive [min, max]; the query is half-open [start, end).
+        const bool outside_window =
+                (scan_range.__isset.start_tso && tso.end_tso() < scan_range.start_tso) ||
+                (scan_range.__isset.end_tso && tso.start_tso() >= scan_range.end_tso);
+        if (outside_window) {
+            pruned_segments += rowset->num_segments();
+        }
+        return outside_window;
+    });
+    COUNTER_UPDATE(_rowsets_pruned_by_tso_counter, pruned_rowsets);
+    COUNTER_UPDATE(_segments_pruned_by_tso_counter, pruned_segments);
+}
+
 Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
@@ -655,7 +698,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         _cond_ranges.emplace_back(new doris::OlapScanRange());
     }
 
-    // Filter out tablets whose partitions have been pruned by runtime filters.
+    // Filter out tablets whose partitions or buckets have been pruned by runtime filters.
     //
     // TODO(rf-partition-prune): this happens after OlapScanLocalState::init()
     // has already executed _sync_cloud_tablets() (in cloud mode that performs
@@ -670,13 +713,16 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // the tablet, (b) acquire ready-at-start RFs before _sync_cloud_tablets()
     // and run partition pruning there to filter _scan_ranges by partition_id
     // so the heavy per-tablet work is skipped for pruned partitions.
-    if (_rf_partition_pruner.pruned_partition_count() > 0) {
+    if (_rf_partition_pruner.pruned_partition_count() > 0 ||
+        _rf_bucket_pruner.pruned_tablet_count() > 0) {
         DCHECK_EQ(_tablets.size(), _scan_ranges.size());
         DCHECK_EQ(_tablets.size(), _read_sources.size());
         size_t write_idx = 0;
         for (size_t read_idx = 0; read_idx < _tablets.size(); ++read_idx) {
             int64_t pid = _tablets[read_idx].tablet->partition_id();
-            if (!_rf_partition_pruner.is_partition_pruned(pid)) {
+            const auto& scan_range = *_scan_ranges[read_idx];
+            if (!_is_tablet_pruned_by_runtime_filter(pid, scan_range.bucket_seq,
+                                                     scan_range.bucket_num)) {
                 if (write_idx != read_idx) {
                     _tablets[write_idx] = std::move(_tablets[read_idx]);
                     _scan_ranges[write_idx] = std::move(_scan_ranges[read_idx]);
@@ -740,9 +786,9 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             key_ranges.emplace_back(range.get());
         }
 
-        ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scanner_profile,
-                                               key_ranges, state(), p._limit, true,
-                                               p._olap_scan_node.is_preaggregation);
+        ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scan_ranges,
+                                               _scanner_profile, key_ranges, state(), p._limit,
+                                               true, p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
@@ -788,6 +834,22 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
     for (size_t scan_range_idx = 0; scan_range_idx < _scan_ranges.size(); scan_range_idx++) {
         const auto& palo_scan_range = *_scan_ranges[scan_range_idx];
+        if (read_row_binlog &&
+            (palo_scan_range.__isset.start_tso || palo_scan_range.__isset.end_tso)) {
+            auto& read_source = _read_sources[scan_range_idx];
+            // The version-consistent read source and delete predicates have already been
+            // captured. Prune before cloning readers or opening any segment footers.
+            _prune_rowsets_by_tso(palo_scan_range, read_source);
+            if (std::all_of(read_source.rs_splits.begin(), read_source.rs_splits.end(),
+                            [](const auto& split) {
+                                return split.rs_reader->rowset()->num_rows() == 0;
+                            })) {
+                // Empty bootstrap rowsets may have no TSO. Skip the tablet even if those
+                // remain, and do not let OlapScanner recapture an empty read source.
+                COUNTER_UPDATE(_tablets_pruned_by_tso_counter, 1);
+                continue;
+            }
+        }
         int64_t version = 0;
         std::from_chars(palo_scan_range.version.data(),
                         palo_scan_range.version.data() + palo_scan_range.version.size(), version);
@@ -831,6 +893,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   p._olap_scan_node.is_preaggregation,
                                   read_row_binlog,
                                   resolve_binlog_scan_type(palo_scan_range),
+                                  palo_scan_range.bucket_seq,
+                                  palo_scan_range.bucket_num,
                                   palo_scan_range.__isset.start_tso
                                           ? std::make_optional(palo_scan_range.start_tso)
                                           : std::nullopt,
@@ -869,15 +933,16 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                 tasks.emplace_back([this, sync_stats, version, i, task_ctx, task_create_time]() {
                     // Record bthread scheduling delay
                     auto task_start_time = std::chrono::steady_clock::now();
+                    auto task_lock = task_ctx.lock();
+                    if (task_lock == nullptr) {
+                        return Status::OK();
+                    }
+                    // The local state owns sync_stats, so keep its context alive before access.
                     if (sync_stats) {
                         sync_stats->bthread_schedule_delay_ns +=
                                 std::chrono::duration_cast<std::chrono::nanoseconds>(
                                         task_start_time - task_create_time)
                                         .count();
-                    }
-                    auto task_lock = task_ctx.lock();
-                    if (task_lock == nullptr) {
-                        return Status::OK();
                     }
                     Defer defer([&] {
                         if (_pending_tablets_num.fetch_sub(1) == 1) {
@@ -1111,11 +1176,52 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
         }
     }
 
-    for (auto& scan_range : scan_ranges) {
-        DCHECK(scan_range.scan_range.__isset.palo_scan_range);
+    bool bucket_prune_metadata_initialized = !_scan_ranges.empty();
+    for (const auto& scan_range : scan_ranges) {
+        DORIS_CHECK(scan_range.scan_range.__isset.palo_scan_range);
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
+        const auto& palo_scan_range = *_scan_ranges.back();
+        DORIS_CHECK_EQ(palo_scan_range.__isset.bucket_seq, palo_scan_range.__isset.bucket_num);
+        if (!bucket_prune_metadata_initialized) {
+            _has_rf_bucket_prune_metadata = palo_scan_range.__isset.bucket_seq;
+            bucket_prune_metadata_initialized = true;
+        } else {
+            DORIS_CHECK_EQ(palo_scan_range.__isset.bucket_seq, _has_rf_bucket_prune_metadata);
+        }
+        if (_has_rf_bucket_prune_metadata) {
+            DORIS_CHECK_GT(palo_scan_range.bucket_num, 0);
+            DORIS_CHECK_GE(palo_scan_range.bucket_seq, 0);
+            DORIS_CHECK_LT(palo_scan_range.bucket_seq, palo_scan_range.bucket_num);
+        }
         COUNTER_UPDATE(_tablet_counter, 1);
     }
+}
+
+Status OlapScanLocalState::_on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) {
+    RETURN_IF_ERROR(Base::_on_runtime_filter_update(new_conjuncts));
+    if (!state()->query_options().enable_runtime_filter_bucket_prune ||
+        !_has_rf_bucket_prune_metadata || _scan_ranges.empty()) {
+        return Status::OK();
+    }
+
+    int64_t newly_pruned = 0;
+    RETURN_IF_ERROR(_rf_bucket_pruner.prune_by_runtime_filters(
+            _scan_ranges, new_conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
+            state()->runtime_filter_max_in_num(), &newly_pruned));
+    if (newly_pruned > 0) {
+        COUNTER_SET(_buckets_pruned_by_rf_counter, _rf_bucket_pruner.pruned_tablet_count());
+    }
+    return Status::OK();
+}
+
+bool OlapScanLocalState::_is_tablet_pruned_by_runtime_filter(int64_t partition_id,
+                                                             int32_t bucket_seq,
+                                                             int32_t bucket_num) const {
+    if (_rf_partition_pruner.is_partition_pruned(partition_id)) {
+        return true;
+    }
+    return _has_rf_bucket_prune_metadata &&
+           _rf_bucket_pruner.is_bucket_pruned(bucket_seq, bucket_num);
 }
 
 static std::string tablets_id_to_string(

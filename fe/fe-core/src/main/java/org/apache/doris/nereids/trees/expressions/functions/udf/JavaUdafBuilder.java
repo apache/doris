@@ -63,7 +63,7 @@ public class JavaUdafBuilder extends UdfBuilder {
 
     @Override
     public boolean canApply(List<?> arguments) {
-        if ((isVarArgs && arity > arguments.size() + 1) || (!isVarArgs && arguments.size() != arity)) {
+        if (arguments.size() != arity) {
             return false;
         }
         for (Object argument : arguments) {

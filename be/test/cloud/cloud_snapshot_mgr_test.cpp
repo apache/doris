@@ -19,6 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
+#include <vector>
+
 #include "cloud/cloud_storage_engine.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -103,6 +106,9 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     rowset_meta->set_tablet_id(1000);
     rowset_meta->set_txn_id(2000);
     rowset_meta->set_num_segments(3);
+    rowset_meta->set_segments_overlap_pb(NONOVERLAPPING_WITHIN_GROUP);
+    rowset_meta->add_segment_group_sizes(1);
+    rowset_meta->add_segment_group_sizes(2);
     rowset_meta->set_num_rows(100);
     rowset_meta->set_start_version(100);
     rowset_meta->set_end_version(101);
@@ -150,6 +156,10 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     EXPECT_EQ(output_meta_pb.rs_metas(0).tablet_schema().index(0).index_id(), 1001);
     EXPECT_EQ(output_meta_pb.rs_metas(0).tablet_schema().index(1).index_id(), 1002);
     EXPECT_EQ(output_meta_pb.rs_metas(0).num_segments(), 3);
+    EXPECT_EQ(output_meta_pb.rs_metas(0).segments_overlap_pb(), NONOVERLAPPING_WITHIN_GROUP);
+    ASSERT_EQ(output_meta_pb.rs_metas(0).segment_group_sizes_size(), 2);
+    EXPECT_EQ(output_meta_pb.rs_metas(0).segment_group_sizes(0), 1);
+    EXPECT_EQ(output_meta_pb.rs_metas(0).segment_group_sizes(1), 2);
     EXPECT_EQ(output_meta_pb.rs_metas(0).num_rows(), 100);
     EXPECT_EQ(output_meta_pb.rs_metas(0).start_version(), 100);
     EXPECT_EQ(output_meta_pb.rs_metas(0).end_version(), 101);
@@ -160,6 +170,63 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     EXPECT_EQ(output_meta_pb.rs_metas(0).resource_id(), storage_resource.fs->id());
     EXPECT_FALSE(file_mapping.empty());
     EXPECT_TRUE(status.ok());
+}
+
+TEST_F(CloudSnapshotMgrTest, ConvertRowsetsPreservesCommitTso) {
+    const std::vector<std::optional<TsoRange>> cases = {std::nullopt, TsoRange(-1, -1),
+                                                        TsoRange(100, 100), TsoRange(100, 200)};
+    for (size_t i = 0; i < cases.size(); ++i) {
+        SCOPED_TRACE(i);
+        TabletMetaPB input;
+        input.set_tablet_id(1000);
+        input.set_schema_hash(123456);
+        *input.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
+        auto* schema = input.mutable_schema();
+        schema->set_keys_type(DUP_KEYS);
+        schema->set_num_short_key_columns(1);
+        schema->set_num_rows_per_row_block(1024);
+        auto* key = schema->add_column();
+        key->set_unique_id(1);
+        key->set_name("k1");
+        key->set_type("INT");
+        key->set_is_key(true);
+        key->set_aggregation("NONE");
+        auto* source = input.add_rs_metas();
+        source->set_rowset_id(0);
+        source->set_rowset_id_v2(_engine->next_rowset_id().to_string());
+        source->set_tablet_id(1000);
+        source->set_rowset_type(BETA_ROWSET);
+        source->set_rowset_state(VISIBLE);
+        source->set_start_version(7);
+        source->set_end_version(
+                cases[i].has_value() && cases[i]->start_tso() != cases[i]->end_tso() ? 8 : 7);
+        source->set_num_segments(1);
+        source->add_segment_ids(7);
+        source->set_num_rows(10);
+        source->set_newest_write_timestamp(1000);
+        source->mutable_tablet_schema()->CopyFrom(*schema);
+        if (cases[i].has_value()) {
+            source->mutable_commit_tso()->set_start_tso(cases[i]->start_tso());
+            source->mutable_commit_tso()->set_end_tso(cases[i]->end_tso());
+        }
+        auto tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->init_from_pb(input);
+        auto target = std::make_shared<CloudTablet>(*_engine, tablet_meta);
+        StorageResource resource {_fs};
+        std::unordered_map<std::string, std::string> file_mapping;
+        TabletMetaPB output;
+        auto st = _snapshot_mgr->convert_rowsets(&output, input, 3000, target, resource,
+                                                 file_mapping);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(1, output.rs_metas_size());
+        const auto& converted = output.rs_metas(0);
+        EXPECT_NE(source->rowset_id_v2(), converted.rowset_id_v2());
+        EXPECT_EQ(source->has_commit_tso(), converted.has_commit_tso());
+        EXPECT_EQ(source->commit_tso().SerializeAsString(),
+                  converted.commit_tso().SerializeAsString());
+        EXPECT_EQ(source->start_version(), converted.start_version());
+        EXPECT_EQ(source->end_version(), converted.end_version());
+    }
 }
 
 TEST_F(CloudSnapshotMgrTest, TestRenameIndexIds) {

@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -27,7 +27,7 @@ public class WalFileFormatPropertiesTest {
 
     private WalFileFormatProperties walFileFormatProperties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         walFileFormatProperties = new WalFileFormatProperties();
     }

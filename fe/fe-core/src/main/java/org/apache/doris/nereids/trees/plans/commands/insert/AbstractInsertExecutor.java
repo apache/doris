@@ -39,11 +39,13 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TStatusCode;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,6 +60,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * The derived class should implement the abstract method for certain type of target table
  */
 public abstract class AbstractInsertExecutor {
+    public static final String DEBUG_POINT_IVM_RPC_FAILURE =
+            "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure";
+    public static final String DEBUG_POINT_IVM_RPC_FAILURE_FILTER =
+            "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure.filter";
     protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(AbstractInsertExecutor.class);
 
@@ -266,10 +272,25 @@ public abstract class AbstractInsertExecutor {
      */
     public void executeSingleInsert(StmtExecutor executor) throws Exception {
         try {
+            // Every statement-owned insert coordinator is published at the common execution boundary.
+            // Cancellation retained during planning is replayed before any executor-specific setup or dispatch.
+            executor.setCoord(coordinator);
+            // Publication synchronously replays any cancellation retained during planning. Fence on that
+            // terminal status before executor-specific setup runs, so a later setup failure cannot mask the
+            // original timeout/cancel reason.
+            Status execStatus = coordinator.getExecStatus();
+            if (!execStatus.ok()) {
+                throw new UserException(execStatus.getErrorMsg());
+            }
             // Pre-execution work may register external resources, so it must share the transaction cleanup scope.
             beforeExec();
             executor.updateProfile(false);
-            execImpl(executor);
+            if (!emptyInsert) {
+                if (isIvmRpcFailureDebugPointEnabled()) {
+                    throw new RpcException("ivm", "debug point: " + DEBUG_POINT_IVM_RPC_FAILURE);
+                }
+                execImpl(executor);
+            }
             checkStrictModeAndFilterRatio();
             for (InsertExecutorListener listener : listeners) {
                 listener.beforeComplete(this, executor, jobId);
@@ -278,6 +299,14 @@ public abstract class AbstractInsertExecutor {
                     "AbstractInsertExecutor.beforeOnComplete.sleep", 0L);
             if (beforeOnCompleteSleepMs > 0) {
                 Thread.sleep(beforeOnCompleteSleepMs);
+            }
+            // Every transaction-owning executor commits inside onComplete(). Re-fence the first terminal
+            // status here so a cancellation/TIMEOUT that landed after execImpl()'s last status read cannot
+            // be committed by a path such as row-level UPDATE/DELETE/MERGE, which has no command-level
+            // cancellation listener of its own.
+            Status preCommitStatus = coordinator.getExecStatus();
+            if (!preCommitStatus.ok()) {
+                throw new UserException(preCommitStatus.getErrorMsg());
             }
             executor.beginTransactionCommit();
             onComplete();
@@ -290,6 +319,13 @@ public abstract class AbstractInsertExecutor {
             }
         } catch (Throwable t) {
             onFail(t);
+            if (ctx.getStatementContext().isIvmMTMVRewrite()) {
+                for (Throwable cause : ExceptionUtils.getThrowableList(t)) {
+                    if (cause instanceof RpcException) {
+                        throw (RpcException) cause;
+                    }
+                }
+            }
             // retry insert into from select when meet "need re-plan error" or no scan node in cloud
             if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(t.getMessage())) {
                 throw t;
@@ -303,8 +339,26 @@ public abstract class AbstractInsertExecutor {
         afterExec(executor);
     }
 
+    private boolean isIvmRpcFailureDebugPointEnabled() {
+        if (!ctx.getStatementContext().isIvmMTMVRewrite()) {
+            return false;
+        }
+        String mvName = ctx.getStatementContext().getIvmRewriteContext().get().getMtmv().getName();
+        String targetMvName = DebugPointUtil.getDebugParamOrDefault(
+                DEBUG_POINT_IVM_RPC_FAILURE_FILTER, "mv_name", "");
+        return mvName.equals(targetMvName) && DebugPointUtil.isEnable(DEBUG_POINT_IVM_RPC_FAILURE);
+    }
+
     public boolean isEmptyInsert() {
         return emptyInsert;
+    }
+
+    /**
+     * Return whether this insert needs its transaction lifecycle. A Table Stream offset update
+     * must be committed even when optimization proves that the target receives no rows.
+     */
+    public boolean requiresTransaction() {
+        return !emptyInsert || !streamUpdateInfos.isEmpty();
     }
 
     public void setStreamUpdateInfos(List<TableStreamUpdateInfo> streamUpdateInfos) {

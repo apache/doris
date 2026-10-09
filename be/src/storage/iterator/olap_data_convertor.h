@@ -36,7 +36,6 @@
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -327,7 +326,7 @@ private:
             // FLOAT/DOUBLE are special because storage requires a canonical NaN representation:
             // scan only the requested slice and keep the zero-copy path when it contains no NaN;
             // otherwise, normalize a copy in the converter-owned reusable buffer. The buffer is a
-            // member because SegmentWriter may read the accessor after convert_to_olap() returns.
+            // member because VerticalSegmentWriter may read the accessor after convert_to_olap() returns.
             if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
                 _converted_values.clear();
                 const CppType* values_end = _values + _num_rows;

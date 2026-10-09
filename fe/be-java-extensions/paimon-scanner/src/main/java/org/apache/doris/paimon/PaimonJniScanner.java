@@ -17,9 +17,9 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.TableSchema;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.toolkit.vec.JniSchemaParams;
 import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
@@ -39,8 +39,13 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
 import org.apache.paimon.table.system.SystemTableLoader;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.VariantType;
+import org.apache.paimon.utils.ChainTableUtils;
+import org.apache.paimon.utils.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +61,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -77,6 +83,7 @@ public class PaimonJniScanner extends JniScanner {
     private static final String ASYNC_READER_THREAD_NAME_PREFIX = "paimon-reader-async-thread";
     private static final String FILE_READER_ASYNC_THRESHOLD = "file-reader-async-threshold";
     private static final String SERIALIZED_TABLE = "serialized_table";
+    private static final String VARIANT_ACCESS_PATH_PREFIX = "variant_access_path.";
     private static final int MAX_MANIFEST_PARALLELISM = 256;
     static final String DORIS_MANIFEST_PARALLELISM_CAP =
             "doris.scan.manifest.parallelism-cap";
@@ -99,6 +106,8 @@ public class PaimonJniScanner extends JniScanner {
     private final String paimonSplit;
     private final String paimonPredicate;
     private final String tableCacheKey;
+    private final String timeZone;
+    private final List<List<List<String>>> variantAccessPathsByColumn;
     private Table table;
     private PaimonTableCache.TableCacheEntry tableCacheEntry;
     private RecordReader<InternalRow> reader;
@@ -107,6 +116,7 @@ public class PaimonJniScanner extends JniScanner {
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
     private List<DataType> paimonDataTypeList;
+    private List<PaimonVariantProjection> variantProjections;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
     private PreExecutionAuthenticator preExecutionAuthenticator;
@@ -142,8 +152,9 @@ public class PaimonJniScanner extends JniScanner {
         tableCacheKey = params.get("serialized_table_cache_key");
         Preconditions.checkState(tableCacheKey != null && !tableCacheKey.isEmpty(),
                 "Missing required Paimon scanner parameter: serialized_table_cache_key");
-        String timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
+        timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
+        variantAccessPathsByColumn = variantAccessPathsByColumn(params, requiredFields.length);
         initTableInfo(columnTypes, requiredFields, batchSize);
         hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
@@ -153,15 +164,16 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         markScannerOpenedForMetrics();
         long startTime = System.nanoTime();
         try {
-            // When the user does not specify hive-site.xml, Paimon will look for the file from the classpath:
-            //    org.apache.paimon.hive.HiveCatalog.createHiveConf:
-            //        `Thread.currentThread().getContextClassLoader().getResource(HIVE_SITE_FILE)`
-            // so we need to provide a classloader, otherwise it will cause NPE.
-            Thread.currentThread().setContextClassLoader(classLoader);
+            // Paimon reads hive-site.xml off the context classloader when the user does not name
+            // one (org.apache.paimon.hive.HiveCatalog.createHiveConf), and would NPE without it.
+            // JniScanner.open() has already installed this plugin's loader as the context
+            // classloader and restores the caller's on the way out, so there is nothing to pin
+            // here - the previous pin never restored anything, which is what left BE's own
+            // threads carrying a plugin loader after a scan.
             preExecutionAuthenticator.execute(() -> {
                 PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
                 initTableAndReader();
@@ -192,11 +204,42 @@ public class PaimonJniScanner extends JniScanner {
                             fields.length, paimonAllFieldNames.size()));
         }
         int[] projected = getProjected();
-        readBuilder.withProjection(projected);
+        List<DataField> readFields = new ArrayList<>(projected.length);
+        variantProjections = new ArrayList<>(projected.length);
+        boolean hasReadTypeProjection = false;
+        for (int outputIndex = 0; outputIndex < projected.length; outputIndex++) {
+            DataField tableField = table.rowType().getFields().get(projected[outputIndex]);
+            PaimonVariantProjection variantProjection = tableField.type() instanceof VariantType
+                    ? PaimonVariantProjection.create(
+                            variantAccessPathsByColumn.get(outputIndex), timeZone)
+                    : null;
+            variantProjections.add(variantProjection);
+            if (variantProjection == null) {
+                // The engine may have pruned this complex column down to the sub-fields the query touches.
+                // Mirroring that shape with paimon's own types lets withReadType push the same projection
+                // through the ROW/ARRAY/MAP readers instead of reading the whole column and discarding it.
+                DataType projectedType =
+                        PaimonReadTypeProjection.project(tableField.type(), types[outputIndex]);
+                if (projectedType != tableField.type()) {
+                    hasReadTypeProjection = true;
+                }
+                readFields.add(tableField.newType(projectedType));
+            } else {
+                hasReadTypeProjection = true;
+                readFields.add(tableField.newType(
+                        variantProjection.readType().copy(tableField.type().isNullable())));
+            }
+        }
+        if (hasReadTypeProjection) {
+            readBuilder.withReadType(new RowType(readFields));
+        } else {
+            readBuilder.withProjection(projected);
+        }
         readBuilder.withFilter(getPredicates());
         reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
-        paimonDataTypeList =
-                Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
+        // Decode with the types that were REQUESTED, not the table's: a pruned nested column comes back
+        // narrow, and taking table.rowType() here would misalign every one of them.
+        paimonDataTypeList = readFields.stream().map(DataField::type).collect(Collectors.toList());
     }
 
     private TableRead newReadWithOptionalIOManager(ReadBuilder readBuilder) throws IOException {
@@ -340,7 +383,7 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         IOException exception = null;
         try {
             try {
@@ -404,7 +447,8 @@ public class PaimonJniScanner extends JniScanner {
                     rows++;
                     columnValue.setOffsetRow(record);
                     for (int i = 0; i < fields.length; i++) {
-                        columnValue.setIdx(i, types[i], paimonDataTypeList.get(i));
+                        columnValue.setIdx(
+                                i, types[i], paimonDataTypeList.get(i), variantProjections.get(i));
                         appendData(i, columnValue);
                     }
                     if (rows >= batchSize) {
@@ -459,13 +503,7 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     @Override
-    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
-        // do nothing
-        return null;
-    }
-
-    @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         Map<String, String> statistics = new HashMap<>();
         statistics.put("gauge:PaimonJniIOManagerEnabled", ioManager != null ? "1" : "0");
         statistics.put("gauge:PaimonJniActiveScannerCount", String.valueOf(ACTIVE_SCANNERS.get()));
@@ -533,45 +571,46 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     static String[] requiredFields(Map<String, String> params) {
-        String encodedFields = params.get("required_fields_base64");
-        if (encodedFields == null) {
-            return splitParam(params.get("required_fields"), ",");
-        }
-        if (encodedFields.isEmpty()) {
-            return new String[0];
-        }
-        // Each identifier is encoded independently, so delimiters in quoted identifiers cannot
-        // change field cardinality. The legacy parameter remains the rolling-upgrade fallback.
-        return decodeSchemaValues(encodedFields);
+        return JniSchemaParams.requiredFields(params);
     }
 
     static String[] requiredTypes(Map<String, String> params) {
-        String encodedTypes = params.get("columns_types_base64");
-        return encodedTypes == null
-                ? splitParam(params.get("columns_types"), "#")
-                : decodeSchemaValues(encodedTypes);
+        return JniSchemaParams.requiredTypes(params);
     }
 
     private static boolean usesEncodedSchema(Map<String, String> params) {
-        boolean hasFields = params.containsKey("required_fields_base64");
-        boolean hasTypes = params.containsKey("columns_types_base64");
-        // Both halves describe one schema version; accepting a mixed pair would reintroduce the
-        // cardinality and nested-name ambiguity this protocol is intended to remove.
-        Preconditions.checkArgument(hasFields == hasTypes,
-                "required_fields_base64 and columns_types_base64 must be provided together");
-        return hasFields;
+        return JniSchemaParams.usesEncodedSchema(params);
     }
 
-    private static String[] decodeSchemaValues(String encodedValues) {
+    static List<List<List<String>>> variantAccessPathsByColumn(
+            Map<String, String> params, int requiredFieldCount) {
+        List<List<List<String>>> result = new ArrayList<>(requiredFieldCount);
+        for (int columnIndex = 0; columnIndex < requiredFieldCount; columnIndex++) {
+            List<List<String>> columnPaths = new ArrayList<>();
+            for (int pathIndex = 0; ; pathIndex++) {
+                String encodedPath = params.get(
+                        VARIANT_ACCESS_PATH_PREFIX + columnIndex + "." + pathIndex);
+                if (encodedPath == null) {
+                    break;
+                }
+                columnPaths.add(Arrays.asList(decodeStringList(encodedPath)));
+            }
+            result.add(columnPaths);
+        }
+        return result;
+    }
+
+    private static String[] decodeStringList(String encodedValues) {
         if (encodedValues.isEmpty()) {
             return new String[0];
         }
         return Arrays.stream(encodedValues.split(",", -1))
                 .map(encoded -> {
-                    // A marker on every token preserves list arity when the encoded value itself is empty.
                     Preconditions.checkArgument(encoded.startsWith("$"),
                             "Encoded JNI schema token is missing its version marker");
-                    return new String(Base64.getDecoder().decode(encoded.substring(1)), StandardCharsets.UTF_8);
+                    return new String(
+                            Base64.getDecoder().decode(encoded.substring(1)),
+                            StandardCharsets.UTF_8);
                 })
                 .toArray(String[]::new);
     }
@@ -703,14 +742,14 @@ public class PaimonJniScanner extends JniScanner {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
             FileStoreTable main = applyManifestParallelismBound(
                     pair.wrapped(), safeBound, materializeAbsent);
-            FileStoreTable fallback = applyManifestParallelismBound(
-                    pair.fallback(), safeBound, materializeAbsent);
-            if (main == pair.wrapped() && fallback == pair.fallback()) {
+            FileStoreTable other = applyManifestParallelismBound(
+                    pair.other(), safeBound, materializeAbsent);
+            if (main == pair.wrapped() && other == pair.other()) {
                 return table;
             }
             // Each branch owns an independent planner setting; a smaller sibling is not an
             // execution ceiling and must never throttle the other branch.
-            return new FallbackReadFileStoreTable(main, fallback);
+            return new FallbackReadFileStoreTable(main, other, isWrappedFirst(pair));
         }
 
         if (table instanceof DelegatedFileStoreTable) {
@@ -773,6 +812,21 @@ public class PaimonJniScanner extends JniScanner {
                 (Table) table, safeBound, materializeAbsent);
     }
 
+    static boolean isWrappedFirst(FallbackReadFileStoreTable table) {
+        Map<String, String> options = table.options();
+        // Mirror Paimon 1.4.2 FileStoreTableFactory. There is no public accessor for the wrapper's
+        // private ordering flag, so reconstruction must recover the factory decision from options.
+        if (ChainTableUtils.isChainTable(options)) {
+            return true;
+        }
+        if (!StringUtils.isNullOrWhitespaceOnly(
+                options.get(CoreOptions.SCAN_FALLBACK_BRANCH.key()))) {
+            return true;
+        }
+        return StringUtils.isNullOrWhitespaceOnly(
+                options.get(CoreOptions.SCAN_PRIMARY_BRANCH.key()));
+    }
+
     private static FileStoreTable unwrapSystemPlanningSource(FileStoreTable table) {
         FileStoreTable current = table;
         // System wrappers dispatch fallback reads only when the fallback pair is their direct
@@ -801,7 +855,7 @@ public class PaimonJniScanner extends JniScanner {
         validateSerializedAsyncThreshold(table.options().get(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()));
         validateSerializedSplitTargetSize(table.options().get(CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key()));
         if (table instanceof FallbackReadFileStoreTable) {
-            validateSerializedReaderOptions(((FallbackReadFileStoreTable) table).fallback());
+            validateSerializedReaderOptions(((FallbackReadFileStoreTable) table).other());
         }
         if (table instanceof DelegatedFileStoreTable) {
             validateSerializedReaderOptions(((DelegatedFileStoreTable) table).wrapped());
@@ -911,10 +965,4 @@ public class PaimonJniScanner extends JniScanner {
         }
     }
 
-    private static String[] splitParam(String value, String delimiter) {
-        if (value == null || value.isEmpty()) {
-            return new String[0];
-        }
-        return value.split(delimiter);
-    }
 }

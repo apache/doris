@@ -19,7 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class TpchTest extends TestWithFeService {
@@ -221,6 +221,6 @@ public class TpchTest extends TestWithFeService {
                 + "ORDER BY\n"
                 + "  o_year");
 
-        Assert.assertTrue(explain.contains("db1.lineitem(lineitem)"));
+        Assertions.assertTrue(explain.contains("db1.lineitem(lineitem)"));
     }
 }

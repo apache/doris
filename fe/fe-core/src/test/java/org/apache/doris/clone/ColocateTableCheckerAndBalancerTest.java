@@ -21,26 +21,47 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.LocalTablet;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer.BackendBuckets;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer.BucketStatistic;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer.GlobalColocateStatistic;
+import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.HashSet;
@@ -63,7 +84,7 @@ public class ColocateTableCheckerAndBalancerTest {
 
     private Map<Long, Double> mixLoadScores;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         backend1 = new Backend(1L, "192.168.1.1", 9050);
         backend2 = new Backend(2L, "192.168.1.2", 9050);
@@ -96,6 +117,140 @@ public class ColocateTableCheckerAndBalancerTest {
         mixLoadScores.put(7L, 0.8);
         mixLoadScores.put(8L, 0.7);
         mixLoadScores.put(9L, 0.9);
+    }
+
+    @Test
+    public void testBuildGlobalStatisticSkipsRowBinlogIndex() {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        ColocateTableIndex colocateTableIndex = new ColocateTableIndex();
+        Database db = new Database(10000L, "test_db");
+        Column keyColumn = new Column("k1", PrimitiveType.INT);
+        OlapTable table = new OlapTable(10001L, "test_tbl", Lists.newArrayList(keyColumn),
+                KeysType.DUP_KEYS, new RangePartitionInfo(),
+                new HashDistributionInfo(1, Lists.newArrayList(keyColumn)));
+        db.registerTable(table);
+
+        MaterializedIndex baseIndex = new MaterializedIndex(10002L, IndexState.NORMAL);
+        MaterializedIndex rowBinlogIndex = new MaterializedIndex(10003L, IndexState.NORMAL);
+        rowBinlogIndex.setIsRowBinlog(true);
+        Partition partition = new Partition(10004L, "p0", baseIndex, new HashDistributionInfo());
+        table.addPartition(partition);
+        table.getPartitionInfo().addPartition(partition.getId(), new DataProperty(TStorageMedium.HDD),
+                ReplicaAllocation.DEFAULT_ALLOCATION, false, true);
+
+        Tablet baseTablet = createColocateTablet(10005L, Lists.newArrayList(1L, 2L, 3L));
+        Tablet rowBinlogTablet = createColocateTablet(10006L, Lists.newArrayList(1L, 2L, 3L));
+        baseTablet.setRowBinlogTabletId(rowBinlogTablet.getId());
+        rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
+        baseIndex.addTablet(baseTablet, null, true);
+        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
+        partition.createRollupIndex(rowBinlogIndex);
+
+        GroupId groupId = new GroupId(db.getId(), 10007L);
+        Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
+        backendsPerBucketSeq.put(Tag.DEFAULT_BACKEND_TAG,
+                Lists.<List<Long>>newArrayList(Lists.newArrayList(1L, 2L, 3L)));
+
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class)) {
+            mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getColocateTableIndex()).thenReturn(colocateTableIndex);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable(db.getId())).thenReturn(db);
+
+            colocateTableIndex.addTableToGroup(db.getId(), table, "test_db.test_group", groupId);
+            colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+
+            GlobalColocateStatistic globalStatistic = Deencapsulation.invoke(balancer,
+                    "buildGlobalColocateStatistic");
+
+            List<BucketStatistic> bucketStatistics = globalStatistic.getAllGroupBucketsMap().get(groupId);
+            Assertions.assertEquals(1, bucketStatistics.size());
+            Assertions.assertEquals(1, bucketStatistics.get(0).totalReplicaNum);
+        }
+    }
+
+    @Test
+    public void testMatchGroupsSchedulesRowBinlogWithoutMarkingGroupUnstable() {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        TabletScheduler tabletScheduler = Mockito.mock(TabletScheduler.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        SystemInfoService infoService = new SystemInfoService();
+        infoService.addBackend(backend1);
+        infoService.addBackend(backend2);
+        infoService.addBackend(backend3);
+
+        ColocateTableIndex colocateTableIndex = new ColocateTableIndex();
+        Database db = new Database(10000L, "test_db");
+        Column keyColumn = new Column("k1", PrimitiveType.INT);
+        OlapTable table = new OlapTable(10001L, "test_tbl", Lists.newArrayList(keyColumn),
+                KeysType.DUP_KEYS, new RangePartitionInfo(),
+                new HashDistributionInfo(1, Lists.newArrayList(keyColumn)));
+        db.registerTable(table);
+
+        MaterializedIndex baseIndex = new MaterializedIndex(10002L, IndexState.NORMAL);
+        MaterializedIndex rowBinlogIndex = new MaterializedIndex(10003L, IndexState.NORMAL);
+        rowBinlogIndex.setIsRowBinlog(true);
+        Partition partition = new Partition(10004L, "p0", baseIndex, new HashDistributionInfo());
+        table.addPartition(partition);
+        table.getPartitionInfo().addPartition(partition.getId(), new DataProperty(TStorageMedium.HDD),
+                ReplicaAllocation.DEFAULT_ALLOCATION, false, true);
+
+        Tablet baseTablet = createColocateTablet(10005L, Lists.newArrayList(1L, 2L, 3L));
+        Tablet rowBinlogTablet = Mockito.spy(createColocateTablet(10006L, Lists.newArrayList(1L, 2L)));
+        baseTablet.setRowBinlogTabletId(rowBinlogTablet.getId());
+        rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
+        baseIndex.addTablet(baseTablet, null, true);
+        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
+        partition.createRollupIndex(rowBinlogIndex);
+
+        GroupId groupId = new GroupId(db.getId(), 10007L);
+        Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
+        backendsPerBucketSeq.put(Tag.DEFAULT_BACKEND_TAG,
+                Lists.<List<Long>>newArrayList(Lists.newArrayList(1L, 2L, 3L)));
+
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class)) {
+            mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+            mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(infoService);
+            Mockito.when(env.getColocateTableIndex()).thenReturn(colocateTableIndex);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(env.getTabletScheduler()).thenReturn(tabletScheduler);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(catalog.getDbNullable(db.getId())).thenReturn(db);
+            Mockito.when(tabletScheduler.addTablet(Mockito.any(TabletSchedCtx.class), Mockito.eq(false)))
+                    .thenReturn(TabletScheduler.AddResult.ADDED);
+
+            colocateTableIndex.addTableToGroup(db.getId(), table, "test_db.test_group", groupId);
+            colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+            colocateTableIndex.markGroupUnstable(groupId, "seed", false);
+            Assertions.assertTrue(colocateTableIndex.isGroupUnstable(groupId));
+
+            Deencapsulation.invoke(balancer, "matchGroups");
+
+            ArgumentCaptor<TabletSchedCtx> tabletCtxCaptor = ArgumentCaptor.forClass(TabletSchedCtx.class);
+            Mockito.verify(tabletScheduler).addTablet(tabletCtxCaptor.capture(), Mockito.eq(false));
+            TabletSchedCtx tabletCtx = tabletCtxCaptor.getValue();
+            Assertions.assertEquals(rowBinlogIndex.getId(), tabletCtx.getIndexId());
+            Assertions.assertEquals(rowBinlogTablet.getId(), tabletCtx.getTabletId());
+            Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, tabletCtx.getTabletStatus());
+            Assertions.assertEquals(Priority.HIGH, tabletCtx.getPriority());
+            Assertions.assertEquals(Sets.newHashSet(1L, 2L, 3L), tabletCtx.getColocateBackendsSet());
+            Assertions.assertEquals(ImmutableMap.of(1L, 1L, 2L, 2L, 3L, 3L),
+                    tabletCtx.getRowBinlogRequiredDestPathHashByBackend());
+            Mockito.verify(rowBinlogTablet).readyToBeRepaired(infoService, Priority.HIGH);
+            Assertions.assertFalse(colocateTableIndex.isGroupUnstable(groupId));
+        }
+    }
+
+    private Tablet createColocateTablet(long tabletId, List<Long> backendIds) {
+        Tablet tablet = new LocalTablet(tabletId);
+        for (Long backendId : backendIds) {
+            Replica replica = new LocalReplica(tabletId + backendId, backendId, Replica.ReplicaState.NORMAL, 1, 0);
+            replica.setPathHash(backendId);
+            tablet.addReplica(replica, true);
+        }
+        return tablet;
     }
 
     private ColocateTableIndex createColocateIndex(GroupId groupId, List<Long> flatList) {
@@ -164,8 +319,8 @@ public class ColocateTableCheckerAndBalancerTest {
                 balancedBackendsPerBucketSeq, false);
         List<List<Long>> expected = Lists.partition(
                 Lists.newArrayList(8L, 5L, 6L, 5L, 6L, 7L, 9L, 4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L), 3);
-        Assert.assertTrue("" + globalColocateStatistic, changed);
-        Assert.assertEquals(expected, balancedBackendsPerBucketSeq);
+        Assertions.assertTrue(changed, "" + globalColocateStatistic);
+        Assertions.assertEquals(expected, balancedBackendsPerBucketSeq);
 
         // 2. balance a already balanced group
         colocateTableIndex = createColocateIndex(groupId,
@@ -178,8 +333,8 @@ public class ColocateTableCheckerAndBalancerTest {
                 colocateTableIndex, infoService, statistic, globalColocateStatistic,
                 balancedBackendsPerBucketSeq, false);
         System.out.println(balancedBackendsPerBucketSeq);
-        Assert.assertFalse(changed);
-        Assert.assertTrue(balancedBackendsPerBucketSeq.isEmpty());
+        Assertions.assertFalse(changed);
+        Assertions.assertTrue(balancedBackendsPerBucketSeq.isEmpty());
     }
 
     @Test
@@ -220,7 +375,7 @@ public class ColocateTableCheckerAndBalancerTest {
         boolean changed = Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, Tag.DEFAULT_BACKEND_TAG,
                 new HashSet<Long>(), allAvailBackendIds, colocateTableIndex, infoService, statistic, globalColocateStatistic,
                 balancedBackendsPerBucketSeq, false);
-        Assert.assertFalse(changed);
+        Assertions.assertFalse(changed);
 
         // 2. all backends are checked but this round is not changed
         // [[7], [7], [7], [7], [7]]
@@ -234,7 +389,7 @@ public class ColocateTableCheckerAndBalancerTest {
         changed = Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, Tag.DEFAULT_BACKEND_TAG,
                 new HashSet<Long>(), allAvailBackendIds, colocateTableIndex, infoService, statistic, globalColocateStatistic,
                 balancedBackendsPerBucketSeq, false);
-        Assert.assertFalse(changed);
+        Assertions.assertFalse(changed);
     }
 
     @Test
@@ -262,7 +417,7 @@ public class ColocateTableCheckerAndBalancerTest {
         boolean changed = (Boolean) Deencapsulation.invoke(balancer, "relocateAndBalance", groupId, Tag.DEFAULT_BACKEND_TAG,
                 unAvailBackendIds, availBackendIds, colocateTableIndex, infoService, statistic, globalColocateStatistic,
                 balancedBackendsPerBucketSeq, false);
-        Assert.assertFalse(changed);
+        Assertions.assertFalse(changed);
     }
 
     @Test
@@ -282,14 +437,14 @@ public class ColocateTableCheckerAndBalancerTest {
         List<Map.Entry<Long, Long>> backends = Deencapsulation.invoke(balancer, "getSortedBackendReplicaNumPairs",
                 allAvailBackendIds, unavailBackendIds, statistic, globalColocateStatistic, flatBackendsPerBucketSeq);
         long[] backendIds = backends.stream().mapToLong(Map.Entry::getKey).toArray();
-        Assert.assertArrayEquals(new long[]{7L, 8L, 6L, 2L, 3L, 5L, 4L, 1L}, backendIds);
+        Assertions.assertArrayEquals(new long[]{7L, 8L, 6L, 2L, 3L, 5L, 4L, 1L}, backendIds);
 
         // 0,1 bucket on same be and 5, 6 on same be
         flatBackendsPerBucketSeq = Lists.newArrayList(1L, 1L, 3L, 4L, 5L, 6L, 7L, 7L, 9L);
         backends = Deencapsulation.invoke(balancer, "getSortedBackendReplicaNumPairs", allAvailBackendIds, unavailBackendIds,
                 statistic, globalColocateStatistic, flatBackendsPerBucketSeq);
         backendIds = backends.stream().mapToLong(Map.Entry::getKey).toArray();
-        Assert.assertArrayEquals(new long[]{7L, 1L, 6L, 3L, 5L, 4L, 8L, 2L}, backendIds);
+        Assertions.assertArrayEquals(new long[]{7L, 1L, 6L, 3L, 5L, 4L, 8L, 2L}, backendIds);
     }
 
     public final class FakeBackendLoadStatistic extends BackendLoadStatistic {
@@ -314,7 +469,7 @@ public class ColocateTableCheckerAndBalancerTest {
     public void testGetBeSeqIndexes() {
         List<Long> flatBackendsPerBucketSeq = Lists.newArrayList(1L, 2L, 2L, 3L, 4L, 2L);
         List<Integer> indexes = Deencapsulation.invoke(balancer, "getBeSeqIndexes", flatBackendsPerBucketSeq, 2L);
-        Assert.assertArrayEquals(new int[]{1, 2, 5}, indexes.stream().mapToInt(i -> i).toArray());
+        Assertions.assertArrayEquals(new int[]{1, 2, 5}, indexes.stream().mapToInt(i -> i).toArray());
         System.out.println("backend1 id is " + backend1.getId());
     }
 
@@ -368,7 +523,7 @@ public class ColocateTableCheckerAndBalancerTest {
         Set<Long> unavailableBeIds = Deencapsulation.invoke(balancer, "getUnavailableBeIdsInGroup",
                 infoService, colocateTableIndex, groupId, Tag.DEFAULT_BACKEND_TAG);
         System.out.println(unavailableBeIds);
-        Assert.assertArrayEquals(new long[]{1L, 3L, 5L}, unavailableBeIds.stream().mapToLong(i -> i).sorted().toArray());
+        Assertions.assertArrayEquals(new long[]{1L, 3L, 5L}, unavailableBeIds.stream().mapToLong(i -> i).sorted().toArray());
     }
 
     @Test
@@ -443,7 +598,7 @@ public class ColocateTableCheckerAndBalancerTest {
         List<Long> availableBeIds = Deencapsulation.invoke(balancer, "getAvailableBeIds",
                 Tag.DEFAULT_BACKEND_TAG, Sets.newHashSet(999L), infoService);
         System.out.println(availableBeIds);
-        Assert.assertArrayEquals(new long[]{2L, 4L}, availableBeIds.stream().mapToLong(i -> i).sorted().toArray());
+        Assertions.assertArrayEquals(new long[]{2L, 4L}, availableBeIds.stream().mapToLong(i -> i).sorted().toArray());
     }
 
     @Test
@@ -462,34 +617,34 @@ public class ColocateTableCheckerAndBalancerTest {
 
         Map<Long, BackendBuckets> backendBucketsMap = globalColocateStatistic.getBackendBucketsMap();
         BackendBuckets backendBuckets1 = backendBucketsMap.get(1001L);
-        Assert.assertNotNull(backendBuckets1);
-        Assert.assertEquals(Lists.newArrayList(0, 2),
+        Assertions.assertNotNull(backendBuckets1);
+        Assertions.assertEquals(Lists.newArrayList(0, 2),
                 backendBuckets1.getGroupTabletOrderIndices().get(groupId1));
-        Assert.assertEquals(Lists.newArrayList(0, 3),
+        Assertions.assertEquals(Lists.newArrayList(0, 3),
                 backendBuckets1.getGroupTabletOrderIndices().get(groupId2));
         BackendBuckets backendBuckets2 = backendBucketsMap.get(1002L);
-        Assert.assertNotNull(backendBuckets2);
-        Assert.assertEquals(Lists.newArrayList(0, 1),
+        Assertions.assertNotNull(backendBuckets2);
+        Assertions.assertEquals(Lists.newArrayList(0, 1),
                 backendBuckets2.getGroupTabletOrderIndices().get(groupId1));
-        Assert.assertEquals(Lists.newArrayList(1),
+        Assertions.assertEquals(Lists.newArrayList(1),
                 backendBuckets2.getGroupTabletOrderIndices().get(groupId2));
         BackendBuckets backendBuckets3 = backendBucketsMap.get(1003L);
-        Assert.assertNotNull(backendBuckets3);
-        Assert.assertEquals(Lists.newArrayList(1, 2),
+        Assertions.assertNotNull(backendBuckets3);
+        Assertions.assertEquals(Lists.newArrayList(1, 2),
                 backendBuckets3.getGroupTabletOrderIndices().get(groupId1));
-        Assert.assertEquals(Lists.newArrayList(2),
+        Assertions.assertEquals(Lists.newArrayList(2),
                 backendBuckets3.getGroupTabletOrderIndices().get(groupId2));
 
         Map<GroupId, List<BucketStatistic>> allGroupBucketsMap = globalColocateStatistic.getAllGroupBucketsMap();
-        Assert.assertEquals(Lists.newArrayList(new BucketStatistic(0, 5, 100L), new BucketStatistic(1, 5, 200L),
+        Assertions.assertEquals(Lists.newArrayList(new BucketStatistic(0, 5, 100L), new BucketStatistic(1, 5, 200L),
                     new BucketStatistic(2, 5, 300L)),
                 allGroupBucketsMap.get(groupId1));
-        Assert.assertEquals(Lists.newArrayList(new BucketStatistic(0, 7, 100L), new BucketStatistic(1, 7, 200L),
+        Assertions.assertEquals(Lists.newArrayList(new BucketStatistic(0, 7, 100L), new BucketStatistic(1, 7, 200L),
                     new BucketStatistic(2, 7, 300L), new BucketStatistic(3, 7, 400L)),
                 allGroupBucketsMap.get(groupId2));
 
         Map<Tag, Integer> expectAllTagBucketNum = Maps.newHashMap();
         expectAllTagBucketNum.put(Tag.DEFAULT_BACKEND_TAG, 10);
-        Assert.assertEquals(expectAllTagBucketNum, globalColocateStatistic.getAllTagBucketNum());
+        Assertions.assertEquals(expectAllTagBucketNum, globalColocateStatistic.getAllTagBucketNum());
     }
 }

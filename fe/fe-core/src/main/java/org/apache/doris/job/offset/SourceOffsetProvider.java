@@ -206,15 +206,22 @@ public interface SourceOffsetProvider {
         return 0;
     }
 
-    /**
-     * Get the lag of the data source in seconds.
-     * For CDC sources, lag = (now - last consumed event timestamp) in seconds.
-     *
-     * @return lag in seconds as string, empty string if not applicable
-     */
+    /** Get the latest successfully observed source-log lag in bytes, or -1 before any observation. */
+    default long getLagBytes() {
+        return -1;
+    }
+
+    /** Get the source event timestamp at the committed offset as Unix seconds, or 0 if unavailable. */
+    default long getLastSourceEventTimestampSeconds() {
+        return 0;
+    }
+
+    /** Discard a lag value that was calculated from an offset explicitly replaced by the user. */
+    default void resetLag() {}
+
+    /** Get source lag as a numeric string for SHOW output. */
     default String getLag() {
-        return "";
+        return String.valueOf(getLagBytes());
     }
 
 }
-

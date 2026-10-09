@@ -132,12 +132,16 @@ public:
                                               ._should_build_hash_table;
     }
 
-    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {TLocalPartitionType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child->is_serial_operator() ? DataDistribution(TLocalPartitionType::PASS_TO_ONE)
-                                                : DataDistribution(TLocalPartitionType::NOOP);
+            if (!_child->is_serial_operator()) {
+                return {TLocalPartitionType::NOOP};
+            }
+            return state->enable_share_hash_table_for_broadcast_join()
+                           ? DataDistribution(TLocalPartitionType::PASS_TO_ONE)
+                           : DataDistribution(TLocalPartitionType::BROADCAST);
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
@@ -188,14 +192,12 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _should_keep_column_flags;
     bool _should_keep_hash_key_column = false;
-    // if build side has variant column and need output variant column
-    // need to finalize variant column to speed up the join op
-    bool _need_finalize_variant_column = false;
 
     // ASOF JOIN: build-side expression extracted from MATCH_CONDITION's right child
     // Prepared against build child's row_desc directly (no intermediate tuple needed)
     VExprContextSPtr _asof_build_side_expr;
     TExprOpcode::type _asof_opcode = TExprOpcode::INVALID_OPCODE;
+    bool _asof_mixed_timestamp_ns_datetimev2 = false;
 
     bool _use_shared_hash_table = false;
     std::atomic<bool> _signaled = false;

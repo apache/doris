@@ -17,20 +17,20 @@
 
 package org.apache.doris.mysql;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class MysqlCapabilityTest {
     @Test
     public void testToString() {
         MysqlCapability capability = new MysqlCapability(1);
-        Assert.assertEquals("CLIENT_LONG_PASSWORD", capability.toString());
+        Assertions.assertEquals("CLIENT_LONG_PASSWORD", capability.toString());
 
         capability = new MysqlCapability(0x3);
-        Assert.assertEquals("CLIENT_LONG_PASSWORD | CLIENT_FOUND_ROWS", capability.toString());
+        Assertions.assertEquals("CLIENT_LONG_PASSWORD | CLIENT_FOUND_ROWS", capability.toString());
 
         capability = new MysqlCapability(0xfffffff);
-        Assert.assertEquals("CLIENT_LONG_PASSWORD | CLIENT_FOUND_ROWS | CLIENT_LONG_FLAG | CLIENT_CONNECT_WITH_DB"
+        Assertions.assertEquals("CLIENT_LONG_PASSWORD | CLIENT_FOUND_ROWS | CLIENT_LONG_FLAG | CLIENT_CONNECT_WITH_DB"
                 + " | CLIENT_NO_SCHEMA | CLIENT_COMPRESS | CLIENT_ODBC | CLIENT_LOCAL_FILES"
                 + " | CLIENT_IGNORE_SPACE | CLIENT_PROTOCOL_41 | CLIENT_INTERACTIVE | CLIENT_SSL"
                 + " | CLIENT_IGNORE_SIGPIPE | CLIENT_TRANSACTIONS | CLIENT_RESERVED | CLIENT_SECURE_CONNECTION"
@@ -43,13 +43,13 @@ public class MysqlCapabilityTest {
     @Test
     public void testDefaultFlags() {
         MysqlCapability capability = MysqlCapability.DEFAULT_CAPABILITY;
-        Assert.assertEquals("CLIENT_LONG_FLAG | CLIENT_CONNECT_WITH_DB | CLIENT_LOCAL_FILES | CLIENT_PROTOCOL_41"
+        Assertions.assertEquals("CLIENT_LONG_FLAG | CLIENT_CONNECT_WITH_DB | CLIENT_LOCAL_FILES | CLIENT_PROTOCOL_41"
                 + " | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH | CLIENT_CONNECT_ATTRS"
                 + " | CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA | CLIENT_DEPRECATE_EOF",
                 capability.toString());
-        Assert.assertTrue(capability.supportClientLocalFile());
-        Assert.assertTrue(capability.isConnectAttrs());
-        Assert.assertTrue(capability.isPluginAuthDataLengthEncoded());
-        Assert.assertTrue(capability.isDeprecatedEOF());
+        Assertions.assertTrue(capability.supportClientLocalFile());
+        Assertions.assertTrue(capability.isConnectAttrs());
+        Assertions.assertTrue(capability.isPluginAuthDataLengthEncoded());
+        Assertions.assertTrue(capability.isDeprecatedEOF());
     }
 }

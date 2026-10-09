@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.alter;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -41,6 +42,7 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
@@ -53,6 +55,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -130,6 +133,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
                 add(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+                add(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT);
             }
         };
         List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
@@ -145,6 +149,25 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         List<Partition> partitions = Lists.newArrayList();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat =
+                    PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
+            if (invertedIndexFileStorageFormat == null) {
+                return;
+            }
+            olapTable.readLock();
+            try {
+                if (invertedIndexFileStorageFormat == olapTable.getPartitionInvertedIndexFileStorageFormat()) {
+                    LOG.info("partitionInvertedIndexFileStorageFormat:{} is equal with table format:{}",
+                            invertedIndexFileStorageFormat, olapTable.getPartitionInvertedIndexFileStorageFormat());
+                    return;
+                }
+            } finally {
+                olapTable.readUnlock();
+            }
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT,
+                    invertedIndexFileStorageFormat.name());
+        }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
             long ttlSeconds = PropertyAnalyzer.analyzeTTL(properties);
@@ -381,6 +404,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
             param.verticalCompactionNumColumnsPerGroup = verticalCompactionNumColumnsPerGroup;
             param.type = UpdatePartitionMetaParam.TabletMetaType.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            // Existing tablet metadata retains its creation-time format.
         } else {
             LOG.warn("invalid properties:{}", properties);
             throw new UserException("invalid properties");
@@ -402,6 +427,18 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
     }
 
+    @Override
+    public void updatePartitionProperties(Database db, String tableName, String partitionName,
+            long storagePolicyId, int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
+            Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad,
+            int disableAutoCompaction, int verticalCompactionNumColumnsPerGroup) throws UserException {
+        Preconditions.checkNotNull(binlogConfig);
+        UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        param.binlogConfig = binlogConfig;
+        param.type = UpdatePartitionMetaParam.TabletMetaType.BINLOG_CONFIG;
+        updateCloudPartitionMeta(db, tableName, partitionName, param);
+    }
+
     private static class UpdatePartitionMetaParam {
         public enum TabletMetaType {
             INMEMORY,
@@ -419,6 +456,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             DISABLE_AUTO_COMPACTION,
             ENABLE_MOW_LIGHT_DELETE,
             VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP,
+            BINLOG_CONFIG,
         }
 
         TabletMetaType type;
@@ -437,6 +475,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         boolean disableAutoCompaction = false;
         boolean enableMowLightDelete = false;
         int verticalCompactionNumColumnsPerGroup = 5;
+        BinlogConfig binlogConfig;
     }
 
     public void updateCloudPartitionMeta(Database db,
@@ -452,7 +491,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 throw new DdlException(
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
             }
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+            boolean includeRowBinlog = param.type != UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY;
+            for (MaterializedIndex index
+                    : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeRowBinlog)) {
                 for (Tablet tablet : index.getTablets()) {
                     tabletIds.add(tablet.getId());
                 }
@@ -523,6 +564,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                     case VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP:
                         infoBuilder.setVerticalCompactionNumColumnsPerGroup(
                                 param.verticalCompactionNumColumnsPerGroup);
+                        break;
+                    case BINLOG_CONFIG:
+                        infoBuilder.setBinlogConfig(param.binlogConfig.toProtobuf());
                         break;
                     default:
                         throw new UserException("Unknown TabletMetaType");

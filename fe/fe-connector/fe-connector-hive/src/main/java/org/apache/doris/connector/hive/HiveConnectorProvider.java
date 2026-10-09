@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -61,13 +62,22 @@ public class HiveConnectorProvider implements ConnectorProvider {
     }
 
     /**
-     * Binds and validates through the typed holder; the ALTER door reaches this same method through the
-     * SPI default {@code validatePropertiesForUpdate}, which validates the merged candidate.
+     * Binds and validates through the typed holder. ALTER validates the merged candidate while distinguishing
+     * explicitly submitted cache keys from unknown entries persisted by another connector version.
      * {@code IllegalArgumentException} — which both halves throw — is required: it is the only type
      * {@code PluginDrivenExternalCatalog.checkProperties} unwraps, preserving the message verbatim.
      */
     @Override
     public void validateProperties(Map<String, String> properties) {
         HiveCatalogProperties.of(properties).checkCreateTimeOnlyRules();
+    }
+
+    @Override
+    public void validatePropertiesForUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+        HiveCatalogProperties.of(candidate).checkCreateTimeOnlyRules(updatedProperties);
     }
 }

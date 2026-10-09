@@ -41,8 +41,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.ColStatsMeta;
-import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.analysis.ColStatsMeta;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;

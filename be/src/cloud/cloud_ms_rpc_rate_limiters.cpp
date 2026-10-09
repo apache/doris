@@ -23,6 +23,7 @@
 
 #include "cloud/config.h"
 #include "util/cpu_info.h"
+#include "util/time.h"
 
 namespace doris::cloud {
 
@@ -86,6 +87,13 @@ RpcRateLimiter::RpcRateLimiter(int qps, std::string_view op_name) {
             });
 }
 
+bool RpcRateLimiter::should_log(int64_t now_us) {
+    int64_t next_log_time_us = _next_log_time_us.load(std::memory_order_relaxed);
+    return now_us >= next_log_time_us &&
+           _next_log_time_us.compare_exchange_strong(next_log_time_us, now_us + MICROS_PER_SEC,
+                                                     std::memory_order_relaxed);
+}
+
 void RpcRateLimiter::reset(int qps) {
     limiter->reset(qps, qps, 0);
 }
@@ -129,7 +137,8 @@ void HostLevelMSRpcRateLimiters::init_with_uniform_qps(int qps) {
 }
 
 int64_t HostLevelMSRpcRateLimiters::limit(MetaServiceRPC rpc) {
-    if (!config::enable_ms_rpc_host_level_rate_limit) {
+    const bool dry_run = config::enable_ms_rpc_host_level_rate_limit_dry_run;
+    if (!config::enable_ms_rpc_host_level_rate_limit && !dry_run) {
         return 0;
     }
 
@@ -139,10 +148,21 @@ int64_t HostLevelMSRpcRateLimiters::limit(MetaServiceRPC rpc) {
     }
 
     auto limiter = _limiters[idx].load();
-    if (limiter && limiter->limiter) {
-        return limiter->limiter->add(1);
+    if (!limiter) {
+        return 0;
     }
-    return 0;
+    DCHECK(limiter->limiter);
+
+    auto result = dry_run ? limiter->limiter->reserve_with_config(1)
+                          : limiter->limiter->add_with_config(1);
+    if (result.sleep_duration > 0 && limiter->should_log(MonotonicMicros())) {
+        LOG(INFO) << "[ms-throttle] host-level rate limiter "
+                  << (dry_run ? "dry run would throttle" : "throttled") << " MS RPC request"
+                  << ", rpc=" << meta_service_rpc_display_name(rpc)
+                  << (dry_run ? ", estimated_wait_ns=" : ", sleep_ns=") << result.sleep_duration
+                  << ", qps_limit=" << result.max_speed;
+    }
+    return dry_run ? 0 : result.sleep_duration;
 }
 
 void HostLevelMSRpcRateLimiters::reset(MetaServiceRPC rpc, int qps) {

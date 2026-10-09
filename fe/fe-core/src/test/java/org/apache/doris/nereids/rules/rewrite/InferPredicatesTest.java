@@ -19,10 +19,12 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -635,7 +637,9 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
     }
 
     /**
-     * in this case, filter on relation s1 should not contain s1.id = 1.
+     * In this case, filter on relation s1 should not contain s1.id = 1. Constant propagation can eliminate
+     * the left outer join because s1.id = 2 makes its s1.id = 1 conjunct false, so verify the eliminated
+     * join keeps the s2 columns as NULL while preserving only the s1.id = 2 filter on the left child.
      */
     @Test
     void innerJoinShouldNotInferUnderLeftJoinOnClausePredicates() {
@@ -648,13 +652,18 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                 .printlnTree()
                 .matches(logicalProject(
                         logicalJoin(
-                                logicalFilter(
-                                        logicalOlapScan()
-                                ).when(filter -> filter.getConjuncts().size() == 1
-                                        && !ExpressionUtils.isInferred(filter.getPredicate())
-                                        && filter.getPredicate().toSql().contains("id = 2")),
+                                logicalProject(
+                                        logicalFilter(
+                                                logicalOlapScan()
+                                        ).when(filter -> filter.getConjuncts().size() == 1
+                                                && !ExpressionUtils.isInferred(filter.getPredicate())
+                                                && filter.getPredicate().toSql().contains("id = 2"))
+                                ).when(project -> project.getProjects().stream()
+                                        .filter(expression -> expression instanceof Alias
+                                                && expression.child(0) instanceof NullLiteral)
+                                        .count() == 3),
                                 any()
-                        ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
+                        ).when(join -> join.getJoinType() == JoinType.INNER_JOIN)
                 ));
     }
 

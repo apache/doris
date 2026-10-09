@@ -21,6 +21,7 @@
 #include "core/data_type/data_type_timestamptz.h"
 
 #include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
 
 #include "exprs/function/cast/cast_to_timestamptz.h"
 
@@ -43,6 +44,11 @@ Field DataTypeTimeStampTz::get_field(const TExprNode& node) const {
     } else {
         return Field::create_field<TYPE_TIMESTAMPTZ>(res);
     }
+}
+
+void DataTypeTimeStampTz::to_protobuf(PTypeDesc* ptype, PTypeNode* node,
+                                      PScalarType* scalar_type) const {
+    scalar_type->set_scale(_scale);
 }
 
 } // namespace doris

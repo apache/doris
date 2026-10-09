@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TBinlogScanType;
@@ -35,6 +36,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 public abstract class BaseTableStream extends Table {
     public enum StreamScanType {
@@ -93,36 +95,74 @@ public abstract class BaseTableStream extends Table {
     @SerializedName("sr")
     private String staleReason = "N/A";
 
-    protected volatile TableIf baseTable;
-
     // for persist
     public BaseTableStream() {
         super(TableType.STREAM);
     }
 
-    public BaseTableStream(long id, String streamName, List<Column> fullSchema, TableIf baseTable) {
-        super(id, streamName, TableType.STREAM, fullSchema);
+    public BaseTableStream(long id, String streamName, TableIf baseTable) {
+        super(id, streamName, TableType.STREAM, null);
         this.baseTableInfo = new TableStreamBaseTableInfo(baseTable);
-        this.baseTable = baseTable;
         this.disabled = false;
         this.stale = false;
     }
 
-    public BaseTableStream(String streamName, List<Column> fullSchema, TableIf baseTable) {
-        this(-1, streamName, fullSchema, baseTable);
+    public BaseTableStream(String streamName, TableIf baseTable) {
+        this(-1, streamName, baseTable);
     }
 
     public TableIf getBaseTableNullable() {
-        if (baseTable == null) {
-            baseTable = baseTableInfo.getTableNullable();
+        return  baseTableInfo.getTableNullable();
+    }
+
+    // Dynamically generate the stream schema from the base table so that base table schema
+    // changes are reflected automatically. The returned list is immutable, allowing schema
+    // reading interfaces below to return it directly without extra copies.
+    protected abstract List<Column> generateDynamicSchema();
+
+    @Override
+    public List<Column> getFullSchema() {
+        return generateDynamicSchema();
+    }
+
+    @Override
+    public List<Column> getBaseSchema(boolean full) {
+        List<Column> schema = generateDynamicSchema();
+        if (full) {
+            return schema;
         }
-        return baseTable;
+        return schema.stream().filter(Column::isVisible).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public List<Column> getColumns() {
+        return generateDynamicSchema();
+    }
+
+    @Override
+    public Column getColumn(String colName) {
+        if (colName == null) {
+            return null;
+        }
+        for (Column column : generateDynamicSchema()) {
+            if (column.getName().equalsIgnoreCase(colName)) {
+                return column;
+            }
+        }
+        return null;
     }
 
     public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {
-        showInitialRows = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS,
-                false);
+        showInitialRows = false;
+        String key = PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS;
+        if (properties != null && properties.containsKey(key)) {
+            try {
+                showInitialRows = Util.parseBooleanProperty(properties.get(key), key);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new org.apache.doris.common.AnalysisException(key + " must be `true` or `false`", e);
+            }
+            properties.remove(key);
+        }
         streamScanType = PropertyAnalyzer.analyzeStreamType(properties);
     }
 
@@ -181,7 +221,11 @@ public abstract class BaseTableStream extends Table {
     // fill table_stream_consumption info
     // @param dataBatch the data batch to fill
     // DB_NAME, STREAM_NAME, STREAM_ID, UNIT, CONSUMPTION_STATUS, LAG, LAST_CONSUMPTION_TIME
-    abstract void fillTableStreamConsumptionInfo(List<TRow> dataBatch);
+    void fillTableStreamConsumptionInfo(List<TRow> dataBatch) {
+        fillTableStreamConsumptionInfo(dataBatch, unit -> true);
+    }
+
+    abstract void fillTableStreamConsumptionInfo(List<TRow> dataBatch, Predicate<String> unitSelector);
 
     public <E extends Exception> TableIf getBaseTableOrException(java.util.function.Function<String, E> e)
             throws E {

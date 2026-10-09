@@ -63,6 +63,25 @@ public class ConnectorSessionImplTest {
     }
 
     @Test
+    public void testExternalScanTaskReuseRequiresExplicitSessionProperty() {
+        ConnectorSession missing = ConnectorSessionBuilder.create().build();
+        ConnectorSession disabled = ConnectorSessionBuilder.create()
+                .withSessionProperties(Map.of("enable_external_scan_task_reuse", "false"))
+                .build();
+        ConnectorSession enabled = ConnectorSessionBuilder.create()
+                .withSessionProperties(Map.of("enable_external_scan_task_reuse", "TRUE"))
+                .build();
+        ConnectorSession catalogOnly = ConnectorSessionBuilder.create()
+                .withCatalogProperties(Map.of("enable_external_scan_task_reuse", "true"))
+                .build();
+
+        Assertions.assertFalse(missing.isExternalScanTaskReuseEnabled());
+        Assertions.assertFalse(disabled.isExternalScanTaskReuseEnabled());
+        Assertions.assertTrue(enabled.isExternalScanTaskReuseEnabled());
+        Assertions.assertFalse(catalogOnly.isExternalScanTaskReuseEnabled());
+    }
+
+    @Test
     public void testSessionPropertyOverridesCatalogProperty() {
         Map<String, String> catalogProps = new HashMap<>();
         catalogProps.put("timeout", "3000");
@@ -278,13 +297,9 @@ public class ConnectorSessionImplTest {
 
     @Test
     public void explicitNoneStatementScopeWinsOverLiveContext() {
-        // A cross-statement background loader (PluginDrivenExternalCatalog#buildCrossStatementSession) forces the
-        // per-statement scope to NONE so a metadata it resolves is never memoized into — nor closed with — the
-        // live statement's scope, even when the loader runs on a thread that has one (e.g. fetchRowCount reached
-        // synchronously from AnalysisManager.buildAnalysisJobInfo on the ANALYZE execution thread). This pins the
-        // builder guarantee that helper relies on: an explicit withStatementScope(NONE) wins over the scope
-        // captured from the live ConnectContext. MUTATION: capture ignoring the explicit override -> the loader
-        // binds to the live statement scope (the leak) -> red.
+        // Callers that deliberately request NONE must not accidentally inherit a live statement scope. Current
+        // cross-statement metadata loaders use their own operation-local scope, but NONE remains part of the SPI
+        // contract for paths that explicitly need no memoization or lifecycle ownership.
         ConnectContext ctx = new ConnectContext();
         ctx.setThreadLocalInfo();
         try {
@@ -297,7 +312,7 @@ public class ConnectorSessionImplTest {
             Assertions.assertSame(live, bound.getStatementScope(),
                     "a default session capture binds to the live statement scope");
 
-            // The forced-NONE session (what buildCrossStatementSession builds) wins over the live scope.
+            // An explicitly forced NONE scope wins over the live scope.
             ConnectorSession crossStatement = ConnectorSessionBuilder.from(ctx).withCatalogId(1L)
                     .withStatementScope(ConnectorStatementScope.NONE).build();
             Assertions.assertSame(ConnectorStatementScope.NONE, crossStatement.getStatementScope(),

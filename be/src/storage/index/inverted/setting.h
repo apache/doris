@@ -25,6 +25,7 @@
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/regex.hpp>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 

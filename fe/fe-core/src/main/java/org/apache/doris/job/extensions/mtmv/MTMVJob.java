@@ -128,7 +128,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     public List<MTMVTask> createTasks(TaskType taskType, MTMVTaskContext taskContext) {
         LOG.info("begin create mtmv task, jobId: {}, taskContext: {}", super.getJobId(), taskContext);
         if (taskContext == null) {
-            taskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
+            taskContext = MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.SYSTEM);
         }
         MTMVTask task = new MTMVTask(dbId, mtmvId, taskContext);
         task.setTaskType(taskType);

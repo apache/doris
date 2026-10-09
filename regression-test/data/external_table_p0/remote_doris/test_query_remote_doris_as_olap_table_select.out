@@ -47,9 +47,9 @@
 2	2023-01-02	reason2	2023-01-02	2	200	error2	2000	2023-01-02T00:00
 
 -- !json_variant --
-1	{"id":1,"message":"hello"}	{"id":1,"message":"hello","tags":["tag1", "tag2"]}
-2	{"id":2,"message":"world"}	{"id":2,"message":"world","tags":["tag3", "tag4"]}
-3	{"id":3,"message":"doris"}	{"id":3,"message":"doris","tags":["tag5", "tag6"]}
+1	{"id":1,"message":"hello"}	{"id":1,"message":"hello","tags":["tag1","tag2"]}
+2	{"id":2,"message":"world"}	{"id":2,"message":"world","tags":["tag3","tag4"]}
+3	{"id":3,"message":"doris"}	{"id":3,"message":"doris","tags":["tag5","tag6"]}
 
 -- !json_variant_function --
 1	1	hello

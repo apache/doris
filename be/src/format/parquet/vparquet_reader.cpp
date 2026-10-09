@@ -367,8 +367,11 @@ Status ParquetReader::_open_file() {
             // parse magic number & parse meta data
             _reader_statistics.file_footer_read_calls += 1;
         } else {
-            const auto& file_meta_cache_key =
+            auto file_meta_cache_key =
                     FileMetaCache::get_key(_tracing_file_reader, _file_description);
+            // Parsed schemas differ between canonical UUID text and binary carrier mappings.
+            file_meta_cache_key.push_back(static_cast<char>(enable_mapping_varbinary));
+            file_meta_cache_key.push_back(static_cast<char>(enable_mapping_timestamp_tz));
             if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
                 RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
                                                     &meta_size, _io_ctx, enable_mapping_varbinary,
@@ -608,8 +611,12 @@ bool ParquetReader::_type_matches(const int cid) const {
     auto table_col_type = remove_nullable(slot->type());
 
     const auto& file_col_name = _table_info_node_ptr->children_file_column_name(slot->col_name());
-    const auto& file_col_type =
-            remove_nullable(_file_metadata->schema().get_column(file_col_name)->data_type);
+    const auto* field = _file_metadata->schema().get_column(file_col_name);
+    const auto& file_col_type = remove_nullable(field->data_type);
+    // Raw UUID bounds and Bloom hashes cannot filter canonical UUID text.
+    if (field->parquet_schema.logicalType.__isset.UUID && !_preserve_binary_uuid) {
+        return false;
+    }
 
     return (table_col_type->get_primitive_type() == file_col_type->get_primitive_type()) &&
            !is_complex_type(table_col_type->get_primitive_type());
@@ -1017,6 +1024,7 @@ Status ParquetReader::_next_row_group_reader() {
             position_delete_ctx, _lazy_read_ctx, _state, _column_ids, _filter_column_ids));
     _row_group_eof = false;
 
+    _current_group_reader->set_preserve_binary_uuid(_preserve_binary_uuid);
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
     _current_group_reader->set_col_name_to_block_idx(_col_name_to_block_idx);
     if (_condition_cache_ctx) {
@@ -1507,6 +1515,8 @@ Status ParquetReader::_process_column_stat_filter(
     // Cache bloom filters for each column to avoid reading the same bloom filter multiple times
     // when there are multiple predicates on the same column
     std::unordered_map<int, std::unique_ptr<ParquetBlockSplitBloomFilter>> bloom_filter_cache;
+    constexpr size_t MAX_CACHED_BLOOM_FILTER_BYTES = 16 * 1024 * 1024;
+    size_t cached_bloom_filter_bytes = 0;
 
     // Initialize output parameters
     *filtered_by_min_max = false;
@@ -1565,6 +1575,7 @@ Status ParquetReader::_process_column_stat_filter(
                     auto cache_iter = bloom_filter_cache.find(parquet_col_id);
                     if (cache_iter != bloom_filter_cache.end()) {
                         // Bloom filter already loaded for this column, reuse it
+                        cached_bloom_filter_bytes -= cache_iter->second->size();
                         stat->bloom_filter = std::move(cache_iter->second);
                         bloom_filter_cache.erase(cache_iter);
                         return stat->bloom_filter != nullptr;
@@ -1607,6 +1618,12 @@ Status ParquetReader::_process_column_stat_filter(
 
         // After evaluating, if the bloom filter was used, cache it for subsequent predicates
         if (stat.bloom_filter) {
+            // Large filters remain tracked but are not retained across predicates; this bounds the
+            // row-group cache independently of the number of predicate columns.
+            if (stat.bloom_filter->size() >
+                MAX_CACHED_BLOOM_FILTER_BYTES - cached_bloom_filter_bytes) {
+                continue;
+            }
             // Find the column id for caching
             for (auto* slot : _tuple_descriptor->slots()) {
                 if (_table_info_node_ptr->children_column_exists(slot->col_name())) {
@@ -1616,6 +1633,7 @@ Status ParquetReader::_process_column_stat_filter(
                             _file_metadata->schema().get_column(file_col_name);
                     int parquet_col_id = col_schema->physical_column_index;
                     if (stat.col_schema == col_schema) {
+                        cached_bloom_filter_bytes += stat.bloom_filter->size();
                         bloom_filter_cache[parquet_col_id] = std::move(stat.bloom_filter);
                         break;
                     }

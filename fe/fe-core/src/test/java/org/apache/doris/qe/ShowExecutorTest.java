@@ -35,7 +35,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.systable.NativeSysTable;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -50,18 +54,16 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.rules.ExpectedException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.net.URL;
+import java.util.Optional;
 
 public class ShowExecutorTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -71,10 +73,7 @@ public class ShowExecutorTest {
     private MockedStatic<Env> mockedEnvStatic;
     private MockedStatic<ConnectContext> mockedConnectContextStatic;
 
-    @Rule
-    public ExpectedException expectedEx = ExpectedException.none();
-
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         ctx = new ConnectContext();
         ctx.setCommand(MysqlCommand.COM_SLEEP);
@@ -150,7 +149,7 @@ public class ShowExecutorTest {
         mockedConnectContextStatic.when(ConnectContext::get).thenReturn(ctx);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -170,8 +169,8 @@ public class ShowExecutorTest {
             throw new RuntimeException(e);
         }
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testDb", resultSet.getString(0));
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("testDb", resultSet.getString(0));
     }
 
     @Test
@@ -184,7 +183,7 @@ public class ShowExecutorTest {
             throw new RuntimeException(e);
         }
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -197,8 +196,8 @@ public class ShowExecutorTest {
             throw new RuntimeException(e);
         }
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testDb", resultSet.getString(0));
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("testDb", resultSet.getString(0));
     }
 
     @Test
@@ -214,9 +213,9 @@ public class ShowExecutorTest {
                 null, false, PlanType.SHOW_TABLES);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testTbl", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("testTbl", resultSet.getString(0));
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -225,7 +224,7 @@ public class ShowExecutorTest {
                 null, false, PlanType.SHOW_VIEWS);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -234,7 +233,7 @@ public class ShowExecutorTest {
                 null, false, PlanType.SHOW_STREAMS);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -243,9 +242,9 @@ public class ShowExecutorTest {
                 "internal", false, PlanType.SHOW_TABLES);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testTbl", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("testTbl", resultSet.getString(0));
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -253,9 +252,11 @@ public class ShowExecutorTest {
         ShowTableCommand command = new ShowTableCommand("emptyDb",
                 null, false, PlanType.SHOW_TABLES);
 
-        expectedEx.expect(Exception.class);
-        expectedEx.expectMessage("Unknown database 'emptyDb'");
-        command.doRun(ctx, new StmtExecutor(ctx, ""));
+        Exception e = Assertions.assertThrows(Exception.class, () -> {
+            command.doRun(ctx, new StmtExecutor(ctx, ""));
+        });
+        Assertions.assertTrue(e.getMessage().contains("Unknown database 'emptyDb'"),
+                "unexpected message: " + e.getMessage());
     }
 
     @Test
@@ -264,10 +265,10 @@ public class ShowExecutorTest {
                 null, false, "empty%", null, PlanType.SHOW_TABLES);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 
-    @Ignore
+    @Disabled
     @Test
     public void testDescribe() {
         SystemInfoService clusterInfo = AccessTestUtil.fetchSystemInfoService();
@@ -281,11 +282,51 @@ public class ShowExecutorTest {
         ShowResultSet resultSet = null;
         try {
             resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
-            Assert.assertFalse(resultSet.next());
+            Assertions.assertFalse(resultSet.next());
         } catch (Exception e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
+    }
+
+    /**
+     * DESC of a native (data-shaped) system table lists its BASE schema, the way DESC of the table it is
+     * derived from does. Such a sys table may forward invisible columns of that table -- fluss's
+     * {@code tbl$lake} carries paimon's {@code __paimon_file_path} / {@code __paimon_row_index} -- and those
+     * must stay hidden unless show_hidden_columns is set, exactly as on the table itself. MUTATION: listing
+     * {@code getFullSchema()} instead makes the invisible column appear -> red.
+     */
+    @Test
+    public void testDescribeNativeSysTableListsBaseSchemaOnly() throws Exception {
+        Column visible = new Column("id", PrimitiveType.INT);
+        Column invisible = new Column("__paimon_file_path", PrimitiveType.STRING);
+        invisible.setIsVisible(false);
+        ExternalTable sysTable = Mockito.mock(ExternalTable.class);
+        Mockito.doReturn(Lists.newArrayList(visible, invisible)).when(sysTable).getFullSchema();
+        Mockito.doReturn(Lists.newArrayList(visible)).when(sysTable).getBaseSchema();
+        NativeSysTable lake = new NativeSysTable("lake") {
+            @Override
+            public ExternalTable createSysExternalTable(ExternalTable sourceTable) {
+                return sysTable;
+            }
+        };
+        ExternalTable baseTable = Mockito.mock(ExternalTable.class);
+        Mockito.doReturn(Optional.of(lake)).when(baseTable).findSysTable("testTbl$lake");
+        ExternalDatabase<?> extDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(null).when(extDb).getTableNullable("testTbl$lake");
+        Mockito.doReturn(baseTable).when(extDb).getTableOrDdlException("testTbl");
+        ExternalCatalog extCatalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.doReturn(extDb).when(extCatalog).getDbOrAnalysisException("testDb");
+        CatalogMgr catalogMgr = env.getCatalogMgr();
+        Mockito.doReturn(extCatalog).when(catalogMgr).getCatalogOrAnalysisException("extCtl");
+
+        DescribeCommand command = new DescribeCommand(new TableNameInfo("extCtl", "testDb", "testTbl$lake"),
+                false, null);
+        ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("id", resultSet.getString(0));
+        Assertions.assertFalse(resultSet.next(), "the invisible column leaked into DESC");
     }
 
     @Test
@@ -294,10 +335,10 @@ public class ShowExecutorTest {
                 null, true, PlanType.SHOW_TABLES);
         ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testTbl", resultSet.getString(0));
-        Assert.assertEquals("BASE TABLE", resultSet.getString(1));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("testTbl", resultSet.getString(0));
+        Assertions.assertEquals("BASE TABLE", resultSet.getString(1));
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -313,7 +354,7 @@ public class ShowExecutorTest {
             throw new RuntimeException(e);
         }
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 
     @Test
@@ -321,8 +362,8 @@ public class ShowExecutorTest {
         ShowStorageEnginesCommand command = new ShowStorageEnginesCommand();
         ShowResultSet resultSet = command.doRun(ctx, null);
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("Olap engine", resultSet.getString(0));
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("Olap engine", resultSet.getString(0));
     }
 
     @Test

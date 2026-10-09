@@ -17,21 +17,31 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class JdbcMySQLClientTest {
 
     @Test
-    public void testIsDorisCompatibleVersionComment() {
-        Assert.assertTrue(JdbcMySQLClient.isDorisCompatibleVersionComment("Apache Doris version 3.1.0"));
-        Assert.assertTrue(JdbcMySQLClient.isDorisCompatibleVersionComment("SelectDB Cloud version 4.0.5"));
-        Assert.assertTrue(JdbcMySQLClient.isDorisCompatibleVersionComment("VeloDB version 2.1.0"));
-        Assert.assertTrue(JdbcMySQLClient.isDorisCompatibleVersionComment(
-                "enterprise version enterprise-4.0.5-rc01-0724569463d (Cloud Mode)"));
+    public void testIsDorisServerIdentity() {
+        Assertions.assertTrue(JdbcMySQLClient.isDorisServerIdentity("apache_doris"));
+        Assertions.assertTrue(JdbcMySQLClient.isDorisServerIdentity("APACHE_DORIS"));
+        Assertions.assertFalse(JdbcMySQLClient.isDorisServerIdentity("mysql"));
+        Assertions.assertFalse(JdbcMySQLClient.isDorisServerIdentity(null));
+    }
 
-        Assert.assertFalse(JdbcMySQLClient.isDorisCompatibleVersionComment("MySQL Community Server - GPL"));
-        Assert.assertFalse(JdbcMySQLClient.isDorisCompatibleVersionComment(""));
-        Assert.assertFalse(JdbcMySQLClient.isDorisCompatibleVersionComment(null));
+    @Test
+    public void testIsDorisCompatibleVersionComment() {
+        Assertions.assertTrue(JdbcMySQLClient.isDorisCompatibleVersionComment("Apache Doris version 3.1.0"));
+        Assertions.assertTrue(JdbcMySQLClient.isDorisCompatibleVersionComment("SelectDB Cloud version 4.0.5"));
+        Assertions.assertTrue(JdbcMySQLClient.isDorisCompatibleVersionComment("VeloDB version 2.1.0"));
+        Assertions.assertTrue(JdbcMySQLClient.isDorisCompatibleVersionComment(
+                "enterprise version enterprise-4.0.5-rc01-0724569463d (Cloud Mode)"));
+        Assertions.assertTrue(JdbcMySQLClient.isDorisCompatibleVersionComment(
+                "enterprise version enterprise-current"));
+
+        Assertions.assertFalse(JdbcMySQLClient.isDorisCompatibleVersionComment("MySQL Community Server - GPL"));
+        Assertions.assertFalse(JdbcMySQLClient.isDorisCompatibleVersionComment(""));
+        Assertions.assertFalse(JdbcMySQLClient.isDorisCompatibleVersionComment(null));
     }
 }

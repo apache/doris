@@ -23,6 +23,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.plugin.CloudPluginDownloader;
+import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -323,7 +325,7 @@ public class JdbcResource extends Resource {
             // legacy JDBC consumers call it directly, with no create/alter or replay context), so it
             // deliberately applies no new restriction here: an unmodified historical catalog must keep
             // resolving exactly as before. The mandatory bare-name grammar is enforced only when a
-            // catalog is created or altered, in JdbcDorisConnector.checkDriverUrlSecurityRule.
+            // catalog is created or altered, in JdbcDriverUrlSecurity.check.
             return checkAndReturnDefaultDriverUrl(driverUrl);
         }
 
@@ -447,6 +449,18 @@ public class JdbcResource extends Resource {
             } else if (oldTargetFile.exists()) {
                 // File exists in old default directory
                 return "file://" + oldTargetPath;
+            } else if (Config.isCloudMode()) {
+                // Cloud mode: download from cloud to default directory
+                try {
+                    String downloadedPath = CloudPluginDownloader.downloadFromCloud(
+                            PluginType.JDBC_DRIVERS, driverUrl, targetPath);
+                    return "file://" + downloadedPath;
+                } catch (Exception e) {
+                    LOG.warn("failed to download jdbc driver url: " + driverUrl, e);
+                    throw new RuntimeException("Cannot download JDBC driver from cloud: " + driverUrl
+                            + ". Please retry later or check your driver has been uploaded to cloud. Error: "
+                            + Util.getRootCauseMessage(e));
+                }
             } else {
                 // File does not exist in both new and old default directory
                 throw new RuntimeException("JDBC driver file does not exist: " + driverUrl);

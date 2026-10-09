@@ -22,12 +22,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -41,6 +42,7 @@ public class FEOpExecutorDelegatedCredentialTest {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             ConnectContext context = new ConnectContext();
+            context.setCapability(MysqlCapability.DEFAULT_CAPABILITY);
             context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("alice", "%"));
             context.setRemoteIP("127.0.0.1");
             context.setSessionContext(SessionContext.of(new DelegatedCredential(
@@ -49,14 +51,14 @@ public class FEOpExecutorDelegatedCredentialTest {
             String delegatedCredentialSessionId = context.getSessionContext().getSessionId();
             TMasterOpRequest request = new TestFEOpExecutor(context).build();
 
-            Assert.assertTrue(request.isSetDelegatedCredentialSessionId());
-            Assert.assertEquals(delegatedCredentialSessionId, request.getDelegatedCredentialSessionId());
-            Assert.assertTrue(request.isSetDelegatedCredentialType());
-            Assert.assertTrue(request.isSetDelegatedCredentialToken());
-            Assert.assertTrue(request.isSetDelegatedCredentialExpiresAtMillis());
-            Assert.assertEquals(DelegatedCredential.Type.ID_TOKEN.name(), request.getDelegatedCredentialType());
-            Assert.assertEquals("forwarded-id-token", request.getDelegatedCredentialToken());
-            Assert.assertEquals(12345L, request.getDelegatedCredentialExpiresAtMillis());
+            Assertions.assertTrue(request.isSetDelegatedCredentialSessionId());
+            Assertions.assertEquals(delegatedCredentialSessionId, request.getDelegatedCredentialSessionId());
+            Assertions.assertTrue(request.isSetDelegatedCredentialType());
+            Assertions.assertTrue(request.isSetDelegatedCredentialToken());
+            Assertions.assertTrue(request.isSetDelegatedCredentialExpiresAtMillis());
+            Assertions.assertEquals(DelegatedCredential.Type.ID_TOKEN.name(), request.getDelegatedCredentialType());
+            Assertions.assertEquals("forwarded-id-token", request.getDelegatedCredentialToken());
+            Assertions.assertEquals(12345L, request.getDelegatedCredentialExpiresAtMillis());
         }
     }
 

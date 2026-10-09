@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/DorisExternalService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
 #include "common/config.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -26,6 +28,7 @@
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "storage/id_manager.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -223,6 +226,117 @@ TEST(FragmentMgrRerunnableParamsTest, StopReleasesLastQueryContextRefOutsideLock
 
     exec_env->_fragment_mgr = previous_fragment_mgr;
     delete fragment_mgr;
+}
+
+TEST_F(FragmentMgrCrossClusterCancelTest, RebuildRestoresFragmentExecutingCount) {
+    auto* fragment_mgr = _exec_env.fragment_mgr();
+    const bool previous_enable_debug_points = config::enable_debug_points;
+    constexpr auto debug_point_name = "fault_inject::PipelineFragmentContext::prepare.skip";
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(debug_point_name);
+
+    TUniqueId query_id;
+    query_id.__set_hi(505);
+    query_id.__set_lo(606);
+    constexpr int fragment_id = 1;
+    Defer cleanup([&] {
+        DebugPoints::instance()->remove(debug_point_name);
+        config::enable_debug_points = previous_enable_debug_points;
+        fragment_mgr->remove_pipeline_context({query_id, fragment_id});
+        fragment_mgr->remove_query_context(query_id);
+    });
+
+    TPipelineFragmentParams params;
+    params.__set_query_id(query_id);
+    params.__set_fragment_id(fragment_id);
+    params.__set_need_notify_close(true);
+    params.__set_is_simplified_param(false);
+    TNetworkAddress coord;
+    coord.hostname = "fe-rebuild";
+    coord.port = 9030;
+    params.__set_coord(coord);
+    params.__set_is_nereids(true);
+    params.__set_current_connect_fe(coord);
+    params.__set_fragment_num_on_host(1);
+    params.__set_query_options(_make_min_query_options(/*fe_process_uuid*/ 789));
+    params.__set_desc_tbl(_make_min_desc_tbl());
+
+    std::shared_ptr<QueryContext> query_ctx;
+    TPipelineFragmentParamsList parent;
+    ASSERT_TRUE(fragment_mgr
+                        ->_get_or_create_query_ctx(params, parent, QuerySource::INTERNAL_FRONTEND,
+                                                   query_ctx)
+                        .ok());
+    ASSERT_NE(query_ctx, nullptr);
+    {
+        std::lock_guard lock(fragment_mgr->_rerunnable_params_lock);
+        auto& info = fragment_mgr->_rerunnable_params_map[{query_id, fragment_id}];
+        info.params = params;
+        info.query_ctx = query_ctx;
+    }
+
+    const auto count_before_rebuild = get_fragment_executing_count();
+    auto st =
+            fragment_mgr->rerun_fragment({}, query_id, fragment_id, PRerunFragmentParams::REBUILD);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(fragment_mgr->_pipeline_map.num_items(), 1);
+    EXPECT_EQ(get_fragment_executing_count(), count_before_rebuild + 1);
+
+    fragment_mgr->remove_pipeline_context({query_id, fragment_id});
+    EXPECT_EQ(get_fragment_executing_count(), count_before_rebuild);
+}
+
+TEST(FragmentMgrExternalScanTest, SelectedColumnsFollowOutputExpressionOrder) {
+    TDescriptorTableBuilder desc_tbl_builder;
+    TTupleDescriptorBuilder tuple_builder;
+    tuple_builder
+            .add_slot(TSlotDescriptorBuilder()
+                              .type(TYPE_INT)
+                              .nullable(true)
+                              .column_name("k1")
+                              .column_pos(0)
+                              .build())
+            .add_slot(TSlotDescriptorBuilder()
+                              .type(TYPE_BIGINT)
+                              .nullable(true)
+                              .column_name("v2")
+                              .column_pos(1)
+                              .build());
+    tuple_builder.build(&desc_tbl_builder);
+
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, desc_tbl_builder.desc_tbl(), &desc_tbl).ok());
+
+    auto make_slot_ref_expr = [](TSlotId slot_id, TPrimitiveType::type type) {
+        TSlotRef slot_ref;
+        slot_ref.__set_slot_id(slot_id);
+        slot_ref.__set_tuple_id(0);
+
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::SLOT_REF);
+        node.__set_type(TSlotDescriptorBuilder().get_common_type(type));
+        node.__set_num_children(0);
+        node.__set_slot_ref(slot_ref);
+
+        TExpr expr;
+        expr.nodes.emplace_back(std::move(node));
+        return expr;
+    };
+
+    TPlanFragment plan_fragment;
+    plan_fragment.__set_output_exprs({make_slot_ref_expr(1, TPrimitiveType::BIGINT),
+                                      make_slot_ref_expr(0, TPrimitiveType::INT)});
+
+    std::vector<TScanColumnDesc> selected_columns;
+    ASSERT_TRUE(FragmentMgr::_build_external_scan_selected_columns(plan_fragment, *desc_tbl,
+                                                                   &selected_columns)
+                        .ok());
+    ASSERT_EQ(selected_columns.size(), 2);
+    EXPECT_EQ(selected_columns[0].name, "v2");
+    EXPECT_EQ(selected_columns[0].type, TPrimitiveType::BIGINT);
+    EXPECT_EQ(selected_columns[1].name, "k1");
+    EXPECT_EQ(selected_columns[1].type, TPrimitiveType::INT);
 }
 
 } // namespace doris

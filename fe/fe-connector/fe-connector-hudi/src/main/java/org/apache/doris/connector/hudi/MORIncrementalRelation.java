@@ -157,18 +157,19 @@ final class MORIncrementalRelation implements IncrementalRelation {
                     .findInstantsInRange(startTimestamp, endTimestamp);
         }
         String latestCommit = includedCommits.get(includedCommits.size() - 1).requestedTime();
-        HoodieTableFileSystemView fsView = new HoodieTableFileSystemView(metaClient, scanTimeline,
-                affectedFilesInCommits);
-        Stream<FileSlice> fileSlices = HoodieTableMetadataUtil.getWritePartitionPaths(commitsMetadata)
-                .stream().flatMap(relativePartitionPath ->
-                        fsView.getLatestMergedFileSlicesBeforeOrOn(relativePartitionPath, latestCommit));
-        if ("".equals(globPattern)) {
-            return fileSlices.collect(Collectors.toList());
+        try (HoodieTableFileSystemView fsView = new HoodieTableFileSystemView(metaClient, scanTimeline,
+                affectedFilesInCommits)) {
+            Stream<FileSlice> fileSlices = HoodieTableMetadataUtil.getWritePartitionPaths(commitsMetadata)
+                    .stream().flatMap(relativePartitionPath ->
+                            fsView.getLatestMergedFileSlicesBeforeOrOn(relativePartitionPath, latestCommit));
+            if ("".equals(globPattern)) {
+                return fileSlices.collect(Collectors.toList());
+            }
+            GlobPattern globMatcher = new GlobPattern("*" + globPattern);
+            return fileSlices.filter(fileSlice -> globMatcher.matches(fileSlice.getBaseFile().map(BaseFile::getPath)
+                    .or(fileSlice.getLatestLogFile().map(f -> f.getPath().toString())).get()))
+                    .collect(Collectors.toList());
         }
-        GlobPattern globMatcher = new GlobPattern("*" + globPattern);
-        return fileSlices.filter(fileSlice -> globMatcher.matches(fileSlice.getBaseFile().map(BaseFile::getPath)
-                .or(fileSlice.getLatestLogFile().map(f -> f.getPath().toString())).get()))
-                .collect(Collectors.toList());
     }
 
     @Override

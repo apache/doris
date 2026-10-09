@@ -16,11 +16,11 @@
 // under the License.
 
 suite("regression_test_variant_doc_mode", "p0"){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = "parse_to_variant"
+    def enableVariantV2 = true
     sql """ set default_variant_enable_doc_mode = true """
 
-  
+
     def table_min0 = "doc_mode_min0"
     sql """ DROP TABLE IF EXISTS ${table_min0} """
     sql """
@@ -81,7 +81,7 @@ suite("regression_test_variant_doc_mode", "p0"){
     assertEquals(before_min0, after_min0)
     logger.info("after_min0: " + after_min0.toString())
 
-   
+
     def table_ins = "doc_mode_insert_into"
     sql """ DROP TABLE IF EXISTS ${table_ins} """
     sql """

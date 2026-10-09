@@ -335,11 +335,22 @@ public abstract class Literal extends Expression implements LeafExpression {
             }
             case DATETIMEV2: {
                 org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
+                DateTimeV2Type dateTimeV2Type = (DateTimeV2Type) DateType.fromCatalogType(type);
+                long fractionalSecond = dateLiteral.getMicrosecond();
                 return new DateTimeV2Literal(
-                        (DateTimeV2Type) DateType.fromCatalogType(type),
+                        dateTimeV2Type,
                         dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
                         dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond(),
-                        dateLiteral.getMicrosecond()
+                        fractionalSecond
+                );
+            }
+            case TIMESTAMP_NS: {
+                org.apache.doris.analysis.TimeStampNsLiteral timestampNsLiteral
+                        = (org.apache.doris.analysis.TimeStampNsLiteral) literalExpr;
+                return new TimeStampNsLiteral(
+                        timestampNsLiteral.getYear(), timestampNsLiteral.getMonth(), timestampNsLiteral.getDay(),
+                        timestampNsLiteral.getHour(), timestampNsLiteral.getMinute(), timestampNsLiteral.getSecond(),
+                        timestampNsLiteral.getNanosecond()
                 );
             }
             case TIMESTAMPTZ: {
@@ -391,6 +402,7 @@ public abstract class Literal extends Expression implements LeafExpression {
             case JSONB: return new JsonLiteral(literalExpr.getStringValue());
             case IPV4: return new IPv4Literal(literalExpr.getStringValue());
             case IPV6: return new IPv6Literal(literalExpr.getStringValue());
+            case UUID: return new UuidLiteral(literalExpr.getStringValue());
             case TIMEV2: return new TimeV2Literal((TimeV2Type) dataType, literalExpr.getStringValue());
             default: {
                 throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
@@ -628,7 +640,8 @@ public abstract class Literal extends Expression implements LeafExpression {
                 microsecond = data.getInt();
             }
             if (Config.enable_date_conversion) {
-                return new DateTimeV2Literal(DateTimeV2Type.MAX, year, month, day, hour, minute, second, microsecond);
+                return new DateTimeV2Literal(DateTimeV2Type.MAX,
+                        year, month, day, hour, minute, second, microsecond);
             }
             return new DateTimeLiteral(DateTimeType.INSTANCE, year, month, day, hour, minute, second, microsecond);
         } else {

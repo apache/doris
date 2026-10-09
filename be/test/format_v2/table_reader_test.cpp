@@ -22,6 +22,8 @@
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
+#include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/transport/TBufferTransports.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -66,8 +68,48 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
+#include "testutil/scoped_temp_dir.h"
+#include "util/timezone_utils.h"
 
 namespace doris::format {
+
+TEST(TableReaderTest, Int96TimezoneOverridePreservesIntermediateSchemas) {
+    TFileScanRangeParams params;
+    EXPECT_FALSE(TableReader::_get_int96_timezone_override(nullptr).has_value());
+    EXPECT_FALSE(TableReader::_get_int96_timezone_override(&params).has_value());
+    // Field 36 predates the version marker; its explicit value is already a complete contract.
+    for (const std::string zone : {"Asia/Shanghai", "UTC", ""}) {
+        using namespace apache::thrift::protocol;
+        auto buffer = std::make_shared<apache::thrift::transport::TMemoryBuffer>();
+        TBinaryProtocol protocol(buffer);
+        protocol.writeStructBegin("TFileScanRangeParams");
+        protocol.writeFieldBegin("hive_parquet_time_zone", T_STRING, 36);
+        protocol.writeString(zone);
+        protocol.writeFieldEnd();
+        protocol.writeFieldStop();
+        protocol.writeStructEnd();
+        params.read(&protocol);
+        EXPECT_FALSE(params.__isset.parquet_timestamp_semantics_version);
+        ASSERT_TRUE(TableReader::_get_int96_timezone_override(&params).has_value());
+        EXPECT_EQ(*TableReader::_get_int96_timezone_override(&params), zone);
+    }
+
+    params.__set_hive_parquet_time_zone("Asia/Shanghai");
+    params.__set_parquet_timestamp_semantics_version(1);
+    ASSERT_TRUE(TableReader::_get_int96_timezone_override(&params).has_value());
+    EXPECT_EQ(*TableReader::_get_int96_timezone_override(&params), "Asia/Shanghai");
+
+    params.__isset.hive_parquet_time_zone = false;
+    ASSERT_TRUE(TableReader::_get_int96_timezone_override(&params).has_value());
+    EXPECT_TRUE(TableReader::_get_int96_timezone_override(&params)->empty());
+
+    params.__set_parquet_timestamp_semantics_version(0);
+    EXPECT_FALSE(TableReader::_get_int96_timezone_override(&params).has_value());
+    params.__set_hive_parquet_time_zone("UTC");
+    ASSERT_TRUE(TableReader::_get_int96_timezone_override(&params).has_value());
+    EXPECT_EQ("UTC", *TableReader::_get_int96_timezone_override(&params));
+}
+
 namespace {
 
 std::vector<int32_t> projection_ids(const std::vector<LocalColumnIndex>& projections) {
@@ -98,9 +140,71 @@ TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates)
     ASSERT_TRUE(target.children[2].project_all_children);
 
     LocalColumnIndex full_source {.index = 10};
+    full_source.children.push_back({.index = 4});
+    full_source.children.back().timestamp_is_adjusted_to_utc = true;
     ASSERT_TRUE(merge_local_column_index(&target, full_source).ok());
     ASSERT_TRUE(target.project_all_children);
-    ASSERT_TRUE(target.children.empty());
+    // The full projection makes selection-only children redundant, but child 4 carries semantics.
+    ASSERT_EQ(std::vector<int32_t>({4}), projection_ids(target.children));
+    ASSERT_TRUE(target.children.back().timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*target.children.back().timestamp_is_adjusted_to_utc);
+
+    LocalColumnIndex full_target {.index = 10};
+    LocalColumnIndex semantic_source {.index = 10, .project_all_children = false};
+    semantic_source.children.push_back({.index = 5});
+    semantic_source.children.back().timestamp_is_adjusted_to_utc = false;
+    ASSERT_TRUE(merge_local_column_index(&full_target, semantic_source).ok());
+    ASSERT_TRUE(full_target.project_all_children);
+    ASSERT_EQ(std::vector<int32_t>({5}), projection_ids(full_target.children));
+    ASSERT_TRUE(full_target.children[0].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_FALSE(*full_target.children[0].timestamp_is_adjusted_to_utc);
+}
+
+// Scenario: a table format that stores two logical timestamp types with one physical encoding
+// (Paimon TIMESTAMP vs TIMESTAMP_LTZ as the same INT96) tells the reader them apart through
+// per-child `timestamp_is_adjusted_to_utc`. attach_timestamp_semantics() materializes a child on
+// the projection for no other reason than to carry that flag, including on a projection that
+// selects everything. Collapsing to a full projection therefore must not drop those children: the
+// reader would decode a TIMESTAMP_LTZ as a plain DATETIMEV2, disagreeing with the file block
+// column the table reader built from the same table format's schema.
+TEST(LocalColumnIndexTest, MergeKeepsTimestampSemanticsWhenProjectionBecomesFull) {
+    LocalColumnIndex target {.index = 10, .project_all_children = false};
+    target.children.push_back({.index = 1});
+    target.children.push_back({.index = 2});
+    target.children.back().timestamp_is_adjusted_to_utc = true;
+
+    // A second projection of the same root that selects the whole subtree, as a filter-only nested
+    // path merged next to an output projection does.
+    LocalColumnIndex full_source {.index = 10};
+    full_source.children.push_back({.index = 3});
+    full_source.children.back().timestamp_is_adjusted_to_utc = false;
+
+    ASSERT_TRUE(merge_local_column_index(&target, full_source).ok());
+    EXPECT_TRUE(target.project_all_children);
+    // Child 1 selected nothing beyond what the full projection already takes, so it goes; the two
+    // that name a semantic stay.
+    ASSERT_EQ(std::vector<int32_t>({2, 3}), projection_ids(target.children));
+    ASSERT_TRUE(target.children[0].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*target.children[0].timestamp_is_adjusted_to_utc);
+    ASSERT_TRUE(target.children[1].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_FALSE(*target.children[1].timestamp_is_adjusted_to_utc);
+}
+
+// The same rule one level down: a child kept only because something below it names a semantic must
+// keep the path to it, and nothing else.
+TEST(LocalColumnIndexTest, MergeKeepsOnlyThePathToANestedTimestampSemantic) {
+    LocalColumnIndex target {.index = 10, .project_all_children = false};
+    target.children.push_back({.index = 1, .project_all_children = false});
+    target.children.back().children.push_back({.index = 11});
+    target.children.back().children.push_back({.index = 12});
+    target.children.back().children.back().timestamp_is_adjusted_to_utc = true;
+
+    ASSERT_TRUE(merge_local_column_index(&target, LocalColumnIndex {.index = 10}).ok());
+    EXPECT_TRUE(target.project_all_children);
+    ASSERT_EQ(std::vector<int32_t>({1}), projection_ids(target.children));
+    ASSERT_EQ(std::vector<int32_t>({12}), projection_ids(target.children[0].children));
+    ASSERT_TRUE(target.children[0].children[0].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*target.children[0].children[0].timestamp_is_adjusted_to_utc);
 }
 
 TEST(LocalColumnIndexTest, FindsProjectedChildren) {
@@ -263,6 +367,17 @@ VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t valu
     return expr;
 }
 
+VExprSPtr table_array_contains_int32_expr(int slot_id, int column_id, const DataTypePtr& array_type,
+                                          int32_t value) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto expr =
+            table_function_expr("array_contains", make_nullable(std::make_shared<DataTypeUInt8>()),
+                                {array_type, int_type});
+    expr->add_child(VSlotRef::create_shared(slot_id, column_id, slot_id, array_type, "items"));
+    expr->add_child(table_int32_literal(value));
+    return expr;
+}
+
 VExprSPtr table_struct_int32_child_greater_than_expr(int slot_id, int column_id,
                                                      const DataTypePtr& struct_type,
                                                      int32_t child_ordinal, int32_t value) {
@@ -313,7 +428,10 @@ VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
 class NonDeterministicPartitionPredicate final : public VExpr {
 public:
     explicit NonDeterministicPartitionPredicate(bool* executed)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _executed(executed) {}
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _executed(executed) {
+        // Dependency collection must not mistake this synthetic predicate for a slot reference.
+        set_node_type(TExprNodeType::FUNCTION_CALL);
+    }
 
     Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
                                ColumnPtr& result_column) const override {
@@ -1344,6 +1462,18 @@ public:
                 file_block->replace_by_position(
                         block_position.value(),
                         make_not_null_nullable_column(std::move(struct_column)));
+            } else if (file_column_id == LocalColumnId(3)) {
+                auto values = ColumnInt32::create();
+                values->insert_value(1);
+                values->insert_value(2);
+                auto nullable_values = make_not_null_nullable_column(std::move(values));
+                auto offsets = ColumnArray::ColumnOffsets::create();
+                offsets->get_data().assign({1, 2});
+                auto array_column =
+                        ColumnArray::create(std::move(nullable_values), std::move(offsets));
+                file_block->replace_by_position(
+                        block_position.value(),
+                        make_not_null_nullable_column(std::move(array_column)));
             } else {
                 return Status::InvalidArgument("Unexpected fake file column id {}",
                                                file_column_id.value());
@@ -1640,6 +1770,61 @@ TEST(TableReaderTest, UnsafePredicateStaysOnScannerPath) {
     EXPECT_EQ(fake_state->last_request->metadata_pruning_safe_conjunct_count, 0);
     EXPECT_FALSE(predicate_executed);
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, ArrayContainsReachesMetadataPruningSafeRequestPrefix) {
+    const auto raw_array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(3, "items", raw_array_type));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(3, "items", raw_array_type));
+    set_name_identifiers(&projected_columns);
+    const auto array_type = projected_columns[0].type;
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(
+                                            &state,
+                                            table_array_contains_int32_expr(0, 0, array_type, 1))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split;
+    split.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_NE(fake_state->last_request, nullptr);
+    ASSERT_EQ(fake_state->last_request->conjuncts.size(), 1);
+    EXPECT_EQ(fake_state->last_request->metadata_pruning_safe_conjunct_count, 1);
+    EXPECT_TRUE(fake_state->last_request->conjuncts[0]->root()->can_evaluate_zonemap_filter());
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, ComplexArrayContainsIsUnsafeForMetadataPruning) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto inner_array_type = std::make_shared<DataTypeArray>(int_type);
+    const auto outer_array_type = std::make_shared<DataTypeArray>(inner_array_type);
+    auto expr = table_function_expr("array_contains", std::make_shared<DataTypeUInt8>(),
+                                    {outer_array_type, inner_array_type});
+    expr->add_child(VSlotRef::create_shared(0, 0, 0, outer_array_type, "nested_items"));
+    expr->add_child(VLiteral::create_shared(
+            inner_array_type,
+            Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_INT>(1)})));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto conjunct = prepared_conjunct(&state, expr);
+    EXPECT_FALSE(conjunct->root()->is_safe_to_execute_on_selected_rows());
+    conjunct->close();
 }
 
 TEST(TableReaderTest, ConstantPruningStopsAtUnsafeSlotlessPredicate) {
@@ -2017,11 +2202,8 @@ TEST(TableReaderTest, PendingRuntimeFilterDisablesTableLevelCount) {
 }
 
 TEST(TableReaderTest, CountStarFallbackKeepsLateRuntimeFilterCarrierValues) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_count_star_late_rf_test";
-    std::filesystem::remove_all(test_dir);
-    std::filesystem::create_directories(test_dir);
-    const auto file_path = (test_dir / "split.parquet").string();
+    const doris::test::ScopedTempDirectory test_dir("doris_table_reader_count_star_late_rf_test");
+    const auto file_path = (test_dir.path() / "split.parquet").string();
     write_int_pair_parquet_file(file_path, {1, 2, 3, 4, 5, 6}, {10, 20, 30, 40, 50, 60},
                                 {"one", "two", "three", "four", "five", "six"}, 2);
 
@@ -2638,10 +2820,8 @@ TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
     ASSERT_TRUE(reader.close().ok());
 
     const std::vector<FileFormat> formats {FileFormat::ORC,  FileFormat::CSV, FileFormat::JSON,
-                                           FileFormat::TEXT, FileFormat::JNI, FileFormat::NATIVE,
-                                           FileFormat::ARROW};
-    const std::vector<std::string> format_names {"ORC", "CSV",    "JSON", "TEXT",
-                                                 "JNI", "NATIVE", "ARROW"};
+                                           FileFormat::TEXT, FileFormat::JNI, FileFormat::ARROW};
+    const std::vector<std::string> format_names {"ORC", "CSV", "JSON", "TEXT", "JNI", "ARROW"};
     for (size_t idx = 0; idx < formats.size(); ++idx) {
         TableReader enum_reader;
         ASSERT_TRUE(enum_reader
@@ -3474,6 +3654,164 @@ TEST(TableReaderTest, ConditionCacheSkipsRequestWithoutFileLocalConjuncts) {
     EXPECT_EQ(fake_state->condition_cache_ctx, nullptr);
     EXPECT_EQ(reader.condition_cache_hit_count(), 0);
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, ConditionCacheSeparatesInt96TimezoneContracts) {
+    ScopedConditionCacheForTest cache;
+    std::vector<ColumnDefinition> file_schema {
+            make_file_column(0, "id", std::make_shared<DataTypeInt32>())};
+    std::vector<ColumnDefinition> projected_columns {
+            make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+    set_name_identifiers(&projected_columns);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan = [&](TFileScanRangeParams params, bool expect_hit) {
+        auto fake_state = std::make_shared<FakeFileReaderState>();
+        FakeTableReader reader(file_schema, fake_state);
+        ASSERT_TRUE(reader.init({
+                                        .projected_columns = projected_columns,
+                                        .conjuncts = {prepared_conjunct(
+                                                &state, table_int32_greater_than_expr(0, 0, 0))},
+                                        .format = FileFormat::PARQUET,
+                                        .scan_params = &params,
+                                        .io_ctx = nullptr,
+                                        .runtime_state = &state,
+                                        .scanner_profile = nullptr,
+                                        .condition_cache_digest = 7,
+                                })
+                            .ok());
+        SplitReadOptions split;
+        split.current_range.__set_path("int96-contract-cache-input");
+        split.condition_cache_digest = 11;
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+        Block block = build_table_block(projected_columns);
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        ASSERT_NE(fake_state->condition_cache_ctx, nullptr);
+        EXPECT_EQ(expect_hit, fake_state->condition_cache_ctx->is_hit);
+        ASSERT_TRUE(reader.close().ok());
+    };
+    TFileScanRangeParams params;
+    scan(params, false);
+    scan(params, true);
+    // Same file, predicate and session seed, but a different INT96 interpretation must miss.
+    params.__set_hive_parquet_time_zone("");
+    scan(params, false);
+    scan(params, true);
+    params.__set_hive_parquet_time_zone("Asia/Shanghai");
+    scan(params, false);
+    scan(params, true);
+    params.__set_hive_parquet_time_zone("UTC");
+    scan(params, false);
+    params.__isset.hive_parquet_time_zone = false;
+    params.__set_parquet_timestamp_semantics_version(1);
+    // An omitted timezone under version 1 is the same wall-clock contract as explicit empty.
+    scan(params, true);
+    params.__set_parquet_timestamp_semantics_version(0);
+    scan(params, true);
+}
+
+TEST(TableReaderTest, Int96ConditionCacheCannotHideRowsUnderAnotherTimezone) {
+    ScopedConditionCacheForTest cache;
+    TimezoneUtils::load_timezones_to_cache();
+    const auto path = (std::filesystem::temp_directory_path() /
+                       "doris_int96_condition_cache_contract.parquet")
+                              .string();
+    const auto arrow_type = arrow::timestamp(arrow::TimeUnit::MICRO);
+    arrow::TimestampBuilder builder(arrow_type, arrow::default_memory_pool());
+    constexpr int64_t ROWS = ConditionCacheContext::GRANULE_SIZE;
+    for (int64_t i = 0; i < ROWS; ++i) {
+        ASSERT_TRUE(builder.Append(0).ok());
+    }
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(builder.Finish(&values).ok());
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("ts", arrow_type)}), {values});
+    auto output = arrow::io::FileOutputStream::Open(path);
+    ASSERT_TRUE(output.ok());
+    ::parquet::WriterProperties::Builder props;
+    props.disable_statistics();
+    ::parquet::ArrowWriterProperties::Builder arrow_props;
+    // The regular compatibility flag can retain INT64 for microsecond timestamps.
+    arrow_props.enable_force_write_int96_timestamps();
+    ASSERT_TRUE(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), *output, ROWS,
+                                             props.build(), arrow_props.build())
+                        .ok());
+    ASSERT_TRUE((*output)->Close().ok());
+    auto physical_reader = ::parquet::ParquetFileReader::OpenFile(path, false);
+    ASSERT_EQ(::parquet::Type::INT96,
+              physical_reader->metadata()->schema()->Column(0)->physical_type());
+    physical_reader->Close();
+
+    auto ts_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    auto int_type = std::make_shared<DataTypeInt8>();
+    auto hour_type = make_nullable(int_type);
+    std::vector<ColumnDefinition> columns {make_table_column(0, "ts", ts_type)};
+    set_name_identifiers(&columns);
+    TQueryGlobals globals;
+    globals.__set_time_zone("UTC");
+    RuntimeState state {TQueryOptions(), globals};
+    for (const auto& [zone, expected] : std::vector<std::pair<std::string, std::string>> {
+                 {"", "1970-01-01 00:00:00.000000"},
+                 {"Asia/Shanghai", "1970-01-01 08:00:00.000000"}}) {
+        TFileScanRangeParams params;
+        params.__set_hive_parquet_time_zone(zone);
+        TableReader reader;
+        ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                 .conjuncts = {},
+                                 .format = FileFormat::PARQUET,
+                                 .scan_params = &params,
+                                 .io_ctx = nullptr,
+                                 .runtime_state = &state,
+                                 .scanner_profile = nullptr})
+                            .ok());
+        ASSERT_TRUE(reader.prepare_split(build_split_options(path)).ok());
+        Block block = build_table_block(columns);
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        ASSERT_EQ(ROWS, block.rows());
+        EXPECT_EQ(expected, ts_type->to_string(*block.get_by_position(0).column, 0));
+        ASSERT_TRUE(reader.close().ok());
+    }
+    auto scan = [&](const std::string& zone, int64_t expected_rows, bool expected_hit) {
+        SCOPED_TRACE(zone);
+        auto hour = table_function_expr("hour", hour_type, {ts_type});
+        hour->add_child(VSlotRef::create_shared(0, 0, -1, ts_type, "ts"));
+        auto predicate = table_function_expr("gt", make_nullable(std::make_shared<DataTypeUInt8>()),
+                                             {hour_type, int_type}, TExprNodeType::BINARY_PRED,
+                                             TExprOpcode::GT);
+        predicate->add_child(hour);
+        predicate->add_child(
+                VLiteral::create_shared(int_type, Field::create_field<TYPE_TINYINT>(4)));
+        TFileScanRangeParams params;
+        params.__set_hive_parquet_time_zone(zone);
+        TableReader reader;
+        ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                 .conjuncts = {prepared_conjunct(&state, predicate)},
+                                 .format = FileFormat::PARQUET,
+                                 .scan_params = &params,
+                                 .io_ctx = nullptr,
+                                 .runtime_state = &state,
+                                 .scanner_profile = nullptr,
+                                 .condition_cache_digest = 101})
+                            .ok());
+        ASSERT_TRUE(reader.prepare_split(build_split_options(path)).ok());
+        Block block = build_table_block(columns);
+        bool eos = false;
+        int64_t rows = 0;
+        while (!eos) {
+            auto status = reader.get_block(&block, &eos);
+            ASSERT_TRUE(status.ok()) << status;
+            rows += block.rows();
+        }
+        EXPECT_EQ(expected_rows, rows);
+        EXPECT_EQ(expected_hit, reader.condition_cache_hit_count() > 0);
+        ASSERT_TRUE(reader.close().ok());
+    };
+    // The first scan caches an all-false granule. Reusing it for UTC+8 would lose every row.
+    scan("", 0, false);
+    scan("", 0, true);
+    scan("Asia/Shanghai", ROWS, false);
+    scan("Asia/Shanghai", ROWS, true);
+    std::filesystem::remove(path);
 }
 
 // Scenario: a standalone caller has only the initial digest for stable predicate P, while its

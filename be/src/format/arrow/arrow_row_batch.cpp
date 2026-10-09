@@ -17,7 +17,9 @@
 
 #include "format/arrow/arrow_row_batch.h"
 
+#include <arrow/array/util.h>
 #include <arrow/buffer.h>
+#include <arrow/extension/uuid.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/writer.h>
 #include <arrow/record_batch.h>
@@ -85,6 +87,9 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_IPV6:
         *result = arrow::utf8();
         break;
+    case TYPE_UUID:
+        *result = arrow::extension::uuid();
+        break;
     case TYPE_LARGEINT:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
@@ -96,6 +101,10 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         break;
     case TYPE_DATEV2:
         *result = std::make_shared<arrow::Date32Type>();
+        break;
+    case TYPE_TIMESTAMP_NS:
+        // TIMESTAMP_NS is stored as signed epoch nanoseconds, but its SQL type has no timezone.
+        *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::NANO);
         break;
     case TYPE_TIMESTAMPTZ:
     case TYPE_DATETIMEV2: {
@@ -114,7 +123,10 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         if (type->get_primitive_type() == TYPE_DATETIMEV2 && datetime_naive) {
             *result = std::make_shared<arrow::TimestampType>(time_unit);
         } else {
-            *result = std::make_shared<arrow::TimestampType>(time_unit, timezone);
+            // Arrow clients resolve timezone metadata as an IANA name; use the canonical UTC
+            // name instead of the ISO-8601 "Z" alias without changing the encoded instant.
+            *result = std::make_shared<arrow::TimestampType>(time_unit,
+                                                             timezone == "Z" ? "UTC" : timezone);
         }
         break;
     }
@@ -194,6 +206,9 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
     } else if (primitive_type == PrimitiveType::TYPE_IPV6) {
         auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"IPV6"});
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
+    } else if (primitive_type == PrimitiveType::TYPE_UUID) {
+        auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"UUID"});
+        return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
     } else if (primitive_type == PrimitiveType::TYPE_LARGEINT) {
         auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"LARGEINT"});
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
@@ -203,11 +218,12 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
 }
 
 Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
-                                   const std::string& timezone) {
+                                   const std::string& timezone, bool datetime_naive) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type, &arrow_type, timezone));
+        RETURN_IF_ERROR(
+                convert_to_arrow_type(type_and_name.type, &arrow_type, timezone, datetime_naive));
         auto field = create_arrow_field_with_metadata(type_and_name.name, arrow_type,
                                                       type_and_name.type->is_nullable(),
                                                       type_and_name.type->get_primitive_type());
@@ -282,12 +298,17 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
 }
 
 Status serialize_arrow_schema(std::shared_ptr<arrow::Schema>* schema, std::string* result) {
-    auto make_empty_result = arrow::RecordBatch::MakeEmpty(*schema);
-    if (!make_empty_result.ok()) {
-        return Status::InternalError("serialize_arrow_schema failed, reason: {}",
-                                     make_empty_result.status().ToString());
+    std::vector<std::shared_ptr<arrow::Array>> columns;
+    columns.reserve((*schema)->num_fields());
+    for (const auto& field : (*schema)->fields()) {
+        auto empty = arrow::MakeArrayOfNull(field->type(), 0);
+        if (!empty.ok()) {
+            return Status::InternalError("serialize_arrow_schema failed, reason: {}",
+                                         empty.status().ToString());
+        }
+        columns.push_back(*empty);
     }
-    auto batch = make_empty_result.ValueOrDie();
+    auto batch = arrow::RecordBatch::Make(*schema, 0, columns);
     return serialize_record_batch(*batch, result);
 }
 

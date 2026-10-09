@@ -95,6 +95,9 @@ true
 9	name9	900	2038-01-02
 
 -- !null_partition --
+1	name1	100	\N
+2	name2	200	\N
+3	name3	300	\N
 4	name4	400	bj
 5	name5	500	bj
 6	name6	600	bj

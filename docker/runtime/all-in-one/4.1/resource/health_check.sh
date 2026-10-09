@@ -16,26 +16,25 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-# Backs the image HEALTHCHECK. Downstream CI waits on the resulting docker
-# health status instead of sleeping.
+# Backs the image HEALTHCHECK. The entrypoint drops a ready flag once its
+# role has come up; from then on the role's own endpoint has to keep
+# answering, so a dead process turns the container unhealthy.
 
 set -uo pipefail
+CI_HOME="${CI_HOME:-/opt/doris-ci}"
+# shellcheck source=lib.sh
+source "${CI_HOME}/lib.sh"
 
-DORIS_HOME="${DORIS_HOME:-/opt/apache-doris}"
-HOST=127.0.0.1
-FE_HTTP_PORT="${FE_HTTP_PORT:-8030}"
-BE_HTTP_PORT="${BE_HTTP_PORT:-8040}"
-
-# Bootstrap not finished yet: FE may answer while the backend is still being
-# registered, and a test that connects then sees a cluster with no capacity.
-[[ -f "${DORIS_HOME}/.ready" ]] || exit 1
-
-# FE readiness and backend liveness in one request: HealthAction returns 503
-# until FE is ready, and online_backend_num once it is.
-curl -fsS --max-time 4 "http://${HOST}:${FE_HTTP_PORT}/api/health" 2>/dev/null \
-    | grep -qE '"online_backend_num"[[:space:]]*:[[:space:]]*[1-9]' || exit 1
-
-# The BE http port also serves stream load, so check it directly.
-curl -fsS --max-time 4 "http://${HOST}:${BE_HTTP_PORT}/api/health" >/dev/null 2>&1 || exit 1
-
+[[ -f "${READY_FLAG}" ]] || exit 1
+case "${DORIS_ROLE}" in
+    all)
+        fe_health 127.0.0.1 | grep -qE '"online_backend_num"[[:space:]]*:[[:space:]]*[1-9]' || exit 1
+        curl -fsS --max-time 4 "http://127.0.0.1:${BE_HTTP_PORT}/api/health" >/dev/null 2>&1 || exit 1
+        ;;
+    fe)          fe_health 127.0.0.1 >/dev/null || exit 1 ;;
+    be)          curl -fsS --max-time 4 "http://127.0.0.1:${BE_HTTP_PORT}/api/health" >/dev/null 2>&1 || exit 1 ;;
+    ms|recycler) curl -fsS --max-time 4 "http://127.0.0.1:${MS_PORT}/health" >/dev/null 2>&1 || exit 1 ;;
+    client)      ;;
+    *)           exit 1 ;;
+esac
 exit 0

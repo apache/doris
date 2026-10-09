@@ -33,66 +33,66 @@ constexpr size_t kFooterBytes = sizeof(uint32_t);    // trailing crc32c
 constexpr size_t kNAnchorsBytes = sizeof(uint32_t);  // n_anchors u32
 constexpr size_t kAnchorOffBytes = sizeof(uint32_t); // per-anchor offset u32
 
-size_t estimate_statless_entry_upper_bound(const DictEntry& e, IndexTier tier) {
-    size_t body = 0;
-    body += varint_len(static_cast<uint32_t>(e.term.size()));
-    body += varint_len(static_cast<uint32_t>(e.term.size()));
-    body += e.term.size();
-    body += 1; // flags
-    body += varint_len(e.df);
-
-    const bool tier_has_stats = tier >= IndexTier::kT2;
-    if (e.kind == DictEntryKind::kInline) {
-        body += varint_len(static_cast<uint64_t>(e.frq_bytes.size())) + e.frq_bytes.size();
-        body += varint_len(e.inline_dd_disk_len);
-        body += 1 + varint_len(e.dd_meta.uncomp_len); // win_mode + DD metadata
-        if (tier_has_stats) {
-            body += varint_len(e.freq_meta.uncomp_len);
-            body += varint_len(static_cast<uint64_t>(e.prx_bytes.size())) + e.prx_bytes.size();
-        }
-    } else {
-        body += varint_len(e.frq_off_delta) + varint_len(e.frq_len);
-        if (e.enc == DictEntryEnc::kWindowed) {
-            body += varint_len(e.prelude_len) + varint_len(e.frq_docs_len);
-        } else {
-            body += varint_len(e.frq_docs_len);
-            body += 1 + varint_len(e.dd_meta.uncomp_len) + sizeof(uint32_t);
-            if (tier_has_stats) {
-                body += varint_len(e.freq_meta.uncomp_len) + sizeof(uint32_t);
-            }
-        }
-        if (tier_has_stats) {
-            body += varint_len(e.prx_off_delta) + varint_len(e.prx_len);
-        }
-    }
-    return varint_len(static_cast<uint64_t>(body)) + body;
-}
-
 // Estimate the encoded upper-bound byte size of one entry (no actual encoding; used by
 // estimated_bytes). Take the maximum varint width of each variable-length field plus payload bytes
 // to guarantee an upper bound.
-size_t estimate_entry_bytes(const DictEntry& e, IndexTier tier, bool term_stats) {
+size_t estimate_entry_bytes(const DictEntry& e, IndexTier tier,
+                            uint64_t external_inline_prx_length = 0,
+                            uint64_t external_inline_frq_length = 0) {
     size_t body = 0;
     body += varint_len(static_cast<uint32_t>(e.term.size())); // prefix_len upper bound
     body += varint_len(static_cast<uint32_t>(e.term.size())); // suffix_len upper bound
     body += e.term.size();                                    // suffix bytes upper bound
     body += 1;                                                // flags
     body += 10;                                               // df upper bound
-    if (term_stats) {
-        body += 10; // ttf_delta
-        body += 10; // max_freq
-    }
     if (e.kind == DictEntryKind::kInline) {
-        body += 10 + e.frq_bytes.size();
-        body += 10 + e.prx_bytes.size();
+        body += 10 + e.frq_bytes.size() + external_inline_frq_length;
+        body += 1 + 10; // codec mode + dd uncomp_len
+        if (tier >= IndexTier::kT2) {
+            body += 10 + e.prx_bytes.size() + external_inline_prx_length;
+        }
     } else {
-        body += 10 * 5; // frq_off/frq_len/prelude/prx_off/prx_len upper bound
+        body += 10 * 2; // frq_off/frq_len
+        body += e.enc == DictEntryEnc::kWindowed ? 10 : 1 + 10 + sizeof(uint32_t);
+        if (tier >= IndexTier::kT2) {
+            body += 10 * 2; // prx_off/prx_len
+        }
     }
-    const size_t legacy_estimate = varint_len(static_cast<uint64_t>(body)) + body;
-    if (term_stats) {
-        return legacy_estimate;
-    }
-    return std::max(legacy_estimate, estimate_statless_entry_upper_bound(e, tier));
+    return varint_len(static_cast<uint64_t>(body)) + body;
+}
+
+Status append_dictionary_bytes(Slice bytes, const std::function<Status(Slice)>& append,
+                               uint32_t* crc, uint64_t* written) {
+    RETURN_IF_ERROR(append(bytes));
+    *crc = crc32c_extend(*crc, bytes);
+    *written += bytes.size();
+    return Status::OK();
+}
+
+// Replace the empty inline PRX field emitted by the shared entry codec with a streamed field.
+Status append_external_inline_prx(
+        Slice entry_bytes, uint64_t length,
+        const std::function<Status(const std::function<Status(Slice)>&)>& visit,
+        const std::function<Status(Slice)>& append) {
+    ByteSource encoded(entry_bytes);
+    uint64_t body_length = 0;
+    RETURN_IF_ERROR(encoded.get_varint64(&body_length));
+    DORIS_CHECK(body_length != 0 && entry_bytes.data()[entry_bytes.size() - 1] == 0);
+    ByteSink header;
+    header.put_varint64(body_length - 1 + varint_len(length) + length);
+    RETURN_IF_ERROR(append(header.view()));
+    RETURN_IF_ERROR(append(entry_bytes.subslice(encoded.position(), body_length - 1)));
+    header.clear();
+    header.put_varint64(length);
+    RETURN_IF_ERROR(append(header.view()));
+    uint64_t written = 0;
+    RETURN_IF_ERROR(visit([&](Slice bytes) {
+        RETURN_IF_ERROR(append(bytes));
+        written += bytes.size();
+        return Status::OK();
+    }));
+    DORIS_CHECK(written == length);
+    return Status::OK();
 }
 
 } // namespace
@@ -100,10 +100,9 @@ size_t estimate_entry_bytes(const DictEntry& e, IndexTier tier, bool term_stats)
 // ---- DictBlockBuilder ----
 
 DictBlockBuilder::DictBlockBuilder(IndexTier tier, bool has_positions, uint64_t frq_base,
-                                   uint64_t prx_base, uint32_t anchor_interval, bool term_stats)
+                                   uint64_t prx_base, uint32_t anchor_interval)
         : tier_(tier),
           has_positions_(has_positions),
-          term_stats_(term_stats),
           frq_base_(frq_base),
           prx_base_(prx_base),
           anchor_interval_(anchor_interval == 0 ? 1 : anchor_interval) {}
@@ -112,12 +111,13 @@ void DictBlockBuilder::add_entry(const DictEntry& entry) {
     if (is_anchor(n_entries_)) {
         ++n_anchors_;
     }
-    entries_est_ += estimate_entry_bytes(entry, tier_, term_stats_);
+    entries_est_ += estimate_entry_bytes(entry, tier_);
     entries_.push_back(entry);
     ++n_entries_;
 }
 
-void DictBlockBuilder::add_entry(DictEntry&& entry) {
+void DictBlockBuilder::add_entry(DictEntry&& entry, uint64_t external_inline_prx_length,
+                                 uint64_t external_inline_frq_length) {
     if (is_anchor(n_entries_)) {
         ++n_anchors_;
     }
@@ -125,7 +125,8 @@ void DictBlockBuilder::add_entry(DictEntry&& entry) {
     // sizing a moved-from (empty) entry would undercount entries_est_ and split
     // blocks incorrectly. finish() output is unaffected either way -- it depends
     // only on the entries actually queued, not on how they were appended.
-    entries_est_ += estimate_entry_bytes(entry, tier_, term_stats_);
+    entries_est_ += estimate_entry_bytes(entry, tier_, external_inline_prx_length,
+                                         external_inline_frq_length);
     entries_.push_back(std::move(entry));
     ++n_entries_;
 }
@@ -144,8 +145,7 @@ void DictBlockBuilder::encode_covered(ByteSink* sink) const {
     // header.
     sink->put_varint64(static_cast<uint64_t>(n_entries_));
     sink->put_u8(kDictBlockFormatVer);
-    sink->put_u8(static_cast<uint8_t>((has_positions_ ? dict_block_flags::kHasPositions : 0U) |
-                                      (term_stats_ ? 0U : dict_block_flags::kNoTermStats)));
+    sink->put_u8(has_positions_ ? dict_block_flags::kHasPositions : 0U);
     sink->put_varint64(frq_base_);
     if (has_positions_) {
         sink->put_varint64(prx_base_);
@@ -164,8 +164,8 @@ void DictBlockBuilder::encode_covered(ByteSink* sink) const {
         const std::string_view prev_term = anchor ? std::string_view {} : prev;
         // finish() is void and entry encoding into an in-memory ByteSink cannot fail;
         // explicitly discard the (now [[nodiscard]] Status) return.
-        static_cast<void>(encode_dict_entry(entries_[i], prev_term, tier_, sink, term_stats_,
-                                            &entry_body_scratch));
+        static_cast<void>(
+                encode_dict_entry(entries_[i], prev_term, tier_, sink, &entry_body_scratch));
         prev = entries_[i].term;
     }
 
@@ -183,6 +183,83 @@ void DictBlockBuilder::finish(ByteSink* sink) const {
     // Write the entire block (including crc footer) to sink.
     sink->put_bytes(body.view());
     sink->put_fixed32(crc32c(body.view()));
+}
+
+Status DictBlockBuilder::finish_streamed(
+        std::span<const uint64_t> inline_prx_lengths,
+        const std::function<Status(uint32_t, const std::function<Status(Slice)>&)>& inline_prx,
+        const std::function<Status(Slice)>& append) const {
+    DORIS_CHECK(inline_prx_lengths.size() == entries_.size());
+    size_t next = 0;
+    return finish_streamed_sequential(
+            [&](Slice*, uint64_t* length) {
+                *length = inline_prx_lengths[next++];
+                return Status::OK();
+            },
+            inline_prx, append);
+}
+
+Status DictBlockBuilder::finish_streamed_sequential(
+        const std::function<Status(Slice*, uint64_t*)>& next_inline_fields,
+        const std::function<Status(uint32_t, const std::function<Status(Slice)>&)>& inline_prx,
+        const std::function<Status(Slice)>& append) const {
+    uint64_t written = 0;
+    uint32_t crc = 0;
+    auto covered = [&](Slice bytes) {
+        return append_dictionary_bytes(bytes, append, &crc, &written);
+    };
+    ByteSink sink;
+    sink.put_varint64(n_entries_);
+    sink.put_u8(kDictBlockFormatVer);
+    sink.put_u8(has_positions_ ? dict_block_flags::kHasPositions : 0U);
+    sink.put_varint64(frq_base_);
+    if (has_positions_) {
+        sink.put_varint64(prx_base_);
+    }
+    RETURN_IF_ERROR(covered(sink.view()));
+    std::vector<uint32_t> anchors;
+    anchors.reserve(n_anchors_);
+    ByteSink body;
+    std::string_view previous;
+    for (uint32_t i = 0; i < n_entries_; ++i) {
+        const bool anchor = is_anchor(i);
+        if (anchor && written > UINT32_MAX) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "dict block: anchor offset exceeds uint32");
+        }
+        if (anchor) {
+            anchors.push_back(static_cast<uint32_t>(written));
+        }
+        sink.clear();
+        const DictEntry& entry = entries_[i];
+        Slice inline_frq;
+        uint64_t inline_prx_length = 0;
+        RETURN_IF_ERROR(next_inline_fields(&inline_frq, &inline_prx_length));
+        RETURN_IF_ERROR(encode_dict_entry(entry, anchor ? std::string_view {} : previous, tier_,
+                                          &sink, &body, inline_frq));
+        if (inline_prx_length == 0) {
+            RETURN_IF_ERROR(covered(sink.view()));
+        } else {
+            DORIS_CHECK(entry.kind == DictEntryKind::kInline && tier_ >= IndexTier::kT2 &&
+                        entry.prx_bytes.empty());
+            RETURN_IF_ERROR(append_external_inline_prx(
+                    sink.view(), inline_prx_length,
+                    [&](const std::function<Status(Slice)>& visitor) {
+                        return inline_prx(i, visitor);
+                    },
+                    covered));
+        }
+        previous = entry.term;
+    }
+    sink.clear();
+    for (uint32_t offset : anchors) {
+        sink.put_fixed32(offset);
+    }
+    sink.put_fixed32(static_cast<uint32_t>(anchors.size()));
+    RETURN_IF_ERROR(covered(sink.view()));
+    sink.clear();
+    sink.put_fixed32(crc);
+    return append(sink.view());
 }
 
 std::vector<uint8_t> DictBlockBuilder::finish_owned() const {
@@ -219,6 +296,10 @@ Status verify_crc(Slice block, Slice* covered) {
 
 // Read and verify that block_flags is consistent with has_positions.
 Status check_flags(uint8_t flags, bool has_positions) {
+    if ((flags & ~dict_block_flags::kHasPositions) != 0) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block: unknown block_flags");
+    }
     const bool flag_pos = (flags & dict_block_flags::kHasPositions) != 0;
     if (flag_pos != has_positions) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
@@ -229,6 +310,7 @@ Status check_flags(uint8_t flags, bool has_positions) {
 
 } // namespace
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size) -- Keep invariant-sensitive state transitions together.
 Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
                              DictBlockReader* out) {
     if (out == nullptr) {
@@ -260,7 +342,6 @@ Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
                 "dict_block: unsupported entry_format_ver");
     }
     RETURN_IF_ERROR(check_flags(flags, has_positions));
-    out->term_stats_ = (flags & dict_block_flags::kNoTermStats) == 0;
     RETURN_IF_ERROR(src.get_varint64(&out->frq_base_));
     if (has_positions) {
         RETURN_IF_ERROR(src.get_varint64(&out->prx_base_));
@@ -312,8 +393,7 @@ Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
         // Anchor entries are encoded with prev_term="" and can be decoded independently to retrieve their term.
         ByteSource e_src(covered.subslice(off, anchor_table_begin - off));
         DictEntry probe;
-        RETURN_IF_ERROR(decode_dict_entry(&e_src, std::string_view {}, tier, &probe,
-                                          (flags & dict_block_flags::kNoTermStats) == 0));
+        RETURN_IF_ERROR(decode_dict_entry(&e_src, std::string_view {}, tier, &probe));
         out->anchor_terms_[i] = std::move(probe.term);
     }
     return Status::OK();
@@ -370,8 +450,7 @@ Status DictBlockReader::decode_all(std::vector<DictEntry>* out) const {
         std::string prev; // first entry of a segment is an anchor (prev_term="")
         while (!src.eof()) {
             DictEntry e;
-            RETURN_IF_ERROR(
-                    decode_dict_entry(&src, std::string_view(prev), tier_, &e, term_stats_));
+            RETURN_IF_ERROR(decode_dict_entry(&src, std::string_view(prev), tier_, &e));
             prev = e.term;
             out->push_back(std::move(e));
         }
@@ -410,8 +489,7 @@ Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_view tar
         RETURN_IF_ERROR(
                 decode_dict_entry_key(&src, std::string_view(prev), &e, &body_start, &entry_total));
         if (e.term == target) {
-            RETURN_IF_ERROR(
-                    decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e, term_stats_));
+            RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e));
             *found = true;
             *out = std::move(e);
             return Status::OK();
@@ -502,8 +580,7 @@ Status DictBlockReader::visit_prefix_range(std::string_view prefix,
             continue;
         }
         // Accepted: materialize the body and hand the entry to the visitor.
-        RETURN_IF_ERROR(
-                decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e, term_stats_));
+        RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e));
         prev = e.term; // copy the key before the entry is moved into on_hit
         bool stop = false;
         RETURN_IF_ERROR(on_hit(std::move(e), &stop));
@@ -567,8 +644,7 @@ Status DictBlockReader::visit_term_range(std::string_view lower_inclusive,
             prev = std::move(entry.term);
             continue;
         }
-        RETURN_IF_ERROR(
-                decode_dict_entry_rest(&src, tier_, body_start, entry_total, &entry, term_stats_));
+        RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &entry));
         prev = entry.term;
         bool stop = false;
         RETURN_IF_ERROR(on_hit(std::move(entry), &stop));

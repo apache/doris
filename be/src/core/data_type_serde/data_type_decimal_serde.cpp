@@ -680,12 +680,8 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
     const auto row = str.size();
     column.resize(row);
 
-    const ColumnString::Chars* chars = &str.get_chars();
-    const IColumn::Offsets* offsets = &str.get_offsets();
-
     auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
-    size_t current_offset = 0;
     auto arg_precision = static_cast<UInt32>(precision);
     auto arg_scale = static_cast<UInt32>(scale);
     CastParameters params;
@@ -694,16 +690,10 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
         if (null_map && null_map[i]) {
             continue;
         }
-        size_t next_offset = (*offsets)[i];
-        size_t string_size = next_offset - current_offset;
-
-        if (!CastToDecimal::from_string(StringRef(&(*chars)[current_offset], string_size),
-                                        vec_to[i], arg_precision, arg_scale, params)) {
-            return Status::InvalidArgument(
-                    "parse number fail, string: '{}'",
-                    std::string((char*)&(*chars)[current_offset], string_size));
+        const auto str_ref = str.get_data_at(i);
+        if (!CastToDecimal::from_string(str_ref, vec_to[i], arg_precision, arg_scale, params)) {
+            return Status::InvalidArgument("parse number fail, string: '{}'", str_ref.to_string());
         }
-        current_offset = next_offset;
     }
     return Status::OK();
 }
@@ -1280,8 +1270,9 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_co
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                                 ColumnString& to_column) const {
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column,
+        const NullMap::value_type* source_null_map) const {
     if constexpr (T == TYPE_DECIMALV2) {
         return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb_vector");
     } else {
@@ -1289,6 +1280,10 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& 
         JsonbWriter writer;
         const auto& data = assert_cast<const ColumnDecimal<T>&>(from_column).get_data();
         for (int i = 0; i < size; i++) {
+            if (source_null_map && source_null_map[i]) {
+                to_column.insert_default();
+                continue;
+            }
             writer.reset();
             if (!writer.writeDecimal(data[i], precision, scale)) {
                 return Status::InvalidArgument(
@@ -1319,8 +1314,8 @@ Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb_vector(
-        ColumnNullable& column_to, const ColumnString& col_from_json,
-        CastParameters& castParms) const {
+        ColumnNullable& column_to, const ColumnString& col_from_json, CastParameters& castParms,
+        const NullMap::value_type* source_null_map) const {
     if constexpr (T == TYPE_DECIMALV2) {
         return Status::NotSupported(
                 "DECIMALV2 does not support deserialize_column_from_jsonb_vector");
@@ -1335,6 +1330,11 @@ Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb_vector(
         data.resize(size);
 
         for (size_t i = 0; i < size; ++i) {
+            if (source_null_map && source_null_map[i]) {
+                null_map[i] = true;
+                data[i] = {};
+                continue;
+            }
             const auto& val = col_from_json.get_data_at(i);
             auto* jsonb_value = handle_jsonb_value(val);
             if (!jsonb_value) {

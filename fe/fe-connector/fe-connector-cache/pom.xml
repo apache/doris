@@ -33,17 +33,10 @@ under the License.
     <packaging>jar</packaging>
     <name>Doris FE Connector Cache Framework</name>
     <description>
-        Connector-side meta-cache framework (CacheSpec + MetaCacheEntry + CacheFactory + MetaCacheEntryStats),
-        an INDEPENDENT copy of fe-core's `org.apache.doris.datasource.metacache` framework re-homed under the
-        `org.apache.doris.connector.*` prefix so the connector plugins can reuse it (they cannot import fe-core).
-        fe-core keeps its own copy untouched; the two live side-by-side until every connector has migrated, then
-        the fe-core copy is retired. fe-core does NOT depend on this module.
-
-        This module is bundled into each connector plugin zip (child-first), so it uses the plugin's own bundled
-        Caffeine at runtime; Caffeine is therefore `provided` here (compiled against, never packaged by this
-        module). The framework's public API (MetaCacheEntry) is Caffeine-free, and fe-core and the connectors
-        never share a cache object across the classloader boundary, so no Caffeine type crosses and there is no
-        split-brain. Two knobs fe-core reads from static Config are constructor-injected here.
+        Shared catalog-local metadata cache framework. Cache definitions declare their metadata scope, and every
+        physical cache in one catalog participates in hierarchical invalidation through a shared registry. The
+        public API is Caffeine-free so connector plugins can use their child-first Caffeine runtime without
+        exposing third-party types across the FE/connector classloader boundary.
     </description>
 
     <dependencies>
@@ -52,6 +45,10 @@ under the License.
             <artifactId>caffeine</artifactId>
             <version>2.9.3</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

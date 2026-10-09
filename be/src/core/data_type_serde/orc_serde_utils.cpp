@@ -47,7 +47,11 @@ Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
     constexpr int64_t NANOS_PER_MICROSECOND = 1000;
     constexpr int64_t MICROS_PER_SECOND = 1000000;
     DORIS_CHECK(result != nullptr);
-    DORIS_CHECK(nanoseconds >= 0 && nanoseconds < NANOS_PER_SECOND);
+    // Nanoseconds come from an external file, so malformed input must fail the scan rather than
+    // terminate the BE process.
+    if (nanoseconds < 0 || nanoseconds >= NANOS_PER_SECOND) {
+        return Status::DataQualityError("Invalid ORC timestamp nanoseconds: {}", nanoseconds);
+    }
     // Doris stores six fractional digits, so use half-up rounding and carry 999999500ns into the
     // next second instead of silently truncating the ORC value.
     const auto rounded_microseconds =
@@ -60,6 +64,27 @@ Status round_orc_timestamp_to_microseconds(int64_t seconds, int64_t nanoseconds,
     }
     result->microseconds = cast_set<uint64_t>(rounded_microseconds % MICROS_PER_SECOND);
     result->carry = rounded_microseconds >= MICROS_PER_SECOND;
+    return Status::OK();
+}
+
+Status orc_timestamp_to_datetime(int64_t seconds, uint64_t microseconds,
+                                 const cctz::time_zone& timezone, bool carry_in_civil_time,
+                                 DateV2Value<DateTimeV2ValueType>* value) {
+    auto civil = cctz::convert(cctz::time_point<cctz::seconds>(cctz::seconds(seconds)), timezone);
+    if (carry_in_civil_time) {
+        ++civil;
+    }
+    // Validate before packing: narrowing the year to uint16_t can wrap an invalid year to 0-9999.
+    if (civil.year() < 0 || civil.year() > 9999) {
+        return Status::DataQualityError(
+                "Decoded ORC timestamp is outside the target timezone range");
+    }
+    // Narrow only after the year check; cctz normalizes the other civil fields and ORC rounding
+    // keeps microseconds below one second.
+    value->unchecked_set_time(cast_set<uint16_t>(civil.year()), cast_set<uint8_t>(civil.month()),
+                              cast_set<uint8_t>(civil.day()), cast_set<uint8_t>(civil.hour()),
+                              cast_set<uint8_t>(civil.minute()), cast_set<uint16_t>(civil.second()),
+                              cast_set<uint32_t>(microseconds));
     return Status::OK();
 }
 

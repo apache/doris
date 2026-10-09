@@ -50,10 +50,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -113,7 +113,7 @@ public class BeLoadRebalancePartitionSkewTest {
     private long nextId = 100000L;
     private String origRebalancerType;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
         origRebalancerType = Config.tablet_rebalancer_type;
@@ -146,7 +146,7 @@ public class BeLoadRebalancePartitionSkewTest {
         mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -179,8 +179,8 @@ public class BeLoadRebalancePartitionSkewTest {
 
         LOG.info("store_sales before balance: {}", sortedCounts(countReplicaPerBe(storeSales)));
         LOG.info("background before balance: {}", sortedCounts(countReplicaPerBe(background)));
-        Assert.assertEquals(1, skewOf(countReplicaPerBe(storeSales)));
-        Assert.assertEquals(0, skewOf(countReplicaPerBe(background)));
+        Assertions.assertEquals(1, skewOf(countReplicaPerBe(storeSales)));
+        Assertions.assertEquals(0, skewOf(countReplicaPerBe(background)));
 
         int moves = runBalanceUntilStable(Lists.newArrayList(storeSales, background), 100);
 
@@ -189,9 +189,8 @@ public class BeLoadRebalancePartitionSkewTest {
         LOG.info("store_sales after balance: {}, moves: {}", sortedCounts(storeSalesAfter), moves);
         LOG.info("background after balance: {}", sortedCounts(backgroundAfter));
 
-        Assert.assertTrue("the newly created table must keep its round-robin distribution,"
-                        + " actual: " + sortedCounts(storeSalesAfter),
-                skewOf(storeSalesAfter) <= 1);
+        Assertions.assertTrue(skewOf(storeSalesAfter) <= 1, "the newly created table must keep its round-robin distribution,"
+                        + " actual: " + sortedCounts(storeSalesAfter));
         // Loaded tablets can legitimately move for capacity balancing. Any resulting per-index
         // skew belongs to a follow-up change and is intentionally only observed here.
         LOG.info("background table skew after legitimate capacity balance: {}", skewOf(backgroundAfter));
@@ -213,14 +212,12 @@ public class BeLoadRebalancePartitionSkewTest {
         int moves = runBalanceUntilStable(Lists.newArrayList(loadedTable), 100);
         Map<Long, Integer> after = countReplicaPerBe(loadedTable);
 
-        Assert.assertEquals("no tablet with an unreported size should move", 0, moves);
-        Assert.assertEquals("the loaded table must retain its distribution during the restart window",
-                before, after);
+        Assertions.assertEquals(0, moves, "no tablet with an unreported size should move");
+        Assertions.assertEquals(before, after, "the loaded table must retain its distribution during the restart window");
         // Selection already filters these out, so nothing ever reaches the scheduler and the stat
         // counter stays at zero. How many tablets were skipped is reported in the round summary log
         // instead, because it counts scanned tablets rather than balance attempts.
-        Assert.assertEquals("selection should filter zero-size tablets before scheduling",
-                0L, schedulerStat.counterBalanceRejectByZeroDataSize.get());
+        Assertions.assertEquals(0L, schedulerStat.counterBalanceRejectByZeroDataSize.get(), "selection should filter zero-size tablets before scheduling");
     }
 
     /** The zero-size guard is unconditional and also applies to urgent BE balance. */
@@ -241,16 +238,15 @@ public class BeLoadRebalancePartitionSkewTest {
         LoadStatisticForTag loadStatistic = newLoadStatistic(rebalancer);
         List<BackendLoadStatistic> lowBEs = Lists.newArrayList();
         List<BackendLoadStatistic> highBEs = Lists.newArrayList();
-        Assert.assertTrue("the test must exercise urgent balance",
-                loadStatistic.getLowHighBEsWithIsUrgent(lowBEs, highBEs, TStorageMedium.HDD));
+        Assertions.assertTrue(loadStatistic.getLowHighBEsWithIsUrgent(lowBEs, highBEs, TStorageMedium.HDD), "the test must exercise urgent balance");
         rebalancer.updateLoadStatistic(Maps.newHashMap(
                 Collections.singletonMap(Tag.DEFAULT_BACKEND_TAG, loadStatistic)));
 
         List<TabletSchedCtx> candidates = rebalancer.selectAlternativeTablets();
-        Assert.assertFalse("a reported, non-empty tablet should be selected", candidates.isEmpty());
+        Assertions.assertFalse(candidates.isEmpty(), "a reported, non-empty tablet should be selected");
         TabletSchedCtx tabletCtx = candidates.get(0);
         Tablet tablet = findTablet(Lists.newArrayList(index), tabletCtx.getTabletId());
-        Assert.assertNotNull(tablet);
+        Assertions.assertNotNull(tablet);
         setReplicaSizes(index, 0L);
         tabletCtx.setTablet(tablet);
         tabletCtx.updateTabletSize();
@@ -260,14 +256,12 @@ public class BeLoadRebalancePartitionSkewTest {
         int availableSlotsBefore = slots.get(highBeId).getAvailableBalanceNum(replica.getPathHash());
         try {
             rebalancer.completeSchedCtx(tabletCtx);
-            Assert.fail("urgent balance must reject a tablet whose size is no longer reported");
+            Assertions.fail("urgent balance must reject a tablet whose size is no longer reported");
         } catch (SchedException e) {
-            Assert.assertTrue(e.getMessage().contains("size of src replica is zero"));
+            Assertions.assertTrue(e.getMessage().contains("size of src replica is zero"));
         }
-        Assert.assertEquals("the zero-size check must run before taking the source slot",
-                availableSlotsBefore, slots.get(highBeId).getAvailableBalanceNum(replica.getPathHash()));
-        Assert.assertEquals("the scheduling-time rejection should increment the counter",
-                1L, schedulerStat.counterBalanceRejectByZeroDataSize.get());
+        Assertions.assertEquals(availableSlotsBefore, slots.get(highBeId).getAvailableBalanceNum(replica.getPathHash()), "the zero-size check must run before taking the source slot");
+        Assertions.assertEquals(1L, schedulerStat.counterBalanceRejectByZeroDataSize.get(), "the scheduling-time rejection should increment the counter");
     }
 
     /**
@@ -285,8 +279,8 @@ public class BeLoadRebalancePartitionSkewTest {
         List<BackendLoadStatistic> highBEs = Lists.newArrayList();
         stat.getLowHighBEsWithIsUrgent(lowBEs, highBEs, TStorageMedium.HDD);
 
-        Assert.assertFalse("the disk usage spread should classify some BE as HIGH", highBEs.isEmpty());
-        Assert.assertFalse("the disk usage spread should classify some BE as LOW", lowBEs.isEmpty());
+        Assertions.assertFalse(highBEs.isEmpty(), "the disk usage spread should classify some BE as HIGH");
+        Assertions.assertFalse(lowBEs.isEmpty(), "the disk usage spread should classify some BE as LOW");
 
         BackendLoadStatistic high = highBEs.get(highBEs.size() - 1);
         BackendLoadStatistic low = lowBEs.get(0);
@@ -294,14 +288,11 @@ public class BeLoadRebalancePartitionSkewTest {
         long highUsedBefore = high.getTotalUsedCapacityB(TStorageMedium.HDD);
         long lowUsedBefore = low.getTotalUsedCapacityB(TStorageMedium.HDD);
 
-        Assert.assertTrue("a zero-sized tablet is accepted as a balance move even though it"
-                        + " relocates no data at all",
-                stat.isMoreBalanced(high.getBeId(), low.getBeId(), 50000L, 0L, TStorageMedium.HDD));
+        Assertions.assertTrue(stat.isMoreBalanced(high.getBeId(), low.getBeId(), 50000L, 0L, TStorageMedium.HDD), "a zero-sized tablet is accepted as a balance move even though it"
+                        + " relocates no data at all");
 
-        Assert.assertEquals("the capacity term is untouched by a zero-sized move",
-                highUsedBefore, high.getTotalUsedCapacityB(TStorageMedium.HDD));
-        Assert.assertEquals("the capacity term is untouched by a zero-sized move",
-                lowUsedBefore, low.getTotalUsedCapacityB(TStorageMedium.HDD));
+        Assertions.assertEquals(highUsedBefore, high.getTotalUsedCapacityB(TStorageMedium.HDD), "the capacity term is untouched by a zero-sized move");
+        Assertions.assertEquals(lowUsedBefore, low.getTotalUsedCapacityB(TStorageMedium.HDD), "the capacity term is untouched by a zero-sized move");
     }
 
     /**
@@ -329,16 +320,15 @@ public class BeLoadRebalancePartitionSkewTest {
 
         Map<Long, Integer> before = countReplicaPerBe(index);
         LOG.info("skewed distribution before balance: {}", sortedCounts(before));
-        Assert.assertEquals(8, skewOf(before));
+        Assertions.assertEquals(8, skewOf(before));
 
         int moves = runBalanceUntilStable(Lists.newArrayList(index), 100);
         Map<Long, Integer> after = countReplicaPerBe(index);
         LOG.info("skewed distribution after balance: {}, moves: {}", sortedCounts(after), moves);
 
-        Assert.assertTrue("balancer should have moved replicas away from the overloaded BE",
-                moves > 0);
-        Assert.assertTrue("a genuinely skewed index must still be balanced, actual: "
-                + sortedCounts(after), skewOf(after) <= 1);
+        Assertions.assertTrue(moves > 0, "balancer should have moved replicas away from the overloaded BE");
+        Assertions.assertTrue(skewOf(after) <= 1, "a genuinely skewed index must still be balanced, actual: "
+                + sortedCounts(after));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -483,7 +473,7 @@ public class BeLoadRebalancePartitionSkewTest {
     private void applyMove(Tablet tablet, long srcBeId, long destBeId) {
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(tablet.getId());
         Replica srcReplica = tablet.getReplicaByBackendId(srcBeId);
-        Assert.assertNotNull(srcReplica);
+        Assertions.assertNotNull(srcReplica);
         long dataSize = srcReplica.getDataSize();
 
         Replica destReplica = new LocalReplica(nextId++, destBeId, Replica.ReplicaState.NORMAL,

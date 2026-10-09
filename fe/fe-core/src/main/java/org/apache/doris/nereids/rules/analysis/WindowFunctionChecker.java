@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundType;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.window.CumeDist;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.FirstOrLastValue;
@@ -67,8 +68,6 @@ import java.util.stream.Collectors;
  *  window frame (RANGE between UNBOUNDED PRECEDING and CURRENT ROW)
  */
 public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, Void> {
-    private static final BigDecimal MAX_ROWS_OFFSET_VALUE = BigDecimal.valueOf(Long.MAX_VALUE);
-
     private WindowExpression windowExpression;
 
     public WindowFunctionChecker(WindowExpression window) {
@@ -93,6 +92,10 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         // in checkWindowFrameBeforeFunc() we have confirmed that both left and right boundary are set as long as
         // windowFrame exists, therefore in all following visitXXX functions we don't need to check whether the right
         // boundary is null.
+        if (windowExpression.getFunction() instanceof CombineCombinator) {
+            throw new AnalysisException("Window function does not support aggregate combine function: "
+                    + ((CombineCombinator) windowExpression.getFunction()).getName());
+        }
         windowExpression.accept(this, null);
     }
 
@@ -231,8 +234,8 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         Preconditions.checkArgument(isPositive, "BoundOffset of WindowFrame must be positive");
 
         if (frameUnits == FrameUnitsType.ROWS) {
-            Preconditions.checkArgument(offsetValue.compareTo(MAX_ROWS_OFFSET_VALUE) <= 0,
-                    "BoundOffset of ROWS WindowFrame must not exceed " + Long.MAX_VALUE);
+            Preconditions.checkArgument(offsetValue.compareTo(WindowFrame.MAX_ROWS_OFFSET) <= 0,
+                    "BoundOffset of ROWS WindowFrame must not exceed " + WindowFrame.MAX_ROWS_OFFSET);
         }
     }
 
