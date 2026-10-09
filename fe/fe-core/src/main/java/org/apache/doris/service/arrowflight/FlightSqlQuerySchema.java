@@ -27,6 +27,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
@@ -38,7 +39,11 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -68,6 +73,8 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTable
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ResultSetMetaData;
@@ -97,6 +104,19 @@ final class FlightSqlQuerySchema {
     }
 
     static Schema analyze(ConnectContext context, String query) throws Exception {
+        return analyze(context, query, null);
+    }
+
+    static Schema analyze(ConnectContext context, String query, List<Literal> parameters) throws Exception {
+        return analyze(context, query, parameters, false).first;
+    }
+
+    static Pair<Schema, Schema> prepare(ConnectContext context, String query) throws Exception {
+        return analyze(context, query, null, true);
+    }
+
+    private static Pair<Schema, Schema> analyze(ConnectContext context, String query,
+            List<Literal> parameters, boolean preparing) throws Exception {
         synchronized (context) {
             ConnectContext previousThreadContext = ConnectContext.get();
             StatementContext previousStatement = context.getStatementContext();
@@ -149,12 +169,33 @@ final class FlightSqlQuerySchema {
                 StatementContext statementContext = statement.getStatementContext();
                 context.setStatementContext(statementContext);
                 statementContext.setParsedStatement(statement);
-                if (!statementContext.getPlaceholders().isEmpty()) {
-                    throw CallStatus.UNIMPLEMENTED.withDescription(
-                            "Flight SQL parameter binding is not supported").toRuntimeException();
+                int parameterCount = statementContext.getPlaceholders().size();
+                if (parameterCount > FlightSqlParameters.MAX_PARAMETERS) {
+                    throw CallStatus.INVALID_ARGUMENT.withDescription("Too many query parameters (maximum 1024)")
+                            .toRuntimeException();
+                }
+                Plan plan = statement.getLogicalPlan();
+                Map<PlaceholderId, DataType> parameterTypes = new HashMap<>();
+                if (parameterCount > 0) {
+                    if (statements.size() != 1 || plan instanceof Command) {
+                        throw CallStatus.INVALID_ARGUMENT.withDescription(
+                                "Parameters require a single query statement").toRuntimeException();
+                    }
+                    if (preparing) {
+                        statementContext.setPrepareStage(true);
+                        parameterTypes.putAll(FlightSqlParameters.inferCastTypes(plan));
+                        parameters = new ArrayList<>();
+                        for (Placeholder placeholder : statementContext.getPlaceholders()) {
+                            // Unknown values must not acquire the synthetic STRING type used by MySQL Prepare.
+                            parameters.add(new NullLiteral(parameterTypes.getOrDefault(
+                                    placeholder.getPlaceholderId(), NullType.INSTANCE)));
+                        }
+                    }
+                }
+                if (parameters != null || parameterCount > 0) {
+                    FlightSqlParameters.bind(statementContext, parameters);
                 }
                 List<Field> fields = new ArrayList<>();
-                Plan plan = statement.getLogicalPlan();
                 if (plan instanceof Command) {
                     resolveNamespace(context, plan, scopedDatabases);
                     ResultSetMetaData metadata = commandMetadata(context, (Command) plan);
@@ -194,12 +235,26 @@ final class FlightSqlQuerySchema {
                     Plan analyzed = cascades.getRewritePlan();
                     // PrepareCommandPlanner stops before the rewrite phase that normally checks privileges.
                     new CheckPrivileges().rewriteRoot(analyzed, cascades.getCurrentJobContext());
+                    if (preparing) {
+                        statementContext.getIdToComparisonSlot().forEach((id, slot) ->
+                                parameterTypes.putIfAbsent(id, slot.getDataType()));
+                    }
                     for (Slot slot : analyzed.getOutput()) {
                         fields.add(field(slot.getName(), slot.getDataType().toCatalogDataType(), slot.nullable(),
                                 true, context.getSessionVariable().getTimeZone()));
                     }
                 }
-                return new Schema(fields);
+                List<Field> parameterFields = new ArrayList<>();
+                for (int i = 0; preparing && i < parameterCount; i++) {
+                    DataType type = parameterTypes.getOrDefault(
+                            statementContext.getPlaceholders().get(i).getPlaceholderId(), NullType.INSTANCE);
+                    Field parameterField = field(String.valueOf(i), type.toCatalogDataType(), true,
+                            true, context.getSessionVariable().getTimeZone());
+                    // Result schemas support more Arrow types than parameter uploads do.
+                    parameterFields.add(FlightSqlParameters.supportsParameterType(parameterField.getType())
+                            ? parameterField : Field.nullable(String.valueOf(i), new ArrowType.Null()));
+                }
+                return Pair.of(new Schema(fields), new Schema(parameterFields));
             } finally {
                 try {
                     List<AutoCloseable> resources = new ArrayList<>();
@@ -378,6 +433,10 @@ final class FlightSqlQuerySchema {
             type = Type.STRING;
         }
         PrimitiveType primitive = type.getPrimitiveType();
+        if (primitive == PrimitiveType.VARIANT) {
+            return FlightSqlSchemaHelper.nativeVariantField(name, nullable,
+                    Collections.singletonMap("doris_type", primitive.toString()));
+        }
         int precision = type instanceof ScalarType ? ((ScalarType) type).getScalarPrecision() : 0;
         int scale = type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : 0;
         ArrowType arrowType = FlightSqlSchemaHelper.getArrowType(primitive, precision, scale);
@@ -400,13 +459,17 @@ final class FlightSqlQuerySchema {
                     field("value", map.getValueType(), true, false, timezone))));
         } else if (type instanceof StructType) {
             for (StructField child : ((StructType) type).getFields()) {
-                children.add(field(child.getName(), child.getType(), child.getContainsNull(), false, timezone));
+                children.add(field(child.getName(), child.getType(), child.getContainsNull(),
+                        false, timezone));
             }
         }
         Map<String, String> metadata = null;
-        if (topLevel && (primitive == PrimitiveType.LARGEINT || primitive == PrimitiveType.IPV4
-                || primitive == PrimitiveType.IPV6)) {
-            metadata = Collections.singletonMap("doris_type", primitive.toString());
+        // Execution preserves logical type markers at every depth; Prepare must match them exactly.
+        if (primitive == PrimitiveType.LARGEINT || primitive == PrimitiveType.IPV4
+                || primitive == PrimitiveType.IPV6 || primitive == PrimitiveType.VARIANT
+                || primitive == PrimitiveType.JSONB) {
+            metadata = Collections.singletonMap("doris_type",
+                    primitive == PrimitiveType.JSONB ? "JSON" : primitive.toString());
         }
         return new Field(name, new FieldType(nullable, arrowType, null, metadata), children);
     }

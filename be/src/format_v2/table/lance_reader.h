@@ -78,6 +78,10 @@ private:
     Status _validate_external_search_request() const;
     Status _ensure_dataset_open(const TFileRangeDesc& range, bool prepare_fts_context = true);
     Status _open_dataset(const DatasetKey& key);
+    // Rejects FE fragment ids the opened snapshot lacks; lance-c would silently skip them.
+    Status _check_fragment_ids(const std::vector<uint64_t>& fragment_ids) const;
+    // Names the opened snapshot in execution errors, since several share one URI or version.
+    std::string _snapshot_description() const;
     Status _prepare_fts_query_context();
     Status _open_scanner(const TFileRangeDesc& range);
     void _init_scanner_profile();
@@ -103,6 +107,10 @@ private:
     LanceScanner* _scanner = nullptr;
     ShardedKVCache* _runtime_filter_cache = nullptr;
     std::optional<DatasetKey> _opened_dataset_key;
+    // Sorted fragment ids of the opened snapshot, listed on the first split that names any.
+    mutable std::optional<std::vector<uint64_t>> _dataset_fragment_ids;
+    // The version the open dataset resolved to, which differs from the key's for version 0.
+    int64_t _opened_version = 0;
     LanceRecordBatchConverter _record_batch_converter;
     size_t _scanner_batch_size = 0;
     RuntimeProfile::Counter* _planned_index_segment_count = nullptr;

@@ -434,6 +434,8 @@ private:
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;
+    // Parsed headers contribute exactly once. This is a complete physical prefix only while
+    // no indexed page has been skipped unverified; otherwise sequential fallback is rejected.
     size_t _chunk_parsed_values = 0;
     // this page remaining rep/def nums
     // if max_rep_level = 0 / max_def_level = 0, this value retail hava value.
@@ -454,6 +456,7 @@ private:
     Slice _v2_def_levels;
     bool _dict_checked = false;
     bool _first_data_page_parsed = false;
+    bool _skipped_unverified_indexed_page = false;
     bool _has_dict = false;
     bool _nested_row_started = false;
     Decoder* _page_decoder = nullptr;

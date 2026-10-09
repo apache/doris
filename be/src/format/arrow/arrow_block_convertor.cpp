@@ -473,6 +473,28 @@ Status ArrowBlockConvertor::init() {
     return Status::OK();
 }
 
+Status ArrowFlightArrowBlockConvertor::write_column(const std::shared_ptr<const IDataType>& type,
+                                                    const DataTypeSerDe& serde,
+                                                    const IColumn& column, const NullMap* null_map,
+                                                    const std::shared_ptr<arrow::Field>& field,
+                                                    arrow::ArrayBuilder* array_builder,
+                                                    int64_t start, int64_t end,
+                                                    const cctz::time_zone& ctz) const {
+    if (contains_extension_type(field->type())) {
+        std::shared_ptr<arrow::DataType> native_type;
+        RETURN_IF_ERROR(
+                ArrowFlightSchemaConvertor(ctz.name()).convert_to_arrow_type(type, &native_type));
+        // Check the extension identity and its complete nested shape before allowing the
+        // Variant SerDe to write binary storage. An arbitrary STRUCT is not a Variant binding.
+        // Timestamp labels may differ for equivalent fixed offsets, including inside containers.
+        if (is_declared_plain_arrow_binding(type, native_type, field->type())) {
+            return serde.write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+        }
+    }
+    return DorisArrowBlockConvertor::write_column(type, serde, column, null_map, field,
+                                                  array_builder, start, end, ctz);
+}
+
 Status ArrowFlightArrowBlockConvertor::convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
                                                         std::shared_ptr<arrow::RecordBatch>* result,
                                                         size_t start_row, size_t end_row) const {

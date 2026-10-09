@@ -79,7 +79,7 @@ final class LanceScanPlanner {
             LanceScanPlanner planner = new LanceScanPlanner(metadata, kind, request,
                     fieldId, pushedConjuncts, fragmentsPerSplit, countParallelism);
             List<Split> splits = planner.buildSplits();
-            LanceScanPlan plan = new LanceScanPlan(splits, metadata.getVersion(), planner.plannedFragments,
+            LanceScanPlan plan = new LanceScanPlan(splits, planner.plannedFragments,
                     planner.plannedFragmentsPerSplit, planner.plannedIndexSegments, planner.plannedIndexFragments,
                     planner.plannedUnindexedFragments,
                     planner.scalarIndexPlan == null ? null : planner.scalarIndexPlan.indexName,
@@ -166,13 +166,19 @@ final class LanceScanPlanner {
         return splits;
     }
 
+    /** "dataset version N", naming the branch too, since branches number versions like main. */
+    private static String datasetVersion(LanceTableMetadata metadata) {
+        return "dataset version " + metadata.getVersion()
+                + metadata.getBranch().map(branch -> " of branch '" + branch + "'").orElse("");
+    }
+
     private Map<Long, LanceFragmentInfo> getVisibleFragments(LanceTableMetadata metadata)
             throws UserException {
         Map<Long, LanceFragmentInfo> visible = new LinkedHashMap<>();
         for (LanceFragmentInfo fragment : metadata.getFragments()) {
             if (visible.put(fragment.getId(), fragment) != null) {
                 throw new UserException("Duplicate Lance fragment id " + fragment.getId()
-                        + " at dataset version " + metadata.getVersion());
+                        + " at " + datasetVersion(metadata));
             }
         }
         return visible;
@@ -251,7 +257,7 @@ final class LanceScanPlanner {
                 metadata.getIndexes(), searchFieldId, fullText.getColumn());
         if (matchingSegments.isEmpty()) {
             throw new UserException("No committed Lance FTS index exists for column '"
-                    + fullText.getColumn() + "' at dataset version " + metadata.getVersion());
+                    + fullText.getColumn() + "' at " + datasetVersion(metadata));
         }
         // A matching index with no visible coverage is a valid empty INDEX_ONLY result.
         // Unknown coverage still throws in planIndexSegments; STRICT checks uncovered fragments below.
@@ -265,7 +271,7 @@ final class LanceScanPlanner {
         if (fullText.getCoverageMode() == TFtsCoverageMode.STRICT
                 && plannedUnindexedFragments != 0) {
             throw new UserException("Lance FTS coverage_mode=STRICT requires every fragment at "
-                    + "dataset version " + metadata.getVersion() + " to be indexed; column '"
+                    + datasetVersion(metadata) + " to be indexed; column '"
                     + fullText.getColumn() + "' has " + plannedUnindexedFragments
                     + " unindexed fragments. Rebuild the index or use coverage_mode=index_only");
         }
