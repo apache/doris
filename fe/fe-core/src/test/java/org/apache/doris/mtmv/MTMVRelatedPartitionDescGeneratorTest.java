@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -162,6 +163,39 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
                 + "PARTITION BY List(c1,c2) (PARTITION t15_p1 VALUES IN (('2020-01-01', 5)),"
                 + " PARTITION t15_p23 VALUES IN (('2021-01-01', 5), ('2022-01-01', 5))) distributed by hash(c1)"
                 + " buckets 1 properties('replication_num' = '1');");
+
+        // The same two keys written down in the two orders: 'Aa' and 'BB' are the classic pair that hash
+        // alike, so a hash set of them iterates in the order they were added in.
+        createTable("CREATE TABLE `t16` (`c1` varchar(4), `c2` int)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION t16_ab VALUES IN (('Aa', 1), ('BB', 1)))"
+                + " distributed by hash(c1) buckets 1 properties('replication_num' = '1');");
+        createTable("CREATE TABLE `t17` (`c1` varchar(4), `c2` int)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION t17_ba VALUES IN (('BB', 1), ('Aa', 1)))"
+                + " distributed by hash(c1) buckets 1 properties('replication_num' = '1');");
+    }
+
+    @Test
+    public void testTheSameCollidingKeysAreOneDescInEitherOrder() throws Exception {
+        // 'Aa' and 'BB' hash alike, so a hash set of them iterates in the order it was filled in; a desc built
+        // from one partition and a desc built from a partition listing the same keys the other way round used
+        // to be two different descs, and `PartitionKeyDesc.equals` compares that order. The keys are written
+        // out in a canonical order instead, so the key set is the desc wherever it came from.
+        Column c1Column = new Column("c1", ScalarType.createVarchar(4));
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> abDescs
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(
+                        getMTMVPartitionInfo(Lists.newArrayList("t16")), Maps.newHashMap(),
+                        Lists.newArrayList(c1Column), Maps.newHashMap());
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> baDescs
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(
+                        getMTMVPartitionInfo(Lists.newArrayList("t17")), Maps.newHashMap(),
+                        Lists.newArrayList(c1Column), Maps.newHashMap());
+        Assertions.assertEquals(1, abDescs.size());
+        Assertions.assertEquals(1, baDescs.size());
+        Assertions.assertEquals(abDescs.keySet().iterator().next(), baDescs.keySet().iterator().next());
     }
 
     @Test
