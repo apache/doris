@@ -117,12 +117,20 @@ suite("test_arrow_flight_session_lifecycle") {
         flight("SET query_timeout = DEFAULT")
     }
 
-    // 6. A request may carry several statements; only the last one may return a result. The result
-    //    of a query is on the backend, so the request that ends in a query is fine, and the frontend
-    //    refuses a request that produced a frontend-side result before its last statement.
+    // 6. A request may carry several statements; only the last one may return a result, wherever
+    //    the result is. The request that ends in a query is fine; one that produced a result before
+    //    its last statement is refused, whether the frontend cached that result or a backend holds
+    //    it -- the endpoints of two queries would otherwise be delivered as one result, and a query
+    //    before a SET would have its endpoints dropped for the SET's status.
     assertEquals([[2L]], nums(flight("SET @multi = 2; SELECT k FROM ${tableName} WHERE k = 2").rows))
     flightFails("SHOW VARIABLES LIKE 'wait_timeout'; SELECT 1",
             "Only be one stmt that returns the result and it is at the end")
+    flightFails("SELECT k FROM ${tableName} WHERE k = 1; SELECT k FROM ${tableName} WHERE k = 2",
+            "Only be one stmt that returns the result and it is at the end")
+    flightFails("SELECT k FROM ${tableName} WHERE k = 1; SET @multi = 3",
+            "Only be one stmt that returns the result and it is at the end")
+    assertEquals([[2L]], nums(flight("SELECT @multi").rows))
+    assertEquals([[3L]], nums(flight("SELECT count(*) FROM ${tableName}").rows))
 
     // 7. A failed statement leaves the session usable.
     flightFails("SELECT * FROM no_such_table_lifecycle", "does not exist")

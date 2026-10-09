@@ -47,10 +47,13 @@ public:
     QuantileState();
     explicit QuantileState(float compression);
     explicit QuantileState(const Slice& slice);
-    QuantileState& operator=(const QuantileState& other) noexcept = default;
-    QuantileState(const QuantileState& other) noexcept = default;
+    QuantileState& operator=(const QuantileState& other) = default;
+    QuantileState(const QuantileState& other) = default;
     QuantileState& operator=(QuantileState&& other) noexcept = default;
     QuantileState(QuantileState&& other) noexcept = default;
+
+    // A compact, independent value for retained window results.
+    QuantileState copy_for_result() const;
 
     void set_compression(float compression);
     bool deserialize(const Slice& slice);
@@ -70,9 +73,14 @@ public:
     ~QuantileState() = default;
 
 private:
+    // Copies share a digest until the first sample write. Concurrent const
+    // operations are supported; mutating the same state requires exclusive access.
+    struct TDigestHolder;
+    TDigest& _mutable_tdigest();
+
     QuantileStateType _type = EMPTY;
-    std::shared_ptr<TDigest> _tdigest_ptr;
-    double _single_data;
+    std::shared_ptr<TDigestHolder> _tdigest_ptr;
+    double _single_data = 0;
     std::vector<double> _explicit_data;
     float _compression;
 };

@@ -114,4 +114,9 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     default boolean containsVolatileExpression() {
         return containsType(VolatileExpression.class) && anyMatch(expr -> ((ExpressionTrait) expr).isVolatile());
     }
+
+    default boolean containsVolatileOrNoneMovableExpression() {
+        return containsType(VolatileExpression.class, NoneMovableFunction.class)
+                && anyMatch(expr -> ((ExpressionTrait) expr).isVolatile() || expr instanceof NoneMovableFunction);
+    }
 }

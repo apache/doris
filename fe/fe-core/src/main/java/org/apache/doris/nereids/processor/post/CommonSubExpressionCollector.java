@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import java.util.HashMap;
@@ -48,6 +49,13 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
     }
 
     @Override
+    public Integer visitShortCircuitIf(ShortCircuitIf expr, Boolean inLambda) {
+        // A short-circuit expression is an evaluation boundary. Extracting anything from its
+        // branches into an earlier projection layer would evaluate inactive branches eagerly.
+        return 0;
+    }
+
+    @Override
     public Integer visitSessionVarGuardExpr(SessionVarGuardExpr expr, Boolean inLambda) {
         // Process SessionVarGuardExpr and its children together, don't process SessionVarGuardExpr child separately.
         return processExpressionWithChildren(expr.child(0).children(), expr, inLambda);
@@ -58,15 +66,16 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
         if (children.isEmpty()) {
             return 0;
         }
-        return collectCommonExpressionByDepth(
-                children.stream()
-                        .map(child -> child.accept(this, inLambda == null || inLambda || child instanceof Lambda))
-                        .reduce(Math::max)
-                        .map(m -> m + 1)
-                        .orElse(1),
-                expr,
-                inLambda == null || inLambda
-        );
+        return collectCommonExpressionByDepth(collectChildrenDepth(children, inLambda),
+                expr, inLambda == null || inLambda);
+    }
+
+    private int collectChildrenDepth(List<Expression> children, Boolean inLambda) {
+        return children.stream()
+                .map(child -> child.accept(this, inLambda == null || inLambda || child instanceof Lambda))
+                .reduce(Math::max)
+                .map(depth -> depth + 1)
+                .orElse(1);
     }
 
     private int collectCommonExpressionByDepth(int depth, Expression expr, boolean inLambda) {

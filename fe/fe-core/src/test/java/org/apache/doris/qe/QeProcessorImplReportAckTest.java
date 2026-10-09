@@ -37,6 +37,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.nio.ByteBuffer;
 import java.util.Collections;
 
 class QeProcessorImplReportAckTest {
@@ -52,6 +53,18 @@ class QeProcessorImplReportAckTest {
     @Test
     void rejectsExternalReportWithoutCoordinator() {
         TReportExecStatusResult result = report(params(new TUniqueId(12345, 1)));
+
+        Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
+        Assertions.assertFalse(result.isExternalFileCommitDataAccepted());
+    }
+
+    @Test
+    void rejectsOpaqueConnectorReportWithoutCoordinator() {
+        TReportExecStatusParams params = params(new TUniqueId(12345, 6));
+        params.unsetIcebergCommitDatas();
+        params.setConnectorCommitData(Collections.singletonList(ByteBuffer.wrap(new byte[] {1})));
+
+        TReportExecStatusResult result = report(params);
 
         Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
         Assertions.assertFalse(result.isExternalFileCommitDataAccepted());
@@ -87,6 +100,26 @@ class QeProcessorImplReportAckTest {
         Coordinator coordinator = register(queryId);
         Mockito.when(coordinator.updateFragmentExecStatus(Mockito.any())).thenReturn(true);
         TReportExecStatusParams params = params(queryId);
+
+        TReportExecStatusResult first = report(params);
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        registeredQueryId = null;
+        TReportExecStatusResult retry = report(params);
+
+        Assertions.assertTrue(first.isExternalFileCommitDataAccepted());
+        Assertions.assertTrue(retry.isExternalFileCommitDataAccepted());
+        Assertions.assertEquals(TStatusCode.OK, retry.getStatus().getStatusCode());
+        Mockito.verify(coordinator, Mockito.times(1)).updateFragmentExecStatus(params);
+    }
+
+    @Test
+    void retriesAcceptedOpaqueConnectorReportAfterCoordinatorRemoval() throws Exception {
+        TUniqueId queryId = new TUniqueId(12345, 7);
+        Coordinator coordinator = register(queryId);
+        Mockito.when(coordinator.updateFragmentExecStatus(Mockito.any())).thenReturn(true);
+        TReportExecStatusParams params = params(queryId);
+        params.unsetIcebergCommitDatas();
+        params.setConnectorCommitData(Collections.singletonList(ByteBuffer.wrap(new byte[] {1})));
 
         TReportExecStatusResult first = report(params);
         QeProcessorImpl.INSTANCE.unregisterQuery(queryId);

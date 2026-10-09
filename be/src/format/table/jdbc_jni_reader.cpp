@@ -35,7 +35,7 @@ JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
                              RuntimeState* state, RuntimeProfile* profile,
                              const std::map<std::string, std::string>& jdbc_params)
         : JniReader(
-                  file_slot_descs, state, profile, "org/apache/doris/jdbc/JdbcJniScanner",
+                  file_slot_descs, state, profile, Jni::plugin::JDBC_SCANNER,
                   [&]() {
                       std::ostringstream required_fields;
                       std::ostringstream columns_types;

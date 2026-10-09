@@ -183,9 +183,9 @@ public:
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
-    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
-                                                const ColumnString& from_column,
-                                                CastParameters& castParms) const override;
+    Status deserialize_column_from_jsonb_vector(
+            ColumnNullable& column_to, const ColumnString& from_column, CastParameters& castParms,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num,
@@ -200,6 +200,11 @@ public:
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
+    Status write_column_to_iceberg_arrow(const std::shared_ptr<const IDataType>& type,
+                                         const IColumn& column, const NullMap* null_map,
+                                         const std::shared_ptr<arrow::Field>& field,
+                                         arrow::ArrayBuilder* array_builder, int64_t start,
+                                         int64_t end, const cctz::time_zone& ctz) const override;
 
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;

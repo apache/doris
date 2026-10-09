@@ -178,6 +178,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private int nativeReadSplitNum;
     private int totalReadSplitNum;
 
+    // Whether the connector planned a range that can be read only once (ConnectorScanRange.isSingleUse),
+    // which keeps the plan from being dispatched again (cannotBeRedispatched). Set by toSplit, which the
+    // asynchronous batch-mode split generation runs on other threads as well.
+    private volatile boolean plannedSingleUseRange;
+
     // Populated from ConnectorScanPlanProvider.getScanNodePropertiesResult()
     private ScanNodePropertiesResult cachedPropertiesResult;
     private Map<String, String> scanNodeProperties;
@@ -355,6 +360,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return ((ExternalTable) table).getConfiguredHiveParquetTimeZone();
     }
 
+    @Override
+    protected boolean applyColumnDefaultsOnRead() {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        return scanProvider == null || onPluginClassLoader(
+                scanProvider, scanProvider::applyColumnDefaultsOnRead);
+    }
+
     /**
      * Immutable (handle, provider) pair for {@link #resolveScanProvider()}'s memo. Both fields final so a single
      * volatile write of the holder safely publishes the pair to concurrent readers (no torn new-key/old-provider
@@ -436,6 +448,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return null;
         }
         return new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
+    }
+
+    /** Whether an opt-out connector must distinguish this scan-all encoding from an unpruned scan. */
+    static boolean partitionsPrunedToEmpty(SelectedPartitions selectedPartitions,
+            boolean ignorePartitionPruneShortCircuit) {
+        return ignorePartitionPruneShortCircuit
+                && selectedPartitions != null
+                && selectedPartitions.isPruned
+                && selectedPartitions.totalPartitionNum > 0
+                && selectedPartitions.selectedPartitions.isEmpty();
     }
 
     /**
@@ -1102,6 +1124,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             attrs.setTrimDoubleQuotes(true);
         }
 
+        if ("true".equals(props.get(ScanNodePropertyKeys.TEXT_HIVE_OPEN_CSV))) {
+            // The optional wire field alone cannot fence old readers during a rolling upgrade.
+            if (Config.be_exec_version < Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION) {
+                throw new UserException("Hive OpenCSVSerde requires backend execution version "
+                        + Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION + " or newer during rolling upgrade");
+            }
+            attrs.setHiveOpenCsv(true);
+        }
         attrs.setTextParams(textParams);
         attrs.setHeaderType("");
         attrs.setEnableTextValidateUtf8(sessionVariable.enableTextValidateUtf8);
@@ -1277,7 +1307,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // loaded, checks this reference's own pin), so it catches the latest-masked / @incr / MTMV-refresh
         // cases the version-blind analysis-time binding cannot. Per user decision 2026-07-13: throw for now;
         // the per-reference version-aware schema-binding refactor is tracked as D-MVCC-VERSION-SCHEMA. A
-        // latest / @incr / hive scan carries a null pinnedSchema -> no-op; so does a sys-table scan on a
+        // reference without a pinned schema is a no-op; so is a sys-table scan on a
         // connector that rejects sys-table time travel (resolveSysTableSnapshotPin returns empty). A sys-table
         // scan on a connector that DOES honor it (iceberg) is excluded inside the guard — see there.
         if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
@@ -1306,12 +1336,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * (BE matches iceberg columns by id, so a rename that keeps the id is fine, a renumber / added column is
      * caught); {@code uniqueId < 0} (paimon has no top-level field-id) matches by name. Reader-synthesized
      * row-id columns ({@link Column#GLOBAL_ROWID_COL}) are skipped — they are not table columns and are
-     * absent from every pinned schema by construction.</p>
+     * absent from every pinned schema by construction. Connector-synthesized columns are likewise exempt
+     * on a schema miss; their classification comes from the scan provider, not connector-specific names.</p>
      *
      * <p>Two no-ops, both because the guard's precondition — {@code boundColumns} and {@code pinnedSchema}
      * describe the SAME table — does not hold:
      * <ul>
-     *   <li>A {@code null} pinnedSchema (latest / {@code @incr} / hive reference): nothing to compare.</li>
+     *   <li>A {@code null} pinnedSchema (e.g. {@code @incr} or an unversioned schema): nothing to compare.</li>
      *   <li>A {@code table} that is a {@link PluginDrivenSysExternalTable}: a sys-table scan's pin is BY
      *       CONSTRUCTION resolved off the SOURCE table ({@code resolveSysTableSnapshotPin}), so pinnedSchema
      *       carries the source's columns while boundColumns carries the sys table's synthetic ones
@@ -1324,7 +1355,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * The guard keeps full strength for real MVCC tables: {@link PluginDrivenSysExternalTable} and
      * {@link PluginDrivenMvccExternalTable} are sibling subclasses, so no normal table matches.</p>
      */
-    static void assertBoundColumnsResolveInPinnedSchema(List<Column> boundColumns,
+    void assertBoundColumnsResolveInPinnedSchema(List<Column> boundColumns,
             SchemaCacheValue pinnedSchema, TableIf table) throws UserException {
         if (pinnedSchema == null || table instanceof PluginDrivenSysExternalTable) {
             return;
@@ -1348,7 +1379,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             boolean resolved = bound.getUniqueId() >= 0
                     ? pinnedFieldIds.contains(bound.getUniqueId())
                     : pinnedNames.contains(bound.getName().toLowerCase());
-            if (!resolved) {
+            // Request-scoped synthesized columns do not belong to a physical schema generation.
+            // GENERATED columns still read file data and must pass the schema check.
+            if (!resolved && classifyColumnByConnector(bound.getName()) != ConnectorColumnCategory.SYNTHESIZED) {
                 throw new UserException("Reading the same table at multiple versions with different schemas "
                         + "in one statement is not supported yet: column '" + bound.getName() + "' of table '"
                         + tableName + "' is bound at a different version than the one this reference scans. "
@@ -1630,6 +1663,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 scanProvider, scanProvider::ignorePartitionPruneShortCircuit);
         List<String> requiredPartitions = resolveRequiredPartitions(
                 selectedPartitions, ignorePartitionPruneShortCircuit);
+        // Preserve why an opt-out request has an empty/scan-all partition list. A connector whose
+        // snapshot retains history outside the live FE universe must still plan that history, but it
+        // must not reinterpret "no live partition matched" as "validate every live partition".
+        boolean partitionsPrunedToEmpty = partitionsPrunedToEmpty(
+                selectedPartitions, ignorePartitionPruneShortCircuit);
         // Surface the partition counts for EXPLAIN (partition=N/M) and SQL-block-rule enforcement,
         // mirroring legacy MaxComputeScanNode.getSplits():720-722. Set BEFORE the pruned-to-zero
         // short-circuit below so a 0-partition selection still reports partition=0/total (e.g. WHERE
@@ -1688,6 +1726,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .filter(remainingFilter)
                 .limit(sourceLimit)
                 .requiredPartitions(requiredPartitions)
+                .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
                 // connector whose planning has a side effect on the source (ADBC: asking the driver to
@@ -1708,7 +1747,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
-            splits.add(new PluginDrivenSplit(range));
+            splits.add(toSplit(range));
         }
         // FIX-E (explain gap): accumulate the native/total scan-range counts (for the connector
         // EXPLAIN line paimonNativeReadSplits) and, under COUNT(*) pushdown, the precomputed merged row
@@ -1795,6 +1834,25 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return false;
         }
         return ctx.getExecutor().getParsedStmt().isExplain();
+    }
+
+    // Every range the connector plans becomes a split here, on the planning thread or on the batch-mode
+    // split generation threads, so that the plan's single-use ranges are known (cannotBeRedispatched).
+    private Split toSplit(ConnectorScanRange range) {
+        if (range.isSingleUse()) {
+            plannedSingleUseRange = true;
+        }
+        return new PluginDrivenSplit(range);
+    }
+
+    /**
+     * True once the connector planned a range that can be read only once (ConnectorScanRange#isSingleUse):
+     * a partition of a remote query that already ran, which the failed attempt may have drained. The same
+     * plan dispatched again would read only what that attempt left of it.
+     */
+    @Override
+    public boolean cannotBeRedispatched() {
+        return plannedSingleUseRange;
     }
 
     /**
@@ -2084,7 +2142,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                                                 connectorSession, batchRequest, batch));
                                 List<Split> batchSplits = new ArrayList<>(ranges.size());
                                 for (ConnectorScanRange range : ranges) {
-                                    batchSplits.add(new PluginDrivenSplit(range));
+                                    batchSplits.add(toSplit(range));
                                 }
                                 if (splitAssignment.needMoreSplit()) {
                                     splitAssignment.addToQueue(batchSplits);
@@ -2175,7 +2233,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // heap stays bounded for million-file scans.
                 while (splitAssignment.needMoreSplit() && source.hasNext()) {
                     List<Split> one = new ArrayList<>(1);
-                    one.add(new PluginDrivenSplit(source.next()));
+                    one.add(toSplit(source.next()));
                     splitAssignment.addToQueue(one);
                 }
                 splitAssignment.finishSchedule();
@@ -2209,6 +2267,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         // Delegate format-specific Thrift construction to the connector SPI
         scanRange.populateRangeParams(tableFormatFileDesc, rangeDesc);
+        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET) {
+            // Mixed JNI/native scans must retain the Parquet contract after subsequent non-Parquet ranges.
+            params.setContainsNativeParquet(true);
+        }
 
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
@@ -2586,9 +2648,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return Optional.of(ExprToConnectorExpressionConverter.convertConjuncts(pushableConjuncts));
     }
 
-    private static boolean containsCastExpr(Expr expr) {
-        List<CastExpr> castExprs = new ArrayList<>();
-        expr.collect(CastExpr.class, castExprs);
+    static boolean containsCastExpr(Expr expr) {
+        List<Expr> castExprs = new ArrayList<>();
+        expr.collect(node -> node instanceof CastExpr, castExprs);
         return !castExprs.isEmpty();
     }
 }

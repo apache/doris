@@ -3848,6 +3848,89 @@ TEST_F(BlockFileCacheTest, remove_directly) {
     }
 }
 
+TEST_F(BlockFileCacheTest, test_evict_metrics_only_count_downloaded_blocks) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    const auto original_enable_evict_in_advance = config::enable_evict_file_cache_in_advance;
+    Defer restore_evict_in_advance {
+            [&] { config::enable_evict_file_cache_in_advance = original_enable_evict_in_advance; }};
+    config::enable_evict_file_cache_in_advance = false;
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    const auto downloaded_key = io::BlockFileCache::hash("downloaded-key");
+    const auto empty_key = io::BlockFileCache::hash("empty-key");
+
+    {
+        auto holder = cache.get_or_set(downloaded_key, 0, 5, context);
+        ASSERT_EQ(holder.file_blocks.size(), 1);
+        ASSERT_TRUE(holder.file_blocks.front()->get_or_set_downloader() ==
+                    io::FileBlock::get_caller_id());
+        download(holder.file_blocks.front());
+    }
+    EXPECT_EQ(cache._cur_cache_size, 5);
+    const auto before_downloaded_remove = cache.get_stats_unsafe();
+    const auto before_downloaded_queue_evict_size =
+            cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]->get_value();
+    cache.remove_if_cached(downloaded_key);
+    const auto after_downloaded_remove = cache.get_stats_unsafe();
+    EXPECT_EQ(after_downloaded_remove.at("total_removed_size") -
+                      before_downloaded_remove.at("total_removed_size"),
+              5);
+    EXPECT_EQ(cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]
+                              ->get_value() -
+                      before_downloaded_queue_evict_size,
+              5);
+    EXPECT_EQ(cache._cur_cache_size, 0);
+
+    const auto before_empty_remove = cache.get_stats_unsafe();
+    const auto before_empty_queue_evict_size =
+            cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]->get_value();
+    {
+        auto holder = cache.get_or_set(empty_key, 0, 5, context);
+        ASSERT_EQ(holder.file_blocks.size(), 1);
+        EXPECT_EQ(holder.file_blocks.front()->state(), io::FileBlock::State::EMPTY);
+        EXPECT_EQ(cache._cur_cache_size, 5);
+    }
+    const auto after_empty_remove = cache.get_stats_unsafe();
+    EXPECT_EQ(after_empty_remove.at("total_removed_size"),
+              before_empty_remove.at("total_removed_size"));
+    EXPECT_EQ(
+            cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]->get_value(),
+            before_empty_queue_evict_size);
+    EXPECT_EQ(cache._cur_cache_size, 0);
+
+    EXPECT_EQ(after_downloaded_remove.at("evict_not_downloaded_size"),
+              before_downloaded_remove.at("evict_not_downloaded_size"));
+    EXPECT_EQ(after_downloaded_remove.at("evict_not_downloaded_num"),
+              before_downloaded_remove.at("evict_not_downloaded_num"));
+    EXPECT_EQ(after_empty_remove.at("evict_not_downloaded_size") -
+                      before_empty_remove.at("evict_not_downloaded_size"),
+              5);
+    EXPECT_EQ(after_empty_remove.at("evict_not_downloaded_num") -
+                      before_empty_remove.at("evict_not_downloaded_num"),
+              1);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
 TEST_F(BlockFileCacheTest, late_holder_remove_skips_missing_cache_cell) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -5917,7 +6000,7 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_2) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     EXPECT_EQ(config::file_cache_enter_disk_resource_limit_mode_percent, 2);
     EXPECT_EQ(config::file_cache_exit_disk_resource_limit_mode_percent, 1);
-    EXPECT_TRUE(cache._disk_resource_limit_mode);
+    EXPECT_TRUE(cache._disk_resource_limit_mode.load());
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -5946,11 +6029,91 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_3) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    EXPECT_FALSE(cache._disk_resource_limit_mode);
+    EXPECT_FALSE(cache._disk_resource_limit_mode.load());
     config::file_cache_exit_disk_resource_limit_mode_percent = 80;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
+}
+
+TEST_F(BlockFileCacheTest, test_check_disk_resource_limit_hysteresis) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    const auto origin_enter = config::file_cache_enter_disk_resource_limit_mode_percent;
+    const auto origin_exit = config::file_cache_exit_disk_resource_limit_mode_percent;
+    auto* sp = SyncPoint::get_instance();
+    Defer defer {[&] {
+        config::file_cache_enter_disk_resource_limit_mode_percent = origin_enter;
+        config::file_cache_exit_disk_resource_limit_mode_percent = origin_exit;
+        sp->disable_processing();
+        sp->clear_call_back("BlockFileCache::disk_used_percentage:1");
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+    }};
+
+    config::file_cache_enter_disk_resource_limit_mode_percent = 85;
+    config::file_cache_exit_disk_resource_limit_mode_percent = 80;
+
+    io::FileCacheSettings settings;
+    settings.capacity = 100_mb;
+    settings.storage = "disk";
+    io::BlockFileCache cache(cache_base_path, settings);
+
+    std::pair<int, int> disk_usage {90, 70};
+    sp->set_call_back("BlockFileCache::disk_used_percentage:1", [&](auto&& values) {
+        *try_any_cast<std::pair<int, int>*>(values.back()) = disk_usage;
+    });
+    sp->enable_processing();
+
+    cache.check_disk_resource_limit();
+    EXPECT_TRUE(cache._disk_resource_limit_mode.load());
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), cache._disk_resource_limit_mode.load());
+
+    cache._disk_resource_limit_mode = false;
+    disk_usage = {70, 90};
+    cache.check_disk_resource_limit();
+    EXPECT_TRUE(cache._disk_resource_limit_mode.load());
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), cache._disk_resource_limit_mode.load());
+
+    ASSERT_GT(cache._capacity, cache._cur_cache_size);
+    disk_usage = {82, 70};
+    cache.check_disk_resource_limit();
+    EXPECT_TRUE(cache._disk_resource_limit_mode.load());
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), cache._disk_resource_limit_mode.load());
+
+    disk_usage = {70, 70};
+    cache.check_disk_resource_limit();
+    EXPECT_FALSE(cache._disk_resource_limit_mode.load());
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), cache._disk_resource_limit_mode.load());
+}
+
+TEST_F(BlockFileCacheTest, test_check_disk_resource_limit_statfs_failure_preserves_state) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    Defer cleanup {[&] {
+        if (fs::exists(cache_base_path)) {
+            fs::remove_all(cache_base_path);
+        }
+    }};
+
+    io::FileCacheSettings settings;
+    settings.capacity = 100_mb;
+    settings.storage = "disk";
+    io::BlockFileCache cache(cache_base_path, settings);
+    cache._disk_resource_limit_mode = true;
+    cache._disk_limit_mode_metrics->set_value(1);
+    cache._cache_base_path = "/non/existent/path/OOXXOO";
+
+    cache.check_disk_resource_limit();
+
+    EXPECT_TRUE(cache._disk_resource_limit_mode.load());
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), 1);
 }
 
 TEST_F(BlockFileCacheTest, test_align_size) {
@@ -6424,9 +6587,13 @@ TEST_F(BlockFileCacheTest, reset_capacity) {
         assert_range(1, segments[0], io::FileBlock::Range(offset, offset + 4),
                      io::FileBlock::State::DOWNLOADED);
     }
+    cache._disk_resource_limit_mode = false;
+    cache._disk_limit_mode_metrics->set_value(0);
     std::cout << cache.reset_capacity(30) << std::endl;
 
     EXPECT_EQ(cache._cur_cache_size, 30);
+    EXPECT_FALSE(cache._disk_resource_limit_mode.load());
+    EXPECT_EQ(cache._disk_limit_mode_metrics->get_value(), 0);
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -8083,6 +8250,14 @@ TEST_F(BlockFileCacheTest, evict_in_advance) {
     settings.max_file_block_size = 100000;
     settings.max_query_cache_size = 30;
 
+    const auto original_enable_evict_in_advance = config::enable_evict_file_cache_in_advance;
+    const auto original_evict_in_advance_batch_bytes =
+            config::file_cache_evict_in_advance_batch_bytes;
+    Defer restore_evict_in_advance_config {[&] {
+        config::enable_evict_file_cache_in_advance = original_enable_evict_in_advance;
+        config::file_cache_evict_in_advance_batch_bytes = original_evict_in_advance_batch_bytes;
+    }};
+
     size_t limit = 1000000;
     size_t cache_max = 10000000;
     io::CacheContext context;
@@ -8246,9 +8421,9 @@ TEST_F(BlockFileCacheTest, test_check_need_evict_cache_in_advance) {
     {
         settings.storage = "memory";
         io::BlockFileCache cache(cache_base_path, settings);
-        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance.load());
         cache.check_need_evict_cache_in_advance();
-        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance.load());
     }
 
     // the rest for disk
@@ -8257,17 +8432,17 @@ TEST_F(BlockFileCacheTest, test_check_need_evict_cache_in_advance) {
     // bad disk path
     {
         io::BlockFileCache cache(cache_base_path, settings);
-        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance.load());
 
         cache._cache_base_path = "/non/existent/path/OOXXOO";
         cache.check_need_evict_cache_in_advance();
-        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance.load());
     }
 
     // conditions for enter need evict cache in advance
     {
         io::BlockFileCache cache(cache_base_path, settings);
-        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance.load());
 
         // condition1 space usage rate exceed threshold
         config::file_cache_enter_need_evict_cache_in_advance_percent = 70;
@@ -8282,7 +8457,7 @@ TEST_F(BlockFileCacheTest, test_check_need_evict_cache_in_advance) {
 
         SyncPoint::get_instance()->enable_processing();
         cache.check_need_evict_cache_in_advance();
-        ASSERT_TRUE(cache._need_evict_cache_in_advance);
+        ASSERT_TRUE(cache._need_evict_cache_in_advance.load());
         SyncPoint::get_instance()->disable_processing();
         SyncPoint::get_instance()->clear_all_call_backs();
 
@@ -8298,7 +8473,7 @@ TEST_F(BlockFileCacheTest, test_check_need_evict_cache_in_advance) {
 
         SyncPoint::get_instance()->enable_processing();
         cache.check_need_evict_cache_in_advance();
-        ASSERT_TRUE(cache._need_evict_cache_in_advance);
+        ASSERT_TRUE(cache._need_evict_cache_in_advance.load());
         SyncPoint::get_instance()->disable_processing();
         SyncPoint::get_instance()->clear_all_call_backs();
 
@@ -8306,7 +8481,7 @@ TEST_F(BlockFileCacheTest, test_check_need_evict_cache_in_advance) {
         cache._need_evict_cache_in_advance = false;
         cache._cur_cache_size = 80_mb; // set high
         cache.check_need_evict_cache_in_advance();
-        ASSERT_TRUE(cache._need_evict_cache_in_advance);
+        ASSERT_TRUE(cache._need_evict_cache_in_advance.load());
     }
 
     // conditions for exit need evict cache in advance
@@ -8324,7 +8499,7 @@ TEST_F(BlockFileCacheTest, test_check_need_evict_cache_in_advance) {
 
         SyncPoint::get_instance()->enable_processing();
         cache.check_need_evict_cache_in_advance();
-        ASSERT_FALSE(cache._need_evict_cache_in_advance);
+        ASSERT_FALSE(cache._need_evict_cache_in_advance.load());
         SyncPoint::get_instance()->disable_processing();
         SyncPoint::get_instance()->clear_all_call_backs();
     }
@@ -8398,7 +8573,7 @@ TEST_F(BlockFileCacheTest, test_evict_cache_in_advance_skip) {
     ASSERT_TRUE(cache.get_async_open_success());
 
     cache.check_need_evict_cache_in_advance();
-    ASSERT_TRUE(cache._need_evict_cache_in_advance);
+    ASSERT_TRUE(cache._need_evict_cache_in_advance.load());
 
     // Set recycle keys threshold and fill with enough keys
     config::file_cache_evict_in_advance_recycle_keys_num_threshold = 10;

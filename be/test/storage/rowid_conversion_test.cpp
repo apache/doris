@@ -391,11 +391,15 @@ protected:
 
         // create output rowset reader
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = false;
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
         reader_context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
         RowsetReaderSharedPtr output_rs_reader;
         create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
@@ -826,12 +830,16 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
         EXPECT_EQ(output_segment_count, output_rowset->num_segments());
 
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = false;
         std::vector<uint32_t> return_columns = {0, 1};
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), return_columns));
         reader_context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
         RowsetReaderSharedPtr output_reader;
         create_and_init_rowset_reader(output_rowset.get(), reader_context, &output_reader);
 
@@ -1028,9 +1036,13 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
             }
 
             RowsetReaderContext second_reader_context;
-            second_reader_context.tablet_schema = tablet_schema;
             second_reader_context.need_ordered_result = false;
             second_reader_context.read_schema = read_schema;
+            EXPECT_TRUE(read_schema
+                                ->init_from_tablet_schema(*tablet_schema,
+                                                          /*merge_by_sequence_mapping=*/false,
+                                                          /*map_row_binlog_columns=*/false)
+                                .ok());
             RowsetReaderSharedPtr second_output_reader;
             create_and_init_rowset_reader(second_output_rowset.get(), second_reader_context,
                                           &second_output_reader);

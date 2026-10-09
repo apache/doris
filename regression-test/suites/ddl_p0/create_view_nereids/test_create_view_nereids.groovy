@@ -379,6 +379,7 @@ suite("test_create_view_nereids") {
 
     def jarPath = """${context.config.suitePath}/javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
     log.info("jarPath:${jarPath}")
 
     sql "drop function if exists java_udf_create_view_test(date, date)"

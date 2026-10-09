@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -140,6 +141,16 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
             // Replacing the wrapped root would lose its session variable protection.
             Expression child = rewriteChildren(this, expr.child(), replaceMap);
             return child == expr.child() ? expr : expr.withChildren(child);
+        }
+
+        @Override
+        public Expression visitShortCircuitIf(ShortCircuitIf expr,
+                Map<? extends Expression, ? extends Alias> replaceMap) {
+            if (replaceMap.containsKey(expr)) {
+                return replaceMap.get(expr).toSlot();
+            }
+            // Keep conditions and branches inside the short-circuit evaluation boundary.
+            return expr;
         }
     }
 }

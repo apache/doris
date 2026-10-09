@@ -33,9 +33,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
-import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.qe.ConnectProcessor;
-import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -216,8 +214,8 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
     }
 
     @Override
-    public ConnectPoolMgr connectPool(ConnectScheduler scheduler) {
-        return scheduler.getConnectPoolMgr();
+    public void releaseSession(ConnectContext ctx) {
+        // Nothing is held for a MySQL session beyond its channel, which closeConnection closes.
     }
 
     /**

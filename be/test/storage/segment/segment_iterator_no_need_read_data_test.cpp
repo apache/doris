@@ -19,6 +19,7 @@
 #include "core/data_type/data_type_variant.h"
 #include "exec/common/variant_util.h"
 #include "gtest/gtest.h"
+#include "storage/segment/mock/mock_segment.h"
 #include "storage/segment/segment_iterator.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/json/path_in_data.h"
@@ -52,8 +53,7 @@ TEST(SegmentIteratorNoNeedReadDataTest, extracted_variant_count_on_index) {
 
     // Read schema covers all tablet columns in order, so ordinal == tablet cid.
     auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns());
-    SegmentIterator iter(nullptr, read_schema);
-    iter._opts.tablet_schema = tablet_schema;
+    SegmentIterator iter(std::make_shared<MockSegment>(tablet_schema), read_schema);
     iter._opts.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;
     iter._column_states[subcol_cid].need_read_data = false;
     iter._output_column_uids.emplace(1);
@@ -87,8 +87,7 @@ TEST(SegmentIteratorNoNeedReadDataTest, zonemap_always_true_predicate_column) {
 
     // Read schema covers all tablet columns in order, so ordinal == tablet cid.
     auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns());
-    SegmentIterator iter(nullptr, read_schema);
-    iter._opts.tablet_schema = tablet_schema;
+    SegmentIterator iter(std::make_shared<MockSegment>(tablet_schema), read_schema);
     iter._opts.zonemap_always_true_pred_cols.emplace(1);
 
     EXPECT_FALSE(iter._need_read_data(1));

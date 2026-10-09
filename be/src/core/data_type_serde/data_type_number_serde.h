@@ -49,7 +49,8 @@ class Arena;
 template <PrimitiveType T>
 class DataTypeNumberSerDe : public DataTypeSerDe {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ || is_timestamp_ns_type(T));
+                  T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ || is_timestamp_ns_type(T) ||
+                  T == TYPE_UUID);
 
 public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -89,15 +90,16 @@ public:
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
                                      JsonbWriter& writer) const override;
 
-    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                            ColumnString& to_column) const override;
+    Status serialize_column_to_jsonb_vector(
+            const IColumn& from_column, ColumnString& to_column,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
-    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
-                                                const ColumnString& from_column,
-                                                CastParameters& castParms) const override;
+    Status deserialize_column_from_jsonb_vector(
+            ColumnNullable& column_to, const ColumnString& from_column, CastParameters& castParms,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 
@@ -381,6 +383,7 @@ extern template class DataTypeNumberSerDe<TYPE_DATETIMEV2>;
 extern template class DataTypeNumberSerDe<TYPE_TIMESTAMP_NS>;
 extern template class DataTypeNumberSerDe<TYPE_IPV4>;
 extern template class DataTypeNumberSerDe<TYPE_IPV6>;
+extern template class DataTypeNumberSerDe<TYPE_UUID>;
 extern template class DataTypeNumberSerDe<TYPE_TIMEV2>;
 extern template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
 

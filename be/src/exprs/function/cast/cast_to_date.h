@@ -99,15 +99,15 @@ public:
             // WON'T write nulls to the result column, just raise errors. null_map is only used to skip invalid rows
             if constexpr (IsDataTypeInt<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_int_strict_mode_batch<FromDataType>(
-                        *col_from, *column_to));
+                        *col_from, *column_to, null_map));
             } else if constexpr (IsDataTypeFloat<FromDataType>) {
                 RETURN_IF_ERROR(concrete_serde->template from_float_strict_mode_batch<FromDataType>(
-                        *col_from, *column_to));
+                        *col_from, *column_to, null_map));
             } else {
                 static_assert(IsDataTypeDecimal<FromDataType>);
                 RETURN_IF_ERROR(
                         concrete_serde->template from_decimal_strict_mode_batch<FromDataType>(
-                                *col_from, *column_to));
+                                *col_from, *column_to, null_map));
             }
             block.get_by_position(result).column = std::move(column_to);
         } else {
@@ -504,9 +504,11 @@ public:
             TimestampTzValue from_tz {col_from[i]};
             DateV2Value<DateTimeV2ValueType> dt;
             if (!from_tz.to_datetime(dt, local_time_zone, dt_scale, tz_scale)) {
+                // The failed local conversion may also be unformattable. Render the stored
+                // UTC fields so reporting the cast error cannot throw a second exception.
                 return Status::InvalidArgument(
-                        "can not cast from  timestamptz : {} to datetime in timezone : {}",
-                        from_tz.to_string(local_time_zone), context->state()->timezone());
+                        "can not cast from  timestamptz : {} UTC to datetime in timezone : {}",
+                        from_tz.utc_dt().to_string(tz_scale), context->state()->timezone());
             }
             col_to_data[i] = dt.to_date_int_val();
         }

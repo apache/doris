@@ -120,7 +120,11 @@ struct WindowFunnelState {
         events_list.event_columns_data.resize(event_count);
     }
 
-    void reset() { events_list.clear(); }
+    void reset() {
+        events_list.clear();
+        window = 0;
+        window_funnel_mode = WindowFunnelMode::INVALID;
+    }
 
     void add(const IColumn** arg_columns, ssize_t row_num, int64_t win, WindowFunnelMode mode) {
         window = win;
@@ -160,8 +164,8 @@ struct WindowFunnelState {
         }
     }
 
-    bool _within_window(const DateValueType& base_timestamp, const DateValueType& current_timestamp,
-                        const DateValueType& end_timestamp) const {
+    bool _within_window(const DateValueType& base_timestamp,
+                        const DateValueType& current_timestamp) const {
         if constexpr (T == TYPE_TIMESTAMP_NS) {
             const auto elapsed_nanos = static_cast<__int128>(current_timestamp.epoch_nanos()) -
                                        base_timestamp.epoch_nanos();
@@ -169,14 +173,13 @@ struct WindowFunnelState {
                     static_cast<__int128>(window) * TimeStampNsValue::NANOS_PER_SECOND;
             return elapsed_nanos <= window_nanos;
         }
-        return current_timestamp <= end_timestamp;
+        return static_cast<__int128>(current_timestamp.datetime_diff_in_microseconds(
+                       base_timestamp)) <= static_cast<__int128>(window) * 1000000;
     }
 
     template <WindowFunnelMode WINDOW_FUNNEL_MODE>
     int _match_event_list(size_t& start_row, size_t row_count) const {
         int matched_count = 0;
-        DateValueType end_timestamp;
-
         if (window < 0) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "the sliding time window must be a positive integer, but got: {}",
@@ -190,12 +193,6 @@ struct WindowFunnelState {
         if (match_row < row_count) {
             auto prev_timestamp = timestamp_data[match_row];
             const auto first_timestamp = prev_timestamp;
-            if constexpr (T != TYPE_TIMESTAMP_NS) {
-                TimeInterval interval(SECOND, window, false);
-                end_timestamp = first_timestamp;
-                end_timestamp.template date_add_interval<SECOND>(interval);
-            }
-
             matched_count++;
             column_idx++;
             auto last_match_row = match_row;
@@ -205,7 +202,7 @@ struct WindowFunnelState {
                 if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::FIXED) {
                     if (event_data[match_row] == 1) {
                         auto current_timestamp = timestamp_data[match_row];
-                        if (_within_window(first_timestamp, current_timestamp, end_timestamp)) {
+                        if (_within_window(first_timestamp, current_timestamp)) {
                             matched_count++;
                             continue;
                         }
@@ -215,8 +212,7 @@ struct WindowFunnelState {
                 match_row = simd::find_one(event_data.data(), match_row, row_count);
                 if (match_row < row_count) {
                     auto current_timestamp = timestamp_data[match_row];
-                    bool is_matched =
-                            _within_window(first_timestamp, current_timestamp, end_timestamp);
+                    bool is_matched = _within_window(first_timestamp, current_timestamp);
                     if (is_matched) {
                         if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::INCREASE) {
                             is_matched = current_timestamp > prev_timestamp;
@@ -294,6 +290,15 @@ struct WindowFunnelState {
     void merge(const WindowFunnelState<T>& other) {
         if (other.events_list.empty()) {
             return;
+        }
+
+        if (events_list.empty()) {
+            window = other.window;
+            window_funnel_mode = other.window_funnel_mode;
+        } else if (UNLIKELY(window != other.window ||
+                            window_funnel_mode != other.window_funnel_mode)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "window_funnel aggregate states have incompatible window or mode");
         }
         events_list.dt.insert(std::end(events_list.dt), std::begin(other.events_list.dt),
                               std::end(other.events_list.dt));

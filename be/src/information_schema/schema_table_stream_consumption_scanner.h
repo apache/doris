@@ -27,6 +27,7 @@ namespace doris {
 
 class RuntimeState;
 class Block;
+class TFetchSchemaTableDataRequest;
 
 class SchemaTableStreamConsumptionScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaTableStreamConsumptionScanner);
@@ -39,6 +40,7 @@ public:
     Status get_next_block_internal(Block* block, bool* eos) override;
 
 private:
+    TFetchSchemaTableDataRequest _build_fetch_request() const;
     Status _get_table_stream_consumption_block_from_fe();
     int _block_rows_limit = 4096;
     int _row_idx = 0;

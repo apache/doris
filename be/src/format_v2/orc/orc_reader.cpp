@@ -63,7 +63,10 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
@@ -500,26 +503,20 @@ std::optional<DateV2Value<DateTimeV2ValueType>> datetime_v2_from_orc_millis(
         --seconds;
         millis_remainder += 1000;
     }
-    const auto extra_nanos = std::max<int32_t>(nanos_tail, 0);
-    constexpr int64_t NANOS_PER_MICROSECOND = 1000;
-    constexpr int64_t MICROS_PER_SECOND = 1000000;
-    // Stripe statistics split the timestamp into milliseconds and the remaining nanoseconds. Use
-    // the same half-up rule as row decoding so zone-map pruning observes identical values.
-    const auto rounded_extra_microseconds =
-            (extra_nanos + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
-    const auto microseconds_with_carry = millis_remainder * 1000 + rounded_extra_microseconds;
-    // Calendar bounds depend on the target timezone, so only reject arithmetic overflow here and
-    // let the converted value below decide whether the statistic is representable by Doris.
-    int64_t rounded_seconds;
-    if (__builtin_add_overflow(seconds, microseconds_with_carry / MICROS_PER_SECOND,
-                               &rounded_seconds)) {
+    // The tail is a sub-millisecond remainder. Malformed statistics must not prune valid rows.
+    if (nanos_tail < 0 || nanos_tail >= 1000000) {
         return std::nullopt;
     }
-    const auto microseconds = cast_set<uint64_t>(microseconds_with_carry % MICROS_PER_SECOND);
+    orc_serde_utils::RoundedOrcTimestamp rounded;
+    if (!orc_serde_utils::round_orc_timestamp_to_microseconds(
+                 seconds, millis_remainder * 1000000 + nanos_tail, &rounded)
+                 .ok()) {
+        return std::nullopt;
+    }
     DateV2Value<DateTimeV2ValueType> value;
-    value.from_unixtime(rounded_seconds, timezone);
-    value.set_microsecond(microseconds);
-    if (!value.is_valid_date()) {
+    if (!orc_serde_utils::orc_timestamp_to_datetime(rounded.seconds, rounded.microseconds, timezone,
+                                                    false, &value)
+                 .ok()) {
         return std::nullopt;
     }
     return value;
@@ -541,6 +538,13 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
             dynamic_cast<const ::orc::TimestampColumnStatistics*>(&statistics);
     if (timestamp_statistics == nullptr || !timestamp_statistics->hasMinimum() ||
         !timestamp_statistics->hasMaximum()) {
+        return false;
+    }
+    // ORC substitutes these conservative tails when ORC-611 nanos fields are absent. The public
+    // statistics API cannot distinguish those sentinels from equal serialized values, so fall
+    // back to a row scan rather than expose an inexact bound as an exact aggregate result.
+    if (timestamp_statistics->getMinimumNanos() == 0 ||
+        timestamp_statistics->getMaximumNanos() == 999999) {
         return false;
     }
     const auto min_endpoint =
@@ -787,10 +791,11 @@ OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
                      std::unique_ptr<io::FileDescription>& file_description,
                      std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                      std::optional<format::GlobalRowIdContext> global_rowid_context,
-                     bool enable_mapping_timestamp_tz)
+                     bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(std::move(global_rowid_context)),
-          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz) {}
+          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
+          _enable_mapping_varbinary(enable_mapping_varbinary) {}
 
 OrcReader::~OrcReader() = default;
 
@@ -1030,8 +1035,17 @@ DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
         data_type = std::make_shared<DataTypeFloat64>();
         break;
     case ::orc::TypeKind::STRING:
-    case ::orc::TypeKind::BINARY:
         data_type = std::make_shared<DataTypeString>();
+        break;
+    case ::orc::TypeKind::BINARY:
+        if (_enable_mapping_varbinary) {
+            data_type = std::make_shared<DataTypeVarbinary>();
+        } else if (type.hasAttributeKey("doris.logical_type") &&
+                   type.getAttributeValue("doris.logical_type") == "uuid") {
+            data_type = std::make_shared<DataTypeUUID>();
+        } else {
+            data_type = std::make_shared<DataTypeString>();
+        }
         break;
     case ::orc::TypeKind::VARCHAR:
         data_type = std::make_shared<DataTypeString>(cast_set<int>(type.getMaximumLength()),

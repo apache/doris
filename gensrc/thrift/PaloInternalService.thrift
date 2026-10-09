@@ -534,6 +534,12 @@ struct TQueryOptions {
   // index reads -- the two formats amplify write-back differently, so each
   // needs its own switch.
   1005: optional bool inverted_index_snii_read_no_write_file_cache = false
+  // Whether to force a pushed-down MIN/MAX onto the zone map even when its bound is not a value
+  // the data holds right now: a string bound cut at 512 bytes is a prefix, and any bound still
+  // covers rows a delete predicate removed. Statistics collection sets it; every other query
+  // reads the data instead.
+  // Defaults to false because an old FE never sends this field, and BE checked both cases before.
+  1006: optional bool force_pushdown_zonemap_minmax = false
 }
 
 
@@ -678,9 +684,9 @@ enum TCompoundType {
 }
 
 struct TAIResource {
-  1: required string endpoint
-  2: required string provider_type
-  3: required string model_name
+  1: optional string endpoint
+  2: optional string provider_type
+  3: optional string model_name
   4: optional string api_key
   5: optional double temperature
   6: optional i64 max_tokens
@@ -688,6 +694,15 @@ struct TAIResource {
   8: optional i32 retry_delay_second
   9: optional string anthropic_version
   10: optional i32 dimensions
+  11: optional string embed_endpoint
+  12: optional string embed_provider_type
+  13: optional string embed_model_name
+  14: optional string embed_api_key
+  15: optional string effort
+  16: optional string embed_mm_endpoint
+  17: optional string embed_mm_provider_type
+  18: optional string embed_mm_model_name
+  19: optional string embed_mm_api_key
 }
 
 struct TCondition {

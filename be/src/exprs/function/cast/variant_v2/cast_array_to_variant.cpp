@@ -137,7 +137,9 @@ Status build_array_node_plan(const ColumnPtr& source, const DataTypePtr& source_
 
 Status build_array_leaf_plan(const ColumnPtr& source, PrimitiveType primitive,
                              ArrayEncodePlan* plan) {
-    if (primitive == INVALID_TYPE && source->empty()) {
+    if (primitive == INVALID_TYPE) {
+        // DataTypeNothing is represented by the element null map, including non-empty
+        // expressions such as array(NULL).
         return Status::OK();
     } else if (primitive == TYPE_VARIANT) {
         const auto* variant = check_and_get_column<ColumnVariantV2>(source.get());
@@ -196,7 +198,7 @@ void append_array_value(const ArrayEncodePlan& plan, size_t index, VariantBatchB
         } else if (plan.jsonb_leaf != nullptr) {
             jsonb_to_variant(plan.jsonb_leaf->get_data_at(index), *row);
         } else {
-            DORIS_CHECK(false) << "empty Array leaf unexpectedly contains a value";
+            DORIS_CHECK(false) << "Array Variant V2 leaf has no encoder";
         }
         return;
     }

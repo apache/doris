@@ -348,7 +348,14 @@ public:
 
     const auto& rowset_map() const { return _rs_version_map; }
 
-    int64_t last_sync_time_s = 0;
+    // How long since this tablet's ROWSETS were pulled from MS. Only sync_rowsets() advances
+    // it, and only when it actually issues the RPC.
+    int64_t last_sync_rowsets_time_s = 0;
+    // How long since this tablet's META was pulled from MS, which is what carries properties
+    // such as the file cache TTL. Only sync_meta() advances it. Tracked separately on
+    // purpose: a tablet under continuous ingest keeps the rowsets clock permanently fresh,
+    // so gating meta work on that one starves the meta refresh entirely.
+    int64_t last_sync_tablet_meta_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
     int64_t last_cumu_compaction_success_time_ms = 0;

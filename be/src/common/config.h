@@ -157,6 +157,9 @@ DECLARE_Int32(arrow_flight_sql_proxy_port);
 DECLARE_Int32(brpc_num_threads);
 DECLARE_Int32(brpc_idle_timeout_sec);
 
+// Maximum number of multi-dimensional bvar samples exported by /brpc_metrics.
+DECLARE_String(bvar_max_dump_multi_dimension_metric_num);
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // This is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
@@ -738,6 +741,12 @@ DECLARE_Int64(load_data_reserve_hours);
 DECLARE_mInt64(load_error_log_reserve_hours);
 // error log size limit, default 200MB
 DECLARE_mInt64(load_error_log_limit_bytes);
+
+// Dedicated load cancellation workers, default 32. Must be positive; requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_threads);
+// Queue capacity for the dedicated load cancellation pool.
+// -1 selects max(1024, CPU cores * 32) queued requests. Requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_max_queue_size);
 
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
@@ -1373,6 +1382,12 @@ DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
+// When the candidate row bitmap of a segment scan is smaller than
+// num_rows * this ratio, it is pushed down into inverted index queries so
+// doc-list intersection and verification run only over the candidates
+// (see IndexQueryContext::candidate_rows). <= 0 disables the pushdown.
+DECLARE_mDouble(inverted_index_candidate_pushdown_ratio);
+double get_inverted_index_candidate_pushdown_ratio();
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
@@ -1380,6 +1395,60 @@ DECLARE_String(inverted_index_query_cache_limit);
 // Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
 // it affects only writers created after the transition and never changes query/cache semantics.
 // Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
+
+// Whether LIKE/REGEXP tries to compile a constant pattern into a gram boolean query pushed down
+// to a gram-family inverted index (master switch). Turning it off behaves as if the index did
+// not exist -- it only gives up the speedup, it never changes query results.
+//
+// A pattern is compiled against the gram scheme the segment itself carries, read back from the
+// core metadata of the physical index the query is about to read, so the scheme can never
+// disagree with the one the writer used -- a policy that was dropped and recreated with different
+// properties does not affect segments already written.
+DECLARE_mBool(enable_gram_index_regexp);
+
+// Cost gate for the gram boolean query, in basis points (1/10000) of a segment's rows: give up
+// pruning once the candidate set is larger than that share. 0 disables the gate, 10000 or more can
+// never fire. This is a COST switch, never a semantic one -- a gram index only produces a superset
+// of the candidate rows and the expression above re-verifies each of them, so giving up means the
+// query returns the whole docid range of the segment and prunes nothing. It can therefore only
+// cost speed, never correctness, whatever value it is set to.
+//
+// The unit is basis points rather than percent because the useful range is far below one percent.
+// Pruning only pays when the surviving candidates are sparse enough that whole pages of the column
+// can be skipped: with B rows per remote read unit and candidates spread uniformly, the fraction of
+// units still touched is 1 - (1 - C/N)^B, which is already ~1 by C/N = 1%. Measured on a 34.46M row
+// httplogs table against remote object storage, cold-read speedup by candidate count was 14.1x at
+// 2 candidates, 5.5x at 128, 1.5x at 25K, 1.2x at 46K, and turned into a regression from 56K
+// upwards, bottoming out at 0.70x. 15 bp (0.15%) is the largest share that admitted no regression
+// in that sweep while keeping every double-digit win.
+DECLARE_mInt32(gram_index_max_candidate_ratio_bp);
+
+// Row floor below which the candidate ratio gate above is not applied at all. A small segment's
+// entire gram index is a few KB and one or two requests, so giving up there saves nothing
+// measurable while throwing away the pruning the index really does deliver; the ratio only starts
+// to mean something at a size where the skipped index IO can outweigh the rows it stops
+// eliminating. The default is one Roaring container's worth of rows (65536). 0 applies the ratio
+// at every segment size.
+DECLARE_mInt32(gram_index_candidate_ratio_min_rows);
+
+// Adaptive gram density: solve the boundary rate from each segment's own bytes instead of
+// taking the rate configured on the tokenizer.
+//
+// A configured rate cannot mean the same thing on two columns. Measured at a nominal 0.25 the
+// realised grams per byte were 0.204 on log text, 0.287 on URL paths and 0.182 on agent
+// traces, and the coverage it bought ranged from 91.7% of 12-byte literals to 98.9% -- under
+// serving one column while overpaying on another, in every posting list. Solving instead
+// makes the promise the constant and the rate the variable.
+DECLARE_mBool(enable_gram_index_adaptive_density);
+// The promise the solve keeps, not a tuning pair: literals of at least this many bytes are
+// findable, for this share of the column's own windows of that length. Both are dimensionless
+// and the same on every dataset; what varies is the density they resolve to.
+DECLARE_mInt32(gram_index_min_literal_bytes);
+DECLARE_mInt32(gram_index_density_coverage_permille);
+// How much of a segment is held back to solve on. The sample is buffered rather than
+// tokenized, so this is a transient memory cost and a bound on how long the write path waits
+// before it can cut anything; the histogram behind the solve is a fixed 256 KB regardless.
+DECLARE_mInt64(gram_index_density_sample_bytes);
 
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
@@ -1434,21 +1503,20 @@ DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
 // reclaims ONLY the posting arena -- the persistent vocab / pair-map
 // structures survive it -- so honoring below a real floor degenerates into a
 // storm of tiny runs whenever the memory over the share is dominated by
-// persistent bytes (each run then costs a file, a sort and a merge-fd for
+// persistent bytes (each run still adds framing, sorting and merge work for
 // near-zero memory relief). THIS FLOOR, not any judgement about whether the
 // overage is reachable, is what bounds forced spilling: it caps the cost at one
 // >= floor-sized run per floor of arena growth per writer. Forced spilling
 // therefore reclaims SPILLABLE memory only, never persistent memory.
 // Default 64 MiB.
 DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
-// G09 run-file cap: maximum spill-run files one SNII writer may accumulate;
-// on the next spill past the cap, the existing runs are merge-compacted into
-// a single run first (term stream unchanged). Bounds the final k-way merge's
-// fan-in and, decisively, its simultaneously-open file descriptors -- every
-// run of a buffer is reopened and held open for the whole merge, so unbounded
-// run counts across ~100 concurrent writers can exhaust the BE nofile rlimit
-// ("Too many open files" at run reopen). 0 disables the cap. Default 64.
+// Historical run-file cap, now an additional limit on active inputs per merge
+// group (minimum two). Ingestion runs share one append-only spool. Zero leaves
+// fan-in bounded by the postings workspace and fd limits. Default 64.
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
+// Shared hard posting-workspace budget, captured by new ingestion/compaction
+// reporters. Positive bytes; default 32 MiB. High ZSTD levels may need more.
+DECLARE_mInt64(snii_postings_workspace_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 // The kuromoji (Japanese) analyzer
@@ -1464,6 +1532,11 @@ DECLARE_mBool(debug_inverted_index_compaction);
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // wheather index by RAM directory when base compaction
 DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DECLARE_mBool(inverted_index_skip_norms_for_variant);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1760,6 +1833,11 @@ DECLARE_String(tmp_file_dir);
 
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);
+
+DECLARE_String(jni_plugin_dir);
+DECLARE_String(jni_plugin_hadoop_conf_dir);
+DECLARE_String(jni_plugin_fs_dir);
+DECLARE_Bool(java_plugin_warmup);
 
 // the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
 DECLARE_mString(ca_cert_file_paths);

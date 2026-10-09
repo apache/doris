@@ -22,6 +22,7 @@
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_timestamp_ns.h" // IWYU pragma: keep
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
@@ -210,8 +211,11 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
                 block.insert(block.get_by_position(arguments[0]));
             }
 
+            /// get_nullable_column_info() already scanned the NULL map of the source, so the mask is
+            /// handed to the cast only when it really contains a NULL. An all zero mask is the common
+            /// case, and passing it would add a load and a branch to every row of the cast kernels.
             const NullMap::value_type* arg_null_map = nullptr;
-            if (source_info.is_nullable) {
+            if (source_info.has_null) {
                 arg_null_map = block.get_by_position(arguments[0])
                                        .get_nullable_null_map_column()
                                        ->get_data()
@@ -306,6 +310,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     case PrimitiveType::TYPE_IPV4:
     case PrimitiveType::TYPE_IPV6:
         return create_ip_wrapper(context, from_type, to_type->get_primitive_type());
+    case PrimitiveType::TYPE_UUID:
+        return create_uuid_wrapper(context, from_type);
     case PrimitiveType::TYPE_DECIMALV2:
     case PrimitiveType::TYPE_DECIMAL32:
     case PrimitiveType::TYPE_DECIMAL64:

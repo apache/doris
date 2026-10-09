@@ -80,8 +80,17 @@ suite("test_ntile_function") {
         sql "select k1, k2, k3, ntile(k1) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
         exception "The bucket of NTILE must be a constant value"
     }
-}
 
+    test {
+        sql "select k1, k2, k3, ntile(170141183460469231731687303715884105727) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
+        exception "The bucket of NTILE must be an integer within the range of BIGINT, but got LARGEINT"
+    }
+
+    test {
+        sql "select k1, k2, k3, ntile(cast(3 as largeint)) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
+        exception "The bucket of NTILE must be an integer within the range of BIGINT, but got LARGEINT"
+    }
+}
 
 
 

@@ -88,6 +88,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/olap_table_sink_operator.h"
 #include "exec/operator/olap_table_sink_v2_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 #include "exec/operator/partition_sort_sink_operator.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "exec/operator/partitioned_aggregation_sink_operator.h"
@@ -356,6 +357,10 @@ Status PipelineFragmentContext::_build_and_prepare_full_pipeline(ThreadPool* thr
 }
 
 Status PipelineFragmentContext::prepare(ThreadPool* thread_pool) {
+    DBUG_EXECUTE_IF("fault_inject::PipelineFragmentContext::prepare.skip", {
+        _prepared = true;
+        return Status::OK();
+    });
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
@@ -1365,6 +1370,14 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
         _sink = std::make_shared<MCTableSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
                                                        output_exprs);
+        break;
+    }
+    case TDataSinkType::PAIMON_TABLE_SINK: {
+        if (!thrift_sink.__isset.paimon_table_sink) {
+            return Status::InternalError("Missing paimon table sink.");
+        }
+        _sink = std::make_shared<PaimonTableSinkOperatorX>(next_sink_operator_id(), row_desc,
+                                                           output_exprs);
         break;
     }
     case TDataSinkType::JDBC_TABLE_SINK: {
@@ -2588,7 +2601,8 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                                            PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
-    const bool requires_external_file_ack = params.__isset.iceberg_commit_datas;
+    const bool requires_external_file_ack =
+            params.__isset.iceberg_commit_datas || params.__isset.connector_commit_data;
     if (rpc_status.ok() && requires_external_file_ack &&
         (!res.__isset.external_file_commit_data_accepted ||
          !res.external_file_commit_data_accepted)) {

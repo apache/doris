@@ -149,7 +149,7 @@ import org.apache.doris.statistics.analysis.UpdateRowsEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.tso.TSOTimestamp;
+import org.apache.doris.tso.TSOServiceState;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -1047,7 +1047,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
-                data = TSOTimestamp.read(in);
+                data = TSOServiceState.read(in);
                 isRead = true;
                 break;
             }

@@ -20,6 +20,9 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
+import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
@@ -29,7 +32,9 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -45,8 +50,9 @@ import java.util.TreeSet;
  * on a plugin author and nothing fails when either surface quietly changes. The plugin API version in
  * {@code <connector.plugin.api.version>} is the contract that says which FE a given plugin may load into,
  * and the rule attached to it is blunt: <em>any</em> change to the surface below — adding a type, method, or
- * enum constant just as much as removing or re-signing one — is a MAJOR change. No unit test can prove somebody
- * bumped the property (a test sees only the current state, never the delta), so this is a speed bump, not a
+ * enum constant or engine-read property key just as much as removing or re-signing one — is a MAJOR change.
+ * No unit test can prove somebody bumped the property (a test sees only the current state, never the delta),
+ * so this is a speed bump, not a
  * gate: it makes the change visible in review, in the same commit, with the reason spelled out in the
  * failure message.
  *
@@ -81,20 +87,26 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Storage predicate pruning and provider-level DDL validation both changed the public surface in
-        // major 7. An older FE must reject plugins using either addition before linking incompatible bytecode.
-        Assertions.assertEquals("7.0", version.getProperty("api.version"));
+        // Major 12 adds the SUPPORTS_FIELD_ID_ACCESS_PATH and SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE
+        // capabilities: a plugin naming either constant cannot link against an older FE.
+        Assertions.assertEquals("12.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorProvider.class,
             ConnectorContext.class,
+            ConnectorSession.class,
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorTableSchema.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
             ConnectorWriteHandle.class,
+            ConnectorChangelogMode.class,
+            ConnectorRowLevelDmlRequest.class,
+            org.apache.doris.connector.spi.write.ConnectorWriteDistribution.class,
             ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
@@ -102,10 +114,13 @@ public class ConnectorPluginSurfaceTest {
 
     /** Public enum constants linked directly by connector plugin bytecode. */
     private static final List<Class<? extends Enum<?>>> FROZEN_ENUM_TYPES =
-            Arrays.asList(ConnectorCapability.class);
+            Arrays.asList(ConnectorCapability.class,
+                    org.apache.doris.connector.spi.write.ConnectorRowChangeStyle.class,
+                    org.apache.doris.connector.spi.write.ConnectorWriteDistribution.Mode.class,
+                    org.apache.doris.connector.spi.write.ConnectorWriteDistribution.WriterAssignment.class);
 
     @Test
-    public void pluginApiSurfaceMatchesRecordedBaseline() throws IOException {
+    public void pluginApiSurfaceMatchesRecordedBaseline() throws IOException, IllegalAccessException {
         TreeSet<String> actual = renderSurface();
         TreeSet<String> expected = readBaseline();
 
@@ -129,8 +144,15 @@ public class ConnectorPluginSurfaceTest {
      * happens to declare it: what matters is what a plugin can call on the type it was handed, so moving a
      * default method up or down a super-interface chain is not by itself a surface change.
      */
-    private static TreeSet<String> renderSurface() {
+    private static TreeSet<String> renderSurface() throws IllegalAccessException {
         TreeSet<String> rendered = new TreeSet<>();
+        // String constants are inlined into plugins, so both their names and wire values are API surface.
+        for (Field field : ScanNodePropertyKeys.class.getFields()) {
+            Assertions.assertEquals(String.class, field.getType());
+            Assertions.assertTrue(Modifier.isStatic(field.getModifiers()) && Modifier.isFinal(field.getModifiers()));
+            rendered.add(ScanNodePropertyKeys.class.getName() + "#field:" + field.getName()
+                    + ":" + field.getType().getTypeName() + "=" + field.get(null));
+        }
         for (Class<? extends Enum<?>> frozen : FROZEN_ENUM_TYPES) {
             for (Enum<?> constant : frozen.getEnumConstants()) {
                 rendered.add(frozen.getName() + "#enum:" + constant.name());

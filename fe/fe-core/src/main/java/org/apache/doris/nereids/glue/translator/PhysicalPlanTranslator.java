@@ -56,6 +56,7 @@ import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
+import org.apache.doris.datasource.plugin.ConnectorWritePlanContext;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
@@ -66,6 +67,8 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
@@ -109,6 +112,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBaseExternalTableSink;
@@ -217,6 +221,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
@@ -672,11 +677,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 (PluginDrivenExternalTable) connectorTableSink.getTargetTable();
         PluginDrivenExternalCatalog catalog =
                 (PluginDrivenExternalCatalog) targetTable.getCatalog();
-
-        // Get write config from the connector
-        Connector connector = catalog.getConnector();
-        ConnectorSession connSession = catalog.buildConnectorSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(connSession, connector);
+        ConnectorWritePlanContext writePlanContext = connectorTableSink.getWritePlanContext();
+        ConnectorSession connSession = writePlanContext.getSession();
+        ConnectorMetadata metadata = writePlanContext.getMetadata();
 
         // Convert sink columns to connector columns for INSERT SQL generation. The whole type is
         // converted (see the row-level DML arm): a bare primitive tag drops an ARRAY/MAP/STRUCT
@@ -690,7 +693,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Sort ordinals are consumed against the sink output. BindSink puts positional writes in physical
         // bound-schema order, while name-mapped writes keep user order. Preserve that coordinate space so
         // partial/static INSERTs cannot sort another slot.
-        List<ConnectorColumn> boundOutputColumns = targetTable.requiresFullSchemaWriteOrder()
+        List<ConnectorColumn> boundOutputColumns = writePlanContext.requiresFullSchemaWriteOrder()
                 ? connectorTableSink.getBoundTargetSchema().stream()
                         .map(PhysicalPlanTranslator::toWriteConnectorColumn)
                         .collect(java.util.stream.Collectors.toList())
@@ -702,19 +705,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Resolve the table handle first so BOTH the INSERT-admission gate and the write provider are chosen
         // per-table (a heterogeneous gateway routes iceberg-on-HMS to its sibling by the handle type);
         // byte-identical for every single-format connector (the per-handle overloads default to connector-level).
-        ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
-                targetTable.getRemoteDbName(), targetTable.getRemoteName())
-                .orElseThrow(() -> new AnalysisException(
-                        "Table not found: " + targetTable.getRemoteDbName()
-                                + "." + targetTable.getRemoteName()
-                                + " in catalog " + catalog.getName()));
-        // Resolve the provider once: it both admits INSERT and plans the sink (see the row-level DML arm).
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
+        ConnectorTableHandle providerTableHandle = writePlanContext.getTableHandle();
+        ConnectorWritePlanProvider writePlanProvider = writePlanContext.getProvider();
+        WriteOperation writeOperation = connectorWriteOperation(connectorTableSink);
         if (writePlanProvider == null
-                || !writePlanProvider.supportedOperations().contains(WriteOperation.INSERT)) {
+                || !writePlanProvider.supportedOperations().contains(writeOperation)) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
-                            + ") does not support INSERT operations");
+                            + ") does not support " + writeOperation + " operations");
         }
 
         // Preserve the generation captured from the exact remote table load that supplied the bound schema.
@@ -728,12 +726,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 writePlanProvider.getWriteSortColumns(connSession, providerTableHandle, boundOutputColumns),
                 connectorTableSink, context);
 
-        // A distributed rewrite_data_files INSERT-SELECT threads WriteOperation.REWRITE so the connector's
-        // planWrite enters its REWRITE arm (RewriteFiles semantics) instead of the plain-INSERT append; the
-        // rewrite marker rides on the sink (PhysicalConnectorTableSink.isRewrite), not on a ConnectContext or
-        // an instanceof Iceberg. Ordinary connector INSERTs keep WriteOperation.INSERT (byte-identical).
-        WriteOperation writeOperation = connectorTableSink.isRewrite()
-                ? WriteOperation.REWRITE : WriteOperation.INSERT;
         // The write list can omit explicit/static-partition columns, but schema-drift validation must
         // retain the complete generation captured by BindSink instead of comparing that subset.
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
@@ -742,6 +734,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 boundWriteMetadataIdentity, metadata);
         rootFragment.setSink(providerSink);
         return rootFragment;
+    }
+
+    private WriteOperation connectorWriteOperation(PhysicalConnectorTableSink<?> sink) {
+        if (sink.getDmlCommandType() == null) {
+            // Legacy connector sinks do not carry a DML command type. Preserve their existing
+            // INSERT/REWRITE admission behavior while row-level sinks pass an explicit type.
+            return sink.isRewrite() ? WriteOperation.REWRITE : WriteOperation.INSERT;
+        }
+        switch (sink.getDmlCommandType()) {
+            case DELETE:
+                return WriteOperation.DELETE;
+            case UPDATE:
+                return WriteOperation.UPDATE;
+            case MERGE:
+                return WriteOperation.MERGE;
+            default:
+                return sink.isRewrite() ? WriteOperation.REWRITE : WriteOperation.INSERT;
+        }
     }
 
     private static ConnectorColumn toWriteConnectorColumn(Column column) {
@@ -761,9 +771,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> orderingExprs = Lists.newArrayList();
         List<Boolean> isAscOrder = Lists.newArrayList();
         List<Boolean> nullsFirst = Lists.newArrayList();
+        int outputOffset = connectorTableSink.hasRowOperationColumn() ? 1 : 0;
         for (ConnectorWriteSortColumn sortColumn : sortColumns) {
             orderingExprs.add(context.findSlotRef(
-                    connectorTableSink.getOutput().get(sortColumn.getColumnIndex()).getExprId()));
+                    connectorTableSink.getOutput().get(
+                            sortColumn.getColumnIndex() + outputOffset).getExprId()));
             isAscOrder.add(sortColumn.isAsc());
             nullsFirst.add(sortColumn.isNullsFirst());
         }
@@ -1449,9 +1461,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode planNode = inputFragment.getPlanRoot();
         // the three nodes don't support conjuncts, need create a SelectNode to filter data
         if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode) {
-            SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), planNode);
-            selectNode.setNereidsId(filter.getId());
-            context.getNereidsIdToPlanNodeIdMap().put(filter.getId(), selectNode.getId());
+            SelectNode selectNode = createSelectNode(filter, planNode, context);
             addConjunctsToPlanNode(filter, selectNode, context);
             addPlanRoot(inputFragment, selectNode, filter);
         } else {
@@ -1462,12 +1472,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         || CollectionUtils.isNotEmpty(planNode.getProjectList())
                         // already have limit on this node, filter need execute after limit, so need a new node
                         || planNode.hasLimit()) {
-                    planNode = new SelectNode(context.nextPlanNodeId(), planNode);
-                    planNode.setNereidsId(filter.getId());
+                    planNode = createSelectNode(filter, planNode, context);
                     // NOTE: can't collect planNode.getId() on filter's child, such as scan node
                     // since if the filter is embedded into scan, the id mapping relation is not correct
                     // i.e, the physical filter's nereids's id will be mapped to final plan's scan node
-                    context.getNereidsIdToPlanNodeIdMap().put(filter.getId(), planNode.getId());
                     addPlanRoot(inputFragment, planNode, filter);
                 }
                 addConjunctsToPlanNode(filter, planNode, context);
@@ -1479,6 +1487,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             inputFragment.getPlanRoot().setCardinalityAfterFilter((long) filter.getStats().getRowCount());
         }
         return inputFragment;
+    }
+
+    private SelectNode createSelectNode(AbstractPhysicalPlan physicalPlan, PlanNode child,
+            PlanTranslatorContext context) {
+        SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), child);
+        selectNode.setNereidsId(physicalPlan.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(physicalPlan.getId(), selectNode.getId());
+        selectNode.setDistributeExprLists(getDistributeExpr(physicalPlan));
+        selectNode.setChildrenDistributeExprLists(getDistributeExprs(physicalPlan.child(0)));
+        return selectNode;
     }
 
     @Override
@@ -2114,9 +2132,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
         // this means already have project on this node, filter need execute after project, so need a new node
         if (CollectionUtils.isNotEmpty(inputPlanNode.getProjectList())) {
-            SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), inputPlanNode);
-            selectNode.setNereidsId(project.getId());
-            context.getNereidsIdToPlanNodeIdMap().put(project.getId(), selectNode.getId());
+            SelectNode selectNode = createSelectNode(project, inputPlanNode, context);
             addPlanRoot(inputFragment, selectNode, project);
             inputPlanNode = selectNode;
         }
@@ -3256,7 +3272,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         private int typePriority(SlotDescriptor s) {
             if (s.getType().isNumericType() || s.getType().isDateType() || s.getType().isBoolean()
-                    || s.getType().isTimeType() || s.getType().isIP()) {
+                    || s.getType().isTimeType() || s.getType().isIP() || s.getType().isUuid()) {
                 return 1;
             } else if (s.getType().isStringType()) {
                 return 2;
@@ -3307,8 +3323,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     private boolean shouldUseBucketedFusion(PhysicalHashAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
-        // Shared eligibility: session var, single-BE, GROUP BY, smooth upgrade
-        if (!AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size())) {
+        // Shared eligibility: session var, single-BE, GROUP BY, smooth upgrade, no UDAF
+        if (!AggregateUtils.isBucketedHashAggEnabled(aggregate)) {
             return false;
         }
         // Must be one-phase: GLOBAL + INPUT_TO_RESULT
@@ -3744,6 +3760,35 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return new DataPartition(partitionType, partitionExprs);
         } else if (distributionSpec instanceof DistributionSpecOlapTableSinkHashPartitioned) {
             return DataPartition.TABLET_ID;
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkHashPartitioned) {
+            DistributionSpecExternalTableSinkHashPartitioned externalSpec
+                    = (DistributionSpecExternalTableSinkHashPartitioned) distributionSpec;
+            List<Expr> partitionExprs = Lists.newArrayList();
+            for (ExprId partitionExprId : externalSpec.getOutputColumnExprIds()) {
+                if (childOutputIds.contains(partitionExprId)) {
+                    partitionExprs.add(context.findSlotRef(partitionExprId));
+                }
+            }
+            Preconditions.checkState(partitionExprs.size()
+                            == externalSpec.getOutputColumnExprIds().size(),
+                    "External sink route expressions must be present in child output");
+            TExternalTableSinkWriterAssignment writerAssignment;
+            switch (externalSpec.getWriterAssignment()) {
+                case IDENTITY:
+                    writerAssignment = TExternalTableSinkWriterAssignment.IDENTITY;
+                    break;
+                case SKEWED:
+                    writerAssignment = TExternalTableSinkWriterAssignment.SKEWED;
+                    break;
+                default:
+                    throw new IllegalStateException("Unsupported external sink writer assignment: "
+                            + externalSpec.getWriterAssignment());
+            }
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
+                    partitionExprs, externalSpec.getPartitionFunction(),
+                    externalSpec.getPartitionFunctionOptions(), writerAssignment);
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkUnPartitioned) {
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED);
         } else if (distributionSpec instanceof DistributionSpecHiveTableSinkHashPartitioned) {
             DistributionSpecHiveTableSinkHashPartitioned partitionSpecHash =
                     (DistributionSpecHiveTableSinkHashPartitioned) distributionSpec;

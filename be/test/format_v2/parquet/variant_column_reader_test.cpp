@@ -45,8 +45,10 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/function_variant_element_v2.h"
@@ -173,6 +175,24 @@ ParquetColumnSchema shredded_array_schema() {
     element_typed->type = make_nullable(std::make_shared<DataTypeInt64>());
     element_typed->type_descriptor.integer_bit_width = 64;
     element->children.push_back(std::move(element_typed));
+    typed->children.push_back(std::move(element));
+    schema.children.push_back(std::move(typed));
+    return schema;
+}
+
+ParquetColumnSchema shredded_fallback_only_array_schema() {
+    auto schema = unshredded_schema();
+    auto typed = std::make_unique<ParquetColumnSchema>();
+    typed->name = "typed_value";
+    typed->kind = ParquetColumnSchemaKind::LIST;
+    auto element = std::make_unique<ParquetColumnSchema>();
+    element->name = "element";
+    element->kind = ParquetColumnSchemaKind::STRUCT;
+    auto value = std::make_unique<ParquetColumnSchema>();
+    value->name = "value";
+    value->kind = ParquetColumnSchemaKind::PRIMITIVE;
+    value->type = std::make_shared<DataTypeString>();
+    element->children.push_back(std::move(value));
     typed->children.push_back(std::move(element));
     schema.children.push_back(std::move(typed));
     return schema;
@@ -1244,6 +1264,14 @@ TEST(VariantColumnReaderTest, ReconstructsShreddedPrimitiveTypeMatrix) {
     verify_bytes(false, false);
     verify_bytes(true, false);
     verify_bytes(false, true);
+    const std::array<uint8_t, 16> uuid_bytes {0,    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                              0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    auto uuid_schema = shredded_primitive_schema(std::make_shared<DataTypeUUID>());
+    uuid_schema.children.back()->type_descriptor.is_uuid = true;
+    decode(std::move(uuid_schema),
+           nullable_fixed<ColumnUUID, UUIDValueType>(
+                   {UUIDValue::from_big_endian(uuid_bytes.data())}, {0}),
+           [&](const auto& values) { EXPECT_EQ(values.get_value_ref(0).get_uuid(), uuid_bytes); });
 }
 
 TEST(VariantColumnReaderTest, RejectsInvalidShreddedUuidWidth) {
@@ -2346,6 +2374,47 @@ TEST(VariantColumnReaderTest, MaterializesShreddedArrayElements) {
 
     auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
     const auto status = materialize_variant_rows(shredded_array_schema(), *physical, output);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    const VariantRef value = variants.get_value_ref(0);
+    ASSERT_EQ(value.num_elements(), 2);
+    EXPECT_EQ(value.array_at(0).get_int(), 3);
+    EXPECT_EQ(value.array_at(1).get_int(), 4);
+}
+
+TEST(VariantColumnReaderTest, MaterializesFallbackOnlyArrayFromRequiredValueLeaf) {
+    const StringRef metadata(VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size());
+    const std::array<char, 2> first_value {
+            static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
+                              << VARIANT_VALUE_HEADER_SHIFT),
+            3};
+    const std::array<char, 2> second_value {
+            static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT8)
+                              << VARIANT_VALUE_HEADER_SHIFT),
+            4};
+
+    auto values = ColumnString::create();
+    values->insert_data(first_value.data(), first_value.size());
+    values->insert_data(second_value.data(), second_value.size());
+    MutableColumns wrapper_fields;
+    wrapper_fields.push_back(std::move(values));
+    auto wrappers = ColumnStruct::create(std::move(wrapper_fields));
+    auto elements = ColumnNullable::create(std::move(wrappers), ColumnUInt8::create(2, 0));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(2);
+    auto array = ColumnArray::create(std::move(elements), std::move(offsets));
+
+    const std::array<char, 1> ignored {0};
+    MutableColumns root_fields;
+    root_fields.push_back(nullable_strings({metadata}, {0}));
+    root_fields.push_back(nullable_strings({{ignored.data(), 0}}, {1}));
+    root_fields.push_back(ColumnNullable::create(std::move(array), ColumnUInt8::create(1, 0)));
+    auto physical = root_wrapper(std::move(root_fields));
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    const auto status =
+            materialize_variant_rows(shredded_fallback_only_array_schema(), *physical, output);
     ASSERT_TRUE(status.ok()) << status;
     const auto& nullable = assert_cast<const ColumnNullable&>(*output);
     const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());

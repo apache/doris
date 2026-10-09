@@ -258,11 +258,16 @@ public class RangerDorisAccessController extends RangerAccessController {
     protected RangerAccessRequestImpl createRequest(AuthorizedSubject subject, AccessContext context) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
         request.setUser(subject.getUser());
+        // The groups are Ranger's own, out of the user store this source's plugin downloads: Doris has no
+        // groups to offer, and without them a policy item written against a group never matches, allow or
+        // deny. See RangerUserStoreGroups, including for how a deployment switches it off.
+        request.setUserGroups(groupsOf(subject));
         // No user roles, unlike ranger-hive, which does send them. Not an oversight and not free to change:
         // a request carrying roles matches policy items written against a role, so sending them would start
         // granting - and denying - on policies this source has never matched, in every deployment that has
         // any. That is a change to what an existing Ranger service decides and belongs with a release note
-        // of its own, not here.
+        // of its own, not here. (Ranger's own roles are unaffected: with none sent, Ranger resolves the ones
+        // it holds for the user and now also for the user's groups.)
         request.setClientIPAddress(clientAddressOf(subject, context));
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
