@@ -45,6 +45,7 @@ private:
     friend class AnalyticSourceOperatorX;
     Status _get_spill_block(RuntimeState* state, Block* block, bool* eos);
     size_t _spill_replay_reserve_bytes(RuntimeState* state) const;
+    bool _next_slice_reads_peer_group_record(RuntimeState* state) const;
     Status _open_spill_batch(RuntimeState* state, std::shared_ptr<AnalyticSpillBatch> batch);
     Status _read_batch_block(RuntimeState* state, Block* block, bool* batch_eos);
     Status _next_replay_rows(RuntimeState* state, Block* block, bool* batch_eos);

@@ -412,6 +412,14 @@ WAIT_PARTITION -> OPEN_READER -> REPLAY -> FINISH_PARTITION
 该模型同时解决 CPU 调度公平性、输出反压和结果 Block 大量堆积的问题，也避免了同一
 partition 的二次预扫描 I/O。
 
+Source 的 `get_reserve_mem_size()` 只为下一次 `get_block()` 真正会执行的磁盘读取预留内存：
+打开一个已落盘文件的 reader 会分配该文件最大序列化记录的读缓冲，读取一条记录会反序列化出
+一个新 Block，两者都约为 `spill_buffer_size_bytes`。即将打开下一个 batch 时，Source 在队列锁下
+查看队首 batch：数据文件和 peer group sidecar 文件各预留两个 spill buffer，完全在内存中的
+batch 不预留，避免在没有可 revoke 任务的情况下因为无用的预留而被 workload group 暂停。重放
+途中，只有在下一次调用会读取新的数据记录（当前 Block 已切片输出完）或新的 peer group 记录
+（下一个切片含有超过已读最后一个 group end 的行）时，才各预留一个 spill buffer。
+
 ## 9. 正确性、错误和生命周期
 
 ### 9.1 正确性不变量
