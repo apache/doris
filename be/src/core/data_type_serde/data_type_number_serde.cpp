@@ -1201,8 +1201,9 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb(const IColumn& from_col
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                                ColumnString& to_column) const {
+Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column,
+        const NullMap::value_type* source_null_map) const {
     if constexpr (!can_write_to_jsonb_from_number<T>()) {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     }
@@ -1211,6 +1212,10 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& f
     const auto& data = assert_cast<const ColumnType&>(from_column).get_data();
     const auto scale = get_scale();
     for (int i = 0; i < size; i++) {
+        if (source_null_map && source_null_map[i]) {
+            to_column.insert_default();
+            continue;
+        }
         writer.reset();
         if (!write_to_jsonb_from_number<T>(data[i], writer, scale)) {
             return Status::InvalidArgument(
@@ -1255,8 +1260,8 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
 
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb_vector(
-        ColumnNullable& column_to, const ColumnString& col_from_json,
-        CastParameters& castParms) const {
+        ColumnNullable& column_to, const ColumnString& col_from_json, CastParameters& castParms,
+        const NullMap::value_type* source_null_map) const {
     if constexpr (!can_write_to_jsonb_from_number<T>()) {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     } else {
@@ -1270,6 +1275,11 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb_vector(
         data.resize(size);
 
         for (size_t i = 0; i < size; ++i) {
+            if (source_null_map && source_null_map[i]) {
+                null_map[i] = true;
+                data[i] = {};
+                continue;
+            }
             const auto& val = col_from_json.get_data_at(i);
             auto* jsonb_value = handle_jsonb_value(val);
             if (!jsonb_value) {

@@ -179,4 +179,101 @@ TEST_F(FunctionCastTest, test_from_string_to_map_string_string) {
                builder.build(), false);
 }
 
+// A row that the input null map of a MAP marks as NULL may still keep a hidden payload in the
+// entries that belong to it (for example the branch of an IF() that was not taken). Keys and values
+// are stored flattened, so the mask of the row has to be expanded to its entries: applying the row
+// aligned mask to the entry indexes would check the wrong entries and read behind the mask.
+TEST_F(FunctionCastTest, test_cast_map_null_row_skips_hidden_entry_payload) {
+    auto from_key_column =
+            ColumnHelper::create_nullable_column<DataTypeInt32>({1, 2, 128}, {0, 0, 0});
+    auto from_value_column =
+            ColumnHelper::create_nullable_column<DataTypeInt32>({10, 20, 300}, {0, 0, 0});
+    auto from_map = ColumnMap::create(from_key_column, from_value_column,
+                                      ColumnHelper::create_column_offsets<TYPE_UINT64>({2, 3}));
+    ColumnPtr from_column = ColumnNullable::create(
+            std::move(from_map), ColumnHelper::create_column<DataTypeUInt8>({0, 1}));
+
+    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>())));
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>())));
+
+    auto ctx = create_context(true);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    // Row 0 is {1: 10, 2: 20}, row 1 is NULL and keeps the hidden entry {128: 300}.
+    Block block = {
+            {std::move(from_column), from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_FALSE(result.is_null_at(0));
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 0), "{1:10, 2:20}");
+    EXPECT_TRUE(result.is_null_at(1));
+}
+
+// The hidden entry of a visible row is still validated.
+TEST_F(FunctionCastTest, test_cast_map_visible_entry_still_fails) {
+    auto from_key_column = ColumnHelper::create_nullable_column<DataTypeInt32>({1, 128}, {0, 0});
+    auto from_value_column = ColumnHelper::create_nullable_column<DataTypeInt32>({10, 300}, {0, 0});
+    auto from_map = ColumnMap::create(from_key_column, from_value_column,
+                                      ColumnHelper::create_column_offsets<TYPE_UINT64>({1, 2}));
+    ColumnPtr from_column = ColumnNullable::create(
+            std::move(from_map), ColumnHelper::create_column<DataTypeUInt8>({0, 0}));
+
+    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>())));
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>())));
+
+    auto ctx = create_context(true);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {std::move(from_column), from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+}
+
+// A key whose type does not change is passed through, while the value that does change still
+// inherits the NULL of its row, so the hidden payload of the value is not validated.
+TEST_F(FunctionCastTest, test_cast_map_unchanged_key_with_null_row) {
+    auto from_key_column = ColumnHelper::create_nullable_column<DataTypeInt32>({5, 1}, {0, 0});
+    auto from_value_column = ColumnHelper::create_nullable_column<DataTypeInt32>({128, 2}, {0, 0});
+    auto from_map = ColumnMap::create(from_key_column, from_value_column,
+                                      ColumnHelper::create_column_offsets<TYPE_UINT64>({1, 2}));
+    ColumnPtr from_column = ColumnNullable::create(
+            std::move(from_map), ColumnHelper::create_column<DataTypeUInt8>({1, 0}));
+
+    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>())));
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>())));
+
+    auto ctx = create_context(true);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {std::move(from_column), from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), "{1:2}");
+}
+
 } // namespace doris

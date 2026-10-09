@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <vector>
+
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/types.h"
@@ -54,7 +56,15 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
     }
 
     auto element_wrappers = get_element_wrappers(context, from_element_types, to_element_types);
-    return [element_wrappers, from_element_types, to_element_types](
+    /// A field whose type does not change is passed through, so it needs neither a child mask nor a
+    /// call into its (identity) wrapper.
+    std::vector<bool> unchanged_fields;
+    unchanged_fields.reserve(from_element_types.size());
+    for (size_t i = 0; i < from_element_types.size(); ++i) {
+        unchanged_fields.push_back(from_element_types[i]->equals(*to_element_types[i]));
+    }
+    return [element_wrappers, from_element_types, to_element_types,
+            unchanged_fields = std::move(unchanged_fields)](
                    FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    uint32_t result, size_t /*input_rows_count*/,
                    const NullMap::value_type* null_map = nullptr) -> Status {
@@ -67,9 +77,24 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
 
         size_t elements_num = to_element_types.size();
         Columns converted_columns(elements_num);
+        // Fields share the rows of their parent, so the parent mask is scanned once for all of them.
+        const NullMap::value_type* inherited_null_map =
+                (null_map != nullptr && has_masked_row(null_map, from_col_struct->size()))
+                        ? null_map
+                        : nullptr;
         for (size_t i = 0; i < elements_num; ++i) {
-            ColumnWithTypeAndName from_element_column {from_col_struct->get_column_ptr(i),
-                                                       from_element_types[i], ""};
+            if (unchanged_fields[i]) {
+                /// The field is not converted, so it cannot validate the hidden payload of a NULL
+                /// row, and the NULL of the row hides the field anyway.
+                converted_columns[i] = from_col_struct->get_column_ptr(i);
+                continue;
+            }
+            /// A field of a row that is NULL is a hidden payload as well. Fields share the rows of
+            /// their parent, so the mask of the parent can be used as is.
+            auto child_mask = build_child_null_mask(inherited_null_map, nullptr,
+                                                    from_col_struct->get_column_ptr(i));
+            ColumnWithTypeAndName from_element_column {child_mask.column, from_element_types[i],
+                                                       ""};
             ColumnNumbers element_arguments {block.columns()};
             block.insert(from_element_column);
 
@@ -77,7 +102,7 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
             block.insert({to_element_types[i], ""});
 
             RETURN_IF_ERROR(element_wrappers[i](context, block, element_arguments, element_result,
-                                                from_col_struct->get_column(i).size(), null_map));
+                                                child_mask.column->size(), child_mask.null_map));
             converted_columns[i] = block.get_by_position(element_result).column;
         }
 
