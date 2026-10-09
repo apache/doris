@@ -62,7 +62,8 @@ suite("test_lance_vector_search_distance_range", "p0,external") {
             explain {
                 sql "SELECT row_id FROM ${search(indexed, ', \"distance_upper_bound\"=\"16\"')}"
                 contains "lanceDistanceRange=[-inf, 16.0)"
-                contains "lanceVectorIndexStatus=${indexed ? 'USED' : 'DISABLED'}"
+                // Single-sided ranges must bypass the native finite-sentinel index filter.
+                contains "lanceVectorIndexStatus=${indexed ? 'DISTANCE_RANGE_FALLBACK' : 'DISABLED'}"
             }
         }
         for (String value : ["NaN", "Infinity", "1e100", "invalid"]) {

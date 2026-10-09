@@ -124,8 +124,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
             }
         }
         TExternalSearchRequest searchRequest = new TExternalSearchRequest()
-                // Older readers must reject range requests instead of silently dropping their bounds.
-                .setSchemaVersion(hasDistanceRange ? 2 : 1)
+                .setSchemaVersion(1)
                 .setSearchQuery(TExternalSearchQuery.vector_search(vectorParams));
         TVectorSearchOptions vectorSearchOptions = buildVectorSearchOptions(params, useIndex);
         if (vectorSearchOptions != null) {

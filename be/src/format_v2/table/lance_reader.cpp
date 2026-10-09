@@ -416,7 +416,7 @@ Status LanceTableReader::_validate_external_search_request() const {
     }
 
     const auto& request = lance_scan_params.external_search_request;
-    if (request.schema_version != 1 && request.schema_version != 2) {
+    if (request.schema_version != 1) {
         return Status::NotSupported("unsupported external search schema version: {}",
                                     request.schema_version);
     }
@@ -450,9 +450,6 @@ Status LanceTableReader::_validate_external_search_request() const {
         const bool multi_vector = query_vector.__isset.num_vectors;
         const bool has_distance_range =
                 vector.__isset.distance_lower_bound || vector.__isset.distance_upper_bound;
-        if (has_distance_range && request.schema_version < 2) {
-            return Status::InvalidArgument("Lance distance bounds require search schema version 2");
-        }
         if (has_distance_range && multi_vector) {
             return Status::NotSupported(
                     "Distance bounds are not supported for Lance multi-vector search");

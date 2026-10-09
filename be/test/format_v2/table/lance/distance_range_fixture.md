@@ -54,3 +54,40 @@ lance.write_dataset(batch(range(128, 131)), path, mode="append",
 Delete the previous generated dataset directory before regenerating to keep the
 fixture free of obsolete files. Filenames and index UUIDs may change; tests discover
 them from the manifest.
+
+## Range fallback fixtures
+
+`distance_range_sq.lance` contains vectors `[i, 0, 0]` for integers 0 through 255,
+followed by row 256 with `[0.49, 0, 0]`, and an IVF_SQ V3 index. With query
+`[0.51, 0, 0]`, row 256 has squared L2 distance approximately `0.0004`, inside
+`[0.0001, 0.001)`. Its quantized distance is zero, so applying the lower bound
+before refinement incorrectly discards it.
+
+`distance_range_dot.lance` contains row 0 with `[1, 0, 0]` and 127 rows with
+`[0.5, 0, 0]`, and an IVF_FLAT V3 DOT index. Query `[-FLT_MAX, 0, 0]` with only
+an inclusive lower bound of `FLT_MAX` must return row 0. Replacing the absent
+upper bound with an exclusive `FLT_MAX` incorrectly discards it.
+
+These fixtures exercise fragment splits without index UUIDs, as planned by the
+FE for unsafe indexed range searches, with both `use_index=true` and `false`.
+They use the same schema and writer versions as the fixture above:
+
+```python
+from pathlib import Path
+
+root = Path("be/test/format_v2/table/lance/data")
+for name, values, index_type, metric in [
+    ("distance_range_sq", [[float(i), 0.0, 0.0] for i in range(256)]
+        + [[0.49, 0.0, 0.0]], "IVF_SQ", "l2"),
+    ("distance_range_dot", [[1.0, 0.0, 0.0]]
+        + [[0.5, 0.0, 0.0] for _ in range(127)], "IVF_FLAT", "dot"),
+]:
+    data = pa.Table.from_pydict({
+        "row_id": list(range(len(values))), "embedding": values,
+    }, schema=schema)
+    dataset = lance.write_dataset(data, str(root / (name + ".lance")),
+                                  data_storage_version="2.2")
+    dataset.create_index("embedding", index_type=index_type, metric=metric,
+                         num_partitions=1, name="embedding_idx",
+                         index_file_version="V3")
+```
