@@ -147,4 +147,39 @@ public class PaimonReadTypeProjectionTest {
         Assertions.assertEquals(2, projected.getFields().get(1).id());
         Assertions.assertEquals("city", projected.getFields().get(1).name());
     }
+
+    @Test
+    public void nestedUpdateColumnKeepsWholeElementRowWhenPruned() {
+        // A nested_update ARRAY<ROW> column: paimon's merge engine projects the element row by position
+        // from the DECLARED type, so a narrowed element row (here dropping the nested-key "ext_id") would
+        // make it read the string "oligo_tag" as a LONG. The read type must stay whole for such a column.
+        RowType elementType = new RowType(false, Arrays.asList(
+                new DataField(10, "ext_id", DataTypes.BIGINT()),
+                new DataField(11, "oligo_tag", DataTypes.STRING())));
+        ArrayType tableType = new ArrayType(false, elementType);
+        // The query touches only "oligo_tag" -- the nested-key "ext_id" would otherwise be dropped.
+        ColumnType requiredType = ColumnType.parseType("events", "array<struct<oligo_tag:string>>");
+
+        DataType projected = PaimonReadTypeProjection.project(tableType, requiredType, true);
+
+        Assertions.assertSame(tableType, projected);
+        Assertions.assertEquals(Arrays.asList("ext_id", "oligo_tag"),
+                ((RowType) ((ArrayType) projected).getElementType()).getFieldNames());
+    }
+
+    @Test
+    public void prunableColumnStillNarrowsWhenNotAMergeEngineInput() {
+        // Same shape without the merge-engine pin: normalization must still prune, or the fix would have
+        // silently disabled nested-column pruning for every ARRAY<ROW> column.
+        RowType elementType = new RowType(false, Arrays.asList(
+                new DataField(10, "ext_id", DataTypes.BIGINT()),
+                new DataField(11, "oligo_tag", DataTypes.STRING())));
+        ArrayType tableType = new ArrayType(false, elementType);
+        ColumnType requiredType = ColumnType.parseType("events", "array<struct<oligo_tag:string>>");
+
+        DataType projected = PaimonReadTypeProjection.project(tableType, requiredType, false);
+
+        Assertions.assertEquals(Arrays.asList("oligo_tag"),
+                ((RowType) ((ArrayType) projected).getElementType()).getFieldNames());
+    }
 }

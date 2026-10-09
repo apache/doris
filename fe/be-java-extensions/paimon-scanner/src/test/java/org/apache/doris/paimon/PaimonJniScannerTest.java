@@ -560,6 +560,9 @@ public class PaimonJniScannerTest {
                     if ("newReadBuilder".equals(method.getName())) {
                         return readBuilder;
                     }
+                    if ("options".equals(method.getName())) {
+                        return Collections.emptyMap();
+                    }
                     throw new UnsupportedOperationException(method.getName());
                 });
 

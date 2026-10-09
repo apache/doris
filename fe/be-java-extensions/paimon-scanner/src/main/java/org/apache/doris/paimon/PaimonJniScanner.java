@@ -39,6 +39,7 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
 import org.apache.paimon.table.system.SystemTableLoader;
+import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.RowType;
@@ -204,6 +205,7 @@ public class PaimonJniScanner extends JniScanner {
                             fields.length, paimonAllFieldNames.size()));
         }
         int[] projected = getProjected();
+        PaimonNestedUpdateColumns nestedUpdateColumns = nestedUpdateColumns();
         List<DataField> readFields = new ArrayList<>(projected.length);
         variantProjections = new ArrayList<>(projected.length);
         boolean hasReadTypeProjection = false;
@@ -218,8 +220,12 @@ public class PaimonJniScanner extends JniScanner {
                 // The engine may have pruned this complex column down to the sub-fields the query touches.
                 // Mirroring that shape with paimon's own types lets withReadType push the same projection
                 // through the ROW/ARRAY/MAP readers instead of reading the whole column and discarding it.
+                // A nested_update column is the exception: paimon's merge engine projects its element row
+                // by position from the DECLARED type, so a pruned element row makes it read the wrong
+                // field and fail with a ClassCastException on any merge-on-read split.
+                boolean mustReadFullRow = mustReadFullRow(nestedUpdateColumns, tableField);
                 DataType projectedType =
-                        PaimonReadTypeProjection.project(tableField.type(), types[outputIndex]);
+                        PaimonReadTypeProjection.project(tableField.type(), types[outputIndex], mustReadFullRow);
                 if (projectedType != tableField.type()) {
                     hasReadTypeProjection = true;
                 }
@@ -956,6 +962,31 @@ public class PaimonJniScanner extends JniScanner {
         if (PaimonTableCache.publish(tableCacheKey, candidate)) {
             tableCacheEntry = candidate;
         }
+    }
+
+    /**
+     * Resolves the table's {@code nested_update} columns. Cheap for a non-primary-key table (no
+     * {@code fields.*} options), and the connector plugin's table cache keeps the option map stable
+     * across the scanners of one scan.
+     */
+    private PaimonNestedUpdateColumns nestedUpdateColumns() {
+        return PaimonNestedUpdateColumns.resolve(table == null ? null : table.options());
+    }
+
+    /**
+     * Whether this column's element row must be read in full because the merge engine projects it by
+     * position. Only a pruned {@code ARRAY<ROW>} column with a declared {@code nested-key} can lose the
+     * field the engine reads; anything else keeps the ordinary narrowing.
+     */
+    private static boolean mustReadFullRow(PaimonNestedUpdateColumns nestedUpdateColumns,
+            DataField tableField) {
+        if (nestedUpdateColumns.isEmpty() || !(tableField.type() instanceof ArrayType)) {
+            return false;
+        }
+        if (!(((ArrayType) tableField.type()).getElementType() instanceof RowType)) {
+            return false;
+        }
+        return !nestedUpdateColumns.requiredElementFields(tableField.name()).isEmpty();
     }
 
     private void releaseCachedTable() {
