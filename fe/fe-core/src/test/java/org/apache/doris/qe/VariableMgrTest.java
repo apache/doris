@@ -262,7 +262,7 @@ public class VariableMgrTest extends TestWithFeService {
     @Test
     public void testExternalScanConsistentHashSpreadVariable() throws Exception {
         SessionVariable var = new SessionVariable();
-        Assertions.assertEquals(0, var.getExternalScanConsistentHashSpreadNum());
+        Assertions.assertEquals(1, var.getExternalScanConsistentHashSpreadNum());
         for (String value : new String[] {"0", "1", "2", "3", "2147483647"}) {
             VariableMgr.setVar(var, new SetVar(SetType.SESSION,
                     SessionVariable.EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM, new StringLiteral(value)));
@@ -278,7 +278,7 @@ public class VariableMgrTest extends TestWithFeService {
         Assertions.assertEquals(Integer.MAX_VALUE, forwarded.getExternalScanConsistentHashSpreadNum());
         VariableMgr.setVar(var, new SetVar(SetType.SESSION,
                 SessionVariable.EXTERNAL_SCAN_CONSISTENT_HASH_SPREAD_NUM, null));
-        Assertions.assertEquals(0, var.getExternalScanConsistentHashSpreadNum());
+        Assertions.assertEquals(1, var.getExternalScanConsistentHashSpreadNum());
     }
 
 }

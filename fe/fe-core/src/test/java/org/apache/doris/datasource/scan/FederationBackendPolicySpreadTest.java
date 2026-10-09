@@ -444,9 +444,21 @@ public class FederationBackendPolicySpreadTest {
     }
 
     @Test
-    public void testAutomaticExternalScanStrategyAndLegacyOptOut() {
+    public void testLegacyDefaultAndAutomaticExternalScanStrategy() {
         SessionVariable session = context.getSessionVariable();
-        Assertions.assertEquals(0, session.getExternalScanConsistentHashSpreadNum());
+        Assertions.assertEquals(1, session.getExternalScanConsistentHashSpreadNum());
+        for (boolean cache : Arrays.asList(false, true)) {
+            for (boolean hash : Arrays.asList(false, true)) {
+                session.enableFileCache = cache;
+                session.useConsistentHashForExternalScan = hash;
+                FederationBackendPolicy policy = new TestExternalScanNode().backendPolicy;
+                Assertions.assertEquals(cache || hash ? NodeSelectionStrategy.CONSISTENT_HASHING
+                                : NodeSelectionStrategy.ROUND_ROBIN,
+                        Deencapsulation.getField(policy, "nodeSelectionStrategy"));
+                Assertions.assertEquals(1, (int) Deencapsulation.getField(policy, "consistentHashSpreadNum"));
+            }
+        }
+        session.externalScanConsistentHashSpreadNum = 0;
         for (boolean cache : Arrays.asList(false, true)) {
             for (boolean hash : Arrays.asList(false, true)) {
                 session.enableFileCache = cache;

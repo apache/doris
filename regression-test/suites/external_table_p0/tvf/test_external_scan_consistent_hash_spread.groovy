@@ -54,7 +54,7 @@ suite("test_external_scan_consistent_hash_spread", "p0,external") {
     sql "set enable_query_cache = false"
     sql "set enable_file_cache = false"
     sql "set use_consistent_hash_for_external_scan = false"
-    sql "unset variable external_scan_consistent_hash_spread_num"
+    sql "set external_scan_consistent_hash_spread_num = 0"
     order_qt_automatic remoteQuery("${prefix}single_*.parquet")
     sql "set enable_file_cache = true"
     order_qt_automatic_cache remoteQuery("${prefix}single_*.parquet")
