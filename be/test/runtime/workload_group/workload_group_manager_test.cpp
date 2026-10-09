@@ -1680,6 +1680,43 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_below_min_memory_with_non_
     }
 }
 
+// Two workload groups exceed their min memory limit by more than 128 MiB. The one that exceeds
+// most only holds queries too small to be cancelled, so revoking memory from it frees nothing;
+// the other one holds a single cancellable query. The paused query must not fall through to the
+// hard-limit fallback while the second workload group can still release memory: its query is
+// cancelled and the paused query waits for the release.
+TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_below_min_memory_tries_next_peer) {
+    auto wg = _create_wg_with_min_memory(1);
+    auto query = _create_query_with_memory(wg, 1024L * 4);
+    ASSERT_LE(wg->total_mem_used(), wg->min_memory_limit());
+
+    auto small_peer_wg = _create_wg_with_min_memory(2);
+    std::vector<std::shared_ptr<QueryContext>> small_peer_queries;
+    for (int i = 0; i < 10; ++i) {
+        // Not larger than SMALL_MEMORY_TASK (32 MiB), so memory reclamation skips it.
+        small_peer_queries.push_back(_create_query_with_memory(small_peer_wg, 1024L * 1024 * 30));
+    }
+    auto large_peer_wg = _create_wg_with_min_memory(3);
+    auto large_peer_query = _create_query_with_memory(large_peer_wg, 1024L * 1024 * 250);
+    ASSERT_GT(large_peer_wg->total_mem_used(), large_peer_wg->min_memory_limit() + (1 << 27));
+    // The non-reclaimable workload group exceeds its min memory most, so it is tried first.
+    ASSERT_GT(small_peer_wg->total_mem_used() - small_peer_wg->min_memory_limit(),
+              large_peer_wg->total_mem_used() - large_peer_wg->min_memory_limit());
+
+    _exceed_process_hard_mem_limit();
+    _pause_for_process_memory(query);
+
+    config::spill_in_paused_queue_timeout_ms = 60 * 1000;
+    _wg_manager->handle_paused_queries();
+    ASSERT_TRUE(large_peer_query->is_cancelled());
+    for (const auto& small_peer_query : small_peer_queries) {
+        ASSERT_FALSE(small_peer_query->is_cancelled());
+    }
+    _assert_still_paused(query);
+    ASSERT_EQ(_paused_query_count(wg), 1);
+    ASSERT_TRUE(_wg_manager->revoking_memory_from_other_query_);
+}
+
 // Revoking memory from another workload group cancels one of its queries, which holds its
 // memory until the cancellation completes. While that cancellation is in flight (within
 // `revoke_memory_max_tolerance_ms`), memory reclamation keeps reporting its memory as revoked,

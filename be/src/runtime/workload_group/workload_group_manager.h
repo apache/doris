@@ -248,10 +248,11 @@ private:
     // The query is cancelled if the spill could not be started.
     void spill_query_(const std::shared_ptr<ResourceContext>& requestor);
 
-    // Find the most overcommitted workload group (usage - min_memory_limit is
-    // largest) and cancel its biggest query to reclaim ~10% of the excess memory.
-    // Returns the amount of memory actually revoked, or 0 if no WG qualifies or
-    // no query of that WG could be cancelled.
+    // Walk the overcommitted workload groups (usage - min_memory_limit, largest first)
+    // and cancel the biggest queries of the first one that releases memory, to reclaim
+    // ~10% of its excess memory. A WG whose queries are all too small to be cancelled
+    // releases nothing, so the next one is tried. Returns the amount of memory actually
+    // revoked, or 0 if no WG qualifies or no query of any of them could be cancelled.
     int64_t revoke_memory_from_other_groups_();
 
     // Recalculate and apply per-query memory limits for all queries in a workload

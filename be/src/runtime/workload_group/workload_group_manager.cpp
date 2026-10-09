@@ -627,8 +627,9 @@ bool WorkloadGroupMgr::handle_process_memory_exceeded_(
 
     // Other workload groups many use a lot of memory, should revoke memory from other workload groups
     // by cancelling their queries. Only the memory actually revoked counts: a workload group that
-    // exceeds its min memory but has nothing cancellable releases nothing, and waiting for it
-    // would resume this query without any memory being freed.
+    // exceeds its min memory but has nothing cancellable releases nothing (the next exceeding
+    // workload group is tried instead), and waiting for it would resume this query without any
+    // memory being freed.
     int64_t revoked_size = revoke_memory_from_other_groups_();
     if (revoked_size > 0) {
         // Revoke memory from other workload groups will cancel some queries, wait them cancel finished
@@ -674,21 +675,23 @@ bool WorkloadGroupMgr::release_query_memory_(PausedQuerySet& queries_list,
     return stop_after_release;
 }
 
-// Find the workload group that could revoke lot of memory:
-// 1. workload group = max(total used memory - min memory that should reserved for it)
+// Find the workload groups that could revoke lot of memory:
+// 1. order the workload groups by (total used memory - min memory that should reserved for it),
+//    starting with the one that exceeds most.
 // 2. revoke 10% memory of the workload group that exceeded. For example, if the workload group exceed 10g,
-//    then revoke 1g memory.
+//    then revoke 1g memory. A workload group may release nothing although it exceeds its min
+//    memory (for example, every query is too small to be cancelled), then try the next one.
 // 3. After revoke memory, go to the loop and wait for the query to be cancelled and check again.
-// Returns the memory actually revoked, which is 0 when no query of that workload group could be
-// cancelled (for example, every query is too small to be cancelled).
+// Returns the memory actually revoked, which is 0 when no query of any of these workload groups
+// could be cancelled.
 int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
     MonotonicStopWatch watch;
     watch.start();
     std::unique_ptr<RuntimeProfile> profile =
             std::make_unique<RuntimeProfile>("RevokeMemoryFromOtherGroups");
 
-    WorkloadGroupPtr max_wg = nullptr;
-    int64_t max_exceeded_memory = 0;
+    // (exceeded memory, workload group), the most exceeded first.
+    std::vector<std::pair<int64_t, WorkloadGroupPtr>> exceeded_wgs;
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
         for (auto& workload_group : _workload_groups) {
@@ -699,33 +702,38 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
                 // then not revoke memory from it.
                 continue;
             }
-            if (total_used_memory - min_memory_limit > max_exceeded_memory) {
-                max_wg = workload_group.second;
-                max_exceeded_memory = total_used_memory - min_memory_limit;
-            }
+            exceeded_wgs.emplace_back(total_used_memory - min_memory_limit, workload_group.second);
         }
     }
-    if (max_wg == nullptr) {
-        return 0;
+    std::sort(exceeded_wgs.begin(), exceeded_wgs.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.first > rhs.first; });
+
+    for (const auto& [exceeded_memory, wg] : exceeded_wgs) {
+        if (exceeded_memory < 1 << 27) {
+            // The remaining workload groups exceed even less.
+            LOG(INFO) << "The workload group that exceed most memory among the untried ones is :"
+                      << wg->memory_debug_string() << ", exceeded_memory: "
+                      << PrettyPrinter::print(exceeded_memory, TUnit::BYTES)
+                      << " less than 128MB, no need to revoke memory";
+            break;
+        }
+        auto need_free_mem = static_cast<int64_t>((double)exceeded_memory * 0.1);
+        // Revoke 10% of memory from the workload group that exceed most memory
+        int64_t freed_mem = wg->revoke_memory(need_free_mem, "exceed_memory", profile.get());
+        std::stringstream ss;
+        profile->pretty_print(&ss);
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] process memory not enough, revoke memory from workload_group: {}, "
+                "need free memory {}, freed memory {}. cost(us): {}, details: {}",
+                wg->memory_debug_string(), PrettyPrinter::print_bytes(need_free_mem),
+                PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
+        if (freed_mem > 0) {
+            return freed_mem;
+        }
+        // Nothing could be cancelled in this workload group, try the next one that exceeds
+        // its min memory.
     }
-    if (max_exceeded_memory < 1 << 27) {
-        LOG(INFO) << "The workload group that exceed most memory is :"
-                  << max_wg->memory_debug_string() << ", max_exceeded_memory: "
-                  << PrettyPrinter::print(max_exceeded_memory, TUnit::BYTES)
-                  << " less than 128MB, no need to revoke memory";
-        return 0;
-    }
-    auto need_free_mem = static_cast<int64_t>((double)max_exceeded_memory * 0.1);
-    // Revoke 10% of memory from the workload group that exceed most memory
-    int64_t freed_mem = max_wg->revoke_memory(need_free_mem, "exceed_memory", profile.get());
-    std::stringstream ss;
-    profile->pretty_print(&ss);
-    LOG(INFO) << fmt::format(
-            "[MemoryGC] process memory not enough, revoke memory from workload_group: {}, "
-            "need free memory {}, freed memory {}. cost(us): {}, details: {}",
-            max_wg->memory_debug_string(), PrettyPrinter::print_bytes(need_free_mem),
-            PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
-    return freed_mem;
+    return 0;
 }
 
 // streamload, kafka routine load, group commit
