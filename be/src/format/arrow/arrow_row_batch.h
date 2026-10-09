@@ -63,8 +63,8 @@ public:
                                        std::shared_ptr<arrow::Schema>* result) const;
     Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                            std::shared_ptr<arrow::Schema>* result) const;
-    Status convert_to_arrow_type(const DataTypePtr& type,
-                                 std::shared_ptr<arrow::DataType>* result) const;
+    virtual Status convert_to_arrow_type(const DataTypePtr& type,
+                                         std::shared_ptr<arrow::DataType>* result) const;
 
 protected:
     virtual std::string timestamp_timezone(PrimitiveType type) const;
@@ -82,7 +82,13 @@ private:
 
 class ArrowFlightSchemaConvertor : public DorisArrowSchemaConvertor {
 public:
-    using DorisArrowSchemaConvertor::DorisArrowSchemaConvertor;
+    explicit ArrowFlightSchemaConvertor(std::string timezone)
+            : DorisArrowSchemaConvertor(std::move(timezone)) {}
+    ArrowFlightSchemaConvertor(const Block& header, std::string timezone)
+            : DorisArrowSchemaConvertor(header, std::move(timezone)) {}
+
+    Status convert_to_arrow_type(const DataTypePtr& type,
+                                 std::shared_ptr<arrow::DataType>* result) const override;
 
 protected:
     std::string timestamp_timezone(PrimitiveType type) const override;
@@ -102,6 +108,8 @@ protected:
                                                    bool nullable,
                                                    PrimitiveType primitive) const override;
 };
+
+Status register_arrow_variant_extension();
 
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,

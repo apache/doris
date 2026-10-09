@@ -60,4 +60,41 @@ The tests execute only read-only queries.
 # Notes
 
      For more details, refer to [Python Usage] in the document https://doris.apache.org/zh-CN/docs/dev/db-connect/arrow-flight-sql-connect
-   
+
+
+# Native Variant V2 results
+
+On branch-4.1 builds with this feature and Variant V2 enabled on FE and BE, Arrow
+Flight SQL / ADBC returns Variant V2 as native binary values automatically:
+
+```sql
+SELECT parse_to_variant('{"key":42}') AS v;
+-- Request text explicitly when the client needs JSON strings.
+SELECT CAST(variant_column AS STRING) FROM example_table;
+```
+
+Variant V2 fields, including nested fields, use the `arrow.parquet.variant` extension
+with `struct<metadata: binary not null, value: binary not null>` storage. SQL NULL is
+a null struct. Variant null is a non-null struct containing the encoded null value.
+V2 values retain their physical scalar types and decimal scales. Each Arrow row carries
+only the dictionary keys it uses, rather than copying keys from unrelated rows.
+
+Legacy Variant is unsupported, including nested legacy fields, SQL NULL and empty
+query results. Use an explicit SQL cast to STRING for text output. `parse_to_variant`
+follows the configured Variant representation; it does not convert legacy storage to
+V2. Native encoding accepts up to 128 nested levels.
+
+ADBC can transport this schema and its binary values. A client without a registered
+Variant extension exposes the struct with `ARROW:extension:name` field metadata.
+Receiving native VARIANT does not automatically decode it to Python dictionaries or
+pandas objects; use a Parquet Variant decoder, or explicitly cast the result to STRING.
+
+To check ADBC query and partition reads against a running Variant V2 cluster:
+
+```bash
+pip install adbc_driver_flightsql pyarrow
+export DORIS_FLIGHT_URI='grpc://localhost:8815'
+export DORIS_USER='root'
+# Set DORIS_PASSWORD in the environment if authentication requires it.
+python test_variant.py
+```

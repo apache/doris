@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -35,8 +36,10 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTableStatus;
 
+import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.sql.FlightSqlColumnMetadata;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetDbSchemas;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandGetTables;
@@ -170,6 +173,15 @@ public class FlightSqlSchemaHelper {
     }
 
     static Field withDorisTypeMetadata(Field field, Type type) {
+        if (type.isVariantType()) {
+            requireVariantV2();
+            if (field.getMetadata() == null
+                    || !"arrow.parquet.variant".equals(field.getMetadata().get("ARROW:extension:name"))) {
+                throw CallStatus.UNIMPLEMENTED.withDescription(
+                        "Backend returned a non-native Variant schema; use Variant V2 "
+                                + "or cast the result to STRING").toRuntimeException();
+            }
+        }
         List<Field> children = new ArrayList<>(field.getChildren());
         if (type.isArrayType()) {
             children.set(0, withDorisTypeMetadata(children.get(0), ((ArrayType) type).getItemType()));
@@ -341,11 +353,35 @@ public class FlightSqlSchemaHelper {
 
     /** One column, with its nested types described down to the leaves. */
     private static Field buildField(String dbName, String tableName, TColumnDesc desc) {
+        if (desc.getColumnType() == TPrimitiveType.VARIANT) {
+            return nativeVariantField(desc.getColumnName(), desc.isIsAllowNull(),
+                    createFlightSqlColumnMetadata(dbName, tableName, desc));
+        }
         ArrowType arrowType = columnDescToArrowType(desc);
         return new Field(desc.getColumnName(),
                 new FieldType(desc.isIsAllowNull(), arrowType, null,
                         createFlightSqlColumnMetadata(dbName, tableName, desc)),
                 arrowChildren(dbName, tableName, desc, arrowType));
+    }
+
+    private static void requireVariantV2() {
+        // Schema discovery must reject legacy Variant before publishing a native binary layout.
+        if (!Config.enable_variant_v2) {
+            throw CallStatus.UNIMPLEMENTED.withDescription(
+                    "Native Arrow Flight output only supports Variant V2, not legacy Variant; "
+                            + "cast the result to STRING for text output").toRuntimeException();
+        }
+    }
+
+    static Field nativeVariantField(String name, boolean nullable, Map<String, String> columnMetadata) {
+        requireVariantV2();
+        Map<String, String> metadata = new HashMap<>(columnMetadata);
+        // Discovery and execution must share the extension metadata as well as its storage type.
+        metadata.put("ARROW:extension:name", "arrow.parquet.variant");
+        metadata.put("ARROW:extension:metadata", "");
+        return new Field(name, new FieldType(nullable, new ArrowType.Struct(), null, metadata),
+                Arrays.asList(Field.notNullable("metadata", new ArrowType.Binary()),
+                        Field.notNullable("value", new ArrowType.Binary())));
     }
 
     /**
@@ -389,7 +425,8 @@ public class FlightSqlSchemaHelper {
                 Field entries = new Field(MapVector.DATA_VECTOR_NAME,
                         new FieldType(false, new ArrowType.Struct(), null),
                         Arrays.asList(new Field(key.getName(),
-                                        new FieldType(false, key.getType(), null), key.getChildren()),
+                                        new FieldType(false, key.getType(), null, key.getMetadata()),
+                                        key.getChildren()),
                                 value));
                 return Collections.singletonList(entries);
             case Struct:

@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <orc/Vector.hh>
 #include <span>
 #include <utility>
@@ -52,6 +53,48 @@
 
 namespace doris {
 namespace {
+
+// ColumnVariantV2 already validates its encoded dictionaries and value structure. Only walk
+// the selected row here: validating every unused dictionary key per row is quadratic for
+// shared dictionaries, including when a nested ARRAY invokes this writer on one-row slices.
+Status append_flight_variant_value(VariantRef value, VariantBatchBuilder::Row& output,
+                                   size_t depth = 0) {
+    const auto basic_type = value.basic_type();
+    if (depth > VARIANT_MAX_NESTING_DEPTH) {
+        return Status::NotSupported(
+                "Native Arrow Variant nesting exceeds {}; "
+                "cast the result to STRING for text output",
+                VARIANT_MAX_NESTING_DEPTH);
+    }
+    if (value.value_size() != value.value.size) {
+        throw Exception(ErrorCode::CORRUPTION,
+                        "Native Arrow Variant contains trailing value bytes");
+    }
+    if (basic_type == VariantBasicType::OBJECT) {
+        auto object = output.start_object();
+        auto fields = value.object_view();
+        for (uint32_t i = 0; i < fields.size(); ++i) {
+            uint32_t field_id;
+            auto child = fields.value_at(i, &field_id);
+            object.add_key(value.metadata.key_at(field_id));
+            RETURN_IF_ERROR(append_flight_variant_value(child, output, depth + 1));
+        }
+        object.finish();
+    } else if (basic_type == VariantBasicType::ARRAY) {
+        auto array = output.start_array();
+        for (uint32_t i = 0; i < value.num_elements(); ++i) {
+            RETURN_IF_ERROR(append_flight_variant_value(value.array_at(i), output, depth + 1));
+        }
+        array.finish();
+    } else {
+        // Primitives never reference dictionary keys. Reuse physical import to retain widths,
+        // decimal scales and non-JSON types; canonical equality encoding normalizes those away.
+        static constexpr char empty_metadata[] = {0x11, 0, 0};
+        value.metadata = {empty_metadata, sizeof(empty_metadata)};
+        output.add_value(value);
+    }
+    return Status::OK();
+}
 
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
@@ -625,13 +668,14 @@ Status write_paimon_variant(const IColumn& column, const NullMap* null_map,
     return status;
 }
 
-Status write_iceberg_variant(const IColumn& column, const NullMap* null_map,
-                             arrow::ArrayBuilder* array_builder, int64_t start, int64_t end) {
+Status write_parquet_variant_arrow(const IColumn& column, const NullMap* null_map,
+                                   arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                   bool compact_metadata) {
     if (start < 0 || end < start) {
-        return Status::InvalidArgument("Invalid Iceberg Variant row range [{}, {})", start, end);
+        return Status::InvalidArgument("Invalid Variant Arrow row range [{}, {})", start, end);
     }
     if (array_builder->type()->id() != arrow::Type::STRUCT) {
-        return Status::InvalidArgument("Iceberg Variant writer requires a struct builder, got {}",
+        return Status::InvalidArgument("Variant Arrow writer requires a struct builder, got {}",
                                        array_builder->type()->ToString());
     }
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
@@ -640,7 +684,7 @@ Status write_iceberg_variant(const IColumn& column, const NullMap* null_map,
         type->field(1)->name() != "value" || type->field(0)->type()->id() != arrow::Type::BINARY ||
         type->field(1)->type()->id() != arrow::Type::BINARY) {
         return Status::InvalidArgument(
-                "Iceberg Variant writer requires struct<metadata: binary, value: binary>, got {}",
+                "Variant Arrow writer requires struct<metadata: binary, value: binary>, got {}",
                 type->ToString());
     }
     auto& metadata_builder = assert_cast<arrow::BinaryBuilder&>(*builder.field_builder(0));
@@ -657,10 +701,27 @@ Status write_iceberg_variant(const IColumn& column, const NullMap* null_map,
                 if (!status.ok()) {
                     return;
                 }
+                std::optional<VariantBatchBuilder> compacted;
+                if (compact_metadata) {
+                    const auto keys = value.metadata.dict_size();
+                    // An empty dictionary or an object using every key already has row-local metadata.
+                    if (keys != 0 && (value.basic_type() != VariantBasicType::OBJECT ||
+                                      value.num_elements() != keys)) {
+                        VariantBatchBuilder encoder;
+                        auto row = encoder.begin_row();
+                        status = append_flight_variant_value(value, row);
+                        if (!status.ok()) {
+                            return;
+                        }
+                        row.finish();
+                        compacted.emplace(encoder.finish_batch());
+                        value = compacted->value_at(0);
+                    }
+                }
                 if (value.metadata.size > std::numeric_limits<int32_t>::max() ||
                     value.value.size > std::numeric_limits<int32_t>::max()) {
                     status = Status::InvalidArgument(
-                            "Iceberg Variant metadata/value exceeds Arrow binary size limit");
+                            "Variant Arrow metadata/value exceeds Arrow binary size limit");
                     return;
                 }
                 status = checkArrowStatus(builder.Append(), column, builder);
@@ -733,6 +794,9 @@ Status DataTypeVariantV2SerDe::write_column_to_arrow(const IColumn& column, cons
         options.timezone = &ctz;
         const size_t first = checked_row(start);
         const size_t last = checked_row(end);
+        if (array_builder->type()->id() == arrow::Type::STRUCT) {
+            return write_parquet_variant_arrow(column, null_map, array_builder, start, end, true);
+        }
         if (array_builder->type()->id() == arrow::Type::STRING) {
             return write_arrow(column, null_map, assert_cast<arrow::StringBuilder&>(*array_builder),
                                first, last, options);
@@ -759,7 +823,7 @@ Status DataTypeVariantV2SerDe::write_column_to_iceberg_arrow(
         const std::shared_ptr<const IDataType>&, const IColumn& column, const NullMap* null_map,
         const std::shared_ptr<arrow::Field>&, arrow::ArrayBuilder* array_builder, int64_t start,
         int64_t end, const cctz::time_zone&) const {
-    return write_iceberg_variant(column, null_map, array_builder, start, end);
+    return write_parquet_variant_arrow(column, null_map, array_builder, start, end, false);
 }
 
 Status DataTypeVariantV2SerDe::write_column_to_orc(const std::string&, const IColumn& column,
