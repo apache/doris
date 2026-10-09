@@ -37,6 +37,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
@@ -280,9 +281,14 @@ public class UserManager implements Writable {
                 // we should not override it, just return
                 return userByUserIdentity;
             }
+            if (userByUserIdentity.isSetByDomainResolver() && !setByResolver) {
+                // An explicit account starts a new policy lifetime, independent of the domain.
+                Env.getCurrentEnv().getAuth().getPasswdPolicyManager().dropUser(userIdent);
+            }
             userByUserIdentity.setPassword(pwd);
             userByUserIdentity.setComment(comment);
             userByUserIdentity.setSetByDomainResolver(setByResolver);
+            userByUserIdentity.setDomainUserIdentity(domainUserIdent);
             userByUserIdentity.setUserIdentity(userIdent);
             return userByUserIdentity;
         }
@@ -384,12 +390,33 @@ public class UserManager implements Writable {
                 if (user.isSetByDomainResolver() && identity.equals(user.getDomainUserIdentity())) {
                     user.setAuthenticationBinding(domain.getAuthIntegration(), domain.getAuthIdentity());
                     user.setPassword(domain.getPassword().getPassword());
+                    user.setUserIdentity(createResolvedUserIdentity(identity.getQualifiedUser(),
+                            user.getUserIdentity().getHost(), domain.getUserIdentity()));
+                    user.setDomainUserIdentity(domain.getUserIdentity());
                     policies.setBoundAuthentication(user.getUserIdentity(), domain.isAuthenticationBound(),
                             policies.isAccountLocked(identity));
                 }
             }
         } finally {
             wlock.unlock();
+        }
+    }
+
+    public void checkDomainAuthenticationBinding(UserIdentity identity) throws DdlException {
+        if (!identity.isDomain()) {
+            return;
+        }
+        List<UserIdentity> ambiguous = new ArrayList<>();
+        for (User user : getUserByName(identity.getQualifiedUser())) {
+            if (!user.getUserIdentity().isDomain() && !user.hasKnownDomainResolverOrigin()
+                    && InetAddressValidator.getInstance().isValid(user.getUserIdentity().getHost())) {
+                ambiguous.add(user.getUserIdentity());
+            }
+        }
+        if (!ambiguous.isEmpty()) {
+            throw new DdlException("Cannot bind domain account " + identity
+                    + ": legacy image does not record resolver origin for " + ambiguous
+                    + "; drop stale aliases or recreate these IP accounts explicitly before binding");
         }
     }
 
@@ -423,12 +450,8 @@ public class UserManager implements Writable {
                     // this user ident will be saved along with each resolved "IP" user ident, so that when checking
                     // password, this "domain" user ident will be returned as "current user".
                     for (String newIP : entry.getValue()) {
-                        UserIdentity userIdent = UserIdentity.createAnalyzedUserIdentWithIp(userEntry.getKey(), newIP);
                         UserIdentity domainUserIdent = domainUser.getUserIdentity();
-                        userIdent.setSan(domainUserIdent.getSan());
-                        userIdent.setIssuer(domainUserIdent.getIssuer());
-                        userIdent.setCipher(domainUserIdent.getCipher());
-                        userIdent.setSubject(domainUserIdent.getSubject());
+                        UserIdentity userIdent = createResolvedUserIdentity(userEntry.getKey(), newIP, domainUserIdent);
                         byte[] password = domainUser.getPassword().getPassword();
                         Preconditions.checkNotNull(password, entry.getKey());
                         try {
@@ -453,6 +476,15 @@ public class UserManager implements Writable {
         } finally {
             wlock.unlock();
         }
+    }
+
+    private UserIdentity createResolvedUserIdentity(String userName, String ip, UserIdentity domainIdentity) {
+        UserIdentity identity = UserIdentity.createAnalyzedUserIdentWithIp(userName, ip);
+        identity.setSan(domainIdentity.getSan());
+        identity.setIssuer(domainIdentity.getIssuer());
+        identity.setCipher(domainIdentity.getCipher());
+        identity.setSubject(domainIdentity.getSubject());
+        return identity;
     }
 
     private User getDomainUser(List<User> users, String domain) {

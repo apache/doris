@@ -74,10 +74,23 @@ suite("test_user_authentication_binding", "p0,auth") {
     sql """ALTER USER 'binding_regression' IDENTIFIED WITH AUTHENTICATION INTEGRATION
         binding_regression_backup AS 'external:backup'"""
     order_qt_rebound "SHOW CREATE USER 'binding_regression'"
+    def previousSqlMode = sql("SELECT @@sql_mode")[0][0]
+    try {
+        sql "SET sql_mode='NO_BACKSLASH_ESCAPES'"
+        sql """ALTER USER 'binding_regression' IDENTIFIED WITH AUTHENTICATION INTEGRATION
+            binding_regression_backup AS 'external\\identity'"""
+        order_qt_escaped_identity "SHOW CREATE USER 'binding_regression'"
+    } finally {
+        sql "SET sql_mode='${previousSqlMode}'"
+    }
     sql """ALTER USER 'binding_regression' IDENTIFIED WITH AUTHENTICATION INTEGRATION
         binding_regression_backup"""
     order_qt_cleared_identity "SHOW CREATE USER 'binding_regression'"
     sql "CREATE USER 'binding_regression'@'10.%' IDENTIFIED BY 'local'"
+    test {
+        sql "ALTER USER 'binding_regression'@'10.%' IDENTIFIED BY 'changed' ACCOUNT_LOCK"
+        exception "Only support doing one type of operation at one time"
+    }
     sql "ALTER USER 'binding_regression' IDENTIFIED BY 'local'"
     order_qt_unbound "SHOW CREATE USER 'binding_regression'"
     sql "DROP AUTHENTICATION INTEGRATION binding_regression_primary"

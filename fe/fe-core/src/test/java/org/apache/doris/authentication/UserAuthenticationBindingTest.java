@@ -46,6 +46,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -56,6 +57,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -147,7 +149,7 @@ class UserAuthenticationBindingTest {
                 .get(8).get(1).equals("true"));
         String create = new ShowCreateUserCommand(user.getUserIdentity()).doRun(context, null)
                 .getResultRows().get(0).get(1);
-        Assertions.assertTrue(create.contains("IDENTIFIED WITH AUTHENTICATION INTEGRATION `bound` AS 'external'"));
+        Assertions.assertTrue(create.contains("IDENTIFIED WITH AUTHENTICATION INTEGRATION `bound` AS \"external\""));
         Assertions.assertFalse(create.contains("PASSWORD_HISTORY"));
         Assertions.assertEquals("No", auth.getAuthInfo(user.getUserIdentity()).get(0).get(2));
         Assertions.assertEquals("bound", auth.getAuthInfo(user.getUserIdentity()).get(0).get(4));
@@ -264,6 +266,132 @@ class UserAuthenticationBindingTest {
     }
 
     @Test
+    void testDomainBindingAndTlsAlterRefreshExistingAliases() throws Exception {
+        execute("CREATE USER 'domain_user'@('example.test') IDENTIFIED BY 'old'");
+        auth.getUserManager().addUserPrivEntriesByResolvedIPs(Collections.singletonMap("example.test",
+                Collections.singleton("10.1.2.3")));
+        execute("ALTER USER 'domain_user'@('example.test') IDENTIFIED WITH AUTHENTICATION "
+                + "INTEGRATION bound REQUIRE SAN 'DNS:bound.example'");
+        UserIdentity ip = UserIdentity.createAnalyzedUserIdentWithIp("domain_user", "10.1.2.3");
+        User alias = auth.getUserManager().getUserByUserIdentity(ip);
+        Assertions.assertEquals("DNS:bound.example", alias.getUserIdentity().getSanRequirementSql());
+        Assertions.assertEquals("DNS:bound.example", alias.getDomainUserIdentity().getSanRequirementSql());
+        execute("ALTER USER 'domain_user'@('example.test') REQUIRE SAN 'DNS:changed.example'");
+        Assertions.assertEquals("DNS:changed.example", alias.getUserIdentity().getSanRequirementSql());
+        Assertions.assertEquals("bound", auth.getAuthenticationBinding("domain_user", "10.1.2.3")
+                .getAuthIntegration());
+    }
+
+    @Test
+    void testShowCreateRoundTripsIdentityInBothSqlModes() throws Exception {
+        execute("CREATE USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound "
+                + "AS 'o''brien\\\\id'");
+        String identity = user("alice").getAuthIdentity();
+        for (long mode : new long[] {0, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES}) {
+            context.getSessionVariable().setSqlMode(mode);
+            String sql = new ShowCreateUserCommand(user("alice").getUserIdentity()).doRun(context, null)
+                    .getResultRows().get(0).get(1);
+            execute("DROP USER 'alice'");
+            execute(sql);
+            Assertions.assertEquals(identity, user("alice").getAuthIdentity());
+            Assertions.assertTrue(new AuthenticationIntegrationAuthenticator(
+                    auth.getAuthenticationBinding("alice", "10.1.2.3"))
+                    .authenticate(request("alice", identity)).isSuccess());
+        }
+    }
+
+    @Test
+    void testLocalAlterKeepsLegacySingleOperationRule() throws Exception {
+        execute("CREATE USER 'alice' IDENTIFIED BY 'old'");
+        Mockito.clearInvocations(editLog);
+        for (String option : Arrays.asList("ACCOUNT_LOCK", "REQUIRE SAN 'DNS:bound.example'",
+                "PASSWORD_HISTORY 3", "COMMENT 'changed'")) {
+            Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                    () -> execute("ALTER USER 'alice' IDENTIFIED BY 'new' " + option));
+        }
+        Mockito.verifyNoInteractions(editLog);
+        Assertions.assertTrue(auth.checkPlainPasswordForTest("alice", "10.1.2.3", "old", null));
+    }
+
+    @Test
+    void testBindingMetadataAlsoReplaysOnLegacyFes() throws Exception {
+        execute("CREATE USER 'alice' IDENTIFIED BY 'old'");
+        execute("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS 'external' "
+                + "REQUIRE SAN 'DNS:bound.example' COMMENT 'replayed'");
+        InOrder journalOrder = Mockito.inOrder(editLog);
+        journalOrder.verify(editLog).logCreateUser(Mockito.any());
+        journalOrder.verify(editLog).logAlterUser(Mockito.argThat(log -> log.getAuthIntegration() != null
+                && log.getOp() == org.apache.doris.alter.AlterUserOpType.SET_PASSWORD_POLICY
+                && log.getPasswordOptions().getAccountUnlocked() == -1));
+        journalOrder.verify(editLog, Mockito.times(2)).logAlterUser(Mockito.argThat(log ->
+                log.getOp() == org.apache.doris.alter.AlterUserOpType.SET_TLS_REQUIRE
+                        || log.getOp() == org.apache.doris.alter.AlterUserOpType.MODIFY_COMMENT));
+        journalOrder.verify(editLog).logSetPassword(Mockito.any());
+        Auth legacy = replayLegacyJournal();
+        UserIdentity identity = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
+        User restored = legacy.getUserManager().getUserByUserIdentity(identity);
+        Assertions.assertEquals("replayed", restored.getComment());
+        Assertions.assertEquals("DNS:bound.example", restored.getUserIdentity().getSanRequirementSql());
+        Assertions.assertThrows(org.apache.doris.common.AuthenticationException.class,
+                () -> legacy.checkAccountLocked(identity));
+        execute("ALTER USER 'alice' IDENTIFIED BY 'new'");
+        Auth unbound = replayLegacyJournal();
+        Mockito.when(env.getAuth()).thenReturn(unbound);
+        Assertions.assertEquals("DNS:bound.example", unbound.getUserManager()
+                .getUserByUserIdentity(identity).getUserIdentity().getSanRequirementSql());
+        Assertions.assertDoesNotThrow(() -> unbound.checkAccountLocked(identity));
+    }
+
+    @Test
+    void testLegacyDomainAliasesRefuseBindingUntilExplicitlyRecreated() throws Exception {
+        execute("CREATE USER 'domain_user'@('example.test') IDENTIFIED BY 'old'");
+        execute("CREATE USER 'domain_user'@'%' IDENTIFIED BY 'independent'");
+        auth.getUserManager().addUserPrivEntriesByResolvedIPs(Collections.singletonMap("example.test",
+                Collections.singleton("10.1.2.3")));
+        auth = loadImage(auth, true);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        String bind = "ALTER USER 'domain_user'@('example.test') "
+                + "IDENTIFIED WITH AUTHENTICATION INTEGRATION bound";
+        DdlException error = Assertions.assertThrows(DdlException.class, () -> execute(bind));
+        Assertions.assertTrue(error.getMessage().contains("'domain_user'@'10.1.2.3'"));
+        Assertions.assertNull(auth.getUserManager().getUserByUserIdentity(
+                UserIdentity.createAnalyzedUserIdentWithDomain("domain_user", "example.test")).getAuthIntegration());
+        // A current-version checkpoint must not erase the unresolved legacy ambiguity.
+        auth = loadImage(auth, false);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Assertions.assertThrows(DdlException.class, () -> execute(bind));
+        execute("DROP USER 'domain_user'@'10.1.2.3'");
+        execute("CREATE USER 'domain_user'@'10.1.2.3' IDENTIFIED BY 'explicit'");
+        execute(bind);
+        Assertions.assertTrue(auth.checkPlainPasswordForTest("domain_user", "10.1.2.3", "explicit", null));
+        Assertions.assertTrue(auth.checkPlainPasswordForTest("domain_user", "192.168.1.2", "independent", null));
+    }
+
+    @Test
+    void testExplicitIpOverrideStartsIndependentPasswordPolicy() throws Exception {
+        for (String lock : Arrays.asList("ACCOUNT_LOCK", "ACCOUNT_UNLOCK")) {
+            execute("CREATE USER 'domain_user'@('example.test') IDENTIFIED WITH "
+                    + "AUTHENTICATION INTEGRATION bound " + lock);
+            auth.getUserManager().addUserPrivEntriesByResolvedIPs(Collections.singletonMap("example.test",
+                    Collections.singleton("10.1.2.3")));
+            execute("CREATE USER 'domain_user'@'10.1.2.3' IDENTIFIED BY 'local' ACCOUNT_UNLOCK");
+            UserIdentity identity = UserIdentity.createAnalyzedUserIdentWithIp("domain_user", "10.1.2.3");
+            User explicit = auth.getUserManager().getUserByUserIdentity(identity);
+            Assertions.assertFalse(explicit.isSetByDomainResolver());
+            Assertions.assertTrue(explicit.hasKnownDomainResolverOrigin());
+            Assertions.assertNull(explicit.getAuthIntegration());
+            Assertions.assertTrue(auth.checkPlainPasswordForTest("domain_user", "10.1.2.3", "local", null));
+            Auth legacy = loadImage(auth, true);
+            Assertions.assertDoesNotThrow(() -> legacy.checkAccountLocked(identity));
+            Auth replay = replayLegacyJournal();
+            Assertions.assertDoesNotThrow(() -> replay.checkAccountLocked(identity));
+            execute("DROP USER 'domain_user'@'10.1.2.3'");
+            execute("DROP USER 'domain_user'@('example.test')");
+            Mockito.clearInvocations(editLog);
+        }
+    }
+
+    @Test
     void testJournalReplayWithoutPluginsAndDowngradeGuard() throws Exception {
         execute("CREATE USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS 'external'");
         ArgumentCaptor<PrivInfo> creates = ArgumentCaptor.forClass(PrivInfo.class);
@@ -272,8 +400,8 @@ class UserAuthenticationBindingTest {
         execute("ALTER USER 'alice' IDENTIFIED WITH AUTHENTICATION INTEGRATION bound AS 'second' "
                 + "COMMENT 'replayed'");
         ArgumentCaptor<AlterUserOperationLog> alters = ArgumentCaptor.forClass(AlterUserOperationLog.class);
-        Mockito.verify(editLog).logAlterUser(alters.capture());
-        AlterUserOperationLog alterLog = alters.getValue();
+        Mockito.verify(editLog, Mockito.times(2)).logAlterUser(alters.capture());
+        AlterUserOperationLog alterLog = alters.getAllValues().get(0);
         ArgumentCaptor<PrivInfo> passwords = ArgumentCaptor.forClass(PrivInfo.class);
         Mockito.verify(editLog).logSetPassword(passwords.capture());
         PrivInfo passwordLog = passwords.getValue();

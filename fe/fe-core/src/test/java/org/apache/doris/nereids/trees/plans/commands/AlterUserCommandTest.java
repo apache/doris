@@ -71,8 +71,8 @@ public class AlterUserCommandTest extends TestWithFeService {
         //test ops.size() > 1
         AlterUserInfo alterUserInfo02 = new AlterUserInfo(true, userDesc, passwordOptions, "alterUserInfo02");
         AlterUserCommand alterUserCommand02 = new AlterUserCommand(alterUserInfo02);
-        Assertions.assertDoesNotThrow(() -> alterUserCommand02.validate());
-        Assertions.assertEquals(2, alterUserInfo02.getOps().size());
+        Assertions.assertThrows(AnalysisException.class, () -> alterUserCommand02.validate(),
+                "Only support doing one type of operation at one time,actual number of type is 2");
 
         //testUser to modify root user
         connectContext.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));

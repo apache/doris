@@ -28,6 +28,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -103,8 +104,7 @@ public class ShowCreateUserCommand extends ShowCommand {
             sb.append(" IDENTIFIED WITH AUTHENTICATION INTEGRATION `")
                     .append(entry.getAuthIntegration().replace("`", "``")).append("`");
             if (entry.getAuthIdentity() != null) {
-                sb.append(" AS '").append(entry.getAuthIdentity().replace("\\", "\\\\")
-                        .replace("'", "''")).append("'");
+                sb.append(" AS ").append(SqlLiteralUtils.quoteStringLiteral(entry.getAuthIdentity()));
             }
         } else {
             sb.append(" IDENTIFIED BY *** ");

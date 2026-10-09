@@ -183,6 +183,19 @@ ACCOUNT_LOCK. ACCOUNT_LOCK and ACCOUNT_UNLOCK remain effective. An ALTER without
 IDENTIFIED preserves the binding; a new binding without AS clears the old identity.
 An integration with bound users cannot be dropped.
 
+Local-password ALTER statements keep the existing one-operation restriction.
+Binding ALTER statements may combine identification with account lock, TLS and
+comment changes. Their atomic journal is followed by legacy-readable TLS/comment
+records while the legacy account-lock guard is still set.
+
+Legacy serving-FE image dumps may contain resolved IP aliases without recording
+whether they were created by the domain resolver. Binding a domain account is
+rejected when such ambiguous IP entries exist for its username. Administrators
+must drop stale aliases or recreate the intended independent IP accounts before
+binding; the kernel never guesses which old entries were explicit accounts.
+Replacing a current resolver alias with an explicit account starts a fresh,
+independent password policy.
+
 SHOW CREATE USER emits the binding and its normalized identity. SHOW GRANTS adds
 AuthIntegration after RequireSan and reports Password as No. The mysql.user
 compatibility table exposes the integration in plugin and the identity in

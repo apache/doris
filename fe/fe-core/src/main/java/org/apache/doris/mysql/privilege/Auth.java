@@ -696,6 +696,10 @@ public class Auth implements Writable {
                 throw new DdlException("User " + userIdent + " already exist");
             }
 
+            if (!isReplay && authIntegration != null) {
+                userManager.checkDomainAuthenticationBinding(userIdent);
+            }
+
             // create user
             try {
                 // we should not throw AnalysisException at here,so transfer it
@@ -2099,8 +2103,8 @@ public class Auth implements Writable {
             String integration = info.getAuthIntegration();
             String identity = integration == null ? null : normalizeAuthenticationBinding(info.getUserIdent(),
                     integration, info.getAuthIdentity(), info.getPasswordOptions());
-            if (integration != null || info.getOps().size() > 1) {
-                alterUserIdentification(info, integration, identity);
+            if (integration != null) {
+                alterUserBinding(info, integration, identity);
             } else {
                 alterUserInternal(info.isIfExist(), info.getOpType(), info.getUserIdent(), info.getPassword(), null,
                         info.getPasswordOptions(), info.getComment(), false, null, null);
@@ -2110,7 +2114,7 @@ public class Auth implements Writable {
         }
     }
 
-    private void alterUserIdentification(AlterUserInfo info, String integration, String identity) throws DdlException {
+    private void alterUserBinding(AlterUserInfo info, String integration, String identity) throws DdlException {
         UserIdentity userIdent = info.getUserIdent();
         writeLock();
         try {
@@ -2120,16 +2124,8 @@ public class Auth implements Writable {
                 }
                 throw new DdlException("User " + userIdent + " does not exist");
             }
-            boolean wasBound = isAuthenticationBound(userIdent);
-            byte[] password = integration == null ? info.getPassword() : newBoundPassword();
-            if (integration == null && !passwdPolicyManager.checkPasswordHistory(userIdent, password)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CREDENTIALS_CONTRADICT_TO_HISTORY,
-                        userIdent.getQualifiedUser(), userIdent.getHost());
-            }
-            // Validate the entire statement before applying any changes.
-            if (integration != null && info.getPasswordOptions().hasPasswordPolicy()) {
-                throw new DdlException("Password policies are not supported for authentication-bound users");
-            }
+            userManager.checkDomainAuthenticationBinding(userIdent);
+            byte[] password = newBoundPassword();
             setPasswordInternal(userIdent, password, null, true, false, true, true, integration, identity);
             for (AlterUserOpType operation : info.getOps()) {
                 if (operation != AlterUserOpType.SET_PASSWORD) {
@@ -2137,27 +2133,27 @@ public class Auth implements Writable {
                             info.getComment(), true);
                 }
             }
-            PasswordOptions journalOptions = integration == null ? info.getPasswordOptions()
-                    : new PasswordOptions(PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET,
-                            PasswordOptions.UNSET, PasswordOptions.UNSET, -1);
-            AlterUserOperationLog log = new AlterUserOperationLog(integration == null
-                    ? AlterUserOpType.SET_PASSWORD : AlterUserOpType.SET_PASSWORD_POLICY,
+            PasswordOptions journalOptions = new PasswordOptions(PasswordOptions.UNSET, PasswordOptions.UNSET,
+                    PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET, -1);
+            AlterUserOperationLog log = new AlterUserOperationLog(AlterUserOpType.SET_PASSWORD_POLICY,
                     userIdent, password, null, journalOptions, info.getComment());
             log.setOps(info.getOps());
-            if (integration != null) {
-                boolean locked = passwdPolicyManager.isAccountLocked(userIdent);
-                log.setAuthenticationBinding(integration, identity, locked);
-            }
+            log.setAuthenticationBinding(integration, identity, passwdPolicyManager.isAccountLocked(userIdent));
             Env.getCurrentEnv().getEditLog().logAlterUser(log);
-            if (integration != null) {
-                // A legacy SET_PASSWORD_POLICY replay locks the account but does not install the hash.
-                PrivInfo passwordLog = new PrivInfo(userIdent, null, password, null, null);
-                passwordLog.setAuthenticationBinding(integration, identity);
-                Env.getCurrentEnv().getEditLog().logSetPassword(passwordLog);
-            } else if (wasBound) {
-                journalManualAccountLock(userIdent);
+            // The atomic record already applied these operations on new FEs. Old FEs only
+            // applied its lock guard, so repeat the idempotent metadata operations while
+            // that guard remains in place, before they install the random password hash.
+            for (AlterUserOpType operation : info.getOps()) {
+                if (operation == AlterUserOpType.SET_TLS_REQUIRE || operation == AlterUserOpType.MODIFY_COMMENT) {
+                    Env.getCurrentEnv().getEditLog().logAlterUser(new AlterUserOperationLog(operation,
+                            userIdent, null, null, PasswordOptions.UNSET_OPTION, info.getComment()));
+                }
             }
-            if (integration != null && ConnectContext.get() != null) {
+            // A legacy SET_PASSWORD_POLICY replay locks the account but does not install the hash.
+            PrivInfo passwordLog = new PrivInfo(userIdent, null, password, null, null);
+            passwordLog.setAuthenticationBinding(integration, identity);
+            Env.getCurrentEnv().getEditLog().logSetPassword(passwordLog);
+            if (ConnectContext.get() != null) {
                 ConnectContext.get().getState().setOk(0, 1, "Local password policies and password history cleared");
             }
         } finally {
@@ -2304,6 +2300,9 @@ public class Auth implements Writable {
             throw new DdlException("user: " + userIdent + " does not exist");
         }
         user.setUserIdentity(userIdent);
+        if (userIdent.isDomain()) {
+            userManager.refreshAuthenticationBinding(userIdent);
+        }
     }
 
     private void modifyComment(UserIdentity userIdent, String comment) throws DdlException {
