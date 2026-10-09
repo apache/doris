@@ -142,8 +142,13 @@ void CachedRemoteFileReader::_init_doris_table_cache() {
 }
 
 void CachedRemoteFileReader::_init_external_table_cache(const FileReaderOptions& opts) {
-    // Use path and modification time to build cache key.
-    std::string unique_path = fmt::format("{}:{}", path().native(), opts.mtime);
+    // Use the storage, path and modification time to build cache key. The path alone does not tell
+    // the same bucket and key on two object storage endpoints, or the same path on two HDFS
+    // clusters, apart.
+    std::string unique_path =
+            opts.fs_identity.empty()
+                    ? fmt::format("{}:{}", path().native(), opts.mtime)
+                    : fmt::format("{}:{}:{}", opts.fs_identity, path().native(), opts.mtime);
     _cache_hash = BlockFileCache::hash(unique_path);
     if (opts.cache_base_path.empty()) {
         // If cache path is not specified by session variable, choose randomly.

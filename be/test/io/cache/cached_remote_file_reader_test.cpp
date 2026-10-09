@@ -22,6 +22,7 @@
 #include "cloud/config.h"
 #include "io/cache/async_cache_write_manager_metrics.h"
 #include "io/cache/inflight_write_buffer_index.h"
+#include "io/file_factory.h"
 #include "util/time.h"
 
 namespace doris::io {
@@ -226,6 +227,66 @@ TEST_F(AsyncCachedRemoteFileReaderTest, external_reader_normalizes_tablet_id_for
     for (const auto& [offset, block] : blocks) {
         EXPECT_EQ(block->tablet_id(), 0) << "offset=" << offset;
     }
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest, external_cache_key_tells_storages_apart) {
+    create_cache("cached_external_reader_storage_key");
+    constexpr int64_t mtime = 1700000000000;
+    auto external_reader = [this](const std::string& fs_identity) {
+        FileReaderOptions options;
+        options.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+        options.mtime = mtime;
+        options.fs_identity = fs_identity;
+        return std::make_shared<CachedRemoteFileReader>(open_remote_file(), options);
+    };
+
+    // The same path and modification time on two storages are two different files.
+    auto storage_a = external_reader("http://storage-a:9000");
+    auto storage_b = external_reader("http://storage-b:9000");
+    EXPECT_NE(storage_a->_cache_hash, storage_b->_cache_hash);
+    EXPECT_EQ(storage_a->_cache_hash, external_reader("http://storage-a:9000")->_cache_hash);
+    EXPECT_EQ(storage_a->_cache_hash,
+              BlockFileCache::hash(fmt::format("http://storage-a:9000:{}:{}",
+                                               storage_a->path().native(), mtime)));
+
+    // A reader that does not know its storage keeps the path:mtime key.
+    auto unknown = external_reader("");
+    EXPECT_EQ(unknown->_cache_hash,
+              BlockFileCache::hash(fmt::format("{}:{}", unknown->path().native(), mtime)));
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest, file_factory_keys_s3_files_by_endpoint) {
+    create_cache("file_factory_s3_endpoint_key");
+    constexpr int64_t mtime = 1700000000000;
+    auto s3_reader = [](const std::string& endpoint) -> std::shared_ptr<CachedRemoteFileReader> {
+        FileSystemProperties properties;
+        properties.system_type = TFileType::FILE_S3;
+        properties.properties = {{"AWS_ENDPOINT", endpoint},
+                                 {"AWS_REGION", "us-east-1"},
+                                 {"AWS_ACCESS_KEY", "ak"},
+                                 {"AWS_SECRET_KEY", "sk"}};
+        FileDescription file_description;
+        file_description.path = "s3://bucket/data/file.parquet";
+        // A known size skips the HEAD request, so no object storage is needed.
+        file_description.file_size = 128;
+        file_description.mtime = mtime;
+        FileReaderOptions options;
+        options.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+        options.mtime = mtime;
+        auto reader = FileFactory::create_file_reader(properties, file_description, options);
+        EXPECT_TRUE(reader.has_value()) << reader.error();
+        return std::dynamic_pointer_cast<CachedRemoteFileReader>(reader.value());
+    };
+
+    // Two endpoints serving the same bucket, key and modification time do not share cache blocks.
+    auto endpoint_a = s3_reader("http://127.0.0.1:9000");
+    auto endpoint_b = s3_reader("http://127.0.0.2:9000");
+    ASSERT_NE(endpoint_a, nullptr);
+    ASSERT_NE(endpoint_b, nullptr);
+    EXPECT_NE(endpoint_a->_cache_hash, endpoint_b->_cache_hash);
+    EXPECT_EQ(endpoint_a->_cache_hash,
+              BlockFileCache::hash(fmt::format(
+                      "http://127.0.0.1:9000:s3://bucket/data/file.parquet:{}", mtime)));
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_short_file_tail) {

@@ -81,6 +81,10 @@ struct FileReaderOptions {
     // Storage resource id of the remote file system. Used by peer fill to reconstruct
     // the source file system without scanning tablet rowsets on the peer.
     std::string storage_resource_id;
+    // The storage an external file is read from, such as the object storage endpoint or the HDFS
+    // name node, set by FileFactory. The file cache key of an external file includes it because the
+    // path alone does not tell two storages apart; when it is empty the key is path:mtime.
+    std::string fs_identity {};
 
     static const FileReaderOptions DEFAULT;
 };

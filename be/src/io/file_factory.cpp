@@ -52,7 +52,6 @@
 #include "service/backend_options.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
-#include "util/string_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -232,10 +231,12 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
                 system_properties.properties, s3_uri, &s3_conf));
         auto client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
         RETURN_IF_ERROR_RESULT(client_holder->init());
+        auto options = reader_options;
+        options.fs_identity = s3_conf.client_conf.endpoint;
         return io::S3FileReader::create(std::move(client_holder), s3_conf.bucket, s3_uri.get_key(),
                                         file_description.file_size, profile)
-                .and_then([&](auto&& reader) {
-                    return io::create_cached_file_reader(std::move(reader), reader_options);
+                .and_then([&options](auto&& reader) {
+                    return io::create_cached_file_reader(std::move(reader), options);
                 });
     }
     case TFileType::FILE_HDFS: {
@@ -248,10 +249,13 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
         }
         RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 system_properties.hdfs_params, *fs_name, &handler));
+        // The reader's path drops the name node, so the cache key takes it from here.
+        auto options = reader_options;
+        options.fs_identity = *fs_name;
         return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, *fs_name,
-                                          reader_options)
-                .and_then([&](auto&& reader) {
-                    return io::create_cached_file_reader(std::move(reader), reader_options);
+                                          options)
+                .and_then([&options](auto&& reader) {
+                    return io::create_cached_file_reader(std::move(reader), options);
                 });
     }
     case TFileType::FILE_BROKER: {
@@ -272,17 +276,11 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
                 });
     }
     case TFileType::FILE_HTTP: {
-        auto options = reader_options;
-        auto chunk_response = system_properties.properties.find("http.enable.chunk.response");
-        if (chunk_response != system_properties.properties.end() &&
-            (iequal(chunk_response->second, "true") || chunk_response->second == "1")) {
-            options.cache_type = io::FileCachePolicy::NO_CACHE;
-        }
+        // HTTP responses never enter the file cache. The cache key names an external file by its
+        // path and modification time, but an HTTP source has no modification time, so a URL whose
+        // content changes would keep serving the blocks cached from the old content.
         return io::HttpFileReader::create(file_description.path, system_properties.properties,
-                                          options, profile)
-                .and_then([&options](auto&& reader) {
-                    return io::create_cached_file_reader(std::move(reader), options);
-                });
+                                          reader_options, profile);
     }
     default:
         return ResultError(
