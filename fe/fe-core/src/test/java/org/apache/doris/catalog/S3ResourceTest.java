@@ -430,6 +430,83 @@ public class S3ResourceTest {
     }
 
     @Test
+    public void testExplicitS3DefaultChainSurvivesGcsPolicyAndVaultCreation() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("provider", "S3");
+        properties.put("type", "s3");
+        properties.put("s3.endpoint", "https://storage.googleapis.com");
+        properties.put("s3.region", "us-central1");
+        properties.put("s3.bucket", "bucket");
+        properties.put("s3.root.path", "prefix");
+        AtomicBoolean pinged = new AtomicBoolean();
+        try (MockedStatic<S3Resource> resourceMock = Mockito.mockStatic(S3Resource.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(Mockito.mock(Env.class));
+            resourceMock.when(() -> S3Resource.pingS3(Mockito.anyString(), Mockito.anyString(), Mockito.anyMap()))
+                    .thenAnswer(invocation -> {
+                        Map<String, String> pingProperties = invocation.getArgument(2);
+                        StorageAdapter adapter = StorageAdapter.of(pingProperties);
+                        Assertions.assertEquals("S3", adapter.getSpiProperties().providerName());
+                        Assertions.assertEquals("DEFAULT", adapter.getSpiProperties().toMap()
+                                .get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+                        pinged.set(true);
+                        return null;
+                    });
+            CreateResourceCommand command = new CreateResourceCommand(
+                    new CreateResourceInfo(false, false, "s3_vault", ImmutableMap.copyOf(properties)));
+            command.getInfo().analyzeResourceType();
+            S3StorageVault vault = new S3StorageVault("s3_vault", false, false, command);
+            Assertions.assertTrue(pinged.get());
+            Map<String, String> stored = vault.getCopiedProperties();
+            Assertions.assertFalse(S3ThriftAdapter.getS3TStorageParam(stored).isSetCredProviderType());
+            Assertions.assertFalse(CloudObjectStoreAdapter.getObjStoreInfoPB(stored).hasCredProviderType());
+            // Anonymous remains an explicit choice and remains forbidden for GCS vaults.
+            stored.put("s3.credentials_provider_type", "ANONYMOUS");
+            Assertions.assertEquals(org.apache.doris.thrift.TCredProviderType.ANONYMOUS,
+                    S3ThriftAdapter.getS3TStorageParam(stored).getCredProviderType());
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> CloudObjectStoreAdapter.getObjStoreInfoPB(stored));
+        }
+    }
+
+    @Test
+    public void testInferredGcpAliasesForResourceAndVault() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "s3");
+        properties.put("gs.endpoint", "https://storage.googleapis.com");
+        properties.put("gs.credential_provider_type", "DEFAULT");
+        properties.put("s3.bucket", "bucket");
+        properties.put("s3.root.path", "prefix");
+        properties.put("s3_validity_check", "false");
+        S3Resource resource = new S3Resource("inferred_gcp");
+        resource.setProperties(ImmutableMap.copyOf(properties));
+        Assertions.assertEquals("GCP", resource.getProperty("provider"));
+        Assertions.assertEquals(properties.get("gs.endpoint"), resource.getProperty("s3.endpoint"));
+        resource.modifyProperties(ImmutableMap.of("gs.connection.timeout", "789"));
+        Assertions.assertEquals("789", resource.getProperty("s3.connection.timeout"));
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(Mockito.mock(Env.class));
+            CreateResourceCommand command = new CreateResourceCommand(
+                    new CreateResourceInfo(false, false, "gcp_vault", ImmutableMap.copyOf(properties)));
+            command.getInfo().analyzeResourceType();
+            S3StorageVault vault = new S3StorageVault("gcp_vault", false, false, command);
+            Assertions.assertEquals("https://storage.googleapis.com",
+                    CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties()).getEndpoint());
+            Assertions.assertTrue(CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties())
+                    .getCredential().hasGcpCredential());
+        }
+        // Legacy persisted resources can have an inferred identity without a provider field.
+        Field field = S3Resource.class.getDeclaredField("properties");
+        field.setAccessible(true);
+        Map<String, String> legacy = resource.getCopiedProperties();
+        legacy.remove("provider");
+        field.set(resource, legacy);
+        resource.modifyProperties(ImmutableMap.of("gs.connection.timeout", "987"));
+        Assertions.assertEquals("987", resource.getProperty("s3.connection.timeout"));
+        Assertions.assertEquals("GCP", resource.getProperty("provider"));
+    }
+
+    @Test
     public void testGsEndpointForStorageVault() throws Exception {
         Env env = Mockito.mock(Env.class);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
@@ -524,7 +601,7 @@ public class S3ResourceTest {
 
     @Test
     public void testGsEndpointDoesNotOverrideOtherProviders() throws Exception {
-        for (String provider : new String[] {"S3", "OSS", "AZURE", ""}) {
+        for (String provider : new String[] {"S3", "OSS", "AZURE"}) {
             Map<String, String> properties = new HashMap<>(s3Properties);
             if (!provider.isEmpty()) {
                 properties.put("provider", provider);

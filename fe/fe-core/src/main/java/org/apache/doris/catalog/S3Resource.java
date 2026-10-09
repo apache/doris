@@ -240,7 +240,11 @@ public class S3Resource extends Resource {
     private static void normalizeProperties(Map<String, String> properties, String provider) {
         // Validate the raw aliases before a preferred value can hide conflicting credentials.
         GcsAuthResolver.resolve(properties);
-        if (provider == null) {
+        if (StringUtils.isBlank(provider) && GcsAuthResolver.guessIsGcs(properties)) {
+            provider = "GCP";
+            properties.put("provider", provider);
+        }
+        if (StringUtils.isBlank(provider)) {
             return;
         }
         switch (provider.toUpperCase(Locale.ROOT)) {
@@ -267,6 +271,14 @@ public class S3Resource extends Resource {
         Map<String, String> properties = new HashMap<>(newProperties);
         String provider = StringUtils.defaultIfEmpty(properties.get("provider"),
                 this.properties.get("provider"));
+        if (StringUtils.isBlank(provider)) {
+            Map<String, String> selectionProperties = new HashMap<>(this.properties);
+            selectionProperties.putAll(properties);
+            if (GcsAuthResolver.guessIsGcs(selectionProperties)) {
+                provider = "GCP";
+                properties.put("provider", provider);
+            }
+        }
         // Preserve AWS_* ALTER compatibility before merging with stored canonical properties.
         S3ResourceCompat.convertToStdProperties(properties);
         // Resolve aliases separately so this ALTER wins over persisted values regardless

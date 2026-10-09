@@ -248,7 +248,8 @@ class GcsFileSystemPropertiesTest {
     @Test
     void nativeHadoopEndpointCannotBeOverriddenByRawProperties() {
         for (String mode : new String[] {"DEFAULT", "COMPUTE_ENGINE"}) {
-            for (String key : new String[] {"fs.gs.storage.root.url", "fs.gs.storage.service.path"}) {
+            for (String key : new String[] {"fs.gs.storage.root.url", "fs.gs.storage.service.path",
+                    "fs.gs.token.server.url"}) {
                 IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
                         () -> GcsFileSystemProperties.of(Map.of("provider", "GCP",
                                 "gs.credential_provider_type", mode, key, "https://untrusted.example/")));

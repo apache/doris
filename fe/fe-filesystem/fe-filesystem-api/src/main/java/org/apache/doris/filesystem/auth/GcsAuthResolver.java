@@ -46,17 +46,16 @@ public final class GcsAuthResolver {
         boolean hasSecretKey = hasNonBlankProperty(properties, SECRET_KEYS);
         boolean hasLegacyAnonymous = hasLegacyAnonymousProvider(properties);
         String provider = getPropertyIgnoreCase(properties, "provider");
-        boolean useLegacyAnonymousDefault = "S3".equalsIgnoreCase(provider)
-                && !hasNonBlankProperty(properties, AWS_PROVIDERS);
         if (isNotBlank(provider) && !"GCP".equalsIgnoreCase(provider) && !"GCS".equalsIgnoreCase(provider)) {
             if (hasNativeProperties) {
                 throw new IllegalArgumentException("Native GCP authentication requires provider=GCP, but found: "
                         + provider);
             }
             // Legacy GCS configurations may explicitly select the S3-compatible protocol.
-            // Preserve their HMAC/anonymous authentication without enabling native ADC for S3.
+            // Preserve explicit HMAC/anonymous authentication without enabling native ADC for S3.
+            // Omitted credentials still belong to S3's default chain, even at a GCS endpoint.
             if (!"S3".equalsIgnoreCase(provider) || !hasGcsSelector
-                    || !(hasAccessKey || hasSecretKey || hasLegacyAnonymous || useLegacyAnonymousDefault)) {
+                    || !(hasAccessKey || hasSecretKey || hasLegacyAnonymous)) {
                 return Optional.empty();
             }
         }
@@ -76,8 +75,6 @@ public final class GcsAuthResolver {
             mode = GcsAuth.Mode.ANONYMOUS;
         } else if (hasAccessKey || hasSecretKey) {
             mode = GcsAuth.Mode.HMAC;
-        } else if (useLegacyAnonymousDefault) {
-            mode = GcsAuth.Mode.ANONYMOUS;
         } else {
             mode = GcsAuth.Mode.ADC;
         }

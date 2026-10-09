@@ -41,6 +41,12 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- FileIO is serialized by FE and reconstructed inside the isolated BE plugin. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-paimon-common</artifactId>
+            <version>${revision}</version>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-spi</artifactId>

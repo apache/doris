@@ -139,10 +139,11 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
             GcpAuth.validateEndpoint(getEndpoint());
             // Connectors overlay raw Hadoop properties after this canonical configuration.
             // Keep the OAuth destination on the validated gs.endpoint path.
-            for (String key : Set.of("fs.gs.storage.root.url", "fs.gs.storage.service.path")) {
+            for (String key : Set.of("fs.gs.storage.root.url", "fs.gs.storage.service.path",
+                    "fs.gs.token.server.url")) {
                 if (rawProperties().containsKey(key)) {
                     throw new IllegalArgumentException("Native GCP authentication does not allow " + key
-                            + "; configure the storage endpoint with gs.endpoint instead");
+                            + "; use the native GCP credential and endpoint properties instead");
                 }
             }
             // Raw auth overrides would make Hadoop use a different identity from object clients.

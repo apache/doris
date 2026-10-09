@@ -87,17 +87,17 @@ public class GcsAuthResolverTest {
     }
 
     @Test
-    public void testLegacyS3OmittedAuthenticationUsesAnonymousOnlyForGcs() {
+    public void testExplicitS3OmittedAuthenticationPreservesDefaultChain() {
         Map<String, String> props = new HashMap<>();
         props.put("provider", "s3");
         Assertions.assertFalse(GcsAuthResolver.resolve(props).isPresent());
         props.put("s3.endpoint", "https://storage.googleapis.com");
-        GcsAuth auth = GcsAuthResolver.resolve(props).get();
-        Assertions.assertEquals(GcsAuth.Mode.ANONYMOUS, auth.getMode());
-        Assertions.assertFalse(auth.getNativeCredential().isPresent());
+        Assertions.assertFalse(GcsAuthResolver.resolve(props).isPresent());
 
         props.put("s3.credentials_provider_type", "DEFAULT");
         Assertions.assertFalse(GcsAuthResolver.resolve(props).isPresent());
+        props.put("s3.credentials_provider_type", "ANONYMOUS");
+        Assertions.assertEquals(GcsAuth.Mode.ANONYMOUS, GcsAuthResolver.resolve(props).get().getMode());
         props.remove("s3.credentials_provider_type");
         props.put("provider", "GCP");
         Assertions.assertEquals(GcsAuth.Mode.ADC, GcsAuthResolver.resolve(props).get().getMode());
@@ -111,11 +111,7 @@ public class GcsAuthResolverTest {
             Map<String, String> props = new HashMap<>();
             props.put("provider", provider);
             props.put("s3.endpoint", "storage.googleapis.com");
-            if ("S3".equals(provider)) {
-                Assertions.assertEquals(GcsAuth.Mode.ANONYMOUS, GcsAuthResolver.resolve(props).get().getMode());
-            } else {
-                Assertions.assertFalse(GcsAuthResolver.resolve(props).isPresent());
-            }
+            Assertions.assertFalse(GcsAuthResolver.resolve(props).isPresent());
             props.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "DEFAULT");
             Assertions.assertThrows(IllegalArgumentException.class, () -> GcsAuthResolver.resolve(props));
         }

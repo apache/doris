@@ -94,6 +94,20 @@ public class PaimonPluginTest {
 
     /** The path the plugin registry takes: services file, plugin class, factory list. */
     @Test
+    public void reconstructsNativeGcsFileIO() throws Exception {
+        NativeGcsFileIO fileIO = new NativeGcsFileIO();
+        Configuration conf = new Configuration(false);
+        conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
+        conf.set("fs.gs.auth.type", "APPLICATION_DEFAULT");
+        fileIO.configure(CatalogContext.create(new Options(), conf));
+        NativeGcsFileIO restored = InstantiationUtil.deserializeObject(
+                InstantiationUtil.serializeObject(fileIO), getClass().getClassLoader());
+        Assertions.assertEquals("APPLICATION_DEFAULT", restored.hadoopConf().get("fs.gs.auth.type"));
+        Assertions.assertEquals("gs://bucket/file", NativeGcsFileIO.normalize(
+                new org.apache.paimon.fs.Path("s3a://bucket/file")).toString());
+    }
+
+    @Test
     public void instantiatesNativeGcsFilesystem() throws Exception {
         Configuration conf = new Configuration();
         conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");

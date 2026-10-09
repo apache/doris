@@ -430,7 +430,7 @@ public class PaimonConnector implements Connector {
                 // filesystem carries a Hadoop Configuration for HDFS/S3 storage.
                 Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(
                         catalogProps.getRaw(), storageHadoopConfig);
-                return createCatalogFromContext(CatalogContext.create(options, conf), flavor,
+                return createCatalogFromContext(PaimonCatalogFactory.createCatalogContext(options, conf), flavor,
                         "Failed to create Paimon catalog with filesystem metastore");
             }
             case PaimonCatalogProperties.REST: {
@@ -442,7 +442,7 @@ public class PaimonConnector implements Connector {
                 maybeRegisterJdbcDriver();
                 Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(
                         catalogProps.getRaw(), storageHadoopConfig);
-                return createCatalogFromContext(CatalogContext.create(options, conf), flavor,
+                return createCatalogFromContext(PaimonCatalogFactory.createCatalogContext(options, conf), flavor,
                         "Failed to create Paimon catalog with JDBC metastore");
             }
             case PaimonCatalogProperties.HMS: {
@@ -472,7 +472,7 @@ public class PaimonConnector implements Connector {
                 options.set("client-pool-cache.keys", appendHmsCacheKeys(
                         options.get("client-pool-cache.keys")));
                 HadoopAuthenticator hmsAuth = buildHmsAuthenticator(catalogProps.getRaw(), storageHadoopConfig);
-                return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
+                return createCatalogFromContext(PaimonCatalogFactory.createCatalogContext(options, hc), flavor,
                         hmsAuth, storageHadoopConfig,
                         "Failed to create Paimon catalog with HMS metastore");
             }
@@ -489,7 +489,7 @@ public class PaimonConnector implements Connector {
                 dlfConf.put(PaimonCatalogFactory.DLF_CLIENT_POOL_IDENTITY,
                         PaimonCatalogFactory.dlfClientPoolIdentity(dlfConf));
                 HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, dlfConf);
-                return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
+                return createCatalogFromContext(PaimonCatalogFactory.createCatalogContext(options, hc), flavor,
                         "Failed to create Paimon catalog with DLF metastore");
             }
             default:

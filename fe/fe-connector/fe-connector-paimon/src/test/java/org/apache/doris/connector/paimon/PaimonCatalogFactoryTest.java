@@ -21,9 +21,11 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.paimon.NativeGcsFileIO;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
@@ -79,6 +81,29 @@ public class PaimonCatalogFactoryTest {
     // ---------------------------------------------------------------------
     // buildCatalogOptions — per-flavor metastore identifier + warehouse
     // ---------------------------------------------------------------------
+
+    @Test
+    public void nativeGcsNormalizesWarehouseAndInstallsAliasFileIO() {
+        for (String scheme : new String[] {"s3", "s3a", "gs"}) {
+            Options options = new Options();
+            options.set(CatalogOptions.WAREHOUSE, scheme + "://bucket/private-warehouse");
+            Configuration conf = new Configuration(false);
+            conf.set("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
+            conf.set("fs.gs.auth.type", "APPLICATION_DEFAULT");
+            CatalogContext context = PaimonCatalogFactory.createCatalogContext(options, conf);
+            Assertions.assertEquals("gs://bucket/private-warehouse", context.options().get(CatalogOptions.WAREHOUSE));
+            Assertions.assertInstanceOf(NativeGcsFileIO.class,
+                    context.preferIO().load(new org.apache.paimon.fs.Path(scheme + "://bucket/persisted-file")));
+            Assertions.assertEquals("APPLICATION_DEFAULT", context.hadoopConf().get("fs.gs.auth.type"));
+        }
+        Options legacy = new Options();
+        legacy.set(CatalogOptions.WAREHOUSE, "s3a://bucket/warehouse");
+        Configuration conf = new Configuration(false);
+        conf.set("fs.gs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        CatalogContext context = PaimonCatalogFactory.createCatalogContext(legacy, conf);
+        Assertions.assertNull(context.preferIO());
+        Assertions.assertEquals("s3a://bucket/warehouse", context.options().get(CatalogOptions.WAREHOUSE));
+    }
 
     @Test
     public void filesystemSetsMetastoreFilesystemAndWarehouse() {
