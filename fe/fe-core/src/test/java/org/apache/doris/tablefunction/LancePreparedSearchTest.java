@@ -62,9 +62,51 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class LancePreparedSearchTest {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testDistanceRangeProtocolAndMultiVectorPrepare(boolean multiVector) throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        MemoTestUtils.createConnectContext();
+        LanceExternalTable table = mockTable(new AtomicLong(42), multiVector);
+        try (MockedStatic<LanceExternalSearchTableValuedFunction> lookup = Mockito.mockStatic(
+                LanceExternalSearchTableValuedFunction.class, Mockito.CALLS_REAL_METHODS)) {
+            lookup.when(() -> LanceExternalSearchTableValuedFunction.findLanceExternalTable(
+                    Mockito.any(TableName.class))).thenReturn(table);
+            Map<String, String> properties = ImmutableMap.<String, String>builder()
+                    .put("table", "catalog.db.items").put("column", "embedding").put("use_index", "false")
+                    .put("distance_lower_bound", "1").put("distance_upper_bound", "4")
+                    .put("query_vector", multiVector ? "[[1,2]]" : "[1,2]").build();
+            for (boolean prepare : new boolean[] {true, false}) {
+                if (multiVector) {
+                    Exception error = Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                            () -> new VectorSearchTableValuedFunction(properties, prepare));
+                    Assertions.assertTrue(error.getMessage().contains("multi-vector"));
+                } else {
+                    VectorSearchTableValuedFunction function = new VectorSearchTableValuedFunction(properties, prepare);
+                    Assertions.assertEquals(2, function.getSearchRequest().getSchemaVersion());
+                    Assertions.assertEquals(1.0, function.getSearchRequest().getSearchQuery()
+                            .getVectorSearch().getDistanceLowerBound());
+                    Assertions.assertEquals(4.0, function.getSearchRequest().getSearchQuery()
+                            .getVectorSearch().getDistanceUpperBound());
+                    Assertions.assertEquals(!prepare, function.getSearchRequest().getSearchQuery()
+                            .getVectorSearch().isSetQueryVector());
+                }
+            }
+            VectorSearchTableValuedFunction ordinary = new VectorSearchTableValuedFunction(ImmutableMap.of(
+                    "table", "catalog.db.items", "column", "embedding", "use_index", "false"), true);
+            Assertions.assertEquals(1, ordinary.getSearchRequest().getSchemaVersion());
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     public void testPrepareAndRepeatedBindingUseFreshVectorAndSnapshot(boolean useIndex) {

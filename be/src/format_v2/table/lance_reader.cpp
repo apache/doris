@@ -416,7 +416,7 @@ Status LanceTableReader::_validate_external_search_request() const {
     }
 
     const auto& request = lance_scan_params.external_search_request;
-    if (request.schema_version != 1) {
+    if (request.schema_version != 1 && request.schema_version != 2) {
         return Status::NotSupported("unsupported external search schema version: {}",
                                     request.schema_version);
     }
@@ -448,6 +448,31 @@ Status LanceTableReader::_validate_external_search_request() const {
                                         static_cast<int>(query_vector.element_type));
         }
         const bool multi_vector = query_vector.__isset.num_vectors;
+        const bool has_distance_range =
+                vector.__isset.distance_lower_bound || vector.__isset.distance_upper_bound;
+        if (has_distance_range && request.schema_version < 2) {
+            return Status::InvalidArgument("Lance distance bounds require search schema version 2");
+        }
+        if (has_distance_range && multi_vector) {
+            return Status::NotSupported(
+                    "Distance bounds are not supported for Lance multi-vector search");
+        }
+        // Validate doubles before narrowing: non-finite or out-of-range values cannot reach the C API.
+        const auto valid_bound = [](double bound) {
+            return std::isfinite(bound) && std::abs(bound) <= std::numeric_limits<float>::max();
+        };
+        if ((vector.__isset.distance_lower_bound && !valid_bound(vector.distance_lower_bound)) ||
+            (vector.__isset.distance_upper_bound && !valid_bound(vector.distance_upper_bound))) {
+            return Status::InvalidArgument("Lance distance bounds must be finite FLOAT values");
+        }
+        if (vector.__isset.distance_lower_bound && vector.__isset.distance_upper_bound &&
+            static_cast<float>(vector.distance_lower_bound) >=
+                    static_cast<float>(vector.distance_upper_bound)) {
+            return Status::InvalidArgument(
+                    "distance_lower_bound must be less than distance_upper_bound at FLOAT "
+                    "precision");
+        }
+
         // The optional count distinguishes a query matrix, including a one-row matrix.
         if (multi_vector && query_vector.num_vectors <= 0) {
             return Status::InvalidArgument(
@@ -1174,6 +1199,17 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
         }
         if (lance_scanner_set_metric(scanner, metric) != 0) {
             return lance_error("set Lance vector metric");
+        }
+    }
+
+    if (vector.__isset.distance_lower_bound || vector.__isset.distance_upper_bound) {
+        const float lower = static_cast<float>(vector.distance_lower_bound);
+        const float upper = static_cast<float>(vector.distance_upper_bound);
+        // nearest() clears the range; install bounds only after setting the query vector.
+        if (lance_scanner_set_distance_range(
+                    scanner, vector.__isset.distance_lower_bound ? &lower : nullptr,
+                    vector.__isset.distance_upper_bound ? &upper : nullptr) != 0) {
+            return lance_error("set Lance vector distance range");
         }
     }
 

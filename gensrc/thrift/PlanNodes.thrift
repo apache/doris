@@ -487,6 +487,9 @@ struct TVectorSearchParams {
     3: optional i64 top_k
     4: optional i64 offset
     5: optional TVectorMetric metric
+    // FLOAT bounds: inclusive lower and exclusive upper. Requires schema_version >= 2.
+    6: optional double distance_lower_bound
+    7: optional double distance_upper_bound
 }
 
 enum TFtsCoverageMode {
