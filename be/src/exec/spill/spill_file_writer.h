@@ -22,6 +22,7 @@
 #include <string>
 
 #include "core/block/block.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/workload_management/resource_context.h"
@@ -55,7 +56,8 @@ class SpillRemoteUploadBudget;
 class SpillFileWriter {
 public:
     SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, RuntimeState* state,
-                    RuntimeProfile* profile, SpillDataDir* data_dir, const std::string& spill_dir);
+                    RuntimeProfile* profile, SpillDataDir* data_dir, io::FileSystemSPtr fs,
+                    std::string spill_dir);
 
     ~SpillFileWriter();
 
@@ -122,6 +124,7 @@ private:
 
     // ── Configuration ──
     SpillDataDir* _data_dir = nullptr;
+    io::FileSystemSPtr _fs;
     std::string _spill_dir;
     int64_t _max_part_size;
     // Non-null only for remote stores.

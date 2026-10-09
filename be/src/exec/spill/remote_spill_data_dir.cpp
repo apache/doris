@@ -50,12 +50,10 @@ Status RemoteSpillDataDir::init() {
     return Status::OK();
 }
 
-Status RemoteSpillDataDir::ensure_ready() {
-    if (ready()) {
-        return Status::OK();
-    }
+Status RemoteSpillDataDir::ensure_ready(io::FileSystemSPtr* file_fs) {
     std::lock_guard<std::mutex> lock(_init_mutex);
-    if (ready()) {
+    if (_test_binding || (!_vault_id.empty() && ready())) {
+        *file_fs = _fs;
         return Status::OK();
     }
     if (!config::is_cloud_mode()) {
@@ -82,15 +80,26 @@ Status RemoteSpillDataDir::ensure_ready() {
         return Status::NotSupported("spill to s3 only supports S3 storage vaults, vault '{}' is {}",
                                     vault_id, fs->type());
     }
-    init_remote_fs(fs, std::move(endpoint));
+    if (!ready() || _fs != fs) {
+        _bind_fs_unlocked(fs, std::move(endpoint));
+    }
+    *file_fs = _fs;
     return Status::OK();
 }
 
 void RemoteSpillDataDir::init_remote_fs(io::FileSystemSPtr fs, std::string endpoint) {
+    std::lock_guard<std::mutex> lock(_init_mutex);
+    _test_binding = true;
+    _bind_fs_unlocked(std::move(fs), std::move(endpoint));
+}
+
+void RemoteSpillDataDir::_bind_fs_unlocked(io::FileSystemSPtr fs, std::string endpoint) {
     DCHECK(!endpoint.empty());
     _fs = std::move(fs);
-    _endpoint = std::move(endpoint);
-    _spill_root = fmt::format("{}/{}", SPILL_DIR_PREFIX, _endpoint);
+    if (!ready()) {
+        _endpoint = std::move(endpoint);
+        _spill_root = fmt::format("{}/{}", SPILL_DIR_PREFIX, _endpoint);
+    }
     _ready.store(true, std::memory_order_release);
     LOG(INFO) << fmt::format(
             "remote spill store is ready, vault_id={}, fs_id={}, root={}, limit={}",
@@ -99,7 +108,24 @@ void RemoteSpillDataDir::init_remote_fs(io::FileSystemSPtr fs, std::string endpo
 }
 
 io::FileSystemSPtr RemoteSpillDataDir::fs() const {
-    return ready() ? _fs : nullptr;
+    std::lock_guard<std::mutex> lock(_init_mutex);
+    return _fs;
+}
+
+void RemoteSpillDataDir::record_persisted_bytes(int64_t bytes) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    _persisted_bytes += bytes;
+}
+
+void RemoteSpillDataDir::release_persisted_bytes(int64_t bytes) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    DCHECK_GE(_persisted_bytes, bytes);
+    _persisted_bytes -= bytes;
+}
+
+int64_t RemoteSpillDataDir::get_persisted_bytes() {
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _persisted_bytes;
 }
 
 Status RemoteSpillDataDir::update_capacity() {

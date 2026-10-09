@@ -38,10 +38,11 @@ namespace doris {
 
 SpillFileWriter::SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, RuntimeState* state,
                                  RuntimeProfile* profile, SpillDataDir* data_dir,
-                                 const std::string& spill_dir)
+                                 io::FileSystemSPtr fs, std::string spill_dir)
         : _spill_file_wptr(spill_file),
           _data_dir(data_dir),
-          _spill_dir(spill_dir),
+          _fs(std::move(fs)),
+          _spill_dir(std::move(spill_dir)),
           _max_part_size(config::spill_file_part_size_bytes),
           _resource_ctx(state->get_query_ctx()->resource_ctx()) {
     // Common counters
@@ -108,7 +109,7 @@ void SpillFileWriter::_discard(SpillFile* spill_file) {
 }
 
 Status SpillFileWriter::_open_next_part(const std::shared_ptr<SpillFile>& spill_file) {
-    auto fs = _data_dir->fs();
+    auto fs = _fs;
     if (fs == nullptr) {
         return Status::InternalError("spill store {} is not ready", _data_dir->path());
     }
@@ -288,7 +289,7 @@ void SpillFileWriter::_abort_multipart_upload(const MultipartUploadId& upload) {
     if (upload.upload_id.empty()) {
         return;
     }
-    auto s3_fs = std::dynamic_pointer_cast<io::S3FileSystem>(_data_dir->fs());
+    auto s3_fs = std::dynamic_pointer_cast<io::S3FileSystem>(_fs);
     if (s3_fs == nullptr) {
         return;
     }

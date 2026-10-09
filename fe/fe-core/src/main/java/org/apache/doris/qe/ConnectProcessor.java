@@ -689,7 +689,7 @@ public abstract class ConnectProcessor {
         }
         if (executor != null) {
             List<Long> auditStatisticsBackendIds = Lists.newArrayList(
-                    AuditLogHelper.getExternalDmlAuditBackendIds(executor));
+                    AuditLogHelper.getAuditStatisticsBackendIds(executor));
             if (!auditStatisticsBackendIds.isEmpty()) {
                 result.setAuditStatisticsBackendIds(auditStatisticsBackendIds);
             }

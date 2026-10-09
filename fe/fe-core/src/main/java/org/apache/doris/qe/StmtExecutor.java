@@ -563,6 +563,17 @@ public class StmtExecutor {
                 ? Collections.emptySet() : externalDmlAuditCoordinator.getDispatchedBackendIdsForAudit();
     }
 
+    public Set<Long> getAuditStatisticsBackendIds() {
+        if (masterOpExecutor != null) {
+            return masterOpExecutor.getAuditStatisticsBackendIds();
+        }
+        Set<Long> backendIds = Sets.newHashSet(getExternalDmlAuditBackendIds());
+        if (coord != null) {
+            backendIds.addAll(coord.getDispatchedBackendIdsForAudit());
+        }
+        return backendIds;
+    }
+
     public ShowResultSet getProxyShowResultSet() {
         return proxyShowResultSet;
     }

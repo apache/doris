@@ -84,7 +84,7 @@ struct MockS3Store {
         std::map<int, std::string> parts;
     };
 
-    std::mutex mutex;
+    mutable std::mutex mutex;
     std::condition_variable cv;
     uint64_t next_upload_id {1};
     std::unordered_map<std::string, UploadCtx> uploads;
@@ -158,7 +158,7 @@ struct MockS3Store {
     }
 
     std::vector<std::string> keys_with_prefix(const std::string& bucket,
-                                              const std::string& prefix) {
+                                              const std::string& prefix) const {
         std::lock_guard lock(mutex);
         std::vector<std::string> keys;
         auto full_prefix = make_key(bucket, prefix);
@@ -452,8 +452,7 @@ protected:
         _saved_cloud_unique_id = config::cloud_unique_id;
         config::deploy_mode = "";
         config::cloud_unique_id = "";
-        // ensure_ready() reads the address of this BE; tests bind the store explicitly and rely
-        // on "unknown" here, which stops ensure_ready() before it needs a storage engine.
+        // Tests bind the filesystem explicitly; no cloud storage engine is initialized here.
         _saved_localhost = BackendOptions::get_localhost();
         BackendOptions::set_localhost("");
         // Small buffers so that a few KB of data exercise multipart uploads and part rotation.
@@ -498,8 +497,8 @@ protected:
     }
 
     // Build a manager with one remote store bound to the mock file system.
-    void _create_manager(bool bind_fs = true) {
-        auto store = std::make_unique<RemoteSpillDataDir>("vault-1");
+    void _create_manager(bool bind_fs = true, std::string vault_id = "vault-1") {
+        auto store = std::make_unique<RemoteSpillDataDir>(std::move(vault_id));
         if (bind_fs) {
             store->init_remote_fs(_s3_fs, kEndpoint);
         }
@@ -685,6 +684,75 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
     ASSERT_EQ(_data_dir->get_spill_data_path("q1"), fmt::format("spill/{}/q1", kEndpoint));
     ASSERT_EQ(_data_dir->fs().get(), _s3_fs.get());
     ASSERT_FALSE(_data_dir->reach_capacity_limit(1LL << 40)); // unlimited by default
+}
+
+TEST_F(SpillFileS3Test, DefaultVaultRotationKeepsExistingFilesAndPendingDeletesPinned) {
+    _create_manager(true, "");
+    std::mt19937 rng(123);
+    const auto first_block = _random_string_block(rng, 16, 100);
+    Status status;
+    auto first = _write_blocks("query_rotate/sort-1", {first_block}, &status);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto first_values = _read_all(first);
+
+    S3Conf second_conf;
+    second_conf.bucket = kBucket;
+    second_conf.prefix = "spill_s3_second_vault";
+    second_conf.client_conf.ak = "ak";
+    second_conf.client_conf.sk = "sk";
+    second_conf.client_conf.endpoint = "http://spill-mock-endpoint";
+    second_conf.client_conf.region = "region";
+    second_conf.client_conf.bucket = kBucket;
+    auto second_fs_or = io::S3FileSystem::create(second_conf, "spill_s3_second_vault");
+    ASSERT_TRUE(second_fs_or.has_value()) << second_fs_or.error();
+    _data_dir->init_remote_fs(second_fs_or.value(), kEndpoint);
+
+    const auto second_block = _random_string_block(rng, 16, 100);
+    auto second = _write_blocks("query_rotate/sort-1", {second_block}, &status);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(_read_all(first), first_values);
+    ASSERT_EQ(_read_all(second), _values_of({second_block}));
+    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_rotate/").size(), 1);
+    ASSERT_EQ(mock_store()
+                      .keys_with_prefix(kBucket, "spill_s3_second_vault/spill/" +
+                                                         std::string(kEndpoint) + "/query_rotate/")
+                      .size(),
+              1);
+
+    _manager->stop();
+    mock_store().fail_deletes = true;
+    first.reset();
+    second.reset();
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 2);
+    ASSERT_GT(_manager->remote_spill_data_bytes(), 0);
+    mock_store().fail_deletes = false;
+    _manager->gc(1000);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 0);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_rotate/").empty());
+    ASSERT_TRUE(mock_store()
+                        .keys_with_prefix(kBucket, "spill_s3_second_vault/spill/" +
+                                                           std::string(kEndpoint) +
+                                                           "/query_rotate/")
+                        .empty());
+}
+
+TEST_F(SpillFileS3Test, RemoteBillingExcludesOpenPartReservations) {
+    _create_manager();
+    SpillFileSPtr file;
+    ASSERT_TRUE(_manager->create_spill_file("query_open/sort-1", file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    std::mt19937 rng(124);
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 16, 100)).ok());
+    ASSERT_GT(_data_dir->get_spill_data_bytes(), 0);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+
+    ASSERT_TRUE(writer->close().ok());
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), _data_dir->get_spill_data_bytes());
+    writer.reset();
+    file.reset();
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
 }
 
 TEST_F(SpillFileS3Test, ExternalSpillSessionRequiresLocalRoot) {
@@ -1098,6 +1166,7 @@ TEST_F(SpillFileS3Test, FailedDeletionKeepsCapacityCharged) {
     _manager->gc(1000);
     ASSERT_EQ(_manager->pending_delete_dir_count(), 0);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     ASSERT_FALSE(_data_dir->reach_capacity_limit(1));
     ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_8/").empty());
 }
@@ -1436,7 +1505,7 @@ TEST_F(SpillFileS3Test, GateAndDoneCallbackReportTheSameCapacity) {
         }
         ASSERT_TRUE(writer->close().ok());
         std::lock_guard lock(rec.mutex);
-        const size_t capacity = static_cast<size_t>(config::s3_write_buffer_size);
+        const auto capacity = static_cast<size_t>(config::s3_write_buffer_size);
         ASSERT_EQ(rec.gate.size(), expected_buffers) << name;
         ASSERT_EQ(rec.done.size(), expected_buffers) << name;
         for (size_t b : rec.gate) {
@@ -1510,6 +1579,8 @@ TEST_F(SpillFileS3Test, FailedAppendThenCloseCreatesNoObject) {
 
 // A query cancelled while a multipart upload is open: the last buffer is refused by the gate,
 // the upload is aborted and nothing is left behind.
+// GoogleTest assertions inflate the metric; retain the checks across the upload lifecycle.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
@@ -1552,6 +1623,8 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
 // repartitioner keeps its writers while the output files live in the caller). Destroying the
 // file discards the unfinished part: the multipart upload is aborted, no footer is charged,
 // and destroying the writer afterwards publishes nothing under the deleted prefix.
+// GoogleTest assertions inflate the metric; retain the checks across file and writer teardown.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(SpillFileS3Test, SpillFileDestroyedBeforeWriterDiscardsPart) {
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
@@ -1659,6 +1732,7 @@ TEST_F(SpillFileS3Test, UploadFailureIsReportedAndReconciled) {
               _manager->remote_upload_budget()->total_released_bytes());
     ASSERT_GT(_counter(profile::SPILL_REMOTE_WRITE_REQUESTS), 0);
     ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES), 0);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     // Every multipart upload that was started for the failed part has been aborted.
     ASSERT_GE(mock_store().create_multipart_requests, 1);
     ASSERT_EQ(mock_store().abort_multipart_requests, mock_store().create_multipart_requests);
@@ -1668,6 +1742,7 @@ TEST_F(SpillFileS3Test, UploadFailureIsReportedAndReconciled) {
     }
     mock_store().fail_uploads = false;
     spill_file.reset();
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 

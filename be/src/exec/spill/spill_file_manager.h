@@ -114,8 +114,9 @@ public:
     // Take over a spill file directory whose deletion failed. Its objects are still stored, so
     // `charged_bytes` stay charged to `data_dir` until a retry deletes them; otherwise a
     // deletion outage would free capacity that is still in use.
-    void retry_spill_directory_deletion(SpillDataDir* data_dir, std::string dir,
-                                        int64_t charged_bytes);
+    void retry_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
+                                        std::string dir, int64_t charged_bytes,
+                                        int64_t persisted_bytes);
 
     void gc(int32_t max_work_time_ms);
 
@@ -134,8 +135,8 @@ public:
     /// Number of spill directories whose deletion failed and is being retried.
     size_t pending_delete_dir_count();
 
-    /// Bytes of spill data this process currently holds in object storage (bytes reserved for
-    /// parts still being uploaded included); 0 without a remote store. Served to the FEs through
+    /// Bytes of completed spill objects this process currently holds in object storage;
+    /// uncommitted capacity reservations are excluded. Served to the FEs through
     /// get_be_resource, which every FE polls for SHOW DATA.
     int64_t remote_spill_data_bytes();
 
@@ -147,8 +148,11 @@ private:
         // A query directory or the directory of one spill file.
         std::string dir;
         SpillDataDir* data_dir {nullptr};
+        // Pinned for remote spill: a later default-vault rotation must not redirect GC.
+        io::FileSystemSPtr fs;
         // Bytes of the objects under `dir` still charged to `data_dir`; released once deleted.
         int64_t charged_bytes {0};
+        int64_t persisted_bytes {0};
     };
 
     struct SpillGcStats {

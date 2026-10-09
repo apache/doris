@@ -102,11 +102,15 @@ public class RemoteSpillStatsPoller extends MasterDaemon {
         InternalService.PGetBeResourceRequest request = InternalService.PGetBeResourceRequest.newBuilder().build();
         List<Pair<Backend, Future<InternalService.PGetBeResourceResponse>>> futures = new ArrayList<>();
         for (Backend be : backends) {
-            if (!be.isAlive()) {
-                continue;
+            // Heartbeat state can lag behind BRPC availability. A reachable registered BE must
+            // be counted even while its heartbeat is temporarily marked dead.
+            try {
+                futures.add(Pair.of(be, BackendServiceProxy.getInstance()
+                        .getBeResourceAsync(be.getBrpcAddress(), RPC_TIMEOUT_SECOND, request)));
+            } catch (Exception e) {
+                LOG.warn("failed to send get_be_resource to backend {}", be.getId(), e);
+                return;
             }
-            futures.add(Pair.of(be, BackendServiceProxy.getInstance()
-                    .getBeResourceAsync(be.getBrpcAddress(), RPC_TIMEOUT_SECOND, request)));
         }
         // Any failure keeps the previous value: a partial sum would under-report a billing input,
         // and getRemoteSpillBytes() refuses a value that stays stale for too long.

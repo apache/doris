@@ -86,6 +86,12 @@ public:
 
     int64_t get_spill_data_bytes();
 
+    // Successfully closed remote objects only. Capacity reservations remain tracked separately
+    // in get_spill_data_bytes() and must not be published as persisted storage usage.
+    virtual void record_persisted_bytes(int64_t bytes) {}
+    virtual void release_persisted_bytes(int64_t bytes) {}
+    virtual int64_t get_persisted_bytes() { return 0; }
+
     int64_t get_spill_data_limit();
 
     std::string debug_string();

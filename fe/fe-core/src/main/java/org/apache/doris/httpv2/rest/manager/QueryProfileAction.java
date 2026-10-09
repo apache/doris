@@ -29,6 +29,7 @@ import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.QueryStatisticsFormatter;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -213,6 +214,34 @@ public class QueryProfileAction extends RestBaseController {
         }
 
         return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(QUERY_TITLE_NAMES, queries));
+    }
+
+    // FE versions can differ during a rolling upgrade. Match columns by name rather than
+    // concatenating rows by position; older FEs have neither remote-spill column.
+    static List<List<String>> normalizeCurrentQueryRows(NodeAction.NodeInfo nodeInfo) {
+        List<String> localTitles = Lists.newArrayList(CurrentQueryStatisticsProcDir.TITLE_NAMES);
+        localTitles.add(0, FRONTEND);
+        List<Integer> indexes = Lists.newArrayListWithCapacity(localTitles.size());
+        for (String title : localTitles) {
+            int index = nodeInfo.getColumnNames().indexOf(title);
+            if (index < 0 && !title.equals("SpillWriteBytesToRemoteStorage")
+                    && !title.equals("SpillReadBytesFromRemoteStorage")) {
+                throw new IllegalArgumentException("missing current-query column: " + title);
+            }
+            indexes.add(index);
+        }
+        List<List<String>> normalized = Lists.newArrayListWithCapacity(nodeInfo.getRows().size());
+        for (List<String> row : nodeInfo.getRows()) {
+            if (row.size() != nodeInfo.getColumnNames().size()) {
+                throw new IllegalArgumentException("current-query row width does not match column names");
+            }
+            List<String> values = Lists.newArrayListWithCapacity(localTitles.size());
+            for (int index : indexes) {
+                values.add(index < 0 ? QueryStatisticsFormatter.getScanBytes(0) : row.get(index));
+            }
+            normalized.add(values);
+        }
+        return normalized;
     }
 
     // Returns the sql for the specified query id.
@@ -483,7 +512,7 @@ public class QueryProfileAction extends RestBaseController {
                 try {
                     NodeAction.NodeInfo nodeInfo = GsonUtils.GSON.fromJson(data, new TypeToken<NodeAction.NodeInfo>() {
                     }.getType());
-                    queries.addAll(nodeInfo.getRows());
+                    queries.addAll(normalizeCurrentQueryRows(nodeInfo));
                 } catch (Exception e) {
                     LOG.warn("parse query info error: {}", data, e);
                 }

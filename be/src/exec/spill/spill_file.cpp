@@ -34,9 +34,15 @@
 #include "util/debug_points.h"
 
 namespace doris {
-SpillFile::SpillFile(SpillDataDir* data_dir, std::string relative_path)
+SpillFile::SpillFile(SpillDataDir* data_dir, io::FileSystemSPtr fs, std::string relative_path)
         : _data_dir(data_dir),
+          _fs(std::move(fs)),
           _spill_dir(data_dir->get_spill_data_path() + "/" + std::move(relative_path)) {}
+
+SpillFile::SpillFile(SpillDataDir* data_dir, std::string relative_path)
+        : SpillFile(data_dir, data_dir->fs(), std::move(relative_path)) {
+    DORIS_CHECK(!data_dir->is_remote());
+}
 
 SpillFile::~SpillFile() {
     gc();
@@ -50,6 +56,7 @@ void SpillFile::gc() {
         _active_writer->_discard(this);
     }
     const int64_t written_bytes = std::exchange(_total_written_bytes, 0);
+    const int64_t persisted_bytes = std::exchange(_persisted_bytes, 0);
     if (!_dir_created) {
         _data_dir->release(written_bytes);
         return;
@@ -58,8 +65,8 @@ void SpillFile::gc() {
     // Delete the spill directory (or object key prefix) directly instead of moving it to a
     // GC directory. No existence check: for object storage a "directory" never exists as an
     // object, while deleting a missing local directory or an empty prefix is a no-op.
-    // The store was ready when create_spill_file() created this file and never goes back.
-    auto fs = _data_dir->fs();
+    // The filesystem is pinned when the file is created, not resolved from a rotating default.
+    auto fs = _fs;
     DORIS_CHECK(fs != nullptr) << "spill store " << _data_dir->path() << " is not ready";
     Status status = fs->delete_directory(_spill_dir);
     DBUG_EXECUTE_IF("fault_inject::spill_file::gc", {
@@ -67,6 +74,7 @@ void SpillFile::gc() {
     });
     if (status.ok()) {
         _data_dir->release(written_bytes);
+        _data_dir->release_persisted_bytes(persisted_bytes);
         return;
     }
     LOG_EVERY_T(WARNING, 1) << fmt::format("failed to delete spill data, dir {}, error: {}",
@@ -77,12 +85,13 @@ void SpillFile::gc() {
         _data_dir->release(written_bytes);
         return;
     }
-    manager->retry_spill_directory_deletion(_data_dir, _spill_dir, written_bytes);
+    manager->retry_spill_directory_deletion(_data_dir, _fs, _spill_dir, written_bytes,
+                                            persisted_bytes);
 }
 
 Status SpillFile::create_writer(RuntimeState* state, RuntimeProfile* profile,
                                 SpillFileWriterSPtr& writer) {
-    writer = std::make_shared<SpillFileWriter>(shared_from_this(), state, profile, _data_dir,
+    writer = std::make_shared<SpillFileWriter>(shared_from_this(), state, profile, _data_dir, _fs,
                                                _spill_dir);
     // _active_writer is set in SpillFileWriter constructor via the shared_ptr
     return Status::OK();
@@ -91,7 +100,8 @@ Status SpillFile::create_writer(RuntimeState* state, RuntimeProfile* profile,
 SpillFileReaderSPtr SpillFile::create_reader(RuntimeState* state, RuntimeProfile* profile) const {
     // It's a programming error to create a reader while a writer is still active.
     DCHECK(_active_writer == nullptr) << "create_reader() called while writer still active";
-    return std::make_shared<SpillFileReader>(state, profile, _data_dir, _spill_dir, _part_sizes);
+    return std::make_shared<SpillFileReader>(state, profile, _data_dir, _fs, _spill_dir,
+                                             _part_sizes);
 }
 
 void SpillFile::finish_writing() {
@@ -106,6 +116,10 @@ void SpillFile::update_written_bytes(int64_t delta_bytes) {
 
 void SpillFile::add_part(int64_t part_bytes) {
     _part_sizes.push_back(part_bytes);
+    if (_data_dir->is_remote()) {
+        _data_dir->record_persisted_bytes(part_bytes);
+        _persisted_bytes += part_bytes;
+    }
 }
 
 } // namespace doris

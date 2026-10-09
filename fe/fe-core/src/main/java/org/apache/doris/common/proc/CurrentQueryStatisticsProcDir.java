@@ -46,7 +46,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             .add("SpillWriteBytesToLocalStorage").add("SpillReadBytesFromLocalStorage")
             .add("BytesWriteIntoCache")
             .add("TotalTasks").add("FinishedTasks").add("Progress")
-            // Appended last: multi-FE aggregation concatenates rows by position.
+            // Appended last so old FE rows can default these fields during rolling upgrades.
             .add("SpillWriteBytesToRemoteStorage").add("SpillReadBytesFromRemoteStorage").build();
 
     private static final int EXEC_TIME_INDEX = 5;
