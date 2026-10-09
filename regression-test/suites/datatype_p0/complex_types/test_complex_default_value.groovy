@@ -56,6 +56,12 @@ suite("test_complex_default_value") {
     createTableRejects.call("""STRUCT<f1:INT> DEFAULT '{"bad"}'""", "Invalid default value")
     createTableRejects.call("""STRUCT<f1:INT, f2:STRING> DEFAULT '{1}'""", "struct literal has 1 fields but the column has 2")
     createTableRejects.call("""ARRAY<ARRAY<INT>> DEFAULT '[[1], ["bad"]]'""", "Invalid default value")
+    // an item that cannot be cast to the type inferred from the other items is rejected instead of being
+    // replaced by NULL, which the SQL literal parser does under the default enable_strict_cast=false
+    createTableRejects.call("""ARRAY<DATEV2> DEFAULT '[DATEV2 "2024-01-01", 1]'""", "Invalid default value")
+    createTableRejects.call("""MAP<DATEV2, INT> DEFAULT '{DATEV2 "2024-01-01": 1, 1: 2}'""", "Invalid default value")
+    createTableRejects.call("""MAP<STRING, DATEV2> DEFAULT '{"a": DATEV2 "2024-01-01", "b": 1}'""", "Invalid default value")
+    createTableRejects.call("""STRUCT<f1:ARRAY<DATEV2>> DEFAULT '{[DATEV2 "2024-01-01", 1]}'""", "Invalid default value")
     // map keys that only collide after the cast to the key type are rejected
     createTableRejects.call("""MAP<INT, INT> DEFAULT '{"01": 1, "1": 2}'""", "map key 1 is repeated after casting to INT")
 
@@ -89,6 +95,14 @@ suite("test_complex_default_value") {
     test {
         sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v MAP<INT, INT> DEFAULT '{"01": 1, "1": 2}'"""
         exception "map key 1 is repeated after casting to INT"
+    }
+    test {
+        sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v ARRAY<DATEV2> DEFAULT '[DATEV2 "2024-01-01", 1]'"""
+        exception "Invalid default value"
+    }
+    test {
+        sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v MAP<STRING, DATEV2> DEFAULT '{"a": DATEV2 "2024-01-01", "b": 1}'"""
+        exception "Invalid default value"
     }
 
     sql """

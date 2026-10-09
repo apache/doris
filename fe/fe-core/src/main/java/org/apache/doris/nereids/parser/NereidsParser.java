@@ -304,10 +304,21 @@ public class NereidsParser {
     }
 
     public Expression parseExpression(String expression) {
+        return parseExpression(expression, null);
+    }
+
+    /**
+     * parse an expression with the given logical plan builder.
+     *
+     * @param expression expression string
+     * @param logicalPlanBuilder logical plan builder, null for the default one
+     * @return expression
+     */
+    public Expression parseExpression(String expression, @Nullable LogicalPlanBuilder logicalPlanBuilder) {
         if (isValidUnquotedIdentifier(expression)) {
             return new UnboundSlot(expression);
         }
-        return parse(expression, DorisParser::expressionWithEof);
+        return parse(expression, logicalPlanBuilder, DorisParser::expressionWithEof);
     }
 
     /** Return whether the text can be emitted as an unquoted Nereids identifier. */

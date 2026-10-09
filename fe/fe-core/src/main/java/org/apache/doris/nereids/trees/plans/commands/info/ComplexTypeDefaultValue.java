@@ -17,7 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
+import org.apache.doris.nereids.DorisParser.ConstantContext;
+import org.apache.doris.nereids.DorisParser.MapLiteralContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -33,8 +38,12 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import org.antlr.v4.runtime.ParserRuleContext;
 
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,8 +52,9 @@ import java.util.StringJoiner;
 /**
  * Validates a non-null ARRAY/MAP/STRUCT column default and rewrites it into a canonical literal text.
  *
- * <p>The user supplied text is parsed as a SQL literal and every nested value is cast to the declared
- * nested type, so a type mismatch is rejected at DDL time instead of when old rows are read. The
+ * <p>The user supplied text is parsed as a SQL literal whose nested values are kept exactly as written
+ * (see {@link LiteralBuilder}), and every nested value is then cast to the declared nested type, so a
+ * type mismatch is rejected at DDL time instead of when old rows are read. The
  * canonical text only contains plain nested values (unquoted numbers, double quoted strings, nested
  * brackets and NULL). BE parses the stored text in two places that must agree: the complex SerDe
  * {@code from_fe_string} used by the default value iterator and schema change, and the
@@ -65,7 +75,7 @@ public class ComplexTypeDefaultValue {
                 "%s is not a complex type", type);
         Expression expression;
         try {
-            expression = new NereidsParser().parseExpression(defaultValue);
+            expression = new NereidsParser().parseExpression(defaultValue, new LiteralBuilder());
         } catch (Exception e) {
             throw literalShapeException(type);
         }
@@ -180,5 +190,49 @@ public class ComplexTypeDefaultValue {
             return "\"" + value + "\"";
         }
         throw new AnalysisException(type.toSql() + " is not supported as a nested type of a default value");
+    }
+
+    /**
+     * Builds array and map literals from their items as written.
+     *
+     * <p>{@link LogicalPlanBuilder} first casts the items of an array literal, and the keys and the values of a
+     * map literal, to a common type inferred from the items, and with {@code enable_strict_cast=false} an item
+     * that cannot be cast silently becomes NULL: {@code '[DATEV2 "2024-01-01", 1]'} would be stored as
+     * {@code ["2024-01-01", NULL]}. The items of a default value are cast to the declared nested type by
+     * {@link #render} instead, which rejects such an item, so no coercion happens while parsing.
+     */
+    private static final class LiteralBuilder extends LogicalPlanBuilder {
+        private LiteralBuilder() {
+            super(ImmutableMap.of());
+        }
+
+        @Override
+        public ArrayLiteral visitArrayLiteral(ArrayLiteralContext ctx) {
+            return new ArrayLiteral(visitItems(ctx, ctx.items));
+        }
+
+        @Override
+        public MapLiteral visitMapLiteral(MapLiteralContext ctx) {
+            // the grammar only accepts complete key:value pairs
+            List<Literal> items = visitItems(ctx, ctx.items);
+            Map<Literal, Literal> map = new LinkedHashMap<>();
+            for (int i = 0; i < items.size(); i += 2) {
+                map.put(items.get(i), items.get(i + 1));
+            }
+            return new MapLiteral(map);
+        }
+
+        private List<Literal> visitItems(ParserRuleContext ctx, List<ConstantContext> items) {
+            ImmutableList.Builder<Literal> literals = ImmutableList.builderWithExpectedSize(items.size());
+            for (ConstantContext item : items) {
+                Expression expression = typedVisit(item);
+                // a placeholder is the only constant that is not a literal
+                if (!(expression instanceof Literal)) {
+                    throw new ParseException("default value must only contain literals", ctx);
+                }
+                literals.add((Literal) expression);
+            }
+            return literals.build();
+        }
     }
 }
