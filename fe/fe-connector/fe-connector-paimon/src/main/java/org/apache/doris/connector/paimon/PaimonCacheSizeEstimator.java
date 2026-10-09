@@ -77,9 +77,11 @@ final class PaimonCacheSizeEstimator {
     private static final long STORE_GROWTH_KEY_BYTES = 192L;
     // RESTCatalog with data tokens gives each table its own RESTTokenFileIO. The FileIO it delegates to lives in
     // Paimon's process-wide cache, but the vended token it fetches on first data access (an STS key id, secret and
-    // security token, about 2 KB) belongs to the table and arrives after admission.
+    // security token, about 2 KB) belongs to the table and arrives after admission. A refresh replaces that token
+    // instead of adding to it, and Paimon gives no hook to reweigh the table when it does, so the reserve is a
+    // fixed 16 KB, several times any STS token seen so far.
     private static final long REST_TOKEN_FILE_IO_BYTES =
-            JvmSizeUtils.saturatedAdd(JvmSizeUtils.instanceSize(RESTTokenFileIO.class), 4096L);
+            JvmSizeUtils.saturatedAdd(JvmSizeUtils.instanceSize(RESTTokenFileIO.class), 16L * 1024L);
 
     private PaimonCacheSizeEstimator() {
     }

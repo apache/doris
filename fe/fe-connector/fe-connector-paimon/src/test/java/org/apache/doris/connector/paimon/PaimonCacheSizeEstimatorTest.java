@@ -108,18 +108,29 @@ class PaimonCacheSizeEstimatorTest {
                 fileIO, local.location(), local.schema(), CatalogEnvironment.empty());
 
         long reserved = weight(rest) - weight(local);
-        Map<String, String> token = new HashMap<>();
-        token.put("fs.oss.accessKeyId", "STS." + "a".repeat(28));
-        token.put("fs.oss.accessKeySecret", "b".repeat(44));
-        token.put("fs.oss.securityToken", "c".repeat(1200));
-        token.put("fs.oss.endpoint", "oss-cn-hangzhou-internal.aliyuncs.com");
+        // The token arrives after admission and a refresh replaces it, so the one reserve must cover the token
+        // the first data access fetches as well as a later, larger one. The 1,200-character security token is
+        // the usual STS size; the 8,192-character one stands for a credential several times larger.
+        // MUTATION: a 4 KB reserve -> the refreshed token outgrows it -> red.
+        for (int securityTokenChars : new int[] {1200, 8192}) {
+            Map<String, String> token = new HashMap<>();
+            token.put("fs.oss.accessKeyId", "STS." + "a".repeat(28));
+            token.put("fs.oss.accessKeySecret", "b".repeat(44));
+            token.put("fs.oss.securityToken", "c".repeat(securityTokenChars));
+            token.put("fs.oss.endpoint", "oss-cn-hangzhou-internal.aliyuncs.com");
+            setToken(fileIO, new RESTToken(token, System.currentTimeMillis() + 3_600_000L));
+            long owned = EstimatorCalibrationAssertions.graphSize(fileIO)
+                    - EstimatorCalibrationAssertions.graphSize(context);
+            Assertions.assertTrue(reserved >= owned, "reserved " + reserved
+                    + " does not cover the table-owned graph with a " + securityTokenChars + "-character token "
+                    + owned);
+        }
+    }
+
+    private static void setToken(RESTTokenFileIO fileIO, RESTToken token) throws ReflectiveOperationException {
         Field tokenField = RESTTokenFileIO.class.getDeclaredField("token");
         tokenField.setAccessible(true);
-        tokenField.set(fileIO, new RESTToken(token, System.currentTimeMillis() + 3_600_000L));
-        long owned = EstimatorCalibrationAssertions.graphSize(fileIO)
-                - EstimatorCalibrationAssertions.graphSize(context);
-        Assertions.assertTrue(reserved >= owned,
-                "reserved " + reserved + " does not cover the table-owned token graph " + owned);
+        tokenField.set(fileIO, token);
     }
 
     private void assertGrownDelta(String fixture, FileStoreTable small, FileStoreTable large) throws Exception {
