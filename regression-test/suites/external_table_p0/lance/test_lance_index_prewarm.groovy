@@ -45,7 +45,7 @@ suite("test_lance_index_prewarm", "p0,external") {
     sql "SET enable_file_scanner_v2 = true"
     def entries = sql """SELECT IndexName, DatasetVersion FROM lance_index_entries("table"="${tableName}")"""
     assertFalse(entries.isEmpty())
-    String statement = """WARM UP SELECT embedding FROM ${tableName} SETTINGS ("read_index_only" = "true")"""
+    String statement = """WARM UP SELECT embedding FROM ${tableName} PROPERTIES ("read_index_only" = "true")"""
     String query = """
         SELECT row_id, _distance FROM vector_search(
             "table"="${tableName}", "column"="embedding",
@@ -86,32 +86,32 @@ suite("test_lance_index_prewarm", "p0,external") {
     }
 
     // Selecting * must cover every logical index, even if physical segments repeat its name.
-    def allIndexes = sql """WARM UP SELECT * FROM ${tableName} SETTINGS ("read_index_only" = true)"""
+    def allIndexes = sql """WARM UP SELECT * FROM ${tableName} PROPERTIES ("read_index_only" = true)"""
     assertEquals(entries.collect { it[0] }.toSet(), allIndexes.collect { it[1] }.toSet())
     assertEquals(allIndexes.size(), allIndexes.collect { it[1] }.toSet().size())
     assertTrue(allIndexes.every { it[2] == warm[0][2] && it[3] == warm[0][3] })
     def qualified = sql """WARM UP SELECT t.embedding, t.embedding FROM ${tableName} t
-            SETTINGS ("read_index_only" = true)"""
+            PROPERTIES ("read_index_only" = true)"""
     assertEquals(1, qualified.size())
     assertEquals(indexName, qualified[0][1])
     test {
-        sql """WARM UP SELECT missing_column FROM ${tableName} SETTINGS ("read_index_only" = true)"""
+        sql """WARM UP SELECT missing_column FROM ${tableName} PROPERTIES ("read_index_only" = true)"""
         exception "Unknown or ambiguous index prewarm column"
     }
     test {
-        sql """WARM UP SELECT * FROM ${tableName} WHERE row_id = 1 SETTINGS ("read_index_only" = true)"""
+        sql """WARM UP SELECT * FROM ${tableName} WHERE row_id = 1 PROPERTIES ("read_index_only" = true)"""
         exception "does not support WHERE or EXPLAIN"
     }
     test {
-        sql """WARM UP SELECT * FROM ${tableName} SETTINGS ("read_index_only" = "invalid")"""
+        sql """WARM UP SELECT * FROM ${tableName} PROPERTIES ("read_index_only" = "invalid")"""
         exception "read_index_only must be true or false"
     }
     test {
-        sql """WARM UP SELECT * FROM ${tableName} SETTINGS ("unknown_option" = true)"""
-        exception "Unknown WARM UP SELECT setting"
+        sql """WARM UP SELECT * FROM ${tableName} PROPERTIES ("unknown_option" = true)"""
+        exception "Unknown WARM UP SELECT property"
     }
     test {
-        sql """WARM UP SELECT * FROM internal.information_schema.tables SETTINGS ("read_index_only" = true)"""
+        sql """WARM UP SELECT * FROM internal.information_schema.tables PROPERTIES ("read_index_only" = true)"""
         exception "requires a Lance catalog table"
     }
     // Index mode uses the SDK cache independently of the data-file-cache session switch.
@@ -129,7 +129,7 @@ suite("test_lance_index_prewarm", "p0,external") {
     }
     sql "SET ${cacheVariable} = ${isCloudMode() ? 'false' : 'true'}"
     try {
-        for (String suffix : ["", ' SETTINGS ("read_index_only" = false)']) {
+        for (String suffix : ["", ' PROPERTIES ("read_index_only" = false)']) {
             def dataWarm = sql "WARM UP SELECT row_id FROM ${tableName} WHERE row_id >= 0${suffix}"
             assertTrue(dataWarm.every { it.size() == 6 })
             assertEquals("TOTAL", dataWarm[-1][0])

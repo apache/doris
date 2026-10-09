@@ -41,11 +41,11 @@ import java.util.function.BooleanSupplier;
 public class WarmupSelectIndexExecutionTest {
     private WarmupSelectCommand command() {
         return (WarmupSelectCommand) new NereidsParser().parseSingle(
-                "WARM UP SELECT * FROM lake.db.items SETTINGS (read_index_only=true)");
+                "WARM UP SELECT * FROM lake.db.items PROPERTIES (read_index_only=true)");
     }
 
     private StmtExecutor executor(ConnectContext context, WarmupSelectCommand command) {
-        OriginStatement sql = new OriginStatement("WARM UP SELECT * FROM lake.db.items SETTINGS (read_index_only=true)", 0);
+        OriginStatement sql = new OriginStatement("WARM UP SELECT * FROM lake.db.items PROPERTIES (read_index_only=true)", 0);
         LogicalPlanAdapter adapter = new LogicalPlanAdapter(command, new StatementContext(context, sql));
         adapter.setOrigStmt(sql);
         return new StmtExecutor(context, adapter, true);

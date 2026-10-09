@@ -9610,13 +9610,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         LogicalProject project = new LogicalProject(projectList, filter);
-        Map<String, String> settings = visitPropertyItemList(ctx.settings);
-        for (String key : settings.keySet()) {
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+        for (String key : properties.keySet()) {
             if (!"read_index_only".equals(key)) {
-                throw new AnalysisException("Unknown WARM UP SELECT setting: " + key);
+                throw new AnalysisException("Unknown WARM UP SELECT property: " + key);
             }
         }
-        String indexOnly = settings.getOrDefault("read_index_only", "false");
+        String indexOnly = properties.getOrDefault("read_index_only", "false");
         if (!"true".equalsIgnoreCase(indexOnly) && !"false".equalsIgnoreCase(indexOnly)) {
             throw new AnalysisException("read_index_only must be true or false");
         }

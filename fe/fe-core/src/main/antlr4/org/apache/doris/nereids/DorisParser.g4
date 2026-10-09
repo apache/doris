@@ -545,7 +545,7 @@ supportedOtherStatement
             properties=propertyClause?                                              #warmUpCluster
     | explain? WARM UP SELECT namedExpressionSeq
       FROM warmUpSingleTableRef whereClause?
-      (SETTINGS LEFT_PAREN settings=propertyItemList RIGHT_PAREN)?                   #warmUpSelect
+      properties=propertyClause?                                                   #warmUpSelect
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
@@ -2346,7 +2346,6 @@ nonReserved
     | SERIALIZABLE
     | SESSION
     | SESSION_USER
-    | SETTINGS
     | SHAPE
     | SKEW
     | SNAPSHOT
