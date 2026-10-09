@@ -3331,12 +3331,9 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
         if (_default_value == "NULL") {
             _default_value_field = Field::create_field<TYPE_NULL>(Null {});
         } else {
-            if (_serde == nullptr) {
-                const auto t = _type;
-                _serde = DataTypeFactory::instance()
-                                 .create_data_type(t, _precision, _scale, _len)
-                                 ->get_serde();
-            }
+            // The SerDe of the declared (possibly nested) type is built by the caller; a FieldType alone
+            // cannot describe ARRAY/MAP/STRUCT.
+            DORIS_CHECK(_serde != nullptr);
             RETURN_IF_ERROR(_serde->from_fe_string(_default_value, _default_value_field));
         }
     } else if (_is_nullable) {

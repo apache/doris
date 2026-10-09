@@ -23,6 +23,7 @@ suite("test_complex_default_value") {
     sql "DROP TABLE IF EXISTS test_complex_default_value_alter_direct"
     sql "DROP TABLE IF EXISTS test_complex_default_value_bad_alter"
     sql "DROP TABLE IF EXISTS test_complex_default_value_replace_value"
+    sql "DROP TABLE IF EXISTS test_complex_default_value_mapping"
 
     def createTableRejects = { String columnDef, String message ->
         test {
@@ -55,6 +56,8 @@ suite("test_complex_default_value") {
     createTableRejects.call("""STRUCT<f1:INT> DEFAULT '{"bad"}'""", "Invalid default value")
     createTableRejects.call("""STRUCT<f1:INT, f2:STRING> DEFAULT '{1}'""", "struct literal has 1 fields but the column has 2")
     createTableRejects.call("""ARRAY<ARRAY<INT>> DEFAULT '[[1], ["bad"]]'""", "Invalid default value")
+    // map keys that only collide after the cast to the key type are rejected
+    createTableRejects.call("""MAP<INT, INT> DEFAULT '{"01": 1, "1": 2}'""", "map key 1 is repeated after casting to INT")
 
     // nested string values are stored as plain double quoted text, so quotes and backslashes are rejected
     createTableRejects.call("""ARRAY<STRING> DEFAULT '["a""b"]'""", "must not contain quote or backslash")
@@ -82,6 +85,10 @@ suite("test_complex_default_value") {
     test {
         sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v STRUCT<f1:INT> DEFAULT '{"bad"}'"""
         exception "Invalid default value"
+    }
+    test {
+        sql """ALTER TABLE test_complex_default_value_bad_alter ADD COLUMN v MAP<INT, INT> DEFAULT '{"01": 1, "1": 2}'"""
+        exception "map key 1 is repeated after casting to INT"
     }
 
     sql """
@@ -207,6 +214,9 @@ suite("test_complex_default_value") {
     """
 
     sql "INSERT INTO test_complex_default_value_alter_direct VALUES (1)"
+    // a delete predicate on the base rowsets makes BE pick the direct strategy instead of linking
+    // the old rowset, so the new columns are materialized by the schema change itself
+    sql "DELETE FROM test_complex_default_value_alter_direct WHERE k = 0"
     sql """
         ALTER TABLE test_complex_default_value_alter_direct
         ADD COLUMN arr_added ARRAY<INT> NOT NULL DEFAULT '[3, 4]',
@@ -242,4 +252,41 @@ suite("test_complex_default_value") {
     order_qt_replace_value """
         SELECT k, v FROM test_complex_default_value_replace_value ORDER BY k
     """
+
+    // an explicit default_value / replace_value argument of a complex column is written as the
+    // canonical literal, so 1e3 and "7" become INT elements instead of NULL
+    sql """
+        CREATE TABLE test_complex_default_value_mapping (
+            k INT,
+            v ARRAY<INT>
+        )
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES('replication_num'='1')
+    """
+    streamLoad {
+        table "test_complex_default_value_mapping"
+        set 'columns', 'k, v, v = replace_value(null, \'[1e3, "7"]\')'
+        file "test_complex_default_value_mapping.csv"
+        time 60
+    }
+    order_qt_mapping_replace_value """
+        SELECT k, v FROM test_complex_default_value_mapping ORDER BY k
+    """
+    streamLoad {
+        table "test_complex_default_value_mapping"
+        set 'columns', 'k, tmp, v = default_value(\'[1e3, "7"]\')'
+        file "test_complex_default_value_mapping.csv"
+        time 60
+    }
+    order_qt_mapping_default_value """
+        SELECT k, v FROM test_complex_default_value_mapping ORDER BY k, v
+    """
+    test {
+        sql """
+            ALTER TABLE test_complex_default_value_mapping
+            ADD COLUMN bad MAP<INT, INT> DEFAULT '{"01": 1, "1": 2}'
+        """
+        exception "map key 1 is repeated after casting to INT"
+    }
 }

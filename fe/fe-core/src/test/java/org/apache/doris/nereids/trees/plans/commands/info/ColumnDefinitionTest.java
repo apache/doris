@@ -200,6 +200,11 @@ public class ColumnDefinitionTest {
         assertRejectsDefaultValue(stringIntMap, "{\"a\": \"bad\"}", "Invalid default value");
         assertRejectsDefaultValue(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), "{\"bad\": 1}",
                 "Invalid default value");
+        // keys that are distinct literals but collide after the cast to the key type are rejected
+        assertRejectsDefaultValue(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), "{\"01\": 1, \"1\": 2}",
+                "map key 1 is repeated after casting to INT");
+        assertCanonicalDefaultValue(MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE), "{\"01\": 1, 2: 2}",
+                "{1:1, 2:2}");
 
         StructType structType = new StructType(Arrays.asList(
                 new StructField("f1", IntegerType.INSTANCE, true, ""),

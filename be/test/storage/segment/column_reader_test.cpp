@@ -35,7 +35,9 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
+#include "core/column/column_array.h"
 #include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -1975,12 +1977,54 @@ TEST_F(ColumnReaderTest, PlaceHolderRecoveryAfterColumnReplacement) {
     EXPECT_EQ(2, dst->size());
 }
 
+TEST_F(ColumnReaderTest, DefaultValueIteratorParsesComplexDefaultWithSerDe) {
+    auto array_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>()));
+    DefaultValueColumnIterator iterator(true, "[1, NULL, 3]", true, array_type->get_serde());
+    ColumnIteratorOptions iter_opts;
+    ASSERT_TRUE(iterator.init(iter_opts).ok());
+
+    MutableColumnPtr dst = make_nullable(array_type)->create_column();
+    size_t rows = 2;
+    bool has_null = true;
+    ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    EXPECT_FALSE(has_null);
+    ASSERT_EQ(2, dst->size());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*dst);
+    EXPECT_FALSE(nullable.is_null_at(1));
+    const auto& array = assert_cast<const ColumnArray&>(nullable.get_nested_column());
+    ASSERT_EQ(6, array.get_data().size());
+    EXPECT_EQ(3, array.get_offsets()[1] - array.get_offsets()[0]);
+    const auto& items = assert_cast<const ColumnNullable&>(array.get_data());
+    EXPECT_EQ(1, assert_cast<const ColumnInt32&>(items.get_nested_column()).get_element(3));
+    EXPECT_TRUE(items.is_null_at(4));
+    EXPECT_EQ(3, assert_cast<const ColumnInt32&>(items.get_nested_column()).get_element(5));
+}
+
+TEST_F(ColumnReaderTest, DefaultValueIteratorNeedsNoSerDeForNullDefault) {
+    // Segment::new_default_iterator only builds a SerDe for a non-NULL default text.
+    DefaultValueColumnIterator null_default(true, "NULL", true, nullptr);
+    ColumnIteratorOptions iter_opts;
+    ASSERT_TRUE(null_default.init(iter_opts).ok());
+    auto array_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>()));
+    MutableColumnPtr dst = make_nullable(array_type)->create_column();
+    size_t rows = 2;
+    bool has_null = false;
+    ASSERT_TRUE(null_default.next_batch(&rows, dst, &has_null).ok());
+    EXPECT_TRUE(has_null);
+    ASSERT_EQ(2, dst->size());
+    EXPECT_TRUE(assert_cast<const ColumnNullable&>(*dst).is_null_at(1));
+
+    DefaultValueColumnIterator no_default(false, "", true, nullptr);
+    ASSERT_TRUE(no_default.init(iter_opts).ok());
+}
+
 namespace {
 void check_default_value_lazy_output(bool read_by_rowids) {
     SCOPED_TRACE(read_by_rowids ? "read_by_rowids" : "next_batch");
 
-    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
-                                        sizeof(int32_t),
+    DefaultValueColumnIterator iterator(true, "7", false,
                                         std::make_shared<DataTypeInt32>()->get_serde());
     ColumnIteratorOptions iter_opts;
     ASSERT_TRUE(iterator.init(iter_opts).ok());
@@ -2020,8 +2064,7 @@ void check_default_value_lazy_output(bool read_by_rowids) {
 void check_default_value_predicate_not_read_again(bool read_by_rowids) {
     SCOPED_TRACE(read_by_rowids ? "read_by_rowids" : "next_batch");
 
-    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
-                                        sizeof(int32_t),
+    DefaultValueColumnIterator iterator(true, "7", false,
                                         std::make_shared<DataTypeInt32>()->get_serde());
     ColumnIteratorOptions iter_opts;
     ASSERT_TRUE(iterator.init(iter_opts).ok());
@@ -2065,8 +2108,7 @@ TEST_F(ColumnReaderTest, DefaultValueLazyOutputRecoversFilteredPlaceholder) {
 }
 
 TEST_F(ColumnReaderTest, DefaultValueLazyOutputFinalizesEmptySelection) {
-    DefaultValueColumnIterator iterator(true, "7", false, FieldType::OLAP_FIELD_TYPE_INT, 0, 0,
-                                        sizeof(int32_t),
+    DefaultValueColumnIterator iterator(true, "7", false,
                                         std::make_shared<DataTypeInt32>()->get_serde());
     ColumnIteratorOptions iter_opts;
     ASSERT_TRUE(iterator.init(iter_opts).ok());

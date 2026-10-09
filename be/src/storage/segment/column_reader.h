@@ -964,16 +964,13 @@ private:
 // This iterator is used to read default value column
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
+    // `serde` is the SerDe of the column's declared (non-nullable) type and is only required for a
+    // non-NULL default text; it may be null otherwise.
     DefaultValueColumnIterator(bool has_default_value, std::string default_value, bool is_nullable,
-                               FieldType type, int precision, int scale, int len,
                                DataTypeSerDeSPtr serde)
             : _has_default_value(has_default_value),
               _default_value(std::move(default_value)),
               _is_nullable(is_nullable),
-              _type(type),
-              _precision(precision),
-              _scale(scale),
-              _len(len),
               _serde(std::move(serde)) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
@@ -1005,10 +1002,6 @@ private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;
-    FieldType _type;
-    int _precision;
-    int _scale;
-    const int _len;
     DataTypeSerDeSPtr _serde;
     Field _default_value_field;
 

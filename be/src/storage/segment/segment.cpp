@@ -927,11 +927,15 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
                 "column_type={}",
                 tablet_column.unique_id(), tablet_column.name(), tablet_column.type());
     }
-    auto serde = remove_nullable(tablet_column.get_vec_type())->get_serde();
+    // Only a non-NULL default text is parsed by the iterator; a missing column without a default or
+    // with DEFAULT NULL never uses the SerDe, so skip building it (recursive for nested types).
+    DataTypeSerDeSPtr serde;
+    if (tablet_column.has_default_value() && tablet_column.default_value() != "NULL") {
+        serde = remove_nullable(tablet_column.get_vec_type())->get_serde();
+    }
     std::unique_ptr<DefaultValueColumnIterator> default_value_iter(new DefaultValueColumnIterator(
             tablet_column.has_default_value(), tablet_column.default_value(),
-            tablet_column.is_nullable(), tablet_column.type(), tablet_column.precision(),
-            tablet_column.frac(), tablet_column.length(), std::move(serde)));
+            tablet_column.is_nullable(), std::move(serde)));
     ColumnIteratorOptions iter_opts;
 
     RETURN_IF_ERROR(default_value_iter->init(iter_opts));
