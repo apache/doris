@@ -2574,10 +2574,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     static ConnectorColumnHandle withProjectedFieldIds(
             ConnectorColumnHandle handle, SlotDescriptor slot) {
         Set<Integer> projectedFieldIds = new HashSet<>();
+        boolean hasNestedProjection = false;
         for (ColumnAccessPath accessPath : slot.getAllAccessPaths()) {
+            hasNestedProjection |= accessPath.getPath().size() > 1;
             collectProjectedFieldIds(accessPath.getPath(), slot.getColumn(), projectedFieldIds);
         }
-        return projectedFieldIds.isEmpty()
+        return projectedFieldIds.isEmpty() && !hasNestedProjection
                 ? handle : handle.withProjectedFieldIds(projectedFieldIds);
     }
 

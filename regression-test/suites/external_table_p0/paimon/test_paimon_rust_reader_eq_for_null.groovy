@@ -187,6 +187,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
             's3.access_key' = 'admin',
             's3.secret_key' = 'password',
             's3.region' = 'us-east-1',
+            'enable.mapping.timestamp_tz' = 'true',
             'use_path_style' = 'true'
         );
     """
