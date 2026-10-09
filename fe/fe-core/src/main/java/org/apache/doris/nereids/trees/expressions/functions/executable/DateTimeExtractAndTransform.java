@@ -2070,50 +2070,11 @@ public class DateTimeExtractAndTransform {
             return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
         }
         double absVal = Math.abs(val);
-        if (absVal > Long.MAX_VALUE) {
+        // (double) Long.MAX_VALUE == 2^63; keep 2^63 out of Math.round so FE and BE agree on NULL
+        if (absVal >= 0x1.0p63) {
             return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
         }
         return formatHumanReadableSeconds(Math.round(absVal));
-    }
-
-    /**
-     * Constant folding for human_readable_seconds(BigIntLiteral)
-     */
-    @ExecFunction(name = "human_readable_seconds")
-    public static Expression humanReadableSeconds(BigIntLiteral seconds) {
-        long val = seconds.getValue();
-        if (val == Long.MIN_VALUE) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
-        }
-        return formatHumanReadableSeconds(Math.abs(val));
-    }
-
-    /**
-     * Constant folding for human_readable_seconds(IntegerLiteral)
-     */
-    @ExecFunction(name = "human_readable_seconds")
-    public static Expression humanReadableSeconds(IntegerLiteral seconds) {
-        long val = seconds.getValue();
-        if (val == Integer.MIN_VALUE) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
-        }
-        return formatHumanReadableSeconds(Math.abs(val));
-    }
-
-    /**
-     * Constant folding for human_readable_seconds(SmallIntLiteral)
-     */
-    @ExecFunction(name = "human_readable_seconds")
-    public static Expression humanReadableSeconds(SmallIntLiteral seconds) {
-        return formatHumanReadableSeconds(Math.abs(seconds.getValue()));
-    }
-
-    /**
-     * Constant folding for human_readable_seconds(TinyIntLiteral)
-     */
-    @ExecFunction(name = "human_readable_seconds")
-    public static Expression humanReadableSeconds(TinyIntLiteral seconds) {
-        return formatHumanReadableSeconds(Math.abs(seconds.getValue()));
     }
 
     private static Expression formatHumanReadableSeconds(long seconds) {

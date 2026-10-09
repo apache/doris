@@ -57,41 +57,46 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
 
-    // We must return false here to manually handle both input nulls and computed nulls
-    // (negative values -> NULL). If default null implementation is used, it strips nulls
-    // before execution, conflicting with our explicit output null map creation.
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const auto& col_with_type = block.get_by_position(arguments[0]);
-        const auto* source_col = col_with_type.column.get();
-
-        const NullMap* null_map = nullptr;
-        const IColumn* actual_col = source_col;
-
-        // Explicitly unnest ColumnNullable to handle NULL inputs correctly
-        if (source_col->is_nullable()) {
-            const auto* nullable_col = assert_cast<const ColumnNullable*>(source_col);
-            actual_col = nullable_col->get_nested_column_ptr().get();
-            null_map = &nullable_col->get_null_map_data();
-        }
+        const auto* source_col = block.get_by_position(arguments[0]).column.get();
+        const auto* col = assert_cast<const ColumnFloat64*>(source_col);
+        const auto& data = col->get_data();
 
         auto res_column = ColumnString::create();
         auto null_column = ColumnUInt8::create(input_rows_count);
 
-        bool success = false;
-        if (execute_typed<ColumnFloat64>(actual_col, null_map, *res_column, *null_column,
-                                         input_rows_count)) {
-            success = true;
-        } else if (execute_typed<ColumnFloat32>(actual_col, null_map, *res_column, *null_column,
-                                                input_rows_count)) {
-            success = true;
-        }
+        auto& res_data = res_column->get_chars();
+        auto& res_offsets = res_column->get_offsets();
+        auto& null_data = null_column->get_data();
 
-        if (!success) [[unlikely]] {
-            return Status::InvalidArgument("Unsupported column type {} for function {}",
-                                           col_with_type.type->get_name(), name);
+        res_offsets.resize(input_rows_count);
+        res_data.reserve(input_rows_count * 32);
+
+        char buf[128];
+        char* buf_end = buf + sizeof(buf);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            double val = data[i];
+            if (std::isnan(val) || std::isinf(val)) {
+                null_data[i] = 1;
+                res_offsets[i] = cast_set<UInt32>(res_data.size());
+                continue;
+            }
+            double abs_val = std::abs(val);
+            if (abs_val >= 0x1p63) {
+                null_data[i] = 1;
+                res_offsets[i] = cast_set<UInt32>(res_data.size());
+                continue;
+            }
+            int64_t seconds = std::llround(abs_val);
+
+            null_data[i] = 0;
+            size_t len = format_seconds(seconds, buf, buf_end);
+            size_t old_size = res_data.size();
+            res_data.resize(old_size + len);
+            std::memcpy(res_data.data() + old_size, buf, len);
+            res_offsets[i] = cast_set<UInt32>(res_data.size());
         }
 
         block.replace_by_position(
@@ -163,55 +168,6 @@ private:
         }
 
         return ptr - buf;
-    }
-
-    template <typename ColumnType>
-    static bool execute_typed(const IColumn* col, const NullMap* null_map, ColumnString& res_col,
-                              ColumnUInt8& null_map_col, size_t rows) {
-        const auto* vec = check_and_get_column<ColumnType>(col);
-        if (!vec) {
-            return false;
-        }
-        const auto& data = vec->get_data();
-        auto& res_data = res_col.get_chars();
-        auto& res_offsets = res_col.get_offsets();
-        auto& null_data = null_map_col.get_data();
-
-        res_offsets.resize(rows);
-        res_data.reserve(rows * 32);
-
-        char buf[128];
-        char* buf_end = buf + sizeof(buf);
-
-        for (size_t i = 0; i < rows; ++i) {
-            if (null_map && (*null_map)[i]) {
-                null_data[i] = 1;
-                res_offsets[i] = cast_set<UInt32>(res_data.size());
-                continue;
-            }
-
-            auto val = data[i];
-            if (std::isnan(val) || std::isinf(val)) {
-                null_data[i] = 1;
-                res_offsets[i] = cast_set<UInt32>(res_data.size());
-                continue;
-            }
-            double abs_val = std::abs(static_cast<double>(val));
-            if (abs_val > static_cast<double>(std::numeric_limits<int64_t>::max())) {
-                null_data[i] = 1;
-                res_offsets[i] = cast_set<UInt32>(res_data.size());
-                continue;
-            }
-            int64_t seconds = std::llround(abs_val);
-
-            null_data[i] = 0;
-            size_t len = format_seconds(seconds, buf, buf_end);
-            size_t old_size = res_data.size();
-            res_data.resize(old_size + len);
-            std::memcpy(res_data.data() + old_size, buf, len);
-            res_offsets[i] = cast_set<UInt32>(res_data.size());
-        }
-        return true;
     }
 };
 

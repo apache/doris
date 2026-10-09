@@ -16,20 +16,32 @@
 // under the License.
 
 suite("test_human_readable_seconds") {
-    // Constant folding queries matching Trino specification
-    qt_sql_const_0 "SELECT human_readable_seconds(0);"
-    qt_sql_const_1 "SELECT human_readable_seconds(1);"
-    qt_sql_const_60 "SELECT human_readable_seconds(60);"
-    qt_sql_const_neg_60 "SELECT human_readable_seconds(-60);"
-    qt_sql_const_61 "SELECT human_readable_seconds(61);"
-    qt_sql_const_neg_61 "SELECT human_readable_seconds(-61);"
-    qt_sql_const_3601 "SELECT human_readable_seconds(3601);"
-    qt_sql_const_3660 "SELECT human_readable_seconds(3660);"
-    qt_sql_const_8003 "SELECT human_readable_seconds(8003);"
-    qt_sql_const_56363463 "SELECT human_readable_seconds(56363463);"
-    qt_sql_const_frac1 "SELECT human_readable_seconds(535333.9513888889);"
-    qt_sql_const_frac2 "SELECT human_readable_seconds(535333.2513888889);"
-    qt_sql_const_null "SELECT human_readable_seconds(NULL);"
+    // 1. FE-vs-BE equivalence tests (runs both FE folding and BE execution and verifies identical output)
+    testFoldConst("SELECT human_readable_seconds(0);")
+    testFoldConst("SELECT human_readable_seconds(1);")
+    testFoldConst("SELECT human_readable_seconds(60);")
+    testFoldConst("SELECT human_readable_seconds(-60);")
+    testFoldConst("SELECT human_readable_seconds(61);")
+    testFoldConst("SELECT human_readable_seconds(-61);")
+    testFoldConst("SELECT human_readable_seconds(604800);")
+    testFoldConst("SELECT human_readable_seconds(604801);")
+    testFoldConst("SELECT human_readable_seconds(1209600);")
+    testFoldConst("SELECT human_readable_seconds(3601);")
+    testFoldConst("SELECT human_readable_seconds(3660);")
+    testFoldConst("SELECT human_readable_seconds(8003);")
+    testFoldConst("SELECT human_readable_seconds(56363463);")
+    testFoldConst("SELECT human_readable_seconds(535333.9513888889);")
+    testFoldConst("SELECT human_readable_seconds(0.5);")
+    testFoldConst("SELECT human_readable_seconds(2.5);")
+    testFoldConst("SELECT human_readable_seconds(-2.5);")
+    testFoldConst("SELECT human_readable_seconds(9223372036854775807);")
+    testFoldConst("SELECT human_readable_seconds(-9223372036854775808);")
+    testFoldConst("SELECT human_readable_seconds(9223372036854775295);")
+    testFoldConst("SELECT human_readable_seconds(1e19);")
+    testFoldConst("SELECT human_readable_seconds(cast('nan' as double));")
+    testFoldConst("SELECT human_readable_seconds(cast('inf' as double));")
+    testFoldConst("SELECT human_readable_seconds(cast('-inf' as double));")
+    testFoldConst("SELECT human_readable_seconds(NULL);")
 
     // Batch column queries (drop before using, preserve after)
     sql "DROP TABLE IF EXISTS test_human_readable_seconds_tbl;"

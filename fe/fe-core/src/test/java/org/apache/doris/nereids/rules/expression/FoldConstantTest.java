@@ -1797,7 +1797,12 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("human_readable_seconds(56363463)", "'93 weeks, 1 day, 8 hours, 31 minutes, 3 seconds'");
         assertRewriteAfterTypeCoercion("human_readable_seconds(535333.9513888889)", "'6 days, 4 hours, 42 minutes, 14 seconds'");
         assertRewriteAfterTypeCoercion("human_readable_seconds(535333.2513888889)", "'6 days, 4 hours, 42 minutes, 13 seconds'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(604800)", "'1 week'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(604801)", "'1 week, 1 second'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(1209600)", "'2 weeks'");
         assertRewriteAfterTypeCoercion("human_readable_seconds(null)", "null");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(9223372036854775807)", "null");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(1e19)", "null");
     }
 
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {
