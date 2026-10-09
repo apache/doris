@@ -69,7 +69,7 @@ public class NativePasswordResolver implements PasswordResolver {
                 String plainPassword;
                 try {
                     plainPassword = CachingSha2PasswordExchange.exchange(channel, serializer,
-                            handshakePacket.getAuthPluginData(), authPacket.getCapability().isClientUseSsl());
+                            handshakePacket.getAuthPluginData(), channel.isSslMode());
                 } catch (CachingSha2PasswordExchange.Rejected e) {
                     LOG.warn("caching_sha2_password exchange rejected for client {}: {}", channel.getRemoteIp(),
                             e.getMessage());

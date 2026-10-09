@@ -122,7 +122,9 @@ class NativePasswordResolverTest {
                 ByteBuffer.wrap(new byte[32]),
                 ByteBuffer.wrap("secret\0".getBytes(StandardCharsets.UTF_8)));
 
-        NativePassword password = resolve(authPacket(MysqlCapability.SSL_CAPABILITY, MYSQL_9_CLIENT));
+        // The negotiated capabilities omit CLIENT_SSL even after TLS has been established.
+        Mockito.when(channel.isSslMode()).thenReturn(true);
+        NativePassword password = resolve(authPacket(MysqlCapability.DEFAULT_CAPABILITY, MYSQL_9_CLIENT));
 
         Assertions.assertArrayEquals(MysqlPassword.scramble(nonce, "secret"), password.getRemotePasswd());
         Mockito.verify(channel, Mockito.times(2)).sendAndFlush(Mockito.any());

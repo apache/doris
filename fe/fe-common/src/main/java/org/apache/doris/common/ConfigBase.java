@@ -86,10 +86,14 @@ public class ConfigBase {
     public static class OptionsConfHandler implements ConfHandler {
         @Override
         public void handle(Field field, String confVal) throws Exception {
+            setConfigField(field, checkedOption(field, confVal));
+        }
+
+        // Pure validation shared by startup loading and dynamic updates.
+        private static String checkedOption(Field field, String confVal) throws ConfigException {
             for (String option : field.getAnnotation(ConfField.class).options()) {
                 if (option.equalsIgnoreCase(confVal.trim())) {
-                    setConfigField(field, option);
-                    return;
+                    return option;
                 }
             }
             throw new ConfigException("Config '" + field.getName() + "' must be one of "
@@ -313,11 +317,18 @@ public class ConfigBase {
             // ensure that field has property string
             String confKey = f.getName();
             String confVal = props.getProperty(confKey, props.getProperty(anno.varType().getPrefix() + confKey));
-            if (Strings.isNullOrEmpty(confVal)) {
+            if (confVal == null) {
                 continue;
             }
 
             try {
+                // Runtime callbacks can have side effects; only options validation is safe here.
+                if (anno.callback() == OptionsConfHandler.class) {
+                    confVal = OptionsConfHandler.checkedOption(f, confVal);
+                }
+                if (confVal.isEmpty()) {
+                    continue;
+                }
                 setConfigField(f, confVal);
             } catch (Exception e) {
                 String msg = String.format("Failed to set config, name: %s, value: %s", f.getName(), confVal);

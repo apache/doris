@@ -374,7 +374,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 String plainPassword;
                 try {
                     plainPassword = CachingSha2PasswordExchange.exchange(channel, serializer,
-                            authPluginData, ctx.getCapability().isClientUseSsl());
+                            authPluginData, channel.isSslMode());
                 } catch (CachingSha2PasswordExchange.Rejected e) {
                     LOG.warn("caching_sha2_password exchange rejected on COM_CHANGE_USER: {}", e.getMessage());
                     plainPassword = null;
