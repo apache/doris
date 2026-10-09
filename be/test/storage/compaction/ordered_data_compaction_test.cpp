@@ -130,14 +130,14 @@ protected:
     int32_t _saved_ordered_data_compaction_min_segment_size = 0;
     int32_t _saved_segments_key_bounds_truncation_threshold = 0;
 
-    TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
+    TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS, bool with_version_col = false) {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(keys_type);
         tablet_schema_pb.set_num_short_key_columns(1);
         tablet_schema_pb.set_num_rows_per_row_block(1024);
         tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
-        tablet_schema_pb.set_next_column_unique_id(4);
+        tablet_schema_pb.set_next_column_unique_id(with_version_col ? 5 : 4);
 
         ColumnPB* column_1 = tablet_schema_pb.add_column();
         column_1->set_unique_id(1);
@@ -172,6 +172,19 @@ protected:
             column_3->set_is_key(false);
             column_3->set_is_nullable(false);
             column_3->set_is_bf_column(false);
+        }
+
+        if (with_version_col) {
+            EXPECT_EQ(keys_type, UNIQUE_KEYS);
+            ColumnPB* column_4 = tablet_schema_pb.add_column();
+            column_4->set_unique_id(4);
+            column_4->set_name(VERSION_COL);
+            column_4->set_type("BIGINT");
+            column_4->set_length(8);
+            column_4->set_index_length(8);
+            column_4->set_is_nullable(false);
+            column_4->set_is_key(false);
+            column_4->set_is_bf_column(false);
         }
 
         tablet_schema->init_from_pb(tablet_schema_pb);
@@ -332,6 +345,13 @@ protected:
                 if (tablet_schema->keys_type() == UNIQUE_KEYS) {
                     uint8_t num = 0;
                     columns[2]->insert_data((const char*)&num, sizeof(num));
+                }
+                if (int32_t version_col = tablet_schema->field_index(VERSION_COL);
+                    version_col != -1) {
+                    // a load does not know its version yet and stores a placeholder
+                    int64_t version_placeholder = 0;
+                    columns[version_col]->insert_data((const char*)&version_placeholder,
+                                                      sizeof(version_placeholder));
                 }
                 num_rows++;
             }
@@ -556,6 +576,49 @@ TEST_F(OrderedDataCompactionTest, test_01) {
                 dst_id++;
             }
         }
+    }
+}
+
+// A merge-on-read UNIQUE table carries the hidden VERSION column, which every load stores as a
+// zero placeholder. Readers substitute the rowset version only for a single-version rowset, so
+// such a rowset must not be hard-linked under a multi-version output; rowsets whose column was
+// already materialized by a rewriting compaction still take the link path.
+TEST_F(OrderedDataCompactionTest, test_version_col_singleton_rowset_not_linked) {
+    auto num_input_rowset = 2;
+    auto num_segments = 1;
+    auto rows_per_segment = 100;
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(num_input_rowset, num_segments, rows_per_segment, input_data);
+
+    TabletSchemaSPtr tablet_schema = create_schema(UNIQUE_KEYS, /*with_version_col=*/true);
+    ASSERT_NE(tablet_schema->field_index(VERSION_COL), -1);
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false, 10000, false);
+    ASSERT_NE(tablet->tablet_schema()->field_index(VERSION_COL), -1);
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (auto i = 0; i < num_input_rowset; i++) {
+        input_rowsets.push_back(
+                create_rowset(tablet_schema, tablet, NONOVERLAPPING, input_data[i]));
+    }
+    for (const auto& rowset : input_rowsets) {
+        ASSERT_EQ(rowset->start_version(), rowset->end_version());
+    }
+
+    {
+        CumulativeCompaction cu_compaction(*engine_ref, tablet);
+        cu_compaction._input_rowsets = input_rowsets;
+        EXPECT_FALSE(cu_compaction.handle_ordered_data_compaction());
+    }
+
+    // The same tidy data already rewritten into multi-version rowsets is linked.
+    input_rowsets[0]->rowset_meta()->set_version(Version(2, 3));
+    input_rowsets[1]->rowset_meta()->set_version(Version(4, 5));
+    {
+        CumulativeCompaction cu_compaction(*engine_ref, tablet);
+        cu_compaction._input_rowsets = input_rowsets;
+        EXPECT_TRUE(cu_compaction.handle_ordered_data_compaction());
+        EXPECT_EQ(cu_compaction._output_rowset->version(), Version(2, 5));
+        EXPECT_EQ(cu_compaction._output_rowset->num_segments(), num_input_rowset * num_segments);
     }
 }
 
