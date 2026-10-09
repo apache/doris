@@ -1,0 +1,199 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.util;
+
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.FunctionVolatility;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.TimeV2Type;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+class CacheExpressionTest {
+    @Test
+    void testNestedExpressionsAndConjunctOrder() {
+        Expression stable = new Add(new SlotReference("k", IntegerType.INSTANCE), new IntegerLiteral(1));
+        Assertions.assertFalse(uncacheable(stable));
+        for (Expression unstable : ImmutableList.of(new Random(), new Random(new BigIntLiteral(1)),
+                new Uuid(), new Now())) {
+            Assertions.assertTrue(uncacheable(new Cast(unstable, StringType.INSTANCE)));
+            Assertions.assertTrue(ExpressionUtils.containsNonCacheableExpression(ImmutableList.of(stable, unstable)));
+            Assertions.assertTrue(ExpressionUtils.containsNonCacheableExpression(ImmutableList.of(unstable, stable)));
+        }
+    }
+
+    @Test
+    void testAllUdfVolatilitiesRemainExcluded() {
+        Expression slot = new SlotReference("k", IntegerType.INSTANCE);
+        FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE);
+        for (FunctionVolatility volatility : FunctionVolatility.values()) {
+            VolatileIdentity identity = Udf.createVolatileIdentity(volatility);
+            Expression javaUdf = new JavaUdf("f", 1, "db", Function.BinaryType.JAVA_UDF, signature,
+                    Function.NullableMode.DEPEND_ON_ARGUMENT, volatility, identity,
+                    "file:///udf.jar", "F", "", "", "", false, 360, slot);
+            Expression pythonUdf = new PythonUdf("f", 2, "db", Function.BinaryType.PYTHON_UDF, signature,
+                    Function.NullableMode.DEPEND_ON_ARGUMENT, volatility, identity,
+                    "", "f", "", "", "", false, 360, "3.12", "", slot);
+            Assertions.assertEquals(volatility == FunctionVolatility.IMMUTABLE, javaUdf.isDeterministic());
+            Assertions.assertTrue(uncacheable(javaUdf));
+            Assertions.assertTrue(uncacheable(pythonUdf));
+        }
+    }
+
+    @Test
+    void testShuffleIsVolatileWithAndWithoutSeed() {
+        Expression array = new SlotReference("a", ArrayType.of(IntegerType.INSTANCE));
+        for (ArrayShuffle shuffle : ImmutableList.of(new ArrayShuffle(array),
+                new ArrayShuffle(array, new BigIntLiteral(1)))) {
+            Assertions.assertTrue(uncacheable(shuffle));
+            Assertions.assertFalse(shuffle.foldable());
+            Assertions.assertEquals(shuffle, shuffle.withChildren(shuffle.children()));
+        }
+        ArrayShuffle first = new ArrayShuffle(array, new BigIntLiteral(1));
+        ArrayShuffle second = new ArrayShuffle(array, new BigIntLiteral(1));
+        Assertions.assertNotEquals(first, second);
+        Assertions.assertEquals(first.withIgnoreUniqueId(true), second.withIgnoreUniqueId(true));
+    }
+
+    @Test
+    void testTimeCastsDependOnQueryDate() {
+        Expression time = new SlotReference("t", TimeV2Type.SYSTEM_DEFAULT);
+        for (DataType target : ImmutableList.of(DateType.INSTANCE, DateV2Type.INSTANCE,
+                DateTimeType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.of(6),
+                TimeStampTzType.SYSTEM_DEFAULT)) {
+            Cast cast = new Cast(time, target);
+            Assertions.assertFalse(cast.isDeterministic());
+            Assertions.assertFalse(cast.foldable());
+            Assertions.assertTrue(uncacheable(new Cast(cast, StringType.INSTANCE)));
+        }
+        Assertions.assertFalse(uncacheable(new Cast(time, StringType.INSTANCE)));
+        Assertions.assertFalse(uncacheable(new Cast(time, TimeV2Type.of(6))));
+        Assertions.assertFalse(uncacheable(new Cast(
+                new SlotReference("dt", DateTimeV2Type.SYSTEM_DEFAULT), DateV2Type.INSTANCE)));
+    }
+
+    @Test
+    void testNestedTimeCastsDependOnQueryDate() {
+        for (DataType date : ImmutableList.of(DateV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT)) {
+            DataType time = TimeV2Type.SYSTEM_DEFAULT;
+            for (DataType[] types : ImmutableList.of(
+                    new DataType[] {ArrayType.of(time), ArrayType.of(date)},
+                    new DataType[] {MapType.of(time, IntegerType.INSTANCE), MapType.of(date, IntegerType.INSTANCE)},
+                    new DataType[] {MapType.of(IntegerType.INSTANCE, time), MapType.of(IntegerType.INSTANCE, date)},
+                    new DataType[] {structWithSecondField(time), structWithSecondField(date)},
+                    new DataType[] {ArrayType.of(MapType.of(IntegerType.INSTANCE, structWithSecondField(time))),
+                            ArrayType.of(MapType.of(IntegerType.INSTANCE, structWithSecondField(date)))})) {
+                Cast cast = new Cast(new SlotReference("nested", types[0]), types[1]);
+                Assertions.assertFalse(cast.isDeterministic(), cast.toSql());
+                Assertions.assertFalse(cast.foldable(), cast.toSql());
+                Assertions.assertTrue(uncacheable(cast), cast.toSql());
+                Expression nullCast = new Cast(new NullLiteral(types[0]), types[1]);
+                Assertions.assertEquals(new NullLiteral(types[1]),
+                        FoldConstantRuleOnFE.evaluateWithoutContext(nullCast));
+            }
+        }
+    }
+
+    @Test
+    void testDeterministicNestedCastsRemainCacheable() {
+        DataType time = TimeV2Type.SYSTEM_DEFAULT;
+        for (DataType[] types : ImmutableList.of(
+                new DataType[] {ArrayType.of(time), ArrayType.of(StringType.INSTANCE)},
+                new DataType[] {MapType.of(IntegerType.INSTANCE, time), MapType.of(BigIntType.INSTANCE, time)},
+                new DataType[] {structWithSecondField(time), structWithSecondField(TimeV2Type.of(6))},
+                new DataType[] {ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT), ArrayType.of(DateV2Type.INSTANCE)})) {
+            Cast cast = new Cast(new SlotReference("nested", types[0]), types[1]);
+            Assertions.assertTrue(cast.isDeterministic(), cast.toSql());
+            Assertions.assertTrue(cast.foldable(), cast.toSql());
+            Assertions.assertFalse(uncacheable(cast), cast.toSql());
+        }
+        // An invalid shape must still reach the existing cast-legality check before NULL folding.
+        Expression invalid = new Cast(new NullLiteral(structWithSecondField(time)),
+                new StructType(ImmutableList.of(new StructField("x", DateV2Type.INSTANCE, true, ""))));
+        Assertions.assertSame(invalid, FoldConstantRuleOnFE.evaluateWithoutContext(invalid));
+    }
+
+    private DataType structWithSecondField(DataType type) {
+        return new StructType(ImmutableList.of(new StructField("stable", IntegerType.INSTANCE, true, ""),
+                new StructField("value", type, true, "")));
+    }
+
+    @Test
+    void testNullTimeCastsFoldBeforeCacheEligibility() {
+        for (DataType target : ImmutableList.of(DateType.INSTANCE, DateV2Type.INSTANCE,
+                DateTimeType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.of(6))) {
+            Expression cast = new Cast(new Cast(NullLiteral.INSTANCE, TimeV2Type.SYSTEM_DEFAULT), target);
+            Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(cast);
+            Assertions.assertEquals(new NullLiteral(target), folded);
+            Assertions.assertFalse(uncacheable(folded));
+        }
+        // NULL folding must not bypass the legality check for unsupported cast pairs.
+        Expression unsupported = new Cast(new NullLiteral(TimeV2Type.SYSTEM_DEFAULT),
+                TimeStampTzType.SYSTEM_DEFAULT);
+        Assertions.assertSame(unsupported, FoldConstantRuleOnFE.evaluateWithoutContext(unsupported));
+    }
+
+    @Test
+    void testNullShuffleArgumentsFoldBeforeCacheEligibility() {
+        ArrayType arrayType = ArrayType.of(IntegerType.INSTANCE);
+        Expression nullArray = new Cast(NullLiteral.INSTANCE, arrayType);
+        Expression array = new SlotReference("a", arrayType);
+        for (Expression shuffle : ImmutableList.of(new ArrayShuffle(nullArray),
+                new ArrayShuffle(nullArray, new BigIntLiteral(1)),
+                new ArrayShuffle(array, new NullLiteral(BigIntType.INSTANCE)))) {
+            Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(shuffle);
+            Assertions.assertEquals(new NullLiteral(arrayType), folded);
+            Assertions.assertFalse(uncacheable(folded));
+        }
+    }
+
+    private boolean uncacheable(Expression expression) {
+        return ExpressionUtils.containsNonCacheableExpression(ImmutableList.of(expression));
+    }
+}
