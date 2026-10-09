@@ -194,7 +194,7 @@ public abstract class JdbcClient {
             return JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
             throw new JdbcClientException(e,
-                    JdbcExceptionUtils.format("Failed to parse JDBC database type", e, jdbcUrl), jdbcUrl);
+                    JdbcExceptionUtils.format("Failed to parse db type from jdbcUrl", e, jdbcUrl), jdbcUrl);
         }
     }
 
@@ -211,7 +211,7 @@ public abstract class JdbcClient {
             conn = dataSource.getConnection();
         } catch (Exception e) {
             String errorMessage = String.format(
-                    "Catalog `%s` can not connect to JDBC", this.getCatalogName());
+                    "Catalog `%s` can not connect to jdbc due to error", this.getCatalogName());
             throw jdbcException(errorMessage, e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);

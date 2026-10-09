@@ -76,6 +76,7 @@ class JdbcLegacyDiagnosticsTest {
         set(client, "diagnosticJdbcUrl", url);
         JdbcClientException error = Assertions.assertThrows(JdbcClientException.class, client::getConnection);
         Assertions.assertSame(cause, error.getCause());
+        Assertions.assertTrue(error.getMessage().contains("can not connect to jdbc due to error:"));
         Assertions.assertTrue(error.getMessage().contains("remote_sqlstate=08001, remote_vendor_error_code=0"));
         Assertions.assertFalse(error.getMessage().contains("test-password"));
         Assertions.assertFalse(error.getMessage().contains("url-secret"));
@@ -84,6 +85,17 @@ class JdbcLegacyDiagnosticsTest {
         Assertions.assertTrue(trace.contains("remote_sqlstate=08001, remote_vendor_error_code=0"));
         Assertions.assertFalse(trace.contains("test-password"));
         Assertions.assertFalse(trace.contains("url-secret"));
+    }
+
+    @Test
+    void invalidUrlKeepsLegacyPrefixAndRedactsUrl() {
+        String url = "jdbc:unsupported://localhost/db?password=url-secret";
+        JdbcClientException error = Assertions.assertThrows(JdbcClientException.class,
+                () -> JdbcClient.parseDbType(url));
+        Assertions.assertTrue(error.getMessage().startsWith("Failed to parse db type from jdbcUrl:"));
+        Assertions.assertNotNull(error.getCause());
+        Assertions.assertFalse(error.getMessage().contains(url));
+        Assertions.assertFalse(error.getMessage().contains("url-secret"));
     }
 
     private static void set(JdbcClient client, String name, String value) throws Exception {
