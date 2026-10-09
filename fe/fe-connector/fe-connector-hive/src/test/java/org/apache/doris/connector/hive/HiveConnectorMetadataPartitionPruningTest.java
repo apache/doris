@@ -269,21 +269,27 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
-    public void testHmsFilterRendersIntegralPartitionLiteralWithoutQuotes() {
-        HmsFilterClient client = new HmsFilterClient(Collections.singletonList("year=2024/month=01"));
+    public void testIntegralPredicateUsesFullNamesAndTypedLocalPruning() {
+        // With integral JDO pushdown enabled, Hive can successfully return only p=1 for `p = 1`, omitting the
+        // type-equal p=01 partition because JDO compares the rendered partition-name fragment as text. Model
+        // that incomplete successful response here: the connector must not call it, and must instead list every
+        // name and apply its typed numeric comparison so both partitions remain in the logical selected view.
+        HmsFilterClient client = new HmsFilterClient(
+                Arrays.asList("p=01", "p=1", "p=2"), Collections.singletonList("p=1"));
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
                 client, HiveTestProperties.minimal(), new FakeConnectorContext());
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
-                .partitionKeyNames(PART_KEYS)
-                .partitionKeyTypes(Map.of("year", "INT", "month", "STRING"))
+                .partitionKeyNames(Collections.singletonList("p"))
+                .partitionKeyTypes(Collections.singletonMap("p", "INT"))
                 .build();
 
         Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
-                null, handle, new ConnectorFilterConstraint(and(eq("year", "2024"), eq("month", "01"))));
+                null, handle, new ConnectorFilterConstraint(eq("p", "1")));
 
         Assertions.assertTrue(result.isPresent());
-        Assertions.assertEquals("(year = 2024 AND month = '01')", client.filter);
-        Assertions.assertFalse(client.wasListPartitionNamesCalled());
+        Assertions.assertEquals(Arrays.asList("p=01", "p=1"), prunedLocations(result));
+        Assertions.assertNull(client.filter, "integral predicates must not use an HMS filter");
+        Assertions.assertTrue(client.wasListPartitionNamesCalled());
     }
 
     @Test
@@ -666,7 +672,11 @@ public class HiveConnectorMetadataPartitionPruningTest {
         private String filter;
 
         HmsFilterClient(List<String> filteredPartitionNames) {
-            super(Collections.emptyList());
+            this(Collections.emptyList(), filteredPartitionNames);
+        }
+
+        HmsFilterClient(List<String> partitionNames, List<String> filteredPartitionNames) {
+            super(partitionNames);
             this.filteredPartitionNames = filteredPartitionNames;
         }
 

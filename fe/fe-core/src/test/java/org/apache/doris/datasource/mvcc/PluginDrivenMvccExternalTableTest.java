@@ -764,8 +764,7 @@ public class PluginDrivenMvccExternalTableTest {
 
         ExternalTablePreloadInfo preloadInfo = new ExternalTablePreloadInfo(f.table);
         preloadInfo.markLatestRelation();
-        preloadInfo.markUnfilteredLatestRelation();
-        preloadInfo.setScanPartitionView(Optional.empty());
+        preloadInfo.setMtmvPartitionView(Optional.empty());
         StatementContext statementContext = Mockito.mock(StatementContext.class);
         Mockito.when(statementContext.getExternalTablePreloadInfo(1L)).thenReturn(Optional.of(preloadInfo));
         Mockito.when(statementContext.getSnapshot(f.table)).thenReturn(Optional.of(lightweight));
@@ -792,13 +791,16 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
-    public void testQueryTimeMvValidationRejectsIntentionallyUnwarmedFilteredPartitionView() {
+    public void testFilteredQueryMvMappingUsesFullPreLockViewWithoutWarmingScanView() throws AnalysisException {
         Fixture f = Fixture.connectorPartitionPruning();
         PluginDrivenMvccSnapshot lightweight = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
                 Optional.empty(), Optional.empty());
+        Map<String, PartitionItem> fullMappingView = Collections.singletonMap(
+                "dt=2024-01-01", Mockito.mock(PartitionItem.class));
 
         ExternalTablePreloadInfo preloadInfo = new ExternalTablePreloadInfo(f.table);
         preloadInfo.markLatestRelation();
+        preloadInfo.setMtmvPartitionView(Optional.of(fullMappingView));
         StatementContext statementContext = Mockito.mock(StatementContext.class);
         Mockito.when(statementContext.getExternalTablePreloadInfo(1L)).thenReturn(Optional.of(preloadInfo));
         Mockito.when(statementContext.getSnapshot(f.table)).thenReturn(Optional.of(lightweight));
@@ -809,12 +811,47 @@ public class PluginDrivenMvccExternalTableTest {
         ConnectContext previousContext = ConnectContext.get();
         connectContext.setThreadLocalInfo();
         try {
-            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
-                    () -> f.table.getAndCopyPartitionItems(Optional.of(lightweight)));
+            Map<String, PartitionItem> mappingView =
+                    f.table.getAndCopyPartitionItems(Optional.of(lightweight));
 
-            Assertions.assertEquals(
-                    "Partition view was not preloaded for filtered latest relation of table tbl",
-                    error.getDetailMessage());
+            Assertions.assertEquals(fullMappingView, mappingView);
+            Assertions.assertFalse(preloadInfo.hasScanPartitionView(),
+                    "the filtered scan must still materialize its predicate-pruned view independently");
+            Mockito.verify(f.metadata, Mockito.never()).listPartitions(
+                    Mockito.any(), Mockito.any(), Mockito.any());
+        } finally {
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testQueryTimeMvValidationPreservesAuthoritativeEmptyFullView() throws AnalysisException {
+        Fixture f = Fixture.connectorPartitionPruning();
+        PluginDrivenMvccSnapshot lightweight = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+
+        ExternalTablePreloadInfo preloadInfo = new ExternalTablePreloadInfo(f.table);
+        preloadInfo.markLatestRelation();
+        preloadInfo.setMtmvPartitionView(Optional.of(Collections.emptyMap()));
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(statementContext.getExternalTablePreloadInfo(1L)).thenReturn(Optional.of(preloadInfo));
+        Mockito.when(statementContext.getSnapshot(f.table)).thenReturn(Optional.of(lightweight));
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.doCallRealMethod().when(connectContext).setThreadLocalInfo();
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+
+        ConnectContext previousContext = ConnectContext.get();
+        connectContext.setThreadLocalInfo();
+        try {
+            Map<String, PartitionItem> mappingView =
+                    f.table.getAndCopyPartitionItems(Optional.of(lightweight));
+
+            Assertions.assertTrue(mappingView.isEmpty(),
+                    "an authoritative empty view must not be mistaken for an unavailable one");
             Mockito.verify(f.metadata, Mockito.never()).listPartitions(
                     Mockito.any(), Mockito.any(), Mockito.any());
         } finally {

@@ -784,12 +784,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      * Returns the latest-view preload record materialized by the statement before internal table locks were
      * acquired, or empty when this request does not refer to that latest view.
      *
-     * <p>The record, rather than only its map, preserves the intentionally unwarmed filtered-latest state, an
-     * unavailable scan view, and a materialized map. Query-time async-MV validation and union compensation ask
-     * for partition metadata while the planner holds internal read locks. Reusing the materialized pre-lock
-     * generation avoids a full HMS listing under those locks; preserving the other two states lets the checked
-     * MTMV path reject the candidate instead of listing partitions under the locks or converting "scan every
-     * partition" into an authoritative empty universe. A
+     * <p>The record keeps the scan view and the async-MV mapping view separate. A filtered scan intentionally
+     * leaves its scan view unwarmed so connector predicate pruning remains effective, while query-time async-MV
+     * validation and union compensation read the complete mapping view materialized before planner locks. Each
+     * view also distinguishes UNAVAILABLE ({@link Optional#empty()}) from an authoritative empty map. A
      * supplied pin is accepted only when it is the statement's own latest pin; historical/time-travel pins and
      * calls without a statement context keep their existing snapshot semantics.</p>
      */
@@ -815,14 +813,16 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         Optional<ExternalTablePreloadInfo> sharedView = sharedLatestPreloadInfo(snapshot);
         if (sharedView.isPresent()) {
             ExternalTablePreloadInfo preloadInfo = sharedView.get();
-            if (!preloadInfo.hasScanPartitionView()) {
-                if (!preloadInfo.shouldPreloadUnfilteredScanPartitionView()) {
-                    throw new AnalysisException(
-                            "Partition view was not preloaded for filtered latest relation of table " + getName());
-                }
-                return new HashMap<>(getNameToPartitionItems(snapshot));
+            Optional<Map<String, PartitionItem>> partitionItems;
+            if (preloadInfo.hasMtmvPartitionView()) {
+                partitionItems = preloadInfo.getMtmvPartitionView();
+            } else if (preloadInfo.hasScanPartitionView()) {
+                partitionItems = preloadInfo.getScanPartitionView();
+            } else {
+                // This path runs from async-MV mapping while planner locks are held. The pre-lock pass must have
+                // supplied one of the complete views; enumerating here would move connector I/O under those locks.
+                throw new AnalysisException("Partition view was not preloaded for table " + getName());
             }
-            Optional<Map<String, PartitionItem>> partitionItems = preloadInfo.getScanPartitionView();
             if (!partitionItems.isPresent()) {
                 throw new AnalysisException("Partition view is unavailable for table " + getName());
             }

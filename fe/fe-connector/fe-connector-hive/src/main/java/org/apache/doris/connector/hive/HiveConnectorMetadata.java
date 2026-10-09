@@ -2679,7 +2679,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
     private static String toHmsFilterLiteral(String value, String typeName) {
         if (isHmsIntegralType(typeName)) {
-            return isIntegralLiteral(value) ? value : null;
+            // A successful HMS response is not necessarily complete for integral JDO pushdown: Hive compares
+            // the rendered partition-name fragment as text, so `p = 1` can omit the valid partition `p=01`.
+            // The client cannot know whether direct SQL or JDO served the request, therefore integral predicates
+            // must use the full partition-name listing and the typed local comparison below.
+            return null;
         }
         if (typeName != null && !isHmsStringType(typeName)) {
             return null;
@@ -2712,20 +2716,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
     private static boolean isHmsStringType(String typeName) {
         return typeName != null && "STRING".equals(typeName.toUpperCase(Locale.ROOT));
-    }
-
-    private static boolean isIntegralLiteral(String value) {
-        int start = value.startsWith("-") ? 1 : 0;
-        if (start == value.length()) {
-            return false;
-        }
-        for (int index = start; index < value.length(); index++) {
-            char character = value.charAt(index);
-            if (character < '0' || character > '9') {
-                return false;
-            }
-        }
-        return true;
     }
 
     /**

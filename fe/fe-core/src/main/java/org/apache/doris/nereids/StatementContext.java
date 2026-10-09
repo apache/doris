@@ -1289,7 +1289,7 @@ public class StatementContext implements Closeable {
         // stale partition set and, because the recorded value is what the warmup checks, also suppress warming
         // that execution. The preload CANDIDATES survive, exactly like the preload completion below.
         for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
-            preloadInfo.clearScanPartitionView();
+            preloadInfo.clearPartitionViews();
         }
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
@@ -1482,12 +1482,58 @@ public class StatementContext implements Closeable {
         if (!willFinalizePhysicalPlan && !mvCollectorWillRun) {
             return;
         }
-        if (!hasAnyPlanReadLockTable()) {
+        boolean hasPlanReadLockTable = hasAnyPlanReadLockTable();
+        Set<BaseTableInfo> candidateMtmvPctTables = mvCollectorWillRun
+                ? collectCandidateMtmvPctTables() : Collections.emptySet();
+        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
+            if (hasPlanReadLockTable) {
+                preloadDeferredScanPartitionView(preloadInfo);
+            }
+            preloadMtmvPartitionView(preloadInfo, candidateMtmvPctTables);
+        }
+    }
+
+    /**
+     * Takes a stable copy of the candidate MVs' PCT table identities without doing connector I/O while an MV lock
+     * is held. The full external views are materialized only after every MV lock has been released.
+     */
+    private Set<BaseTableInfo> collectCandidateMtmvPctTables() {
+        Set<BaseTableInfo> pctTables = new HashSet<>();
+        for (MTMV mtmv : candidateMTMVs) {
+            mtmv.readMvLock();
+            try {
+                mtmv.getMvPartitionInfo().getPctInfos().forEach(
+                        pctInfo -> pctTables.add(pctInfo.getTableInfo()));
+            } finally {
+                mtmv.readMvUnlock();
+            }
+        }
+        return pctTables;
+    }
+
+    /**
+     * Materializes the complete latest partition view needed by an async-MV candidate's partition mapping. This
+     * is deliberately separate from the scan view: a filtered scan must retain connector predicate pruning, while
+     * {@code MTMV.calculatePartitionMappings} still needs the full partition universe for union compensation.
+     */
+    private void preloadMtmvPartitionView(ExternalTablePreloadInfo preloadInfo,
+            Set<BaseTableInfo> candidateMtmvPctTables) {
+        if (preloadInfo.hasMtmvPartitionView() || !preloadInfo.shouldPreloadLatestSnapshot()
+                || candidateMtmvPctTables.isEmpty()) {
             return;
         }
-        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
-            preloadDeferredScanPartitionView(preloadInfo);
+        ExternalTable table = preloadInfo.getTable();
+        if (!(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()
+                || !candidateMtmvPctTables.contains(new BaseTableInfo(table))) {
+            return;
         }
+        if (preloadInfo.hasScanPartitionView()) {
+            preloadInfo.setMtmvPartitionView(preloadInfo.getScanPartitionView());
+            return;
+        }
+        preloadInfo.setMtmvPartitionView(
+                ((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(getSnapshot(table)));
     }
 
     /**

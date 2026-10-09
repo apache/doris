@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -27,6 +28,10 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.mtmv.BaseColInfo;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -376,6 +381,9 @@ public class StatementContextTest {
         Mockito.when(table.getId()).thenReturn(42L);
         Mockito.when(table.supportsExternalMetadataPreload()).thenReturn(true);
         statementContext.registerExternalTableForPreload(table, Optional.empty(), Optional.empty());
+        ExternalTablePreloadInfo preloadInfo = statementContext.getExternalTablePreloadInfo(42L).get();
+        preloadInfo.setScanPartitionView(Optional.of(Collections.emptyMap()));
+        preloadInfo.setMtmvPartitionView(Optional.of(Collections.emptyMap()));
         statementContext.setExternalMetadataPreloadResult(
                 ExternalMetadataPreloadResult.executed(1, 1, 1L));
 
@@ -385,6 +393,8 @@ public class StatementContextTest {
                 statementContext.getExternalMetadataPreloadResult().isPresent());
         org.junit.jupiter.api.Assertions.assertEquals(1,
                 statementContext.getExternalTablePreloadCandidateCount());
+        org.junit.jupiter.api.Assertions.assertFalse(preloadInfo.hasScanPartitionView());
+        org.junit.jupiter.api.Assertions.assertFalse(preloadInfo.hasMtmvPartitionView());
 
         statementContext.setExternalMetadataPreloadResult(
                 ExternalMetadataPreloadResult.executed(1, 1, 1L));
@@ -692,6 +702,61 @@ public class StatementContextTest {
             org.junit.jupiter.api.Assertions.assertFalse(
                     statementContext.getExternalTablePreloadInfo(28L).get().hasScanPartitionView());
             Mockito.verify(hiveExternalTable, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testFilteredPctTableWarmsOnlyMtmvPartitionViewBeforeLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenMvccExternalTable hiveExternalTable = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        DatabaseIf<TableIf> database = mockDatabase();
+        CatalogIf<?> catalog = mockCatalog();
+        SessionVariable sessionVariable = new SessionVariable();
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(32L);
+        Mockito.when(hiveExternalTable.getName()).thenReturn("hive_table");
+        Mockito.when(hiveExternalTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getId()).thenReturn(2L);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("hive_catalog");
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Optional<Map<String, PartitionItem>> fullView =
+                Optional.of(ImmutableMap.of("p=1", Mockito.mock(PartitionItem.class)));
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(fullView);
+
+        MTMVPartitionInfo partitionInfo = new MTMVPartitionInfo(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        partitionInfo.setPctInfos(ImmutableList.of(
+                new BaseColInfo("p", new BaseTableInfo(hiveExternalTable))));
+        MTMV candidateMtmv = Mockito.mock(MTMV.class);
+        Mockito.when(candidateMtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.getCandidateMTMVs().add(candidateMtmv);
+            statementContext.registerExternalTableForPreload(
+                    hiveExternalTable, Optional.empty(), Optional.empty(), true);
+
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
+
+            ExternalTablePreloadInfo preloadInfo = statementContext.getExternalTablePreloadInfo(32L).get();
+            org.junit.jupiter.api.Assertions.assertFalse(preloadInfo.hasScanPartitionView(),
+                    "a filtered scan must keep connector predicate pruning");
+            org.junit.jupiter.api.Assertions.assertTrue(preloadInfo.hasMtmvPartitionView());
+            org.junit.jupiter.api.Assertions.assertEquals(fullView, preloadInfo.getMtmvPartitionView());
+            InOrder inOrder = Mockito.inOrder(candidateMtmv, hiveExternalTable);
+            inOrder.verify(candidateMtmv).readMvLock();
+            inOrder.verify(candidateMtmv).getMvPartitionInfo();
+            inOrder.verify(candidateMtmv).readMvUnlock();
+            inOrder.verify(hiveExternalTable).getNameToPartitionItemsForScan(Mockito.any());
         } finally {
             statementContext.close();
         }
