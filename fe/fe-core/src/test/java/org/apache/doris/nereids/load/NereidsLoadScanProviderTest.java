@@ -18,16 +18,22 @@
 package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.fileformat.ArrowFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -152,6 +158,63 @@ public class NereidsLoadScanProviderTest {
                 ImmutableList.of(new NereidsImportColumnDesc("other")), tableColumn));
     }
 
+    @Test
+    public void testComplexColumnMappingValueIsCanonicalized() throws Exception {
+        OlapTable table = mockComplexTable();
+        StringLiteral canonical = new StringLiteral("[1000, 7]");
+
+        // v = default_value('[1e3, "7"]')
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("default_value", ImmutableList.of(new StringLiteral("[1e3, \"7\"]"))),
+                Pair.of("default_value", Lists.newArrayList("[1e3, \"7\"]")));
+        Assertions.assertEquals(canonical, context.exprMap.get("v"));
+
+        // v = replace_value(null, '[1e3, "7"]') becomes if(v is not null, v, '[1000, 7]')
+        context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new NullLiteral(),
+                        new StringLiteral("[1e3, \"7\"]"))),
+                Pair.of("replace_value", Lists.newArrayList(null, "[1e3, \"7\"]")));
+        Expression replaced = context.exprMap.get("v");
+        Assertions.assertTrue(replaced instanceof UnboundFunction, replaced.toSql());
+        Assertions.assertEquals(canonical, replaced.child(2));
+
+        // v = replace_value('[]', '[1e3, "7"]') becomes if(v is not null, if(v != '[]', v, '[1000, 7]'), null)
+        context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new StringLiteral("[]"),
+                        new StringLiteral("[1e3, \"7\"]"))),
+                Pair.of("replace_value", Lists.newArrayList("[]", "[1e3, \"7\"]")));
+        replaced = context.exprMap.get("v");
+        Assertions.assertTrue(replaced instanceof UnboundFunction, replaced.toSql());
+        Assertions.assertEquals(canonical, replaced.child(1).child(2));
+
+        // the value is validated as a literal of the column type before it is rewritten
+        UserException exception = Assertions.assertThrows(UserException.class, () -> createMappingLoadContext(table,
+                new UnboundFunction("default_value", ImmutableList.of(new StringLiteral("[\"bad\"]"))),
+                Pair.of("default_value", Lists.newArrayList("[\"bad\"]"))));
+        Assertions.assertTrue(exception.getMessage().contains("Invalid default value"), exception.getMessage());
+
+        // a scalar column keeps its mapping value verbatim
+        context = createMappingLoadContext(table, "k",
+                new UnboundFunction("default_value", ImmutableList.of(new StringLiteral("007"))),
+                Pair.of("default_value", Lists.newArrayList("007")));
+        Assertions.assertEquals(new StringLiteral("007"), context.exprMap.get("k"));
+    }
+
+    private NereidsParamCreateContext createMappingLoadContext(OlapTable table, Expression mapping,
+            Pair<String, List<String>> hadoopFunction) throws UserException {
+        return createMappingLoadContext(table, "v", mapping, hadoopFunction);
+    }
+
+    private NereidsParamCreateContext createMappingLoadContext(OlapTable table, String column, Expression mapping,
+            Pair<String, List<String>> hadoopFunction) throws UserException {
+        Map<String, Pair<String, List<String>>> columnToHadoopFunction = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        columnToHadoopFunction.put(column, hadoopFunction);
+        return createLoadContext(table,
+                ImmutableList.of(new NereidsImportColumnDesc("k"), new NereidsImportColumnDesc("v"),
+                        new NereidsImportColumnDesc(column, mapping)),
+                columnToHadoopFunction, new ArrowFileFormatProperties());
+    }
+
     private NereidsParamCreateContext createArrowLoadContext(
             OlapTable table, List<NereidsImportColumnDesc> columnExprList) throws UserException {
         return createLoadContext(table, columnExprList, new ArrowFileFormatProperties());
@@ -160,9 +223,15 @@ public class NereidsLoadScanProviderTest {
     private NereidsParamCreateContext createLoadContext(OlapTable table, List<NereidsImportColumnDesc> columnExprList,
             FileFormatProperties fileFormatProperties)
             throws UserException {
+        return createLoadContext(table, columnExprList, null, fileFormatProperties);
+    }
+
+    private NereidsParamCreateContext createLoadContext(OlapTable table, List<NereidsImportColumnDesc> columnExprList,
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction, FileFormatProperties fileFormatProperties)
+            throws UserException {
         NereidsBrokerFileGroup fileGroup = new NereidsBrokerFileGroup(1L, false, null,
-                Lists.newArrayList("dummy"), null, null, null, columnExprList, null, null, null, null,
-                LoadTask.MergeType.APPEND, null, -1L, false, false, fileFormatProperties);
+                Lists.newArrayList("dummy"), null, null, null, columnExprList, columnToHadoopFunction, null, null,
+                null, LoadTask.MergeType.APPEND, null, -1L, false, false, fileFormatProperties);
         TBrokerFileStatus fileStatus = new TBrokerFileStatus();
         fileStatus.setPath("");
         fileStatus.setIsDir(false);
@@ -174,10 +243,13 @@ public class NereidsLoadScanProviderTest {
     }
 
     private OlapTable mockTable() {
-        List<Column> schema = Arrays.asList(
+        return mockTable(Arrays.asList(
                 new Column("time", PrimitiveType.DATETIME, true),
                 new Column("securityid", PrimitiveType.INT, true),
-                new Column("EV", PrimitiveType.DOUBLE, true));
+                new Column("EV", PrimitiveType.DOUBLE, true)));
+    }
+
+    private OlapTable mockTable(List<Column> schema) {
         Map<String, Column> nameToColumn = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (Column column : schema) {
             nameToColumn.put(column.getName(), column);
@@ -196,6 +268,12 @@ public class NereidsLoadScanProviderTest {
         Mockito.when(table.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
         Mockito.when(table.getFullQualifiers()).thenReturn(ImmutableList.of("internal", "db", "t_upper"));
         return table;
+    }
+
+    private OlapTable mockComplexTable() {
+        return mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", ArrayType.create(ScalarType.INT, true), true)));
     }
 
     private void assertSlot(NereidsParamCreateContext context, String name, PrimitiveType type) {

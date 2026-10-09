@@ -43,7 +43,9 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.commands.info.ComplexTypeDefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -483,7 +485,7 @@ public class NereidsLoadScanProvider {
                     exprs.add(new Not(new IsNull(slot)));
                     exprs.add(slot);
                     if (funcExpr.children().size() > 1) {
-                        exprs.add(funcExpr.child(1));
+                        exprs.add(canonicalizeComplexValue(column, funcExpr.child(1)));
                     } else {
                         if (column.getDefaultValue() != null) {
                             String exprSql = column.getDefaultValueSql();
@@ -503,7 +505,7 @@ public class NereidsLoadScanProvider {
                     innerIfExprs.add(new Not(new EqualTo(slot, funcExpr.child(0))));
                     innerIfExprs.add(slot);
                     if (funcExpr.children().size() > 1) {
-                        innerIfExprs.add(funcExpr.child(1));
+                        innerIfExprs.add(canonicalizeComplexValue(column, funcExpr.child(1)));
                     } else {
                         if (column.getDefaultValue() != null) {
                             String exprSql = column.getDefaultValueSql();
@@ -571,7 +573,7 @@ public class NereidsLoadScanProvider {
 
                 return unixTimeFunc;
             } else if (funcName.equalsIgnoreCase("default_value")) {
-                return funcExpr.child(0);
+                return canonicalizeComplexValue(column, funcExpr.child(0));
             } else if (funcName.equalsIgnoreCase("now")) {
                 UnboundFunction newFunc = new UnboundFunction("now", Lists.newArrayList());
                 return newFunc;
@@ -580,5 +582,19 @@ public class NereidsLoadScanProvider {
             }
         }
         return originExpr;
+    }
+
+    /**
+     * The explicit value of a default_value or replace_value mapping on an ARRAY/MAP/STRUCT column was
+     * validated by {@link NereidsDataDescription#validateMappingFunction} as a SQL literal, but BE casts
+     * the mapping expression as a string. Replace it with the canonical text so that both agree, e.g.
+     * {@code '[1e3]'} for an array of INT is written as {@code [1000]} instead of a NULL element.
+     */
+    private static Expression canonicalizeComplexValue(Column column, Expression value) {
+        if (!column.getOriginType().isComplexType() || !(value instanceof StringLikeLiteral)) {
+            return value;
+        }
+        return new StringLiteral(ComplexTypeDefaultValue.canonicalize(
+                DataType.fromCatalogType(column.getOriginType()), ((StringLikeLiteral) value).getStringValue()));
     }
 }
