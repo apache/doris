@@ -482,10 +482,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         //  types by all format readers from file meta, maybe reading path columns types from BE then.
         for (String colName : pathPartitionKeys) {
             String colLowerName = colName.toLowerCase();
-            if (!columnLowerNames.add(colLowerName)) {
+            if (columnLowerNames.contains(colLowerName)) {
                 throw new NotSupportedException(
                         "Path partition column conflicts with an existing column: " + colName);
             }
+            columnLowerNames.add(colLowerName);
             columns.add(new Column(colName, ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), false));
         }
     }
