@@ -84,7 +84,7 @@ public class UnboundVariable extends Expression implements Unbound {
     public String computeToSql() {
         switch (type) {
             case USER:
-                return "@" + name;
+                return "@`" + name.replace("`", "``") + "`";
             case GLOBAL:
                 return "@@global." + name;
             case SESSION:

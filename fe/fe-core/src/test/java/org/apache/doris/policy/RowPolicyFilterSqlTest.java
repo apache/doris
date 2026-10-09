@@ -71,7 +71,8 @@ public class RowPolicyFilterSqlTest {
             "k1 + 1 > 2",
             "k1 = 1 and region in ('cn', 'us') and name like 'x%'",
             "region = @authorized_region",
-            "k1 = @@session.k1_limit"
+            "k1 = @@session.k1_limit",
+            "region = @`authorized-region`"
     })
     public void testPredicateSurvivesTheRoundTripToThePlanner(String original) throws AnalysisException {
         RowPolicy policy = policyOver(original);
@@ -152,6 +153,18 @@ public class RowPolicyFilterSqlTest {
         String shownPredicate = policy.getShowInfo().get(6);
 
         Assertions.assertEquals(PARSER.parseExpression("region = @authorized_region"),
+                PARSER.parseExpression(shownPredicate),
+                "SHOW ROW POLICY renders a different predicate than the policy holds: " + shownPredicate);
+    }
+
+    /** SHOW ROW POLICY keeps the quoting of a user variable name: bare, @authorized-region reads as a subtraction. */
+    @Test
+    public void testShowInfoKeepsTheQuotingOfAUserVariableName() throws AnalysisException {
+        RowPolicy policy = policyOver("region = @`authorized-region`");
+
+        String shownPredicate = policy.getShowInfo().get(6);
+
+        Assertions.assertEquals(PARSER.parseExpression("region = @`authorized-region`"),
                 PARSER.parseExpression(shownPredicate),
                 "SHOW ROW POLICY renders a different predicate than the policy holds: " + shownPredicate);
     }

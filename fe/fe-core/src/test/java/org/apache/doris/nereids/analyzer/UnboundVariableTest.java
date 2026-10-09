@@ -25,26 +25,35 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-/** An unbound variable renders as SQL the parser reads back as the same variable. */
+/**
+ * An unbound variable renders as SQL the parser reads back as the same variable. A user variable name is
+ * stored without the backticks it may have been written with, and may need them to be read back, so it is
+ * always rendered backquoted.
+ */
 public class UnboundVariableTest {
 
     private static final NereidsParser PARSER = new NereidsParser();
 
-    @ParameterizedTest
+    @ParameterizedTest(name = "{0} -> {1}")
     @CsvSource({
-            "@authorized_region, USER",
-            "@@k1_limit, DEFAULT",
-            "@@session.k1_limit, SESSION",
-            "@@global.k1_limit, GLOBAL"
+            "@authorized_region, @`authorized_region`, USER",
+            "@`authorized_region`, @`authorized_region`, USER",
+            "@`authorized-region`, @`authorized-region`, USER",
+            "@`select`, @`select`, USER",
+            "@`authorized``region`, @`authorized``region`, USER",
+            "@`authorized````region`, @`authorized````region`, USER",
+            "@@k1_limit, @@k1_limit, DEFAULT",
+            "@@session.k1_limit, @@session.k1_limit, SESSION",
+            "@@global.k1_limit, @@global.k1_limit, GLOBAL"
     })
-    public void testToSqlReadsBackAsTheSameVariable(String sql, VariableType type) {
+    public void testToSqlReadsBackAsTheSameVariable(String sql, String expected, VariableType type) {
         Expression parsed = PARSER.parseExpression(sql);
         Assertions.assertInstanceOf(UnboundVariable.class, parsed);
         Assertions.assertEquals(type, ((UnboundVariable) parsed).getType());
 
         String rendered = parsed.toSql();
 
-        Assertions.assertEquals(sql, rendered);
+        Assertions.assertEquals(expected, rendered);
         Assertions.assertEquals(parsed, PARSER.parseExpression(rendered));
     }
 }
