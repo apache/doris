@@ -51,11 +51,11 @@ public:
 
     bool ready() const override { return _ready.load(std::memory_order_acquire); }
 
-    /// Resolve the storage vault file system and bind it. Idempotent and thread safe. Returns
-    /// an error while the storage vault is not available yet.
-    Status ensure_ready();
+    /// Resolve the vault for a new file and return an immutable filesystem snapshot. For an
+    /// implicit vault, every call checks the current default; existing files retain their FS.
+    Status ensure_ready(io::FileSystemSPtr* file_fs);
 
-    /// Bind a file system directly. Used by ensure_ready() and by tests.
+    /// Bind a file system directly for tests without a cloud storage engine.
     void init_remote_fs(io::FileSystemSPtr fs, std::string endpoint);
 
     /// nullptr until ready.
@@ -63,6 +63,10 @@ public:
 
     /// Object storage has no capacity to probe; only spill_s3_storage_limit_bytes applies.
     Status update_capacity() override;
+
+    void record_persisted_bytes(int64_t bytes) override;
+    void release_persisted_bytes(int64_t bytes) override;
+    int64_t get_persisted_bytes() override;
 
     /// "{ip}_{port}" in the object keys; empty until ready.
     const std::string& endpoint() const { return _endpoint; }
@@ -73,11 +77,14 @@ protected:
     bool _reach_limit_unlocked(int64_t incoming_data_size) override;
 
 private:
+    void _bind_fs_unlocked(io::FileSystemSPtr fs, std::string endpoint);
     std::string _vault_id;
     std::string _endpoint;
-    std::mutex _init_mutex;
+    mutable std::mutex _init_mutex;
     std::atomic<bool> _ready {false};
     io::FileSystemSPtr _fs;
+    bool _test_binding = false;
+    int64_t _persisted_bytes = 0;
 };
 
 } // namespace doris

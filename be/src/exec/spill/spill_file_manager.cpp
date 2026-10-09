@@ -348,8 +348,9 @@ std::vector<SpillDataDir*> SpillFileManager::_get_stores_for_spill(
 
 Status SpillFileManager::create_spill_file(const std::string& relative_path,
                                            SpillFileSPtr& spill_file) {
+    io::FileSystemSPtr remote_fs;
     if (_remote_store != nullptr) {
-        RETURN_IF_ERROR(_remote_store->ensure_ready());
+        RETURN_IF_ERROR(_remote_store->ensure_ready(&remote_fs));
     }
     auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
@@ -362,7 +363,9 @@ Status SpillFileManager::create_spill_file(const std::string& relative_path,
 
     // Select the first available data dir (sorted by usage ascending)
     SpillDataDir* data_dir = data_dirs.front();
-    spill_file = std::make_shared<SpillFile>(data_dir, relative_path);
+    auto fs = data_dir->is_remote() ? remote_fs : data_dir->fs();
+    DORIS_CHECK(fs != nullptr);
+    spill_file = std::make_shared<SpillFile>(data_dir, std::move(fs), relative_path);
     return Status::OK();
 }
 
@@ -453,8 +456,12 @@ void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
         return;
     }
     PendingSpillDirectory pending_directory {
+            .failed_count = 0,
             .dir = data_dir->get_spill_data_path(query_id),
             .data_dir = data_dir,
+            .fs = nullptr,
+            .charged_bytes = 0,
+            .persisted_bytes = 0,
     };
 
     auto status = _try_delete_spill_directory(pending_directory);
@@ -464,12 +471,15 @@ void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
     }
 }
 
-void SpillFileManager::retry_spill_directory_deletion(SpillDataDir* data_dir, std::string dir,
-                                                      int64_t charged_bytes) {
+void SpillFileManager::retry_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
+                                                      std::string dir, int64_t charged_bytes,
+                                                      int64_t persisted_bytes) {
     _add_pending_directory({.failed_count = 1,
                             .dir = std::move(dir),
                             .data_dir = data_dir,
-                            .charged_bytes = charged_bytes});
+                            .fs = std::move(fs),
+                            .charged_bytes = charged_bytes,
+                            .persisted_bytes = persisted_bytes});
 }
 
 void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_directory) {
@@ -479,18 +489,20 @@ void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_dire
     };
     std::lock_guard lock(_pending_spill_directories_mutex);
     for (auto& pending : _pending_spill_directories) {
-        if (pending.data_dir == pending_directory.data_dir &&
+        if (pending.data_dir == pending_directory.data_dir && pending.fs == pending_directory.fs &&
             (pending.dir == pending_directory.dir ||
              is_under(pending_directory.dir, pending.dir))) {
             // Deleting the pending ancestor deletes these objects too.
             pending.charged_bytes += pending_directory.charged_bytes;
+            pending.persisted_bytes += pending_directory.persisted_bytes;
             return;
         }
     }
     std::erase_if(_pending_spill_directories, [&](const PendingSpillDirectory& pending) {
-        if (pending.data_dir == pending_directory.data_dir &&
+        if (pending.data_dir == pending_directory.data_dir && pending.fs == pending_directory.fs &&
             is_under(pending.dir, pending_directory.dir)) {
             pending_directory.charged_bytes += pending.charged_bytes;
+            pending_directory.persisted_bytes += pending.persisted_bytes;
             return true;
         }
         return false;
@@ -512,7 +524,8 @@ Status SpillFileManager::_try_delete_spill_directory(
     });
     // Every pending directory was written through the store, which was ready by then and
     // never goes back.
-    auto fs = pending_directory.data_dir->fs();
+    auto fs = pending_directory.fs != nullptr ? pending_directory.fs
+                                              : pending_directory.data_dir->fs();
     DORIS_CHECK(fs != nullptr) << "spill store " << pending_directory.data_dir->path()
                                << " is not ready";
     return fs->delete_directory(pending_directory.dir);
@@ -535,6 +548,7 @@ void SpillFileManager::_retry_pending_spill_directories() {
         auto status = _try_delete_spill_directory(pending_directory);
         if (status.ok()) {
             pending_directory.data_dir->release(pending_directory.charged_bytes);
+            pending_directory.data_dir->release_persisted_bytes(pending_directory.persisted_bytes);
             continue;
         }
 
@@ -645,7 +659,7 @@ void SpillFileManager::_gc_spill_store(LocalSpillDataDir* store_dir,
 }
 
 int64_t SpillFileManager::remote_spill_data_bytes() {
-    return _remote_store != nullptr ? _remote_store->get_spill_data_bytes() : 0;
+    return _remote_store != nullptr ? _remote_store->get_persisted_bytes() : 0;
 }
 
 } // namespace doris

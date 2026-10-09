@@ -103,7 +103,7 @@ public class AuditLogHelperBackendSelectionTest {
     public void testInternalInsertDoesNotUseExternalDmlBarrier() {
         StmtExecutor executor = Mockito.mock(StmtExecutor.class, Mockito.CALLS_REAL_METHODS);
 
-        Assertions.assertTrue(AuditLogHelper.getExternalDmlAuditBackendIds(executor).isEmpty());
+        Assertions.assertTrue(AuditLogHelper.getAuditStatisticsBackendIds(executor).isEmpty());
     }
 
     @Test
@@ -115,7 +115,7 @@ public class AuditLogHelperBackendSelectionTest {
         Deencapsulation.setField(executor, "masterOpExecutor", masterExecutor);
 
         Assertions.assertEquals(expectedBackendIds,
-                AuditLogHelper.getExternalDmlAuditBackendIds(executor));
+                AuditLogHelper.getAuditStatisticsBackendIds(executor));
     }
 
     @Test
@@ -127,6 +127,23 @@ public class AuditLogHelperBackendSelectionTest {
         executor.setExternalDmlAuditCoordinator(coordinator);
 
         Assertions.assertEquals(Set.of(10001L), executor.getExternalDmlAuditBackendIds());
+    }
+
+    @Test
+    public void testOrdinaryQueryWaitsForEveryDispatchedBackend() {
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(coordinator.getDispatchedBackendIdsForAudit()).thenReturn(Set.of(10001L, 10002L));
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(executor, "coord", coordinator);
+
+        Assertions.assertEquals(Set.of(10001L, 10002L),
+                AuditLogHelper.getAuditStatisticsBackendIds(executor));
+
+        Coordinator externalCoordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(externalCoordinator.getDispatchedBackendIdsForAudit()).thenReturn(Set.of(10003L));
+        executor.setExternalDmlAuditCoordinator(externalCoordinator);
+        Assertions.assertEquals(Set.of(10001L, 10002L, 10003L),
+                AuditLogHelper.getAuditStatisticsBackendIds(executor));
     }
 
     private void assertExternalDmlWaitsForCoordinatorBackends(LogicalPlan command, boolean success)
@@ -142,6 +159,7 @@ public class AuditLogHelperBackendSelectionTest {
 
         StmtExecutor executor = Mockito.mock(StmtExecutor.class);
         Mockito.when(executor.getExternalDmlAuditBackendIds()).thenReturn(Set.of(10001L, 10002L));
+        Mockito.when(executor.getAuditStatisticsBackendIds()).thenReturn(Set.of(10001L, 10002L));
         Mockito.when(executor.getSummaryProfile()).thenReturn(Mockito.mock(SummaryProfile.class));
         context.setExecutor(executor);
 

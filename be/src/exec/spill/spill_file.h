@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "io/fs/file_system.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -63,6 +64,8 @@ public:
     /// @param data_dir       The spill storage directory (disk) selected by SpillFileManager.
     /// @param relative_path  Relative path under the spill root, formatted by the operator.
     ///                       e.g. "query_id/sort-node_id-task_id-unique_id"
+    SpillFile(SpillDataDir* data_dir, io::FileSystemSPtr fs, std::string relative_path);
+    // Convenience for local stores, whose filesystem cannot rotate.
     SpillFile(SpillDataDir* data_dir, std::string relative_path);
 
     SpillFile() = delete;
@@ -102,10 +105,13 @@ private:
     void add_part(int64_t part_bytes);
 
     SpillDataDir* _data_dir = nullptr;
+    // Vault binding at file creation; never follow a later default-vault rotation.
+    io::FileSystemSPtr _fs;
     // Path of this spill file: data_dir->get_spill_data_path() + "/" + relative_path.
     // Absolute for local stores, relative to the vault prefix for remote stores.
     std::string _spill_dir;
     int64_t _total_written_bytes = 0;
+    int64_t _persisted_bytes = 0;
     // Size of every completed part, in part order. Passed to readers so that they never
     // have to ask the storage for the file size (one HEAD request per part on S3).
     std::vector<int64_t> _part_sizes;

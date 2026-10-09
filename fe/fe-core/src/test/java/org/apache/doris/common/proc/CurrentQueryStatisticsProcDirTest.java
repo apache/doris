@@ -28,7 +28,7 @@ public class CurrentQueryStatisticsProcDirTest {
 
     @Test
     public void testRemoteSpillColumnsAreAppendedLast() {
-        // Multi-FE aggregation concatenates rows by position: new columns must stay at the end.
+        // Old FE rows omit the appended columns during a rolling upgrade.
         int n = CurrentQueryStatisticsProcDir.TITLE_NAMES.size();
         Assertions.assertEquals("Progress", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 3));
         Assertions.assertEquals("SpillWriteBytesToRemoteStorage", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 2));

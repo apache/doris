@@ -42,9 +42,10 @@ class FileSystem;
 } // namespace io
 
 SpillFileReader::SpillFileReader(RuntimeState* state, RuntimeProfile* profile,
-                                 SpillDataDir* data_dir, std::string spill_dir,
-                                 std::vector<int64_t> part_sizes)
+                                 SpillDataDir* data_dir, io::FileSystemSPtr fs,
+                                 std::string spill_dir, std::vector<int64_t> part_sizes)
         : _data_dir(data_dir),
+          _fs(std::move(fs)),
           _spill_dir(std::move(spill_dir)),
           _part_sizes(std::move(part_sizes)),
           _part_count(_part_sizes.size()),
@@ -113,7 +114,7 @@ Status SpillFileReader::_open_part(size_t part_index, bool fetch_small_part) {
     std::string part_path = _spill_dir + "/" + std::to_string(part_index);
 
     COUNTER_UPDATE(_read_file_count, 1);
-    auto fs = _data_dir != nullptr ? _data_dir->fs() : io::global_local_filesystem();
+    auto fs = _fs != nullptr ? _fs : io::global_local_filesystem();
     if (fs == nullptr) {
         return Status::InternalError("spill store {} is not ready", _data_dir->path());
     }

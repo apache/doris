@@ -27,6 +27,7 @@
 #include "core/pod_array.h"
 #include "core/pod_array_fwd.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/workload_management/resource_context.h"
 #include "util/slice.h"
@@ -58,7 +59,7 @@ class SpillDataDir;
 class SpillFileReader {
 public:
     SpillFileReader(RuntimeState* state, RuntimeProfile* profile, SpillDataDir* data_dir,
-                    std::string spill_dir, std::vector<int64_t> part_sizes);
+                    io::FileSystemSPtr fs, std::string spill_dir, std::vector<int64_t> part_sizes);
 
     ~SpillFileReader() { (void)close(); }
 
@@ -105,6 +106,7 @@ private:
 
     // ── Configuration ──
     SpillDataDir* _data_dir = nullptr;
+    io::FileSystemSPtr _fs;
     std::string _spill_dir;
     std::vector<int64_t> _part_sizes;
     size_t _part_count;

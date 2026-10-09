@@ -97,7 +97,7 @@ public class RemoteSpillStatsPollerTest {
     }
 
     @Test
-    public void testPollSumsAliveBackendsOnly() throws Exception {
+    public void testPollSumsReachableBackendsRegardlessOfHeartbeat() throws Exception {
         SystemInfoService systemInfo = Mockito.mock(SystemInfoService.class);
         BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
         Backend first = backend(1, true);
@@ -109,6 +109,8 @@ public class RemoteSpillStatsPollerTest {
                 .thenReturn(CompletableFuture.completedFuture(response(TStatusCode.OK, 17)));
         Mockito.when(proxy.getBeResourceAsync(Mockito.eq(second.getBrpcAddress()), Mockito.anyInt(), Mockito.any()))
                 .thenReturn(CompletableFuture.completedFuture(response(TStatusCode.OK, 25)));
+        Mockito.when(proxy.getBeResourceAsync(Mockito.eq(dead.getBrpcAddress()), Mockito.anyInt(), Mockito.any()))
+                .thenReturn(CompletableFuture.completedFuture(response(TStatusCode.OK, 11)));
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
                 MockedStatic<BackendServiceProxy> mockedProxy = Mockito.mockStatic(BackendServiceProxy.class)) {
@@ -116,14 +118,14 @@ public class RemoteSpillStatsPollerTest {
             mockedProxy.when(BackendServiceProxy::getInstance).thenReturn(proxy);
             RemoteSpillStatsPoller poller = new RemoteSpillStatsPoller();
             poller.runAfterCatalogReady();
-            Assertions.assertEquals(42L, poller.getRemoteSpillBytes());
-            Mockito.verify(proxy, Mockito.never()).getBeResourceAsync(
+            Assertions.assertEquals(53L, poller.getRemoteSpillBytes());
+            Mockito.verify(proxy).getBeResourceAsync(
                     Mockito.eq(dead.getBrpcAddress()), Mockito.anyInt(), Mockito.any());
 
             Mockito.when(first.isAlive()).thenReturn(false);
             Mockito.when(second.isAlive()).thenReturn(false);
             poller.runAfterCatalogReady();
-            Assertions.assertEquals(0L, poller.getRemoteSpillBytes());
+            Assertions.assertEquals(53L, poller.getRemoteSpillBytes());
         }
     }
 
@@ -132,7 +134,7 @@ public class RemoteSpillStatsPollerTest {
         SystemInfoService systemInfo = Mockito.mock(SystemInfoService.class);
         BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
         Backend backend = backend(1, true);
-        Backend other = backend(2, true);
+        Backend other = backend(2, false);
         Mockito.when(systemInfo.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of(1L, backend, 2L, other));
         TNetworkAddress address = backend.getBrpcAddress();
         TNetworkAddress otherAddress = other.getBrpcAddress();
@@ -174,6 +176,11 @@ public class RemoteSpillStatsPollerTest {
 
             Mockito.when(proxy.getBeResourceAsync(Mockito.eq(address), Mockito.anyInt(), Mockito.any()))
                     .thenReturn(null);
+            poller.runAfterCatalogReady();
+            Assertions.assertEquals(91L, poller.getRemoteSpillBytes());
+
+            Mockito.when(proxy.getBeResourceAsync(Mockito.eq(address), Mockito.anyInt(), Mockito.any()))
+                    .thenThrow(new IllegalStateException("send failed"));
             poller.runAfterCatalogReady();
             Assertions.assertEquals(91L, poller.getRemoteSpillBytes());
 
