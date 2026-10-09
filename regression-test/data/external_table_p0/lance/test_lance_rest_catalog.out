@@ -7,6 +7,10 @@ mysql
 -- !rest_tables --
 all_types
 all_types_unprefixed
+search_snapshot
+search_snapshot_managed
+search_snapshot_managed_partial
+search_snapshot_pruned
 time_travel
 time_travel_managed
 time_travel_managed_lagging
@@ -16,6 +20,7 @@ time_travel_managed_pending
 time_travel_managed_staged
 time_travel_managed_unprefixed
 time_travel_managed_untimed
+unicode_branch_managed
 
 -- !rest_scan --
 12	12	1	12	78

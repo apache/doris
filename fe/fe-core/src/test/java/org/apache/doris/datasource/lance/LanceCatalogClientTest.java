@@ -194,6 +194,32 @@ public class LanceCatalogClientTest {
         }
     }
 
+    /**
+     * A managed table's branch is opened by a URI Doris joins, so Doris rejects names that could
+     * leave the table's tree/ directory, since the object store would resolve dot segments, even
+     * percent-encoded ones, but never a name Lance accepts.
+     */
+    @Test
+    public void testManagedBranchNamesFollowLanceRules() {
+        // Every name Lance accepts passes, including letters newer than the JDK's Unicode tables:
+        // "devᲉ" ends with U+1C89, added in Unicode 16, which Rust's char::is_alphanumeric
+        // accepts and JDK 17 leaves unassigned. "शाखा" has a combining vowel sign, then a
+        // superscript digit and a Roman numeral.
+        for (String valid : new String[] {"dev", "team/dev", "v1.0", "a_b-c", "123", "dev2026", "分支",
+                "devᲉ", "शाखा", "v²", "Ⅻ"}) {
+            LanceCatalogClient.checkBranchName(valid);
+        }
+        // URI and path syntax is rejected, as is whitespace, including an ideographic space.
+        for (String invalid : new String[] {"", "../other.lance", "a/../../b", "/dev", "dev/", "a//b",
+                "x.lock", "%2e%2e/x", "dev?x=1", "dev#x", "a b", "a\\b", "s3://bucket/t", "a+b", "a\tb",
+                "a　b"}) {
+            RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                    () -> LanceCatalogClient.checkBranchName(invalid), invalid);
+            Assertions.assertTrue(exception.getMessage().startsWith("Invalid Lance branch name '" + invalid + "'"),
+                    exception.getMessage());
+        }
+    }
+
     private static LanceCatalogClient client(LanceNamespace namespace, BufferAllocator allocator, Session session) {
         return new LanceCatalogClient(namespace, allocator, session, "filesystem", "default",
                 Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), Collections.emptyList());

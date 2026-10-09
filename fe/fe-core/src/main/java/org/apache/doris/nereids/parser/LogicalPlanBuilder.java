@@ -2899,6 +2899,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     }
                 }
             } else {
+                if ("full_text_search".equalsIgnoreCase(functionName) && ctx.properties != null) {
+                    // A placeholder would otherwise reach the function as the literal text "?".
+                    for (PropertyItemContext argument : ctx.properties.properties) {
+                        if (argument.key.constant() instanceof DorisParser.PlaceholderContext
+                                || argument.value.constant() instanceof DorisParser.PlaceholderContext) {
+                            throw new AnalysisException("full_text_search properties must be constant"
+                                    + " in a prepared statement");
+                        }
+                    }
+                }
                 map = visitPropertyItemList(ctx.properties);
             }
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
