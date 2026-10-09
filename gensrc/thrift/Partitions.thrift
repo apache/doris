@@ -45,20 +45,21 @@ enum TPartitionType {
   // used for shuffle data by parititon and tablet
   OLAP_TABLE_SINK_HASH_PARTITIONED = 6,
 
-  // used for shuffle data by hive parititon
-  HIVE_TABLE_SINK_HASH_PARTITIONED = 7,
+  // used for shuffle data by external table sink ownership key
+  EXTERNAL_TABLE_SINK_HASH_PARTITIONED = 7,
 
-  // used for hive unparititoned table
-  HIVE_TABLE_SINK_UNPARTITIONED = 8,
+  // adaptive writer distribution without an ownership key
+  EXTERNAL_TABLE_SINK_UNPARTITIONED = 8,
 
   // used for merge partitioning: insert by partition columns, delete by row_id
   MERGE_PARTITIONED = 9,
 
-  // connector-owned ownership function followed by writer assignment
-  EXTERNAL_TABLE_SINK_HASH_PARTITIONED = 10,
+  // used for shuffle data by hive parititon. These master-only values were moved
+  // before release so values 7 and 8 keep the branch-4.1 external-sink meaning.
+  HIVE_TABLE_SINK_HASH_PARTITIONED = 10,
 
-  // adaptive writer distribution without an ownership key
-  EXTERNAL_TABLE_SINK_UNPARTITIONED = 11
+  // used for hive unparititoned table
+  HIVE_TABLE_SINK_UNPARTITIONED = 11
 }
 
 enum TLocalPartitionType {
@@ -205,12 +206,35 @@ enum TExternalTableSinkWriterAssignment {
   SKEWED = 1
 }
 
-// FE treats partition_function and its options as opaque connector-owned data.
-// BE validates the named function before processing rows.
+// Deprecated branch-4.1 routing algorithm. Kept at its original field id in
+// TExternalTableSinkHashPartitionInfo for wire compatibility.
+enum TExternalTableSinkHashAlgorithm {
+  DIRECT_HASH = 0,
+  ICEBERG_TRANSFORM = 1,
+  PAIMON_FIXED_BUCKET = 2
+}
+
+// Deprecated branch-4.1 Paimon routing metadata. The generic connector-owned
+// partition function encodes this information in partition_function_options.
+struct TPaimonFixedBucketInfo {
+  1: required i32 num_buckets
+  2: required list<i32> partition_field_indexes
+  3: required list<i32> bucket_field_indexes
+}
+
+// Fields 1-4 retain their branch-4.1 meanings and are deprecated on master.
+// Master appends its generic connector-owned function representation instead
+// of reusing an existing field id for a different type or meaning.
 struct TExternalTableSinkHashPartitionInfo {
-  1: required string partition_function
-  2: optional map<string, string> partition_function_options
+  1: optional TExternalTableSinkHashAlgorithm algorithm
+  2: optional list<string> partition_transforms
   3: required TExternalTableSinkWriterAssignment writer_assignment
+  4: optional TPaimonFixedBucketInfo paimon_fixed_bucket_info
+
+  // FE treats these fields as opaque connector-owned data. BE validates the
+  // named function before processing rows.
+  5: optional string partition_function
+  6: optional map<string, string> partition_function_options
 }
 
 // Specification of how a single logical data stream is partitioned.
