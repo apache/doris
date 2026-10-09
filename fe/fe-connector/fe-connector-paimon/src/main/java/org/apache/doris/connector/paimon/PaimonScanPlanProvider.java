@@ -1678,7 +1678,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         return new PaimonScanRange.Builder()
                 .fileFormat(dataSplitFileFormat(split, defaultFileFormat))
-                .rustSplit(encodeDataSplit(split), table.location(), handle.getDatabaseName(),
+                .rustSplit(encodeDataSplit(split), table.location().toString(), handle.getDatabaseName(),
                         handle.getTableName(), encodeTableSchema(schema), branch)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(computeSplitWeight(split))

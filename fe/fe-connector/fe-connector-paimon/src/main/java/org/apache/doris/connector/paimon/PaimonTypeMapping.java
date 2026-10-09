@@ -209,13 +209,10 @@ public final class PaimonTypeMapping {
      * Convert a Doris {@link ConnectorType} (as produced by the CREATE TABLE request path)
      * to a Paimon {@link DataType}.
      *
-     * <p>This is the faithful reverse of the legacy fe-core
-     * {@code DorisToPaimonTypeVisitor}: the scalar set is intentionally narrow (it mirrors
-     * the visitor's {@code atomic} branches and NOT MaxCompute's richer set), CHAR/VARCHAR/STRING
-     * all collapse to {@code VarChar(MAX)} (declared length dropped), DATETIME/DATETIMEV2 map to a
-     * plain {@code TimestampType()} (scale dropped), and the MAP key is forced non-null. Types the
-     * legacy visitor did not handle (TINYINT, SMALLINT, LARGEINT, TIME, IPV4/6, JSON, ...) throw,
-     * preserving the legacy gap.</p>
+     * <p>This is the connector-SPI equivalent of the former fe-core
+     * {@code DorisToPaimonTypeVisitor}. It preserves declared CHAR/VARCHAR bounds and timestamp
+     * precision because Paimon uses them when applying casts and interpreting numeric timestamp
+     * values. The MAP key remains non-null, matching Paimon's type contract.</p>
      *
      * <p>The returned type carries Paimon's default (nullable) flag; column-level nullability is
      * applied by the caller via {@code .copy(nullable)} (mirroring legacy
