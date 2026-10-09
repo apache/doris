@@ -941,12 +941,15 @@ public class SPMPlanner {
         }
         // A successful decompilation is not proof the text can be re-planned: the
         // optimizer's output slots may use names the emitted SQL never exposes (an
-        // ORDER BY over columns the FROM scope dropped - tpcds q78 renders
-        // "ORDER BY c_14 ..." although the subquery below projects only up to c_13).
-        // EVERY replay of such a text fails as a planning error ("SPM rewritten plan
-        // failed"), which is worse than the documented fallback; downgrade HERE so the
-        // baseline stays usable through the parameterized tree. The check plans the
-        // frozen text once - CREATE is a one-shot operation.
+        // ORDER BY over columns a lower scope dropped). The builder prevents the known
+        // forms at the source - the ORDER BY hoist re-exports every key it moves above
+        // its scope (hoistableOrderBy / reExportedLabels; the step that made tpcds q78
+        // legal: its hoisted "ORDER BY c_14 ..." now re-exports c_4 AS c_14 through the
+        // wrapper below) - but a future shape may still slip through, and EVERY replay
+        // of such a text fails as a planning error ("SPM rewritten plan failed"), which
+        // is worse than the documented fallback; downgrade HERE so the baseline stays
+        // usable through the parameterized tree. The check plans the frozen text once -
+        // CREATE is a one-shot operation.
         if (frozen.decompiled) {
             frozen = validateFrozenTextReplannable(ctx, frozen, planSql, optimizeResult.getPhysicalPlan());
         }

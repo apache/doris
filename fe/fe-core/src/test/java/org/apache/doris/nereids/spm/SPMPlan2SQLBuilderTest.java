@@ -2789,6 +2789,46 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
+     * The ORDER BY hoist re-exports every key it moves above its scope, and the
+     * re-export must work one hoist step FURTHER UP: tpcds q78's clause was hoisted
+     * out of an inner projection under a generated label (the wrapper shadowed the
+     * key's name), and the projection above had to re-export that generated label
+     * once more - without it the frozen text failed analysis on every replay
+     * ("Unknown column 'c_14' in 'SORT'").
+     */
+    @Test
+    public void testOrderByHoistReExportsItsKeyThroughEveryWrapperLevel() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a));
+        PhysicalProject<?> inner = mockProject(List.of(a), scan);
+        PhysicalQuickSort<?> sort = mockQuickSort(inner, List.of(new OrderKey(a, true, true)));
+        // the first wrapper exports the key's name for a DIFFERENT expression: hoisting
+        // "ORDER BY a" above it would rebind the sort to that alias, so the key must be
+        // re-exported under a generated label and the clause rewritten to reference it
+        Alias shadowing = new Alias(new Add(a, new IntegerLiteral(1)), "a");
+        PhysicalProject<?> first = mockProjectExprs(List.of(shadowing), sort);
+        // the wrapper above moves the (rewritten) clause one level further up: nothing in
+        // its scope exports the generated label, so the child must re-export it once more
+        // with a bare pass-through item
+        SlotReference firstOut = new SlotReference(shadowing.getExprId(), "a",
+                IntegerType.INSTANCE, true, List.of("t"));
+        PhysicalProject<?> second = mockProjectExprs(
+                List.of(new Alias(new Add(firstOut, new IntegerLiteral(2)), "x")), first);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(second);
+        Assertions.assertNotNull(new NereidsParser().parseSingle(sql),
+                "the frozen text must re-parse: " + sql);
+        Assertions.assertTrue(sql.contains("a AS c_1"),
+                "the shadowed sort key must be re-exported under a generated label: " + sql);
+        Assertions.assertTrue(sql.trim().endsWith("ORDER BY c_1 ASC NULLS FIRST"),
+                "the clause must land at the statement tail referencing the re-exported"
+                        + " label: " + sql);
+        Assertions.assertTrue(countOccurrences(sql, "c_1") >= 3,
+                "the generated label needs one re-export item at EVERY level it travels"
+                        + " through (fresh alias + bare pass-through + clause): " + sql);
+    }
+
+    /**
      * An already-exported QUOTED sort key (a-b) must be recognised through
      * the backticks - appending it a second time exposed two identical columns in the
      * derived table and made every outer reference ambiguous.
