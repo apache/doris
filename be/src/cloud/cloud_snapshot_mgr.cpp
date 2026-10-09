@@ -272,6 +272,9 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     new_rowset_meta_pb->set_num_segments(source_meta_pb.num_segments());
     new_rowset_meta_pb->mutable_segment_ids()->CopyFrom(source_meta_pb.segment_ids());
     new_rowset_meta_pb->set_rowset_state(source_meta_pb.rowset_state());
+    if (source_meta_pb.has_commit_tso()) {
+        new_rowset_meta_pb->mutable_commit_tso()->CopyFrom(source_meta_pb.commit_tso());
+    }
     new_rowset_meta_pb->mutable_segment_group_sizes()->CopyFrom(
             source_meta_pb.segment_group_sizes());
 
