@@ -41,9 +41,11 @@ static Status deduplicate_map_keys(IColumn& column) {
         return Status::OK();
     }
     if (auto* map = check_and_get_column<ColumnMap>(column)) {
+        // Keys first: deduplicate_keys() compares them. Values last: the ones dropped with a
+        // duplicated key are not visited.
         RETURN_IF_ERROR(deduplicate_map_keys(map->get_keys()));
-        RETURN_IF_ERROR(deduplicate_map_keys(map->get_values()));
-        return map->deduplicate_keys();
+        RETURN_IF_ERROR(map->deduplicate_keys());
+        return deduplicate_map_keys(map->get_values());
     }
     return Status::OK();
 }

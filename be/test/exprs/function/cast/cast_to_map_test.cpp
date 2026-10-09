@@ -206,8 +206,13 @@ TEST_F(FunctionCastTest, test_from_string_deduplicates_nested_map_keys) {
             {std::make_shared<DataTypeNullable>(
                      std::make_shared<DataTypeMap>(string_type, array_of_map_type)),
              R"({"outer":[{"a":1,"a":2}]})", R"({"outer":[{"a":2}]})"},
+            {std::make_shared<DataTypeNullable>(
+                     std::make_shared<DataTypeMap>(string_type, array_of_map_type)),
+             R"({"outer":[{"a":1,"a":2}],"outer":[{"b":1,"b":2}]})", R"({"outer":[{"b":2}]})"},
             {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(map_type, int_type)),
              R"({{"a":1,"a":2}:1})", R"({{"a":2}:1})"},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(map_type, int_type)),
+             R"({{"a":1,"a":2}:1,{"a":2}:2})", R"({{"a":2}:2})"},
     };
 
     for (bool is_strict_mode : {false, true}) {
