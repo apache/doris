@@ -34,8 +34,10 @@ import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 
 /**
@@ -120,11 +122,18 @@ public class ComplexTypeDefaultValue {
                 throw new AnalysisException(literal.toSql() + " is not a map literal");
             }
             MapType mapType = (MapType) type;
-            // The parser keeps the last value of a repeated key, so a repeated key is stored once.
+            // The parser keeps the last value of a repeated key, so a repeated key is stored once. Keys that
+            // only collide after the cast to the key type (e.g. "01" and "1" for INT) are rejected: BE keeps
+            // every entry of the stored text, while replaying it as a SQL literal would keep only the last.
+            Set<String> keys = new HashSet<>();
             StringJoiner joiner = new StringJoiner(", ", "{", "}");
             for (Map.Entry<Literal, Literal> entry : ((MapLiteral) literal).getValue().entrySet()) {
-                joiner.add(render(entry.getKey(), mapType.getKeyType()) + ":"
-                        + render(entry.getValue(), mapType.getValueType()));
+                String key = render(entry.getKey(), mapType.getKeyType());
+                if (!keys.add(key)) {
+                    throw new AnalysisException(String.format("map key %s is repeated after casting to %s", key,
+                            mapType.getKeyType().toSql()));
+                }
+                joiner.add(key + ":" + render(entry.getValue(), mapType.getValueType()));
             }
             return joiner.toString();
         }
