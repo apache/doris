@@ -708,6 +708,8 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
     std::sort(exceeded_wgs.begin(), exceeded_wgs.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.first > rhs.first; });
 
+    int64_t freed_mem = 0;
+    size_t tried_wgs = 0;
     for (const auto& [exceeded_memory, wg] : exceeded_wgs) {
         if (exceeded_memory < 1 << 27) {
             // The remaining workload groups exceed even less.
@@ -719,21 +721,32 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
         }
         auto need_free_mem = static_cast<int64_t>((double)exceeded_memory * 0.1);
         // Revoke 10% of memory from the workload group that exceed most memory
-        int64_t freed_mem = wg->revoke_memory(need_free_mem, "exceed_memory", profile.get());
-        std::stringstream ss;
-        profile->pretty_print(&ss);
+        freed_mem = wg->revoke_memory(need_free_mem, "exceed_memory", profile.get());
+        ++tried_wgs;
         LOG(INFO) << fmt::format(
                 "[MemoryGC] process memory not enough, revoke memory from workload_group: {}, "
-                "need free memory {}, freed memory {}. cost(us): {}, details: {}",
+                "need free memory {}, freed memory {}. cost(us): {}",
                 wg->memory_debug_string(), PrettyPrinter::print_bytes(need_free_mem),
-                PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
+                PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000);
         if (freed_mem > 0) {
-            return freed_mem;
+            break;
         }
         // Nothing could be cancelled in this workload group, try the next one that exceeds
         // its min memory.
     }
-    return 0;
+    if (tried_wgs > 0) {
+        // Every tried workload group appended its own child to the profile, so print it once
+        // after the walk instead of once per group: this runs under _paused_queries_lock on
+        // every maintenance round while the pressure lasts.
+        std::stringstream ss;
+        profile->pretty_print(&ss);
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] process memory not enough, tried to revoke memory from {} workload "
+                "group(s), freed memory {}. cost(us): {}, details: {}",
+                tried_wgs, PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000,
+                ss.str());
+    }
+    return freed_mem;
 }
 
 // streamload, kafka routine load, group commit
