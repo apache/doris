@@ -313,9 +313,11 @@ public class FederationBackendPolicy {
                         if (consistentHashSpreadNum == 0) {
                             candidateNodes = backends;
                         } else {
-                            candidateNodes = consistentHash.getNode(split,
-                                    isSpreadEnabled() ? Math.min(consistentHashSpreadNum, backends.size())
-                                            : Config.split_assigner_min_consistent_hash_candidate_num);
+                            int candidateCount = isSpreadEnabled()
+                                    ? Math.min(consistentHashSpreadNum, backends.size())
+                                    : Config.split_assigner_min_consistent_hash_candidate_num;
+                            candidateNodes = candidateCount >= backends.size() ? backends
+                                    : consistentHash.getNode(split, candidateCount);
                         }
                         break;
                     }

@@ -37,7 +37,7 @@ suite("test_external_scan_consistent_hash_spread", "p0,external") {
         properties (
             "s3.endpoint" = "${endpoint}", "s3.region" = "${region}",
             "s3.access_key" = "${ak}", "s3.secret_key" = "${sk}",
-            "s3.path_style_access" = "${pathStyle}"
+            "use_path_style" = "${pathStyle}"
         )
     """
 
@@ -78,7 +78,7 @@ suite("test_external_scan_consistent_hash_spread", "p0,external") {
         properties (
             "s3.endpoint" = "${endpoint}", "s3.region" = "${region}",
             "s3.access_key" = "${ak}", "s3.secret_key" = "${sk}",
-            "s3.path_style_access" = "${pathStyle}"
+            "use_path_style" = "${pathStyle}"
         )
     """
     sql "set use_consistent_hash_for_external_scan = true"
