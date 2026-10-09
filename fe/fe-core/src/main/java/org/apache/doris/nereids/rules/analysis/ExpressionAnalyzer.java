@@ -813,7 +813,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private void registerPlaceholderIdToSlot(ComparisonPredicate cp,
                     ExpressionRewriteContext context, Expression left, Expression right) {
         if (ConnectContext.get() != null
-                    && ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+                && (ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE
+                // Flight Prepare needs the bound column type before comparison coercion erases that constraint.
+                || (ConnectContext.get().getConnectType() == ConnectContext.ConnectType.ARROW_FLIGHT_SQL
+                && context.cascadesContext.getStatementContext().isPrepareStage()))) {
             // Used to replace expression in ShortCircuit plan
             if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
                 PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
