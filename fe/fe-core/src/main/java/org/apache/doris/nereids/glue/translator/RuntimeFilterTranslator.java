@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.DistributionMode;
@@ -232,6 +233,7 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
+                    updateConditionCacheEligibility(scanNode, group.get(i));
                     // TRuntimeFilterDesc keys target expressions and pruning metadata by scan node ID.
                     // If one grouped RF has different targets on the same scan, BE cannot match
                     // metadata back to a specific target expression, so skip pruning metadata.
@@ -335,6 +337,7 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
+                    updateConditionCacheEligibility(scanNode, filter);
                     setPruningMetadata(origFilter, scanNode, filter);
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
@@ -363,6 +366,19 @@ public class RuntimeFilterTranslator {
         origFilter.assignToPlanNodes();
         origFilter.extractTargetsPosition();
         return origFilter;
+    }
+
+    private void updateConditionCacheEligibility(ScanNode scanNode, RuntimeFilter filter) {
+        Expression target = filter.getTargetExpression();
+        DataType sourceType = filter.getSrcExpr().getDataType();
+        // Include the implicit cast inserted by castTargetToSourceTypeIfNeeded.
+        if (!target.getDataType().equals(sourceType)) {
+            target = new Cast(target, sourceType);
+        }
+        // RF probes become scan predicates even when no PhysicalFilter is attached to the scan.
+        if (ExpressionUtils.containsNonCacheableExpression(ImmutableList.of(target))) {
+            scanNode.setEnableConditionCache(false);
+        }
     }
 
     private void setPruningMetadata(org.apache.doris.planner.RuntimeFilter runtimeFilter,
