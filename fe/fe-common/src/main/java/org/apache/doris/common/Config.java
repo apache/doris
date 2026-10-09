@@ -4273,4 +4273,34 @@ public class Config extends ConfigBase {
                     "Static upper bound for num_sub_vectors of Lance IVF_PQ indexes."})
     public static int lance_index_max_num_sub_vectors = 256;
 
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"Lance 索引同步变更语句的最大并发执行数（独立有界池，超出者进入有限等待队列，"
+                    + "池与队列均满则快速失败）。运行中的池不可动态扩缩，修改需重启生效。",
+                    "Maximum concurrently executing synchronous Lance index mutation statements"
+                            + " (a dedicated bounded pool; excess statements enter the finite wait"
+                            + " queue, and a full pool or queue fails fast). The live pool cannot"
+                            + " be resized; changes take effect after a restart."})
+    public static int lance_index_mutation_max_concurrency = 2;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"Lance 索引同步变更语句有界准入池的有限等待队列长度；队列满即快速失败，不无界等待。"
+                    + "运行中的池不可动态扩缩，修改需重启生效。",
+                    "Length of the bounded admission pool's finite wait queue for synchronous"
+                            + " Lance index mutation statements; a full queue fails fast instead of"
+                            + " waiting unboundedly. The live pool cannot be resized; changes take"
+                            + " effect after a restart."})
+    public static int lance_index_mutation_max_queued = 16;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"单条 Lance 索引同步变更语句的预算上限（秒）；实际预算取其与语句 query_timeout 的较小值，"
+                    + "从语句入口起算，派发与等待共享。",
+                    "Upper bound in seconds of one synchronous Lance index mutation statement's"
+                            + " total budget; the effective budget is the smaller of this cap and the"
+                            + " statement's query_timeout, measured from statement entry and shared"
+                            + " by dispatch and wait."})
+    public static int lance_index_mutation_budget_cap_seconds = 300;
+
 }
