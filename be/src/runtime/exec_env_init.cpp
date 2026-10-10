@@ -54,8 +54,6 @@
 #include "exec/scan/scanner_scheduler.h"
 #include "exec/sink/delta_writer_v2_pool.h"
 #include "exec/sink/load_stream_map_pool.h"
-#include "exec/spill/remote_spill_data_dir.h"
-#include "exec/spill/spill_data_dir.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exprs/function/dictionary_factory.h"
 #include "format/orc/orc_memory_pool.h"
@@ -233,19 +231,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (ready()) {
         return Status::OK();
     }
-    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
-    if (config::spill_storage_type == "s3") {
-        // One remote store, see RemoteSpillDataDir for the object layout.
-        spill_store_map.emplace(
-                "s3", std::make_unique<RemoteSpillDataDir>(config::spill_s3_storage_vault));
-    }
-    // Paimon's external spill session needs native local paths even when Doris query spill uses
-    // object storage. Query spill selects the remote store; external sessions select these roots.
-    for (const auto& spill_path : spill_store_paths) {
-        spill_store_map.emplace(spill_path.path, std::make_unique<LocalSpillDataDir>(
-                                                         spill_path.path, spill_path.capacity_bytes,
-                                                         spill_path.storage_medium));
-    }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
     _tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(_store_paths);
@@ -377,7 +362,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
 
-    _spill_file_mgr = new SpillFileManager(std::move(spill_store_map));
+    _spill_file_mgr = new SpillFileManager(spill_store_paths);
     _kerberos_ticket_mgr = new kerberos::KerberosTicketMgr(config::kerberos_ccache_path);
     _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");
