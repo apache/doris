@@ -146,12 +146,16 @@ public class AIResourceTest {
                     aiResource.getProperty(AIProperties.MAX_RETRIES));
             Assertions.assertEquals(AIProperties.DEFAULT_RETRY_DELAY_SECOND,
                     aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+            Assertions.assertEquals(AIProperties.DEFAULT_MAX_CONCURRENCY,
+                    aiResource.getProperty(AIProperties.MAX_CONCURRENCY));
+            Assertions.assertEquals(1, aiResource.toThrift().getMaxConcurrency());
 
             // with no default settings
             aiProperties.put(AIProperties.TEMPERATURE, temperature);
             aiProperties.put(AIProperties.MAX_TOKEN, maxToken);
             aiProperties.put(AIProperties.MAX_RETRIES, maxRetries);
             aiProperties.put(AIProperties.RETRY_DELAY_SECOND, retryDelaySecond);
+            aiProperties.put(AIProperties.MAX_CONCURRENCY, "4");
 
             CreateResourceCommand createResourceCommand = new CreateResourceCommand(
                     new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
@@ -168,6 +172,8 @@ public class AIResourceTest {
             Assertions.assertEquals(maxToken, aiResource.getProperty(AIProperties.MAX_TOKEN));
             Assertions.assertEquals(maxRetries, aiResource.getProperty(AIProperties.MAX_RETRIES));
             Assertions.assertEquals(retryDelaySecond, aiResource.getProperty(AIProperties.RETRY_DELAY_SECOND));
+            Assertions.assertEquals("4", aiResource.getProperty(AIProperties.MAX_CONCURRENCY));
+            Assertions.assertEquals(4, aiResource.toThrift().getMaxConcurrency());
         }
     }
 

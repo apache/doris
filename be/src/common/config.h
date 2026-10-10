@@ -1093,6 +1093,11 @@ DECLARE_Int32(load_stream_flush_token_max_tasks);
 DECLARE_Int32(load_stream_max_wait_flush_token_time_ms);
 // number of send batch thread pool size
 DECLARE_Int32(send_batch_thread_pool_thread_num);
+// Shared pool that runs AI function batch requests (ai_filter, ai_classify, ...) when the AI
+// resource sets `ai.max_concurrency` > 1. Threads mostly wait on HTTP, so this bounds the
+// total in-flight requests across all queries on the BE, not CPU work.
+DECLARE_Int32(ai_function_thread_pool_thread_num);
+DECLARE_Int32(ai_function_thread_pool_queue_size);
 // number of send batch thread pool queue size
 DECLARE_Int32(send_batch_thread_pool_queue_size);
 
