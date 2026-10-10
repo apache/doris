@@ -453,6 +453,10 @@ under the License.
         <!-- aws ram -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sqs</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
             <artifactId>iam</artifactId>
             <version>2.20.8</version>
         </dependency>

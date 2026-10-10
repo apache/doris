@@ -284,8 +284,12 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         mergedProperties.putAll(properties);
         StreamingJobProperties updatedJobProperties = new StreamingJobProperties(mergedProperties);
         updatedJobProperties.validate();
-        if (!originJobProperties.getS3IngestionMode().equals(updatedJobProperties.getS3IngestionMode())) {
-            throw new AnalysisException("s3.ingestion_mode cannot be altered");
+        if (!originJobProperties.getS3IngestionMode().equals(updatedJobProperties.getS3IngestionMode())
+                || !StringUtils.equalsIgnoreCase(originJobProperties.getS3EventSource(),
+                        updatedJobProperties.getS3EventSource())
+                || !Objects.equals(originJobProperties.getS3SqsQueueUrl(),
+                        updatedJobProperties.getS3SqsQueueUrl())) {
+            throw new AnalysisException("s3.ingestion_mode, s3.event.source and s3.sqs.queue_url cannot be altered");
         }
         String offset = properties.get(StreamingJobProperties.OFFSET_PROPERTY);
         if (offset != null) {
