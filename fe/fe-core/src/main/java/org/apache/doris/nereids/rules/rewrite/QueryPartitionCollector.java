@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
@@ -36,6 +38,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -75,13 +79,68 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
                 && ((ExternalTable) catalogRelation.getTable()).supportInternalPartitionPruned()) {
             LogicalFileScan logicalFileScan = (LogicalFileScan) catalogRelation;
             SelectedPartitions selectedPartitions = logicalFileScan.getSelectedPartitions();
-            tablePartitions.addAll(selectedPartitions.selectedPartitions.keySet());
-            tableUsedPartitionNameMap.put(table.getFullQualifiers(),
-                    Pair.of(catalogRelation.getRelationId(), tablePartitions));
+            if (selectedPartitions.isDeferredPartitionPruning()) {
+                Set<String> deferredPartitions = materializeDeferredPartitions(
+                        (PluginDrivenExternalTable) table, logicalFileScan, context);
+                if (deferredPartitions == null) {
+                    // The connector view is unavailable: keep the "query all partitions" marker.
+                    tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
+                } else {
+                    tablePartitions.addAll(deferredPartitions);
+                    tableUsedPartitionNameMap.put(table.getFullQualifiers(),
+                            Pair.of(catalogRelation.getRelationId(), tablePartitions));
+                }
+            } else if (selectedPartitions.isNotPruned()) {
+                // NOT_PRUNED is the "pruning did not run" sentinel, NOT a concrete selection: its map is empty
+                // because partitioning never got enumerated (an unrepresentable connector partition makes the
+                // whole view unavailable, and PruneFileScanPartition then returns this sentinel), yet the scan
+                // reads EVERY partition. Recording the empty map would tell the compensator the query reads no
+                // partitions at all and reject an otherwise eligible MV rewrite.
+                tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
+            } else {
+                tablePartitions.addAll(selectedPartitions.selectedPartitions.keySet());
+                tableUsedPartitionNameMap.put(table.getFullQualifiers(),
+                        Pair.of(catalogRelation.getRelationId(), tablePartitions));
+            }
         } else {
             // not support get partition scene, we consider query all partitions from table
             tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
         }
         return null;
+    }
+
+    /**
+     * Materializes the partition names a DEFERRED (not yet enumerated) file scan reads, for the MV partition
+     * compensation decision only, or {@code null} when the connector view cannot be materialized.
+     *
+     * <p>{@code DEFERRED} is produced by {@link PluginDrivenExternalTable#initSelectedPartitions}, i.e. only a
+     * table whose connector can prune partitions from a predicate - so the cast holds, and the connector is the
+     * only authority for the partition names this scan reads.</p>
+     *
+     * <p>WHY enumeration and not {@link PartitionCompensator#ALL_PARTITIONS}: the marker means "this query reads
+     * EVERY partition of the base table", which the compensator turns into "the materialized view already covers
+     * everything, so no union compensation is needed". A deferred view is merely NOT ENUMERATED YET, so reporting
+     * the marker suppresses exactly the compensation that re-reads the base partitions an MV does not cover - e.g.
+     * a partition added to the base table after the last MV refresh, whose rows then silently disappear from a
+     * rewritten query ({@code mv.external_table.part_partition_invalid}, {@code test_hive_rewrite_mtmv}). The
+     * enumeration is the scan's unfiltered view - the same full view the scan itself has to materialize before
+     * generating splits, served from the connector's partition view cache. When no partition predicate pruned the
+     * scan (the only way {@code DEFERRED} survives {@code PruneFileScanPartition}, whose connector-declined path
+     * materializes a local selection) it is exactly the query's own selection; on a plan collected before that
+     * pruning it is a superset, which can only make the compensator union MORE base partitions, never fewer.</p>
+     *
+     * <p>WHY it goes through {@link StatementContext#resolveScanPartitionView}: this visitor runs from
+     * {@code InitMaterializationContextHook.afterRewrite}, i.e. while {@link StatementContext#lock()} is still
+     * held, so the view it reads must already have been materialized (the pre-lock warmup) or be recorded here
+     * for every later consumer - the physical scan included, because a scan that enumerates its own, later
+     * generation would read partitions the compensation decision never saw.</p>
+     */
+    private static Set<String> materializeDeferredPartitions(PluginDrivenExternalTable table, LogicalFileScan scan,
+            CascadesContext context) {
+        Optional<Map<String, PartitionItem>> partitions = context.getStatementContext().resolveScanPartitionView(
+                table, scan.getTableSnapshot(), scan.getScanParams(),
+                () -> table.getNameToPartitionItemsForScan(context.getStatementContext().getSnapshot(table,
+                        scan.getTableSnapshot(), scan.getScanParams())));
+        return partitions.map(Map::keySet).orElse(null);
     }
 }

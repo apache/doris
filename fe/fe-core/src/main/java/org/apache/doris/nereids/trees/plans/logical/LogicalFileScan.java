@@ -22,6 +22,9 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -300,11 +303,25 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
      * Mainly for hive table partition pruning.
      */
     public static class SelectedPartitions {
+        /** Materialization state for the partition selection. */
+        public enum State {
+            NOT_PRUNED,
+            DEFERRED,
+            MATERIALIZED
+        }
+
+        public static final long UNKNOWN_TOTAL_PARTITION_NUM = -1L;
+
         // NOT_PRUNED means the Nereids planner does not handle the partition pruning.
         // This can be treated as the initial value of SelectedPartitions.
         // Or used to indicate that the partition pruning is not processed.
         public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false,
-                Optional.empty());
+                Optional.empty(), State.NOT_PRUNED);
+        // DEFERRED_PARTITION_PRUNING means a connector will materialize the partition view after Nereids has
+        // supplied a predicate. It must stay distinct from NOT_PRUNED because PluginDrivenScanNode preserves
+        // batch split generation for a no-predicate full scan by materializing this state before dispatch.
+        public static SelectedPartitions DEFERRED_PARTITION_PRUNING = new SelectedPartitions(
+                UNKNOWN_TOTAL_PARTITION_NUM, ImmutableMap.of(), false, false, Optional.empty(), State.DEFERRED);
         /**
          * total partition number
          */
@@ -331,6 +348,31 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public final Optional<SortedPartitionRanges<String>> sortedPartitionRanges;
 
+        public final State state;
+
+        /**
+         * The connector filter application result the logical pruning rule obtained for this scan, carried so
+         * the physical scan reuses the SAME handle instead of applying the connector predicate a second time.
+         * Two applications can observe different remote generations, which would mix the selected partition
+         * names with another handle's partition metadata (the batched split path resolves those names through
+         * the handle's own pruned-partition map). Empty unless a connector materialized this view from a
+         * predicate.
+         *
+         * <p>Deliberately excluded from {@link #equals}/{@link #hashCode}: it is an execution detail of this
+         * scan, not part of the plan's semantic identity.</p>
+         */
+        public final Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult;
+
+        /**
+         * The connector predicate represented by {@link #connectorFilterResult}. The physical scan may reuse
+         * the result only while its predicate set still equals this expression; a later compensation predicate
+         * must remain available for backend evaluation.
+         *
+         * <p>Deliberately excluded from {@link #equals}/{@link #hashCode}: it is an execution detail of this
+         * scan, not part of the plan's semantic identity.</p>
+         */
+        public final Optional<ConnectorExpression> coveredConnectorFilter;
+
         /**
          * Constructor for SelectedPartitions.
          */
@@ -353,12 +395,74 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate,
                 Optional<SortedPartitionRanges<String>> sortedPartitionRanges) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges,
+                    State.MATERIALIZED);
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> sortedPartitionRanges, State state) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges,
+                    state, Optional.empty());
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> sortedPartitionRanges, State state,
+                Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges,
+                    state, connectorFilterResult, Optional.empty());
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate,
+                Optional<SortedPartitionRanges<String>> sortedPartitionRanges, State state,
+                Optional<FilterApplicationResult<ConnectorTableHandle>> connectorFilterResult,
+                Optional<ConnectorExpression> coveredConnectorFilter) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
             this.sortedPartitionRanges = sortedPartitionRanges;
+            this.state = state;
+            this.connectorFilterResult = connectorFilterResult;
+            this.coveredConnectorFilter = coveredConnectorFilter;
+        }
+
+        /**
+         * A selection materialized from a connector-filtered partition view, carrying the filter result so the
+         * physical scan reuses the exact handle instead of applying the connector predicate again.
+         *
+         * <p>A named factory rather than a constructor: an {@code Optional<FilterApplicationResult<...>>}
+         * parameter would erase to the same signature as the {@code Optional<SortedPartitionRanges<String>>}
+         * constructor.</p>
+         */
+        public static SelectedPartitions connectorFiltered(long totalPartitionNum,
+                Map<String, PartitionItem> selectedPartitions, boolean hasPartitionPredicate,
+                FilterApplicationResult<ConnectorTableHandle> connectorFilterResult,
+                ConnectorExpression coveredConnectorFilter) {
+            return new SelectedPartitions(totalPartitionNum, selectedPartitions, true, hasPartitionPredicate,
+                    Optional.empty(), State.MATERIALIZED, Optional.of(connectorFilterResult),
+                    Optional.of(coveredConnectorFilter));
+        }
+
+        /** The connector filter result this selection was materialized from, or empty. */
+        public Optional<FilterApplicationResult<ConnectorTableHandle>> getConnectorFilterResult() {
+            return connectorFilterResult;
+        }
+
+        /** The connector predicate covered by {@link #connectorFilterResult}, or empty. */
+        public Optional<ConnectorExpression> getCoveredConnectorFilter() {
+            return coveredConnectorFilter;
+        }
+
+        public boolean isNotPruned() {
+            return state == State.NOT_PRUNED;
+        }
+
+        public boolean isDeferredPartitionPruning() {
+            return state == State.DEFERRED;
         }
 
         @Override
@@ -372,6 +476,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             SelectedPartitions that = (SelectedPartitions) o;
             return isPruned == that.isPruned
                     && hasPartitionPredicate == that.hasPartitionPredicate
+                    && state == that.state
                     && Objects.equals(
                     selectedPartitions.keySet(), that.selectedPartitions.keySet())
                     && Objects.equals(
@@ -380,7 +485,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
         @Override
         public int hashCode() {
-            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate, sortedPartitionRanges.isPresent());
+            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate,
+                    sortedPartitionRanges.isPresent(), state);
         }
     }
 

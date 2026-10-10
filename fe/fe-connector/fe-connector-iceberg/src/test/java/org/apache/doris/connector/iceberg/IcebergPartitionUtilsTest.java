@@ -1015,7 +1015,7 @@ public class IcebergPartitionUtilsTest {
         // partition COLUMNS from IcebergConnectorMetadata's deduped CSV (one entry per DISTINCT source
         // column) and zips them positionally against these ordered values -- the load-bearing
         // checkState(partitionValues.size() == types.size()) in
-        // PluginDrivenMvccExternalTable.toListPartitionItem -- then binds each column to exactly ONE scan
+        // PluginDrivenExternalTable.toListPartitionItem -- then binds each column to exactly ONE scan
         // slot in PruneFileScanPartition. So the two sides MUST dedupe identically:
         //   - one value per FIELD + one column per FIELD  -> the planner crashes with guava's
         //     "Multiple entries with same key" (OneListPartitionEvaluator collects Slot -> literal into an

@@ -304,8 +304,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         String tableName = hiveHandle.getTableName();
         recordPruningProfile(hiveHandle);
 
-        // Resolve ONLY this batch's partitions (scoped to partitionBatch), NOT handle.getPrunedPartitions().
-        List<HmsPartitionInfo> hmsPartitions = loadPartitionsWithProfile(dbName, tableName, partitionBatch);
+        List<HmsPartitionInfo> hmsPartitions = resolveBatchPartitions(hiveHandle, partitionBatch);
         List<PartitionScanInfo> partitions = convertPartitions(
                 hmsPartitions, hiveHandle.getPartitionKeyNames());
         if (partitions.isEmpty()) {
@@ -331,6 +330,32 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                     splittable, isLzo, targetSplitSize, fs, ranges, null);
         }
         return ranges;
+    }
+
+    private List<HmsPartitionInfo> resolveBatchPartitions(HiveTableHandle handle, List<String> partitionBatch) {
+        Map<String, HmsPartitionInfo> retained = handle.getPrunedPartitionsByName();
+        if (retained.isEmpty()) {
+            return loadPartitionsWithProfile(handle.getDbName(), handle.getTableName(), partitionBatch);
+        }
+        List<HmsPartitionInfo> partitions = new ArrayList<>(partitionBatch.size());
+        boolean covered = true;
+        for (String partitionName : partitionBatch) {
+            HmsPartitionInfo partition = retained.get(partitionName);
+            partitions.add(partition);
+            if (partition == null) {
+                covered = false;
+            }
+        }
+        if (covered) {
+            return partitions;
+        }
+        // The retained map covers exactly what THIS scan's connector predicate admitted, which can be narrower
+        // than the logical selection this batch came from: the connector converter declines an expression the
+        // physical converter strips (e.g. CAST(p AS INT) = 1 becomes the bare p = '1' handle), so a typed
+        // logical prune may legitimately select names the map does not hold, and no HMS mutation is needed for
+        // that. The native map is not proven to cover the logical selection, so resolve the whole batch by name
+        // exactly as the pre-cutover batch path did - one consistent generation, never a mixed one.
+        return loadPartitionsWithProfile(handle.getDbName(), handle.getTableName(), partitionBatch);
     }
 
     /**

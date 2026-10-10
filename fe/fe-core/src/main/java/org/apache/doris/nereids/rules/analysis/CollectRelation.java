@@ -42,11 +42,16 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
@@ -211,8 +216,11 @@ public class CollectRelation implements AnalysisRuleFactory {
             table = statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
             // Record relation-level metadata so the planner can preload latest external metadata before locking.
             if (tableFrom == TableFrom.QUERY && unboundRelation.isPresent()) {
-                statementContext.registerExternalTableForPreload(table, unboundRelation.get().getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.get().getScanParams()));
+                statementContext.registerExternalTableForPreload(table,
+                        unboundRelation.get().getTableSnapshot(),
+                        Optional.ofNullable(unboundRelation.get().getScanParams()),
+                        isUnderInitialFilter(cascadesContext, cascadesContext.getRewritePlan(),
+                                unboundRelation.get()));
             }
             if (firstLevel) {
                 statementContext.getOneLevelTables().put(tableQualifier, table);
@@ -318,5 +326,35 @@ public class CollectRelation implements AnalysisRuleFactory {
         StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
         List<String> tableQualifier = tableStream.getBaseTableFullQualifiers();
         statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+    }
+
+    private boolean isUnderInitialFilter(
+            CascadesContext cascadesContext, Plan plan, UnboundRelation relation) {
+        if (plan instanceof LogicalFilter && isTransparentFilterChild(plan.child(0), relation)) {
+            // A filter that folds to TRUE is removed before partition pruning. Treating it as selective would
+            // skip the pre-lock full-view warmup, leave the bare scan DEFERRED and move connector enumeration
+            // into MV collection or physical finalization while table locks are held. Use the same constant
+            // folding rule as EliminateFilter so casts and other foldable tautologies follow the same decision.
+            ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, cascadesContext);
+            return ((LogicalFilter<?>) plan).getConjuncts().stream()
+                    .map(conjunct -> FoldConstantRule.evaluate(conjunct, rewriteContext))
+                    .anyMatch(conjunct -> !BooleanLiteral.TRUE.equals(conjunct));
+        }
+        for (Plan child : plan.children()) {
+            if (isUnderInitialFilter(cascadesContext, child, relation)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isTransparentFilterChild(Plan plan, UnboundRelation relation) {
+        while (plan != relation) {
+            if (!(plan instanceof LogicalCheckPolicy)) {
+                return false;
+            }
+            plan = plan.child(0);
+        }
+        return true;
     }
 }

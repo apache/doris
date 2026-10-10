@@ -24,12 +24,14 @@ import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
@@ -45,6 +47,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.PassthroughQueryTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
@@ -72,6 +75,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
 import org.apache.doris.datasource.split.SplitAssignment;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
@@ -416,7 +420,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * (which never consults {@code selectedPartitions}). A non-empty pruned set is still forwarded unchanged.
      * (Note: {@code col IS NULL} over a connector-supplied genuine-NULL partition now prunes ACCURATELY to that
      * {@code NullLiteral} partition — a non-empty set — so it no longer relies on this opt-out; see
-     * {@code PluginDrivenMvccExternalTable.toListPartitionItem}.) For every other connector
+     * {@code PluginDrivenExternalTable.toListPartitionItem}.) For every other connector
      * ({@code ignorePartitionPruneShortCircuit=false}) the behavior is identical to
      * {@link #resolveRequiredPartitions(SelectedPartitions)}.</p>
      */
@@ -437,7 +441,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // MaxCompute table that genuinely has ZERO partitions this scan-all is row-equivalent to legacy's
         // unconditional empty short-circuit — MaxComputeScanPlanProvider.planScan returns no splits when
         // getFileNum() <= 0, still zero rows.
-        if (selectedPartitions.selectedPartitions.isEmpty() && selectedPartitions.totalPartitionNum == 0) {
+        if (selectedPartitions.selectedPartitions.isEmpty() && selectedPartitions.totalPartitionNum == 0
+                && !selectedPartitions.hasPartitionPredicate) {
             return null;
         }
         // A predicate-driven connector re-plans through its SDK with the pushed predicate (its planScan
@@ -479,7 +484,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * must read ALL partitions, so it pushes no partition restriction.</p>
      */
     static long[] displayPartitionCounts(SelectedPartitions selectedPartitions) {
-        if (selectedPartitions == null || selectedPartitions == SelectedPartitions.NOT_PRUNED) {
+        if (selectedPartitions == null || selectedPartitions.isNotPruned()) {
             return null;
         }
         return new long[] {
@@ -679,9 +684,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // FileScanNode.getNodeExplainString()'s `partition=N/M` line. This override replaces the
             // parent's body wholesale (custom TABLE/QUERY/PREDICATES format), so it must re-emit the
             // line itself; the counts are populated from the Nereids pruning result in
-            // getSplits()/startSplit() (see setSelectedPartitions).
+            // getSplits()/startSplit() (see setSelectedPartitions). A connector-filtered selection does not
+            // know the table's total without enumerating every partition, so an unknown total stays `?`;
+            // rendering must not trigger the unfiltered metadata lookup this PR exists to avoid.
             output.append(prefix).append("partition=").append(selectedPartitionNum)
-                    .append("/").append(totalPartitionNum).append("\n");
+                    .append("/").append(totalPartitionNum < 0 ? "?" : totalPartitionNum).append("\n");
             // FIX-E / FIX-R3-RESIDUAL (explain gap): the VERBOSE per-backend block (the backends: list,
             // per-file "path start/length" lines, and dataFileNum/deleteFileNum/deleteSplitNum) lives in
             // the parent FileScanNode but this override does not call super, so re-emit it under the SAME
@@ -1172,16 +1179,68 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     protected void doFinalize() throws UserException {
         scanNodeProperties = null;
         cachedPropertiesResult = null;
+        materializeDeferredSelectedPartitions();
         // Nereids prunes scan slots between init and finalize; fencing the init-time table-wide
         // tuple would reject old backends even when the executable scan no longer carries Variant.
         checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
         super.doFinalize();
     }
 
+    private void materializeDeferredSelectedPartitions() throws UserException {
+        // A null selection is the "nothing selected" state this node handles everywhere else (see
+        // resolveRequiredPartitions, displayPartitionCounts, shouldUseBatchMode and numApproximateSplits);
+        // there is no deferred view to materialize for it.
+        if (selectedPartitions == null || !selectedPartitions.isDeferredPartitionPruning()) {
+            return;
+        }
+        // A logical filter materializes this state earlier in PruneFileScanPartition. Reaching finalize still
+        // deferred therefore means a no-filter full scan, which must recover the complete map before the
+        // batch-mode gate so it keeps the legacy asynchronous split-generation path.
+        PluginDrivenExternalTable table = (PluginDrivenExternalTable) getTargetTable();
+        // The map is resolved per statement and table reference rather than enumerated here: the MV partition
+        // compensator recorded the view it reasoned about, and its union branch is restricted to exactly those
+        // partition names, so reading a later generation here would read partitions that neither the MV branch
+        // nor the compensation union covers - rows silently missing from a rewritten query.
+        Optional<TableSnapshot> tableSnapshot = Optional.ofNullable(getQueryTableSnapshot());
+        Optional<TableScanParams> scanParams = Optional.ofNullable(getScanParams());
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(table, tableSnapshot, scanParams);
+        ConnectContext connectContext = ConnectContext.get();
+        StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
+        Optional<Map<String, PartitionItem>> partitions = statementContext == null
+                ? table.getNameToPartitionItemsForScan(snapshot)
+                : statementContext.resolveScanPartitionView(table, tableSnapshot, scanParams,
+                        () -> table.getNameToPartitionItemsForScan(snapshot));
+        selectedPartitions = materializeDeferredSelectedPartitions(selectedPartitions, partitions);
+    }
+
+    static SelectedPartitions materializeDeferredSelectedPartitions(SelectedPartitions selectedPartitions,
+            Optional<Map<String, PartitionItem>> partitions) {
+        if (!selectedPartitions.isDeferredPartitionPruning()) {
+            return selectedPartitions;
+        }
+        // An UNAVAILABLE view (a connector entry that cannot be represented as a Doris partition item) must not
+        // become an empty selection: keep NOT_PRUNED so the scan reads every partition instead of none.
+        return partitions.map(items -> new SelectedPartitions(items.size(), items, false))
+                .orElse(SelectedPartitions.NOT_PRUNED);
+    }
+
     @Override
     protected void convertPredicate() {
         // Attempt filter pushdown via the connector SPI
         if (conjuncts == null || conjuncts.isEmpty()) {
+            return;
+        }
+        // Reuse the connector filter result logical pruning already obtained for THIS scan: the partition
+        // selection was materialized from that exact handle, so applying the predicate again could observe a
+        // different remote generation and leave the batched split path resolving this selection's names
+        // through another handle's pruned-partition metadata.
+        Optional<FilterApplicationResult<ConnectorTableHandle>> reused =
+                reusedConnectorFilterResult(selectedPartitions);
+        if (reused.isPresent()) {
+            ConnectorExpression currentPredicate = buildFilterConstraint(conjuncts).getExpression();
+            boolean samePredicate = connectorFilterCoversCurrentPredicate(selectedPartitions, currentPredicate);
+            applyConnectorFilterResult(reused.get(), samePredicate);
+            invalidatePredicateCaches();
             return;
         }
         ConnectorMetadata metadata = metadata();
@@ -1201,27 +1260,100 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             throw failure;
         }
         if (result.isPresent()) {
-            FilterApplicationResult<ConnectorTableHandle> filterResult = result.get();
-            currentHandle = filterResult.getHandle();
+            applyConnectorFilterResult(result.get(), true);
+        }
+        invalidatePredicateCaches();
+    }
 
-            // Consume remainingFilter to avoid duplicate predicate evaluation on BE:
-            // - null means all predicates were fully pushed down → clear conjuncts
-            // - non-null means some/all predicates remain → keep conjuncts (conservative)
-            ConnectorExpression remaining = filterResult.getRemainingFilter();
-            if (remaining == null) {
-                conjuncts.clear();
-                LOG.debug("Filter fully pushed down for plugin-driven scan, cleared conjuncts");
-            } else {
-                // Partial or full remaining: keep all conjuncts for BE-side evaluation.
-                // Fine-grained conjunct removal (matching individual remaining sub-expressions
-                // back to original Expr conjuncts) is deferred to a future enhancement.
-                LOG.debug("Filter pushdown accepted with remaining filter, keeping conjuncts");
+    /**
+     * The connector filter result this scan's partition selection was materialized from, when logical pruning
+     * already applied the connector predicate. Empty for every other scan, which keeps the normal pushdown path.
+     */
+    static Optional<FilterApplicationResult<ConnectorTableHandle>> reusedConnectorFilterResult(
+            SelectedPartitions selectedPartitions) {
+        return selectedPartitions == null ? Optional.empty() : selectedPartitions.getConnectorFilterResult();
+    }
+
+    /** Whether a selection's stored connector predicate covers exactly {@code currentPredicate}. */
+    static boolean connectorFilterCoversCurrentPredicate(SelectedPartitions selectedPartitions,
+            ConnectorExpression currentPredicate) {
+        return selectedPartitions.getCoveredConnectorFilter()
+                .map(covered -> connectorPredicatesAreEquivalent(covered, currentPredicate))
+                .orElse(false);
+    }
+
+    /**
+     * Compares the predicate the connector already accepted with the predicate currently attached to this
+     * physical scan. Nested AND trees are flattened and compared as an order-insensitive conjunct set because
+     * either converter may represent one predicate directly or wrap it in a singleton AND.
+     */
+    private static boolean connectorPredicatesAreEquivalent(ConnectorExpression covered,
+            ConnectorExpression current) {
+        List<ConnectorExpression> coveredChildren = flattenConnectorConjuncts(covered);
+        List<ConnectorExpression> currentChildren = flattenConnectorConjuncts(current);
+        return coveredChildren.size() == currentChildren.size()
+                && connectorConjunctSetsAreEqual(coveredChildren, currentChildren);
+    }
+
+    private static List<ConnectorExpression> flattenConnectorConjuncts(ConnectorExpression predicate) {
+        if (!(predicate instanceof ConnectorAnd)) {
+            return List.of(predicate);
+        }
+        List<ConnectorExpression> children = new ArrayList<>();
+        for (ConnectorExpression child : ((ConnectorAnd) predicate).getConjuncts()) {
+            children.addAll(flattenConnectorConjuncts(child));
+        }
+        return children;
+    }
+
+    private static boolean connectorConjunctSetsAreEqual(List<ConnectorExpression> coveredChildren,
+            List<ConnectorExpression> currentChildren) {
+        List<ConnectorExpression> remaining = new ArrayList<>(currentChildren);
+        for (ConnectorExpression coveredChild : coveredChildren) {
+            if (!remaining.remove(coveredChild)) {
+                return false;
             }
         }
-        // Invalidate cached properties so they are rebuilt with the updated conjuncts/handle.
+        return true;
+    }
+
+    /** Drops caches derived from the pre-filter handle and predicate. */
+    private void invalidatePredicateCaches() {
         scanNodeProperties = null;
         cachedPropertiesResult = null;
         filteredToOriginalIndex = null;
+    }
+
+    /**
+     * Consumes one connector filter result onto {@link #currentHandle}.
+     *
+     * <p>{@code clearConjuncts} is false when the logical result covered an earlier, smaller predicate set (for
+     * example, an async-MV union compensation added another predicate after logical pruning). The connector handle
+     * still carries the earlier accepted filter, but all current conjuncts must remain for backend evaluation;
+     * clearing them would evaluate only the old predicate and duplicate rows in the compensation union.</p>
+     */
+    static ConnectorTableHandle applyConnectorFilterResult(
+            FilterApplicationResult<ConnectorTableHandle> filterResult, boolean clearConjuncts,
+            List<Expr> conjuncts) {
+        // Consume remainingFilter to avoid duplicate predicate evaluation on BE:
+        // - null means all predicates were fully pushed down → clear conjuncts
+        // - non-null means some/all predicates remain → keep conjuncts (conservative)
+        ConnectorExpression remaining = filterResult.getRemainingFilter();
+        if (remaining == null && clearConjuncts) {
+            conjuncts.clear();
+            LOG.debug("Filter fully pushed down for plugin-driven scan, cleared conjuncts");
+        } else {
+            // Partial or full remaining, or a predicate added after logical filtering: keep all conjuncts
+            // for BE-side evaluation. Fine-grained conjunct removal (matching individual remaining
+            // sub-expressions back to original Expr conjuncts) is deferred to a future enhancement.
+            LOG.debug("Filter pushdown accepted with remaining filter, keeping conjuncts");
+        }
+        return filterResult.getHandle();
+    }
+
+    private void applyConnectorFilterResult(FilterApplicationResult<ConnectorTableHandle> filterResult,
+            boolean clearConjuncts) {
+        currentHandle = applyConnectorFilterResult(filterResult, clearConjuncts, conjuncts);
     }
 
     /**
@@ -2002,7 +2134,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     static boolean shouldUseBatchMode(SelectedPartitions selectedPartitions, boolean hasSlots,
             boolean supportsBatchScan, int numPartitionsInBatchMode) {
-        if (selectedPartitions == null || selectedPartitions == SelectedPartitions.NOT_PRUNED) {
+        if (selectedPartitions == null || selectedPartitions.isNotPruned()) {
             return false;
         }
         if (!hasSlots) {
