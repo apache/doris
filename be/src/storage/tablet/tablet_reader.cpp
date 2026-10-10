@@ -158,7 +158,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.topn_filter_target_node_id = read_params.topn_filter_target_node_id;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
-    _reader_context.filter_block_conjuncts = read_params.filter_block_conjuncts;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
             !_orderby_key_columns.empty() ? &_orderby_key_columns : nullptr;
@@ -197,6 +196,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.predicate_access_paths = read_params.predicate_access_paths;
 
     _reader_context.condition_cache_digest = read_params.condition_cache_digest;
+    // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
+    _reader_context.general_read_limit = read_params.general_read_limit;
     return Status::OK();
 }
 

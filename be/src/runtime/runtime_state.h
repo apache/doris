@@ -259,6 +259,11 @@ public:
                _query_options.enable_common_expr_pushdown_for_inverted_index;
     };
 
+    bool enable_segment_limit_pushdown() const {
+        return !_query_options.__isset.enable_segment_limit_pushdown ||
+               _query_options.enable_segment_limit_pushdown;
+    }
+
     bool mysql_row_binary_format() const {
         return _query_options.__isset.mysql_row_binary_format &&
                _query_options.mysql_row_binary_format;
