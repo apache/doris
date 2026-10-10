@@ -23,10 +23,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
+import org.apache.doris.nereids.types.DataType;
+
+import com.google.common.base.Preconditions;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,16 +54,13 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
 
     private Map<String, String> staticPartitionSpec = Collections.emptyMap();
     private Set<String> staticPartitionNullKeys = Collections.emptySet();
+    private Map<String, Literal> staticPartitionLiterals = Collections.emptyMap();
+    // The target schema the sink was bound to, whose column types the static partition values are cast to.
+    private List<Column> boundTargetSchema = Collections.emptyList();
     private Optional<String> branchName = Optional.empty();
 
     public Map<String, String> getStaticPartitionSpec() {
         return staticPartitionSpec;
-    }
-
-    public void setStaticPartitionSpec(Map<String, String> staticPartitionSpec) {
-        this.staticPartitionSpec =
-                staticPartitionSpec == null ? Collections.emptyMap() : staticPartitionSpec;
-        this.staticPartitionNullKeys = Collections.emptySet();
     }
 
     public Set<String> getStaticPartitionNullKeys() {
@@ -75,6 +76,7 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
     public void setStaticPartitionSpecFromExpressions(Map<String, Expression> partitionValues, List<Column> schema) {
         Map<String, String> spec = new HashMap<>();
         Set<String> nullKeys = new HashSet<>();
+        Map<String, Literal> literals = new LinkedHashMap<>();
         for (Map.Entry<String, Expression> entry : partitionValues.entrySet()) {
             if (entry.getValue() instanceof Literal) {
                 Literal literal = (Literal) entry.getValue();
@@ -87,6 +89,7 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
                 // Binary partition keys must bypass character decoding, including empty and non-UTF-8 bytes.
                 spec.put(entry.getKey(), literal instanceof VarBinaryLiteral
                         ? "0x" + literal.toString() : literal.getStringValue());
+                literals.put(entry.getKey(), literal);
                 if (entry.getValue() instanceof NullLiteral) {
                     nullKeys.add(entry.getKey());
                 }
@@ -94,6 +97,39 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
         }
         this.staticPartitionSpec = spec;
         this.staticPartitionNullKeys = nullKeys;
+        this.staticPartitionLiterals = literals;
+    }
+
+    public void setBoundTargetSchema(List<Column> boundTargetSchema) {
+        this.boundTargetSchema = boundTargetSchema;
+    }
+
+    /**
+     * Casts the static partition values to the types of their columns in the bound target schema; see
+     * {@code ConnectorWriteHandle#getCastStaticPartitionSpec}. The cast is the one constant folding applies to
+     * the value BindSink materializes into each row, but a value that does not fit its type fails here instead
+     * of becoming NULL.
+     */
+    public Map<String, String> castStaticPartitionSpec() {
+        Preconditions.checkState(staticPartitionLiterals.isEmpty() || !boundTargetSchema.isEmpty(),
+                "static partition values are cast before the sink is bound to a target schema");
+        Map<String, String> spec = new LinkedHashMap<>();
+        for (Map.Entry<String, Literal> entry : staticPartitionLiterals.entrySet()) {
+            if (staticPartitionNullKeys.contains(entry.getKey())) {
+                continue;
+            }
+            Literal value = entry.getValue();
+            Optional<Column> column = boundTargetSchema.stream()
+                    .filter(candidate -> candidate.getName().equalsIgnoreCase(entry.getKey()))
+                    .findFirst();
+            if (column.isPresent()) {
+                Expression cast = value.checkedCastTo(DataType.fromCatalogType(column.get().getType()));
+                Preconditions.checkState(cast instanceof Literal, "cast of literal %s is not a literal", value);
+                value = (Literal) cast;
+            }
+            spec.put(entry.getKey(), value.getStringValue());
+        }
+        return spec;
     }
 
     public Optional<String> getBranchName() {

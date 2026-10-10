@@ -17,18 +17,26 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
+import java.util.Objects;
 import java.util.TreeMap;
 
 /** Statement-scoped Paimon write target shared by sink planning and transaction commit. */
@@ -55,13 +63,11 @@ final class PaimonWriteBinding {
     }
 
     static PaimonWriteBinding create(PaimonTableHandle handle, FileStoreTable table,
-            Map<String, String> hadoopConfig, boolean overwrite,
-            Map<String, String> requestedStaticPartition, Set<String> staticPartitionNullKeys) {
-        Map<String, String> staticPartition = resolveStaticPartition(
-                table, requestedStaticPartition, staticPartitionNullKeys);
-        FileStoreTable writeTable = configureTableForWrite(table, overwrite, staticPartition);
+            Map<String, String> hadoopConfig, ConnectorWriteHandle writeHandle, String sessionTimeZone) {
+        Map<String, String> staticPartition = resolveStaticPartition(table, writeHandle, sessionTimeZone);
+        FileStoreTable writeTable = configureTableForWrite(table, writeHandle.isOverwrite(), staticPartition);
         return new PaimonWriteBinding(handle.getDatabaseName() + "." + handle.getTableName(),
-                writeTable, hadoopConfig, overwrite, staticPartition);
+                writeTable, hadoopConfig, writeHandle.isOverwrite(), staticPartition);
     }
 
     static FileStoreTable configureTableForWrite(FileStoreTable table, boolean overwrite,
@@ -78,24 +84,73 @@ final class PaimonWriteBinding {
         return table.copy(Collections.singletonMap(dynamicOverwriteKey, Boolean.FALSE.toString()));
     }
 
-    private static Map<String, String> resolveStaticPartition(FileStoreTable table,
-            Map<String, String> requested, Set<String> nullKeys) {
+    /**
+     * The static partition as Paimon's static overwrite parses it: SQL NULL becomes the table's
+     * {@code partition.default-name}, and every other value is the one the written rows carry, cast to the
+     * column type.
+     */
+    static Map<String, String> resolveStaticPartition(FileStoreTable table, ConnectorWriteHandle writeHandle,
+            String sessionTimeZone) {
         Map<String, String> canonicalNames = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (String partitionKey : table.partitionKeys()) {
             canonicalNames.put(partitionKey, partitionKey);
         }
         String defaultPartitionName = CoreOptions.fromMap(table.options()).partitionDefaultName();
+        Map<String, String> castValues = writeHandle.getCastStaticPartitionSpec();
         Map<String, String> result = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : requested.entrySet()) {
-            String canonicalName = canonicalNames.get(entry.getKey());
+        for (String key : writeHandle.getStaticPartitionSpec().keySet()) {
+            String canonicalName = canonicalNames.get(key);
             if (canonicalName == null) {
-                throw new DorisConnectorException("Column '" + entry.getKey()
+                throw new DorisConnectorException("Column '" + key
                         + "' is not a partition column of Paimon table");
             }
-            String value = entry.getValue();
-            result.put(canonicalName, nullKeys.contains(entry.getKey()) ? defaultPartitionName : value);
+            if (writeHandle.getStaticPartitionNullKeys().contains(key)) {
+                result.put(canonicalName, defaultPartitionName);
+                continue;
+            }
+            String value = Objects.requireNonNull(castValues.get(key),
+                    () -> "missing the cast value of static partition column " + key);
+            if (table.rowType().getField(canonicalName).type().getTypeRoot()
+                    == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                value = toSdkLocalTime(value, isTimestampTz(writeHandle, canonicalName), sessionTimeZone);
+            }
+            if (writeHandle.isOverwrite() && defaultPartitionName.equals(value)) {
+                // Paimon's static overwrite reads this string as the NULL partition of any partition type, so
+                // a value equal to it would overwrite the NULL partition instead.
+                throw new DorisConnectorException("Static partition value for column '" + canonicalName
+                        + "' equals Paimon partition.default-name '" + defaultPartitionName
+                        + "' and cannot be represented in a static overwrite");
+            }
+            result.put(canonicalName, value);
         }
         return result;
+    }
+
+    private static boolean isTimestampTz(ConnectorWriteHandle writeHandle, String columnName) {
+        for (ConnectorColumn column : writeHandle.getBoundTargetColumns()) {
+            if (column.getName().equalsIgnoreCase(columnName)) {
+                return "TIMESTAMPTZ".equalsIgnoreCase(column.getType().getTypeName());
+            }
+        }
+        throw new DorisConnectorException("Paimon partition column is missing from the write schema: "
+                + columnName);
+    }
+
+    /**
+     * Paimon parses a static overwrite value of a TIMESTAMP WITH LOCAL TIME ZONE column as local time in the FE
+     * JVM's default zone, so the value is moved there from the zone it was written in: the session zone for a
+     * DATETIMEV2 value, UTC for a TIMESTAMPTZ value, which carries its offset. Paimon's parser takes a space,
+     * not ISO's 'T', between the date and the time.
+     */
+    private static String toSdkLocalTime(String value, boolean timestampTz, String sessionTimeZone) {
+        String isoValue = value.replace(' ', 'T');
+        ZonedDateTime instant = timestampTz
+                ? OffsetDateTime.parse(isoValue, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toZonedDateTime()
+                : LocalDateTime.parse(isoValue, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                        .atZone(ZoneId.of(sessionTimeZone, PaimonConnectorMetadata.SESSION_TIME_ZONE_ALIASES));
+        return instant.withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime()
+                .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                .replace('T', ' ');
     }
 
     private static String serialize(FileStoreTable table) {
