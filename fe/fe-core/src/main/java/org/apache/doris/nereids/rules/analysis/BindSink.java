@@ -40,6 +40,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -978,6 +979,8 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(),
                 Optional.empty(),
                 child);
+        ConnectorSpatialWriteValidator.validate(bindColumns, child.getOutput().stream()
+                .map(NamedExpression.class::cast).collect(ImmutableList.toImmutableList()));
         if (boundSink.getCols().size() != child.getOutput().size()) {
             // Carry the "Expected N columns but got M" detail that legacy (and the sibling count-check in this
             // file) emit; the terser form dropped it on the connector path.
