@@ -727,9 +727,11 @@ public class BinlogManager {
         TMemoryBuffer buffer = new TMemoryBuffer(BUFFER_SIZE);
         TBinaryProtocol protocol = new TBinaryProtocol(buffer);
         binlog.write(protocol);
-        byte[] data = buffer.getArray();
-        dos.writeInt(data.length);
-        dos.write(data);
+        // TMemoryBuffer.getArray() returns the whole expanded backing array (at least BUFFER_SIZE),
+        // only the first length() bytes are valid serialized data.
+        int length = buffer.length();
+        dos.writeInt(length);
+        dos.write(buffer.getArray(), 0, length);
     }
 
     // not thread safety, do this without lock
