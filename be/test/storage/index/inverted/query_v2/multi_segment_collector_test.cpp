@@ -41,6 +41,7 @@
 #include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/reader/snii_index_source.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii_query_test_util.h"
@@ -303,6 +304,42 @@ TEST_F(MultiSegmentCollectorTest, NestedReadersPreserveGlobalPostingsAndTermFreq
 
     ASSERT_TRUE(source->open_term("absent", true, false, &cursor).ok());
     check_exhausted_postings(*cursor, 0);
+}
+
+// The CLucene source lists term rows straight from the reader; rows and presence match the
+// generic postings walk over one segment, several, and nested ones.
+TEST_F(MultiSegmentCollectorTest, CollectedTermsMatchThePostingsWalk) {
+    ValueArray<lucene::index::IndexReader*> nested(1);
+    nested[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = _CLNEW lucene::index::MultiReader(&nested, true);
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    ValueArray<lucene::index::IndexReader*> flat(2);
+    flat[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    flat[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    const std::vector<std::shared_ptr<lucene::index::IndexReader>> sources {
+            make_shared_reader(lucene::index::IndexReader::open((kTestDir + "/segment1").c_str())),
+            make_shared_reader(_CLNEW lucene::index::MultiReader(&flat, true)),
+            make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true))};
+    const std::vector<std::vector<std::string>> term_lists {
+            {}, {"fleabag"}, {"absent"}, {"fleabag", "absent", "history"}, {"finale", "fleabag"}};
+    for (const auto& reader : sources) {
+        auto source = clucene_index_source(reader, L"title", nullptr);
+        for (const auto& terms : term_lists) {
+            std::vector<uint32_t> direct;
+            std::vector<uint32_t> walked;
+            index_query::VectorDocIdSink direct_sink(direct);
+            index_query::VectorDocIdSink walked_sink(walked);
+            bool direct_present = false;
+            bool walked_present = false;
+            ASSERT_TRUE(source->collect_terms(terms, direct_sink, &direct_present).ok());
+            ASSERT_TRUE(source->index_query::IndexSource::collect_terms(terms, walked_sink,
+                                                                        &walked_present)
+                                .ok());
+            EXPECT_EQ(direct, walked);
+            EXPECT_EQ(direct_present, walked_present);
+        }
+    }
 }
 
 TEST_F(MultiSegmentCollectorTest, PhraseCandidatesUseTheGlobalDocumentDomain) {

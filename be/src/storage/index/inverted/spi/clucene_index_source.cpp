@@ -45,6 +45,7 @@
 #include "storage/index/inverted/similarity/bm25_similarity.h"
 #include "storage/index/inverted/spi/clucene_postings_cursor.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/query/term_pattern.h"
 
 namespace doris::segment_v2 {
@@ -131,6 +132,38 @@ Status CluceneIndexSource::open_term(std::string_view term, bool positions, bool
         }
     } catch (CLuceneError& e) {
         return clucene_error_status(e.what());
+    }
+    return Status::OK();
+}
+
+// Reads each term's documents straight into the sink, the whole reader at once. Every term opens
+// postings, possibly empty, as open_term does.
+Status CluceneIndexSource::collect_terms(std::span<const std::string> terms,
+                                         index_query::DocIdSink& sink, bool* any_present) {
+    try {
+        DocRange range;
+        for (const std::string& term : terms) {
+            const std::wstring text = boost::locale::conv::utf_to_utf<wchar_t>(
+                    term.data(), term.data() + term.size());
+            auto t = make_term_ptr(_field.c_str(), text.c_str());
+            // Owned before the seek, which reads the dictionary and may throw.
+            auto docs = make_term_doc_ptr(_reader.get(), /*load_stats=*/false, _io_ctx);
+            docs->seek(t.get());
+            // A block without documents only comes from a corrupt image and ends the term, as in
+            // the postings cursor.
+            while (docs->readRange(&range) && range.doc_many_size_ != 0) {
+                RETURN_IF_ERROR(
+                        range.type_ == DocRangeType::kRange
+                                ? sink.append_range(range.doc_range.first, range.doc_range.second)
+                                : sink.append_sorted(
+                                          {range.doc_many->data(), range.doc_many_size_}));
+            }
+        }
+    } catch (CLuceneError& e) {
+        return clucene_error_status(e.what());
+    }
+    if (any_present != nullptr) {
+        *any_present = !terms.empty();
     }
     return Status::OK();
 }

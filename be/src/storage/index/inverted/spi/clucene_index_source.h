@@ -46,6 +46,8 @@ public:
     uint32_t doc_count() const override;
     Status open_term(std::string_view term, bool positions, bool scoring,
                      std::unique_ptr<index_query::PostingsCursor>* out) override;
+    Status collect_terms(std::span<const std::string> terms, index_query::DocIdSink& sink,
+                         bool* any_present = nullptr) override;
     Status expand_terms(index_query::TermPattern& pattern, int32_t max_expansions,
                         std::vector<std::string>* out) override;
     std::span<const float> norm_lengths() const override;

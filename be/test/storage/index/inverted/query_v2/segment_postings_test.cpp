@@ -35,6 +35,7 @@
 #include "storage/index/inverted/similarity/bm25_similarity.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/spi/clucene_postings_cursor.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/query/fake_index_source.h"
 #include "storage/index/query/phrase/phrase_verifier.h"
 #include "storage/index/query/phrase/position_stream.h"
@@ -1518,6 +1519,81 @@ TEST(CluceneIndexSourceTest, OpeningPostingsReturnsAnErrorStatus) {
 TEST(CluceneIndexSourceTest, SeekFailureDestroysThePostingsCursor) {
     check_postings_failure(false, true);
     check_postings_failure(true, true);
+}
+
+void check_collection_failure(bool fail_seek) {
+    EnumerationFailure failure;
+    failure.fail_seek = fail_seek;
+    lucene::util::ValueArray<lucene::index::IndexReader*> empty(0);
+    auto reader = std::make_shared<FailingSourceReader>(&empty, failure);
+    auto source = clucene_index_source(reader, L"body", nullptr);
+    const std::vector<std::string> terms {"abc"};
+    std::vector<uint32_t> docs;
+    index_query::VectorDocIdSink sink(docs);
+    Status status;
+    EXPECT_NO_THROW(status = source->collect_terms(terms, sink));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_TRUE(docs.empty());
+    EXPECT_EQ(failure.postings_alive, nullptr);
+}
+
+TEST(CluceneIndexSourceTest, CollectingPostingsReturnsAnErrorStatus) {
+    check_collection_failure(false);
+}
+
+TEST(CluceneIndexSourceTest, SeekFailureDestroysTheCollectedPostings) {
+    check_collection_failure(true);
+}
+
+namespace {
+
+// Yields a block without documents before the term's document, as only a corrupt image does.
+class EmptyBlockTermDocs final : public MockTermDocs {
+public:
+    EmptyBlockTermDocs() : MockTermDocs({7}, {1}, {1}, 1) {}
+    bool readRange(DocRange* range) override { return _next_block(range); }
+    bool readBlock(DocRange* range) override { return _next_block(range); }
+
+private:
+    bool _next_block(DocRange* range) {
+        if (_empty_read) {
+            return _fillDocRange(range);
+        }
+        _empty_read = true;
+        range->type_ = DocRangeType::kMany;
+        range->doc_many = &_docs;
+        range->doc_many_size_ = 0;
+        return true;
+    }
+
+    bool _empty_read = false;
+};
+
+class EmptyBlockReader final : public lucene::index::MultiReader {
+public:
+    explicit EmptyBlockReader(const lucene::util::ArrayBase<lucene::index::IndexReader*>* readers)
+            : MultiReader(readers, false) {}
+    lucene::index::TermDocs* termDocs(bool, const void*) override {
+        return new EmptyBlockTermDocs();
+    }
+};
+
+} // namespace
+
+// A block without documents ends the term for the direct collection as it does for the cursor.
+TEST(CluceneIndexSourceTest, CollectionStopsAtABlockWithoutDocuments) {
+    lucene::util::ValueArray<lucene::index::IndexReader*> empty(0);
+    auto source =
+            clucene_index_source(std::make_shared<EmptyBlockReader>(&empty), L"body", nullptr);
+    const std::vector<std::string> terms {"abc"};
+    std::vector<uint32_t> direct;
+    std::vector<uint32_t> walked;
+    index_query::VectorDocIdSink direct_sink(direct);
+    index_query::VectorDocIdSink walked_sink(walked);
+    ASSERT_TRUE(source->collect_terms(terms, direct_sink).ok());
+    ASSERT_TRUE(source->index_query::IndexSource::collect_terms(terms, walked_sink).ok());
+    EXPECT_TRUE(direct.empty());
+    EXPECT_EQ(direct, walked);
 }
 
 void check_enumeration_failure(EnumerationFailure& failure) {

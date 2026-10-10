@@ -465,6 +465,14 @@ protected:
     Status _execute(const IndexQueryContextPtr& context, const std::string& column_name,
                     const LeafRequest& request, std::shared_ptr<roaring::Roaring>& bit_map,
                     InvertedIndexQueryCacheHandle* null_bitmap_cache_handle);
+    // Answers `request` into `bit_map`; `index` keeps what it opened, and `count_shaped` tells
+    // a count-only answer from row ids.
+    Status _run_request(const IndexQueryContextPtr& context, const std::string& column_name,
+                        const LeafRequest& request, std::shared_ptr<roaring::Roaring>& bit_map,
+                        std::unique_ptr<OpenedIndex>* index, bool* count_shaped);
+    // Lowers the raw value of `request`, analyzed unless the index or the analyzer keeps it whole.
+    Status _lower(const IndexQueryContextPtr& context, const LeafRequest& request, bool keyword,
+                  index_query::logical::Node* out);
     // Answers a COUNT_ON_INDEX scan of one exact term from its document frequency: `out` holds
     // that many ids, off the NULL rows, and never enters the cache. Declines a reader without the
     // segment's row count and an ARRAY column on a segment with NULL rows, whose postings may

@@ -549,12 +549,19 @@ Status plan_query(const logical::Node& leaf, const IndexQueryContextPtr& context
 
 namespace {
 
+using QueryFlight =
+        inverted_index::SingleFlight<std::pair<Status, std::shared_ptr<roaring::Roaring>>>;
+
+QueryFlight& query_single_flight() {
+    static QueryFlight flight;
+    return flight;
+}
+
 // Runs `compute` once for concurrent identical queries: the first caller leads and the others
 // take its bitmap. A leader's failure leaves each follower to compute for itself.
 template <typename Compute>
 Status run_query_single_flight(
-        inverted_index::SingleFlight<std::pair<Status, std::shared_ptr<roaring::Roaring>>>& flight,
-        const std::string& key, std::shared_ptr<roaring::Roaring>* result,
+        QueryFlight& flight, const std::string& key, std::shared_ptr<roaring::Roaring>* result,
 #ifdef BE_TEST
         InvertedIndexReader::SingleFlightFollowerJoinedObserver follower_joined_observer,
         void* follower_joined_opaque,
@@ -713,60 +720,79 @@ Status TextIndexReader::_run_gram(const IndexQueryContextPtr& /*context*/, Opene
                                  query_type_to_string(request.query_type));
 }
 
-// Keep the cache, count-only, candidate and single-flight decisions in one linear path.
-// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+namespace {
+
+// A keyword index drops values longer than ignore_above: a longer query value finds nothing in
+// it, and a contains match may still need such a value, so rows answer both.
+Status check_keyword_request(const LeafRequest& request,
+                             const std::map<std::string, std::string>& properties) {
+    if (request.query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "a keyword index does not run MATCH_PHRASE_EDGE; evaluating by function");
+    }
+    if (int ignore_above = std::stoi(get_parser_ignore_above_value_from_properties(properties));
+        std::cmp_greater(request.longest_value_bytes, ignore_above)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "query value is too long, evaluate skipped.");
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+// The null bitmap is read after the query and outside its timer, from the index the query opened.
 Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
                                  const std::string& column_name, const LeafRequest& request,
                                  std::shared_ptr<roaring::Roaring>& bit_map,
                                  InvertedIndexQueryCacheHandle* null_bitmap_cache_handle) {
+    std::unique_ptr<OpenedIndex> index;
+    bool count_shaped = false;
+    {
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
+        RETURN_IF_ERROR(
+                _run_request(context, column_name, request, bit_map, &index, &count_shaped));
+    }
+    if (null_bitmap_cache_handle != nullptr) {
+        RETURN_IF_ERROR(_read_null_bitmap(context, null_bitmap_cache_handle, index.get()));
+    }
+    if (count_shaped) {
+        // Tells the scan the bitmap is count-shaped, so it may emit the count without iterating
+        // rows. Never set on a cache hit or a shared result.
+        context->count_on_index_fastpath_hit = true;
+    }
+    return Status::OK();
+}
+
+Status TextIndexReader::_lower(const IndexQueryContextPtr& context, const LeafRequest& request,
+                               bool keyword, logical::Node* out) {
+    SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
+    logical::AnalyzeValue analyze;
+    const bool analyzed =
+            request.analyzer_ctx != nullptr ? request.analyzer_ctx->requires_analysis() : !keyword;
+    if (analyzed) {
+        analyze = [&](std::string_view text, std::vector<TermInfo>* tokens) {
+            return inverted_index::InvertedIndexAnalyzer::analyze(text, request.analyzer_ctx,
+                                                                  _index_meta.properties(), tokens);
+        };
+    }
+    return logical::lower_match(request.query_type, request.text, analyze, out);
+}
+
+// Keep the cache, count-only, candidate and single-flight decisions in one linear path.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+Status TextIndexReader::_run_request(const IndexQueryContextPtr& context,
+                                     const std::string& column_name, const LeafRequest& request,
+                                     std::shared_ptr<roaring::Roaring>& bit_map,
+                                     std::unique_ptr<OpenedIndex>* index, bool* count_shaped) {
     const InvertedIndexQueryType query_type = request.query_type;
-    const bool track_requested_null_time = null_bitmap_cache_handle != nullptr;
-    const int64_t query_ns_before =
-            track_requested_null_time ? context->stats->inverted_index_query_timer : 0;
-    int64_t requested_null_ns = 0;
-    DEFER({
-        if (!track_requested_null_time) {
-            return;
-        }
-        const int64_t inclusive_query_ns =
-                context->stats->inverted_index_query_timer - query_ns_before;
-        DORIS_CHECK_GE(inclusive_query_ns, 0);
-        const int64_t exclusive_query_ns =
-                inclusive_query_ns > requested_null_ns ? inclusive_query_ns - requested_null_ns : 0;
-        context->stats->inverted_index_query_timer = query_ns_before + exclusive_query_ns;
-    });
-    SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
     // Fresh per-search reply: only the query about to run decides whether its result is
     // candidate-restricted.
     context->candidate_rows_consumed = false;
     Admission admission;
     RETURN_IF_ERROR(_admit(context, column_name, request, &admission));
-    const auto finish_query = [&](OpenedIndex* index) -> Status {
-        if (null_bitmap_cache_handle == nullptr) {
-            return Status::OK();
-        }
-        const int64_t null_ns_before = context->stats->inverted_index_query_null_bitmap_timer;
-        Status status = _read_null_bitmap(context, null_bitmap_cache_handle, index);
-        const int64_t null_ns_after = context->stats->inverted_index_query_null_bitmap_timer;
-        DORIS_CHECK_GE(null_ns_after, null_ns_before);
-        requested_null_ns += null_ns_after - null_ns_before;
-        return status;
-    };
-
     const bool keyword = type() == InvertedIndexReaderType::STRING_TYPE;
     if (keyword) {
-        // A keyword index drops values longer than ignore_above: a longer query value finds
-        // nothing in it, and a contains match may still need such a value, so rows answer both.
-        if (query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "a keyword index does not run MATCH_PHRASE_EDGE; evaluating by function");
-        }
-        if (int ignore_above = std::stoi(
-                    get_parser_ignore_above_value_from_properties(_index_meta.properties()));
-            std::cmp_greater(request.longest_value_bytes, ignore_above)) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "query value is too long, evaluate skipped.");
-        }
+        RETURN_IF_ERROR(check_keyword_request(request, _index_meta.properties()));
     }
 
     // A scoring query publishes its scores while it runs, so neither a cached bitmap nor a
@@ -797,46 +823,27 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
     InvertedIndexQueryCacheHandle cache_handler;
     if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map,
                            allow_result_cache)) {
-        return finish_query(nullptr);
+        return Status::OK();
     }
 
-    // A gram query runs over the index's grams; any other request is planned, before the index
-    // opens unless its format admits the segment first.
+    // A gram query runs over the index's grams; any other raw request is lowered, before the
+    // index opens unless its format admits the segment first.
     const bool gram = is_gram_query(query_type);
+    const bool lower = !gram && request.leaf == nullptr;
     logical::Node lowered;
-    const logical::Node* leaf = request.leaf;
-    const auto plan = [&]() -> Status {
-        if (leaf != nullptr) {
-            return Status::OK();
-        }
-        SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-        logical::AnalyzeValue analyze;
-        const bool analyzed = request.analyzer_ctx != nullptr
-                                      ? request.analyzer_ctx->requires_analysis()
-                                      : !keyword;
-        if (analyzed) {
-            analyze = [&](std::string_view text, std::vector<TermInfo>* tokens) {
-                return inverted_index::InvertedIndexAnalyzer::analyze(
-                        text, request.analyzer_ctx, _index_meta.properties(), tokens);
-            };
-        }
-        RETURN_IF_ERROR(logical::lower_match(query_type, request.text, analyze, &lowered));
-        leaf = &lowered;
-        return Status::OK();
-    };
-    if (!gram && admission.plan_before_open) {
-        RETURN_IF_ERROR(plan());
+    if (lower && admission.plan_before_open) {
+        RETURN_IF_ERROR(_lower(context, request, keyword, &lowered));
     }
-    std::unique_ptr<OpenedIndex> index;
-    if (Status status = _open_index(context, &index, index_file_key); !status.ok()) {
+    if (Status status = _open_index(context, index, index_file_key); !status.ok()) {
         return admission.open_failed == nullptr ? status : admission.open_failed(std::move(status));
     }
     if (admission.check_open != nullptr) {
-        RETURN_IF_ERROR(admission.check_open(*index));
+        RETURN_IF_ERROR(admission.check_open(**index));
     }
-    if (!gram && !admission.plan_before_open) {
-        RETURN_IF_ERROR(plan());
+    if (lower && !admission.plan_before_open) {
+        RETURN_IF_ERROR(_lower(context, request, keyword, &lowered));
     }
+    const logical::Node* leaf = lower ? &lowered : request.leaf;
     if (!gram && leaf->as<logical::Empty>() != nullptr) {
         auto msg = fmt::format("token parser result is empty for query '{}'", request.text);
         if (is_match_query(query_type)) {
@@ -844,43 +851,44 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
             bit_map = std::make_shared<roaring::Roaring>();
             insert_query_cache(context, cache, cache_key, bit_map, &cache_handler,
                                allow_result_cache);
-            return finish_query(index.get());
+            return Status::OK();
         }
         return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(msg);
     }
 
-    static inverted_index::SingleFlight<std::pair<Status, std::shared_ptr<roaring::Roaring>>>
-            query_single_flight;
-    const auto run_shared = [&](const auto& run, std::shared_ptr<roaring::Roaring>* out) {
-        const auto compute = [&](std::shared_ptr<roaring::Roaring>* shared) {
-            Status run_status = run(shared);
-            if (run_status.ok()) {
-                insert_query_cache(context, cache, cache_key, *shared, &cache_handler,
-                                   allow_result_cache);
-            }
-            return run_status;
-        };
-        if (!admission.coalesce) {
-            return compute(out);
-        }
-        return run_query_single_flight(query_single_flight, cache_key.encode(), out,
+    // Concurrent identical full-segment queries of a coalescing format share one run, which
+    // caches what it computes.
+    std::shared_ptr<roaring::Roaring> result;
+    const bool coalesce = allow_result_cache && admission.coalesce;
+    const auto run_coalesced = [&](const auto& run) {
+        return run_query_single_flight(query_single_flight(), cache_key.encode(), &result,
 #ifdef BE_TEST
                                        _single_flight_follower_joined_observer,
                                        _single_flight_follower_joined_opaque,
                                        _single_flight_leader_before_compute_observer,
                                        _single_flight_leader_before_compute_opaque,
 #endif
-                                       compute);
+                                       [&](std::shared_ptr<roaring::Roaring>* shared) {
+                                           RETURN_IF_ERROR(run(shared));
+                                           insert_query_cache(context, cache, cache_key, *shared,
+                                                              &cache_handler, allow_result_cache);
+                                           return Status::OK();
+                                       });
     };
-    std::shared_ptr<roaring::Roaring> result;
 
     if (gram) {
         const auto run_gram = [&](std::shared_ptr<roaring::Roaring>* out) {
-            return _run_gram(context, *index, request, out);
+            return _run_gram(context, **index, request, out);
         };
-        RETURN_IF_ERROR(allow_result_cache ? run_shared(run_gram, &result) : run_gram(&result));
+        if (coalesce) {
+            RETURN_IF_ERROR(run_coalesced(run_gram));
+        } else {
+            RETURN_IF_ERROR(run_gram(&result));
+            insert_query_cache(context, cache, cache_key, result, &cache_handler,
+                               allow_result_cache);
+        }
         bit_map = std::move(result);
-        return finish_query(index.get());
+        return Status::OK();
     }
 
     // A count-only scan of one exact term is answered from the dictionary. The cache came first,
@@ -891,13 +899,10 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
             bool handled = false;
             std::shared_ptr<roaring::Roaring> count_bitmap;
             RETURN_IF_ERROR(
-                    _count_from_df(context, column_name, *index, *term, &handled, &count_bitmap));
+                    _count_from_df(context, column_name, **index, *term, &handled, &count_bitmap));
             if (handled) {
                 bit_map = std::move(count_bitmap);
-                RETURN_IF_ERROR(finish_query(index.get()));
-                // Tells the scan the bitmap is count-shaped, so it may emit the count without
-                // iterating rows. Never set on a cache hit or a shared result.
-                context->count_on_index_fastpath_hit = true;
+                *count_shaped = true;
                 return Status::OK();
             }
         }
@@ -905,27 +910,25 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
 
     const bool consume_candidates =
             context->candidate_rows != nullptr && consumes_candidates(*leaf);
-    const roaring::Roaring* candidates = consume_candidates ? context->candidate_rows : nullptr;
-    if (!allow_result_cache || consume_candidates) {
+    if (coalesce && !consume_candidates) {
+        RETURN_IF_ERROR(run_coalesced([&](std::shared_ptr<roaring::Roaring>* out) {
+            return _run_leaf(context, column_name, **index, *leaf, nullptr, false, out);
+        }));
+    } else {
+        const roaring::Roaring* candidates = consume_candidates ? context->candidate_rows : nullptr;
         RETURN_IF_ERROR(
-                _run_leaf(context, column_name, *index, *leaf, candidates, scoring, &result));
+                _run_leaf(context, column_name, **index, *leaf, candidates, scoring, &result));
         // A phrase with a slot the index lacks stops before the candidates: its result is empty
         // for the whole segment, so it may be cached.
-        if (consume_candidates && !context->candidate_rows_consumed) {
-            DORIS_CHECK(result->isEmpty());
+        if (!consume_candidates || !context->candidate_rows_consumed) {
+            DORIS_CHECK(!consume_candidates || result->isEmpty());
             insert_query_cache(context, cache, cache_key, result, &cache_handler,
                                allow_result_cache);
         }
-    } else {
-        RETURN_IF_ERROR(run_shared(
-                [&](std::shared_ptr<roaring::Roaring>* out) {
-                    return _run_leaf(context, column_name, *index, *leaf, nullptr, false, out);
-                },
-                &result));
     }
     DORIS_CHECK(result != nullptr);
     bit_map = std::move(result);
-    return finish_query(index.get());
+    return Status::OK();
 }
 
 Status TextIndexReader::_count_from_df(const IndexQueryContextPtr& context,
