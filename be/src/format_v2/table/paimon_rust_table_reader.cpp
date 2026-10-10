@@ -660,7 +660,14 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
     // options carry storage credentials to the FileIO.
     RETURN_IF_ERROR(_open_paimon_table(range));
 
-    // 3. Build and configure the vector-search builder.
+    // 3. Build and configure the vector-search builder. No read.batch-size here,
+    // unlike the batch path (_open_split_reader): paimon-rust's PK vector readers
+    // construct their DataFileReaders without with_batch_size, so a
+    // read.batch-size option — from the schema, t@options or these search
+    // options — is silently ignored on the vector path, which batches at the
+    // parquet-rust default. Known difference; the vector stages are
+    // single-column streamed into bounded Top-K heaps and the output is
+    // capped by top_k, so no action needed until paimon-rust wires it.
     paimon_result_vector_search_builder vb_res =
             paimon_table_new_vector_search_builder(_handles->table.get());
     if (vb_res.error != nullptr) {
