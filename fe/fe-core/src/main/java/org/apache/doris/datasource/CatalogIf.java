@@ -83,7 +83,13 @@ public interface CatalogIf<T extends DatabaseIf> {
         try {
             return getDbNames();
         } catch (Exception e) {
-            LOG.warn("failed to get db names in catalog {}", getName(), e);
+            String diagnosticTrace = this instanceof ExternalCatalog
+                    ? ExternalCatalog.initErrorStackTrace(e) : null;
+            if (diagnosticTrace != null) {
+                LOG.warn("failed to get db names in catalog {}: {}", getName(), diagnosticTrace);
+            } else {
+                LOG.warn("failed to get db names in catalog {}", getName());
+            }
             return Lists.newArrayList();
         }
     }

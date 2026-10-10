@@ -183,7 +183,10 @@ public class DataSourceConfigValidator {
         } catch (Exception e) {
             throw new JobException(
                     "Failed to validate OceanBase compatibility mode: "
-                            + JdbcClientException.getAllExceptionMessages(e), e);
+                            + JdbcClientException.getAllExceptionMessages(
+                                    e,
+                                    sourceProperties.get(DataSourceConfigKeys.PASSWORD),
+                                    sourceProperties.get(DataSourceConfigKeys.JDBC_URL)), e);
         } finally {
             jdbcClient.closeClient();
         }

@@ -74,4 +74,8 @@ public class JdbcClientException extends RuntimeException implements DiagnosticE
     public static String getAllExceptionMessages(Throwable throwable) {
         return JdbcExceptionUtils.format("", throwable);
     }
+
+    public static String getAllExceptionMessages(Throwable throwable, String... sensitiveValues) {
+        return JdbcExceptionUtils.format("", throwable, sensitiveValues);
+    }
 }
