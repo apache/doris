@@ -468,6 +468,50 @@ TEST_F(SegmentIteratorCandidatePushdownTest, versioned_deletes_do_not_publish_co
     EXPECT_FALSE(older_reader->_find_condition_cache);
     EXPECT_EQ(older_reader->_row_bitmap.cardinality(), 100);
     EXPECT_EQ(_iter->_opts.condition_cache_digest, 0);
+    EXPECT_EQ(_stats.condition_cache_lookup_count, 0);
+    EXPECT_EQ(older_stats.condition_cache_lookup_count, 1);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest,
+       condition_cache_lookups_count_misses_and_hits_per_reader) {
+    ScopedConditionCache cache;
+    constexpr uint64_t digest = 12345;
+    _iter->_opts.condition_cache_digest = digest;
+    _iter->_row_bitmap.addRange(0, 100);
+    _iter->_init_row_bitmap_by_condition_cache();
+    EXPECT_FALSE(_iter->_find_condition_cache);
+    EXPECT_EQ(_stats.condition_cache_lookup_count, 1);
+    EXPECT_EQ(_stats.condition_cache_hit_seg_nums, 0);
+
+    ConditionCache::CacheKey key(_iter->_opts.rowset_id, _iter->segment_id(), digest);
+    cache.get()->insert(key, std::move(_iter->_condition_cache));
+
+    OlapReaderStatistics second_stats;
+    auto second_reader = std::make_unique<SegmentIterator>(_segment, _read_schema);
+    second_reader->_opts.stats = &second_stats;
+    second_reader->_opts.condition_cache_digest = digest;
+    second_reader->_common_expr_ctxs_push_down = _iter->_common_expr_ctxs_push_down;
+    second_reader->_row_bitmap.addRange(0, 100);
+    second_reader->_init_row_bitmap_by_condition_cache();
+    EXPECT_TRUE(second_reader->_find_condition_cache);
+    EXPECT_EQ(second_stats.condition_cache_lookup_count, 1);
+    EXPECT_EQ(second_stats.condition_cache_hit_seg_nums, 1);
+    EXPECT_TRUE(second_reader->_row_bitmap.isEmpty());
+    EXPECT_EQ(_stats.condition_cache_lookup_count, 1);
+    EXPECT_EQ(_stats.condition_cache_hit_seg_nums, 0);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest, condition_cache_bypass_does_not_count_lookups) {
+    ScopedConditionCache cache;
+    _iter->_opts.condition_cache_digest = 0;
+    _iter->_init_row_bitmap_by_condition_cache();
+    EXPECT_EQ(_stats.condition_cache_lookup_count, 0);
+
+    _iter->_opts.condition_cache_digest = 12345;
+    _iter->_common_expr_ctxs_push_down.clear();
+    _iter->_init_row_bitmap_by_condition_cache();
+    EXPECT_EQ(_stats.condition_cache_lookup_count, 0);
+    EXPECT_EQ(_iter->_opts.condition_cache_digest, 0);
 }
 
 TEST_F(SegmentIteratorCandidatePushdownTest, condition_ranges_engage_candidate_before_expr) {
