@@ -173,7 +173,7 @@ public final class S3CompatSignals {
 
     /**
      * Port of {@code GCSProperties.guessIsMe}: a non-blank {@code gs.endpoint}, or any endpoint alias
-     * whose value ends with {@code storage.googleapis.com}.
+     * whose URI host identifies a GCS global, regional, or virtual-hosted endpoint.
      *
      * <p>Deviation: legacy compares {@code key.toLowerCase()} against a set holding the un-lowercased
      * {@code "AWS_ENDPOINT"}/{@code "ENDPOINT"}, so those two aliases can never match there. Here the

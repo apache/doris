@@ -89,6 +89,10 @@ public class MinioFileSystemProvider implements FileSystemProvider<MinioFileSyst
 
     @Override
     public boolean supportsGuess(Map<String, String> properties) {
+        // bindAll consults every provider, even after S3 or GCS has matched.
+        if (S3CompatSignals.hasExplicitS3Request(properties) || S3CompatSignals.guessIsGcs(properties)) {
+            return false;
+        }
         // Verbatim port of fe-core MinioProperties.guessIsMe: MinIO is the "any other
         // S3-compatible" fallback — it claims the map iff none of Azure/COS/OSS/S3 would claim
         // it AND at least one identifier key is present. The sibling guesses are replicated

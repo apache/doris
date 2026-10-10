@@ -123,7 +123,7 @@ public final class GcsAuthResolver {
                 return true;
             }
             if (("s3.endpoint".equals(key) || "aws_endpoint".equals(key) || "endpoint".equals(key))
-                    && value != null && value.toLowerCase(Locale.ROOT).endsWith("storage.googleapis.com")) {
+                    && value != null && GcsEndpoint.isGcsEndpoint(value)) {
                 return true;
             }
         }

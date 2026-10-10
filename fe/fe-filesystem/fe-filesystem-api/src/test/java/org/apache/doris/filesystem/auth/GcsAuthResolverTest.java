@@ -119,4 +119,34 @@ public class GcsAuthResolverTest {
         props.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "");
         Assertions.assertThrows(IllegalArgumentException.class, () -> GcsAuthResolver.resolve(props));
     }
+
+    @Test
+    public void testEndpointAliasesResolveGcsByUriHost() {
+        for (String key : new String[] {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"}) {
+            for (String endpoint : new String[] {"storage.googleapis.com", "storage.googleapis.com:443",
+                    "https://storage.googleapis.com/", "https://storage.googleapis.com:443/",
+                    "HTTPS://STORAGE.GOOGLEAPIS.COM", "https://storage.us-east1.rep.googleapis.com",
+                    "https://us-east1-storage.googleapis.com", "https://bucket.storage.googleapis.com"}) {
+                Map<String, String> props = new HashMap<>();
+                props.put(key, endpoint);
+                Assertions.assertTrue(GcsAuthResolver.guessIsGcs(props), endpoint);
+                Assertions.assertEquals(GcsAuth.Mode.ADC, GcsAuthResolver.resolve(props).orElseThrow().getMode());
+                props.put("s3.access_key", "ak");
+                props.put("s3.secret_key", "sk");
+                Assertions.assertEquals(GcsAuth.Mode.HMAC, GcsAuthResolver.resolve(props).orElseThrow().getMode());
+            }
+        }
+    }
+
+    @Test
+    public void testEndpointInferenceRejectsForeignAndMalformedHosts() {
+        for (String endpoint : new String[] {"https://notstorage.googleapis.com",
+                "https://storage.googleapis.com.example.com", "https://example.com/storage.googleapis.com",
+                "https://storage.googleapis.com@example.com", "https://[invalid", ""}) {
+            Map<String, String> props = Map.of("s3.endpoint", endpoint);
+            Assertions.assertFalse(GcsAuthResolver.guessIsGcs(props), endpoint);
+            Assertions.assertFalse(GcsAuthResolver.resolve(props).isPresent(), endpoint);
+        }
+    }
+
 }

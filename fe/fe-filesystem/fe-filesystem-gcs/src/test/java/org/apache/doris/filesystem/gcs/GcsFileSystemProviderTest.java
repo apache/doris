@@ -199,4 +199,17 @@ class GcsFileSystemProviderTest {
                         "AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS")), props);
         Assertions.assertThrows(UnsupportedOperationException.class, () -> storage.getPresignedUrl("key"));
     }
+
+    @Test
+    void supportsGuess_respectsExplicitS3AndRecognizesRegionalEndpoints() {
+        Map<String, String> props = new HashMap<>();
+        for (String endpoint : new String[] {"https://storage.googleapis.com:443/",
+                "https://storage.us-east1.rep.googleapis.com"}) {
+            props.put("s3.endpoint", endpoint);
+            Assertions.assertTrue(provider.supportsGuess(props));
+            props.put("provider", "S3");
+            Assertions.assertFalse(provider.supportsGuess(props));
+            props.remove("provider");
+        }
+    }
 }

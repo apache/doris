@@ -83,7 +83,7 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
 
     @Override
     public boolean supportsGuess(Map<String, String> properties) {
-        return S3CompatSignals.guessIsGcs(properties);
+        return !S3CompatSignals.hasExplicitS3Request(properties) && S3CompatSignals.guessIsGcs(properties);
     }
 
     @Override

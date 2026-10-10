@@ -110,7 +110,7 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
 
     @Override
     public boolean supportsExplicit(Map<String, String> properties) {
-        return Boolean.parseBoolean(properties.getOrDefault(FS_S3_SUPPORT, "false"));
+        return S3CompatSignals.hasExplicitS3Request(properties);
     }
 
     @Override

@@ -252,4 +252,12 @@ class S3FileSystemProviderTest {
         Assertions.assertFalse(keys.contains("s3.access_key"), keys.toString());
         Assertions.assertFalse(keys.contains("AWS_ACCESS_KEY"), keys.toString());
     }
+
+    @Test
+    void supportsExplicit_preservesS3DefaultChainAtGcsEndpoint() {
+        Map<String, String> props = Map.of("provider", "s3",
+                "s3.endpoint", "https://storage.googleapis.com", "s3.region", "us-east1");
+        Assertions.assertTrue(provider.supportsExplicit(props));
+        Assertions.assertEquals("DEFAULT", provider.bind(props).toFileSystemKv().get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
 }
