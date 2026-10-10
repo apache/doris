@@ -359,6 +359,13 @@ public class LanceScanNode extends FileQueryScanNode {
                     result.append(prefix).append("lanceQueryParallelism=")
                             .append(externalSearchRequest.getVectorSearchOptions().getQueryParallelism()).append("\n");
                 }
+                if (vector.isSetDistanceLowerBound() || vector.isSetDistanceUpperBound()) {
+                    result.append(prefix).append("lanceDistanceRange=[")
+                            .append(vector.isSetDistanceLowerBound() ? vector.getDistanceLowerBound() : "-inf")
+                            .append(", ")
+                            .append(vector.isSetDistanceUpperBound() ? vector.getDistanceUpperBound() : "+inf")
+                            .append(")\n");
+                }
                 result.append(prefix).append("lanceMetric=")
                         .append(vector.isSetMetric()
                                 ? VectorSearchTableValuedFunction.metricName(vector.getMetric()) : "default")

@@ -65,6 +65,8 @@ final class LanceScanPlan {
         NO_MATCH,
         /** The selected index has a different or unknown metric. */
         METRIC_MISMATCH,
+        /** The pinned index search cannot safely evaluate this distance range. */
+        DISTANCE_RANGE_FALLBACK,
         /** At least one segment has no fragment coverage metadata. */
         UNKNOWN_COVERAGE,
         /** All segment coverage lies outside the selected snapshot's visible fragments. */

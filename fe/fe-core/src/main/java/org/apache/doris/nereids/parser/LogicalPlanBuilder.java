@@ -2884,7 +2884,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new AnalysisException("Duplicate vector_search property: " + key);
                     }
                     if (argument.value.constant() instanceof DorisParser.PlaceholderContext) {
-                        if (!ImmutableSet.of("query_vector", "top_k", "offset", "filter").contains(key)) {
+                        // Bounds change the search results, but never the prepared result schema.
+                        if (!ImmutableSet.of("query_vector", "top_k", "offset", "filter",
+                                "distance_lower_bound", "distance_upper_bound").contains(key)) {
                             throw new AnalysisException("vector_search property '" + key
                                     + "' must be constant in a prepared statement");
                         }
