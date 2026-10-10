@@ -164,7 +164,7 @@ public final class IcebergTypeMapping {
                 return ConnectorType.of("UNSUPPORTED");
             default:
                 // Any primitive iceberg type Doris cannot represent — notably the v3 types TIMESTAMP_NANO /
-                // GEOMETRY / GEOGRAPHY / UNKNOWN — degrades to UNSUPPORTED: the table still LOADS and only this
+                // UNKNOWN — degrades to UNSUPPORTED: the table still LOADS and only this
                 // column is present-but-unqueryable. This DIVERGES from legacy (IcebergUtils.icebergPrimitiveType-
                 // ToDorisType threw IllegalArgumentException "Cannot transform unknown type", failing the whole
                 // table). Graceful degradation is INTENTIONAL (user decision 2026-07-13: map every unrepresentable
