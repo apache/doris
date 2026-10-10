@@ -1294,6 +1294,9 @@ public class MTMVTask extends AbstractTask {
             // mapping the snapshots below are generated from; see MTMVPartitionUtil#mappedBasePartitions.
             Map<BaseTableInfo, Set<String>> readableBasePartitions = mtmv.isIvm()
                     ? null : MTMVPartitionUtil.mappedBasePartitions(tableWithPartKey, context, execPartitionNames);
+            if (!mtmv.isIvm()) {
+                requireDescribedPartitions(context, execPartitionNames);
+            }
             Map<BaseTableInfo, Set<Long>> batchResetPartitionIds = useIvmFallbackStreams
                     ? collectPctResetPartitionIds(context, execPartitionNames) : Maps.newHashMap();
             Optional<IvmRewriteContext> rewriteContext = Optional.empty();
@@ -1516,6 +1519,28 @@ public class MTMVTask extends AbstractTask {
      * by the tables the MV's partition info holds and this reads them by the name it is given, so what
      * identifies a table here is the table it names, not which of the two objects it was read from.
      */
+    /**
+     * Whether each MV partition of this batch is one the mapping describes, i.e. one that some base partition's
+     * keys name. A partition nothing describes is one the alignment has not caught up with: a base `ADD
+     * PARTITION` widens the keys an MV partition covers, which replaces it with an empty partition of the new
+     * keys, and if that lands between the alignment and this mapping the partition is read as no table feeding
+     * it and the batch writes no rows over the rows it holds. The batch is not read at all then: the task tries
+     * again, and trying again realigns.
+     */
+    private void requireDescribedPartitions(MTMVRefreshContext context, Set<String> execPartitionNames)
+            throws AnalysisException {
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return;
+        }
+        for (String mvPartitionName : execPartitionNames) {
+            if (context.getByPartitionName(mvPartitionName).isEmpty()) {
+                throw new AnalysisException("MV partition " + mvPartitionName + " of " + mtmv.getName()
+                        + " is described by no base partition: the alignment has not caught up with a base "
+                        + "table change. Refreshing it would write no rows over the rows it holds.");
+            }
+        }
+    }
+
     private Map<BaseTableInfo, Set<Long>> collectPctResetPartitionIds(MTMVRefreshContext context,
             Set<String> execPartitionNames) throws AnalysisException {
         Map<BaseTableInfo, Set<Long>> resetPartitionIds = Maps.newHashMap();
