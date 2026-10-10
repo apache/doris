@@ -246,9 +246,17 @@ public class StreamLoadHandler {
 
         if (result != null) {
             OlapTable olapTable = tables.get(0);
-            result.setDbId(db.getId());
-            result.setTableId(olapTable.getId());
-            result.setBaseSchemaVersion(olapTable.getBaseSchemaVersion());
+            if (!olapTable.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
+                throw new UserException(
+                        "get table read lock timeout, database=" + request.getDb() + ",table=" + olapTable.getName());
+            }
+            try {
+                result.setDbId(db.getId());
+                result.setTableId(olapTable.getId());
+                result.setBaseSchemaVersion(olapTable.getBaseSchemaVersion());
+            } finally {
+                olapTable.readUnlock();
+            }
         }
     }
 

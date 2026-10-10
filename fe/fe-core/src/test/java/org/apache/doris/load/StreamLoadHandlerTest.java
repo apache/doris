@@ -18,7 +18,11 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -50,8 +54,72 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class StreamLoadHandlerTest {
+    @Test
+    public void testSchemaVersionReadWaitsForBaseIndexReplacement() throws Exception {
+        OlapTable table = Mockito.spy(new OlapTable());
+        table.setBaseIndexId(1L);
+        MaterializedIndexMeta oldIndexMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(oldIndexMeta.getSchemaVersion()).thenReturn(6);
+        table.getMutableIndexIdToMeta().put(1L, oldIndexMeta);
+        MaterializedIndexMeta newIndexMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(newIndexMeta.getSchemaVersion()).thenReturn(7);
+        table.getMutableIndexIdToMeta().put(2L, newIndexMeta);
+        CountDownLatch oldIndexRemoved = new CountDownLatch(1);
+        CountDownLatch readerStarted = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            readerStarted.countDown();
+            return invocation.callRealMethod();
+        }).when(table).tryReadLock(Mockito.anyLong(), Mockito.eq(TimeUnit.MILLISECONDS));
+
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable("db")).thenReturn(database);
+        Mockito.when(database.getTableOrMetaException("tbl", TableType.OLAP)).thenReturn(table);
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setDb("db");
+        request.setTbl("tbl");
+        TStreamLoadPutResult result = new TStreamLoadPutResult();
+        StreamLoadHandler handler = new StreamLoadHandler(request, null, result, "127.0.0.1");
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> schemaChange = executor.submit(() -> {
+            table.writeLock();
+            try {
+                // Schema change removes the old base index before switching to the shadow index.
+                table.getMutableIndexIdToMeta().remove(1L);
+                oldIndexRemoved.countDown();
+                Assertions.assertTrue(readerStarted.await(5, TimeUnit.SECONDS));
+                table.setBaseIndexId(2L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            } finally {
+                table.writeUnlock();
+            }
+        });
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertTrue(oldIndexRemoved.await(5, TimeUnit.SECONDS));
+            Deencapsulation.invoke(handler, "setDbAndTable");
+            Assertions.assertEquals(7, result.getBaseSchemaVersion());
+        } finally {
+            readerStarted.countDown();
+            try {
+                schemaChange.get(5, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
     @Test
     public void testSelectBackendSkipsDecommissioningBackend() throws Exception {
         SystemInfoService originalSystemInfoService = Env.getCurrentSystemInfo();

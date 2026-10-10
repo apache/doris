@@ -3185,6 +3185,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return httpStreamParams;
     }
 
+    private void setHttpStreamLoadTableProperties(TStreamLoadPutRequest request,
+            HttpStreamParams httpStreamParams, TStreamLoadPutResult result) throws UserException {
+        OlapTable table = (OlapTable) httpStreamParams.getTable();
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
+        if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
+            throw new UserException(
+                    "get table read lock timeout, database=" + httpStreamParams.getDb().getFullName()
+                            + ",table=" + table.getName());
+        }
+        try {
+            result.getPipelineParams().setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
+            result.getPipelineParams().setEnableTso(table.enableTso());
+            result.setTableId(table.getId());
+            result.setBaseSchemaVersion(table.getBaseSchemaVersion());
+            result.setGroupCommitIntervalMs(table.getGroupCommitIntervalMs());
+            result.setGroupCommitDataBytes(table.getGroupCommitDataBytes());
+        } finally {
+            table.readUnlock();
+        }
+    }
+
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
         if (LOG.isDebugEnabled()) {
@@ -3243,14 +3264,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getPipelineParams().setTableName(httpStreamParams.getTable().getName());
             result.getPipelineParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
             result.getPipelineParams().setImportLabel(httpStreamParams.getLabel());
-            result.getPipelineParams()
-                    .setIsMowTable(((OlapTable) httpStreamParams.getTable()).getEnableUniqueKeyMergeOnWrite());
-            result.getPipelineParams().setEnableTso(((OlapTable) httpStreamParams.getTable()).enableTso());
             result.setDbId(httpStreamParams.getDb().getId());
-            result.setTableId(httpStreamParams.getTable().getId());
-            result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());
-            result.setGroupCommitIntervalMs(((OlapTable) httpStreamParams.getTable()).getGroupCommitIntervalMs());
-            result.setGroupCommitDataBytes(((OlapTable) httpStreamParams.getTable()).getGroupCommitDataBytes());
+            setHttpStreamLoadTableProperties(request, httpStreamParams, result);
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
