@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
 #include <gen_cpp/olap_common.pb.h>
 
@@ -65,6 +66,8 @@ public:
 
 private:
     Status _run_in_heavy_work_pool(std::function<Status()> fn);
+    Status _wait_for_task_slot(size_t max_tasks, int64_t timeout_ms);
+    void _release_task_slot();
 
     int64_t _id;
     LoadStreamWriterSharedPtr _load_stream_writer;
@@ -83,6 +86,9 @@ private:
     RuntimeProfile::Counter* _add_segment_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
+    bthread::Mutex _flush_task_lock;
+    bthread::ConditionVariable _flush_task_cv;
+    size_t _pending_flush_tasks = 0;
 };
 
 using TabletStreamSharedPtr = std::shared_ptr<TabletStream>;
