@@ -2019,9 +2019,12 @@ public class Config extends ConfigBase {
     public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
     // Older backends do not recognize PAIMON_TABLE_SINK and cannot execute Paimon writes.
     public static final int PAIMON_WRITE_MIN_BE_EXEC_VERSION = 16;
+    // Older backends fall back to CRC32 for IDENTITY distribution and would shuffle data
+    // into wrong buckets.
+    public static final int DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION = 17;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = PAIMON_WRITE_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

@@ -46,6 +46,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TDistributionHashType;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
@@ -98,6 +99,8 @@ class RuntimeFilterTranslatorBucketPruneTest {
         Assertions.assertEquals(firstLegacySlotId(harness, target),
                 desc.planId_to_target_expr.get(SCAN_NODE_ID).nodes.get(0).slot_ref.slot_id);
         Assertions.assertTrue(desc.isSetBucketPruningTargetIds());
+        Assertions.assertEquals(TDistributionHashType.CRC32,
+                desc.bucket_pruning_target_hash_types.get(SCAN_NODE_ID));
         Assertions.assertEquals(ImmutableList.of(SCAN_NODE_ID),
                 desc.bucket_pruning_target_ids.stream().sorted().collect(java.util.stream.Collectors.toList()));
     }

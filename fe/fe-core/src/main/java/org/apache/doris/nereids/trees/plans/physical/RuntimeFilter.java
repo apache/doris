@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.planner.RuntimeFilterId;
@@ -59,6 +60,7 @@ public class RuntimeFilter {
     // Generated once with the runtime filter at its final target scan. Translation only
     // maps this target-scoped metadata to the legacy scan node id.
     private boolean canPruneBuckets;
+    private HashDistributionInfo.HashType bucketPruningHashType = HashDistributionInfo.HashType.CRC32;
     private Map<Long, TTargetExprMonotonicity> partitionMonotonicity = ImmutableMap.of();
 
     /**
@@ -205,13 +207,21 @@ public class RuntimeFilter {
     }
 
     public void setPruningMetadata(boolean canPruneBuckets,
+            HashDistributionInfo.HashType bucketPruningHashType,
             Map<Long, TTargetExprMonotonicity> partitionMonotonicity) {
         this.canPruneBuckets = canPruneBuckets;
+        if (canPruneBuckets) {
+            this.bucketPruningHashType = Preconditions.checkNotNull(bucketPruningHashType);
+        }
         this.partitionMonotonicity = ImmutableMap.copyOf(partitionMonotonicity);
     }
 
     public boolean canPruneBuckets() {
         return canPruneBuckets;
+    }
+
+    public HashDistributionInfo.HashType getBucketPruningHashType() {
+        return bucketPruningHashType;
     }
 
     public boolean canPrunePartitions() {

@@ -17,8 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 public class TimeV2Literal extends LiteralExpr {
     public static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, true);
@@ -124,6 +128,14 @@ public class TimeV2Literal extends LiteralExpr {
             sb.append(String.format(".%0" + scale + "d", microsecond / (int) Math.pow(10, 6 - scale)));
         }
         return sb.toString();
+    }
+
+    @Override
+    public ByteBuffer getHashValue(PrimitiveType type) {
+        ByteBuffer buffer = ByteBuffer.allocate(Double.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+        buffer.putDouble(getValue());
+        buffer.flip();
+        return buffer;
     }
 
     protected static boolean checkRange(int hour, int minute, int second, int microsecond) {

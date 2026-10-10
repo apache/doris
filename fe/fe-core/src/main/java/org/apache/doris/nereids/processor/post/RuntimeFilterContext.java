@@ -95,7 +95,8 @@ public class RuntimeFilterContext {
         RuntimeFilterPruneClassifier.Classification classification =
                 RuntimeFilterPruneClassifier.classify(filter, sessionVariable);
         filter.setPruningMetadata(
-                classification.canPruneBuckets(), classification.getPartitionMonotonicity());
+                classification.canPruneBuckets(), classification.getBucketHashType(),
+                classification.getPartitionMonotonicity());
     }
 
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
