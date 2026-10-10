@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
@@ -199,6 +200,19 @@ public class PluginDrivenTableSinkBindingTest {
                 previous.setThreadLocalInfo();
             }
         }
+    }
+
+    @Test
+    public void staticPartitionBinaryValueKeepsItsBytesWhenCast() throws AnalysisException {
+        // A binary value is 0x and its bytes in hex in both maps. Its string value would be the identity of the
+        // byte array ([B@...), which names no partition. MUTATION: getStringValue() for a cast binary value -> red.
+        Map<String, Expression> partition = Collections.singletonMap("b",
+                new VarBinaryLiteral(new byte[] {0x41, 0x42}));
+        // The type Paimon's VARBINARY maps to.
+        List<Column> schema = Collections.singletonList(
+                new Column("b", ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH)));
+
+        Assertions.assertEquals(Collections.singletonMap("b", "0x4142"), castStaticPartitionSpec(partition, schema));
     }
 
     @Test

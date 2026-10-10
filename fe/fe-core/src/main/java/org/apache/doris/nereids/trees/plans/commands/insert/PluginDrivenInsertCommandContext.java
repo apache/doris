@@ -91,9 +91,7 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
                     // Commit metadata must use the same semantic bytes as the materialized partition row.
                     literal = (Literal) ConnectorWriteValueConverter.convert(column, literal);
                 }
-                // Binary partition keys must bypass character decoding, including empty and non-UTF-8 bytes.
-                spec.put(entry.getKey(), literal instanceof VarBinaryLiteral
-                        ? "0x" + literal.toString() : literal.getStringValue());
+                spec.put(entry.getKey(), specValue(literal));
                 literals.put(entry.getKey(), literal);
                 if (entry.getValue() instanceof NullLiteral) {
                     nullKeys.add(entry.getKey());
@@ -130,9 +128,14 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
             if (column.isPresent()) {
                 value = writtenValue(value, DataType.fromCatalogType(column.get().getType()));
             }
-            spec.put(entry.getKey(), value.getStringValue());
+            spec.put(entry.getKey(), specValue(value));
         }
         return spec;
+    }
+
+    private static String specValue(Literal literal) {
+        // Binary partition keys must bypass character decoding, including empty and non-UTF-8 bytes.
+        return literal instanceof VarBinaryLiteral ? "0x" + literal.toString() : literal.getStringValue();
     }
 
     private static Literal writtenValue(Literal value, DataType columnType) {

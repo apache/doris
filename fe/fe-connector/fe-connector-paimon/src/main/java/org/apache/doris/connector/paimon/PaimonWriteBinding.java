@@ -89,22 +89,37 @@ final class PaimonWriteBinding {
     /**
      * The static partition of an overwrite, as Paimon's static overwrite parses it: SQL NULL becomes the table's
      * {@code partition.default-name}, and every other value is the one the written rows carry, cast to the
-     * column type.
+     * column type. A binary column can only be statically overwritten with NULL.
      */
     static Map<String, String> resolveStaticPartition(FileStoreTable table, ConnectorWriteHandle writeHandle) {
         Map<String, String> canonicalNames = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (String partitionKey : table.partitionKeys()) {
             canonicalNames.put(partitionKey, partitionKey);
         }
-        String defaultPartitionName = CoreOptions.fromMap(table.options()).partitionDefaultName();
-        Map<String, String> castValues = writeHandle.getCastStaticPartitionSpec();
-        Map<String, String> result = new LinkedHashMap<>();
+        Map<String, String> requestedColumns = new LinkedHashMap<>();
         for (String key : writeHandle.getStaticPartitionSpec().keySet()) {
             String canonicalName = canonicalNames.get(key);
             if (canonicalName == null) {
                 throw new DorisConnectorException("Column '" + key
                         + "' is not a partition column of Paimon table");
             }
+            DataTypeRoot typeRoot = table.rowType().getField(canonicalName).type().getTypeRoot();
+            if ((typeRoot == DataTypeRoot.BINARY || typeRoot == DataTypeRoot.VARBINARY)
+                    && !writeHandle.getStaticPartitionNullKeys().contains(key)) {
+                // Paimon's static overwrite takes the UTF-8 bytes of a value's string, which cannot name every
+                // binary partition, and a wrong name overwrites another partition without an error. Checked
+                // before the values are cast.
+                throw new DorisConnectorException("Static overwrite of binary partition column '"
+                        + canonicalName + "' is not supported");
+            }
+            requestedColumns.put(key, canonicalName);
+        }
+        String defaultPartitionName = CoreOptions.fromMap(table.options()).partitionDefaultName();
+        Map<String, String> castValues = writeHandle.getCastStaticPartitionSpec();
+        Map<String, String> result = new LinkedHashMap<>();
+        for (Map.Entry<String, String> requested : requestedColumns.entrySet()) {
+            String key = requested.getKey();
+            String canonicalName = requested.getValue();
             if (writeHandle.getStaticPartitionNullKeys().contains(key)) {
                 result.put(canonicalName, defaultPartitionName);
                 continue;

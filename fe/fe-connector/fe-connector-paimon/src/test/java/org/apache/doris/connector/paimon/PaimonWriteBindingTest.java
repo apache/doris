@@ -29,6 +29,7 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.TypeUtils;
 import org.junit.jupiter.api.AfterEach;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -192,15 +194,40 @@ public class PaimonWriteBindingTest {
     }
 
     @Test
-    public void staticPartitionNullUsesTheDefaultPartitionName(@TempDir Path warehouse) {
-        FileStoreTable table = partitionedTable(warehouse,
-                Collections.singletonMap("partition.default-name", DEFAULT_NAME),
-                new DataField(1, "part", DataTypes.INT()));
-        ConnectorWriteHandle write = handle(true, Collections.singletonMap("part", "NULL"),
-                Collections::emptyMap, Collections.singleton("part"));
+    public void staticOverwriteRejectsABinaryPartitionValue(@TempDir Path warehouse) {
+        // Paimon's static overwrite takes the UTF-8 bytes of a value's string: "0x4142" names the partition of
+        // those six bytes, not of the two bytes 41 42 the rows carry, so an overwrite without rows would report
+        // success and leave the partition it was given in place. The check comes before the values are cast,
+        // which a binary value may not survive. MUTATION: dropping the check -> red.
+        Assertions.assertArrayEquals("0x4142".getBytes(StandardCharsets.UTF_8),
+                (byte[]) TypeUtils.castFromString("0x4142", DataTypes.BYTES()));
+        for (DataType type : Arrays.asList(DataTypes.BYTES(), DataTypes.VARBINARY(2), DataTypes.BINARY(2))) {
+            FileStoreTable table = partitionedTable(warehouse, Collections.emptyMap(),
+                    new DataField(1, "part", type));
+            ConnectorWriteHandle overwrite = handle(true, Collections.singletonMap("part", "0x4142"), () -> {
+                throw new AssertionError("a binary static partition value must be rejected before it is cast");
+            }, Collections.emptySet());
 
-        Assertions.assertEquals(DEFAULT_NAME,
-                PaimonWriteBinding.resolveStaticPartition(table, write).get("part"));
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> PaimonWriteBinding.resolveStaticPartition(table, overwrite));
+            Assertions.assertTrue(error.getMessage().contains("binary partition column 'part'"),
+                    error.getMessage());
+        }
+    }
+
+    @Test
+    public void staticPartitionNullUsesTheDefaultPartitionName(@TempDir Path warehouse) {
+        // A binary column too: SQL NULL names its partition by partition.default-name, not by bytes.
+        for (DataType type : Arrays.asList(DataTypes.INT(), DataTypes.BYTES())) {
+            FileStoreTable table = partitionedTable(warehouse,
+                    Collections.singletonMap("partition.default-name", DEFAULT_NAME),
+                    new DataField(1, "part", type));
+            ConnectorWriteHandle write = handle(true, Collections.singletonMap("part", "NULL"),
+                    Collections::emptyMap, Collections.singleton("part"));
+
+            Assertions.assertEquals(DEFAULT_NAME,
+                    PaimonWriteBinding.resolveStaticPartition(table, write).get("part"), type.toString());
+        }
     }
 
     @Test
