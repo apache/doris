@@ -384,11 +384,19 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * returns the sum of deltaRowCount for all selected partitions or for the table.
      */
     private long computeDeltaRowCount(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
+        // The delta rows are the rows loaded into the base index which the collected base index row count
+        // doesn't include yet. They are not the rows of an index which aggregates them: such an index has its
+        // own (usually much smaller) row count, so the delta only applies to a scan of an index which keeps
+        // one row per base row.
+        if (!TableStatsMeta.keepsOneRowPerBaseRow(olapTable, olapScan.getSelectedIndexId())) {
+            return 0;
+        }
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapTable.getId());
         long deltaRowCount = 0;
         if (tableMeta != null) {
-            deltaRowCount = tableMeta.getBaseIndexDeltaRowCount(olapScan.getTable());
+            deltaRowCount = tableMeta.getBaseIndexDeltaRowCount(olapTable);
         }
         return deltaRowCount;
     }
@@ -471,7 +479,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
             if (rowCount == -1) {
                 if (tableMeta != null) {
-                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId()) + computeDeltaRowCount(olapScan);
+                    // The collected row count and the rows loaded since it was collected are read as one
+                    // snapshot, a truncation of the table may run concurrently with this plan.
+                    rowCount = tableMeta.getRowCountWithDeltaRows(olapTable, olapScan.getSelectedIndexId());
                 }
             }
         }
