@@ -137,6 +137,65 @@ class ResolveCodeReviewStatusTest(unittest.TestCase):
         result = resolve_status([pull(123), pull(124)], [status(1, source="automated", state="failure")], head_sha=HEAD_SHA)
         self.assertEqual("failure", result.state)
 
+    def test_manual_pass_survives_reruns_and_later_aggregate_writes(self) -> None:
+        manual = {"id": 2, "state": "success",
+                  "context": f"code-review/source/manual/pr-123/head-{HEAD_SHA}"}
+        statuses = [status(1, source="automated", state="failure"), manual]
+        for state in ("pending", "failure", "success"):
+            statuses.extend([
+                status(len(statuses) + 1, source="automated", state=state),
+                {"id": len(statuses) + 2, "state": state, "context": "code-review"},
+            ])
+            result = resolve_status([pull(123)], statuses, head_sha=HEAD_SHA)
+            self.assertEqual("success", result.state)
+
+    def test_manual_pass_survives_base_movement(self) -> None:
+        manual = {"id": 1, "state": "success",
+                  "context": f"code-review/source/manual/pr-123/head-{HEAD_SHA}"}
+        result = resolve_status([pull(123, base=OTHER_BASE_SHA)], [manual], head_sha=HEAD_SHA)
+        self.assertEqual("success", result.state)
+
+    def test_manual_pass_never_follows_a_new_head(self) -> None:
+        manual = {"id": 1, "state": "success",
+                  "context": f"code-review/source/manual/pr-123/head-{HEAD_SHA}"}
+        # Even if old-head evidence is accidentally supplied, its explicit head
+        # must not authorize the new commit.
+        result = resolve_status([pull(123, head=OTHER_HEAD_SHA)], [manual], head_sha=OTHER_HEAD_SHA)
+        self.assertEqual("pending", result.state)
+
+    def test_manual_pass_does_not_authorize_another_pr_on_same_head(self) -> None:
+        manual = {"id": 1, "state": "success",
+                  "context": f"code-review/source/manual/pr-123/head-{HEAD_SHA}"}
+        for other_state, expected in (("pending", "pending"), ("failure", "failure"),
+                                      ("success", "success")):
+            with self.subTest(other_state=other_state):
+                statuses = [manual, status(2, source="automated", pr_number=124, state=other_state)]
+                result = resolve_status([pull(123), pull(124)], statuses, head_sha=HEAD_SHA)
+                self.assertEqual(expected, result.state)
+                if expected != "success":
+                    self.assertIn("PR #124", result.description)
+        result = resolve_status([pull(124)], [manual], head_sha=HEAD_SHA)
+        self.assertEqual("pending", result.state)
+
+    def test_latest_manual_source_state_wins(self) -> None:
+        context = f"code-review/source/manual/pr-123/head-{HEAD_SHA}"
+        statuses = [{"id": 2, "state": "failure", "context": context},
+                    {"id": 1, "state": "success", "context": context}]
+        result = resolve_status([pull(123)], statuses, head_sha=HEAD_SHA)
+        self.assertEqual("pending", result.state)
+
+    def test_legacy_force_pass_cannot_authorize_a_pr(self) -> None:
+        legacy = {"id": 1, "state": "success", "context": "code-review",
+                  "description": "force pass", "creator": {"type": "User", "login": "maintainer"}}
+        result = resolve_status([pull(123)], [legacy], head_sha=HEAD_SHA)
+        self.assertEqual("pending", result.state)
+
+    def test_no_open_pr_does_not_overwrite_final_status(self) -> None:
+        result = resolve_status([pull(123, state="closed")], [], head_sha=HEAD_SHA)
+        self.assertFalse(result.publish)
+        result = resolve_status([pull(123)], [], head_sha=HEAD_SHA)
+        self.assertTrue(result.publish)
+
     def test_rejects_malformed_api_data(self) -> None:
         with self.assertRaisesRegex(ResolutionError, "base SHA"):
             resolve_status([pull(123, base="short")], [], head_sha=HEAD_SHA)
