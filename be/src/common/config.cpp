@@ -1720,7 +1720,9 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
 DEFINE_String(spill_storage_root_path, "");
-DEFINE_String(spill_storage_limit, "20%");               // 20%
+DEFINE_String(spill_storage_limit, "20%"); // 20%
+DEFINE_mInt64(spill_storage_limit_bytes, "0");
+DEFINE_Validator(spill_storage_limit_bytes, [](int64_t config) -> bool { return config >= 0; });
 DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
 DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
@@ -1736,9 +1738,7 @@ DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
 });
 // Empty means the default vault of the instance, resolved when this BE spills for the first
 // time; a later SET DEFAULT STORAGE VAULT applies to spill after the BE restarts.
-DEFINE_String(spill_s3_storage_vault, "");
-DEFINE_mInt64(spill_s3_storage_limit_bytes, "0");
-DEFINE_Validator(spill_s3_storage_limit_bytes, [](int64_t config) -> bool { return config >= 0; });
+DEFINE_String(spill_s3_storage_vault_id, "");
 DEFINE_mInt64(spill_s3_max_inflight_upload_bytes, "268435456"); // 256MB
 DEFINE_Validator(spill_s3_max_inflight_upload_bytes,
                  [](int64_t config) -> bool { return config > 0; });

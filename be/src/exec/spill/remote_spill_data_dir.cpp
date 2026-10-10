@@ -72,7 +72,7 @@ Status RemoteSpillDataDir::ensure_ready(io::FileSystemSPtr* file_fs) {
     if (fs == nullptr) {
         return Status::InternalError(
                 "spill to s3 is not ready: storage vault '{}' not found (empty means the default "
-                "vault of the instance; set spill_s3_storage_vault to the vault ID in be.conf if "
+                "vault of the instance; set spill_s3_storage_vault_id to the vault ID in be.conf if "
                 "the instance has no default vault)",
                 vault_id);
     }
@@ -104,7 +104,7 @@ void RemoteSpillDataDir::_bind_fs_unlocked(io::FileSystemSPtr fs, std::string en
     LOG(INFO) << fmt::format(
             "remote spill store is ready, vault_id={}, fs_id={}, root={}, limit={}",
             _vault_id.empty() ? "<default>" : _vault_id, _fs->id(), _spill_root,
-            PrettyPrinter::print_bytes(config::spill_s3_storage_limit_bytes));
+            PrettyPrinter::print_bytes(config::spill_storage_limit_bytes));
 }
 
 io::FileSystemSPtr RemoteSpillDataDir::fs() const {
@@ -132,7 +132,7 @@ Status RemoteSpillDataDir::update_capacity() {
     std::lock_guard<std::mutex> l(_mutex);
     _disk_capacity_bytes = 0;
     _available_bytes = 0;
-    _spill_data_limit_bytes = config::spill_s3_storage_limit_bytes;
+    _spill_data_limit_bytes = config::spill_storage_limit_bytes;
     spill_disk_capacity->set_value(0);
     spill_disk_avail_capacity->set_value(0);
     spill_disk_limit->set_value(_spill_data_limit_bytes);

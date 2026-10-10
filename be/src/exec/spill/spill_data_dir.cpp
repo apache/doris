@@ -206,6 +206,11 @@ Status LocalSpillDataDir::update_capacity() {
                                             config::storage_flood_stage_usage_percent / 100);
     }
     _spill_data_limit_bytes = std::min(_spill_data_limit_bytes, disk_use_max_bytes);
+    // 0 means no byte limit; spill_storage_limit above always applies.
+    if (config::spill_storage_limit_bytes > 0) {
+        _spill_data_limit_bytes =
+                std::min(_spill_data_limit_bytes, config::spill_storage_limit_bytes);
+    }
     spill_disk_limit->set_value(_spill_data_limit_bytes);
 
     std::string spill_root_dir = get_spill_data_path();

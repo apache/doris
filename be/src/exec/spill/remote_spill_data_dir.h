@@ -61,7 +61,7 @@ public:
     /// nullptr until ready.
     io::FileSystemSPtr fs() const override;
 
-    /// Object storage has no capacity to probe; only spill_s3_storage_limit_bytes applies.
+    /// Object storage has no capacity to probe; only spill_storage_limit_bytes applies.
     Status update_capacity() override;
 
     void record_persisted_bytes(int64_t bytes) override;
