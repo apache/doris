@@ -155,7 +155,7 @@ public class MTMVRewriteUtilTest {
     public void testGetMTMVCanRewritePartitionsInGracePeriod() throws AnalysisException {
         Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
         // Grace answers for a partition a refresh has written; this one has been.
-        Mockito.when(p1.hasData()).thenReturn(true);
+        Mockito.when(p1.getVisibleVersion()).thenReturn(2L);
 
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
                 Mockito.any(MTMVRefreshContext.class),
@@ -175,7 +175,7 @@ public class MTMVRewriteUtilTest {
         // the table -- a rename recreates it: its version is one it was written at, which is what grace reads.
         Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
         Mockito.when(refreshSnapshot.getPartitionSnapshots()).thenReturn(Maps.newHashMap());
-        Mockito.when(p1.hasData()).thenReturn(true);
+        Mockito.when(p1.getVisibleVersion()).thenReturn(2L);
 
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
                 Mockito.any(MTMVRefreshContext.class),

@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
@@ -155,15 +156,16 @@ public class PartitionCompensator {
         // The partitions the plan uses are taken out and the query's partitions are read from the base table,
         // so the answer is whole and counted once.
         boolean uncoveredFound = false;
-        for (Entry<MTMVRelatedTableIf, Map<String, Set<String>>> mappingEntry
-                : mtmvRelatedTableIfMapMap.entrySet()) {
-            MTMVRelatedTableIf pctTable = mappingEntry.getKey();
+        for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
             Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
             if (CollectionUtils.isEmpty(queryUsed)) {
                 continue;
             }
+            // The mapping of a table the query's filtering left out entirely is empty, so a table it does not
+            // mention at all is a table every query-used partition of which is uncovered.
+            Map<String, Set<String>> tableMapping = mtmvRelatedTableIfMapMap.getOrDefault(pctTable, Maps.newHashMap());
             Set<String> named = Sets.newHashSet();
-            for (Set<String> names : mappingEntry.getValue().values()) {
+            for (Set<String> names : tableMapping.values()) {
                 named.addAll(names);
             }
             if (!Sets.difference(queryUsed, named).isEmpty()) {
@@ -171,11 +173,9 @@ public class PartitionCompensator {
             }
         }
         if (uncoveredFound) {
-            for (Entry<MTMVRelatedTableIf, Map<String, Set<String>>> mappingEntry
-                    : mtmvRelatedTableIfMapMap.entrySet()) {
-                BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(mappingEntry.getKey()));
-                Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(
-                        mappingEntry.getKey().getFullQualifiers());
+            for (MTMVRelatedTableIf pctTable : mtmv.getMvPartitionInfo().getPctTables()) {
+                BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(pctTable));
+                Set<String> queryUsed = queryUsedBaseTablePartitionMap.get(pctTable.getFullQualifiers());
                 if (pctInfo == null || CollectionUtils.isEmpty(queryUsed)) {
                     continue;
                 }
