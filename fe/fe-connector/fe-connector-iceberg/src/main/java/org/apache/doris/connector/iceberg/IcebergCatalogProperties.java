@@ -163,7 +163,7 @@ public final class IcebergCatalogProperties {
     private static void checkMetaCacheProperties(
             Map<String, String> properties, Map<String, String> submittedProperties) {
         CacheSpec.checkWeightProperties(properties, submittedProperties, "iceberg",
-                "table", "partition", "manifest", "partition_view");
+                IcebergConnector.WEIGHTED_CACHE_ENTRIES);
         CacheSpec.checkBooleanProperty(properties.get(IcebergConnector.TABLE_CACHE_ENABLE),
                 IcebergConnector.TABLE_CACHE_ENABLE);
         CacheSpec.checkLongProperty(properties.get(IcebergConnector.TABLE_CACHE_TTL_SECOND),
