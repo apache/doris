@@ -62,3 +62,27 @@ a
 a
 a
 
+-- !explode_split_empty_str --
+1	a
+1	b
+2	
+5	
+6	
+6	
+
+-- !explode_split_outer_empty_str --
+1	a
+1	b
+2	
+3	\N
+4	\N
+5	
+6	
+6	
+
+-- !explode_split_empty_str_literal --
+1	
+
+-- !explode_split_outer_empty_str_literal --
+1	
+

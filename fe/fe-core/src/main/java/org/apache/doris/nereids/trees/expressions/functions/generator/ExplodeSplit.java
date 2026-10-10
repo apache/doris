@@ -18,13 +18,21 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -75,6 +83,20 @@ public class ExplodeSplit extends TableGeneratingFunction
 
     @Override
     public Expression rewriteWhenAnalyze() {
-        return new Explode(new SplitByString(children.get(0), children.get(1)));
+        return new Explode(splitToArray(children.get(0), children.get(1)));
+    }
+
+    /**
+     * Build the array expanded by explode_split and explode_split_outer.
+     *
+     * split_by_string('', delimiter) returns an empty array, but splitting an empty string must still
+     * produce one empty-string row, so an empty string with a non-null delimiter becomes [''].
+     * A NULL string or NULL delimiter still produces NULL, like split_by_string.
+     */
+    static Expression splitToArray(Expression str, Expression delimiter) {
+        Expression isEmptyString = new And(new EqualTo(str, new VarcharLiteral("")), new Not(new IsNull(delimiter)));
+        ArrayLiteral emptyStringArray = new ArrayLiteral(ImmutableList.of(new VarcharLiteral("")));
+        return TypeCoercionUtils.processBoundFunction(
+                new If(isEmptyString, emptyStringArray, new SplitByString(str, delimiter)));
     }
 }
