@@ -122,9 +122,8 @@ public class ShowConfigCommandTest extends TestWithFeService {
     public void testMaskAllPasswordConfigsWithPattern() throws Exception {
         ShowResultSet resultSet = runShowFrontendConfig("%password%");
         List<List<String>> rows = resultSet.getResultRows();
-        // The pattern '%password%' matches 6 configs: the 5 sensitive ones plus
-        // tls_cert_based_auth_ignore_password which is not a secret.
-        Assertions.assertEquals(SENSITIVE_KEYS.size() + 1, rows.size());
+        // The pattern '%password%' matches the sensitive configs and two non-sensitive configs.
+        Assertions.assertEquals(SENSITIVE_KEYS.size() + 2, rows.size());
         Map<String, String> keyToValue = rows.stream()
                 .collect(Collectors.toMap(row -> row.get(0), row -> row.get(1)));
         for (String sensitiveKey : SENSITIVE_KEYS) {
@@ -134,6 +133,8 @@ public class ShowConfigCommandTest extends TestWithFeService {
         }
         // A non-sensitive config containing "password" in its name keeps its real value.
         Assertions.assertEquals("false", keyToValue.get("tls_cert_based_auth_ignore_password"));
+        Assertions.assertEquals(Config.mysql_caching_sha2_password_clients,
+                keyToValue.get("mysql_caching_sha2_password_clients"));
     }
 
     @Test

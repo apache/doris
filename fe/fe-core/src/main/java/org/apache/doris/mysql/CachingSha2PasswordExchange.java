@@ -40,11 +40,10 @@ import javax.crypto.Cipher;
  * with this plugin is taken through full authentication and the password is then checked the
  * native way by the caller.
  *
- * Why this exists: MySQL 9 removed mysql_native_password from its client library's built-in
- * plugins, so a MySQL 9 client asked to switch to it fails with "Authentication plugin
- * 'mysql_native_password' cannot be loaded" before Doris sees a password. Such a client announces
- * caching_sha2_password in its handshake response, with an empty auth response and the connection
- * attribute _client_version.
+ * Why this exists: MySQL 9 moved mysql_native_password from its client library's built-in plugins
+ * to a dynamically loadable plugin. A client without that plugin fails when asked to switch to it,
+ * before Doris sees a password. Such a client announces caching_sha2_password in its handshake
+ * response, with an empty auth response and the connection attribute _client_version.
  *
  * The exchange, after the client's handshake response:
  * <pre>
@@ -81,9 +80,8 @@ public class CachingSha2PasswordExchange {
 
     /**
      * Whether a client that announced this plugin is served with it instead of being switched to
-     * mysql_native_password, per Config.mysql_caching_sha2_password_clients: "auto" serves the
-     * clients that cannot load the native plugin, i.e. libmysqlclient 9 and later, identified by
-     * their _client_version connection attribute; "all" serves every client that asks for the
+     * mysql_native_password, per Config.mysql_caching_sha2_password_clients: "auto" serves
+     * clients reporting _client_version 9 or later; "all" serves every client that asks for the
      * plugin; "none" keeps switching every client to the native plugin.
      */
     public static boolean serves(String pluginName, Map<String, String> connectAttributes) {

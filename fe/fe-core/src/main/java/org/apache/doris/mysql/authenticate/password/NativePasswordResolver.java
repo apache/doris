@@ -63,9 +63,9 @@ public class NativePasswordResolver implements PasswordResolver {
         if (authPacket.getCapability().isPluginAuth()
                 && !handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
             if (CachingSha2PasswordExchange.serves(authPacket.getPluginName(), authPacket.getConnectAttributes())) {
-                // A client that cannot load mysql_native_password (libmysqlclient 9): take it through
-                // caching_sha2_password full authentication, then check the plaintext the native way,
-                // so the stored hash, the proxy nonce and every check below stay as they are.
+                // Complete caching_sha2_password full authentication for this client, then check
+                // the plaintext the native way so stored hashes, the proxy nonce and every check
+                // below stay as they are.
                 String plainPassword;
                 try {
                     plainPassword = CachingSha2PasswordExchange.exchange(channel, serializer,
