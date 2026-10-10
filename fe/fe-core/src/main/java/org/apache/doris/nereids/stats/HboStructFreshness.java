@@ -287,8 +287,13 @@ public class HboStructFreshness {
                 scanState = STATE_UNKNOWN;
                 currentRows = HboScanDescriptor.UNKNOWN;
             } else if (threshold() <= 0) {
-                scanState = recorded.hasVisibleVersion() && currentVersion == recorded.getVisibleVersion()
-                        ? STATE_LIVE : STATE_STALE;
+                if (currentVersion == HboScanDescriptor.UNKNOWN || !recorded.hasVisibleVersion()) {
+                    // a temporary metadata failure must not look like a version mismatch: DELETE
+                    // STALE would remove an entry which a query can still apply
+                    scanState = STATE_UNKNOWN;
+                } else {
+                    scanState = currentVersion == recorded.getVisibleVersion() ? STATE_LIVE : STATE_STALE;
+                }
                 currentRows = HboScanDescriptor.UNKNOWN;
             } else if (recorded.hasVisibleVersion() && currentVersion == recorded.getVisibleVersion()) {
                 // the visible version is a property of the whole table, so an unchanged version means
@@ -306,9 +311,10 @@ public class HboStructFreshness {
             } else if (currentRows == HboScanDescriptor.UNKNOWN
                     || currentRowsKind != recorded.getRowsKind()) {
                 // the current row count cannot be read or was obtained differently than the recorded
-                // one: the version is the only comparable signal
-                scanState = recorded.hasVisibleVersion() && currentVersion == recorded.getVisibleVersion()
-                        ? STATE_LIVE : STATE_STALE;
+                // one, so the two are not comparable: the read side reports unknown for exactly this
+                // case and keeps applying the entry, and this scope must not disagree by calling it
+                // stale (DELETE STALE would then remove an entry which queries still use)
+                scanState = STATE_UNKNOWN;
                 currentRows = HboScanDescriptor.UNKNOWN;
             } else if (recorded.getScanRows() == currentRows) {
                 scanState = STATE_LIVE;

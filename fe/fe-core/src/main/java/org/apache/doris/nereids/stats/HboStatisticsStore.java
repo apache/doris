@@ -57,6 +57,17 @@ public class HboStatisticsStore {
             InternalCatalog.INTERNAL_CATALOG_NAME + "." + INTERNAL_DB + "." + TABLE;
     /** max length (bytes) of the struct_info varchar column */
     private static final int STRUCT_MAX_BYTES = 65533;
+
+    /**
+     * Whether a canonical struct info fits the {@code struct_info} column without truncation.
+     * A truncated struct info would keep its fingerprint but lose its scan tokens (the baseline is
+     * printed after the conditions), which silently disables both the freshness verdict and the
+     * relation pre filter for that entry, so such an entry must not be accepted at all.
+     */
+    public static boolean fitsStructColumn(String structCanonical) {
+        return structCanonical == null
+                || structCanonical.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= STRUCT_MAX_BYTES;
+    }
     /** creation time of an entry, as a datetime(3) column like the other internal tables */
     private static final String CREATE_TIME_COLUMN = "create_time";
     /** fan-out factor of a PinnedType.JOIN_EXPANSION entry, NULL for a row count entry */

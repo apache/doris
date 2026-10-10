@@ -302,8 +302,13 @@ public class HboStatsCalculator extends StatsCalculator {
             HboStructFreshness freshness;
             if (HboStructFreshness.hasRecordedDataState(pinned.getStructCanonical())) {
                 Optional<GroupStructInfo> dataState = GroupStructInfo.dataStateOfPlanNode(planNode, null, mode);
-                freshness = HboStructFreshness.between(pinned.getStructCanonical(),
-                        dataState.isPresent() ? dataState.get() : structInfo);
+                // the live data state is read now on purpose: a cached baseline may be old, so
+                // falling back to it could report LIVE for an entry whose data moved. Nothing to
+                // compare means unknown, which keeps the entry applicable (soft strategy)
+                freshness = dataState.isPresent()
+                        ? HboStructFreshness.between(pinned.getStructCanonical(), dataState.get())
+                        : HboStructFreshness.between(pinned.getStructCanonical(),
+                                java.util.Collections.emptyList());
             } else {
                 freshness = HboStructFreshness.between(pinned.getStructCanonical(), structInfo.getScans());
             }

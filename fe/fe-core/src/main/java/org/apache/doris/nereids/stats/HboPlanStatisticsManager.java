@@ -222,7 +222,12 @@ public class HboPlanStatisticsManager {
             pinnedPlanStatistics.put(fingerprint,
                     new PinnedHboStatistics(fingerprint, rows, type, structCanonical, expansion, literalMode,
                             createTimeMs));
-            registerRelationKey(structCanonical);
+            if (type != PinnedType.JOIN_EXPANSION) {
+                // only row count entries are looked up by relation key: a join expansion entry is
+                // keyed by the join conditions, is rejected by getPinnedPlanStatistics, and its
+                // scanless canonical would turn the pre filter into a no-op for every group
+                registerRelationKey(structCanonical);
+            }
             // a SET after a failed DELETE re-creates the entry: drop the deletion intent so a
             // pending load does not skip the re-created row
             pendingLoadTombstones.remove(fingerprint);
@@ -473,7 +478,9 @@ public class HboPlanStatisticsManager {
                     suppressedByTombstone.add(pinned.getFingerprint());
                 } else {
                     pinnedPlanStatistics.asMap().putIfAbsent(pinned.getFingerprint(), pinned);
-                    registerRelationKey(pinned.getStructCanonical());
+                    if (pinned.getType() != PinnedType.JOIN_EXPANSION) {
+                        registerRelationKey(pinned.getStructCanonical());
+                    }
                 }
             }
             hboPinnedLoaded = true;

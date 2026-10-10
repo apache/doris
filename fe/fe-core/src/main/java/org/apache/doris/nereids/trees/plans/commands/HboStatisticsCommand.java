@@ -24,6 +24,7 @@ import org.apache.doris.nereids.stats.GroupStructInfo;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager.LiteralMode;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager.PinnedType;
+import org.apache.doris.nereids.stats.HboStatisticsStore;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -139,6 +140,11 @@ public class HboStatisticsCommand extends Command {
             // which does not belong to the fingerprint would make the SHOW output misleading
             String canonical = validateStructCanonical(fingerprint, structCanonical, type, literalMode,
                     scope != Scope.LEARNED, scope != Scope.LEARNED);
+            if (!HboStatisticsStore.fitsStructColumn(canonical)) {
+                throw new AnalysisException("hbo statistics STRUCT is too long to be persisted without"
+                        + " truncation (the scan baseline would be cut off), shorten the node it was"
+                        + " copied from");
+            }
             if (type == PinnedType.JOIN_EXPANSION) {
                 // a fan-out factor relative to the larger input of the join: >= 1 means the join
                 // expands, < 1 means it filters (0.1 keeps 10% of that input), so only zero and

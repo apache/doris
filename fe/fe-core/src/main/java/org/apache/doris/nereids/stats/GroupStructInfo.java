@@ -329,7 +329,10 @@ public class GroupStructInfo {
             Canonical out = new Canonical();
             visit(group, out, ctx);
             if (!ctx.valid) {
-                return INVALID;
+                // a failure which came from reading the catalog (e.g. a cloud rpc error) may survive
+                // a later attempt: INVALID would be cached by the memo group and disable hbo for the
+                // whole query, TRANSIENT_FAILURE is retried instead
+                return ctx.retryable ? TRANSIENT_FAILURE : INVALID;
             }
             String canonicalString = out.annotated.toString();
             String shapeString = out.shape.toString();
