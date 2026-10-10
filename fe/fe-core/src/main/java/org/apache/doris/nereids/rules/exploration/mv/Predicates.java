@@ -426,11 +426,11 @@ public class Predicates {
 
     /** Whether output guarantees prove that a filter predicate is redundant at its input. */
     static boolean isImpliedByOutput(Set<Expression> outputPredicates, Expression predicate) {
-        if (outputPredicates.contains(predicate)) {
-            return true;
-        }
         if (outputPredicates.isEmpty() || predicate.containsVolatileExpression()) {
             return false;
+        }
+        if (outputPredicates.contains(predicate)) {
+            return true;
         }
         try {
             return impliesByDnf(ExpressionUtils.and(outputPredicates), predicate);
