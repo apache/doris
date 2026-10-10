@@ -40,6 +40,7 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -156,7 +157,13 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
                                     String.format("Schema size %s' is not equal to arrow field size %s, queryId: %s.",
                                             fieldVectors.size(), resultOutputExprs.size(), DebugUtil.printId(tid)));
                         }
-                        schema = root.getSchema();
+                        List<Field> fields = new ArrayList<>();
+                        for (int i = 0; i < resultOutputExprs.size(); i++) {
+                            fields.add(FlightSqlSchemaHelper.withDorisTypeMetadata(
+                                    root.getSchema().getFields().get(i), resultOutputExprs.get(i).getType()));
+                        }
+                        // Compare and advertise the same complete metadata regardless of BE upgrade order.
+                        schema = new Schema(fields, root.getSchema().getCustomMetadata());
                         if (arrowSchema == null) {
                             arrowSchema = schema;
                         } else if (!arrowSchema.equals(schema)) {

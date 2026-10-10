@@ -522,7 +522,7 @@ TEST_F(DataTypeUUIDTest, ArrowNestedBinaryIpcRoundTrip) {
         types.push_back(data_type);
     }
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(block, &schema, "UTC").ok());
+    ASSERT_TRUE(DorisArrowSchemaConvertor("UTC").get_arrow_schema_from_block(block, &schema).ok());
     EXPECT_TRUE(schema->field(0)->type()->Equals(arrow::extension::uuid()));
     EXPECT_TRUE(schema->field(5)->type()->Equals(arrow::utf8()));
     std::string serialized_schema;
@@ -534,9 +534,8 @@ TEST_F(DataTypeUUIDTest, ArrowNestedBinaryIpcRoundTrip) {
     EXPECT_TRUE((*schema_reader)->schema()->Equals(*schema, true));
     std::shared_ptr<arrow::RecordBatch> schema_batch;
     ASSERT_TRUE((*schema_reader)->ReadNext(&schema_batch).ok());
-    ASSERT_NE(schema_batch, nullptr);
-    EXPECT_EQ(schema_batch->num_rows(), 0);
-    ASSERT_TRUE(schema_batch->ValidateFull().ok());
+    // Schema RPCs carry no record batch: nested extensions have no generic empty builders.
+    EXPECT_EQ(schema_batch, nullptr);
     cctz::time_zone timezone;
     DorisArrowBlockConvertor converter(schema, timezone);
     ASSERT_TRUE(converter.init().ok());
@@ -581,7 +580,7 @@ TEST_F(DataTypeUUIDTest, ArrowConstantNilAndAllNullRemainDistinct) {
             {type->create_column_const_with_default_value(4), type, "nil"},
             {nullable_type->create_column_const_with_default_value(4), nullable_type, "nulls"}};
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(source, &schema, "UTC").ok());
+    ASSERT_TRUE(DorisArrowSchemaConvertor("UTC").get_arrow_schema_from_block(source, &schema).ok());
     std::shared_ptr<arrow::RecordBatch> batch;
     cctz::time_zone timezone;
     DorisArrowBlockConvertor converter(schema, timezone);
