@@ -46,7 +46,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.Sets;
@@ -149,7 +148,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
             for (Expression groupBy : agg.getGroupByExpressions()) {
                 if (groupBy.getDataType().isObjectType()
-                        || isLegacyVariant(groupBy.getDataType())
+                        || VariantType.isLegacyVariant(groupBy.getDataType())
                         || groupBy.getDataType().isVarBinaryType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
@@ -157,14 +156,16 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         } else if (plan instanceof LogicalSort) {
             LogicalSort<?> sort = (LogicalSort<?>) plan;
             for (OrderKey orderKey : sort.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
+                if (orderKey.getExpr().getDataType().isObjectType()
+                        || VariantType.isLegacyVariant(orderKey.getExpr().getDataType())) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
         } else if (plan instanceof LogicalTopN) {
             LogicalTopN<?> topN = (LogicalTopN<?>) plan;
             for (OrderKey orderKey : topN.getOrderKeys()) {
-                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
+                if (orderKey.getExpr().getDataType().isObjectType()
+                        || VariantType.isLegacyVariant(orderKey.getExpr().getDataType())) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
@@ -174,24 +175,26 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                     return;
                 }
                 WindowExpression windowExpression = (WindowExpression) ((Alias) a).child();
-                if (windowExpression.getOrderKeys().stream().anyMatch((
-                        orderKey -> orderKey.getDataType().isObjectOrVariantType()))) {
+                if (windowExpression.getOrderKeys().stream().anyMatch(orderKey ->
+                        orderKey.getDataType().isObjectType()
+                                || VariantType.isLegacyVariant(orderKey.getDataType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
-                if (windowExpression.getPartitionKeys().stream().anyMatch((
-                        partitionKey -> partitionKey.getDataType().isObjectOrVariantType()))) {
+                if (windowExpression.getPartitionKeys().stream().anyMatch(partitionKey ->
+                        partitionKey.getDataType().isObjectType()
+                                || VariantType.isLegacyVariant(partitionKey.getDataType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });
         } else if (plan instanceof LogicalSetOperation
                 && ((LogicalSetOperation) plan).getQualifier() == Qualifier.DISTINCT) {
-            if (plan.getOutput().stream().anyMatch(output -> isLegacyVariant(output.getDataType()))) {
+            if (plan.getOutput().stream().anyMatch(output -> VariantType.isLegacyVariant(output.getDataType()))) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         } else if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
             for (Expression conjunct : join.getHashJoinConjuncts()) {
-                if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVariantType())) {
+                if (conjunct.anyMatch(e -> VariantType.isLegacyVariant(((Expression) e).getDataType()))) {
                     throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
                 } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
                     throw new AnalysisException(
@@ -199,7 +202,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
             }
             for (Expression conjunct : join.getMarkJoinConjuncts()) {
-                if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVariantType())) {
+                if (conjunct.anyMatch(e -> VariantType.isLegacyVariant(((Expression) e).getDataType()))) {
                     throw new AnalysisException("variant type could not in join equal conditions: " + conjunct.toSql());
                 } else if (conjunct.anyMatch(e -> ((Expression) e).getDataType().isVarBinaryType())) {
                     throw new AnalysisException(
@@ -207,10 +210,6 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
             }
         }
-    }
-
-    private boolean isLegacyVariant(DataType dataType) {
-        return dataType instanceof VariantType && !((VariantType) dataType).isExecutionV2();
     }
 
     private void checkMatchIsUsedCorrectly(Plan plan) {

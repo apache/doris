@@ -142,7 +142,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         }
 
         public boolean isValid() {
-            return finalTarget != null && probeSlot != null;
+            return finalTarget != null && probeSlot != null
+                    && !srcExpr.getDataType().isVariantType()
+                    && !probeExpr.getDataType().isVariantType();
         }
 
         public PushDownContext withNewProbeExpression(Expression newProbe) {
@@ -185,6 +187,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation scan, PushDownContext ctx) {
+        if (ctx.srcExpr.getDataType().isVariantType() || ctx.probeExpr.getDataType().isVariantType()) {
+            return false;
+        }
         if (scan instanceof PhysicalSchemaScan) {
             return false;
         }
