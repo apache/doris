@@ -111,10 +111,27 @@ public class AuditStreamLoader {
         return sb.toString();
     }
 
-    private String getContent(HttpURLConnection conn) {
+    /**
+     * One response body read: the text plus whether it was read to its END
+     * #9). An IOException mid-read leaves a partial body that carries NO
+     * evidence about the transaction - the caller's publication check must treat it as
+     * AMBIGUOUS instead of "no publish timeout in it, so published".
+     */
+    private static final class FetchedContent {
+        final String text;
+        final boolean complete;
+
+        FetchedContent(String text, boolean complete) {
+            this.text = text;
+            this.complete = complete;
+        }
+    }
+
+    private static FetchedContent fetchContent(HttpURLConnection conn) {
         BufferedReader br = null;
         StringBuilder response = new StringBuilder();
         String line;
+        boolean complete = false;
         try {
             if (100 <= conn.getResponseCode() && conn.getResponseCode() <= 399) {
                 br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
@@ -124,11 +141,12 @@ public class AuditStreamLoader {
             while ((line = br.readLine()) != null) {
                 response.append(line);
             }
+            complete = true;
         } catch (IOException e) {
             LOG.warn("get content error,", e);
         }
 
-        return response.toString();
+        return new FetchedContent(response.toString(), complete);
     }
 
     private static void writeCompressedBody(OutputStream outputStream, StringBuilder payload) throws IOException {
@@ -138,19 +156,59 @@ public class AuditStreamLoader {
     }
 
     public LoadResponse loadBatch(StringBuilder sb, String clusterToken) {
-        String label = genLabel();
+        return loadBatch(sb, clusterToken, allocateLabel());
+    }
+
+    /**
+     * Allocates the label of the NEXT batch: the caller records the
+     * batch's obligation under this label BEFORE loadBatch can send anything,
+     * so a crash between the send and its response leaves a durable, resolvable trace of
+     * the possible transaction instead of an unfenced batch. The returned label is the
+     * one the request will carry (it already includes the audit prefix).
+     */
+    public String allocateLabel() {
+        return "audit" + nextLabel(feIdentity);
+    }
+
+    /**
+     * One un-prefixed label text (static: the format is testable without an Env, and the
+     * allocation carries no state - uniqueness rests on the millisecond + FE identity
+     * components, exactly as before).
+     */
+    static String nextLabel(String feIdentity) {
+        Calendar calendar = Calendar.getInstance();
+        return String.format("_log_%s%02d%02d_%02d%02d%02d_%s_%s",
+                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
+                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
+                calendar.get(Calendar.MILLISECOND),
+                feIdentity);
+    }
+
+    /**
+     * One stream load under a CALLER-allocated label (see
+     * allocateLabel); the two-argument form allocates its own.
+     *
+     * @param allocatedLabel the label the request carries (the caller may already have
+     *                       recorded an obligation for it)
+     */
+    public LoadResponse loadBatch(StringBuilder sb, String clusterToken, String allocatedLabel) {
+        String label = allocatedLabel;
+        // Whether the batch could have reached a TRANSACTION at all. Only a
+        // delivered request can have committed rows that might publish later - a failure
+        // before the body was written needs no fence, and the fence resolution resolves
+        // the terminal state of the transaction by LABEL.
+        boolean sent = false;
 
         HttpURLConnection feConn = null;
         HttpURLConnection beConn = null;
         try {
             // build request and send to fe
-            label = "audit" + label;
             feConn = getConnection(auditLogLoadUrlStr, label, clusterToken);
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
             if (status != 307) {
                 throw new Exception("status is not TEMPORARY_REDIRECT 307, status: " + status
-                        + ", response: " + getContent(feConn) + ", request is: " + toCurl(feConn));
+                        + ", response: " + fetchContent(feConn).text + ", request is: " + toCurl(feConn));
             }
             String location = feConn.getHeaderField("Location");
             if (location == null) {
@@ -160,22 +218,26 @@ public class AuditStreamLoader {
             beConn = getConnection(location, label, clusterToken);
             // send data to be
             writeCompressedBody(beConn.getOutputStream(), sb);
+            // the body is on the wire: whatever happens to the response now, a
+            // transaction may exist on the BE side
+            sent = true;
 
             // get respond
             status = beConn.getResponseCode();
             String respMsg = beConn.getResponseMessage();
-            String response = getContent(beConn);
+            FetchedContent content = fetchContent(beConn);
+            String response = content.text;
 
             LOG.info("AuditLoader plugin load with label: {}, response code: {}, msg: {}, content: {}",
                     label, status, respMsg, response);
 
-            return new LoadResponse(status, respMsg, response);
+            return new LoadResponse(status, respMsg, response, content.complete, label, true);
 
         } catch (Exception e) {
             e.printStackTrace();
             String err = "failed to load audit via AuditLoader plugin with label: " + label;
             LOG.warn(err, e);
-            return new LoadResponse(-1, e.getMessage(), err);
+            return new LoadResponse(-1, e.getMessage(), err, false, label, sent);
         } finally {
             if (feConn != null) {
                 feConn.disconnect();
@@ -186,24 +248,48 @@ public class AuditStreamLoader {
         }
     }
 
-    private String genLabel() {
-        Calendar calendar = Calendar.getInstance();
-        return String.format("_log_%s%02d%02d_%02d%02d%02d_%s_%s",
-                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
-                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
-                calendar.get(Calendar.MILLISECOND),
-                feIdentity);
-    }
-
     public static class LoadResponse {
         public int status;
         public String respMsg;
         public String respContent;
+        /**
+         * Whether respContent was read to its END: a body the
+         * reader gave up on says NOTHING about the transaction, so the publication check
+         * must keep fencing for it. Constructor callers that hand in a complete string
+         * get true.
+         */
+        public boolean contentComplete;
+        /**
+         * The load LABEL of this batch: the transaction manager resolves
+         * the transaction's TERMINAL state by label, so a Publish-Timeout fence can be
+         * released on an ABORTED/VISIBLE outcome instead of on elapsed time.
+         */
+        public String label = "";
+        /**
+         * Whether the request was (at least partially) DELIVERED to the BE
+         * #6): only then can a transaction exist whose outcome is worth resolving. A
+         * failure before the body was written (token acquisition, the FE redirect, a
+         * connect error) cannot have committed anything, so it needs no fence.
+         */
+        public boolean sent = true;
 
         public LoadResponse(int status, String respMsg, String respContent) {
+            this(status, respMsg, respContent, true);
+        }
+
+        public LoadResponse(int status, String respMsg, String respContent,
+                boolean contentComplete) {
             this.status = status;
             this.respMsg = respMsg;
             this.respContent = respContent;
+            this.contentComplete = contentComplete;
+        }
+
+        public LoadResponse(int status, String respMsg, String respContent,
+                boolean contentComplete, String label, boolean sent) {
+            this(status, respMsg, respContent, contentComplete);
+            this.label = label == null ? "" : label;
+            this.sent = sent;
         }
 
         @Override

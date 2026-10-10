@@ -100,7 +100,11 @@ suite("load") {
         }
     }
 
-    Thread.sleep(70000) // wait for row count report of the tables just loaded
+    // The wait must comfortably exceed the asynchronous post-load settle (row count /
+    // data size reports, compaction) of ALL tables: running before the settle completes
+    // lets a borderline cost estimate land on either side of a tie, which made the
+    // captured plan SQL of a few SPM suites flip between runs.
+    Thread.sleep(100000) // wait for row count report of the tables just loaded
     for (String tableName in tables) {
         sql """ ANALYZE TABLE $tableName WITH SYNC """
     }

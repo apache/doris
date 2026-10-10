@@ -96,6 +96,16 @@ public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
 
     @Override
     public String toDigest() {
+        if (Plan.spmDigestMode()) {
+            // SPM identity (see Plan#toSpmDigest): the parse-time sink FORWARDS to the
+            // child - its cached default digest is child().toDigest() taken WITHOUT the
+            // SPM mode and thereby drops every node-implemented SPM identity (e.g.
+            // LogicalSelectHint's SET_VAR text): two CREATEs differing only in such a
+            // hint collided on (digest, planSql, fingerprint), the second returned the
+            // FIRST baseline's id, and Level-3 matching then rejected that baseline as
+            // unusable.
+            return child().toSpmDigest();
+        }
         return digest.get();
     }
 

@@ -1,0 +1,769 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.plugin.audit;
+
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.AuditEventProcessor;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
+import org.apache.doris.statistics.repository.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.system.Frontend;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * The cluster-wide audit PUBLICATION horizon.
+ *
+ *   #1: the fence is the minimum over the local pipeline AND the fresh per-FE rows
+ *       reported into spm_audit_horizon - the capture runs on the leader, whose
+ *       own loader cannot see a follower's backlog. A row whose reporter went silent is
+ *       ignored (the events are gone with it), and an unreadable table fails the read
+ *       closed instead of silently dropping the fence.
+ *   #3: the local value covers the stages BEFORE the loader as well: a completed
+ *       query sits in WorkloadRuntimeStatusMgr first, and the
+ *       AuditEventProcessor can hold an event in its queue or in-flight while a
+ *       plugin runs - the loader being empty proves nothing.
+ *   An OVERDUE row is only dropped when its FE is provably GONE; a
+ *       live - or undecidable - reporter fails the read closed instead of silently
+ *       releasing the fence, because its pipeline may still owe events (and its last
+ *       confirmed value can already be stale).
+ */
+public class AuditPublicationHorizonTest {
+
+    private WorkloadRuntimeStatusMgr mgr;
+    private AuditEventProcessor processor;
+    private MockedStatic<Env> mockedEnv;
+
+    @BeforeEach
+    public void setUp() {
+        mgr = new WorkloadRuntimeStatusMgr();
+        processor = new AuditEventProcessor(null);
+        mockedEnv = Mockito.mockStatic(Env.class);
+        // the writer-zone registry is process-wide: every read-back / encode in this
+        // class must start from a known (empty) registry
+        AuditWriterZones.resetForTest();
+    }
+
+    @AfterEach
+    public void tearDown() {
+        mockedEnv.close();
+        AuditPublicationHorizon.resetForTest();
+        AuditWriterZones.captureCoveredThroughForTest = null;
+        AuditWriterZones.resetForTest();
+    }
+
+    private static AuditEvent event(long timestamp) {
+        return new AuditEvent.AuditEventBuilder()
+                .setQueryId("qid-" + timestamp)
+                .setTimestamp(timestamp)
+                .setStmt("select 1")
+                .build();
+    }
+
+    /**
+     * A RESTART must not retire the previous incarnation's unresolved obligations: the
+     * shared row is keyed by the stable fe_name, while the new process starts with empty
+     * pending fences and writer zones. Its first idle report must merge the carried
+     * COMMITTED fence (with its labels) and the rendering zones - and it may release the
+     * fence once the listed transaction resolves terminal.
+     */
+    @Test
+    public void testRestartMergesThePreviousIncarnationsFenceAndZones() {
+        AuditLoader.transactionStatusForTest = label -> "COMMITTED";
+        List<Long> reported = new ArrayList<>();
+        AuditPublicationHorizon.localHorizonWriterForTest = horizon -> {
+            reported.add(horizon);
+            return true;
+        };
+        try {
+            long updatedAt = System.currentTimeMillis();
+            AuditPublicationHorizon.ownRowRestoreReaderForTest = () -> Collections.singletonList(
+                    new Object[] {0L, updatedAt, "America/New_York=123", 9_000L, "label-old"});
+
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "the idle report is confirmed by the scripted writer");
+            Assertions.assertEquals(Collections.singletonList(9_000L), reported,
+                    "the carried COMMITTED fence must fence the new incarnation's report");
+            Assertions.assertTrue(AuditWriterZones.zones().contains("America/New_York"),
+                    "the carried rendering zone must stay required: " + AuditWriterZones.zones());
+
+            // the transaction resolves terminal: the carried fence is retired
+            AuditLoader.transactionStatusForTest = label -> "VISIBLE";
+            reported.clear();
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(0L));
+            Assertions.assertEquals(Collections.singletonList(0L), reported,
+                    "a VISIBLE transaction releases the carried fence");
+        } finally {
+            AuditLoader.transactionStatusForTest = null;
+        }
+    }
+
+    /**
+     * A clean close must KEEP the row while the writer-zone history is not covered by
+     * durable capture progress: a follower can publish a row rendered in -05:00 and close
+     * with no pending batch - deleting the row would leave the leader's process-local UTC
+     * registry to checkpoint past that visible row without a pass that can find it.
+     */
+    @Test
+    public void testCleanCloseKeepsTheRowForUncoveredWriterZones() {
+        List<Long> reported = new ArrayList<>();
+        AuditPublicationHorizon.localHorizonWriterForTest = horizon -> {
+            reported.add(horizon);
+            return true;
+        };
+        // the reporter starts before the environment can read the shared table (see
+        // readOwnRowsForRestore): an empty SUCCESSFUL read = a live environment with no
+        // previous row, so the restore completes and the close may act
+        AuditPublicationHorizon.ownRowRestoreReaderForTest = () -> Collections.emptyList();
+        // nothing to carry: no re-report (and, with no shared table, no delete I/O either)
+        AuditPublicationHorizon.clearLocalReport();
+        Assertions.assertTrue(reported.isEmpty(),
+                "nothing to carry: the close owes no re-report");
+
+        AuditWriterZones.note("America/New_York", System.currentTimeMillis());
+        Assertions.assertTrue(AuditWriterZones.anyZoneNeedingCoverage(),
+                "a fresh rendering zone is still uncovered");
+        AuditPublicationHorizon.clearLocalReport();
+        Assertions.assertEquals(Collections.singletonList(0L), reported,
+                "the uncovered zone keeps the row: the close re-reports it instead of"
+                        + " deleting the only copy");
+
+        // once the zone was REPORTED and durable capture progress covers it, the FORWARD
+        // chain retires it (the capture stops requiring a pass there) - but the shared row
+        // still carries it (round-50 #3): a pending window that surfaces LATE can rewind
+        // BELOW the covered floor, and only the row's own retirement may drop the zone
+        AuditWriterZones.markReported(Collections.singletonList("America/New_York"));
+        AuditWriterZones.captureCoveredThroughForTest = () -> Long.MAX_VALUE;
+        Assertions.assertFalse(AuditWriterZones.zones().contains("America/New_York"),
+                "the covered zone retires from the forward set: " + AuditWriterZones.zones());
+        Assertions.assertTrue(AuditWriterZones.anyZoneNeedingCoverage(),
+                "the shared row keeps the zone for a possible rewind");
+        reported.clear();
+        AuditPublicationHorizon.clearLocalReport();
+        Assertions.assertEquals(Collections.singletonList(0L), reported,
+                "the rewindable zone keeps the row: the close re-reports it instead of"
+                        + " deleting the only copy");
+    }
+
+    // ==================== #3: the pre-loader stages are part of the local horizon ======
+
+    /**
+     * A completed query the runtime status manager still HOLDS (it enters the pipeline
+     * before any loader sees it) and an event inside the processor's queue / in flight
+     * must both fence the local horizon.
+     */
+    @Test
+    public void testLocalHorizonIncludesHeldQueriesAndTheProcessor() {
+        mockedEnv.when(Env::getCurrentAuditEventProcessor).thenReturn(processor);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(mgr);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        Assertions.assertEquals(0L, AuditPublicationHorizon.localHorizon(),
+                "an empty pipeline has nothing outstanding");
+
+        // held by the runtime status manager (released only after the audit timeout)
+        mgr.submitFinishQueryToAudit(event(9_000L));
+        Assertions.assertEquals(9_000L, AuditPublicationHorizon.localHorizon(),
+                "a completed query still held for auditing fences progress");
+
+        // queued in the processor (the loader has not seen it yet)
+        processor.handleAuditEvent(event(7_000L));
+        Assertions.assertEquals(7_000L, AuditPublicationHorizon.localHorizon(),
+                "the oldest of all local stages wins");
+
+        // dequeued and in flight while a plugin runs: still outstanding
+        processor.handleAuditEvent(event(8_000L));
+        Deencapsulation.setField(processor, "processingEvent", event(3_000L));
+        Assertions.assertEquals(3_000L, AuditPublicationHorizon.localHorizon(),
+                "an in-flight event is out of the queue but NOT published");
+
+        Deencapsulation.setField(processor, "processingEvent", null);
+        Assertions.assertEquals(7_000L, AuditPublicationHorizon.localHorizon());
+    }
+
+    // ==================== #1: the cluster-wide minimum over fresh rows ================
+
+    /** The MINIMUM over the fresh rows of every FE fences the leader's progress. */
+    @Test
+    public void testClusterHorizonTakesTheMinimumOverFreshFollowerRows() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Arrays.asList(
+                new Object[] {"fe-a", now - 10_000L, now}, // a follower still owing a 10s-old event
+                new Object[] {"fe-b", now - 40_000L, now}, // another owing an older one
+                new Object[] {"fe-c", 0L, now});            // a third with nothing outstanding
+        Assertions.assertEquals(now - 40_000L, AuditPublicationHorizon.clusterHorizon(),
+                "the oldest fresh row fences, regardless of which FE it is");
+
+        // an OVERDUE row of a GONE FE is ignored: its events died with the FE, and fencing
+        // forever would freeze the capture instead of protecting anything
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-dead", now - 10_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon());
+    }
+
+    /** An unreadable shared table must FAIL CLOSED, never silently drop the fence. */
+    @Test
+    public void testClusterHorizonFailsClosedWhenTheSharedTableIsUnreadable() {
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> {
+            throw new IllegalStateException("internal table read timed out");
+        };
+        Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "without the follower rows the fence is incomplete: the caller must not"
+                        + " advance");
+    }
+
+    /** The reporter writes THIS FE's horizon; the shutdown de-registers the row. */
+    @Test
+    public void testLocalHorizonIsReportedThroughTheWriter() {
+        List<Long> reports = new ArrayList<>();
+        AuditPublicationHorizon.localHorizonWriterForTest = horizon -> {
+            reports.add(horizon);
+            return true;
+        };
+        // an empty SUCCESSFUL restore read: the previous incarnation left no row, so the
+        // report is allowed to write (see readOwnRowsForRestore)
+        AuditPublicationHorizon.ownRowRestoreReaderForTest = () -> Collections.emptyList();
+        Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(4_242L),
+                "a confirmed write reports true");
+        AuditPublicationHorizon.clearLocalReport();
+        Assertions.assertEquals(Collections.singletonList(4_242L), reports,
+                "de-registration must NOT re-report a zero fence (round-42 #12): the row"
+                        + " is DELETED instead, and a zero report would upsert the"
+                        + " shutting-down FE's row back into the shared table: " + reports);
+    }
+
+    // ====================: unconfirmed writes are retried ====================
+
+    /**
+     * A report is TRUE only when the written state is readable back from the shared table
+     * SQL OK can still leave a COMMITTED INSERT unpublished, and the
+     * previous void return let the reporter remember the value as reported anyway - an
+     * old unpublished event then had no master-visible fence until the 60s keepalive.
+     */
+    @Test
+    public void testReportIsConfirmedOnlyWhenTheOwnRowIsReadable() {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.getNodeName()).thenReturn("fe-test");
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        try (MockedStatic<StatisticsUtil> statistics = Mockito.mockStatic(StatisticsUtil.class)) {
+            // the read-back shows exactly the reported value: confirmed
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.singletonList(new ResultRow(Collections.singletonList("4242"))));
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(4_242L),
+                    "a readable row with the reported value confirms the fence");
+
+            // the read-back shows a STALE value (the upsert committed but is not visible
+            // yet): unconfirmed, the reporter must retry on its next tick
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.singletonList(new ResultRow(Collections.singletonList("4000"))));
+            Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(4_242L),
+                    "a read-back that does not match the report is NOT confirmed");
+
+            // an IDLE REGISTRATION must be READABLE: the row's ABSENCE
+            // reads as "this FE never registered", so it can NOT confirm a zero report
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.emptyList());
+            Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "an absent row is an UNCONFIRMED idle registration");
+
+            // a readable ZERO row is the confirming state of an idle registration
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.singletonList(
+                            new ResultRow(Arrays.asList("0", "", "0"))));
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "a readable zero row confirms the idle registration");
+
+            // a stale POSITIVE row (a pending fence about to be re-reported):
+            // unconfirmed
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.singletonList(new ResultRow(Collections.singletonList("99"))));
+            Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "a still-visible old row does not confirm the clearing");
+        }
+    }
+
+    /**
+     * An unconfirmed write must be reported as false, so the reporter does NOT remember it
+     * and retries it on the next tick.
+     */
+    @Test
+    public void testUnconfirmedWriteReportsFalseThroughTheSeam() {
+        AuditPublicationHorizon.localHorizonWriterForTest = horizon -> false;
+        Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(7_000L),
+                "a failed write must not look reported");
+    }
+
+    /**
+     * A ZERO report is an IDLE REGISTRATION and must UPSERT the row - the
+     * old path DELETED it, so a live FE with nothing outstanding was indistinguishable
+     * from an FE that never registered (and fails the cluster read closed
+     * for those).
+     */
+    @Test
+    public void testZeroReportUpsertsTheRegistrationInsteadOfDeletingTheRow() {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.getNodeName()).thenReturn("fe-test");
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        try (MockedStatic<StatisticsUtil> statistics = Mockito.mockStatic(StatisticsUtil.class)) {
+            List<String> statements = new ArrayList<>();
+            statistics.when(() -> StatisticsUtil.execUpdate(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenAnswer(invocation -> {
+                        statements.add(invocation.getArgument(0));
+                        return null;
+                    });
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.singletonList(
+                            new ResultRow(Arrays.asList("0", "", "0"))));
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "the idle registration is confirmed by the readable zero row");
+            Assertions.assertEquals(1, statements.size(),
+                    "exactly one statement: " + statements);
+            Assertions.assertTrue(statements.get(0).startsWith("INSERT"),
+                    "the zero report must UPSERT the row (idle registration), not DELETE"
+                            + " it: " + statements.get(0));
+        }
+    }
+
+    /**
+     * A live FE with NO row is not "nothing outstanding" - its pipeline may
+     * still owe events (or a committed batch may still publish), so the cluster horizon
+     * must fail CLOSED (retryable) instead of reading the absence as a zero fence. Once
+     * the FE registers - a zero row IS a registration - the read succeeds again.
+     */
+    @Test
+    public void testLiveFeWithoutARowFailsTheClusterHorizonClosed() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.reporterNamesForTest =
+                () -> Collections.singleton("fe-b");
+        AuditPublicationHorizon.horizonRowsReaderForTest = Collections::emptyList;
+        Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "a live FE that has not registered yet must fail the cycle closed");
+
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-b", 0L, now});
+        Assertions.assertEquals(now, AuditPublicationHorizon.clusterHorizon(),
+                "an idle registration fences its own REPORT INSTANT (round-43 #2): it"
+                        + " proves only that nothing was outstanding when it was written, and"
+                        + " an event captured right after it may still be unpublished");
+    }
+
+    /**
+     * An idle row is NOT "no fence". It vouches for its FE's pipeline only
+     * up to the instant it was written; contributing NOTHING let the capture advance past
+     * that instant, and an event the FE accepted immediately after reporting idle (but
+     * before its next report tick) could publish into a window the capture had already
+     * consumed. The row's REPORT TIME is therefore part of the cluster minimum.
+     */
+    @Test
+    public void testIdleRowContributesItsReportInstantToTheClusterMinimum() {
+        long now = System.currentTimeMillis();
+        long busyFence = now - 600_000L;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Arrays.asList(
+                new Object[] {"fe-idle", 0L, now - 1_000L},
+                new Object[] {"fe-busy", busyFence, now});
+        Assertions.assertEquals(busyFence, AuditPublicationHorizon.clusterHorizon(),
+                "the busy row's older fence still wins the minimum");
+
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-idle", 0L, now - 1_000L});
+        Assertions.assertEquals(now - 1_000L, AuditPublicationHorizon.clusterHorizon(),
+                "with only an idle row left, the minimum is its report instant");
+    }
+
+    /**
+     * (overdue half): an OVERDUE zero row of a LIVE FE is just as
+     * untrustworthy as a positive one - the FE may have captured events since its last
+     * report. Skipping the row BEFORE the staleness check trusted the stale zero and let
+     * the capture advance past those events.
+     */
+    @Test
+    public void testOverdueIdleRowOfALiveFeFailsClosed() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> true;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-live", 0L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "a live FE's un-refreshed ZERO row must skip the cycle, not be trusted");
+    }
+
+    /**
+     * Liveness means MEMBERSHIP, not the heartbeat flag. An RPC heartbeat
+     * error sets isAlive() false while the FE (and its audit loader) still run and
+     * may hold a queued event: releasing its fence let the capture checkpoint past the
+     * event before it published. Only absence from the membership proves the events died
+     * with the FE.
+     */
+    @Test
+    public void testHeartbeatFlagDoesNotReleaseTheFenceOfAMember() {
+        long now = System.currentTimeMillis();
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getNodeName()).thenReturn("fe-self");
+        Frontend member = Mockito.mock(Frontend.class);
+        Mockito.when(member.getNodeName()).thenReturn("fe-member");
+        Mockito.when(member.isAlive()).thenReturn(false); // a failed heartbeat / RPC
+        Mockito.when(env.getFrontends(Mockito.any())).thenReturn(List.of(member));
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-member", now - 20_000L,
+                        now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "a member with a failed heartbeat still runs - its queued event must keep"
+                        + " fencing");
+        Assertions.assertTrue(failure.getMessage().contains("fe-member"),
+                "the failure names the member: " + failure.getMessage());
+    }
+
+    /**
+     * (membership half): the registered-row requirement covers EVERY member,
+     * including one whose heartbeat flag is currently false - excluding it read the
+     * not-yet-registered gap as "no obligation".
+     */
+    @Test
+    public void testMembershipWithoutAHeartbeatStillMustRegister() {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getNodeName()).thenReturn("fe-self");
+        Frontend member = Mockito.mock(Frontend.class);
+        Mockito.when(member.getNodeName()).thenReturn("fe-quiet");
+        Mockito.when(member.isAlive()).thenReturn(false);
+        Mockito.when(env.getFrontends(Mockito.any())).thenReturn(List.of(member));
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        AuditPublicationHorizon.horizonRowsReaderForTest = Collections::emptyList;
+        Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "a member without a row must fail the read closed even when its heartbeat"
+                        + " flag is false");
+    }
+
+    // ====================: a fixed zone for update_time ====================
+
+    /**
+     * update_time is a zone-less DATETIME shared between FEs that may render their local
+     * wall time in different zones: writing and reading it in the SAME explicit zone
+     * (UTC) is what keeps a fresh row from looking hours old to a reader in another zone
+     * (it would then be discarded as stale and drop that follower's fence).
+     */
+    @Test
+    public void testUpdateTimeUsesAFixedZone() {
+        long epochMillis = 1_780_000_000_000L;
+        String rendered = AuditPublicationHorizon.renderUpdateTime(epochMillis);
+        Assertions.assertEquals("2026-05-28 20:26:40", rendered,
+                "the rendering is UTC, not the JVM zone (a +08:00 FE would render"
+                        + " 2026-05-29 04:26:40)");
+        Assertions.assertEquals(epochMillis, AuditPublicationHorizon.parseUpdateTime(rendered),
+                "reading a row back yields the same instant");
+    }
+
+    // ====================: internal events never fence ======================
+
+    /**
+     * Internal statements (e.g. the horizon reporter's own SQL) are never captured, so
+     * they must not fence progress - otherwise the reporter's writes would keep their own
+     * FE's fence (and the writes it triggers) alive forever on an idle FE.
+     */
+    @Test
+    public void testInternalEventsDoNotFenceThePipeline() {
+        mockedEnv.when(Env::getCurrentAuditEventProcessor).thenReturn(processor);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(mgr);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        AuditEvent internal = new AuditEvent.AuditEventBuilder()
+                .setQueryId("internal-horizon-report")
+                .setTimestamp(1_000L)
+                .setStmt("INSERT INTO __internal_schema.spm_audit_horizon ...")
+                .setisInternal(true)
+                .build();
+
+        mgr.submitFinishQueryToAudit(internal);
+        processor.handleAuditEvent(internal);
+        Deencapsulation.setField(processor, "processingEvent", internal);
+        Assertions.assertEquals(0L, AuditPublicationHorizon.localHorizon(),
+                "an internal event can never be captured and must not fence any stage");
+
+        Deencapsulation.setField(processor, "processingEvent", null);
+        Assertions.assertEquals(0L, AuditPublicationHorizon.localHorizon(),
+                "the internal event stays out of the fence at every stage");
+    }
+
+    // ====================: an overdue row of a LIVE fe fails closed =========
+
+    /**
+     * A follower's keepalive upserts can fail for minutes while the FE still holds a
+     * completed event (and may even gain MORE events with older start times): the overdue
+     * row must not be silently dropped, and its STALE VALUE must not be trusted either -
+     * the read fails closed so the capture skips the cycle and retries instead of
+     * checkpointing past the unread fence.
+     */
+    @Test
+    public void testOverdueFenceOfALiveFeFailsClosed() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> true;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-live", now - 20_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "a live FE's un-refreshed fence must skip the cycle, not release it");
+        Assertions.assertTrue(failure.getMessage().contains("fe-live"),
+                "the failure names the FE: " + failure.getMessage());
+    }
+
+    /** A row whose FE is provably gone is a leftover: its events died with it. */
+    @Test
+    public void testOverdueFenceOfAGoneFeIsDropped() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-gone", now - 20_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                "a gone FE's overdue row no longer fences: nothing of its can publish any more");
+    }
+
+    /** An undecidable liveness must be conservative: the fence fails closed. */
+    @Test
+    public void testOverdueFenceWithUndecidableLivenessFailsClosed() {
+        long now = System.currentTimeMillis();
+        // no probe: the Env-based lookup finds no membership view in the unit test, so the
+        // liveness is UNKNOWN - and unknown must not be mistaken for "gone"
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-unknown", now - 20_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1});
+        Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "an undecidable reporter must keep the fence: dropping it could miss the"
+                        + " event it still owes");
+    }
+
+    // ====================: committed fences survive their FE ===============
+
+    /**
+     * A batch whose stream load reported Publish Timeout is COMMITTED but unreadable: its
+     * rows can publish AFTER the FE died, so the committed_fence_ms marker keeps
+     * the fence alive past the FE - dropping the row at death let the capture checkpoint
+     * past rows that then appeared behind the watermark. After the SAME bound the loader
+     * itself applies the batch is conclusively lost and the fence releases.
+     */
+    @Test
+    public void testCommittedFenceOfAGoneFeSurvivesItsDeath() {
+        long now = System.currentTimeMillis();
+        long staleAt = now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        // horizon 0 (the reporter wrote "nothing outstanding" before the batch timed
+        // out): only the committed marker fences
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-dead", 0L, staleAt, "", 20_000L});
+        Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                "the committed batch's rows may still publish although the FE is gone");
+
+        // the fence survives while the row is inside the survival bound even when it is
+        // overdue; past the bound it is conclusively lost
+        long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
+                - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L});
+        Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                "a bound-expired committed fence is conclusively lost, exactly like the"
+                        + " loader treats its own fence");
+    }
+
+    /** A fresh row's committed marker fences even when the horizon column is zero. */
+    @Test
+    public void testFreshCommittedFenceContributesToTheClusterHorizon() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-busy", 0L, now, "", 9_000L});
+        Assertions.assertEquals(9_000L, AuditPublicationHorizon.clusterHorizon(),
+                "a committed-but-unreadable batch is part of the fence");
+    }
+
+    // ====================: a dead FE's fence is resolved by label ==========
+
+    /**
+     * The reviewer's case: a follower reports a Publish Timeout batch at 10:00 and dies
+     * while its transaction stays COMMITTED / unreadable. The 30-minute age bound dropped
+     * the ONLY marker protecting it, the leader checkpointed an empty window, and the
+     * batch's later publication fell behind every later overlap. With the batch LABELS in
+     * the row, the fence survives on the TRANSACTION's outcome: COMMITTED keeps fencing
+     * whatever the age.
+     */
+    @Test
+    public void testCommittedFenceOfAGoneFeSurvivesTheAgeBoundWhenItsLabelIsCommitted() {
+        long now = System.currentTimeMillis();
+        long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
+                - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        AuditLoader.transactionStatusForTest = label -> "COMMITTED";
+        try {
+            AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                    new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L, "audit_log_l1"});
+            Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                    "a COMMITTED transaction may still publish: the fence must not expire"
+                            + " on the age bound (a dead FE cannot re-report)");
+        } finally {
+            AuditLoader.transactionStatusForTest = null;
+        }
+    }
+
+    /**
+     * The terminal outcomes RELEASE the dead FE's fence: a VISIBLE transaction's rows are
+     * readable (the batch is published), an ABORTED one can never publish. A MIXED list
+     * keeps fencing while ANY entry is unresolved.
+     */
+    @Test
+    public void testTerminalLabelReleasesTheDeadFesFence() {
+        long now = System.currentTimeMillis();
+        long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
+                - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        try {
+            AuditLoader.transactionStatusForTest = label -> "VISIBLE";
+            AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                    new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L, "audit_log_l1"});
+            Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                    "a VISIBLE transaction's rows are readable: nothing to fence");
+
+            AuditLoader.transactionStatusForTest = label -> "ABORTED";
+            Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                    "an ABORTED transaction can never publish");
+
+            // mixed: the second entry is still COMMITTED - the fence stays
+            AuditLoader.transactionStatusForTest = label ->
+                    "audit_log_l1".equals(label) ? "VISIBLE" : "COMMITTED";
+            AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                    new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L,
+                            "audit_log_l1;audit_log_l2"});
+            Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                    "while ANY listed batch is unresolved the fence stays");
+        } finally {
+            AuditLoader.transactionStatusForTest = null;
+        }
+    }
+
+    /**
+     * An UNRESOLVABLE identity ("-" or a label the transaction manager does not know) is
+     * NEVER released by age (the reviewer's C8): nothing can ever PROVE the batch
+     * published, and a COMMITTED one may still make its rows readable - the previous
+     * bounded release assumed it lost and let the capture checkpoint past it. Only a
+     * PROVABLE terminal state (VISIBLE / ABORTED) settles the row's share.
+     */
+    @Test
+    public void testUnresolvableLabelIsNeverReleasedByAge() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        AuditLoader.transactionStatusForTest = label -> null;
+        try {
+            // young: fences although the label cannot be resolved
+            AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                    new Object[] {"fe-dead", 20_000L, now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1,
+                            "", 20_000L, "-"});
+            Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                    "an unresolvable identity is not proof of loss while the bound holds");
+
+            // past EVERY age bound it STILL fences: only a terminal state may release it
+            long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
+                    - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+            AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                    new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L, "audit_log_legacy"});
+            Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                    "an unresolvable identity is never assumed lost: its publication cannot"
+                            + " be proved OR disproved by age alone");
+
+            // ... and the PROOF releases it
+            AuditLoader.transactionStatusForTest = label -> "ABORTED";
+            Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                    "an ABORTED transaction can never publish: the fence is settled");
+        } finally {
+            AuditLoader.transactionStatusForTest = null;
+        }
+    }
+
+    /**
+     * The OVERFLOWED sentinel ("*") of a row written by an intermediate build stands for
+     * batches with NO recorded identity: like "-", it is never settled by the row's age
+     * (the reviewer's C8; the current writer keeps every label and no longer emits it).
+     */
+    @Test
+    public void testOverflowedSentinelIsNeverSettledByAge() {
+        long now = System.currentTimeMillis();
+        long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
+                - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L,
+                        AuditLoader.OVERFLOWED_FENCE_LABEL});
+        Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                "an identity-less obligation is fenced until publication can be proved");
+    }
+
+    // ====================: stale rows keep their zones =====================
+
+    /**
+     * The writer zones of an OVERDUE row stay part of the required scan set until
+     * durable capture progress has passed the row's last refresh: a follower can publish
+     * a row under -05:00 and then stop reporting (crash / stalled keepalive) while an
+     * uncompleted window still contains it - dropping the zone here let a UTC leader
+     * exhaust the window and checkpoint past the row stored as 05:00.
+     */
+    @Test
+    public void testStaleRowZonesStayRequiredUntilTheCaptureHasPassedThem() {
+        long now = System.currentTimeMillis();
+        long staleAt = now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        String zones = "America/New_York=" + (now - 60_000L);
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-stopped", 0L, staleAt, zones});
+
+        AuditWriterZones.captureCoveredThroughForTest = () -> staleAt - 1;
+        Assertions.assertEquals(Set.of("America/New_York"),
+                AuditPublicationHorizon.clusterWriterZones(),
+                "the row's zone may still own a row of an uncompleted window");
+
+        AuditWriterZones.captureCoveredThroughForTest = () -> staleAt + 1;
+        Assertions.assertEquals(Set.of(), AuditPublicationHorizon.clusterWriterZones(),
+                "durable progress past the last refresh covers every row the FE rendered");
+    }
+}

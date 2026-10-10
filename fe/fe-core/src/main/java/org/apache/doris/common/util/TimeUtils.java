@@ -184,11 +184,11 @@ public class TimeUtils {
         return dateFormat.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(timeStamp), dateFormat.getZone()));
     }
 
-    /** Same as {@link #longToTimeStringWithTimeZone(Long, String)} but appends
-     *  the timezone offset (e.g. {@code +00:00}, {@code +08:00}) so the
+    /** Same as longToTimeStringWithTimeZone(Long, String) but appends
+     *  the timezone offset (e.g. +00:00, +08:00) so the
      *  result is an unambiguous UTC instant string that
-     *  {@link PropertyAnalyzer#TZ_OFFSET_PATTERN} can detect and route to
-     *  {@code TZ_FORMATTER} for instant-aware parsing. */
+     *  PropertyAnalyzer#TZ_OFFSET_PATTERN can detect and route to
+     *  TZ_FORMATTER for instant-aware parsing. */
     public static String longToTimeStringWithTimeZoneAndOffset(Long timeStamp, String timeZone) {
         if (timeStamp == null || timeStamp <= 0L) {
             return FeConstants.null_string;
@@ -200,6 +200,27 @@ public class TimeUtils {
 
     public static String longToTimeStringWithms(Long timeStamp) {
         return longToTimeStringWithFormat(timeStamp, getDatetimeMsFormatWithTimeZone());
+    }
+
+    /**
+     * longToTimeStringWithms(Long) rendered in an EXPLICIT zone instead of the
+     * current session / global one: the audit loader must register the very zone a row's
+     * time column is rendered in - two independent reads of the global
+     * time_zone could observe a `SET GLOBAL time_zone` in between, and the row was then
+     * stored under a zone nobody had registered.
+     *
+     * @param timeStamp the epoch millis to render
+     * @param timeZone  the zone ID (null = the system zone, see
+     *                  getOrSystemTimeZone(String))
+     * @return the yyyy-MM-dd HH:mm:ss.SSS rendering in that zone
+     */
+    public static String longToTimeStringWithms(Long timeStamp, String timeZone) {
+        if (timeStamp == null || timeStamp <= 0L) {
+            return FeConstants.null_string;
+        }
+        DateTimeFormatter dateFormat = DATETIME_MS_FORMAT.withZone(
+                getOrSystemTimeZone(timeZone).toZoneId());
+        return dateFormat.format(Instant.ofEpochMilli(timeStamp));
     }
 
     public static Date getHourAsDate(String hour) {

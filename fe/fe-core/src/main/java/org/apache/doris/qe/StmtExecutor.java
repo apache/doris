@@ -80,6 +80,8 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.spm.SPMOptimizer;
+import org.apache.doris.nereids.spm.SPMPlanner;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -90,6 +92,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
@@ -514,9 +517,11 @@ public class StmtExecutor {
             return false;
         }
 
-        // this is a query stmt, but this non-master FE can not read, forward it to master
-        if (isQuery() && !Env.getCurrentEnv().isMaster()
-                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries
+        // this is a query stmt (or an EXPLAIN of one), but this non-master FE can not
+        // read, forward it to master
+        if (isForwardableQuery() && !Env.getCurrentEnv().isMaster()
+                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries()
+                        || Config.force_forward_all_queries
                         || context.getSessionVariable().isForceForwardAllQueries())) {
             return true;
         }
@@ -994,6 +999,73 @@ public class StmtExecutor {
                 }
                 return;
             }
+            // Sync the journal BEFORE the SPM integration point (and therefore before the
+            // planner is created): the SPM rewrite RESOLVES METADATA - it looks up every
+            // referenced table / view of the parsed plan, reads their schema fingerprints
+            // and validates the frozen baselines against them - so it must observe the
+            // same (synced) catalog the planner will observe. On an observer FE the edit
+            // log can still lag the master at this point; matching / validating against a
+            // stale catalog rejects valid baselines or, worse, accepts a stale schema
+            // fingerprint.
+            //
+            // The sync also keeps the original guarantee for the planner itself: a query
+            // issued right after a CREATE TABLE (sent to the master and only then visible
+            // to this observer) used to fail with "table does not exist" in the plan
+            // phase - see the comment that describes the sequence next to the planner
+            // call below.
+            syncJournalIfNeeded(context);
+            // =========== SPM (SQL Plan Management) query rewrite integration point ============
+            // Design doc 6.12: the SPM rewrite happens after parseByNereids() and before the
+            // NereidsPlanner plans the query.
+            //
+            // A rewritten (frozen-plan replay) tree must never break query availability:
+            // when planning it fails (e.g. the decompiled frozen planSql is not valid for
+            // some operator combination), the ORIGINAL parsed statement is re-planned.
+            StatementBase parsedStmtBeforeSpm = parsedStmt;
+            boolean spmRewriteApplied = false;
+            //
+            // Flow (whole-query engine): run the three-level match of the whole parsed plan
+            // (structural hash -> digest -> whole-tree structural comparison with the
+            // baseline's parameterized bind tree, extracting the user's literal values) ->
+            // on a hit substitute the values into the baseline's parameterized plan tree and
+            // re-plan normally. On no match or timeout the original query is kept; any
+            // exception is swallowed so SPM never affects query availability. The timeout is
+            // controlled by spm_rewrite_timeout_ms and the switch by enable_spm_rewrite
+            // (default false).
+            if (context.getSessionVariable().isEnableSpmRewrite()) {
+                try {
+                    long deadline = System.currentTimeMillis()
+                            + context.getSessionVariable().getSpmRewriteTimeoutMs();
+                    SPMPlanner spmPlanner = new SPMPlanner();
+                    LogicalPlan rewrittenPlan = spmPlanner.tryRewritePlan(logicalPlan, deadline);
+                    if (rewrittenPlan != null) {
+                        parsedStmt = new LogicalPlanAdapter(rewrittenPlan, statementContext);
+                        logicalPlan = rewrittenPlan;
+                        spmRewriteApplied = true;
+                        statementContext.setSpmBaselineApplied(true);
+                        statementContext.setSpmUsedBaselineId(spmPlanner.getUsedBaselineId());
+                        statementContext.setSpmUsedBaseline(spmPlanner.getUsedBaseline());
+                        // The replay must not let an MV rewrite substitute its storage
+                        // table for the frozen plan's SOURCE tables (SPMOptimizer
+                        // #installSpmReplayRuleMask): the frozen plan was produced with
+                        // every MV rewrite excluded, so its fingerprint pins those source
+                        // tables - an async MV that became eligible afterwards would make
+                        // the post-plan fingerprint guard reject its own replay and, with
+                        // the default enable_spm_fallback=false, fail the SELECT although
+                        // the source table did not change.
+                        SPMOptimizer.installSpmReplayRuleMask(statementContext);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("SPM rewrite applied for query: {}",
+                                    originStmt.originStmt);
+                        }
+                    }
+                } catch (Throwable e) {
+                    LOG.warn("SPM rewrite failed, fallback to normal execution: {}",
+                            originStmt.originStmt, e);
+                }
+            }
+            // ==================== SPM integration point end ====================
+
             // create plan
             // Query following createting table would throw table not exist error.
             // For example.
@@ -1001,15 +1073,78 @@ public class StmtExecutor {
             // t2: client issues query sql to observer fe, the query would fail due to not exist table in
             //     plan phase.
             // t3: observer fe receive editlog creating the table from the master fe
-            syncJournalIfNeeded(context);
-            planner = new NereidsPlanner(statementContext);
+            // The journal sync that guards this sequence now runs ABOVE, before the SPM
+            // rewrite's metadata lookups (see the comment there): by the time the planner
+            // is created the catalog is already up to date.
+            NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+            planner = nereidsPlanner;
             try {
                 checkBlockRulesByRegex(originStmt);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
+                if (spmRewriteApplied) {
+                    // Revalidate the frozen baseline against the metadata the REPLAYED
+                    // plan was actually planned with: the pre-match fingerprint guard
+                    // ran BEFORE the planner took its metadata locks, so an ALTER TABLE
+                    // committing in between would drift between validation and
+                    // planning. A mismatch throws into the catch below, which applies
+                    // the normal fallback / surfacing policy.
+                    SPMPlanner.verifyReplayMetadata(context,
+                            statementContext.getSpmUsedBaselineId(),
+                            nereidsPlanner.getPhysicalPlan());
+                }
                 checkBlockRulesByScan(planner);
             } catch (Exception e) {
-                LOG.warn("Nereids plan query failed:\n{}", getStmtForLogging(originStmt.originStmt), e);
-                throw new NereidsException(new AnalysisException(e.getMessage(), e));
+                if (spmRewriteApplied
+                        && context.getSessionVariable().isEnableSpmFallback()) {
+                    // The rewritten (frozen-plan replay) tree cannot be planned: fall back
+                    // to the original parsed statement so SPM never breaks query
+                    // availability (the baseline is simply not used for this query).
+                    // Controlled by enable_spm_fallback (default false) so rewrite failures
+                    // surface during development / regression debugging.
+                    LOG.warn("SPM rewritten plan failed, fallback to original query: {}",
+                            getStmtForLogging(originStmt.originStmt), e);
+                    this.parsedStmt = parsedStmtBeforeSpm;
+                    statementContext.setSpmBaselineApplied(false);
+                    // Authorization must never be inherited from the abandoned rewrite: the
+                    // first planning pass already ran (and passed) CheckPrivileges for the
+                    // REWRITTEN tree and set privChecked, which would make the new planning
+                    // pass below skip the privilege check on the ORIGINAL statement - and
+                    // the original statement may reference tables the rewritten tree does
+                    // not (the baseline's frozen planSql is independent of its bindSql).
+                    // Reset the flag so the fallback is authorized exactly like a normal
+                    // execution of the original statement.
+                    statementContext.setPrivChecked(false);
+                    // Drop the abandoned pass's OTHER planner-owned state as well: the
+                    // rewritten pass could have set hintForcePreAggOn from a plan-side
+                    // PREAGGOPEN hint (the original t@incr(...) query would then fail
+                    // with a spurious PREAGGOPEN error), and its resolved-table cache
+                    // still binds the first pass's TableIf objects - after the first
+                    // pass's locks were released, a concurrent DROP / CREATE of t would
+                    // make this fallback plan the OLD table.
+                    statementContext.resetPlannerStateForReplan();
+                    planner = new NereidsPlanner(statementContext);
+                    try {
+                        checkBlockRulesByRegex(originStmt);
+                        planner.plan(this.parsedStmt, context.getSessionVariable().toThrift());
+                        checkBlockRulesByScan(planner);
+                    } catch (Exception fallbackException) {
+                        LOG.warn("Nereids plan query failed (after SPM fallback):\n{}",
+                                getStmtForLogging(originStmt.originStmt), fallbackException);
+                        throw new NereidsException(
+                                new AnalysisException(fallbackException.getMessage(), fallbackException));
+                    }
+                } else if (spmRewriteApplied) {
+                    // fallback disabled (default): surface the SPM rewrite failure so the
+                    // decompiled planSql defects are visible instead of silently hidden
+                    LOG.warn("SPM rewritten plan failed (fallback disabled):\n{}",
+                            getStmtForLogging(originStmt.originStmt), e);
+                    throw new NereidsException(
+                            new AnalysisException("SPM rewritten plan failed: " + e.getMessage(), e));
+                } else {
+                    LOG.warn("Nereids plan query failed:\n{}",
+                            getStmtForLogging(originStmt.originStmt), e);
+                    throw new NereidsException(new AnalysisException(e.getMessage(), e));
+                }
             }
             profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
             if (MetricRepo.isInit) {
@@ -1331,6 +1466,25 @@ public class StmtExecutor {
                 && !(((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command);
     }
 
+    /**
+     * Whether this statement participates in the QUERY forwarding policy (see
+     * shouldForwardToMaster): a plain query, or an EXPLAIN of one. EXPLAIN is a Command
+     * (NoForward), so without this the forced-forward policy ran it locally on an
+     * observer whose baseline cache could predate a baseline just created on the master -
+     * the SPM diagnostic reported "no hit" although the immediately following SELECT is
+     * forwarded and uses that baseline.
+     */
+    private boolean isForwardableQuery() {
+        if (isQuery()) {
+            return true;
+        }
+        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return false;
+        }
+        LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        return plan instanceof ExplainCommand && ((ExplainCommand) plan).isQueryExplain();
+    }
+
     public boolean isProfileSafeStmt() {
         // fe/fe-core/src/main/java/org/apache/doris/nereids/NereidsPlanner.java:131
         // Only generate profile for NereidsPlanner.
@@ -1397,7 +1551,16 @@ public class StmtExecutor {
             // for nereids command
             if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
                 Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-                forward.afterForwardToMaster(context);
+                // The master's ERR result does NOT throw through forward(): the RPC returns
+                // an ERR packet that the executor stores (e.g. "Baseline plan N does not
+                // exist" for an ALTER / DROP of a nonexistent id). The callbacks below
+                // CONFIRM the DDL's effect against the local metadata and FENCE the cache
+                // while confirming - a failed statement must not run them: a failed ALTER
+                // would record a mutation fence, clear the follower's whole baseline cache
+                // and replace the master's precise error.
+                if (masterOpExecutor.getStatusCode() == 0) {
+                    forward.afterForwardToMaster(context);
+                }
             }
         }
     }
@@ -2182,14 +2345,20 @@ public class StmtExecutor {
             while (true) {
                 batch = coord.getNext();
                 Preconditions.checkNotNull(batch, "Batch is Null.");
+                // Collect BEFORE the EOS check, exactly like the streaming path sends the
+                // batch before checking EOS: when the query's own LIMIT is reached the
+                // coordinator cancels the - already complete - query and marks THIS batch
+                // EOS, so breaking first DROPPED that final batch's rows. An internal
+                // query whose result reached its LIMIT then silently returned fewer rows
+                // (or none at all: a LIMIT 2000 page over a 2,022-row table came back
+                // empty, and the paginated SPM baseline snapshot was published truncated).
+                if (batch.getBatch() != null) {
+                    context.updateReturnRows(batch.getBatch().getRows().size());
+                    resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
+                }
                 if (batch.isEos()) {
                     break;
                 }
-                if (batch.getBatch() == null) {
-                    continue;
-                }
-                context.updateReturnRows(batch.getBatch().getRows().size());
-                resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
             }
             LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
             return resultRows;

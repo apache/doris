@@ -51,6 +51,9 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
+import org.apache.doris.nereids.spm.BaselinePlan;
+import org.apache.doris.nereids.spm.BaselineScope;
+import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -368,6 +371,12 @@ public class NereidsPlanner extends Planner {
                 && ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs()
                 == VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
             SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+            // remember the pre-assignment value: the SPM fallback replan restores it
+            // before its own pass, otherwise this pass's automatic wait (derived from
+            // the frozen plan's scans) would leak into the ORIGINAL statement's plan
+            // (see StatementContext#resetPlannerStateForReplan)
+            statementContext.recordRuntimeFilterWaitTimeBeforePlannerSet(
+                    sessionVariable.getRuntimeFilterWaitTimeMs());
             if (Config.isCloudMode()) {
                 sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS,
                         String.valueOf(Math.max(VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs(),
@@ -1141,7 +1150,33 @@ public class NereidsPlanner extends Planner {
         if (statementContext != null) {
             if (!statementContext.getHints().isEmpty()) {
                 String hint = getHintExplainString(statementContext.getHints());
-                return plan + hint;
+                plan += hint;
+            }
+        }
+        // SPM (SQL Plan Management): when this query's plan was replaced by a matched
+        // baseline (enable_spm_rewrite=true), surface the baseline id and its
+        // parameterized bindSqlDigest so users can verify which baseline hit.
+        if (statementContext != null && statementContext.isSpmBaselineApplied()) {
+            long baselineId = statementContext.getSpmUsedBaselineId();
+            // the id range decides the store (BaselineScope.ofId), never a cross-store
+            // fallback: a SESSION-range id is only ever resolved against this connection's
+            // session store, a GLOBAL-range id only against the shared manager
+            BaselinePlan baseline;
+            if (BaselineScope.ofId(baselineId) == BaselineScope.SESSION) {
+                ConnectContext ctx = ConnectContext.get();
+                baseline = ctx == null
+                        ? null : ctx.getSessionBaselineStore().getBaseline(baselineId);
+            } else {
+                baseline = BaselineManager.getInstance().getBaseline(baselineId);
+            }
+            plan += "\n\n========== SPM BASELINE ==========\n";
+            if (baseline != null) {
+                plan += "SPM baseline hit: id=" + baseline.getId()
+                        + ", scope=" + baseline.getScope()
+                        + ", bindSqlDigest=" + baseline.getBindSqlDigest() + "\n";
+            } else {
+                plan += "SPM baseline hit: id=" + baselineId
+                        + " (baseline no longer exists)\n";
             }
         }
         return plan;
