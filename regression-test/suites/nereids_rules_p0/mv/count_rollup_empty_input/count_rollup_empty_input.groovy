@@ -71,4 +71,21 @@ suite("count_rollup_empty_input") {
     order_qt_rollup_grouped "SELECT /*+ use_mv(rollup_empty_mv) */ k, COUNT(*) FROM rollup_empty_base GROUP BY k"
 
     order_qt_rollup_all "SELECT /*+ use_mv(rollup_empty_mv) */ COUNT(*) FROM rollup_empty_base"
+
+    // A synchronous aggregate materialized view keeps COUNT as a SUM value column, so the rollup
+    // reading it back has to keep pushing pre-aggregation down to storage instead of disabling it.
+    sql """
+        CREATE TABLE rollup_empty_agg (k INT, n BIGINT SUM DEFAULT "0")
+        AGGREGATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql "INSERT INTO rollup_empty_agg VALUES (1, 2), (1, 1), (2, 1)"
+
+    explain {
+        sql("SELECT k, sum0(n) FROM rollup_empty_agg GROUP BY k")
+        contains "PREAGGREGATION: ON"
+    }
+    order_qt_agg_preagg "SELECT k, sum0(n) FROM rollup_empty_agg GROUP BY k"
+    order_qt_agg_preagg_sum "SELECT k, sum(n) FROM rollup_empty_agg GROUP BY k"
 }

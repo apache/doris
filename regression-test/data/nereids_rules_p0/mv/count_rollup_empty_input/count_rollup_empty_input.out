@@ -19,3 +19,11 @@
 -- !rollup_all --
 3
 
+-- !agg_preagg --
+1	3
+2	1
+
+-- !agg_preagg_sum --
+1	3
+2	1
+

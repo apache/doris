@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
@@ -254,11 +255,16 @@ class SetPreAggStatusTest {
         // sum(v) with SUM-type value column (OneValueSlotAggChecker)
         Assertions.assertTrue(checkAggregateFunctions(Sets.newHashSet(new Sum(vSum)), Collections.emptySet(), output)
                 .isOn());
+        // sum0(v) is pre-aggregable like sum(v): the two differ only on an empty input
+        Assertions.assertTrue(checkAggregateFunctions(Sets.newHashSet(new Sum0(vSum)), Collections.emptySet(), output)
+                .isOn());
         // max(v) with MAX-type value column
         Assertions.assertTrue(checkAggregateFunctions(Sets.newHashSet(new Max(vMax)), Collections.emptySet(),
                 Sets.newHashSet(vMax)).isOn());
         // aggregation-type mismatch
         Assertions.assertTrue(checkAggregateFunctions(Sets.newHashSet(new Sum(vMax)), Collections.emptySet(),
+                Sets.newHashSet(vMax)).isOff());
+        Assertions.assertTrue(checkAggregateFunctions(Sets.newHashSet(new Sum0(vMax)), Collections.emptySet(),
                 Sets.newHashSet(vMax)).isOff());
         // count over a bare value column is not pre-aggregable (OneValueSlotAggChecker has no visitCount)
         Assertions.assertTrue(checkAggregateFunctions(Sets.newHashSet(new Count(vSum)), Collections.emptySet(),
