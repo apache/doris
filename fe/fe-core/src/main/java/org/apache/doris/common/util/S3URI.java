@@ -27,6 +27,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -287,12 +288,15 @@ public class S3URI {
         if (endpointSplits.length < 2) {
             return;
         }
-        if (endpointSplits[0].contains("oss-")) {
+        // The endpoint is a DNS host, so the marker match (and the derived region it selects) is
+        // case-insensitive: an upper/mixed case spelling must yield the same region as the
+        // lowercase one.
+        if (StringUtils.containsIgnoreCase(endpointSplits[0], "oss-")) {
             // compatible with the endpoint: oss-cn-bejing.aliyuncs.com
-            region = endpointSplits[0];
+            region = endpointSplits[0].toLowerCase(Locale.ROOT);
             return;
         }
-        region = endpointSplits[1];
+        region = endpointSplits[1].toLowerCase(Locale.ROOT);
     }
 
     /**

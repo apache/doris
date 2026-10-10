@@ -103,6 +103,34 @@ class OssFileSystemPropertiesTest {
         Assertions.assertEquals("legacy-bucket", properties.getBucket());
     }
 
+    /**
+     * DORIS-29438: the endpoint host is a DNS name, so an upper/mixed case spelling must resolve to
+     * the same effective endpoint as the lowercase one. The pre-fix code matched the
+     * standard-endpoint pattern case-sensitively, so a mixed case spelling was treated as
+     * "non-standard" and silently rewritten to the internal endpoint, while the lowercase spelling
+     * was left alone. The case cannot simply be accepted either: the effective endpoint is the value
+     * handed to the BE as {@code AWS_ENDPOINT}, where the presigned-URL conversion matches
+     * {@code -internal.aliyuncs.com} case-sensitively.
+     */
+    @Test
+    void bind_normalisesEndpointHostCase() {
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "oss-cn-beijing.aliyuncs.com")).getEndpoint());
+
+        // A mixed case public spelling stays the public endpoint (it is not silently switched to
+        // -internal the way the pre-fix code did) and is normalised to lowercase.
+        OssFileSystemProperties upperPublic = OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "OSS-CN-BEIJING.ALIYUNCS.COM"));
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", upperPublic.getEndpoint());
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com",
+                upperPublic.toBackendProperties().orElseThrow().toMap().get("AWS_ENDPOINT"));
+
+        // A mixed case internal spelling keeps denoting the same (internal) host, and the BE can
+        // still recognise it when converting the endpoint for a public presigned URL.
+        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", OssFileSystemProperties.of(Map.of(
+                "oss.endpoint", "OSS-CN-BEIJING-INTERNAL.ALIYUNCS.COM")).getEndpoint());
+    }
+
     @Test
     void bind_buildsInternalEndpointFromRegionWhenEndpointMissing() {
         OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(

@@ -193,6 +193,29 @@ class OssHdfsPropertiesTest {
         Assertions.assertFalse(OssHdfsProperties.guessIsMe(raw));
     }
 
+    /**
+     * The OSS-DLS marker is a DNS hostname, so detection must be case-insensitive: an equivalent
+     * but differently cased endpoint has to select the same storage implementation (DORIS-29438).
+     */
+    @Test
+    void guessIsMeIsCaseInsensitiveForOssDlsEndpoint() {
+        Map<String, String> upper = new HashMap<>();
+        upper.put("oss.endpoint", "CN-BEIJING.OSS-DLS.ALIYUNCS.COM");
+        Assertions.assertTrue(OssHdfsProperties.guessIsMe(upper), upper.toString());
+
+        Map<String, String> mixed = new HashMap<>();
+        mixed.put("oss.hdfs.endpoint", "Cn-Beijing.Oss-Dls.Aliyuncs.Com");
+        Assertions.assertTrue(OssHdfsProperties.guessIsMe(mixed), mixed.toString());
+    }
+
+    @Test
+    void mixedCaseDlsEndpointResolvesSameRegionAsLowercase() {
+        Map<String, String> raw = baseProps();
+        raw.put("oss.hdfs.endpoint", "CN-SHANGHAI.OSS-DLS.ALIYUNCS.COM");
+
+        Assertions.assertEquals("cn-shanghai", resolve(raw).get("fs.oss.region"));
+    }
+
     @Test
     void plainBucketUriIsNormalizedWithConfiguredEndpoint() {
         OssHdfsProperties properties = initialized(baseProps());

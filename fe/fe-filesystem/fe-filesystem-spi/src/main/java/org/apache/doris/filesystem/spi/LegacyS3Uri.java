@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.spi;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -249,12 +250,15 @@ public final class LegacyS3Uri {
         if (endpointSplits.length < 2) {
             return;
         }
-        if (endpointSplits[0].contains("oss-")) {
+        // The endpoint is a DNS host, so the marker match (and the derived region it selects) is
+        // case-insensitive: an upper/mixed case spelling must yield the same region as the
+        // lowercase one.
+        if (endpointSplits[0].toLowerCase(Locale.ROOT).contains("oss-")) {
             // compatible with the endpoint: oss-cn-bejing.aliyuncs.com
-            region = endpointSplits[0];
+            region = endpointSplits[0].toLowerCase(Locale.ROOT);
             return;
         }
-        region = endpointSplits[1];
+        region = endpointSplits[1].toLowerCase(Locale.ROOT);
     }
 
     public String getBucket() {

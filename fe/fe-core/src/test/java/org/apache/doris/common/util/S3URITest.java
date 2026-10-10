@@ -128,6 +128,20 @@ public class S3URITest {
     }
 
     @Test
+    public void testRegionParsingIsCaseInsensitive() throws UserException {
+        // The endpoint host is a DNS name, so the derived region must not depend on the case the
+        // user wrote.
+        S3URI oss = S3URI.create(
+                "https://my-bucket.OSS-CN-BEJING.ALIYUNCS.COM/resources/doc.txt", false, false);
+        Assertions.assertEquals("my-bucket", oss.getBucket());
+        Assertions.assertEquals("oss-cn-bejing", oss.getRegion().get());
+
+        S3URI aws = S3URI.create(
+                "https://my-bucket.S3.US-WEST-1.AMAZONAWS.COM/resources/doc.txt", false, false);
+        Assertions.assertEquals("us-west-1", aws.getRegion().get());
+    }
+
+    @Test
     public void testCOSVirtualHostStyle() throws UserException {
         String p1 = "https://my-bucket.cos.ap-beijing.myqcloud.com/resources/doc.txt";
         boolean isPathStyle = false;

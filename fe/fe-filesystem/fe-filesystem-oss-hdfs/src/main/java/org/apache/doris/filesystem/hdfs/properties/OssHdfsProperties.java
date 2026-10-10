@@ -179,6 +179,11 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
     /**
      * Cheap, deterministic detection of an OSS-HDFS configuration: an explicit {@code oss.hdfs.}
      * enable flag, or any endpoint key pointing at an {@code *.oss-dls.aliyuncs.com} host.
+     *
+     * <p>The endpoint is a DNS hostname, so the suffix check is case-insensitive: a mixed-case
+     * spelling such as {@code CN-BEIJING.OSS-DLS.ALIYUNCS.COM} must route to OSS-HDFS exactly
+     * like its lowercase form. (The sibling region extraction and DLF patterns already match
+     * case-insensitively.)
      */
     public static boolean guessIsMe(Map<String, String> props) {
         boolean enable = props.entrySet().stream()
@@ -189,7 +194,8 @@ public class OssHdfsProperties extends HdfsCompatibleProperties {
         }
         return OSS_ENDPOINT_KEY_NAME.stream()
                 .map(props::get)
-                .anyMatch(ep -> StringUtils.isNotBlank(ep) && ep.endsWith(OSS_HDFS_ENDPOINT_SUFFIX));
+                .anyMatch(ep -> StringUtils.isNotBlank(ep)
+                        && ep.toLowerCase(Locale.ROOT).endsWith(OSS_HDFS_ENDPOINT_SUFFIX));
     }
 
     static Optional<String> extractRegion(String endpoint) {
