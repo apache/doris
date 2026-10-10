@@ -19,6 +19,7 @@
 import copy
 import io
 import json
+import re
 import subprocess
 import tempfile
 import threading
@@ -138,6 +139,70 @@ class FinalReviewTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Another bot review"):
             self.submit()
         self.assertEqual(1, len(self.posts))
+
+    def test_rejected_submission_preserves_distinct_findings_and_reason(self):
+        self.reviews = [{"id": 98, "user": {"login": "github-actions[bot]"},
+                         "commit_id": self.run["head_sha"],
+                         "submitted_at": self.run["started_at"], "body": "A different finding"}]
+        for level in (1, 2):
+            with self.subTest(priority=level):
+                submission = self.submission(level)
+                with self.assertRaisesRegex(ValueError, "Another bot review") as error:
+                    self.submit(submission)
+                rejected = json.loads((self.context / submitter.REJECTION_FILE).read_text())
+                self.assertEqual(submission, rejected["submission"])
+                self.assertEqual(str(error.exception), rejected["reason"])
+                with self.assertRaisesRegex(ValueError, "Another bot review"):
+                    self.verify()
+        self.assertEqual([], self.posts)
+        self.assertFalse((self.context / submitter.SUBMISSION_FILE).exists())
+
+    def test_review_before_start_does_not_block_next_run(self):
+        self.reviews = [{"id": 98, "user": {"login": "github-actions[bot]"},
+                         "commit_id": self.run["head_sha"],
+                         "submitted_at": "2026-09-28T23:59:59Z", "body": "Earlier review"}]
+        self.assertEqual("failure", self.submit()["state"])
+        self.assertEqual(1, len(self.posts))
+        self.assertFalse((self.context / submitter.REJECTION_FILE).exists())
+
+    def test_verified_submission_takes_precedence_over_rejection(self):
+        submitter.write_json(self.context / submitter.REJECTION_FILE, {
+            "reason": "Earlier rejected candidate", "submission": self.submission(2),
+        })
+        result = self.submit()
+        self.assertEqual(result, self.verify())
+        self.assertEqual(1, len(self.posts))
+
+    def test_runner_reports_rejection_instead_of_missing_submission(self):
+        (self.context / "codex_goal_prompt.txt").write_text("Review the PR")
+        args = SimpleNamespace(context_dir=self.context, cwd=self.context, **{
+            k: self.run[k] for k in ("repository", "pr_number", "head_sha", "base_sha")
+        }, model="gpt-6-sol", effort="xhigh", budget_seconds=60)
+
+        def attempt(command, events, stderr, timeout, reaper=None):
+            run = json.loads((self.context / submitter.RUN_FILE).read_text())
+            self.reviews = [{"user": {"login": "github-actions[bot]"},
+                             "commit_id": run["head_sha"], "submitted_at": run["started_at"]}]
+            with self.assertRaisesRegex(ValueError, "Another bot review"):
+                submitter.verify_completion(self.context, run, self.remaining, submit=True,
+                                            submission=self.submission())
+            # The model can finish normally after the helper rejects its candidate.
+            events.write_text(json.dumps({"type": "thread.started", "thread_id":
+                "0199a213-81c0-7800-8aa1-bbab2a035a53"}) + "\n" +
+                json.dumps({"type": "turn.completed"}) + "\n")
+            stderr.write_text("")
+            return 0
+
+        with mock.patch.object(runner, "run_attempt", side_effect=attempt), \
+             mock.patch.object(runner, "check_resume_target") as guard, \
+             redirect_stderr(io.StringIO()):
+            self.assertEqual(1, runner.run_review(args))
+        guard.assert_not_called()
+        error = runner.read_events(self.context / "codex-events.jsonl")[-1]["error"]["message"]
+        self.assertIn("Another bot review", error)
+        self.assertNotIn("No final review submission", error)
+        self.assertEqual([], self.posts)
+        self.assertFalse((self.context / submitter.RESULT_FILE).exists())
 
     def test_simultaneous_helper_invocations_post_only_once(self):
         barrier = threading.Barrier(2, timeout=5)
@@ -294,6 +359,26 @@ class FinalReviewTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.submit(value)
         self.assertEqual([], self.posts)
+
+
+class ReviewWorkflowTest(unittest.TestCase):
+    def test_queue_is_per_pr_and_rejected_artifact_is_explicit(self):
+        workflow = (Path(__file__).resolve().parents[1] / "workflows/code-review-runner.yml").read_text()
+        review_job = workflow.split("  code-review:\n", 1)[1].split("  aggregate-status:", 1)[0]
+        concurrency = re.search(r"^    concurrency:\n((?:      .*\n)+)", review_job, re.MULTILINE)
+        self.assertIsNotNone(concurrency)
+        self.assertIn("github.event.issue.number || inputs.pr_number || github.run_id", concurrency[1])
+        self.assertIn("cancel-in-progress: false", concurrency[1])
+        self.assertIn("queue: max", concurrency[1])
+        self.assertNotIn("sha", concurrency[1])
+        self.assertNotRegex(workflow, r"(?m)^concurrency:")
+        artifact = review_job.split("      - name: Preserve rejected final review\n", 1)[1]
+        artifact = artifact.split("      - name:", 1)[0]
+        self.assertIn("always()", artifact)
+        self.assertIn("steps.review.outcome == 'failure'", artifact)
+        self.assertIn("path: ${{ env.REVIEW_CONTEXT_DIR }}/" + submitter.REJECTION_FILE, artifact)
+        self.assertIn("include-hidden-files: true", artifact)
+        self.assertIn("if-no-files-found: ignore", artifact)
 
 
 class GitHubAPITest(unittest.TestCase):

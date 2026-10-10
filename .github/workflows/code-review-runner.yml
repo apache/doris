@@ -193,13 +193,19 @@ jobs:
 
   code-review:
     runs-on: ubuntu-24.04
+    # Serialize actual reviews of a PR, including comment and dispatch triggers.
+    # Keep every pending request rather than replacing the previous queued job.
+    concurrency:
+      group: code-review-pr-${{ github.event.issue.number || inputs.pr_number || github.run_id }}
+      cancel-in-progress: false
+      queue: max
     outputs:
       base_sha: ${{ steps.review_inputs.outputs.base_sha }}
       head_sha: ${{ steps.review_inputs.outputs.head_sha }}
       manage_status: ${{ steps.review_inputs.outputs.manage_status }}
       pr_number: ${{ steps.review_inputs.outputs.pr_number }}
-    # Pre-finalization steps can use 218 minutes and auth sync can use 8 more,
-    # leaving 12 minutes for runner setup and post-job cleanup.
+    # Pre-finalization steps can use 220 minutes and auth sync can use 8 more,
+    # leaving 10 minutes for runner setup and post-job cleanup.
     timeout-minutes: 238
     if: >-
       inputs.runtime_canary != true &&
@@ -949,6 +955,19 @@ jobs:
           jq -er 'select(.state == "success" or .state == "failure") |
             "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)"' \
             "$REVIEW_CONTEXT_DIR/review-result.json" >> "$GITHUB_OUTPUT"
+
+      - name: Preserve rejected final review
+        if: ${{ always() && steps.review_context.outcome == 'success' && steps.review.outcome == 'failure' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: rejected-code-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REVIEW_CONTEXT_DIR }}/review-submission-rejected.json
+          # The context directory is hidden; include only the explicit JSON above.
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Record invalid Codex auth
         id: auth_invalid_record
