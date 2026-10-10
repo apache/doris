@@ -373,11 +373,33 @@ class JdbcZonedTimestampIntegrationTest {
         });
     }
 
+    @Test
+    void testOracleDriverIsIsolatedFromTestClasspath() throws Exception {
+        URL jar = oracle.jdbc.OracleDriver.class.getProtectionDomain().getCodeSource().getLocation();
+        try (URLClassLoader loader = createDriverClassLoader(jar, "oracle.jdbc.OracleDriver")) {
+            Class<?> selected = loader.loadClass("oracle.jdbc.OracleDriver");
+            Assertions.assertSame(loader, selected.getClassLoader());
+            Assertions.assertNotSame(oracle.jdbc.OracleDriver.class, selected);
+            Assertions.assertEquals(jar, selected.getProtectionDomain().getCodeSource().getLocation());
+            Assertions.assertTrue(Driver.class.isAssignableFrom(selected));
+        }
+    }
+
+    private URLClassLoader createDriverClassLoader(URL jar, String driverClass) {
+        // The Oracle mock dependency must not shadow the JAR selected for integration testing.
+        ClassLoader parent = driverClass.startsWith("oracle.")
+                ? Driver.class.getClassLoader() : getClass().getClassLoader();
+        return new URLClassLoader(new URL[] {jar}, parent);
+    }
+
     private void withDriver(String prefix, String driverClass, Check check) throws Exception {
         TimeZone original = TimeZone.getDefault();
         URL jar = new File(System.getProperty(prefix + ".integration.driverJar")).toURI().toURL();
-        try (URLClassLoader loader = new URLClassLoader(new URL[] {jar}, getClass().getClassLoader())) {
-            Driver driver = (Driver) loader.loadClass(driverClass).getDeclaredConstructor().newInstance();
+        try (URLClassLoader loader = createDriverClassLoader(jar, driverClass)) {
+            Class<?> selected = loader.loadClass(driverClass);
+            Assertions.assertEquals(jar, selected.getProtectionDomain().getCodeSource().getLocation(),
+                    "The integration test must load the configured driver JAR");
+            Driver driver = (Driver) selected.getDeclaredConstructor().newInstance();
             for (String zone : new String[] {"UTC", "Asia/Shanghai", "America/New_York"}) {
                 TimeZone.setDefault(TimeZone.getTimeZone(zone));
                 Properties properties = new Properties();

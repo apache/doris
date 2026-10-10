@@ -176,6 +176,43 @@ class JdbcQueryWrappingTest {
         Assertions.assertEquals(Arrays.asList("CAST(`ts` AS CHAR) AS `ts`", "`dt`"), columns.get(node));
     }
 
+    @Test
+    void clickHouseEscapedBackticksPreserveIdentifierContents() throws Exception {
+        assertClickHouseWrapped("SELECT ts, 1 AS `a\\`b` FROM t");
+        assertClickHouseWrapped("SELECT ts, 1 AS `a\\`;b` FROM t");
+    }
+
+    @Test
+    void clickHouseLineCommentsDoNotChangeQuoteState() throws Exception {
+        for (String marker : Arrays.asList("//", "///", "#!", "# ")) {
+            for (String newline : Arrays.asList("\n", "\r\n")) {
+                assertClickHouseWrapped("SELECT ts FROM t " + marker + " 'note ` ;" + newline);
+            }
+        }
+    }
+
+    @Test
+    void clickHouseHeredocsPreserveRawContents() throws Exception {
+        for (String literal : Arrays.asList("$h$foo'bar$h$", "$$'\\\"`; /* --$$",
+                "$tag_1$'text; $other$tag_1$", "$h$$h$")) {
+            assertClickHouseWrapped("SELECT ts FROM t WHERE length(" + literal + ") > 0");
+        }
+        // An interior statement delimiter must remain visible to the remote parser.
+        assertClickHouseWrapped("SELECT ts, $h$'raw$h$ FROM t; SELECT ts FROM t");
+    }
+
+    private void assertClickHouseWrapped(String query) throws Exception {
+        JdbcScanNode node = org.mockito.Mockito.mock(JdbcScanNode.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        set(node, "jdbcType", TOdbcTableType.CLICKHOUSE);
+        set(node, "projectsTimestamps", true);
+        set(node, "columns", Arrays.asList("toUnixTimestamp64Micro(ts) AS ts"));
+        set(node, "query", query + ";");
+        Method wrap = JdbcScanNode.class.getDeclaredMethod("getTvfQuery");
+        wrap.setAccessible(true);
+        Assertions.assertEquals("SELECT toUnixTimestamp64Micro(ts) AS ts FROM (" + query
+                + "\n) doris_jdbc_source", wrap.invoke(node));
+    }
+
     private static void set(Object target, String name, Object value) throws Exception {
         Field field = JdbcScanNode.class.getDeclaredField(name);
         field.setAccessible(true);

@@ -242,6 +242,11 @@ public class JdbcScanNode extends ExternalScanNode {
             char c = sql.charAt(i);
             if (Character.isWhitespace(c)) {
                 i++;
+            } else if (jdbcType == TOdbcTableType.CLICKHOUSE
+                    && (sql.startsWith("//", i) || sql.startsWith("#!", i) || sql.startsWith("# ", i))) {
+                // ClickHouse comments may contain unmatched quotes; their contents end only at LF.
+                int newline = sql.indexOf('\n', i + 2);
+                i = newline < 0 ? sql.length() : newline + 1;
             // MySQL's second dash needs a following whitespace/control character; --1 is arithmetic.
             } else if ((sql.startsWith("--", i) && (!mysql || (i + 2 < sql.length()
                     && (Character.isWhitespace(sql.charAt(i + 2)) || Character.isISOControl(sql.charAt(i + 2))))))
@@ -252,13 +257,18 @@ public class JdbcScanNode extends ExternalScanNode {
                 }
             } else if (sql.startsWith("/*", i)) {
                 i = skipBlockComment(sql, i, jdbcType == TOdbcTableType.CLICKHOUSE);
+            } else if (jdbcType == TOdbcTableType.CLICKHOUSE && c == '$') {
+                i = skipClickHouseHeredoc(sql, i);
+                delimiters.clear();
             } else if (c == '\'' || c == '"' || c == '`') {
                 char quote = c;
                 for (i++; i < sql.length(); i++) {
                     // ANSI_QUOTES makes double quotes identifiers, where backslashes never escape the closing quote.
                     // Both quoting modes belong to the remote session.
+                    // ClickHouse also permits backslash escapes inside backtick-quoted identifiers.
                     if (sql.charAt(i) == '\\' && !(mysql && noBackslashEscapes)
-                            && !(mysql && ansiQuotes && quote == '"') && quote != '`'
+                            && !(mysql && ansiQuotes && quote == '"')
+                            && (quote != '`' || jdbcType == TOdbcTableType.CLICKHOUSE)
                             && jdbcType != TOdbcTableType.TRINO && jdbcType != TOdbcTableType.PRESTO) {
                         i++;
                     } else if (sql.charAt(i) == quote) {
@@ -290,6 +300,28 @@ public class JdbcScanNode extends ExternalScanNode {
             result.deleteCharAt(delimiters.get(i));
         }
         return result.toString();
+    }
+
+    private static int skipClickHouseHeredoc(String sql, int start) {
+        // A dollar sign inside a bare identifier is not the beginning of a heredoc.
+        if (start > 0 && (isClickHouseWordCharacter(sql.charAt(start - 1)) || sql.charAt(start - 1) == '$')) {
+            return start + 1;
+        }
+        int tagEnd = start + 1;
+        while (tagEnd < sql.length() && isClickHouseWordCharacter(sql.charAt(tagEnd))) {
+            tagEnd++;
+        }
+        if (tagEnd == sql.length() || sql.charAt(tagEnd) != '$') {
+            return start + 1;
+        }
+        // Heredocs contain raw text: embedded quotes, comments and delimiters must not affect scanning.
+        String tag = sql.substring(start, tagEnd + 1);
+        int end = sql.indexOf(tag, tagEnd + 1);
+        return end < 0 ? start + 1 : end + tag.length();
+    }
+
+    private static boolean isClickHouseWordCharacter(char c) {
+        return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_';
     }
 
     private static int skipBlockComment(String sql, int start, boolean nested) {
