@@ -59,7 +59,9 @@ bool Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
         return false;
     }
 
-    if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
+    // Ordinary allocations use the inline process check; hierarchical checks and
+    // reservations use the MemoryLimit tree.
+    if (GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
         auto* thread_mem_ctx = doris::thread_context()->thread_mem_tracker_mgr.get();
         // Only thread attach task, and has not completely waited for thread_wait_gc_max_milliseconds,
         // will wait for gc. otherwise, if the outside will catch the exception, throwing an exception.
@@ -150,7 +152,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
                 // this may cause query to be cancelled more slowly, but it is not a major problem.
                 while (wait_milliseconds < doris::config::thread_wait_gc_max_milliseconds) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    if (!doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
+                    if (!GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
                         doris::GlobalMemoryArbitrator::refresh_interval_memory_growth += size;
                         break;
                     }
