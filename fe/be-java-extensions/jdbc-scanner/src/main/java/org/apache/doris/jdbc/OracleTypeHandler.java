@@ -19,6 +19,7 @@ package org.apache.doris.jdbc;
 
 import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.spi.vec.ColumnValueConverter;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
@@ -57,6 +58,16 @@ public class OracleTypeHandler extends DefaultTypeHandler {
             java.time.format.DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
     private static final Logger LOG = LoggerFactory.getLogger(OracleTypeHandler.class);
 
+    private final String[] sensitiveValues;
+
+    public OracleTypeHandler() {
+        this(new String[0]);
+    }
+
+    public OracleTypeHandler(String... sensitiveValues) {
+        this.sensitiveValues = sensitiveValues.clone();
+    }
+
     // Whether the JDBC driver supports JDBC 4.1 getObject(int, Class) method.
     // Determined at runtime from the driver version. Oracle ojdbc6 (< 12.2.0) does not.
     private boolean jdbc41Supported = true;
@@ -81,7 +92,8 @@ public class OracleTypeHandler extends DefaultTypeHandler {
                         + ", JDBC 4.1 supported: " + jdbc41Supported);
             }
         } catch (SQLException e) {
-            LOG.warn("Failed to detect Oracle driver version, assuming JDBC 4.1: " + e.getMessage());
+            LOG.warn("Failed to detect Oracle driver version, assuming JDBC 4.1: {}",
+                    JdbcExceptionUtils.format("", e, sensitiveValues));
         }
         versionDetected = true;
     }
@@ -271,7 +283,8 @@ public class OracleTypeHandler extends DefaultTypeHandler {
                         try {
                             return ((Clob) input).getSubString(1, (int) ((Clob) input).length());
                         } catch (SQLException e) {
-                            LOG.error("Failed to get string from clob", e);
+                            LOG.error("Failed to get string from clob: {}",
+                                    JdbcExceptionUtils.format("", e, sensitiveValues));
                             return null;
                         }
                     } else if (input instanceof byte[]) {

@@ -24,7 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.nereids.StatementContext;
 
 import java.util.Map;
@@ -90,7 +90,7 @@ public class ConnectContextUtil {
         } catch (DdlException e) {
             return Optional.of(Pair.of(e.getMysqlErrorCode(), e.getMessage()));
         } catch (Throwable t) {
-            return Optional.of(Pair.of(ErrorCode.ERR_INTERNAL_ERROR, Util.getRootCauseMessage(t)));
+            return Optional.of(Pair.of(ErrorCode.ERR_INTERNAL_ERROR, ExternalCatalog.initErrorMessage(t)));
         }
         ctx.getState().setOk();
         return Optional.empty();

@@ -54,7 +54,7 @@ public class JdbcOceanBaseClient extends JdbcClient {
                 throw new JdbcClientException("Failed to determine OceanBase compatibility mode");
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to initialize JdbcOceanBaseClient: %s", e.getMessage());
+            throw jdbcException("Failed to initialize JdbcOceanBaseClient", e);
         } finally {
             close(rs, stmt, conn);
             closeClient();

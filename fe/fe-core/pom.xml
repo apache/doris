@@ -153,6 +153,13 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- Shared, dependency-free Java 8 JDBC diagnostics, also used by the BE plugin. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>plugin-toolkit</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!--
           Completes the Jersey 1.x stack on the FE's own classpath. jersey-core arrives here
           transitively already, and both com.sun. and javax. are mandatory parent-first for every

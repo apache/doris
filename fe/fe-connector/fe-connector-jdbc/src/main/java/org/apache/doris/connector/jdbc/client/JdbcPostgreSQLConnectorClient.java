@@ -19,7 +19,6 @@ package org.apache.doris.connector.jdbc.client;
 
 import org.apache.doris.connector.jdbc.JdbcDbType;
 import org.apache.doris.connector.spi.ConnectorType;
-import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -91,7 +90,7 @@ public class JdbcPostgreSQLConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException(
+            throw jdbcException(
                     "Failed to get JDBC columns info for " + remoteDbName + "." + remoteTableName, e);
         } finally {
             closeResources(rs, conn);
@@ -280,7 +279,7 @@ public class JdbcPostgreSQLConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed to get row count for {}.{}: {}", dbName, tableName, e.getMessage());
+            LOG.warn("Failed to get row count for {}.{}: {}", dbName, tableName, jdbcDiagnosticMessage(e));
         }
         return -1;
     }

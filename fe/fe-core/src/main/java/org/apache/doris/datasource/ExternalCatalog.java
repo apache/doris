@@ -40,6 +40,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheBudgetManager;
+import org.apache.doris.connector.spi.DiagnosticException;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -75,6 +76,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -350,8 +353,13 @@ public abstract class ExternalCatalog
                 this.errorMsg = "";
             }
         } catch (Exception e) {
-            LOG.warn("failed to init catalog {}:{}", name, id, e);
-            this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
+            this.errorMsg = initErrorMessage(e);
+            String diagnosticTrace = initErrorStackTrace(e);
+            if (diagnosticTrace != null) {
+                LOG.warn("failed to init catalog {}:{}: {}", name, id, diagnosticTrace);
+            } else {
+                LOG.warn("failed to init catalog {}:{}", name, id);
+            }
             throw new RuntimeException("Failed to init catalog: " + name + ", error: " + this.errorMsg, e);
         } finally {
             isInitializing = false;
@@ -368,7 +376,30 @@ public abstract class ExternalCatalog
      * {@code alter catalog ... set properties} triggers {@link #resetToUninitialized(boolean)}.
      */
     protected void recordDeferredInitError(Throwable t) {
-        this.errorMsg = ExceptionUtils.getRootCauseMessage(t);
+        this.errorMsg = initErrorMessage(t);
+    }
+
+    public static String initErrorMessage(Throwable error) {
+        DiagnosticException diagnostic = findDiagnosticException(error);
+        return diagnostic == null ? ExceptionUtils.getRootCauseMessage(error) : diagnostic.getDiagnosticMessage();
+    }
+
+    @Nullable
+    public static String initErrorStackTrace(Throwable error) {
+        DiagnosticException diagnostic = findDiagnosticException(error);
+        return diagnostic == null ? null : diagnostic.getDiagnosticStackTrace(error);
+    }
+
+    @Nullable
+    private static DiagnosticException findDiagnosticException(Throwable error) {
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable current = error; current != null && visited.add(current); current = current.getCause()) {
+            if (current instanceof DiagnosticException
+                    && ((DiagnosticException) current).getDiagnosticMessage() != null) {
+                return (DiagnosticException) current;
+            }
+        }
+        return null;
     }
 
     protected final void initLocalObjects() {
@@ -740,7 +771,12 @@ public abstract class ExternalCatalog
             try {
                 return getDbNames();
             } catch (Exception e) {
-                LOG.warn("failed to get db names in catalog {}", getName(), e);
+                String diagnosticTrace = initErrorStackTrace(e);
+                if (diagnosticTrace != null) {
+                    LOG.warn("failed to get db names in catalog {}: {}", getName(), diagnosticTrace);
+                } else {
+                    LOG.warn("failed to get db names in catalog {}", getName());
+                }
                 return Lists.newArrayList();
             }
         } else {
@@ -763,7 +799,12 @@ public abstract class ExternalCatalog
         try {
             makeSureInitialized();
         } catch (Exception e) {
-            LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
+            String diagnosticTrace = initErrorStackTrace(e);
+            if (diagnosticTrace != null) {
+                LOG.warn("failed to get db {} in catalog {}: {}", dbName, name, diagnosticTrace);
+            } else {
+                LOG.warn("failed to get db {} in catalog {}", dbName, name);
+            }
             return null;
         }
 
@@ -845,7 +886,12 @@ public abstract class ExternalCatalog
         try {
             makeSureInitialized();
         } catch (Exception e) {
-            LOG.warn("failed to get db {} in catalog {}", dbId, name, e);
+            String diagnosticTrace = initErrorStackTrace(e);
+            if (diagnosticTrace != null) {
+                LOG.warn("failed to get db {} in catalog {}: {}", dbId, name, diagnosticTrace);
+            } else {
+                LOG.warn("failed to get db {} in catalog {}", dbId, name);
+            }
             return null;
         }
 
@@ -1086,13 +1132,25 @@ public abstract class ExternalCatalog
                     throw e; // Rethrow to let the caller handle this critical issue
                 } else {
                     // Any errors other than name conflicts, we default to not finding the database
-                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
+                    String diagnosticTrace = initErrorStackTrace(e);
+                    if (diagnosticTrace != null) {
+                        LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
+                                localDbName, diagnosticTrace);
+                    } else {
+                        LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName);
+                    }
                     return null;
                 }
             } catch (Exception e) {
                 // If connection failed, it will throw exception.
                 // ignore it and treat it as not exist.
-                LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
+                String diagnosticTrace = initErrorStackTrace(e);
+                if (diagnosticTrace != null) {
+                    LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
+                            localDbName, diagnosticTrace);
+                } else {
+                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName);
+                }
                 return null;
             }
         }

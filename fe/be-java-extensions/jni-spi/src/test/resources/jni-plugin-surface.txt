@@ -12,6 +12,8 @@
 # when fields, constructors, nested types and modifiers were added, and once when generic types,
 # throws clauses, each type's own declaration and compile-time constant VALUES were added while
 # java.lang.Enum's own members were dropped. The API was untouched both times.
+org.apache.doris.jni.spi.DiagnosticException#<type> interface [public,abstract]
+org.apache.doris.jni.spi.DiagnosticException#getDiagnosticStackTrace():java.lang.String [public,abstract]
 org.apache.doris.jni.spi.DorisPlugin#<type> interface [public,abstract]
 org.apache.doris.jni.spi.DorisPlugin#getScannerFactories():java.lang.Iterable<org.apache.doris.jni.spi.JniScannerFactory> [public]
 org.apache.doris.jni.spi.DorisPlugin#getUdfExecutorFactories():java.lang.Iterable<org.apache.doris.jni.spi.UdfExecutorFactory> [public]

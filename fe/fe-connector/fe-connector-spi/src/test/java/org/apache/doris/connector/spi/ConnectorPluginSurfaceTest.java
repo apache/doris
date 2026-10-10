@@ -87,12 +87,13 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 13 carries textual write-input semantics on ConnectorColumn.
+        // Major 13 adds the DiagnosticException opt-in and textual write-input semantics on ConnectorColumn.
         Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
+            DiagnosticException.class,
             ConnectorProvider.class,
             ConnectorContext.class,
             ConnectorSession.class,

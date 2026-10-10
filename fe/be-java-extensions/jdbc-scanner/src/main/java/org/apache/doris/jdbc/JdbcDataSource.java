@@ -101,7 +101,7 @@ public class JdbcDataSource {
                             + ", remaining: " + sourcesMap.size());
                 }
             } catch (Exception e) {
-                LOG.warn("failed to cleanup jdbc data source", e);
+                LOG.warn("failed to cleanup jdbc data source");
             }
         }, cleanupInterval, cleanupInterval, TimeUnit.MILLISECONDS);
         LOG.info("jdbc datasource cleanup task started, interval: " + cleanupInterval + "ms");

@@ -248,7 +248,7 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed to get row count for {}.{}: {}", dbName, tableName, e.getMessage());
+            LOG.warn("Failed to get row count for {}.{}: {}", dbName, tableName, jdbcDiagnosticMessage(e));
         }
         return -1;
     }
