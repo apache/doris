@@ -23,6 +23,9 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.SecurityDependencyContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.thrift.TExpr;
@@ -61,6 +64,7 @@ public class ShortCircuitQueryContext {
     public final String tableName;
     private final long fileCacheQueryLimitBytes;
     private final long partitionTopologyVersion;
+    private final SecurityDependencyContext securityDependencyContext;
 
     public final OlapScanNode scanNode;
     public final Queriable analzyedQuery;
@@ -87,6 +91,19 @@ public class ShortCircuitQueryContext {
     }
 
     public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery) throws TException {
+        this(planner, analzyedQuery,
+                planner instanceof NereidsPlanner ? ((NereidsPlanner) planner).getStatementContext() : null);
+    }
+
+    public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery,
+            StatementContext statementContext) throws TException {
+        this(planner, analzyedQuery,
+                statementContext == null ? null : statementContext.getSecurityDependencyContext());
+    }
+
+    @VisibleForTesting
+    public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery,
+            SecurityDependencyContext securityDependencyContext) throws TException {
         this.planner = planner;
         this.serializedDescTable = ByteString.copyFrom(
                 new TSerializer().serialize(DescriptorToThriftConverter.toThrift(planner.getDescTable())));
@@ -118,11 +135,13 @@ public class ShortCircuitQueryContext {
         this.schemaVersion = this.tbl.getBaseSchemaVersion();
         this.partitionTopologyVersion = this.tbl.getPartitionTopologyVersion();
         this.analzyedQuery = analzyedQuery;
+        this.securityDependencyContext = securityDependencyContext == null
+                ? null : securityDependencyContext.snapshotForShortCircuit();
     }
 
     @VisibleForTesting
     ShortCircuitQueryContext(OlapTable tbl, String tableName, int schemaVersion,
-            long fileCacheQueryLimitBytes) {
+            long fileCacheQueryLimitBytes, SecurityDependencyContext securityDependencyContext) {
         this.planner = null;
         this.serializedDescTable = ByteString.EMPTY;
         this.serializedOutputExpr = ByteString.EMPTY;
@@ -135,6 +154,7 @@ public class ShortCircuitQueryContext {
         this.partitionTopologyVersion = tbl.getPartitionTopologyVersion();
         this.scanNode = null;
         this.analzyedQuery = null;
+        this.securityDependencyContext = securityDependencyContext;
     }
 
     public boolean isReusable(ConnectContext ctx) {
@@ -142,7 +162,9 @@ public class ShortCircuitQueryContext {
                 && this.tbl.getBaseSchemaVersion() == this.schemaVersion
                 && Objects.equals(this.tableName, this.tbl.getName())
                 && this.fileCacheQueryLimitBytes == ctx.getSessionVariable().fileCacheQueryLimitBytes
-                && this.tbl.getPartitionTopologyVersion() == this.partitionTopologyVersion;
+                && this.tbl.getPartitionTopologyVersion() == this.partitionTopologyVersion
+                && securityDependencyContext != null
+                && securityDependencyContext.isValid(ctx);
     }
 
     public void sanitize() {
