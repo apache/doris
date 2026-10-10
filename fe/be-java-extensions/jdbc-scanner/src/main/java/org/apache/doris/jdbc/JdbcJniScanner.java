@@ -212,6 +212,9 @@ public class JdbcJniScanner extends JniScanner {
             }
         } catch (Exception e) {
             LOG.warn("JdbcJniScanner " + jdbcUrl + " open failed: " + e.getMessage(), e);
+            // BE never calls close() on a scanner whose open() failed, so whatever was acquired
+            // above has to be released here, above all the connection borrowed from the pool.
+            closeInternal();
             throw new IOException("JdbcJniScanner open failed: " + e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
@@ -309,27 +312,18 @@ public class JdbcJniScanner extends JniScanner {
         } catch (Exception e) {
             LOG.warn("JdbcJniScanner abort connection error: " + e.getMessage(), e);
         }
-        try {
-            if (resultSet != null && !resultSet.isClosed()) {
-                resultSet.close();
-            }
-            if (stmt != null && !stmt.isClosed()) {
-                stmt.close();
-            }
-            if (conn != null && !conn.isClosed()) {
-                conn.close();
-            }
-        } catch (Exception e) {
-            LOG.warn("JdbcJniScanner close error: " + e.getMessage(), e);
-        } finally {
-            resultSet = null;
-            stmt = null;
-            conn = null;
-            if (connectionPoolMinSize == 0 && hikariDataSource != null) {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap().remove(createCacheKey());
-                hikariDataSource = null;
-            }
+        // One by one, so that a result set or statement that fails to close, as it can once the
+        // connection was aborted above, does not keep the connection from going back to the pool.
+        JdbcResources.closeQuietly(resultSet, "JdbcJniScanner result set");
+        JdbcResources.closeQuietly(stmt, "JdbcJniScanner statement");
+        JdbcResources.closeQuietly(conn, "JdbcJniScanner connection");
+        resultSet = null;
+        stmt = null;
+        conn = null;
+        if (connectionPoolMinSize == 0 && hikariDataSource != null) {
+            hikariDataSource.close();
+            JdbcDataSource.getDataSource().getSourcesMap().remove(createCacheKey());
+            hikariDataSource = null;
         }
     }
 

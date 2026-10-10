@@ -133,6 +133,10 @@ public class JdbcJniWriter extends JniWriter {
             LOG.debug("JdbcJniWriter: Preparing insert statement: " + insertSql);
             preparedStatement = conn.prepareStatement(insertSql);
         } catch (Exception e) {
+            // BE never calls close() on a writer whose open() failed, so the connection borrowed
+            // from the pool has to be given back here. Nothing has been written, so nothing is
+            // committed.
+            releaseResources();
             throw new IOException("JdbcJniWriter open failed: " + e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
@@ -189,14 +193,26 @@ public class JdbcJniWriter extends JniWriter {
             }
             throw new IOException("JdbcJniWriter close failed: " + e.getMessage(), e);
         } finally {
-            preparedStatement = null;
-            conn = null;
-            if (connectionPoolMinSize == 0 && hikariDataSource != null) {
-                hikariDataSource.close();
-                JdbcDataSource.getDataSource().getSourcesMap()
-                        .remove(createCacheKey());
-                hikariDataSource = null;
-            }
+            // Still closes the connection when the commit or a close above failed. Otherwise
+            // it is never given back to the pool.
+            releaseResources();
+        }
+    }
+
+    /**
+     * Closes the statement and gives the connection back to the pool, whatever state they are
+     * in, without committing anything. Closing them again after a successful close is a no-op.
+     */
+    private void releaseResources() {
+        JdbcResources.closeQuietly(preparedStatement, "JdbcJniWriter statement");
+        JdbcResources.closeQuietly(conn, "JdbcJniWriter connection");
+        preparedStatement = null;
+        conn = null;
+        if (connectionPoolMinSize == 0 && hikariDataSource != null) {
+            hikariDataSource.close();
+            JdbcDataSource.getDataSource().getSourcesMap()
+                    .remove(createCacheKey());
+            hikariDataSource = null;
         }
     }
 
