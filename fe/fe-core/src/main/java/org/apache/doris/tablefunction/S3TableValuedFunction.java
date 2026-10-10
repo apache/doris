@@ -21,8 +21,10 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -40,6 +42,11 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "s3";
 
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        this(properties, null);
+    }
+
+    public S3TableValuedFunction(Map<String, String> properties, List<TBrokerFileStatus> files)
+            throws AnalysisException {
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
         this.storageAdapter = StorageAdapter.of(props);
@@ -47,12 +54,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         String uri = storageAdapter.validateAndGetUri(props);
         filePath = storageAdapter.validateAndNormalizeUri(uri);
         this.backendConnectProperties.put(URI_KEY, filePath);
-        if (FeConstants.runningUnitTest) {
-            // Just check
-            // Fixme wait to be done  #50320
-            // FileSystemFactory.get(storageProperties);
-        } else {
-            parseFile();
+        if (!FeConstants.runningUnitTest) {
+            parseFile(files);
+        } else if (files != null) {
+            this.fileStatuses.addAll(files);
         }
     }
 

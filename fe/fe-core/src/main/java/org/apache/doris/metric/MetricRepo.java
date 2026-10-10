@@ -101,6 +101,7 @@ public final class MetricRepo {
     public static final String STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT = "streaming_job_per_job_succeed_task_count";
     public static final String STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT = "streaming_job_per_job_failed_task_count";
     public static final String STREAMING_JOB_PER_JOB_LAG_BYTES = "streaming_job_per_job_lag_bytes";
+    public static final String STREAMING_JOB_PER_JOB_LAG_MESSAGES = "streaming_job_per_job_lag_messages";
     public static final String STREAMING_JOB_PER_JOB_LAST_SOURCE_EVENT_TIMESTAMP_SECONDS =
             "streaming_job_per_job_last_source_event_timestamp_seconds";
     public static final String STREAMING_JOB_PER_JOB_LAST_TASK_SUCCESS_TIME_SECONDS =
@@ -1396,6 +1397,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAG_BYTES);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAG_MESSAGES);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAST_SOURCE_EVENT_TIMESTAMP_SECONDS);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAST_TASK_SUCCESS_TIME_SECONDS);
 
@@ -1493,10 +1495,25 @@ public final class MetricRepo {
                         .addLabel(new MetricLabel("job_name", jobName));
                 DORIS_METRIC_REGISTER.addMetrics(lag);
 
+                long lagMessages = sJob.getLagMessages();
+                if (lagMessages >= 0) {
+                    GaugeMetric<Long> messageLag = new GaugeMetric<Long>(
+                            STREAMING_JOB_PER_JOB_LAG_MESSAGES, MetricUnit.NOUNIT,
+                            "last observed approximate visible message backlog, excluding in-flight messages") {
+                        @Override
+                        public Long getValue() {
+                            return lagMessages;
+                        }
+                    };
+                    messageLag.addLabel(new MetricLabel("job_id", jobId))
+                            .addLabel(new MetricLabel("job_name", jobName));
+                    DORIS_METRIC_REGISTER.addMetrics(messageLag);
+                }
+
                 long lastSourceEventTimestampSeconds = sJob.getLastSourceEventTimestampSeconds();
                 GaugeMetric<Long> lastSourceEventTimestamp = new GaugeMetric<Long>(
                         STREAMING_JOB_PER_JOB_LAST_SOURCE_EVENT_TIMESTAMP_SECONDS, MetricUnit.SECONDS,
-                        "timestamp of the latest source binlog or WAL event recorded in the job's committed offset"
+                        "source event timestamp of the latest committed batch"
                                 + " as Unix seconds, 0 means unavailable") {
                     @Override
                     public Long getValue() {

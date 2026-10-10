@@ -100,6 +100,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -186,6 +187,15 @@ public class InsertIntoTableCommand extends Command
 
     public LogicalPlan getLogicalQuery() {
         return logicalQuery.orElse(originLogicalQuery);
+    }
+
+    /** Rewrite the original query before planning, preserving INSERT options and the WITH clause. */
+    public InsertIntoTableCommand rewriteQuery(Function<Plan, Plan> rewrite) {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                (LogicalPlan) originLogicalQuery.rewriteUp(rewrite), labelName, insertCtx,
+                cte, needNormalizePlan, branchName);
+        command.setJobId(jobId);
+        return command;
     }
 
     public Optional<Plan> getParsedPlan() {
