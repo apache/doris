@@ -125,11 +125,14 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
             }
         }
         if (endpoint != null && !endpoint.isBlank()) {
-            return endpoint.contains("amazonaws.com");
+            // The endpoint is a DNS host: classify case-insensitively so an upper/mixed case
+            // spelling routes exactly like its lowercase form (intentional deviation from the
+            // legacy S3Properties.guessIsMe, which compared case-sensitively).
+            return StringUtils.containsIgnoreCase(endpoint, "amazonaws.com");
         }
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if ("uri".equalsIgnoreCase(entry.getKey()) && entry.getValue() != null) {
-                return entry.getValue().contains("amazonaws.com");
+                return StringUtils.containsIgnoreCase(entry.getValue(), "amazonaws.com");
             }
         }
         for (String name : GUESS_REGION_NAMES) {

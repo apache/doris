@@ -154,6 +154,17 @@ public class LocationPathTest {
     }
 
     @Test
+    public void testIsHdfsOnOssEndpointIsCaseInsensitive() {
+        // DORIS-29438: the oss-dls marker is a DNS hostname and must match case-insensitively.
+        Assertions.assertTrue(
+                LocationPath.isHdfsOnOssEndpoint("oss://bucket.cn-hangzhou.oss-dls.aliyuncs.com/path"));
+        Assertions.assertTrue(
+                LocationPath.isHdfsOnOssEndpoint("oss://bucket.CN-HANGZHOU.OSS-DLS.ALIYUNCS.COM/path"));
+        Assertions.assertFalse(
+                LocationPath.isHdfsOnOssEndpoint("oss://bucket.oss-cn-hangzhou.aliyuncs.com/path"));
+    }
+
+    @Test
     public void testCOSLocationConvert() {
         LocationPath locationPath = LocationPath.of("cos://test.com");
         // FE

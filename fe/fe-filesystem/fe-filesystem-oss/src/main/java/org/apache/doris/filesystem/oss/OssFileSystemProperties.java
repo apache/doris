@@ -397,9 +397,18 @@ public final class OssFileSystemProperties
         // rewritten to oss-<region>[-internal].aliyuncs.com. Guarded on a non-blank region:
         // with a blank region validate() throws first, exactly like fe-core.
         if (StringUtils.isNotBlank(region)
-                && (StringUtils.isBlank(endpoint) || !ENDPOINT_PATTERN.matcher(endpoint).matches())) {
+                && (StringUtils.isBlank(endpoint)
+                        || !ENDPOINT_PATTERN.matcher(endpoint.toLowerCase(Locale.ROOT)).matches())) {
             endpoint = getOssEndpoint(region, dlfPublicAccess);
         }
+        // The endpoint is a DNS host, so normalise the letter case: an upper/mixed case spelling
+        // must yield exactly the same effective endpoint as the lowercase one. Only the case can
+        // differ here — every value reaching this point is either the freshly built endpoint or a
+        // standard [s3.]oss-<region>[-internal].aliyuncs.com host, so there is no scheme, userinfo,
+        // port or path to damage. The case matters downstream: the BE converts an internal endpoint
+        // into the public one when signing a presigned URL by matching "-internal.aliyuncs.com"
+        // case-sensitively.
+        endpoint = endpoint.toLowerCase(Locale.ROOT);
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {

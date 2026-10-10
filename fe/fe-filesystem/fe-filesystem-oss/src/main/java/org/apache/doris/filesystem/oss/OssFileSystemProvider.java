@@ -71,10 +71,10 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
             return true;
         }
         String endpoint = firstPresent(properties, ENDPOINT_NAMES);
-        if (endpoint == null || !endpoint.contains("aliyuncs.com")) {
+        if (endpoint == null || !StringUtils.containsIgnoreCase(endpoint, "aliyuncs.com")) {
             return false;
         }
-        return !endpoint.contains(OSS_HDFS_ENDPOINT_MARKER);
+        return !StringUtils.containsIgnoreCase(endpoint, OSS_HDFS_ENDPOINT_MARKER);
     }
 
     @Override
@@ -103,10 +103,10 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
         // Port of fe-core OSSProperties.guessIsMe on raw props.
         String value = firstNonNull(properties, GUESS_ENDPOINT_NAMES);
         if (value != null && !value.isBlank()) {
-            if (value.contains("oss-dls.aliyuncs")) {
+            if (StringUtils.containsIgnoreCase(value, "oss-dls.aliyuncs")) {
                 return false;
             }
-            return value.contains("aliyuncs.com");
+            return StringUtils.containsIgnoreCase(value, "aliyuncs.com");
         }
         String region = properties.get("oss.region");
         if (region != null && !region.isBlank()) {
@@ -137,13 +137,14 @@ public class OssFileSystemProvider implements FileSystemProvider<OssFileSystemPr
     }
 
     private static boolean isKnownOssLocation(String value) {
-        if (value == null || value.contains("oss-dls.aliyuncs")) {
+        if (value == null || StringUtils.containsIgnoreCase(value, "oss-dls.aliyuncs")) {
             return false;
         }
-        if (value.startsWith("oss://")) {
+        if (StringUtils.startsWithIgnoreCase(value, "oss://")) {
             return true;
         }
-        return value.contains("aliyuncs.com") && (value.contains("oss-") || value.contains("s3."));
+        return StringUtils.containsIgnoreCase(value, "aliyuncs.com")
+                && (StringUtils.containsIgnoreCase(value, "oss-") || StringUtils.containsIgnoreCase(value, "s3."));
     }
 
     @Override

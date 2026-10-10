@@ -90,4 +90,22 @@ class OssFileSystemProviderTest {
         props.put("fs.oss.support", "true");
         Assertions.assertFalse(provider.supports(props));
     }
+
+    /**
+     * Endpoint classification is DNS-hostname based and must be case-insensitive: a mixed-case
+     * OSS-DLS endpoint still belongs to OSS-HDFS, and a mixed-case plain Aliyun endpoint is still
+     * native OSS (DORIS-29438).
+     */
+    @Test
+    void endpointClassificationIsCaseInsensitive() {
+        Map<String, String> mixedCaseDls = new HashMap<>();
+        mixedCaseDls.put("fs.oss.endpoint", "CN-BEIJING.OSS-DLS.ALIYUNCS.COM");
+        Assertions.assertFalse(provider.supports(mixedCaseDls), mixedCaseDls.toString());
+        Assertions.assertFalse(provider.supportsGuess(mixedCaseDls), mixedCaseDls.toString());
+
+        Map<String, String> mixedCasePlain = new HashMap<>();
+        mixedCasePlain.put("oss.endpoint", "OSS-CN-BEIJING.ALIYUNCS.COM");
+        Assertions.assertTrue(provider.supports(mixedCasePlain), mixedCasePlain.toString());
+        Assertions.assertTrue(provider.supportsGuess(mixedCasePlain), mixedCasePlain.toString());
+    }
 }

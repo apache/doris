@@ -24,6 +24,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -191,8 +192,11 @@ public final class S3ResourceCompat {
             // if endpoint contains '192.168.0.1:8999', return null region
             return null;
         }
-        String[] endpointSplit = endpoint.replace("http://", "")
-                .replace("https://", "")
+        // The endpoint is a DNS host: normalise case and the scheme prefix (schemes are
+        // case-insensitive too) first, so an upper/mixed case spelling yields the same region as
+        // the lowercase one.
+        String[] endpointSplit = endpoint.toLowerCase(Locale.ROOT)
+                .replaceFirst("^https?://", "")
                 .split("\\.");
         if (endpointSplit.length < 2) {
             return null;
