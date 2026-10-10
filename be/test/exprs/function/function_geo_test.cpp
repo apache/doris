@@ -25,8 +25,11 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/assert_cast.h"
+#include "core/column/column_spatial.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_string.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
@@ -93,7 +96,6 @@ TEST(VGeoFunctionsTest, function_geo_st_as_text) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
-
 
 TEST(VGeoFunctionsTest, function_geo_st_as_text_with_spatial_wkb) {
     const std::string wkb(
