@@ -726,6 +726,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 iterator.remove();
+                removeRuntimeInfo(tableId);
                 continue;
             }
 
@@ -743,6 +744,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             || !olapTable.getTableProperty().getDynamicPartitionProperty().getEnable())
                     && olapTable.getPartitionRetentionCount() <= 0) {
                 iterator.remove();
+                removeRuntimeInfo(tableId);
                 continue;
             } else if (olapTable.isBeingSynced()) {
                 continue;
