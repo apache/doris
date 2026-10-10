@@ -225,11 +225,6 @@ public:
 
 private:
     void _do_hash(const ColumnPtr& column, HashValType* __restrict result, int idx) const override;
-
-    void _initialize_hash_vals(size_t rows) const override {
-        _hash_vals.resize(rows);
-        std::ranges::fill(_hash_vals, 0);
-    }
 };
 
 /// Instantiated once in partitioner.cpp; suppresses per-TU implicit instantiation.
