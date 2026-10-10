@@ -307,3 +307,11 @@ Iceberg V3 schema
 
 - 阶段 4（WKB/Arrow/Parquet 读写与空间函数）和阶段 5（回归、兼容性、PR 收敛）尚未完成；在 BE 依赖可构建前不继续扩展 writer/reader 代码，避免形成无法验证的半成品。
 - 交付前必须补充：GEOMETRY/GEOGRAPHY 的 CRS/algorithm 端到端传递、嵌套类型边界、WKB/EWKB/SRID 校验、Arrow/Parquet 双向测试、NULL/无效输入语义，以及 master 上的回归测试与 PR 说明。
+
+## 执行记录：阶段 3/4（继续推进）
+
+- ConnectorType 现已携带 `spatialCrs` / `spatialAlgorithm`；Iceberg 读取、Doris 转换、Iceberg 写入可保留自定义 CRS 和边插值算法，不再只使用默认 CRS。
+- V1/V2 Parquet schema descriptor 已把 GEOMETRY/GEOGRAPHY annotation 转为 `DataTypeSpatial`，默认值分别为 `OGC:CRS84`、`spherical`，并保留显式 annotation 元数据；DataTypeSpatial 的 protobuf 序列化也已补齐。
+- FE 构建成功；IcebergTypeMappingReadTest 13/13 通过；BE header hygiene 通过。
+- BE 完整构建仍未进入 CMake 编译：`build.sh` 的 submodule 准备阶段对已解包的 apache-orc 目录反复尝试 clone/下载，clucene 也未完成初始化。该依赖问题与源码编译结论分开记录，不能把本次 BE 构建视为通过。
+- clang-format 检查未执行成功，环境提供的 clang-format 不是 v16；已保留该验证缺口，不能宣称 C++ 格式检查通过。

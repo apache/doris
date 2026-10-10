@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.iceberg.types.EdgeAlgorithm;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
@@ -127,9 +128,12 @@ public final class IcebergTypeMapping {
                 // Preserve logical UUID semantics independently of the binary mapping option.
                 return ConnectorType.of("UUID");
             case GEOMETRY:
-                return ConnectorType.of("GEOMETRY");
+                return ConnectorType.of("GEOMETRY").withSpatialMetadata(
+                        ((Types.GeometryType) primitive).crs(), null);
             case GEOGRAPHY:
-                return ConnectorType.of("GEOGRAPHY");
+                Types.GeographyType geography = (Types.GeographyType) primitive;
+                return ConnectorType.of("GEOGRAPHY").withSpatialMetadata(
+                        geography.crs(), geography.algorithm().toString().toLowerCase(Locale.ROOT));
             case BINARY:
                 // Iceberg BINARY is unbounded. Emit VARBINARY with NO explicit length so
                 // ConnectorColumnConverter applies ScalarType.MAX_VARBINARY_LENGTH — byte-identical to
@@ -189,9 +193,13 @@ public final class IcebergTypeMapping {
             case "UUID":
                 return Types.UUIDType.get();
             case "GEOMETRY":
-                return Types.GeometryType.crs84();
+                return type.getSpatialCrs() == null
+                        ? Types.GeometryType.crs84() : Types.GeometryType.of(type.getSpatialCrs());
             case "GEOGRAPHY":
-                return Types.GeographyType.crs84();
+                String crs = type.getSpatialCrs() == null ? Types.GeographyType.DEFAULT_CRS : type.getSpatialCrs();
+                String algorithm = type.getSpatialAlgorithm() == null
+                        ? EdgeAlgorithm.SPHERICAL.toString() : type.getSpatialAlgorithm();
+                return Types.GeographyType.of(crs, EdgeAlgorithm.fromName(algorithm));
             case "BOOLEAN":
                 return Types.BooleanType.get();
             case "INT":
