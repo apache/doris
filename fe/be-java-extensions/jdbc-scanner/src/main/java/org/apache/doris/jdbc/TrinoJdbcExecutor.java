@@ -42,6 +42,10 @@ import java.util.List;
 public class TrinoJdbcExecutor extends BaseJdbcExecutor {
     private static final DateTimeFormatter TIMESTAMP_TZ_WRITE_FORMATTER =
             DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
+    private static final DateTimeFormatter ARRAY_TIMESTAMP_FORMATTER = new java.time.format.DateTimeFormatterBuilder()
+            .appendPattern("uuuu-MM-dd HH:mm:ss")
+            .appendFraction(java.time.temporal.ChronoField.NANO_OF_SECOND, 0, 9, true)
+            .appendLiteral(' ').appendZoneOrOffsetId().toFormatter();
 
     public TrinoJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
@@ -49,6 +53,11 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
 
     @Override
     protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
+        if (config != null && config.getTableType() == org.apache.doris.thrift.TOdbcTableType.PRESTO) {
+            // PrestoDB requires VARCHAR plus a server-side cast; its driver rejects JDBC type 2014.
+            preparedStatement.setString(parameterIndex, value.format(TIMESTAMP_TZ_WRITE_FORMATTER) + " UTC");
+            return;
+        }
         // Trino/Presto require a string for typed zoned binds; Timestamp drops the zone and sub-millisecond digits.
         preparedStatement.setObject(parameterIndex, value.format(TIMESTAMP_TZ_WRITE_FORMATTER) + " UTC",
                 Types.TIMESTAMP_WITH_TIMEZONE);
@@ -57,7 +66,9 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
     @Override
     protected void setTimestampTzNull(int parameterIndex) throws SQLException {
         // These drivers reject TIMESTAMP_WITH_TIMEZONE in setNull; SQL NULL is coerced by the target column.
-        preparedStatement.setNull(parameterIndex, Types.NULL);
+        preparedStatement.setNull(parameterIndex,
+                config != null && config.getTableType() == org.apache.doris.thrift.TOdbcTableType.PRESTO
+                        ? Types.VARCHAR : Types.NULL);
     }
 
     @Override
@@ -79,6 +90,11 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
         switch (type.getType()) {
             case TIMESTAMPTZ: {
+                if (config != null && config.getTableType() == org.apache.doris.thrift.TOdbcTableType.PRESTO) {
+                    // PrestoDB does not implement typed getObject for zoned timestamps.
+                    Timestamp value = resultSet.getTimestamp(columnIndex + 1);
+                    return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
+                }
                 // JdbcScanNode projects to UTC before the driver can lose a named-zone overlap offset.
                 // JNI carries instants as UTC components, not the source zone's wall clock.
                 ZonedDateTime value = resultSet.getObject(columnIndex + 1, ZonedDateTime.class);
@@ -167,7 +183,7 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
                 // Trino JDBC exposes timestamp-with-zone array elements as java.sql.Timestamp.
                 for (Object element : array) {
                     result.add(element == null ? null
-                            : LocalDateTime.ofInstant(((Timestamp) element).toInstant(), ZoneOffset.UTC));
+                            : convertTimestampTzArrayElement(element));
                 }
                 return result;
             }
@@ -195,4 +211,16 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
                 return array;
         }
     }
+
+    private static LocalDateTime convertTimestampTzArrayElement(Object element) {
+        // PrestoDB returns zoned text for arrays, whereas Trino returns Timestamp objects.
+        java.time.Instant instant;
+        if (element instanceof String) {
+            instant = ZonedDateTime.parse((String) element, ARRAY_TIMESTAMP_FORMATTER).toInstant();
+        } else {
+            instant = ((Timestamp) element).toInstant();
+        }
+        return LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+    }
+
 }

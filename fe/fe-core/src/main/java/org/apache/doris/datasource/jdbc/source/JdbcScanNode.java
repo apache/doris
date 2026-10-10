@@ -70,6 +70,7 @@ public class JdbcScanNode extends ExternalScanNode {
     private boolean isTableValuedFunction = false;
     private String query = "";
     private boolean projectsTimestamps;
+    private java.util.Set<String> mysqlSqlMode;
 
     private JdbcTable tbl;
     private long catalogId;
@@ -165,7 +166,12 @@ public class JdbcScanNode extends ExternalScanNode {
             while (leaf.isArrayType()) {
                 leaf = ((ArrayType) leaf).getItemType();
             }
-            if (jdbcType == TOdbcTableType.CLICKHOUSE && leaf.isTimeStampTz()) {
+            if ((jdbcType == TOdbcTableType.MYSQL || jdbcType == TOdbcTableType.OCEANBASE)
+                    && col.getType().isTimeStampTz()) {
+                // Text projection prevents Connector/J's cached server zone from shifting UTC session fields.
+                columns.add("CAST(" + remoteName + " AS CHAR) AS " + remoteName);
+                projectsTimestamps = true;
+            } else if (jdbcType == TOdbcTableType.CLICKHOUSE && leaf.isTimeStampTz()) {
                 // JDBC v1 loses the offset at DST overlaps, including for scalar ZonedDateTime.
                 // Send epoch microseconds for both scalar and nested instants before JDBC decoding.
                 columns.add(clickHouseTimestampProjection(remoteName, col.getType(), 0) + " AS " + remoteName);
@@ -213,12 +219,182 @@ public class JdbcScanNode extends ExternalScanNode {
         if (!projectsTimestamps) {
             return query;
         }
-        String source = query.trim();
-        if (source.endsWith(";")) {
-            source = source.substring(0, source.length() - 1);
+        boolean mysql = jdbcType == TOdbcTableType.MYSQL || jdbcType == TOdbcTableType.OCEANBASE;
+        if (mysql && mysqlSqlMode == null) {
+            // Resolve only for wrapped MySQL queries and reuse the result for EXPLAIN and scan serialization.
+            org.apache.doris.datasource.jdbc.JdbcExternalCatalog catalog =
+                    (org.apache.doris.datasource.jdbc.JdbcExternalCatalog) org.apache.doris.catalog.Env
+                            .getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+            mysqlSqlMode = catalog.getJdbcClient().getSessionSqlMode();
         }
-        return "SELECT " + Joiner.on(", ").join(columns) + " FROM (" + source + ") doris_jdbc_source";
+        String source = stripTerminalDelimiter(query.trim(),
+                mysql && mysqlSqlMode.contains("NO_BACKSLASH_ESCAPES"), mysql && mysqlSqlMode.contains("ANSI_QUOTES"));
+        // WITH SESSION must stay outside the derived table; terminate trailing line comments with a newline.
+        int start = jdbcType == TOdbcTableType.TRINO ? trinoSessionQueryStart(source) : 0;
+        return source.substring(0, start) + "SELECT " + Joiner.on(", ").join(columns)
+                + " FROM (" + source.substring(start) + "\n) doris_jdbc_source";
     }
+
+    private String stripTerminalDelimiter(String sql, boolean noBackslashEscapes, boolean ansiQuotes) {
+        boolean mysql = jdbcType == TOdbcTableType.MYSQL || jdbcType == TOdbcTableType.OCEANBASE;
+        List<Integer> delimiters = new java.util.ArrayList<>();
+        for (int i = 0; i < sql.length();) {
+            char c = sql.charAt(i);
+            if (Character.isWhitespace(c)) {
+                i++;
+            } else if (jdbcType == TOdbcTableType.CLICKHOUSE
+                    && (sql.startsWith("//", i) || sql.startsWith("#!", i) || sql.startsWith("# ", i))) {
+                // ClickHouse comments may contain unmatched quotes; their contents end only at LF.
+                int newline = sql.indexOf('\n', i + 2);
+                i = newline < 0 ? sql.length() : newline + 1;
+            // MySQL's second dash needs a following whitespace/control character; --1 is arithmetic.
+            } else if ((sql.startsWith("--", i) && (!mysql || (i + 2 < sql.length()
+                    && (Character.isWhitespace(sql.charAt(i + 2)) || Character.isISOControl(sql.charAt(i + 2))))))
+                    || (c == '#'
+                    && (jdbcType == TOdbcTableType.MYSQL || jdbcType == TOdbcTableType.OCEANBASE))) {
+                while (i < sql.length() && sql.charAt(i) != '\n' && sql.charAt(i) != '\r') {
+                    i++;
+                }
+            } else if (sql.startsWith("/*", i)) {
+                i = skipBlockComment(sql, i, jdbcType == TOdbcTableType.CLICKHOUSE);
+            } else if (jdbcType == TOdbcTableType.CLICKHOUSE && c == '$') {
+                i = skipClickHouseHeredoc(sql, i);
+                delimiters.clear();
+            } else if (c == '\'' || c == '"' || c == '`') {
+                char quote = c;
+                for (i++; i < sql.length(); i++) {
+                    // ANSI_QUOTES makes double quotes identifiers, where backslashes never escape the closing quote.
+                    // Both quoting modes belong to the remote session.
+                    // ClickHouse also permits backslash escapes inside backtick-quoted identifiers.
+                    if (sql.charAt(i) == '\\' && !(mysql && noBackslashEscapes)
+                            && !(mysql && ansiQuotes && quote == '"')
+                            && (quote != '`' || jdbcType == TOdbcTableType.CLICKHOUSE)
+                            && jdbcType != TOdbcTableType.TRINO && jdbcType != TOdbcTableType.PRESTO) {
+                        i++;
+                    } else if (sql.charAt(i) == quote) {
+                        if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
+                            i++;
+                        } else {
+                            i++;
+                            break;
+                        }
+                    }
+                }
+                delimiters.clear();
+            } else {
+                if (c == ';') {
+                    delimiters.add(i);
+                } else {
+                    delimiters.clear();
+                }
+                i++;
+            }
+        }
+        // A statement delimiter may precede trailing comments, which must stay outside SQL literals.
+        // Remove only the terminal delimiter run; interior delimiters still fail as multi-statements.
+        if (delimiters.isEmpty()) {
+            return sql;
+        }
+        StringBuilder result = new StringBuilder(sql);
+        for (int i = delimiters.size() - 1; i >= 0; i--) {
+            result.deleteCharAt(delimiters.get(i));
+        }
+        return result.toString();
+    }
+
+    private static int skipClickHouseHeredoc(String sql, int start) {
+        // A dollar sign inside a bare identifier is not the beginning of a heredoc.
+        if (start > 0 && (isClickHouseWordCharacter(sql.charAt(start - 1)) || sql.charAt(start - 1) == '$')) {
+            return start + 1;
+        }
+        int tagEnd = start + 1;
+        while (tagEnd < sql.length() && isClickHouseWordCharacter(sql.charAt(tagEnd))) {
+            tagEnd++;
+        }
+        if (tagEnd == sql.length() || sql.charAt(tagEnd) != '$') {
+            return start + 1;
+        }
+        // Heredocs contain raw text: embedded quotes, comments and delimiters must not affect scanning.
+        String tag = sql.substring(start, tagEnd + 1);
+        int end = sql.indexOf(tag, tagEnd + 1);
+        return end < 0 ? start + 1 : end + tag.length();
+    }
+
+    private static boolean isClickHouseWordCharacter(char c) {
+        return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_';
+    }
+
+    private static int skipBlockComment(String sql, int start, boolean nested) {
+        // Trino, Presto and MySQL end at the first closing marker; ClickHouse permits nested comments.
+        int depth = 1;
+        int i = start + 2;
+        while (i < sql.length() && depth > 0) {
+            if (nested && sql.startsWith("/*", i)) {
+                depth++;
+                i += 2;
+            } else if (sql.startsWith("*/", i)) {
+                depth--;
+                i += 2;
+            } else {
+                i++;
+            }
+        }
+        return i;
+    }
+
+    private static int trinoSessionQueryStart(String sql) {
+        int depth = 0;
+        int prefixWords = 0;
+        for (int i = 0; i < sql.length();) {
+            char c = sql.charAt(i);
+            if (c == '\'' || c == '"') {
+                char quote = c;
+                for (i++; i < sql.length(); i++) {
+                    if (sql.charAt(i) == quote) {
+                        if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
+                            i++;
+                        } else {
+                            i++;
+                            break;
+                        }
+                    }
+                }
+            } else if (sql.startsWith("--", i)) {
+                int newline = sql.indexOf('\n', i + 2);
+                i = newline < 0 ? sql.length() : newline + 1;
+            } else if (sql.startsWith("/*", i)) {
+                i = skipBlockComment(sql, i, false);
+            } else if (c == '(') {
+                depth++;
+                i++;
+            } else if (c == ')') {
+                depth--;
+                i++;
+            } else if (Character.isLetterOrDigit(c) || c == '_') {
+                int start = i++;
+                while (i < sql.length() && (Character.isLetterOrDigit(sql.charAt(i)) || sql.charAt(i) == '_')) {
+                    i++;
+                }
+                if (depth != 0) {
+                    continue;
+                }
+                String word = sql.substring(start, i);
+                if (prefixWords < 2) {
+                    if (!word.equalsIgnoreCase(prefixWords == 0 ? "WITH" : "SESSION")) {
+                        return 0;
+                    }
+                    prefixWords++;
+                } else if (word.equalsIgnoreCase("SELECT") || word.equalsIgnoreCase("WITH")
+                        || word.equalsIgnoreCase("TABLE") || word.equalsIgnoreCase("VALUES")) {
+                    return start;
+                }
+            } else {
+                i++;
+            }
+        }
+        return 0;
+    }
+
 
     private String getJdbcQueryStr() {
         StringBuilder sql = new StringBuilder("SELECT ");
