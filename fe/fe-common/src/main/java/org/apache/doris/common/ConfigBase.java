@@ -220,6 +220,29 @@ public class ConfigBase {
         return value;
     }
 
+    // Mask by config name, for callers that hold the key rather than the field -- the config
+    // update API renders the keys it was handed, including keys that name no config at all.
+    // An unknown key names no config, so it holds no config secret and is returned unchanged.
+    public static String maskIfSensitive(String confKey, String value) {
+        Field field = findField(confKey);
+        return field == null ? value : maskIfSensitive(field, value);
+    }
+
+    // Current value of the named config in its string form, or an empty string if there is no
+    // such config. Not masked: a caller that logs it has to mask it.
+    public static String getConfValue(String confKey) {
+        Field field = findField(confKey);
+        return field == null ? "" : getConfValue(field);
+    }
+
+    private static Field findField(String confKey) {
+        Field field = confFields == null ? null : confFields.get(confKey);
+        if (field == null && ldapConfFields != null) {
+            field = ldapConfFields.get(confKey);
+        }
+        return field;
+    }
+
     public static HashMap<String, String> dump() {
         HashMap<String, String> map = new HashMap<>();
         Field[] fields = confClass.getFields();
