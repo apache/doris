@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.load;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -26,8 +27,38 @@ import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class NereidsStreamLoadTaskTest {
+    @Test
+    public void testMultiTableBaseTaskCopiesJsonProperties() throws Exception {
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setLoadId(new TUniqueId(1, 2));
+        request.setTxnId(3);
+        request.setFileType(TFileType.FILE_STREAM);
+        request.setFormatType(TFileFormatType.FORMAT_JSON);
+        request.setCompressType(TFileCompressType.PLAIN);
+
+        NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
+        LoadTaskInfo routineLoadTask = Mockito.mock(LoadTaskInfo.class);
+        Mockito.when(routineLoadTask.getFormatType()).thenReturn(TFileFormatType.FORMAT_JSON);
+        Mockito.when(routineLoadTask.getJsonPaths()).thenReturn(
+                "[\"$.meta.id\", \"$.meta.ts\", \"$.value.score\", \"$.value.region\"]");
+        Mockito.when(routineLoadTask.getJsonRoot()).thenReturn("$.payload.items");
+        Mockito.when(routineLoadTask.isStripOuterArray()).thenReturn(true);
+        Mockito.when(routineLoadTask.isNumAsString()).thenReturn(true);
+
+        streamLoadTask.setMultiTableBaseTaskInfo(routineLoadTask);
+
+        Assertions.assertEquals(TFileFormatType.FORMAT_JSON, streamLoadTask.getFormatType());
+        Assertions.assertEquals(
+                "[\"$.meta.id\", \"$.meta.ts\", \"$.value.score\", \"$.value.region\"]",
+                streamLoadTask.getJsonPaths());
+        Assertions.assertEquals("$.payload.items", streamLoadTask.getJsonRoot());
+        Assertions.assertTrue(streamLoadTask.isStripOuterArray());
+        Assertions.assertTrue(streamLoadTask.isNumAsString());
+    }
+
     @Test
     public void testDefaultSendBatchParallelism() throws UserException {
         Assertions.assertEquals(1,
