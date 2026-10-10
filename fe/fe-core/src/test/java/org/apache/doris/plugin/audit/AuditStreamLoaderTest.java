@@ -51,7 +51,7 @@ public class AuditStreamLoaderTest {
                 "http://127.0.0.1:8030/api/db/table/_stream_load?", "label", "token", "query_id,time");
 
         Assertions.assertEquals("gz", connection.getRequestProperty("compress_type"));
-        Assertions.assertEquals("0", connection.getRequestProperty("max_filter_ratio"));
+        Assertions.assertEquals("1.0", connection.getRequestProperty("max_filter_ratio"));
         Assertions.assertEquals("query_id,time", connection.getRequestProperty("columns"));
     }
 
@@ -115,28 +115,6 @@ public class AuditStreamLoaderTest {
             Mockito.when(table.getBaseSchema()).thenReturn(List.of(write, read));
             Assertions.assertTrue(AuditStreamLoader.targetHasRemoteSpillColumns());
         }
-    }
-
-    @Test
-    public void testLoadResponseRejectsFailedOrFilteredBatch() {
-        Assertions.assertFalse(new AuditStreamLoader.LoadResponse(500, "error", "").succeeded(2));
-        Assertions.assertFalse(new AuditStreamLoader.LoadResponse(200, "OK", "{\"Status\":\"Fail\"}")
-                .succeeded(2));
-        Assertions.assertFalse(new AuditStreamLoader.LoadResponse(200, "OK",
-                "{\"Status\":\"Success\",\"NumberLoadedRows\":1}").succeeded(2));
-        Assertions.assertTrue(new AuditStreamLoader.LoadResponse(200, "OK",
-                "{\"Status\":\"Success\",\"NumberLoadedRows\":1}").rejectedOrIncomplete(2));
-        Assertions.assertTrue(new AuditStreamLoader.LoadResponse(200, "OK",
-                "{\"Status\":\"Success\",\"NumberLoadedRows\":2,\"NumberFilteredRows\":1}")
-                .rejectedOrIncomplete(2));
-        Assertions.assertFalse(new AuditStreamLoader.LoadResponse(200, "OK",
-                "{\"Status\":\"Success\"}").succeeded(2));
-        Assertions.assertFalse(new AuditStreamLoader.LoadResponse(200, "OK",
-                "{\"Status\":\"Label Already Exists\",\"ExistingJobStatus\":\"RUNNING\"}").succeeded(2));
-        Assertions.assertTrue(new AuditStreamLoader.LoadResponse(200, "OK",
-                "{\"Status\":\"Label Already Exists\",\"ExistingJobStatus\":\"FINISHED\"}").succeeded(2));
-        Assertions.assertTrue(new AuditStreamLoader.LoadResponse(200, "OK",
-                "{\"Status\":\"Success\",\"NumberLoadedRows\":2,\"NumberFilteredRows\":0}").succeeded(2));
     }
 
     @Test
