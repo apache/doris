@@ -345,9 +345,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try {
             return executeCatalogOperation(() -> performCreateTable(createTableInfo));
         } catch (Exception e) {
+            // Metadata writes can be wrapped by a self-suppression error; expose the underlying failure.
             throw new DdlException(
-                "Failed to create table: " + createTableInfo.getTableName() + ", error message is:" + e.getMessage(),
-                    e);
+                    "Failed to create table: " + createTableInfo.getTableName() + ", error message is:"
+                        + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -582,7 +583,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to create or replace branch: " + branchName + " in table: " + icebergTable.name()
-                                + ", error message is: " + e.getMessage(), e);
+                                + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
             }
         }
     }
@@ -650,7 +651,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to create or replace tag: " + tagName + " in table: " + icebergTable.name()
-                                + ", error message is: " + e.getMessage(), e);
+                                + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
             }
         }
     }
@@ -672,7 +673,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 } catch (Exception e) {
                     throw new RuntimeException(
                             "Failed to drop tag: " + tagName + " in table: " + icebergTable.name()
-                                    + ", error message is: " + e.getMessage(), e);
+                                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
                 }
             }
         }
@@ -695,7 +696,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 } catch (Exception e) {
                     throw new RuntimeException(
                             "Failed to drop branch: " + branchName + " in table: " + icebergTable.name()
-                                    + ", error message is: " + e.getMessage(), e);
+                                    + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
                 }
             }
         }
@@ -792,7 +793,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try {
             lease.getAuthenticator().execute(commit);
         } catch (Exception e) {
-            throw new UserException(failureMessage + ", error message is: " + e.getMessage(), e);
+            // Preserve the storage failure hidden by metadata writer cleanup exceptions.
+            throw new UserException(failureMessage + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
