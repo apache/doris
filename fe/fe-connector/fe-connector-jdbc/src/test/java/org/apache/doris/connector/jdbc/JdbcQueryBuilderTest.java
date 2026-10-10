@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 import org.apache.doris.connector.spi.pushdown.ConnectorOr;
@@ -536,6 +537,39 @@ class JdbcQueryBuilderTest {
                 "SQL Server booleans must use 1/0 integers. SQL: " + sql);
         Assertions.assertFalse(sql.contains("FALSE"),
                 "SQL Server must not render FALSE keyword. SQL: " + sql);
+    }
+
+    @Test
+    void testSqlserverBooleanTrueLiteral() {
+        // SQL Server has no boolean literal and reads TRUE as a column name (issue #64464).
+        JdbcQueryBuilder builder = sqlserverBuilder();
+        ConnectorExpression filter = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("bit_value", ConnectorType.of("BOOLEAN")),
+                ConnectorLiteral.ofBoolean(true));
+        String sql = builder.buildQuery(DB, TABLE, columns("bit_value"),
+                Optional.of(filter), -1);
+        Assertions.assertTrue(sql.contains("[bit_value] = 1"),
+                "SQL Server booleans must use 1/0 integers. SQL: " + sql);
+        Assertions.assertFalse(sql.contains("TRUE"),
+                "SQL Server must not render TRUE keyword. SQL: " + sql);
+    }
+
+    @Test
+    void testSqlserverBooleanInList() {
+        // `bit_value IN ('1', '0')` reaches the connector as an IN list of boolean literals; every
+        // item goes through the same 1/0 rendering as a comparison.
+        JdbcQueryBuilder builder = sqlserverBuilder();
+        ConnectorExpression filter = new ConnectorIn(
+                new ConnectorColumnRef("bit_value", ConnectorType.of("BOOLEAN")),
+                Arrays.asList(ConnectorLiteral.ofBoolean(true), ConnectorLiteral.ofBoolean(false)),
+                false);
+        String sql = builder.buildQuery(DB, TABLE, columns("bit_value"),
+                Optional.of(filter), -1);
+        Assertions.assertTrue(sql.contains("[bit_value] IN (1, 0)"),
+                "SQL Server boolean IN lists must use 1/0 integers. SQL: " + sql);
+        Assertions.assertFalse(sql.contains("TRUE") || sql.contains("FALSE"),
+                "SQL Server must not render TRUE/FALSE keywords. SQL: " + sql);
     }
 
     @Test
