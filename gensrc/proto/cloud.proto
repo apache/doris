@@ -1093,6 +1093,9 @@ message CommitTxnRequest {
     repeated TableStreamUpdatePB table_stream_updates = 14;
     // Whether Meta Service should reject commit_tso values at or below its current fence.
     optional bool enable_check_commit_tso_fence = 15;
+    // Distinct partitions reported by BE, across all sub-transactions. Omit if unknown.
+    // MS omits version results on mismatch so FE invalidates its version caches.
+    optional int64 num_partitions = 16;
 }
 
 message SubTxnInfo {
