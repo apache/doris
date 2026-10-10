@@ -197,8 +197,10 @@ public class SPMRound10SafetyTest {
         values.add("-1");                                 // 7 query_time_ms
         values.add("USER");                               // 8 source
         values.add("ENABLED");                            // 9 status
-        values.add("2026-01-01 00:00:00");                // 10 create_time
-        values.add("2026-01-01 00:00:00");                // 11 update_time
+        // 10/11 create_time / update_time: the TIMESTAMPTZ columns are read as epoch
+        // millis (see BaselineManager#storedMillis)
+        values.add("1767225600000");
+        values.add("1767225600000");
         values.add(String.valueOf(SqlModeHelper.MODE_DEFAULT)); // 12 sql_mode
         values.add(String.valueOf(SqlModeHelper.MODE_DEFAULT)); // 13 plan_sql_mode
         values.add("false");                              // 14 plan_frozen

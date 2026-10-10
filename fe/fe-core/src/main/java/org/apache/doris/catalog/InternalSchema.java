@@ -313,9 +313,11 @@ public class InternalSchema {
         SPM_BASELINES_SCHEMA.add(new ColumnDef("status",
                 ScalarType.createVarchar(16), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_SCHEMA.add(new ColumnDef("create_time",
-                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+                ScalarType.createType(PrimitiveType.TIMESTAMPTZ),
+                ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_SCHEMA.add(new ColumnDef("update_time",
-                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+                ScalarType.createType(PrimitiveType.TIMESTAMPTZ),
+                ColumnNullableType.NOT_NULLABLE));
         // parser-relevant sql_mode bits of the CREATING session (PIPES_AS_CONCAT / ...):
         // the stored bindSql is user-authored text and must be re-parsed with the mode it
         // was created under. NULLABLE so an upgraded cluster can add the column without
@@ -385,7 +387,7 @@ public class InternalSchema {
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("plan_sql_hash",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("reserve_time",
-                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.TIMESTAMPTZ), ColumnNullableType.NULLABLE));
         // 1 = the marker of an AMBIGUOUS create: only these rows drive the
         // durable pending-create fence - a plain reservation exists for every create
         // (successful ones included) and must never block a legitimate re-create.
@@ -413,7 +415,8 @@ public class InternalSchema {
         SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("last_id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("update_time",
-                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+                ScalarType.createType(PrimitiveType.TIMESTAMPTZ),
+                ColumnNullableType.NOT_NULLABLE));
         // The bounded mutation clock (see BaselineManager#bumpMutationClock): every
         // baseline mutation advances it BEFORE its row write, and a snapshot read compares
         // (MAX(tick), COUNT(*), SUM(tick)) around its page loop. NULLABLE: a slot written
@@ -507,7 +510,8 @@ public class InternalSchema {
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("scan_zone",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("update_time",
-                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+                ScalarType.createType(PrimitiveType.TIMESTAMPTZ),
+                ColumnNullableType.NOT_NULLABLE));
 
         // The cluster-wide audit publication horizon (see SPM_AUDIT_HORIZON_TBL_NAME):
         // fe_name is the FE identity reported by the audit events themselves

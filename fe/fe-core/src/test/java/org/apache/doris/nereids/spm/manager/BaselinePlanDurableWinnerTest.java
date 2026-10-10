@@ -92,16 +92,16 @@ public class BaselinePlanDurableWinnerTest {
             long instant = java.time.LocalDateTime.of(2026, 11, 1, 12, 0)
                     .toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
             java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"));
-            Assertions.assertEquals("2026-11-01 12:00:00", BaselineManager.toTs(instant));
-            Assertions.assertEquals(instant, BaselineManager.fromTs("2026-11-01 12:00:00"));
+            Assertions.assertEquals("2026-11-01 12:00:00+00:00",
+                    BaselineManager.toTs(instant),
+                    "the literal pins the instant with an explicit UTC offset at the"
+                            + " column's SECOND precision");
 
             java.util.TimeZone.setDefault(
                     java.util.TimeZone.getTimeZone("America/Los_Angeles"));
-            Assertions.assertEquals("2026-11-01 12:00:00", BaselineManager.toTs(instant),
+            Assertions.assertEquals("2026-11-01 12:00:00+00:00",
+                    BaselineManager.toTs(instant),
                     "the SAME instant must render identically on a host in another zone");
-            Assertions.assertEquals(instant,
-                    BaselineManager.fromTs(BaselineManager.toTs(instant)),
-                    "and it must round-trip to the same instant");
 
             // the recovery rule over two rows written across the fall-back: the later
             // INSTANT (09:10Z, 01:10 PST) must beat the earlier one (08:30Z, 01:30 PDT),
@@ -110,10 +110,8 @@ public class BaselinePlanDurableWinnerTest {
                     .toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
             long afterFallBack = java.time.LocalDateTime.of(2026, 11, 1, 9, 10)
                     .toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
-            BaselinePlan enabled = row(11, BaselineManager.fromTs(
-                    BaselineManager.toTs(beforeFallBack)), BaselineStatus.ENABLED);
-            BaselinePlan disabled = row(11, BaselineManager.fromTs(
-                    BaselineManager.toTs(afterFallBack)), BaselineStatus.DISABLED);
+            BaselinePlan enabled = row(11, beforeFallBack, BaselineStatus.ENABLED);
+            BaselinePlan disabled = row(11, afterFallBack, BaselineStatus.DISABLED);
             Assertions.assertSame(disabled,
                     BaselineManager.pickDurableWinner(enabled, disabled),
                     "the later status change must win regardless of the host zone");

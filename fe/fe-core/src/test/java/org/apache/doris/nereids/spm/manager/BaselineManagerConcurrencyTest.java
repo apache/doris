@@ -66,6 +66,11 @@ public class BaselineManagerConcurrencyTest {
         return plan;
     }
 
+    /** One row's schema fingerprint with NULL and "" unified, exactly like IFNULL in SQL. */
+    private static String normalizedFingerprint(BaselinePlan plan) {
+        return plan.getSchemaFingerprint() == null ? "" : plan.getSchemaFingerprint();
+    }
+
     /** In-memory simulation of the shared durable store (two masters, lock-free). */
     private static final class SimulatedStore implements BaselineManager.IdAllocatorStoreForTest {
         private final Map<Long, List<BaselinePlan>> rows = new ConcurrentHashMap<>();
@@ -307,8 +312,12 @@ public class BaselineManagerConcurrencyTest {
             deleted = true;
             rows.computeIfPresent(plan.getId(), (id, current) -> {
                 List<BaselinePlan> updated = new ArrayList<>(current);
+                // mirror DELETE_BY_IDENTITY_SQL: the SCHEMA FINGERPRINT completes the
+                // identity, so one incarnation's delete can never remove the row of
+                // ANOTHER incarnation sharing the id / digest / planSql
                 updated.removeIf(row -> row.getBindSqlDigest().equals(plan.getBindSqlDigest())
-                        && row.getPlanSql().equals(plan.getPlanSql()));
+                        && row.getPlanSql().equals(plan.getPlanSql())
+                        && normalizedFingerprint(row).equals(normalizedFingerprint(plan)));
                 return updated.isEmpty() ? null : updated;
             });
             if (failDeleteAfterCommit) {
@@ -1525,6 +1534,117 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
+     * Round-53 #2: the pending-create identity is the schema INCARNATION, not just the
+     * (digest, planSql) key. FE A leaves an ambiguous F1 CREATE at id N whose row stays
+     * unreadable; after `ALTER TABLE t ADD COLUMN x` the schema is F2 and the promoted FE
+     * B reserves the SAME id N (A's reservation was invisible to its watermark read) and
+     * creates the same SQL successfully under F2. On A's re-promotion the retry is
+     * analyzed under F2 - the CURRENT schema.
+     *
+     * Matching A's F1 entry by the key alone made that retry (a) DEFER for the whole
+     * fence bound ("a previously COMMITTED write of the same baseline is still awaiting
+     * publication") although the F1 write is a different incarnation, and (b) risk
+     * adopting B's F2 row as A's own. The retry must pass the stale entry by, retire it
+     * (its own identity), leave B's successful row untouched, and create under F2.
+     */
+    @Test
+    public void testPendingCreateFenceDoesNotDeferAnotherSchemaIncarnation() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            // FE A: an ambiguous CREATE under F1; the INSERT never commits, the outcome is
+            // unknown and the row stays unreadable
+            store.failInsert = true;
+            BaselinePlan abandoned = baseline("d-inc", "p-inc");
+            abandoned.setSchemaFingerprint("F1");
+            Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.createBaseline(abandoned));
+            long contestedId = store.reservedHighWater;
+            Assertions.assertTrue(contestedId > 0);
+            Assertions.assertEquals(1, manager.pendingCreateCountForTest(),
+                    "the ambiguous F1 write must be remembered");
+
+            // the promoted FE B creates the same SQL under F2 - on the very same id
+            store.failInsert = false;
+            BaselinePlan successfulF2 = baseline("d-inc", "p-inc");
+            successfulF2.setId(contestedId);
+            successfulF2.setSchemaFingerprint("F2");
+            store.insert(successfulF2);
+
+            // A's re-promotion retries the CREATE; the statement is re-analyzed under the
+            // CURRENT schema F2 and must NOT be deferred by the abandoned F1 entry
+            BaselinePlan retry = baseline("d-inc", "p-inc");
+            retry.setSchemaFingerprint("F2");
+            long id = manager.createBaseline(retry);
+            Assertions.assertTrue(id > contestedId,
+                    "the retry must allocate above the consumed id: " + id);
+            List<BaselinePlan> atContested = store.rowsOf(contestedId);
+            Assertions.assertEquals(1, atContested.size(),
+                    "B's successful row must survive A's abandoned write: " + atContested);
+            Assertions.assertEquals("F2", atContested.get(0).getSchemaFingerprint());
+            Assertions.assertNull(manager.getBaseline(contestedId),
+                    "B's F2 row must never be adopted as A's F1 incarnation");
+            Assertions.assertEquals(0, manager.pendingCreateCountForTest(),
+                    "the stale F1 entry no longer fences");
+            Assertions.assertEquals("F2", manager.getBaseline(id).getSchemaFingerprint());
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * Round-53 #2, readable variant: A's abandoned F1 row DID commit and becomes readable
+     * while B's successful F2 row sits under the same id. Retiring the stale incarnation
+     * must delete ONLY the F1 row - the identity-scoped DELETE carries the fingerprint -
+     * so B's already REPORTED-successful baseline survives the retry's cleanup.
+     */
+    @Test
+    public void testStaleIncarnationCleanupKeepsTheSuccessfulOne() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            // A: the INSERT commits but its publication never becomes visible for this FE
+            BaselineManager.durableVisibilityProbeForTest = (id, status) -> false;
+            BaselinePlan committedF1 = baseline("d-inc2", "p-inc2");
+            committedF1.setSchemaFingerprint("F1");
+            Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.createBaseline(committedF1));
+            long contestedId = store.reservedHighWater;
+            Assertions.assertEquals(1, store.rowsOf(contestedId).size(),
+                    "the ambiguous write IS durable");
+            Assertions.assertEquals(1, manager.pendingCreateCountForTest());
+
+            // the row becomes readable AND the promoted FE B created the same SQL under F2
+            // on the same id (a handoff collision), so both incarnations share the id
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselinePlan successfulF2 = baseline("d-inc2", "p-inc2");
+            successfulF2.setId(contestedId);
+            successfulF2.setSchemaFingerprint("F2");
+            store.insert(successfulF2);
+
+            BaselinePlan retry = baseline("d-inc2", "p-inc2");
+            retry.setSchemaFingerprint("F2");
+            long id = manager.createBaseline(retry);
+            Assertions.assertTrue(id > contestedId, "a fresh id is allocated: " + id);
+            List<BaselinePlan> survivor = store.rowsOf(contestedId);
+            Assertions.assertEquals(1, survivor.size(),
+                    "only the stale F1 incarnation may be retired: " + survivor);
+            Assertions.assertEquals("F2", survivor.get(0).getSchemaFingerprint(),
+                    "the CURRENT incarnation's row must survive");
+            Assertions.assertEquals(0, manager.pendingCreateCountForTest());
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
      * The paginated snapshot must describe ONE state of the table. The loop
      * issues one SELECT per page and the internal table offers no read view, so a DDL
      * committing between two pages would be merged into a state that never existed: a
@@ -1602,8 +1722,9 @@ public class BaselineManagerConcurrencyTest {
                 Long.toString(plan.getBindSqlHash()), plan.getPlanSql(), "NaN",
                 Double.toString(plan.getCost()), Long.toString(plan.getQueryTimeMs()),
                 plan.getSource().toString(), plan.getStatus().toString(),
-                BaselineManager.toTs(plan.getCreateTime()),
-                BaselineManager.toTs(plan.getUpdateTime()),
+                // the TIMESTAMPTZ columns are read as epoch millis (see storedMillis)
+                Long.toString(plan.getCreateTime()),
+                Long.toString(plan.getUpdateTime()),
                 "0", "0", "false", ""));
     }
 
@@ -2367,7 +2488,7 @@ public class BaselineManagerConcurrencyTest {
     private static ResultRow row(String bindSql, String planSql) {
         return new ResultRow(List.of(
                 "77", bindSql, "d-temp", "7", planSql, "NaN", "0", "0",
-                "USER", "ENABLED", "2026-01-01 00:00:00", "2026-01-01 00:00:00",
+                "USER", "ENABLED", "1767225600000", "1767225600000",
                 "0", "0", "false", ""));
     }
 

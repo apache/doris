@@ -260,6 +260,109 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
+     * Round-53 #1: a CONTAINED late reservation whose PINNED filter differs must be
+     * ADOPTED, not called consumed. A leader reserves [09:00,12:00) under a LOOSE filter
+     * F1 while its row stays unreadable; after `SET GLOBAL plan_capture_min_query_time_ms`
+     * tightened the thresholds, its successor derives a WIDER window covering 09:00 and
+     * scans it under the stricter F2 (its scannedFromMillis therefore covers A's start).
+     * Discarding A because the successor's range contains it treated the rows that were
+     * eligible under F1 but NOT under F2 as captured - the next checkpoint then pruned
+     * them permanently. The adoption must re-scan A's window with A's SAVED filter, and
+     * the re-scan must not make the chain adopt A again on every later wakeup (A's
+     * reservation row stays readable in the append-only table forever).
+     */
+    @Test
+    public void testContainedReservationWithATightenedFilterIsAdoptedAndRescanned() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        SessionVariable global = VariableMgr.getDefaultSessionVariable();
+        try {
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            AtomicReference<ResultRow> earlier = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> {
+                if (earlier.get() != null) {
+                    return List.of(earlier.get());
+                }
+                return visible.get() == null
+                        ? List.of() : List.of(checkpointRow(visible.get()));
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            List<Map<String, String>> persisted = new ArrayList<>();
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                if (!sql.startsWith("INSERT")) {
+                    return; // the best-effort prune is not a checkpoint write
+                }
+                persisted.add(new HashMap<>(params));
+                visible.set(new HashMap<>(params));
+            });
+
+            // the successor's own (tightened) filter; the earlier leader's reservation
+            // pins the LOOSE snapshot (thresholds 0 / 0, see the row built below)
+            PlanCaptureFilter tightened = new PlanCaptureFilter("", "", 300L, 0L);
+
+            // cycle 1: the store was empty - this process derives AND scans its wider
+            // window under the TIGHTENED filter
+            manager.runCaptureCycle(global, tightened);
+            Assertions.assertEquals(1, scanner.calls.get());
+            long[] wide = scanner.windows.get(0);
+            Assertions.assertArrayEquals(new long[] {300L, 0L}, scanner.thresholds.get(0),
+                    "the successor scans its own window under the tightened filter");
+            long aStart = wide[0] + 60_000L;
+            long aEnd = wide[0] + 660_000L;
+            Assertions.assertTrue(aEnd < wide[1], "precondition: the earlier reservation is"
+                    + " CONTAINED in the successor's window, got [" + aStart + ", " + aEnd
+                    + ") in [" + wide[0] + ", " + wide[1] + ")");
+
+            // the dead leader's loose-filter reservation publishes only NOW, INSIDE the
+            // range the successor has already scanned under the tightened filter
+            earlier.set(new ResultRow(List.of("0", String.valueOf(aStart),
+                    String.valueOf(aEnd), "-1", "", "", "{}", "{}", "",
+                    "0", "0", "", "", "", "0", "0")));
+
+            // cycle 2: contained in the scanned range, but under a DIFFERENT pinned filter -
+            // the cycle must abort and adopt it instead of consuming this process's window
+            manager.runCaptureCycle(global, tightened);
+            Assertions.assertEquals(1, scanner.calls.get(),
+                    "the cycle must abort instead of consuming its own window over the"
+                            + " contained reservation");
+            Object[] adopted = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(aStart, ((Number) adopted[1]).longValue(),
+                    "the earlier leader's window is adopted");
+            Assertions.assertEquals(aEnd, ((Number) adopted[2]).longValue());
+            Assertions.assertEquals("0", persisted.get(persisted.size() - 1)
+                    .get("minQueryTimeMs"),
+                    "the write-back keeps the adopted window's OWN pinned filter");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "the adopted window resumes promptly");
+
+            // cycle 3: the adopted window is re-scanned with ITS SAVED (looser) filter, so
+            // the rows the tighter successor scans skipped are captured after all
+            manager.runCaptureCycle(global, tightened);
+            Assertions.assertEquals(2, scanner.calls.get());
+            Assertions.assertArrayEquals(new long[] {aStart, aEnd}, scanner.windows.get(1),
+                    "the resumed window is the earlier leader's");
+            Assertions.assertArrayEquals(new long[] {0L, 0L}, scanner.thresholds.get(1),
+                    "the re-scan uses the row's SAVED filter, not the current globals");
+
+            // cycle 4: the reservation row is STILL readable - the consumed window must not
+            // be adopted again, and the chain continues with its own next window
+            manager.runCaptureCycle(global, tightened);
+            Assertions.assertEquals(3, scanner.calls.get(),
+                    "the adopted window was consumed once; it must not be re-adopted on"
+                            + " every wakeup");
+            Assertions.assertTrue(scanner.windows.get(2)[0] > aStart,
+                    "the next pass scans the chain's own window, not the consumed one: "
+                            + java.util.Arrays.toString(scanner.windows.get(2)));
+            Assertions.assertTrue(scanner.windows.get(2)[1] > aEnd,
+                    "the chain advanced past the consumed window");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
      * The zone-pass credit belongs to the WINDOW. This process staged its
      * own derived window in UTC (the pass about to run is credited at once), then adopted
      * an earlier leader's pending window whose row was RENDERED in another zone

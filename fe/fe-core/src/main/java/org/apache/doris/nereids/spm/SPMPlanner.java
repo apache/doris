@@ -50,8 +50,7 @@ import java.util.Map;
 /**
  * SPMPlanner - the controller of the whole-query SPM bind and rewrite.
  *
- * SPM works on the WHOLE parsed (still unbound) SELECT plan tree, not only on the
- * per-query-block WHERE predicates:
+ * SPM works on the WHOLE parsed (still unbound) SELECT plan tree
  *
  * 1. Build (CREATE BASELINE PLAN / auto capture): parse bindSql, replace EVERY literal
  *    of the whole tree (filters, having, projections, aggregate group-by/output and
@@ -67,7 +66,7 @@ import java.util.Map;
  *    and on a match replay the baseline's FROZEN planSql (M3): the frozen text - the
  *    decompiled optimal plan carrying placeholder ids, join distribution hints and the
  *    pushed-down structure - is re-parsed and the extracted values are substituted by
- *    placeholder id, so the rewrite reproduces the frozen optimal structure (SR-aligned).
+ *    placeholder id, so the rewrite reproduces the frozen optimal structure.
  *    Baselines without a frozen placeholder text fall back to substituting the candidate's
  *    parameterized plan tree. The substituted tree (still unbound, no placeholders left)
  *    is returned and planned normally by the caller.

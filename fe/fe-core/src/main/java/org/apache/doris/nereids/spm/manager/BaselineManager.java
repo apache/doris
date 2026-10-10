@@ -45,7 +45,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -400,7 +400,8 @@ public class BaselineManager {
     private static final String SNAPSHOT_COLUMNS =
             "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
-            + " `status`, `create_time`, `update_time`, `sql_mode`, `plan_sql_mode`,"
+            + " `status`, " + storedMillis("create_time") + ", " + storedMillis("update_time")
+            + ", `sql_mode`, `plan_sql_mode`,"
             + " `plan_frozen`, `schema_fingerprint`, `plan_sql_digest` FROM ";
 
     /**
@@ -630,8 +631,8 @@ public class BaselineManager {
      * reservation) means resolved; the same-second order is tombstone, then marker,
      * then the plain row.
      */
-    private static final String SELECT_PENDING_SEQ_SQL = "SELECT `last_id`, `reserve_time`,"
-            + " `unconfirmed`, `dropped` FROM "
+    private static final String SELECT_PENDING_SEQ_SQL = "SELECT `last_id`, "
+            + storedMillis("reserve_time") + ", `unconfirmed`, `dropped` FROM "
             + SPM_BASELINES_SEQ_TABLE + " WHERE `bind_sql_digest` = '${bindSqlDigest}'"
             + " AND `plan_sql_hash` = ${planSqlHash}"
             + " ORDER BY `last_id` DESC, `reserve_time` DESC, `dropped` DESC,"
@@ -675,8 +676,8 @@ public class BaselineManager {
      * predicates kept because a compact id is a hash. SELECT_PENDING_SEQ_SQL remains the
      * fallback for a slot without a readable row.
      */
-    private static final String SELECT_COMPACT_SEQ_SQL = "SELECT `last_id`, `reserve_time`,"
-            + " `unconfirmed`, `dropped` FROM "
+    private static final String SELECT_COMPACT_SEQ_SQL = "SELECT `last_id`, "
+            + storedMillis("reserve_time") + ", `unconfirmed`, `dropped` FROM "
             + SPM_BASELINES_SEQ_TABLE + " WHERE `id` = ${compactId}"
             + " AND `bind_sql_digest` = '${bindSqlDigest}'"
             + " AND `plan_sql_hash` = ${planSqlHash}"
@@ -716,7 +717,8 @@ public class BaselineManager {
      */
     private static final String SELECT_BY_ID_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
-            + " `status`, `create_time`, `update_time`, `sql_mode`, `plan_sql_mode`,"
+            + " `status`, " + storedMillis("create_time") + ", " + storedMillis("update_time")
+            + ", `sql_mode`, `plan_sql_mode`,"
             + " `plan_frozen`, `schema_fingerprint`, `plan_sql_digest` FROM " + SPM_BASELINES_TABLE
             + " WHERE `id` = ${id}";
 
@@ -728,7 +730,8 @@ public class BaselineManager {
      */
     private static final String SELECT_BY_KEY_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
-            + " `status`, `create_time`, `update_time`, `sql_mode`, `plan_sql_mode`,"
+            + " `status`, " + storedMillis("create_time") + ", " + storedMillis("update_time")
+            + ", `sql_mode`, `plan_sql_mode`,"
             + " `plan_frozen`, `schema_fingerprint`, `plan_sql_digest` FROM " + SPM_BASELINES_TABLE
             + " WHERE `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'";
 
@@ -802,17 +805,18 @@ public class BaselineManager {
      * MAX(update_time) around its page loop); the fence is now the bounded mutation clock
      * (see SELECT_CLOCK_SQL), so the bump read only needs this id's key prefix.
      */
-    private static final String SELECT_MAX_UPDATE_TIME_SQL = "SELECT MAX(`update_time`) FROM "
+    private static final String SELECT_MAX_UPDATE_TIME_SQL = "SELECT UNIX_TIMESTAMP(MAX(`update_time"
+            + ")) * 1000 FROM "
             + SPM_BASELINES_TABLE + " WHERE `id` = ${id}";
 
     /**
-     * DATETIME column format (internal table create_time / update_time). The columns are
-     * zone-free DATETIME, so they are written and read in UTC: the stored value denotes
-     * the SAME instant on every FE, in every host zone and across DST changes (see
-     * toTs).
+     * DATETIME column format of the internal table: TIMESTAMPTZ literals are written with
+     * an explicit UTC offset at the column's SECOND precision (see toTs); reads never
+     * parse the rendering - every SELECT list reads the stored instant through
+     * storedMillis instead.
      */
     private static final DateTimeFormatter TS_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssxxx");
 
     /** Message of the leadership fence (see assertLeaderForWrite). */
     private static final String NO_LONGER_MASTER = "SPM baseline write refused: this FE is no"
@@ -1578,10 +1582,40 @@ public class BaselineManager {
         return foreign;
     }
 
-    /** Whether two rows describe the same baseline (the durable dedup key). */
+    /**
+     * Whether two rows describe the same baseline INCARNATION: the durable dedup /
+     * collision / adoption key is (bindSqlDigest, planSql) AND the schema fingerprint.
+     * The fingerprint is part of the identity - after `ALTER TABLE t ADD COLUMN x` the
+     * SAME SQL under the new schema is a DIFFERENT baseline, and the old row is
+     * unreachable for matching (schemaFingerprintBindSideContained / verifyReplayMetadata
+     * reject it). Without it every identity comparison that hangs off this method treated
+     * the two incarnations as one:
+     *   - the id-collision probe skipped the OTHER incarnation's row as "own", so two
+     *     enabled rows could survive under one id;
+     *   - the pending-create registry matched a retry under the NEW fingerprint against
+     *     the abandoned write of the OLD one and deferred it (or adopted the other
+     *     incarnation's row);
+     *   - the status-update identity check completed an ALTER against a row the durable
+     *     table no longer favors.
+     *
+     * @param a one row
+     * @param b the other row
+     * @return true when both rows are the same incarnation of the same baseline
+     */
     private static boolean sameIdentity(BaselinePlan a, BaselinePlan b) {
+        return sameKey(a, b) && Objects.equals(normalizedFingerprint(a),
+                normalizedFingerprint(b));
+    }
+
+    /** Whether two rows carry the same durable KEY (bindSqlDigest + planSql). */
+    private static boolean sameKey(BaselinePlan a, BaselinePlan b) {
         return Objects.equals(a.getBindSqlDigest(), b.getBindSqlDigest())
                 && Objects.equals(a.getPlanSql(), b.getPlanSql());
+    }
+
+    /** One row's schema fingerprint with NULL and the empty string unified (IFNULL in SQL). */
+    private static String normalizedFingerprint(BaselinePlan plan) {
+        return plan.getSchemaFingerprint() == null ? "" : plan.getSchemaFingerprint();
     }
 
     /**
@@ -1639,7 +1673,26 @@ public class BaselineManager {
         Iterator<PendingCreate> iterator = pendingCreates.iterator();
         while (iterator.hasNext()) {
             PendingCreate pending = iterator.next();
+            if (!sameKey(pending.plan, plan)) {
+                continue;
+            }
             if (!sameIdentity(pending.plan, plan)) {
+                // The SCHEMA CHANGED while that write awaited publication (e.g.
+                // ALTER TABLE t ADD COLUMN x turned the fingerprint F1 into F2, and the
+                // promoted master created the same SQL under F2): the pending row is a
+                // DIFFERENT incarnation - it can never satisfy this create (matching /
+                // replay reject it, and its id may already carry the new incarnation's
+                // SUCCESSFUL row) - so its fence must not defer THIS create, and this
+                // create must not adopt the other incarnation's row. Retire the stale
+                // incarnation ONCE ITS OWN ROW IS READABLE (its own identity, fingerprint
+                // included: the delete can never touch the new incarnation's row, and
+                // neither can the marker retirement - both are keyed by the folded
+                // per-incarnation hash) and fall through: the normal create path either
+                // dedups against the new incarnation's durable row or allocates a fresh
+                // one. `handled` stays FALSE: the durable fence belongs to THIS
+                // incarnation and must still run.
+                iterator.remove();
+                retireStaleIncarnation(pending.plan, plan);
                 continue;
             }
             handled = true;
@@ -1672,31 +1725,6 @@ public class BaselineManager {
                 continue;
             }
             iterator.remove();
-            if (!Objects.equals(pending.plan.getSchemaFingerprint(),
-                    plan.getSchemaFingerprint())) {
-                // The schema changed while the committed write awaited publication (e.g.
-                // ALTER TABLE t ADD COLUMN x turned the fingerprint F1 into F2): the
-                // pending row is STALE - matching / replay reject it - so adopting it
-                // would report success for a baseline that can never be used. Retire it
-                // (it is unreachable for matching either way) and fall through: the
-                // normal create path allocates a fresh row under the CURRENT fingerprint.
-                try {
-                    persistDeleteByIdentity(pending.plan);
-                } catch (RuntimeException e) {
-                    // best effort: the durable-key check of the create below retires the
-                    // row as soon as a read sees it
-                    LOG.warn("SPM failed to retire the stale pending-create row (id={}): {}",
-                            pending.plan.getId(), e.getMessage());
-                }
-                // the marker described THAT write; with the row retired it must not fence
-                // a later retry either
-                retireSeqPendingMarker(pending.plan, pending.plan.getId());
-                LOG.warn("SPM pending create of baseline {}: its schema fingerprint changed"
-                                + " ({} -> {}); replacing the stale committed row",
-                        pending.plan.getId(), pending.plan.getSchemaFingerprint(),
-                        plan.getSchemaFingerprint());
-                continue;
-            }
             Long adopted = adoptReadablePendingRow(pending.plan.getId(), plan);
             if (adopted != null) {
                 // the resolution RETIRES the durable marker: without this,
@@ -1710,6 +1738,57 @@ public class BaselineManager {
                     + " baseline; allocating a fresh id", pending.plan.getId());
         }
         return handled ? PendingResolution.HANDLED : PendingResolution.NONE;
+    }
+
+    /**
+     * Retires the row and the durable fence of a pending create whose SCHEMA FINGERPRINT
+     * no longer matches the incoming CREATE (see resolvePendingCreate): the abandoned
+     * write is a DIFFERENT incarnation, unreachable for matching / replay, and its
+     * identity-scoped records - the row delete and the seq marker retirement, both keyed
+     * by the per-incarnation plan-SQL hash - can never touch the current incarnation's
+     * row or marker.
+     *
+     * Both writes are best effort: the row is unreachable for matching either way (the
+     * durable-key check of the create retires it as soon as a read sees it), and a
+     * marker retirement that fails only means the OLD incarnation's fence survives, which
+     * no longer matches any create under the current schema.
+     *
+     * @param staleIncarnation the abandoned write's plan (its OWN fingerprint scopes both
+     *                         writes)
+     * @param plan             the CREATE being resolved
+     */
+    private static void retireStaleIncarnation(BaselinePlan staleIncarnation, BaselinePlan plan) {
+        boolean readable;
+        try {
+            readable = durableRowReadable(staleIncarnation);
+        } catch (RuntimeException e) {
+            // An unconfirmable probe must NOT delete: this branch only decides whether the
+            // stale row is worth retiring, and the create path retires it later.
+            LOG.warn("SPM pending create of baseline {}: its stale incarnation's readability"
+                            + " could not be confirmed ({}); leaving it to the create path",
+                    staleIncarnation.getId(), e.getMessage());
+            return;
+        }
+        if (!readable) {
+            // The abandoned row is still invisible: nothing to delete yet, and the
+            // creation this resolution belongs to must proceed without waiting for it.
+            return;
+        }
+        try {
+            persistDeleteByIdentity(staleIncarnation);
+        } catch (RuntimeException e) {
+            // best effort: the durable-key check of the create below retires the
+            // row as soon as a read sees it
+            LOG.warn("SPM failed to retire the stale pending-create row (id={}): {}",
+                    staleIncarnation.getId(), e.getMessage());
+        }
+        // the marker described THAT write; with the row retired it must not fence a later
+        // retry under ITS OWN fingerprint either
+        retireSeqPendingMarker(staleIncarnation, staleIncarnation.getId());
+        LOG.warn("SPM pending create of baseline {}: its schema fingerprint changed"
+                        + " ({} -> {}); replacing the stale committed row",
+                staleIncarnation.getId(), staleIncarnation.getSchemaFingerprint(),
+                plan.getSchemaFingerprint());
     }
 
     /**
@@ -1849,6 +1928,14 @@ public class BaselineManager {
      * identities, so ordering by (digest, planSql) makes both masters yield to the SAME
      * winner (the lexicographically smaller identity) - exactly one of the two rows
      * survives, no matter which create runs the probe.
+     *
+     * A pair whose KEY (digest + planSql) is equal but whose SCHEMA FINGERPRINT differs is
+     * NOT a tie either side may win: the two rows are two incarnations of one baseline
+     * (an ALTER TABLE landed between their creates), the equal keys make this comparison
+     * report "own loses" for BOTH observers, and each side then takes back only ITS OWN
+     * row (see the caller's loser branch) while re-allocating a fresh id. Neither create
+     * can therefore delete the other incarnation's - possibly already
+     * REPORTED-successful - row, which a fingerprint tie-break would have allowed.
      */
     private static boolean winsIdCollision(BaselinePlan own, BaselinePlan foreign) {
         int digestCompare = String.valueOf(own.getBindSqlDigest())
@@ -5303,8 +5390,8 @@ public class BaselineManager {
             // under a fresh id, and no row of the old incarnation may be adopted.
             return null;
         }
-        if (probeDurableRow(reservation.id, plan.getBindSqlDigest(), plan.getPlanSql())
-                == DurablePresence.PRESENT) {
+        if (probeDurableRow(reservation.id, plan.getBindSqlDigest(), plan.getPlanSql(),
+                null, plan.getSchemaFingerprint()) == DurablePresence.PRESENT) {
             BaselinePlan readable = readableIdentityRow(reservation.id, plan);
             if (readable == null) {
                 // the id no longer carries this baseline: fall through, the normal create
@@ -5565,8 +5652,7 @@ public class BaselineManager {
             return null;
         }
         String timeText = row.getValues().size() > 1 ? row.getWithDefault(1, "") : "";
-        long reserveTime = timeText == null || timeText.isEmpty()
-                ? 0 : fromTs(timeText.trim());
+        long reserveTime = parseStoredMillis(timeText);
         return new SeqReservation(Long.parseLong(idText.trim()), reserveTime,
                 isFlagSet(row, 2), isFlagSet(row, 3));
     }
@@ -6367,8 +6453,8 @@ public class BaselineManager {
         p.setQueryTimeMs(Long.parseLong(row.get(7)));
         p.setSource(BaselineSource.fromString(row.get(8)));
         p.setStatus(BaselineStatus.fromString(row.get(9)));
-        p.setCreateTime(fromTs(row.get(10)));
-        p.setUpdateTime(fromTs(row.get(11)));
+        p.setCreateTime(parseStoredMillis(row.get(10)));
+        p.setUpdateTime(parseStoredMillis(row.get(11)));
         // older rows (or a hand-built test row) may not carry the column yet
         p.setCreatorSqlMode(row.getValues().size() > 12 ? parseSqlMode(row.get(12))
                 : SqlModeHelper.MODE_DEFAULT);
@@ -6693,8 +6779,8 @@ public class BaselineManager {
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
             boolean gone = durableVisibilityProbeForTest != null
                     ? !durableVisibilityProbeForTest.isReadable(p.getId(), null)
-                    : probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql())
-                            == DurablePresence.ABSENT;
+                    : probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(),
+                            null, p.getSchemaFingerprint()) == DurablePresence.ABSENT;
             if (gone) {
                 return;
             }
@@ -6929,7 +7015,7 @@ public class BaselineManager {
             if (text == null || text.isEmpty()) {
                 return 0; // no row of this id yields one NULL MAX(update_time)
             }
-            return fromTs(text.trim()) / 1000L;
+            return parseStoredMillis(text) / 1000L;
         } catch (Exception e) {
             throw new RuntimeException("SPM baseline update_time watermark read failed"
                     + " (retry the statement): " + e.getMessage(), e);
@@ -7061,28 +7147,58 @@ public class BaselineManager {
     }
 
     /**
-     * Epoch millis -> internal-table DATETIME literal ('yyyy-MM-dd HH:mm:ss'), rendered
-     * in UTC.
+     * Epoch MILLIS of one TIMESTAMPTZ column: the SELECT lists read the stored INSTANT with
+     * UNIX_TIMESTAMP instead of the column's rendering, because the rendering of a
+     * TIMESTAMPTZ depends on the READING session's time zone while the stored value does
+     * not - every comparison downstream (status-flip ordering, the duplicate winner, the
+     * pending fence age) would otherwise shift with the zone.
      *
-     * The columns are zone-free, and the FEs of one cluster do not share a host zone:
-     * rendering in ZoneId.systemDefault() made the stored value depend on the
-     * writer's host zone, so the duplicate-row recovery (pickDurableWinner, which
-     * keeps the row with the LATER updateTime) compared instants written by different
-     * hosts as if they were one clock - a UTC master's 12:00 ENABLED row outranked a
-     * UTC-8 successor's 12:01 DISABLED row (stored 04:01), and a DST fall-back inverted
-     * the order of two writes of the same FE. UTC makes the values absolute and totally
-     * ordered.
+     * @param column the column name
+     * @return the SQL expression
+     */
+    private static String storedMillis(String column) {
+        return "UNIX_TIMESTAMP(`" + column + "`) * 1000";
+    }
+
+    /**
+     * Epoch millis -> internal-table TIMESTAMPTZ literal WITH an explicit UTC offset, at
+     * the column's SECOND precision ('yyyy-MM-dd HH:mm:ss+00:00').
+     *
+     * The columns store an ABSOLUTE instant, and the offset is what makes the literal
+     * one: the FEs of one cluster do not share a host zone, and the internal statements
+     * run under whatever `time_zone` their session carries - a bare
+     * 'yyyy-MM-dd HH:mm:ss' would therefore be interpreted in the WRITING session's zone
+     * (and rendered in the READING one), so the duplicate-row recovery (pickDurableWinner,
+     * which keeps the row with the LATER updateTime) compared instants written by
+     * different hosts as if they were one clock - a UTC master's 12:00 ENABLED row
+     * outranked a UTC-8 successor's 12:01 DISABLED row. The offset pins the instant
+     * regardless of any session zone.
+     *
+     * The rendering stays at SECONDS because that is the column's scale: Doris ROUNDS a
+     * fractional TIMESTAMPTZ literal to it, so a '.900+00:00' literal is stored as the
+     * NEXT second - and the readers that compare the stored second with the written
+     * millis (sameStoredSecond: the insert confirmation, the status-flip bump) would then
+     * see two different seconds for the very row the write just produced. Truncating to
+     * the second in THIS formatter keeps the stored value exactly the one being compared.
      */
     @VisibleForTesting
     static String toTs(long epochMillis) {
-        return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneOffset.UTC)
+        return OffsetDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneOffset.UTC)
+                .truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
                 .format(TS_FORMAT);
     }
 
-    /** Internal-table DATETIME literal (UTC, see toTs) -> epoch millis. */
-    @VisibleForTesting
-    static long fromTs(String ts) {
-        return LocalDateTime.parse(ts, TS_FORMAT)
-                .toInstant(ZoneOffset.UTC).toEpochMilli();
+    /**
+     * One TIMESTAMPTZ column read through UNIX_TIMESTAMP * 1000 (see
+     * STORED_MILLIS_SUFFIX): epoch MILLIS, never a rendering. Parsing the
+     * session-zone-dependent rendering instead would make every stored-time comparison
+     * (the status-flip ordering, the duplicate winner, the pending fence age) depend on
+     * the reading session's time zone.
+     *
+     * @param stored the column's epoch-millis text (empty / null = no value)
+     * @return the epoch millis, 0 when absent
+     */
+    private static long parseStoredMillis(String stored) {
+        return stored == null || stored.isEmpty() ? 0 : Long.parseLong(stored.trim());
     }
 }
