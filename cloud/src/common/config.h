@@ -154,6 +154,8 @@ CONF_mBool(enable_mow_job_key_check, "false");
 // Strip key bounds in recycle rowset meta emitted by compaction to shrink op log size
 CONF_Bool(enable_recycle_rowset_strip_key_bounds, "true");
 
+CONF_mBool(enable_recycler_delete_bitmap_range_remove, "false");
+
 CONF_mBool(enable_restore_job_check, "false");
 
 CONF_mBool(enable_tablet_stats_key_check, "false");

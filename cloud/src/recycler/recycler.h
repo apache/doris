@@ -514,15 +514,16 @@ private:
 
     bool is_tablet_recycled(int64_t tablet_id);
 
-    // Return 1 if the versioned delete bitmap should be deleted,
+    // Return 1 if the delete bitmap should be deleted,
     // Return 0 if it can be skipped,
     // negative on error.
-    int should_delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id);
+    int should_delete_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id);
 
     int delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
                                            const std::string& rowset_id);
 
-    int delete_delete_bitmap_kvs(int64_t tablet_id, const std::string& rowset_id);
+    int delete_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
+                                 const std::string& rowset_id);
 
     // return 0 for success otherwise error
     int delete_rowset_data(
