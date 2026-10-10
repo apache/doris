@@ -1137,7 +1137,7 @@ TEST(LanceTableReaderVectorSearchTest, SplitWithoutIndexSegmentsSearchesFlat) {
         results[mode] = read_vector_search_rows(&reader, &block);
         ASSERT_EQ(5, results[mode].size());
         EXPECT_TRUE(reader.close().ok());
-        auto* partitions = profile.get_counter("LanceIVFPartitionsSearched");
+        auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
         ASSERT_NE(nullptr, partitions);
         auto* flat = profile.get_counter("LancePlannedFlatSearchFragmentCount");
         ASSERT_NE(nullptr, flat);
@@ -1458,7 +1458,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBat
             EXPECT_NEAR(indexed ? 2.0F - std::sqrt(2.0F) : 1e-8F, rows[0].second,
                         indexed ? 1e-6F : 1e-13F);
             EXPECT_TRUE(reader.close().ok());
-            EXPECT_EQ(indexed, profile.get_counter("LanceIVFPartitionsSearched")->value() > 0);
+            auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
+            ASSERT_NE(nullptr, partitions);
+            EXPECT_EQ(indexed, partitions->value() > 0);
         }
     }
 }
@@ -1509,7 +1511,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
                                : std::vector<std::pair<int64_t, float>> {{2, 1}, {3, 1}};
             EXPECT_EQ(expected, rows);
             EXPECT_TRUE(reader.close().ok());
-            EXPECT_EQ(indexed, profile.get_counter("LanceIVFPartitionsSearched")->value() > 0);
+            auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
+            ASSERT_NE(nullptr, partitions);
+            EXPECT_EQ(indexed, partitions->value() > 0);
         }
     }
 }
@@ -1549,7 +1553,9 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorDefaultMetricIsConsistentAcros
         auto rows = read_vector_search_rows(&reader, &block);
         all_rows.insert(all_rows.end(), rows.begin(), rows.end());
         EXPECT_TRUE(reader.close().ok());
-        EXPECT_EQ(0, profile.get_counter("LanceIVFPartitionsSearched")->value());
+        auto* partitions = profile.get_counter("LanceIndexPartitionsSearched");
+        ASSERT_NE(nullptr, partitions);
+        EXPECT_EQ(0, partitions->value());
     }
     std::sort(all_rows.begin(), all_rows.end());
     EXPECT_EQ((std::vector<std::pair<int64_t, float>> {{1, 0}, {2, 1}, {3, 4}, {6, 1}}), all_rows);
