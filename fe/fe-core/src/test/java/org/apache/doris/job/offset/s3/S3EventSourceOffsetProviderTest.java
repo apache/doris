@@ -301,6 +301,49 @@ public class S3EventSourceOffsetProviderTest {
     }
 
     @Test
+    public void testQuestionMarkGlobPreservesMatchingNotificationsUntilCommit() throws Exception {
+        tvfProperties.put("uri", "s3://bucket/logs/file?.csv");
+        provider = new S3EventSourceOffsetProvider(QUEUE_URL);
+        provider.ensureInitialized(1L, tvfProperties);
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(filesMessage("keep", "logs/file1.csv"),
+                        filesMessage("skip", "logs/file12.csv")), ReceiveMessageResponse.builder().build());
+
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
+        S3EventOffset offset = nextOffset();
+        Assertions.assertEquals(Collections.singletonList("logs/file1.csv"), offset.getFiles());
+        Assertions.assertEquals("s3://bucket/logs/file1.csv", offset.getFileStatuses().get(0).getPath());
+        ArgumentCaptor<DeleteMessageBatchRequest> deletes = ArgumentCaptor.forClass(DeleteMessageBatchRequest.class);
+        Mockito.verify(sqsClient).deleteMessageBatch(deletes.capture());
+        Assertions.assertEquals(Collections.singletonList("skip"), deleteHandles(deletes.getValue()));
+
+        provider.updateOffset(offset);
+        provider.onTaskCommitted(1, 1);
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+        Mockito.verify(sqsClient, Mockito.times(2)).deleteMessageBatch(deletes.capture());
+        Assertions.assertEquals(Collections.singletonList("keep"), deleteHandles(deletes.getValue()));
+    }
+
+    @Test
+    public void testNotificationMatchesLiteralHashInSourceKey() throws Exception {
+        tvfProperties.put("uri", "s3://bucket/logs/file#1.csv");
+        provider = new S3EventSourceOffsetProvider(QUEUE_URL);
+        provider.ensureInitialized(1L, tvfProperties);
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(filesMessage("keep", "logs/file%231.csv")));
+
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
+        S3EventOffset offset = nextOffset();
+        Assertions.assertEquals(Collections.singletonList("logs/file#1.csv"), offset.getFiles());
+        Assertions.assertEquals("s3://bucket/logs/file#1.csv", offset.getFileStatuses().get(0).getPath());
+        Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
+    }
+
+    @Test
     public void testDisplayTracksAcceptedAndCommittedBatches() {
         Assertions.assertNull(provider.getShowCurrentOffset());
         Assertions.assertNull(provider.getShowMaxOffset());

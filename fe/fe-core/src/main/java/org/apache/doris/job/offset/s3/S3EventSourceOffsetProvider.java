@@ -17,11 +17,11 @@
 
 package org.apache.doris.job.offset.s3;
 
-import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.ObjectStorageUri;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.job.exception.JobException;
@@ -125,10 +125,10 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             S3CompatibleFileSystemProperties s3Properties =
                     (S3CompatibleFileSystemProperties) storageProperties.getSpiProperties();
             String uri = storageProperties.validateAndGetUri(copiedProps);
-            S3URI s3Uri = S3URI.create(storageProperties.validateAndNormalizeUri(uri));
-            sourceBucket = s3Uri.getBucket();
+            ObjectStorageUri s3Uri = ObjectStorageUri.parse(storageProperties.validateAndNormalizeUri(uri), false);
+            sourceBucket = s3Uri.bucket();
             if (sourceKeyMatcher == null) {
-                sourceKeyMatcher = S3CompatibleFileSystem.compileGlobPattern(s3Uri.getKey());
+                sourceKeyMatcher = S3CompatibleFileSystem.compileGlobPattern(s3Uri.key());
             }
 
             if (StringUtils.isBlank(s3Properties.getRegion())) {
