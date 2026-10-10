@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -35,6 +36,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -76,6 +78,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -618,6 +621,101 @@ public class RoutineLoadJobPersistenceTest {
         Mockito.verify(editLog, Mockito.never()).logAlterRoutineLoadJob(Mockito.any());
     }
 
+    @ParameterizedTest
+    @EnumSource(value = LoadDataSourceType.class, names = {"KAFKA", "KINESIS"})
+    public void testAppendRejectsDeleteOnBeforeMutatingJob(LoadDataSourceType dataSourceType) throws Exception {
+        mockCatalog("current_table");
+        RoutineLoadJob initial = newPausedJob(dataSourceType, 7002L, "append_delete_job");
+        initial.origStmt = createOriginStatement(dataSourceType, "append_delete_job", "WHERE false");
+        RoutineLoadJob job = imageRoundTrip(initial);
+        manager.replayCreateRoutineLoadJob(job);
+        long previousMaxErrorNum = job.maxErrorNum;
+        Map<String, String> previousJobProperties = Maps.newHashMap(job.jobProperties);
+        Map<String, String> previousSessionVariables = Maps.newHashMap(job.sessionVariables);
+        OriginStatement previousOrigin = job.origStmt;
+        Expr previousWhere = job.getWhereExpr();
+
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(
+                Maps.newHashMap(Map.of(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "10")));
+        Mockito.when(command.hasLoadProperty()).thenReturn(true);
+        Mockito.when(command.getRoutineLoadDesc()).thenReturn(new RoutineLoadDesc(null, null, null,
+                null, null, null, new BoolLiteral(true), LoadTask.MergeType.APPEND, null));
+        Mockito.when(command.getOriginStatement()).thenReturn(new OriginStatement(
+                "ALTER ROUTINE LOAD FOR append_delete_job DELETE ON true PROPERTIES (\"max_error_number\" = \"10\")",
+                0));
+        ConnectContext ctx = new ConnectContext();
+        ctx.setDatabase("legacy_db");
+        ctx.setEnv(env);
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        try {
+            ctx.setThreadLocalInfo();
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> job.modifyProperties(command));
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "not support DELETE ON clause when merge type is not MERGE"));
+        } finally {
+            ctx.cleanup();
+        }
+
+        Assertions.assertEquals(JobState.PAUSED, job.getState());
+        Assertions.assertEquals(LoadTask.MergeType.APPEND, job.getMergeType());
+        Assertions.assertNull(job.getDeleteCondition());
+        Assertions.assertSame(previousWhere, job.getWhereExpr());
+        Assertions.assertSame(previousOrigin, job.origStmt);
+        Assertions.assertEquals(previousMaxErrorNum, job.maxErrorNum);
+        Assertions.assertEquals(previousJobProperties, job.jobProperties);
+        Assertions.assertEquals(previousSessionVariables, job.sessionVariables);
+        Assertions.assertSame(job, callbackFactory.getCallback(job.getId()));
+        Mockito.verifyNoInteractions(editLog);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"KAFKA,false", "KAFKA,true", "KINESIS,false", "KINESIS,true"})
+    public void testMergeAlterPreservesDeleteOnThroughReplayAndImage(LoadDataSourceType dataSourceType,
+            boolean alterDeleteCondition) throws Exception {
+        mockCatalog("current_table");
+        RoutineLoadJob initial = newPausedJob(dataSourceType, 7003L, "merge_delete_job");
+        initial.origStmt = createOriginStatement(dataSourceType, "merge_delete_job",
+                "WITH MERGE WHERE false, DELETE ON true");
+        RoutineLoadJob leader = imageRoundTrip(initial);
+        RoutineLoadJob follower = imageRoundTrip(initial);
+        OriginStatement alterStatement = new OriginStatement("ALTER ROUTINE LOAD FOR merge_delete_job "
+                + (alterDeleteCondition ? "DELETE ON false" : "WHERE true"), 0);
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(command.hasLoadProperty()).thenReturn(true);
+        Mockito.when(command.getOriginStatement()).thenReturn(alterStatement);
+        Mockito.when(command.getSqlMode()).thenReturn(SqlModeHelper.MODE_DEFAULT);
+        Mockito.when(command.getRoutineLoadDesc()).thenReturn(new RoutineLoadDesc(null, null, null,
+                null, alterDeleteCondition ? null : new BoolLiteral(true), null,
+                alterDeleteCondition ? new BoolLiteral(false) : null, LoadTask.MergeType.MERGE, null));
+        ConnectContext ctx = new ConnectContext();
+        ctx.setDatabase("legacy_db");
+        ctx.setEnv(env);
+        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        try {
+            ctx.setThreadLocalInfo();
+            leader.modifyProperties(command);
+        } finally {
+            ctx.cleanup();
+        }
+
+        ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+        Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(serialize(logCaptor.getValue())))) {
+            follower.replayModifyProperties(AlterRoutineLoadJobOperationLog.read(in));
+        }
+        for (RoutineLoadJob job : List.of(leader, follower, imageRoundTrip(leader), imageRoundTrip(follower))) {
+            Assertions.assertEquals(JobState.PAUSED, job.getState());
+            Assertions.assertEquals(LoadTask.MergeType.MERGE, job.getMergeType());
+            Assertions.assertEquals(!alterDeleteCondition, ((BoolLiteral) job.getWhereExpr()).getValue());
+            Assertions.assertEquals(!alterDeleteCondition, ((BoolLiteral) job.getDeleteCondition()).getValue());
+            Assertions.assertEquals(leader.origStmt.originStmt, job.origStmt.originStmt);
+        }
+    }
+
     private static Stream<Arguments> replayFailures() {
         return Stream.of(LoadDataSourceType.KAFKA, LoadDataSourceType.KINESIS)
                 .flatMap(dataSourceType -> Stream.of(ReplayFailure.values())
@@ -734,6 +832,8 @@ public class RoutineLoadJobPersistenceTest {
         UNPARSEABLE_STATEMENT("ALTER ROUTINE LOAD FOR unreplayable_job COLUMNS TERMINATED BY"),
         // The ALTER parses but its expression no longer analyzes, as after an upgrade changed the analysis rules.
         UNANALYZABLE_EXPRESSION("ALTER ROUTINE LOAD FOR unreplayable_job WHERE no_such_function(c1) > 1"),
+        // Older leaders could accept DELETE ON for an APPEND job.
+        INVALID_MERGE_TYPE("ALTER ROUTINE LOAD FOR unreplayable_job DELETE ON true"),
         // The database or table was dropped by the time the ALTER is replayed.
         MISSING_DATABASE("ALTER ROUTINE LOAD FOR unreplayable_job COLUMNS TERMINATED BY '|'"),
         MISSING_TABLE("ALTER ROUTINE LOAD FOR unreplayable_job COLUMNS TERMINATED BY '|'");

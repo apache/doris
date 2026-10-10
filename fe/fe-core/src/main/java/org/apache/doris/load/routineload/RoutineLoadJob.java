@@ -2158,11 +2158,12 @@ public abstract class RoutineLoadJob
     }
 
     /**
-     * Build the CREATE statement persisted as origStmt for the given effective load definition, and check
+     * Validate the effective load definition and build the CREATE statement persisted as origStmt, checking
      * that it can be parsed back. This does not modify the job, so callers must finish every step that may
      * fail before applying the result with applyLoadDefinition().
      */
     protected OriginStatement buildLoadDefinitionStatement(RoutineLoadDesc loadDesc) throws UserException {
+        loadDesc.analyze();
         StringBuilder sql = new StringBuilder("CREATE ROUTINE LOAD ")
                 .append(SqlUtils.getIdentSql(name));
         if (!isMultiTable) {
