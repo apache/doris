@@ -51,7 +51,8 @@ static bool is_spatial_type(const DataTypePtr& type) {
     return primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY;
 }
 
-static std::unique_ptr<GeoShape> decode_geo_shape(StringRef value, const DataTypePtr& type) {
+static std::unique_ptr<GeoShape> decode_geo_shape(StringRef value, const DataTypePtr& type,
+                                                  GeoParseStatus* parse_status = nullptr) {
     if (!is_spatial_type(type)) {
         return GeoShape::from_encoded(value.data, value.size);
     }
@@ -67,6 +68,9 @@ static std::unique_ptr<GeoShape> decode_geo_shape(StringRef value, const DataTyp
 
     GeoParseStatus status;
     auto shape = GeoShape::from_wkb(hex_wkb.data(), hex_wkb.size(), status);
+    if (parse_status != nullptr) {
+        *parse_status = status;
+    }
     return status == GEO_PARSE_OK ? std::move(shape) : nullptr;
 }
 
@@ -83,6 +87,27 @@ static bool decode_wkb_hex(StringRef value, std::string* wkb) {
     }
     wkb->resize(size / 2);
     return string_hex::hex_decode(data, size, wkb->data()) == static_cast<int>(size / 2);
+}
+
+Status validate_spatial_wkb_inputs(const Block& block, const ColumnNumbers& arguments) {
+    for (const auto argument : arguments) {
+        const auto& column = block.get_by_position(argument).column;
+        const auto& type = block.get_data_type(argument);
+        if (!is_spatial_type(type)) {
+            continue;
+        }
+        for (size_t row = 0; row < column->size(); ++row) {
+            if (column->is_null_at(row)) {
+                continue;
+            }
+            GeoParseStatus parse_status;
+            if (decode_geo_shape(column->get_data_at(row), type, &parse_status) == nullptr) {
+                return Status::InvalidArgument("Invalid WKB in spatial input at row {}: {}", row,
+                                               to_string(parse_status));
+            }
+        }
+    }
+    return Status::OK();
 }
 
 struct StPoint {

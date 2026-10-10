@@ -293,6 +293,7 @@ TEST(VGeoFunctionsTest, function_geo_st_astext_rejects_invalid_spatial_wkb) {
     EXPECT_NE(status.to_string().find("WKB syntax error"), std::string::npos) << status.to_string();
 }
 
+
 TEST(VGeoFunctionsTest, function_geo_st_astext_rejects_spatial_wkb_with_z) {
     const std::string point_z_wkb(
             "\x01\x01\x00\x00\x80"
