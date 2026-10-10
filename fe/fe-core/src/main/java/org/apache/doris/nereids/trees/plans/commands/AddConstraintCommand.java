@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -65,10 +69,13 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         Pair<ImmutableList<String>, TableIf> columnsAndTable = extractColumnsAndTable(ctx, constraint.toProject());
+        checkAlterPriv(ctx, columnsAndTable.second);
         List<TableIf> tables = Lists.newArrayList(columnsAndTable.second);
         Pair<ImmutableList<String>, TableIf> referencedColumnsAndTable = null;
         if (constraint.isForeignKey()) {
             referencedColumnsAndTable = extractColumnsAndTable(ctx, constraint.toReferenceProject());
+            // A foreign key also registers a reverse reference on the referenced table.
+            checkAlterPriv(ctx, referencedColumnsAndTable.second);
             tables.add(referencedColumnsAndTable.second);
         }
         tables.sort((Comparator.comparing(TableIf::getId)));
@@ -85,6 +92,16 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             }
         } finally {
             MetaLockUtils.writeUnlockTables(tables);
+        }
+    }
+
+    private void checkAlterPriv(ConnectContext ctx, TableIf table)
+            throws org.apache.doris.common.AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, table.getDatabase().getCatalog().getName(),
+                table.getDatabase().getFullName(), table.getName(), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER",
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
+                    table.getDatabase().getFullName() + ": " + table.getName());
         }
     }
 
