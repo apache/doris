@@ -41,4 +41,18 @@ namespace doris {
 Status encode_bkd_field_ascending(FieldType ft, const Field& field, const KeyCoder* coder,
                                   std::string* out);
 
+// Encodes the lower/upper byte representative of the SQL equivalence class that
+// contains `field`. They differ only for floating-point zero: Doris comparison
+// semantics make -0.0 and +0.0 equal, while KeyCoder deliberately keeps them as
+// adjacent, distinct values in its total order. Consequently the lower bound of
+// zero is encoded from -0.0 and the upper bound from +0.0. For every other value
+// both functions are identical to encode_bkd_field_ascending().
+//
+// Keeping this at the BKD boundary leaves KeyCoder's storage-key contract intact
+// and lets readers query indexes written before this rule was introduced.
+Status encode_bkd_field_lower_bound_ascending(FieldType ft, const Field& field,
+                                              const KeyCoder* coder, std::string* out);
+Status encode_bkd_field_upper_bound_ascending(FieldType ft, const Field& field,
+                                              const KeyCoder* coder, std::string* out);
+
 } // namespace doris

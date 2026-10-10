@@ -21,31 +21,31 @@
 
 namespace doris::segment_v2 {
 
-Status build_bkd_query_bounds(InvertedIndexQueryType query_type, snii::Slice value,
-                              BkdQueryBounds* out) {
+Status build_bkd_query_bounds(InvertedIndexQueryType query_type, snii::Slice lower_value,
+                              snii::Slice upper_value, BkdQueryBounds* out) {
     DORIS_CHECK(out != nullptr);
     *out = BkdQueryBounds();
     switch (query_type) {
     case InvertedIndexQueryType::EQUAL_QUERY:
-        out->lower = value;
+        out->lower = lower_value;
         out->lower_inclusive = true;
-        out->upper = value;
+        out->upper = upper_value;
         out->upper_inclusive = true;
         return Status::OK();
     case InvertedIndexQueryType::LESS_THAN_QUERY:
-        out->upper = value;
+        out->upper = lower_value;
         out->upper_inclusive = false;
         return Status::OK();
     case InvertedIndexQueryType::LESS_EQUAL_QUERY:
-        out->upper = value;
+        out->upper = upper_value;
         out->upper_inclusive = true;
         return Status::OK();
     case InvertedIndexQueryType::GREATER_THAN_QUERY:
-        out->lower = value;
+        out->lower = upper_value;
         out->lower_inclusive = false;
         return Status::OK();
     case InvertedIndexQueryType::GREATER_EQUAL_QUERY:
-        out->lower = value;
+        out->lower = lower_value;
         out->lower_inclusive = true;
         return Status::OK();
     default:

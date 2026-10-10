@@ -51,7 +51,10 @@ struct BkdQueryBounds {
 // a type-limit encode it never used. Here the strictness is the interval's own,
 // so `<` and `<=` differ by a flag and nothing else.
 //
-// `value` must be exactly the index's bytes_per_dim; that is the caller's
+// `lower_value` and `upper_value` are the byte representatives of the SQL
+// equivalence class containing the query value. They are normally identical,
+// but floating-point zero spans [-0.0, +0.0]. Each non-empty bound selected by
+// this function must be exactly the index's bytes_per_dim; that is the caller's
 // invariant and is checked by BkdReader::range itself.
 //
 // Anything outside {EQUAL, LESS_THAN, LESS_EQUAL, GREATER_THAN, GREATER_EQUAL}
@@ -59,7 +62,7 @@ struct BkdQueryBounds {
 // normal predicate rather than silently answering the wrong question. In
 // particular RANGE_QUERY and LIST_QUERY exist in the enum but are produced only
 // by the SEARCH DSL and never reach a BKD reader.
-Status build_bkd_query_bounds(InvertedIndexQueryType query_type, snii::Slice value,
-                              BkdQueryBounds* out);
+Status build_bkd_query_bounds(InvertedIndexQueryType query_type, snii::Slice lower_value,
+                              snii::Slice upper_value, BkdQueryBounds* out);
 
 } // namespace doris::segment_v2

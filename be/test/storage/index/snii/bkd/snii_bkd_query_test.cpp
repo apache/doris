@@ -25,30 +25,33 @@
 namespace doris::segment_v2 {
 namespace {
 
-const std::vector<uint8_t>& probe() {
+const std::vector<uint8_t>& lower_probe() {
     static const std::vector<uint8_t> bytes = {0x80, 0x00, 0x00, 0x2A};
     return bytes;
 }
 
-snii::Slice probe_slice() {
-    return snii::Slice(probe());
+const std::vector<uint8_t>& upper_probe() {
+    static const std::vector<uint8_t> bytes = {0x80, 0x00, 0x00, 0x2B};
+    return bytes;
 }
 
-bool same(snii::Slice bound) {
-    return bound.size() == probe().size() &&
-           std::memcmp(bound.data(), probe().data(), bound.size()) == 0;
+bool same(snii::Slice bound, const std::vector<uint8_t>& expected) {
+    return bound.size() == expected.size() &&
+           std::memcmp(bound.data(), expected.data(), bound.size()) == 0;
 }
 
 } // namespace
 
-// Equality is the degenerate closed interval [v, v]; it is also what every value
-// of an IN list becomes.
-TEST(SniiBkdQueryTest, EqualityIsAClosedPointInterval) {
+// Equality is the closed interval covering every byte representative SQL treats
+// as equal. It is normally a point; signed floating zero uses [-0.0, +0.0].
+TEST(SniiBkdQueryTest, EqualityCoversTheSqlEquivalenceClass) {
     BkdQueryBounds bounds;
-    ASSERT_TRUE(build_bkd_query_bounds(InvertedIndexQueryType::EQUAL_QUERY, probe_slice(), &bounds)
+    ASSERT_TRUE(build_bkd_query_bounds(InvertedIndexQueryType::EQUAL_QUERY,
+                                       snii::Slice(lower_probe()), snii::Slice(upper_probe()),
+                                       &bounds)
                         .ok());
-    EXPECT_TRUE(same(bounds.lower));
-    EXPECT_TRUE(same(bounds.upper));
+    EXPECT_TRUE(same(bounds.lower, lower_probe()));
+    EXPECT_TRUE(same(bounds.upper, upper_probe()));
     EXPECT_TRUE(bounds.lower_inclusive);
     EXPECT_TRUE(bounds.upper_inclusive);
 }
@@ -71,13 +74,17 @@ TEST(SniiBkdQueryTest, OneSidedQueriesLeaveTheOtherSideUnbounded) {
     for (const Case& c : cases) {
         SCOPED_TRACE("query type " + std::to_string(static_cast<int>(c.type)));
         BkdQueryBounds bounds;
-        ASSERT_TRUE(build_bkd_query_bounds(c.type, probe_slice(), &bounds).ok());
+        ASSERT_TRUE(build_bkd_query_bounds(c.type, snii::Slice(lower_probe()),
+                                           snii::Slice(upper_probe()), &bounds)
+                            .ok());
         if (c.lower_side) {
-            EXPECT_TRUE(same(bounds.lower));
+            const auto& expected = c.inclusive ? lower_probe() : upper_probe();
+            EXPECT_TRUE(same(bounds.lower, expected));
             EXPECT_EQ(bounds.lower_inclusive, c.inclusive);
             EXPECT_EQ(bounds.upper.size(), 0U) << "the upper side must stay unbounded";
         } else {
-            EXPECT_TRUE(same(bounds.upper));
+            const auto& expected = c.inclusive ? upper_probe() : lower_probe();
+            EXPECT_TRUE(same(bounds.upper, expected));
             EXPECT_EQ(bounds.upper_inclusive, c.inclusive);
             EXPECT_EQ(bounds.lower.size(), 0U) << "the lower side must stay unbounded";
         }
@@ -95,7 +102,8 @@ TEST(SniiBkdQueryTest, UnsupportedQueryTypesAreRefused) {
           InvertedIndexQueryType::RANGE_QUERY, InvertedIndexQueryType::LIST_QUERY}) {
         SCOPED_TRACE("query type " + std::to_string(static_cast<int>(type)));
         BkdQueryBounds bounds;
-        const Status status = build_bkd_query_bounds(type, probe_slice(), &bounds);
+        const Status status = build_bkd_query_bounds(type, snii::Slice(lower_probe()),
+                                                     snii::Slice(upper_probe()), &bounds);
         EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
     }
 }

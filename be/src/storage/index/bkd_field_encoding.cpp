@@ -22,6 +22,39 @@
 
 namespace doris {
 
+namespace {
+
+bool is_floating_point_zero(FieldType ft, const Field& field) {
+    switch (ft) {
+    case FieldType::OLAP_FIELD_TYPE_FLOAT:
+        return field.get_type() == PrimitiveType::TYPE_FLOAT &&
+               field.get<PrimitiveType::TYPE_FLOAT>() == 0.0F;
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
+        return field.get_type() == PrimitiveType::TYPE_DOUBLE &&
+               field.get<PrimitiveType::TYPE_DOUBLE>() == 0.0;
+    default:
+        return false;
+    }
+}
+
+Status encode_bkd_field_bound_ascending(FieldType ft, const Field& field, const KeyCoder* coder,
+                                        bool lower_bound, std::string* out) {
+    if (!is_floating_point_zero(ft, field)) {
+        return encode_bkd_field_ascending(ft, field, coder, out);
+    }
+
+    if (ft == FieldType::OLAP_FIELD_TYPE_FLOAT) {
+        const float zero = lower_bound ? -0.0F : 0.0F;
+        coder->full_encode_ascending(&zero, out);
+    } else {
+        const double zero = lower_bound ? -0.0 : 0.0;
+        coder->full_encode_ascending(&zero, out);
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 Status encode_bkd_field_ascending(FieldType ft, const Field& field, const KeyCoder* coder,
                                   std::string* out) {
     // `actual` is the primitive type of the query Field from the caller; `pt` is the scalar
@@ -59,6 +92,16 @@ Status encode_bkd_field_ascending(FieldType ft, const Field& field, const KeyCod
     // so a damaged byte would fail the query instead of downgrading it.
     return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
             "unsupported BKD field type {}", static_cast<int>(ft));
+}
+
+Status encode_bkd_field_lower_bound_ascending(FieldType ft, const Field& field,
+                                              const KeyCoder* coder, std::string* out) {
+    return encode_bkd_field_bound_ascending(ft, field, coder, true, out);
+}
+
+Status encode_bkd_field_upper_bound_ascending(FieldType ft, const Field& field,
+                                              const KeyCoder* coder, std::string* out) {
+    return encode_bkd_field_bound_ascending(ft, field, coder, false, out);
 }
 
 } // namespace doris
