@@ -46,6 +46,7 @@
 #include "util/md5.h"
 #include "util/path_util.h"
 #include "util/security.h"
+#include "util/string_util.h"
 #include "util/url_coding.h"
 
 namespace doris {
@@ -111,7 +112,14 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     } else if (!auth_token.empty()) {
         auth->token = auth_token;
     } else if (!auth_code.empty()) {
-        auth->auth_code = std::stoll(auth_code); // deprecated
+        // auth_code comes straight from a request header, a malformed one is just an
+        // invalid credential and must not throw out of the http callback
+        auto parsed_auth_code = safe_stoll(auth_code, HTTP_AUTH_CODE);
+        if (!parsed_auth_code.has_value()) {
+            LOG(WARNING) << "parse auth code failed: " << parsed_auth_code.error();
+            return false;
+        }
+        auth->auth_code = parsed_auth_code.value(); // deprecated
     } else if (!valid_basic_auth) {
         return false;
     }

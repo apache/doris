@@ -21,7 +21,9 @@
 
 #include <string>
 
+#include "common/utils.h"
 #include "gtest/gtest_pred_impl.h"
+#include "service/http/http_common.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
 #include "service/http/utils.h"
@@ -93,6 +95,26 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         std::string passwd;
         auto res = parse_basic_auth(req, &user, &passwd);
         EXPECT_FALSE(res);
+    }
+}
+
+TEST_F(HttpUtilsTest, parse_auth_code) {
+    {
+        HttpRequest req(_evhttp_req);
+        req._headers.emplace(HttpHeaders::AUTHORIZATION, encode_basic_auth("doris", "passwd"));
+        req._headers.emplace(HTTP_AUTH_CODE, "1234567890123");
+        AuthInfo auth;
+        EXPECT_TRUE(parse_basic_auth(req, &auth));
+        EXPECT_EQ(1234567890123, auth.auth_code);
+    }
+    {
+        // a malformed auth code is rejected instead of throwing out of the http callback
+        HttpRequest req(_evhttp_req);
+        req._headers.emplace(HttpHeaders::AUTHORIZATION, encode_basic_auth("doris", "passwd"));
+        req._headers.emplace(HTTP_AUTH_CODE, "not_a_number");
+        AuthInfo auth;
+        EXPECT_FALSE(parse_basic_auth(req, &auth));
+        EXPECT_EQ(-1, auth.auth_code);
     }
 }
 
