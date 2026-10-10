@@ -322,127 +322,149 @@ public class MysqlChannel implements BytesChannel {
     // NOTE: all of the following code is assumed that the channel is in block mode.
     // if in handshaking mode we return a packet with header otherwise without header.
     public ByteBuffer fetchOnePacket() throws IOException {
+        if (isSslHandshaking) {
+            return fetchOneTlsRecord();
+        }
         int readLen;
         ByteBuffer result = defaultBuffer;
         result.clear();
-
         while (true) {
-            int packetLen;
-            // one SSL packet may include multiple Mysql packets, we use remainingBuffer to store them.
-            if ((isSslMode || isSslHandshaking) && !remainingBuffer.hasRemaining()) {
-                if (remainingBuffer.position() != 0) {
-                    remainingBuffer.clear();
-                    remainingBuffer.flip();
+            headerByteBuffer.clear();
+            readLen = readPlaintext(headerByteBuffer);
+            if (readLen != PACKET_HEADER_LEN) {
+                // remote has close this channel
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Receive packet header failed, remote may close the channel.");
                 }
-                sslHeaderByteBuffer.clear();
-                readLen = readAll(sslHeaderByteBuffer, true);
-                if (readLen != SSL_PACKET_HEADER_LEN) {
-                    // remote has close this channel
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Receive ssl packet header failed, remote may close the channel.");
-                    }
-                    return null;
-                }
-                // when handshaking and ssl mode, sslengine unwrap need a packet with header.
-                result.put(sslHeaderByteBuffer.array());
-                packetLen = packetLen(true);
-            } else {
-                headerByteBuffer.clear();
-                readLen = readAll(headerByteBuffer, true);
-                if (readLen != PACKET_HEADER_LEN) {
-                    // remote has close this channel
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Receive packet header failed, remote may close the channel.");
-                    }
-                    return null;
-                }
-                if (packetId() != sequenceId) {
-                    LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
-                    throw new IOException("Bad packet sequence.");
-                }
-                packetLen = packetLen(false);
+                return null;
             }
+            if (packetId() != sequenceId) {
+                LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
+                throw new IOException("Bad packet sequence.");
+            }
+            int packetLen = packetLen(false);
             result = expandPacket(result, packetLen);
-
             // read one physical packet
             // before read, set limit to make read only one packet
             result.limit(result.position() + packetLen);
-            readLen = readAll(result, false);
-            if (isSslMode && remainingBuffer.position() == 0 && result.hasRemaining()) {
-                int available = result.limit();
-                if (available < PACKET_HEADER_LEN) {
-                    LOG.warn("SSL mode: invalid mysql packet header, available bytes: " + available);
-                    throw new IOException("Invalid mysql packet header.");
-                }
-                byte[] header = result.array();
-                int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0xFF) << 8) | ((header[2] & 0xFF) << 16);
-                if (mysqlPacketLength > MAX_PHYSICAL_PACKET_LENGTH) {
-                    LOG.warn("SSL mode: mysql packet length(" + mysqlPacketLength + ") is larger than max physical "
-                            + "packet length(" + MAX_PHYSICAL_PACKET_LENGTH + ")");
-                    throw new IOException("Mysql packet too large.");
-                }
-                int packetId = header[3] & 0xFF;
-                if (packetId != sequenceId) {
-                    LOG.warn("receive packet sequence id[" + packetId + "] want to get[" + sequenceId + "]");
-                    throw new IOException("Bad packet sequence.");
-                }
-                // remove mysql packet header
-                result.position(4);
-                result.compact();
-                // when encounter large sql query, one mysql packet will be packed as multiple ssl packets.
-                // we need to read all ssl packets to combine the complete mysql packet.
-                while (mysqlPacketLength > result.limit()) {
-                    sslHeaderByteBuffer.clear();
-                    readLen = readAll(sslHeaderByteBuffer, true);
-                    if (readLen != SSL_PACKET_HEADER_LEN) {
-                        // remote has close this channel
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Receive ssl packet header failed, remote may close the channel.");
-                        }
-                        return null;
-                    }
-                    tempBuffer.clear();
-                    tempBuffer.put(sslHeaderByteBuffer.array());
-                    packetLen = packetLen(true);
-                    LOG.info("one ssl packet length is: " + packetLen);
-                    tempBuffer = expandPacket(tempBuffer, packetLen);
-                    result = expandPacket(result, tempBuffer.capacity());
-                    // read one physical packet
-                    // before read, set limit to make read only one packet
-                    tempBuffer.limit(tempBuffer.position() + packetLen);
-                    readLen = readAll(tempBuffer, false);
-                    result.put(tempBuffer);
-                    result.limit(result.position());
-                    LOG.info("result is pos: " + result.position() + ", limit: "
-                            + result.limit() + "capacity: " + result.capacity());
-                }
-                if (mysqlPacketLength < result.position()) {
-                    LOG.info("one SSL packet has multiple mysql packets.");
-                    LOG.info("mysql packet length is " + mysqlPacketLength + ", result is pos: "
-                            + result.position() + ", limit: " + result.limit() + "capacity: " + result.capacity());
-                    result.flip();
-                    result.position(mysqlPacketLength);
-                    remainingBuffer.clear();
-                    remainingBuffer.put(result);
-                    remainingBuffer.flip();
-                }
-                result.position(mysqlPacketLength);
-            }
+            readLen = readPlaintext(result);
             if (readLen != packetLen) {
                 LOG.warn("Length of received packet content(" + readLen
                         + ") is not equal with length in head.(" + packetLen + ")");
                 return null;
             }
-            if (!isSslHandshaking) {
-                accSequenceId();
-                wireSequenceId = sequenceId;
-            }
+            accSequenceId();
+            wireSequenceId = sequenceId;
+            // a packet of exactly 0xFFFFFF bytes is continued by the next one, which may be empty; this holds on
+            // a TLS channel too, where one packet spans many records and one record may carry several packets
             if (packetLen != MAX_PHYSICAL_PACKET_LENGTH) {
                 result.flip();
                 break;
             }
         }
         return result;
+    }
+
+    // While the TLS handshake runs, the caller wants whole TLS records (header included) to hand to the
+    // SSLEngine; nothing is decrypted or sequence-checked here.
+    private ByteBuffer fetchOneTlsRecord() throws IOException {
+        ByteBuffer result = defaultBuffer;
+        result.clear();
+        sslHeaderByteBuffer.clear();
+        int readLen = readAll(sslHeaderByteBuffer, true);
+        if (readLen != SSL_PACKET_HEADER_LEN) {
+            // remote has close this channel
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+            }
+            return null;
+        }
+        result.put(sslHeaderByteBuffer.array());
+        int packetLen = packetLen(true);
+        result = expandPacket(result, packetLen);
+        result.limit(result.position() + packetLen);
+        readLen = readAll(result, false);
+        if (readLen != packetLen) {
+            LOG.warn("Length of received packet content(" + readLen
+                    + ") is not equal with length in head.(" + packetLen + ")");
+            return null;
+        }
+        result.flip();
+        return result;
+    }
+
+    // Fills dstBuf with the connection's plain application bytes: straight from the socket on a plain
+    // channel, out of TLS records on an SSL one. A record may hold less than asked for (the loop reads the
+    // next) or more (the surplus waits in remainingBuffer for the next call), so the MySQL packet boundaries
+    // above never depend on the TLS record boundaries below. Returns the bytes copied, short when the peer
+    // closed the connection.
+    protected int readPlaintext(ByteBuffer dstBuf) throws IOException {
+        if (!isSslMode) {
+            return readRaw(dstBuf);
+        }
+        int copied = 0;
+        while (dstBuf.hasRemaining()) {
+            if (remainingBuffer.hasRemaining()) {
+                int n = Math.min(dstBuf.remaining(), remainingBuffer.remaining());
+                int oldLimit = remainingBuffer.limit();
+                remainingBuffer.limit(remainingBuffer.position() + n);
+                dstBuf.put(remainingBuffer);
+                remainingBuffer.limit(oldLimit);
+                copied += n;
+                continue;
+            }
+            // one TLS record: the 5-byte header, then the body; decryptData turns the whole into plaintext
+            sslHeaderByteBuffer.clear();
+            if (readRaw(sslHeaderByteBuffer) != SSL_PACKET_HEADER_LEN) {
+                return copied;
+            }
+            int recordLen = packetLen(true);
+            tempBuffer = scratchBuffer(tempBuffer, SSL_PACKET_HEADER_LEN + recordLen);
+            tempBuffer.put(sslHeaderByteBuffer.array());
+            tempBuffer.limit(SSL_PACKET_HEADER_LEN + recordLen);
+            if (readRaw(tempBuffer) != recordLen) {
+                return copied;
+            }
+            decryptData(tempBuffer, false);
+            // a record carries at most 2^14 bytes of plaintext (RFC 8446 section 5.1); an empty record leaves
+            // remainingBuffer empty and the loop reads the next one
+            remainingBuffer = scratchBuffer(remainingBuffer, tempBuffer.remaining());
+            remainingBuffer.put(tempBuffer);
+            remainingBuffer.flip();
+        }
+        return copied;
+    }
+
+    // The plain socket read loop. Returns the bytes read, short when the peer closed the connection or the
+    // read failed.
+    private int readRaw(ByteBuffer dstBuf) {
+        int readLen = 0;
+        try {
+            while (dstBuf.remaining() != 0) {
+                int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf, context.getNetReadTimeout(),
+                        TimeUnit.SECONDS);
+                // return -1 when remote peer close the channel
+                if (ret == -1) {
+                    return readLen;
+                }
+                readLen += ret;
+            }
+        } catch (IOException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Read channel exception, ignore.", e);
+            }
+            return readLen;
+        }
+        return readLen;
+    }
+
+    // A cleared buffer of at least len bytes, reusing buf when it is large enough.
+    private static ByteBuffer scratchBuffer(ByteBuffer buf, int len) {
+        if (buf == null || buf.capacity() < len) {
+            return ByteBuffer.allocate(Math.max(len, 16 * 1024));
+        }
+        buf.clear();
+        return buf;
     }
 
     @NotNull
