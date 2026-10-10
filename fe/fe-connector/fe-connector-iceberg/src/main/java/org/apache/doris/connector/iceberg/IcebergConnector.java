@@ -1040,16 +1040,13 @@ public class IcebergConnector implements Connector {
                         catalogOptions.get("client-pool-cache-keys")));
                 break;
             }
-            case IcebergCatalogProperties.TYPE_GLUE:
-                // Legacy IcebergGlueMetaStoreProperties builds the catalog with conf=null.
-                conf = null;
-                break;
             case IcebergCatalogProperties.TYPE_JDBC:
                 maybeRegisterJdbcDriver();
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
             default:
-                // rest / hadoop: a storage Configuration from the fe-filesystem-bound storage + raw
+                // rest / hadoop / glue: FileIO needs the bound storage configuration, including
+                // native GCS credentials when ResolvingFileIO falls back to HadoopFileIO, plus raw
                 // fs./dfs./hadoop. passthrough.
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
