@@ -87,7 +87,7 @@ services:
       - ./packages/tpch-dbgen/customer.tbl:/data/tpch/customer.tbl
 
   minio:
-    image: bitnami/minio:latest
+    image: soldevelo/minio:latest
     container_name: doris-lakesoul-minio
     ports:
       - ${MINIO_API_PORT}:9000
