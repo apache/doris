@@ -23,6 +23,7 @@ suite("count_rollup_empty_input") {
 
     sql "DROP MATERIALIZED VIEW IF EXISTS rollup_empty_mv"
     sql "DROP TABLE IF EXISTS rollup_empty_base"
+    sql "DROP TABLE IF EXISTS rollup_empty_agg"
 
     sql """
         CREATE TABLE rollup_empty_base (id INT, k INT)
