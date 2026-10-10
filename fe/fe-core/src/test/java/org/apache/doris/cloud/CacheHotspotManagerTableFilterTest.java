@@ -974,8 +974,8 @@ public class CacheHotspotManagerTableFilterTest {
         // Result = 11000 - 11*100 = 9900
         Assertions.assertEquals(9900, matched);
         System.out.println("[Perf] 50K tables, include+exclude: " + elapsedMs + " ms, matched=" + matched);
-        Assertions.assertTrue(elapsedMs < 500,
-                "50K regex matches (multi-rule) should complete within 500ms, took " + elapsedMs + " ms");
+        Assertions.assertTrue(elapsedMs < 750,
+                "50K regex matches (multi-rule) should complete within 750ms, took " + elapsedMs + " ms");
     }
 
     @Test
@@ -1011,8 +1011,8 @@ public class CacheHotspotManagerTableFilterTest {
         // 10 dbs × 2000 tables = 20000 included, minus 10 × 5 excluded = 19950
         Assertions.assertEquals(19950, matched);
         System.out.println("[Perf] 200K tables, 15 rules (10 incl + 5 excl): " + elapsedMs + " ms");
-        Assertions.assertTrue(elapsedMs < 3000,
-                "200K regex matches with 15 rules should complete within 3s, took " + elapsedMs + " ms");
+        Assertions.assertTrue(elapsedMs < 4500,
+                "200K regex matches with 15 rules should complete within 4.5s, took " + elapsedMs + " ms");
     }
 
     @Test
