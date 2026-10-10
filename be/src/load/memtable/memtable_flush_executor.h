@@ -186,10 +186,7 @@ private:
 class MemTableFlushExecutor {
 public:
     MemTableFlushExecutor() = default;
-    ~MemTableFlushExecutor() {
-        _flush_pool->shutdown();
-        _high_prio_flush_pool->shutdown();
-    }
+    ~MemTableFlushExecutor() { _flush_pool->shutdown(); }
 
     // init should be called after storage engine is opened,
     // because it needs path hash of each data dir.
@@ -218,8 +215,6 @@ public:
 
     ThreadPool* flush_pool() { return _flush_pool.get(); }
 
-    ThreadPool* high_prio_flush_pool() { return _high_prio_flush_pool.get(); }
-
     void update_memtable_flush_threads();
 
     // Returns {min_threads, max_threads} for a flush thread pool.
@@ -229,7 +224,6 @@ public:
 
 private:
     std::unique_ptr<ThreadPool> _flush_pool;
-    std::unique_ptr<ThreadPool> _high_prio_flush_pool;
     std::atomic<int> _flushing_task_count = 0;
     int _num_disk = 0;
 };

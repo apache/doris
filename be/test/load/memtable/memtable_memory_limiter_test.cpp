@@ -182,4 +182,62 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     res = _engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
 }
+
+TEST_F(MemTableMemoryLimiterTest, PressureFlushSkipsRetainedCancelledWriter) {
+    RuntimeProfile profile("CancelledMemTableWriter");
+    TCreateTabletReq tablet_request;
+    create_tablet_request(10001, 270068373, &tablet_request);
+    ASSERT_TRUE(_engine_ref->create_tablet(tablet_request, &profile).ok());
+
+    TDescriptorTable tdesc_tbl = create_descriptor_tablet();
+    ObjectPool obj_pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl).ok());
+    auto* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    auto cancel_status = std::make_shared<AtomicStatus>();
+    WriteRequest write_req;
+    write_req.tablet_id = tablet_request.tablet_id;
+    write_req.schema_hash = tablet_request.tablet_schema.schema_hash;
+    write_req.txn_id = 20003;
+    write_req.partition_id = tablet_request.partition_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &tuple_desc->slots();
+    write_req.table_schema_param = std::make_shared<OlapTableSchemaParam>();
+    write_req.load_cancel_status = cancel_status;
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*_engine_ref, write_req, &profile, TUniqueId {});
+    Block block;
+    for (const auto* slot : tuple_desc->slots()) {
+        block.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(), slot->type(),
+                                           slot->col_name()));
+    }
+    auto columns = std::move(block).mutate_columns();
+    for (auto& column : columns) {
+        column->insert_default();
+    }
+    block.set_columns(std::move(columns));
+    ASSERT_TRUE(delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}}).ok());
+    auto writer = delta_writer->_memtable_writer;
+    auto memtable = writer->_mem_table;
+    auto active_memory = writer->active_memtable_mem_consumption();
+    ASSERT_GT(active_memory, 0);
+    auto segment_num = writer->_segment_num;
+
+    // add_batch failures can publish a non-CANCELLED status to the shared load.
+    ASSERT_TRUE(cancel_status->update(Status::InternalError("load failed")));
+    EXPECT_FALSE(writer->_is_cancelled);
+    auto st = delta_writer->flush_memtable_async();
+    EXPECT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
+
+    auto* limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
+    ASSERT_TRUE(limiter->init(100).ok());
+    // An unrelated load may invoke pressure flushing while this owner is retained.
+    // It must neither report this memory as flushed nor cancel/wait for the token.
+    EXPECT_EQ(limiter->_flush_active_memtables(active_memory), 0);
+    EXPECT_FALSE(writer->_is_cancelled);
+    EXPECT_EQ(writer->_mem_table, memtable);
+    EXPECT_EQ(writer->_segment_num, segment_num);
+    EXPECT_TRUE(writer->_freezed_mem_tables.empty());
+    EXPECT_EQ(writer->active_memtable_mem_consumption(), active_memory);
+}
 } // namespace doris

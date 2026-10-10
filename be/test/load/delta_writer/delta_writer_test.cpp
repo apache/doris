@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/metrics/metrics.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -44,15 +45,22 @@
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "load/channel/load_stream.h"
+#include "load/channel/load_stream_mgr.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/data_dir.h"
+#include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/iterators.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset_writer.h"
 #include "storage/rowset_builder.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
@@ -62,6 +70,8 @@
 #include "storage/tablet_info.h"
 #include "storage/task/engine_publish_version_task.h"
 #include "storage/txn/txn_manager.h"
+#include "util/defer_op.h"
+#include "util/threadpool.h"
 
 namespace doris {
 class OlapMeta;
@@ -848,6 +858,191 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
+}
+
+TEST_F(TestDeltaWriter, LocalPublishRetainsWorkloadGroup) {
+    const auto old_segcompaction = config::enable_segcompaction;
+    config::enable_segcompaction = false;
+    Defer restore_config {[&] { config::enable_segcompaction = old_segcompaction; }};
+    enum class CommitPath { CHANNEL, STREAM_PRE_CLOSE, STREAM_CLOSE };
+    int64_t case_id = 0;
+    for (const auto& [path, async_publish] :
+         {std::pair {CommitPath::CHANNEL, false}, std::pair {CommitPath::CHANNEL, true},
+          std::pair {CommitPath::STREAM_PRE_CLOSE, false},
+          std::pair {CommitPath::STREAM_PRE_CLOSE, true},
+          std::pair {CommitPath::STREAM_CLOSE, false},
+          std::pair {CommitPath::STREAM_CLOSE, true}}) {
+        for (bool drop_group : {false, true}) {
+            SCOPED_TRACE(testing::Message() << "path=" << static_cast<int>(path) << ", async="
+                                            << async_publish << ", dropped=" << drop_group);
+            ++case_id;
+            RuntimeProfile profile("local_publish_workload_group");
+            TCreateTabletReq request;
+            create_tablet_request_with_sequence_col(168385 + case_id, 270068377, &request, true);
+            ASSERT_TRUE(engine_ref->create_tablet(request, &profile).ok());
+            auto tablet = engine_ref->tablet_manager()->get_tablet(request.tablet_id);
+            ASSERT_NE(tablet, nullptr);
+
+            TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
+            ObjectPool obj_pool;
+            DescriptorTbl* desc_tbl = nullptr;
+            ASSERT_TRUE(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl).ok());
+            auto* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+            auto wg = std::make_shared<WorkloadGroup>(
+                    WorkloadGroupInfo {.id = 68385, .name = "local_publish_test"});
+            ASSERT_TRUE(ThreadPoolBuilder("local_publish_owner")
+                                .set_max_threads(1)
+                                .build(&wg->_memtable_flush_pool)
+                                .ok());
+            auto* owner_pool = wg->get_memtable_flush_pool();
+            auto ctx = ResourceContext::create_shared();
+            ctx->memory_context()->set_mem_tracker(MemTrackerLimiter::create_shared(
+                    MemTrackerLimiter::Type::LOAD, "local_publish_writer"));
+            ctx->set_workload_group(wg);
+            const int64_t seed_txn = 268385 + case_id * 2;
+            const int64_t txn_id = seed_txn + 1;
+            auto write_and_commit = [&](int64_t id, int segments) -> Status {
+                SCOPED_ATTACH_TASK(ctx);
+                WriteRequest req;
+                req.tablet_id = request.tablet_id;
+                req.schema_hash = request.tablet_schema.schema_hash;
+                req.partition_id = request.partition_id;
+                req.txn_id = id;
+                req.load_id.set_hi(0);
+                req.load_id.set_lo(id);
+                req.tuple_desc = tuple_desc;
+                req.slots = &tuple_desc->slots();
+                req.table_schema_param = std::make_shared<OlapTableSchemaParam>();
+                DeltaWriter writer(*engine_ref, req, &profile, UniqueId(req.load_id));
+                for (int i = 0; i < segments; ++i) {
+                    Block block;
+                    for (const auto* slot : tuple_desc->slots()) {
+                        block.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(),
+                                                           slot->type(), slot->col_name()));
+                    }
+                    generate_data(&block, static_cast<int8_t>(10 + i), 123, 100);
+                    RETURN_IF_ERROR(writer.write(&block, TabletAddRowsPayload {.row_idxs = {0}}));
+                    RETURN_IF_ERROR(writer.flush_memtable_async());
+                    RETURN_IF_ERROR(writer.wait_flush());
+                }
+                RETURN_IF_ERROR(writer.close());
+                RETURN_IF_ERROR(writer.wait_flush());
+                RETURN_IF_ERROR(writer.build_rowset());
+                RETURN_IF_ERROR(writer.submit_calc_delete_bitmap_task());
+                RETURN_IF_ERROR(writer.wait_calc_delete_bitmap());
+                return writer.commit_txn();
+            };
+            ASSERT_TRUE(write_and_commit(seed_txn, 1).ok());
+            auto stream_write_and_commit = [&]() -> Status {
+                FifoThreadPool heavy_work_pool(1, 16, "publish_stream_close");
+                LoadStreamMgr stream_mgr(1);
+                stream_mgr.set_heavy_work_pool(&heavy_work_pool);
+                PUniqueId load_id;
+                load_id.set_hi(0);
+                load_id.set_lo(txn_id);
+                TabletStream stream(load_id, request.tablet_id, txn_id, &stream_mgr, &profile);
+                {
+                    SCOPED_ATTACH_TASK(ctx);
+                    RETURN_IF_ERROR(stream.init(std::make_shared<OlapTableSchemaParam>(), 0,
+                                                request.partition_id));
+                    // Generate real segment files directly; the regression under test
+                    // starts at the stream's close-to-commit worker handoff.
+                    auto rowset_writer =
+                            stream._load_stream_writer->_rowset_builder->rowset_writer();
+                    for (int i = 0; i < 2; ++i) {
+                        Block block;
+                        for (const auto* slot : tuple_desc->slots()) {
+                            block.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(),
+                                                               slot->type(), slot->col_name()));
+                        }
+                        generate_data(&block, static_cast<int8_t>(10 + i), 123, 100);
+                        RETURN_IF_ERROR(rowset_writer->add_block(&block));
+                        RETURN_IF_ERROR(rowset_writer->flush());
+                    }
+                }
+                // The input files bypassed stream append counters. Both close paths
+                // must preserve the saved owner after _pre_close() detaches it.
+                stream.disable_num_segments_check();
+                if (path == CommitPath::STREAM_PRE_CLOSE) {
+                    stream.pre_close();
+                }
+                RETURN_IF_ERROR(stream.close());
+                // Reuse the same worker to verify close did not leave its context attached.
+                return stream._run_in_heavy_work_pool([]() {
+                    SCOPED_INIT_THREAD_CONTEXT();
+                    EXPECT_FALSE(thread_context()->is_attach_task());
+                    return Status::OK();
+                });
+            };
+            auto commit_status = path == CommitPath::CHANNEL ? write_and_commit(txn_id, 2)
+                                                             : stream_write_and_commit();
+            ASSERT_TRUE(commit_status.ok()) << commit_status;
+            ctx.reset();
+
+            // Publish another rowset after the target committed, so publishing the
+            // two-segment target must submit new bitmap work against that rowset.
+            std::map<TabletInfo, RowsetSharedPtr> rowsets;
+            engine_ref->txn_manager()->get_txn_related_tablets(seed_txn, request.partition_id,
+                                                               &rowsets);
+            ASSERT_EQ(rowsets.size(), 1);
+            TabletPublishTxnTask seed_task(*engine_ref, nullptr, tablet, rowsets.begin()->second,
+                                           {}, request.partition_id, seed_txn, Version(2, 2),
+                                           rowsets.begin()->first, -1);
+            seed_task.handle();
+            ASSERT_TRUE(seed_task.result().ok()) << seed_task.result();
+
+            rowsets.clear();
+            std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>> infos;
+            engine_ref->txn_manager()->get_txn_related_tablets(txn_id, request.partition_id,
+                                                               &rowsets, &infos);
+            ASSERT_EQ(rowsets.size(), 1);
+            ASSERT_EQ(infos.size(), 1);
+            ASSERT_EQ(rowsets.begin()->second->num_segments(), 2);
+            ASSERT_EQ(infos.begin()->second->workload_group, wg);
+            if (drop_group) {
+                wg->shutdown();
+                ASSERT_TRUE(wg->can_be_dropped());
+                owner_pool->shutdown();
+            }
+            owner_pool->wait();
+
+            // Give the default domain a dedicated pool so execution counters prove
+            // the selected domain without interference from other engine tasks.
+            std::unique_ptr<ThreadPool> default_pool;
+            ASSERT_TRUE(ThreadPoolBuilder("local_publish_default")
+                                .set_max_threads(1)
+                                .build(&default_pool)
+                                .ok());
+            auto* executor = engine_ref->calc_delete_bitmap_executor();
+            auto* old_load_pool = executor->_load_pool;
+            executor->_load_pool = default_pool.get();
+            Defer restore_pool {[&] { executor->_load_pool = old_load_pool; }};
+            const auto owner_before = owner_pool->thread_pool_task_execution_count_total->value();
+            if (async_publish) {
+                AsyncTabletPublishTask task(*engine_ref, tablet, request.partition_id, txn_id, 3,
+                                            -1);
+                task.handle();
+            } else {
+                TabletPublishTxnTask task(*engine_ref, nullptr, tablet, rowsets.begin()->second, {},
+                                          request.partition_id, txn_id, Version(3, 3),
+                                          rowsets.begin()->first, -1);
+                task.handle();
+                ASSERT_TRUE(task.result().ok()) << task.result();
+            }
+            owner_pool->wait();
+            default_pool->wait();
+            EXPECT_EQ(tablet->get_rowset_with_max_version()->end_version(), 3);
+            const auto owner_tasks =
+                    owner_pool->thread_pool_task_execution_count_total->value() - owner_before;
+            const auto default_tasks =
+                    default_pool->thread_pool_task_execution_count_total->value();
+            EXPECT_EQ(owner_tasks, drop_group ? 0 : 2);
+            EXPECT_EQ(default_tasks, drop_group ? 2 : 0);
+            ASSERT_TRUE(engine_ref->tablet_manager()
+                                ->drop_tablet(request.tablet_id, request.replica_id, false)
+                                .ok());
+        }
+    }
 }
 
 TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
